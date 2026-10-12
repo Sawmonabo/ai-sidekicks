@@ -55,17 +55,23 @@ function streamedPrefixes(tail: string, chunkSize: number): readonly string[] {
   return prefixes;
 }
 
-describe("a streaming tail parsed frame after frame", () => {
-  it.each([
+/** Each tail against no definitions and against the body's, one case each. */
+const TAIL_CASES = TRICKY_TAILS.flatMap((tail) =>
+  [
     { against: "no definitions", preamble: "" },
     {
       against: "the body's definitions",
       preamble: footnoteDefinitionPreamble(new Set(["1", "elsewhere"])),
     },
-  ])("parses every published prefix as a whole parse would, against $against", ({ preamble }) => {
-    // Each prefix's whole parse once: the chunk sizes publish many of the same prefixes.
-    const wholeParseByPrefix = new Map<string, ReturnType<typeof parseWhole>>();
-    for (const tail of TRICKY_TAILS) {
+  ].map((definitions) => ({ ...definitions, tail, opening: tail.slice(0, 24) })),
+);
+
+describe("a streaming tail parsed frame after frame", () => {
+  it.each(TAIL_CASES)(
+    "parses every published prefix of $opening as a whole parse would, against $against",
+    ({ preamble, tail }) => {
+      // Each prefix's whole parse once: the chunk sizes publish many of the same prefixes.
+      const wholeParseByPrefix = new Map<string, ReturnType<typeof parseWhole>>();
       for (const chunkSize of CHUNK_SIZES) {
         const parser = new VolatileTailParser();
         for (const prefix of streamedPrefixes(tail, chunkSize)) {
@@ -78,8 +84,8 @@ describe("a streaming tail parsed frame after frame", () => {
           ).toStrictEqual(wholeParse);
         }
       }
-    }
-  });
+    },
+  );
 
   it("parses against the body's definitions as they change, never extending an older parse", () => {
     // A definition settling elsewhere in the body changes what the tail's reference means.
