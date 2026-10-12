@@ -105,11 +105,16 @@ export function createCodexServiceSocketConnector(
       ? async (changes) => {
           const realSocketPath = await realpath(socketPath);
           changes?.watchFolder(path.dirname(realSocketPath));
-          const socket = net.createConnection(realSocketPath);
-          const opened = await openCodexWebSocket("ws://localhost/", options.signal, () => socket);
+          // Dialed only once the websocket asks for it, so a dial the signal already ended opens
+          // nothing to leak.
+          let socket: net.Socket | undefined;
+          const opened = await openCodexWebSocket("ws://localhost/", options.signal, () => {
+            socket = net.createConnection(realSocketPath);
+            return socket;
+          });
           let release: () => void;
           try {
-            release = providerServices.holdServing(socket);
+            release = providerServices.holdServing(socket!);
           } catch (error) {
             opened.webSocket.terminate();
             throw error;
