@@ -86,7 +86,7 @@
     "dependency-cruiser": "18.5.0",
     "devtools-protocol": "0.0.1707781",
     "diff": "9.0.0",
-    "electron": "44.5.1",
+    "electron": "44.7.0",
     "electron-builder": "26.17.0",
     "electron-vite": "6.0.0-beta.5",
     "eslint-plugin-perfectionist": "5.12.1",
