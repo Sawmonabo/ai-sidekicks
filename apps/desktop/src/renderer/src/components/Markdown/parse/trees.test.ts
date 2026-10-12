@@ -2,12 +2,13 @@
 // shares a block's tree, a long table read in pieces as its whole parse reads it, and a worker that
 // fails or stops answering, which fails every text it holds and is replaced on the next one.
 
-import type { Root } from "mdast";
+import type { Root, Table } from "mdast";
 import { describe, expect, it, vi } from "vitest";
 
 import { MarkdownWorkerConnection, type MarkdownWorkerStart } from "../worker/connection.js";
 import { InThreadMarkdownWorkers } from "../worker/connection.test-support.js";
 import { parseMarkdownTree } from "../worker/serialized-tree.js";
+import { piecedRowsOf } from "./pieced-table.js";
 import { footnoteDefinitionPreamble, MarkdownTrees, type MarkdownParseOutcome } from "./trees.js";
 
 /** Trees of their own, parsed by stand-in workers that `start` starts. */
@@ -116,6 +117,63 @@ describe("a block that is one long table", () => {
     expect(parsed.children.map((node) => node.type)).toStrictEqual(["table", "blockquote"]);
   });
 });
+
+describe("a long table's piece trees", () => {
+  it("are kept within their cap, and a piece let go is parsed again as its rows are held", () => {
+    const workers = new InThreadMarkdownWorkers();
+    // Room for about two pieces' trees.
+    const trees = new MarkdownTrees(new MarkdownWorkerConnection(workers.start, window), 1_000_000);
+    const block = longTable("\n");
+    const table = onlyTableOf(settledTreeOf(trees, block));
+    const rows = piecedRowsOf(table) ?? expect.fail("the table is read in pieces");
+    const parsedCount = workers.latest().requests.length;
+    const lastIndex = table.children.length - 2;
+
+    // The first pieces landed first, and the cache let them go for the later ones.
+    expect(rows.isRowRead(0)).toBe(false);
+    expect(rows.isRowRead(lastIndex)).toBe(true);
+    expect(() => table.children[1]).toThrow(RangeError);
+
+    let failure: string | undefined = "not read";
+    const letGo = rows.holdRows(0, lastIndex, (landed) => {
+      failure = landed;
+    });
+    expect(failure).toBeUndefined();
+    // Every piece let go was parsed again, and each reads as the whole block's parse reads it.
+    expect(workers.latest().requests.length).toBeGreaterThan(parsedCount);
+    expect(treeOf({ type: "root", children: [table] })).toStrictEqual(
+      treeOf(wholeParseOf(block, "")),
+    );
+    letGo();
+  });
+
+  it("are taken by a text continuing the last table parsed in pieces, which parses the rest", () => {
+    const { trees, workers } = standInTrees();
+    const rows = longTable("\n").split("\n");
+    const block = rows.slice(0, -200).join("\n");
+    const grown = rows.join("\n");
+    settledTreeOf(trees, block);
+    const firstCount = workers.latest().requests.length;
+
+    const table = onlyTableOf(settledTreeOf(trees, grown));
+
+    // Only the earlier text's last piece and the pieces after it were parsed again.
+    const grownRequests = workers.latest().requests.slice(firstCount);
+    expect(grownRequests.length).toBeGreaterThan(0);
+    expect(grownRequests.length).toBeLessThan(firstCount);
+    expect(treeOf({ type: "root", children: [table] })).toStrictEqual(
+      treeOf(wholeParseOf(grown, "")),
+    );
+  });
+});
+
+/** The one table a block's tree holds. */
+function onlyTableOf(root: Root): Table {
+  const [table] = root.children;
+  return table?.type === "table" && root.children.length === 1
+    ? table
+    : expect.fail("the block is one table");
+}
 
 /** A table longer than several pieces, its cells holding what reads across a row's text. */
 function longTable(lineEnding: string): string {

@@ -8,7 +8,7 @@
 // the items' text is read from the held source on the page a few items at a time, then put in the
 // marker's place, the text kept in pieces. A text window copies only as text.
 
-import type { Table } from "mdast";
+import type { Table, TableRow } from "mdast";
 
 import { type DrawnWindowSource } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import {
@@ -21,6 +21,7 @@ import {
   type DrawnElement,
   type DrawnTree,
 } from "#renderer/components/Markdown/drawn-text.js";
+import { passRowsInSlices } from "#renderer/components/Markdown/parse/table-rows.js";
 import { joinPieces, piecesOf, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
 
@@ -150,13 +151,16 @@ const TEXT_ITEMS_PER_READ = 16;
 
 /** The text of `run`'s items in pieces, read a few items at a time in `view`. */
 async function undrawnPieces(run: UndrawnTextRun, view: Window): Promise<string[]> {
+  if (run.kind === "table") {
+    return await undrawnRowsPieces(run, view);
+  }
   const pieces: string[] = [];
   let nextIndex = run.firstIndex;
   await workInSlices(
     view,
     (hasTime) => {
       do {
-        const lastIndex = Math.min(nextIndex + itemsPerRead(run) - 1, run.lastIndex);
+        const lastIndex = Math.min(nextIndex + TEXT_ITEMS_PER_READ - 1, run.lastIndex);
         pieces.push(...piecesOf(itemsText(run, nextIndex, lastIndex)));
         nextIndex = lastIndex + 1;
       } while (nextIndex <= run.lastIndex && hasTime());
@@ -167,20 +171,42 @@ async function undrawnPieces(run: UndrawnTextRun, view: Window): Promise<string[
   return pieces;
 }
 
-function itemsPerRead(run: UndrawnTextRun): number {
-  return run.kind === "table" ? ROWS_PER_READ : TEXT_ITEMS_PER_READ;
+/**
+ * The text of a table run's rows in pieces, a line each, read `ROWS_PER_READ` rows at a time in
+ * slices of `view`, and a piece of a table read in pieces at a time.
+ */
+async function undrawnRowsPieces(
+  run: Extract<UndrawnTextRun, { readonly kind: "table" }>,
+  view: Window,
+): Promise<string[]> {
+  const pieces: string[] = [];
+  let rows: TableRow[] = [];
+  await passRowsInSlices(
+    view,
+    run.table,
+    run,
+    (row, index) => {
+      rows.push(row);
+      if (rows.length === ROWS_PER_READ || index === run.lastIndex) {
+        const rowsText = drawnRowsText(run.table.align, rows);
+        rows = [];
+        pieces.push(...piecesOf(index < run.lastIndex ? `${rowsText}\n` : rowsText));
+      }
+    },
+    () => false,
+  );
+  return pieces;
 }
 
 /**
- * The text of `run`'s items `firstIndex` to `lastIndex`: a table's rows a line each, and a text
- * window's items each followed by its separator, a line feed or a separator after all but the
- * run's last.
+ * The text of a text window's items `firstIndex` to `lastIndex`, each followed by its separator,
+ * a line feed or a separator after all but the run's last.
  */
-function itemsText(run: UndrawnTextRun, firstIndex: number, lastIndex: number): string {
-  if (run.kind === "table") {
-    const rowsText = drawnRowsText(run.table, firstIndex, lastIndex);
-    return lastIndex < run.lastIndex ? `${rowsText}\n` : rowsText;
-  }
+function itemsText(
+  run: Extract<UndrawnTextRun, { readonly kind: "text" }>,
+  firstIndex: number,
+  lastIndex: number,
+): string {
   const texts: string[] = [];
   for (let index = firstIndex; index <= lastIndex; index += 1) {
     texts.push(run.itemText(index));

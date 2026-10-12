@@ -162,18 +162,15 @@ export function markUndrawnRows(row: DrawnElement, undrawnRows: UndrawnTableRows
 }
 
 /**
- * The plain text of body rows `firstIndex` to `lastIndex` of `table`, as the screen draws them,
- * read as a drawn table's rows read: each row a line of its own, its cells joined by a tab.
+ * The plain text of body rows `rows` of a table whose columns align as `align`, as the screen draws
+ * them, read as a drawn table's rows read: each row a line of its own, its cells joined by a tab.
  */
-export function drawnRowsText(table: Table, firstIndex: number, lastIndex: number): string {
+export function drawnRowsText(align: Table["align"], rows: readonly TableRow[]): string {
   return toText({
     type: "element",
     tagName: "table",
     properties: {},
-    children: screenTableBodyRows(
-      table.align,
-      table.children.slice(firstIndex + 1, lastIndex + 2),
-    ).map(asDrawnRow),
+    children: screenTableBodyRows(align, rows).map(asDrawnRow),
   });
 }
 

@@ -19,13 +19,20 @@ export function restoreLiteralText<Tree extends Parents>(
   if (dollarStandIn !== undefined) {
     restoreDollars(tree, dollarStandIn);
   }
-  if (MAY_HOLD_RESTORABLE.test(parsedText)) {
+  if (mayHoldLiteralText(parsedText)) {
     restoreChildren(tree, parsedText);
   }
   return tree;
 }
 
-/** Text that may hold a single tilde or a literal autolink; any other text has nothing to restore. */
+/**
+ * Whether `text` may hold a single tilde or a literal autolink: the parse of text that does not
+ * has nothing for `restoreLiteralText` to restore but its dollars.
+ */
+export function mayHoldLiteralText(text: string): boolean {
+  return MAY_HOLD_RESTORABLE.test(text);
+}
+
 const MAY_HOLD_RESTORABLE = /~|www|:\/\//iu;
 
 /**

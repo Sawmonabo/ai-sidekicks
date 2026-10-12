@@ -25,7 +25,10 @@ import {
   type PiecedText,
 } from "#renderer/lib/text-pieces.js";
 import { drawnTreeLength, drawnTreeText, type CopyFlavor, type DrawnTree } from "../drawn-text.js";
+import { piecedRowsOf } from "../parse/pieced-table.js";
+import { holdTableRows, passTableRows } from "../parse/table-rows.js";
 import type {
+  MarkdownParseAnswer,
   MarkdownWorkerMade,
   MarkdownWorkerMessage,
   MarkdownWorkerReply,
@@ -37,18 +40,6 @@ export interface DrawnPartCopy {
   readonly text: PiecedText;
   readonly html?: PiecedText;
 }
-
-/**
- * What parsing one text came to: the parser's binary tree and the stand-in its dollars read as
- * text took, or why the parser gave none.
- */
-export type MarkdownParseAnswer =
-  | {
-      readonly status: "parsed";
-      readonly buffer: ArrayBuffer;
-      readonly dollarStandIn: string | undefined;
-    }
-  | { readonly status: "failed"; readonly reason: string };
 
 /** The markdown worker as the connection drives it, so a test can stand in for the worker. */
 export type MarkdownWorkerPort = WorkerPort<MarkdownWorkerMessage, MarkdownWorkerReply>;
@@ -346,22 +337,54 @@ export class MarkdownWorkerConnection {
       this.#fail(port, "The markdown worker asked for rows no copied table holds");
       return;
     }
-    this.#view.scheduler
-      .postTask(
-        () => {
-          if (port === this.#port && this.#waiting.has(pull.requestId)) {
-            const rows = undrawnRowsJson(table, pull.firstIndex, pull.lastIndex);
-            port.postMessage({ kind: "undrawn-rows", requestId: pull.requestId, rows });
-          }
-        },
-        { priority: "user-visible" },
-      )
-      .catch((error: unknown) => {
-        this.#fail(
-          port,
-          `The page could not answer the markdown worker: ${describeFailure(error)}`,
-        );
-      });
+    // A table read in pieces answers from the piece holding the first row asked for, held while
+    // its rows are written.
+    const lastIndex = Math.min(
+      pull.lastIndex,
+      piecedRowsOf(table)?.pieceSpanOf(pull.firstIndex).lastIndex ?? pull.lastIndex,
+    );
+    let isHolding = true;
+    let failure: string | undefined;
+    const answer = (): void => {
+      this.#view.scheduler
+        .postTask(
+          () => {
+            if (port === this.#port && this.#waiting.has(pull.requestId)) {
+              const rows = undrawnRowsJson(table, pull.firstIndex, lastIndex);
+              port.postMessage({ kind: "undrawn-rows", requestId: pull.requestId, rows });
+            }
+          },
+          { priority: "user-visible" },
+        )
+        .catch((error: unknown) => {
+          this.#fail(
+            port,
+            `The page could not answer the markdown worker: ${describeFailure(error)}`,
+          );
+        })
+        .finally(() => {
+          letGo();
+        });
+    };
+    // Rows already read answer within the call; the hold is let go only after it returns.
+    const letGo = holdTableRows(table, pull.firstIndex, lastIndex, (readFailure) => {
+      if (readFailure === undefined) {
+        answer();
+      } else if (isHolding) {
+        failure = readFailure;
+      } else {
+        this.#failPull(port, readFailure, letGo);
+      }
+    });
+    isHolding = false;
+    if (failure !== undefined) {
+      this.#failPull(port, failure, letGo);
+    }
+  }
+
+  #failPull(port: MarkdownWorkerPort, failure: string, letGo: Unsubscribe): void {
+    letGo();
+    this.#fail(port, `The page could not read the rows the markdown worker asked for: ${failure}`);
   }
 
   #armParseWatchdog(port: MarkdownWorkerPort): void {
@@ -479,11 +502,10 @@ const ANSWER_DEADLINE_MS_PER_MEBIBYTE = 10_000;
 function undrawnRowsJson(table: Table, firstIndex: number, lastIndex: number): string[] {
   const hasTime = startSlice();
   const rows: string[] = [];
-  let index = firstIndex;
-  do {
-    rows.push(JSON.stringify(table.children[index + 1], withoutPosition));
-    index += 1;
-  } while (index <= lastIndex && hasTime());
+  passTableRows(table, firstIndex, lastIndex, (row) => {
+    rows.push(JSON.stringify(row, withoutPosition));
+    return hasTime();
+  });
   return rows;
 }
 

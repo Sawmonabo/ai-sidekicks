@@ -28,6 +28,7 @@ import {
   type TableLineKind,
 } from "./table-offer.js";
 import { DiagramBlock } from "./diagram/DiagramBlock.js";
+import { useHeldTableRows } from "./hooks/useHeldTableRows.js";
 import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { CodeBlock } from "./highlight/CodeBlock.js";
 import { FootnoteReference } from "./footnotes/FootnoteReference.js";
@@ -183,9 +184,11 @@ function renderNode(
       // alt text is the author's words and is kept.
       return <span className="meridian-markdown__image-alt">{node.alt ?? ""}</span>;
     case "table":
-      return context.renderTable === undefined
-        ? renderWholeTable(node, context)
-        : context.renderTable(tableOfferOf(node, context));
+      return context.renderTable === undefined ? (
+        <WholeTable table={node} context={context} />
+      ) : (
+        context.renderTable(tableOfferOf(node, context))
+      );
     case "footnoteDefinition":
       // Drawn from the footnote registry, not inline, which would show the text twice.
       return null;
@@ -217,6 +220,17 @@ function renderChildren(
 /** A node's children, or an empty list for a leaf. The one structural read left. */
 function childrenOf(node: Nodes): readonly (RootContent | PhrasingContent)[] {
   return "children" in node ? node.children : [];
+}
+
+/**
+ * A table drawn whole once every row can be read: a table read in pieces holds every piece while
+ * it is drawn, and draws once each is kept or parsed again.
+ */
+function WholeTable(props: {
+  readonly table: Table;
+  readonly context: MarkdownRenderContext;
+}): React.JSX.Element | null {
+  return useHeldTableRows(props.table) ? renderWholeTable(props.table, props.context) : null;
 }
 
 /**
@@ -297,7 +311,7 @@ function tableOfferOf(node: Table, context: MarkdownRenderContext): MarkdownTabl
   return {
     table: node,
     bodyRowCount: Math.max(0, node.children.length - 1),
-    drawWhole: () => renderWholeTable(node, context),
+    drawWhole: () => <WholeTable table={node} context={context} />,
     drawFrame: renderTableFrame,
     drawTypeSampleRows: () => (
       <>

@@ -1,14 +1,19 @@
 // One long table's geometry, measured with no read inside a commit and no long task. Its sample
 // rows are drawn hidden, then read in the resize observation that follows the browser's own layout
 // of them, so reading them lays nothing out; its rows are ranked and their heights estimated a
-// slice at a time, each slice a task of its own ending by the wall clock. It ends, in a task of its
+// slice at a time, each slice a task of its own ending by the wall clock, and a table read in
+// pieces a piece at a time, its sample rows held while they are drawn. It ends, in a task of its
 // own, with what the table window draws from: the columns automatic layout gives the whole table,
 // the cells' type, and every row's height estimated at those columns.
 
 import type { Table, TableRow } from "mdast";
 
+import {
+  holdTableRowsRead,
+  passRowsInSlices,
+} from "#renderer/components/Markdown/parse/table-rows.js";
 import { type HeldTableColumns } from "#renderer/components/Markdown/table-offer.js";
-import { workInSlices } from "#renderer/lib/work-slices.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 import { TableCellMeasure, readTableCellType, type TableCellType } from "./cell-measure.js";
 import { type TableGeometry } from "./geometry-memory.js";
 import { measureTableColumns } from "./measured-columns.js";
@@ -43,6 +48,8 @@ export class TableMeasurement {
   #widestCells: WidestCells | undefined;
   #frame: TableMeasuringFrame | undefined;
   #geometry: TableGeometry | undefined;
+  /** Lets go of the sample rows held while they are drawn hidden and the rows are estimated. */
+  #letGoOfSampleRows: Unsubscribe | undefined;
   #isStopped = false;
   #hasFailed = false;
 
@@ -125,9 +132,7 @@ export class TableMeasurement {
     } catch (error) {
       // A frame that cannot be read ends the measurement: whoever waits on it is told, and the
       // error goes on to the page.
-      this.stop();
-      this.#hasFailed = true;
-      this.#onChange();
+      this.#fail();
       throw error;
     }
   }
@@ -135,67 +140,102 @@ export class TableMeasurement {
   /** Stops the measurement: no slice works and no change is told after this. */
   public stop(): void {
     this.#isStopped = true;
+    this.#letGoOfSampleRows?.();
+    this.#letGoOfSampleRows = undefined;
   }
 
-  /** Ranks the rows in slices, then asks for the rows holding each column's widest cells. */
+  /**
+   * Ranks the rows in slices, then holds the rows holding each column's widest cells and asks for
+   * them drawn hidden.
+   */
   #rankRows(): void {
     const cellMeasurer = this.#requireCellMeasurer();
     const widestCells = (this.#widestCells ??= new WidestCells(cellMeasurer.measure));
-    this.#workInSlices(
-      (hasTime) => widestCells.rank(this.#table, hasTime),
-      () => {
-        this.#frame = {
-          kind: "columns",
-          sampleRowIndexes: widestCells.sampleRowIndexes(this.#table),
-        };
+    const table = this.#table;
+    this.#run(async () => {
+      const isRanked = await passRowsInSlices(
+        this.#view,
+        table,
+        { firstIndex: widestCells.resume(table), lastIndex: bodyRowCountOf(table) - 1 },
+        (row, index) => {
+          widestCells.rank(index, row);
+        },
+        () => this.#isStopped,
+      );
+      if (!isRanked || this.#isStopped) {
+        return;
+      }
+      const sampleRowIndexes = widestCells.sampleRowIndexes();
+      if (sampleRowIndexes === undefined) {
+        throw new Error("A long table's rows were all passed with some of them unranked.");
+      }
+      const letGo = await holdTableRowsRead(table, sampleRowIndexes);
+      await this.#inTaskOfItsOwn(() => {
+        this.#letGoOfSampleRows = letGo;
+        this.#frame = { kind: "columns", sampleRowIndexes };
         this.#onChange();
-      },
-    );
+      }, letGo);
+    });
   }
 
   /** Estimates every row's height at `columns` in slices, then holds the geometry. */
   #estimateRows(columns: HeldTableColumns, sampleRowIndexes: readonly number[]): void {
     const cellMeasurer = this.#requireCellMeasurer();
-    const rowCount = Math.max(0, this.#table.children.length - 1);
-    const rowHeightsPx = new Float32Array(rowCount);
-    let nextIndex = 0;
-    this.#workInSlices(
-      (hasTime) => {
-        while (nextIndex < rowCount && hasTime()) {
-          const row = this.#table.children[nextIndex + 1];
-          rowHeightsPx[nextIndex] =
-            row === undefined ? 0 : estimatedRowHeightPx(row, columns, cellMeasurer);
-          nextIndex += 1;
-        }
-        return nextIndex >= rowCount;
-      },
-      () => {
+    const rowHeightsPx = new Float32Array(bodyRowCountOf(this.#table));
+    this.#run(async () => {
+      const isEstimated = await passRowsInSlices(
+        this.#view,
+        this.#table,
+        { firstIndex: 0, lastIndex: rowHeightsPx.length - 1 },
+        (row, index) => {
+          rowHeightsPx[index] = estimatedRowHeightPx(row, columns, cellMeasurer);
+        },
+        () => this.#isStopped,
+      );
+      if (!isEstimated) {
+        return;
+      }
+      await this.#inTaskOfItsOwn(() => {
+        this.#letGoOfSampleRows?.();
+        this.#letGoOfSampleRows = undefined;
         this.#geometry = { columns, cellType: cellMeasurer.type, rowHeightsPx, sampleRowIndexes };
         this.#onChange();
+      });
+    });
+  }
+
+  /**
+   * Runs `work` unless the measurement has stopped, in a task of its own rather than the last
+   * slice's; `letGo` is called instead when it has stopped.
+   */
+  async #inTaskOfItsOwn(work: () => void, letGo?: Unsubscribe): Promise<void> {
+    await this.#view.scheduler.postTask(
+      () => {
+        if (this.#isStopped) {
+          letGo?.();
+        } else {
+          work();
+        }
       },
+      { priority: "user-visible" },
     );
   }
 
   /**
-   * Runs `work` a slice at a time until it answers it is done, then `done` in a task of its own,
-   * not the last slice's, unless the measurement stops first. A slice that throws rejects the
-   * work, so the error reaches the page.
+   * Runs `work`; work that fails ends the measurement, whoever waits on it is told, and the error
+   * goes on to the page.
    */
-  #workInSlices(work: (hasTime: () => boolean) => boolean, done: () => void): void {
-    const view = this.#view;
-    void workInSlices(view, work, () => this.#isStopped).then(async (isDone) => {
-      if (!isDone) {
-        return;
-      }
-      await view.scheduler.postTask(
-        () => {
-          if (!this.#isStopped) {
-            done();
-          }
-        },
-        { priority: "user-visible" },
-      );
+  #run(work: () => Promise<void>): void {
+    void work().catch((error: unknown) => {
+      this.#fail();
+      throw error;
     });
+  }
+
+  #fail(): void {
+    this.stop();
+    this.#hasFailed = true;
+    this.#onChange();
   }
 
   #requireCellMeasurer(): TableCellMeasurer {
@@ -225,4 +265,8 @@ export function estimatedRowHeightPx(
     columnIndex += 1;
   }
   return textHeightPx + type.rowChromePx;
+}
+
+function bodyRowCountOf(table: Table): number {
+  return Math.max(0, table.children.length - 1);
 }

@@ -4,20 +4,25 @@
 // so a body mounted next draws it at once. A document read once is parsed each time it is asked
 // for. A block is parsed against the definitions its whole body declares, which the trees here are
 // given as a preamble and returned without. A block that is one long table is parsed in pieces and
-// its rows read as they are drawn (`pieced-table.ts`).
+// its rows read as they are held (`pieced-table.ts`), its pieces' trees kept in a cache of their
+// own; a text that continues the last one parsed in pieces, as a streaming table grows, parses only
+// the pieces it changed.
 
 import type { Root } from "mdast";
 import { MdastReader } from "satteri/mdast-reader";
 
 import { ByteBoundedCache } from "#renderer/lib/byte-bounded-cache.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import {
-  markdownWorker,
-  type MarkdownParseAnswer,
-  type MarkdownWorkerConnection,
-} from "../worker/connection.js";
+import { markdownWorker, type MarkdownWorkerConnection } from "../worker/connection.js";
+import type { MarkdownParseAnswer } from "../worker/messages.js";
 import { materializeMarkdownTree } from "./materialized-tree.js";
-import { piecedTableRoot, tablePiecesOf, type ParsedTablePiece } from "./pieced-table.js";
+import {
+  parsePiecedTable,
+  PIECE_TREE_BYTE_CAP,
+  tableCutOf,
+  TablePieceTrees,
+  type PiecedRows,
+} from "./pieced-table.js";
 
 /** What parsing one text came to: its tree, or why the parser could not give one. */
 export type MarkdownParseOutcome =
@@ -44,9 +49,22 @@ export class MarkdownTrees {
   );
   /** The listeners of each settled block being parsed, by its cache key. */
   readonly #waitingBlocks = new Map<string, Set<MarkdownTreeListener>>();
+  readonly #pieceTrees: TablePieceTrees;
+  /**
+   * The rows of the last block parsed in pieces, whose pieces a text continuing it takes. It holds
+   * that block's text, one text at most past what the cache holds.
+   */
+  #lastPieced: PiecedRows | undefined;
 
-  public constructor(worker: MarkdownWorkerConnection) {
+  /** `pieceTreeByteCap` bounds the bytes of the long tables' piece trees kept at once. */
+  public constructor(
+    worker: MarkdownWorkerConnection,
+    pieceTreeByteCap: number = PIECE_TREE_BYTE_CAP,
+  ) {
     this.#worker = worker;
+    this.#pieceTrees = new TablePieceTrees((text, settle) => {
+      worker.parse(text, settle);
+    }, pieceTreeByteCap);
   }
 
   /** A settled block's tree, if it was parsed against this preamble and is still kept. */
@@ -187,46 +205,31 @@ export class MarkdownTrees {
     definitionPreamble: string,
     settle: (outcome: MarkdownParseOutcome) => void,
   ): void {
-    const pieces = tablePiecesOf(source, definitionPreamble);
-    if (pieces === undefined) {
+    const cut = tableCutOf(source);
+    if (cut === undefined) {
       this.#parseWhole(source, definitionPreamble, settle);
       return;
     }
-    const parsed: ParsedTablePiece[] = [];
-    let answerCount = 0;
-    let isSettled = false;
-    for (const [index, piece] of pieces.entries()) {
-      // A stand-in worker answers at once, so a piece may have failed the block already.
-      if (isSettled) {
-        return;
-      }
-      this.#worker.parse(piece.text, (answer) => {
-        if (isSettled) {
-          return;
-        }
-        if (answer.status === "failed") {
-          isSettled = true;
-          settle(answer);
-          return;
-        }
-        parsed[index] = answer;
-        answerCount += 1;
-        if (answerCount < pieces.length) {
-          return;
-        }
-        isSettled = true;
-        const root = piecedTableRoot(pieces, parsed, definitionPreamble);
-        if (root === undefined) {
+    parsePiecedTable(
+      this.#pieceTrees,
+      source,
+      definitionPreamble,
+      cut,
+      this.#lastPieced,
+      (outcome) => {
+        if (outcome.status === "not-one-table") {
           this.#parseWhole(source, definitionPreamble, settle);
           return;
         }
-        settle({
-          status: "parsed",
-          root,
-          treeByteCount: parsed.reduce((count, piece) => count + piece.buffer.byteLength, 0),
-        });
-      });
-    }
+        if (outcome.status === "failed") {
+          settle(outcome);
+          return;
+        }
+        this.#lastPieced = outcome.rows;
+        // Its pieces' trees are charged to their own cache, which bounds them.
+        settle({ status: "parsed", root: outcome.root, treeByteCount: 0 });
+      },
+    );
   }
 
   /**

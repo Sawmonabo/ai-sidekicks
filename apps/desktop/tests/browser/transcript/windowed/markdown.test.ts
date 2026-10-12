@@ -11,10 +11,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { drawnTreeText } from "#renderer/components/Markdown/drawn-text.js";
 import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
-import {
-  markdownWorker,
-  type MarkdownParseAnswer,
-} from "#renderer/components/Markdown/worker/connection.js";
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
+import type { MarkdownParseAnswer } from "#renderer/components/Markdown/worker/messages.js";
 import { longReplyMarkdown } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
 import {

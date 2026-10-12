@@ -30,6 +30,18 @@ export interface MarkdownParseRequest {
 }
 
 /**
+ * What parsing one text came to: the parser's binary tree and the stand-in its dollars read as
+ * text took, or why the parser gave none.
+ */
+export type MarkdownParseAnswer =
+  | {
+      readonly status: "parsed";
+      readonly buffer: ArrayBuffer;
+      readonly dollarStandIn: string | undefined;
+    }
+  | { readonly status: "failed"; readonly reason: string };
+
+/**
  * What the page asks the markdown worker to make: a reply's HTML under the screen's policy, or the
  * text a drawn part copies as in its flavor.
  */

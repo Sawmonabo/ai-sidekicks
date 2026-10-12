@@ -409,11 +409,7 @@ function extendTrailingText({ lastParse, lastText, appended }: TextGrowth): Root
     return undefined;
   }
   const { containers, leaf: text } = trailingPathOf(lastParse.root);
-  // A table read in pieces holds none of its rows, and growing it would read them all.
-  if (
-    text.type !== "text" ||
-    !containers.every((node) => PROSE_CONTAINER_TYPES.has(node.type) && !isReadInPieces(node))
-  ) {
+  if (text.type !== "text" || !containers.every((node) => PROSE_CONTAINER_TYPES.has(node.type))) {
     return undefined;
   }
   const preambleLength = lastParse.definitionPreamble.length;
@@ -446,7 +442,10 @@ function extendTrailingText({ lastParse, lastText, appended }: TextGrowth): Root
   return grownNode as Root;
 }
 
-/** The path from the root down to its last leaf: the leaf an append lands in, and its holders. */
+/**
+ * The path from the root down to its last leaf: the leaf an append lands in, and its holders. A
+ * table read in pieces ends the path: its rows are read only while they are held.
+ */
 interface TrailingPath {
   /** The root first, then each holder of the leaf, outermost first. */
   readonly containers: readonly Parents[];
@@ -456,7 +455,7 @@ interface TrailingPath {
 function trailingPathOf(root: Root): TrailingPath {
   const containers: Parents[] = [];
   let node: Nodes = root;
-  while ("children" in node) {
+  while ("children" in node && !isReadInPieces(node)) {
     const lastChild: RootContent | undefined = node.children.at(-1);
     if (lastChild === undefined) {
       break;
