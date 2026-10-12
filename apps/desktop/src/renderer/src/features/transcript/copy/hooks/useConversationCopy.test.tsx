@@ -337,6 +337,8 @@ describe("⌘C in a session", () => {
 
   it("writes a long part's text at once, and adds its formatting unless a newer copy took over", async () => {
     const { copied, formatted, sessionDocument } = renderSession(LONG_ROWS);
+    // Every slice has time, so the short copy is built within the slice ⌘C starts it in.
+    vi.spyOn(performance, "now").mockReturnValue(0);
     const workerAnswers: ((html: PiecedText) => void)[] = [];
     vi.spyOn(markdownWorker, "html").mockImplementation(
       () => new Promise((resolve) => workerAnswers.push(resolve)),
