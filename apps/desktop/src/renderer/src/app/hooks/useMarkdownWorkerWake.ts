@@ -7,10 +7,11 @@
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import { useEffect } from "react";
 
+import type { MarkdownWorkerConnection } from "#renderer/components/Markdown/worker/connection.js";
 import {
-  markdownWorker,
-  type MarkdownWorkerConnection,
-} from "#renderer/components/Markdown/worker/connection.js";
+  onceMarkdownWorkerLoads,
+  wakeMarkdownWorker,
+} from "#renderer/components/Markdown/worker/wake.js";
 import { routeSessionId } from "#renderer/routing/readers.js";
 import { readRunState } from "#renderer/services/daemon/wire/identifiers.js";
 import type { SessionStoreRegistry } from "#renderer/store/session/registry.js";
@@ -26,30 +27,42 @@ export function useMarkdownWorkerWake(
   windows: readonly OpenWindowStore[],
 ): void {
   useEffect(() => {
-    markdownWorker.wake();
+    wakeMarkdownWorker();
   }, []);
   useEffect(
-    () => holdAwakeWhileTurnRuns(markdownWorker, sessionStoreRegistry),
+    () =>
+      onceMarkdownWorkerLoads((markdownWorker) =>
+        holdAwakeWhileTurnRuns(markdownWorker, sessionStoreRegistry),
+      ),
     [sessionStoreRegistry],
   );
-  useEffect(() => {
-    const unsubscribes = windows.map(({ store }) =>
-      store.readable.subscribe((state, previous) => {
-        const shownSessionId = routeSessionId(state.route);
-        if (
-          (state.isWindowFocused && !previous.isWindowFocused) ||
-          (shownSessionId !== undefined && shownSessionId !== routeSessionId(previous.route))
-        ) {
-          markdownWorker.wake();
-        }
-      }),
-    );
-    return () => {
-      for (const unsubscribe of unsubscribes) {
-        unsubscribe();
+  useEffect(
+    () => onceMarkdownWorkerLoads((markdownWorker) => wakeOnWindowSigns(markdownWorker, windows)),
+    [windows],
+  );
+}
+
+/** Wake `markdownWorker` whenever one of `windows` comes forward or shows another session. */
+function wakeOnWindowSigns(
+  markdownWorker: MarkdownWorkerConnection,
+  windows: readonly OpenWindowStore[],
+): Unsubscribe {
+  const unsubscribes = windows.map(({ store }) =>
+    store.readable.subscribe((state, previous) => {
+      const shownSessionId = routeSessionId(state.route);
+      if (
+        (state.isWindowFocused && !previous.isWindowFocused) ||
+        (shownSessionId !== undefined && shownSessionId !== routeSessionId(previous.route))
+      ) {
+        markdownWorker.wake();
       }
-    };
-  }, [windows]);
+    }),
+  );
+  return () => {
+    for (const unsubscribe of unsubscribes) {
+      unsubscribe();
+    }
+  };
 }
 
 /**
