@@ -284,6 +284,9 @@ export class CodexLifecycleManager {
       withdrawAsk: (sessionId, requestId, askKind) => {
         this.#askHandOff.withdraw(sessionId, requestId, askKind);
       },
+      forgetTurnCorrections: (sessionId, turnId) => {
+        this.#askHandOff.forgetTurnCorrections(sessionId, turnId);
+      },
       reportDiagnostic,
       diagnostics: options.diagnostics,
       cutOversizedTurn: (record, turnId) => {

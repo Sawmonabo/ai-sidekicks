@@ -1,14 +1,14 @@
-// `lifecycle.ts` requests: at Reviewed the daemon itself allows only a removal Claude Code's own
-// rule sent while it reviews in auto mode, and every other ask, a safety check's included, goes to
-// the person, and one Claude Code withdraws is withdrawn from the person; a choice is answered
-// once, and a late or second answer finds nothing pending; a refusal names the rows it retracts by
-// their event ids, and a message that cancels it starts the session's next turn as its own run;
-// a rewound session keeps its helper limit, holding a start past it until the turn ends; a plan
-// asking to leave plan mode is recorded from the ask's own text while the ask stays held; an ask
-// Claude Code flagged as one no standing allow may answer offers no rule; an answer goes back with
-// the person's correction, decline reason or session rule, the call answered even when the rule
-// could not be kept; and a shell call that starts background Claude Code is refused at the pre-tool
-// hook.
+// `lifecycle.ts` requests: at Reviewed a removal the level's own rule sent while Claude Code
+// reviews in auto mode is handed on marked as the level's to allow, and the driver answers it
+// nothing itself, while a safety check's ask goes to the person unmarked, and one Claude Code
+// withdraws is withdrawn from the person; a choice is answered once, and a late or second answer
+// finds nothing pending; a refusal names the rows it retracts by their event ids, and a message
+// that cancels it starts the session's next turn as its own run; a rewound session keeps its helper
+// limit, holding a start past it until the turn ends; a plan asking to leave plan mode is recorded
+// from the ask's own text while the ask stays held; an ask Claude Code flagged as one no standing
+// allow may answer offers no rule; an answer goes back with the person's correction, decline reason
+// or session rule, the call answered even when the rule could not be kept; and a shell call that
+// starts background Claude Code is refused at the pre-tool hook.
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { describe, expect, it, vi } from "vitest";
@@ -119,19 +119,19 @@ function emitBashAsk(
 }
 
 describe("ClaudeSessionLifecycle requests at Reviewed", () => {
-  it("allows a removal Claude Code's own rule sent, with no card", async () => {
+  it("hands on a removal the level's rule sent, marked so, answering nothing", async () => {
     const harness = buildHarness();
     const { channel, asks } = await startReviewedRun(harness);
 
     emitBashAsk(channel, "ask-rule", "rule");
 
     await vi.waitFor(() => {
-      expect(channel.answeredRequests).toStrictEqual([
-        { requestId: "ask-rule", response: { behavior: "allow", updatedInput: REMOVAL } },
-      ]);
+      expect(asks).toMatchObject([{ requestId: "ask-rule", isSentByLevelRule: true }]);
     });
-    expect(harness.deliveries.filter((delivery) => delivery.kind === "permission_ask")).toEqual([]);
-    expect(asks).toStrictEqual([]);
+    expect(
+      harness.deliveries.filter((delivery) => delivery.kind === "permission_ask"),
+    ).toHaveLength(1);
+    expect(channel.answeredRequests).toStrictEqual([]);
   });
 
   it("hands a safety check's ask to the person, never answers it, and withdraws it", async () => {
@@ -422,7 +422,13 @@ describe("ClaudeSessionLifecycle ask answers", () => {
       await harness.lifecycle.respondToRequest({ runId: TEST_RUN_ID, requestId, response });
     };
 
-    await answer("ask-edit", { decision: "allow", editedAction: "rm -rf build/cache" });
+    await answer("ask-edit", {
+      decision: "allow",
+      correction: {
+        editedAction: "rm -rf build/cache",
+        approvalRequestId: "00000000-0000-7000-8000-0000000000c1",
+      },
+    });
     await answer("ask-decline", { decision: "refuse", reason: "Keep the build folder." });
     const sentBefore = channel.controlRequests.length;
     await answer("ask-rule", {

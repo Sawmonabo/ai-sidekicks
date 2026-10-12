@@ -610,6 +610,7 @@ function deleteSessionRowsStatements(
       bindings: [sessionId],
     },
     { sql: "DELETE FROM approval_requests WHERE session_id = ?", bindings: [sessionId] },
+    { sql: "DELETE FROM approval_correction_uses WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM reviewer_denials WHERE session_id = ?", bindings: [sessionId] },
     {
       sql: `DELETE FROM artifact_payload_refs

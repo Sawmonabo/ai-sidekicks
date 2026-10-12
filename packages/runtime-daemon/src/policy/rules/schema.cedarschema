@@ -8,6 +8,21 @@ entity Workflow;
 // One run of a workflow, named by its run id.
 entity WorkflowRun;
 
+// The posture of the run whose agent asks, as its `run.running` event records it: the session's
+// permission level, the folders that level lets the agent write unasked, and the credential list
+// the run was handed.
+type Posture = {
+  mode: String,
+  writableRoots: Set<String>,
+  credentialPolicyRef: String,
+};
+
+// What every decision reads beside the principal and the resource: the asking run's posture, which
+// a run a trigger fires has none of, since no agent's run asks for it.
+type WorkflowContext = {
+  posture?: Posture,
+};
+
 // The workflow tools: authoring a workflow, updating it, setting its schedule, enabling or
 // disabling it and posting a run's results into a chat; starting a run or executing one of its
 // steps; canceling a run; resuming one. Each is its own action because each commits something
@@ -15,9 +30,11 @@ entity WorkflowRun;
 action "workflow::author", "workflow::start" appliesTo {
   principal: User,
   resource: Workflow,
+  context: WorkflowContext,
 };
 
 action "workflow::cancel", "workflow::resume" appliesTo {
   principal: User,
   resource: WorkflowRun,
+  context: WorkflowContext,
 };

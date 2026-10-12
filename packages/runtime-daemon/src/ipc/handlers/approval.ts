@@ -6,7 +6,7 @@ import { APPROVAL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/approval";
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 import type { PermissionAsks } from "../../approvals/permission-asks.js";
-import type { ApprovalProjectionService } from "../../approvals/projection-service.js";
+import type { ApprovalProjectionService } from "../../approvals/projection/read.js";
 import type { ReviewerDenials } from "../../approvals/reviewer-denials.js";
 import type { ApprovalRules } from "../../approvals/rules.js";
 import { callingDeviceOf } from "../registry.js";

@@ -41,6 +41,7 @@ This spec covers the hosted account and its one user record, the user's name, th
 ## Required Behavior
 
 - The hosted account is one user record: every passkey the account holds resolves to that user, and no sign-in, passkey or device link makes a second user.
+- The account attaches to the machine's existing owner, the user the service minted at its first start ([Spec-002 §Required Behavior](./002-machine-registration.md#required-behavior)); sign-in never creates the owner.
 - The person may reach a session from several devices at once, and each is the same user.
 - The account read carries only the stable user id and the name.
 - A name change updates only the caller's own user record.

@@ -4,10 +4,10 @@
 // to any depth, the string an `sh -c`, `bash -c`, `zsh -c` or `eval` runs; a string the parser
 // cannot read goes to the person. The same reading refuses such a command at the drivers' pre-tool
 // hooks, at the levels that never ask. It allows an agent's own read or change of a `.md` note in
-// the agent-memory folder, as Claude Code allows its own memory folder unasked. Every other ask, a
-// removal a provider's own safety check flags among them, is left for the person's card. Neither
-// answer depends on the session's level: the refusal holds at every level, and the memory asks
-// arrive only at the levels that ask.
+// the agent-memory folder, as Claude Code allows its own memory folder unasked. Every other ask is
+// left to the rest of the permission check, and a removal a provider's own safety check flags
+// always reaches the person's card. Neither answer depends on the session's level: the refusal
+// holds at every level, and the memory asks arrive only at the levels that ask.
 
 import path from "node:path";
 

@@ -4,8 +4,11 @@
 // The request and resolution tables are projections of the `approval.*` events, written in each
 // event's own write and rebuildable from the log. The daemon keeps no table of approval rules: the
 // providers keep them, and a resolution's remembered scope is written with the record of the rule
-// its answer made. The reviewer blocks table keeps each provider's own record of a block whole,
-// which the event's body may hold only cut short, so an `Allow once` can hand it back.
+// its answer made. The correction uses table records, once, that an approved card's corrected
+// command or path was carried out, so a restart or a rebuild never lets it run twice; the log holds
+// no event for that use, and no rebuild touches the table. The reviewer blocks table keeps each
+// provider's own record of a block whole, which the event's body may hold only cut short, so an
+// `Allow once` can hand it back.
 
 /** The SQL of the approval tables and their indexes, run as part of the daemon schema's script. */
 export const APPROVAL_SCHEMA_SQL: string = `
@@ -68,9 +71,26 @@ CREATE TABLE approval_resolutions (
                            CHECK(remembered_scope_kind IS NULL
                              OR remembered_scope_kind IN ('session', 'project')),
   remembered_scope_pattern TEXT,
+  -- The command or path as the person corrected it on the card, which is what runs; NULL for an
+  -- answer that changed nothing and for every decline.
+  edited_action            TEXT,
   resolved_at              TEXT NOT NULL,
-  CHECK((remembered_scope_kind IS NULL) = (remembered_scope_pattern IS NULL))
+  CHECK((remembered_scope_kind IS NULL) = (remembered_scope_pattern IS NULL)),
+  CHECK(edited_action IS NULL OR decision = 'approved')
 ) STRICT;
+
+-- ---------------------------------------------------------------------------
+-- approval_correction_uses: an approved card whose corrected command or path its provider's next
+-- ask carried out, one row each, so the correction runs once.
+-- ---------------------------------------------------------------------------
+-- No REFERENCES: the requests are rebuilt from the log, and this row outlives a rebuild.
+CREATE TABLE approval_correction_uses (
+  request_id   TEXT PRIMARY KEY,
+  session_id   TEXT NOT NULL,
+  used_at      TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX idx_approval_correction_uses_session ON approval_correction_uses(session_id);
 
 -- ---------------------------------------------------------------------------
 -- reviewer_denials: the provider's own record of each block its reviewer made, written in the

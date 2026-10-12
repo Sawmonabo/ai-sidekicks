@@ -50,6 +50,7 @@ beforeEach(async () => {
   staleSessions = [];
   service = new ApprovalService({
     reader: database.reader,
+    writer: database.writer,
     sessionEvents: new EventLogService({
       writer: database.writer,
       reader: database.reader,

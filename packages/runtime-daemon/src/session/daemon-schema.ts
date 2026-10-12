@@ -328,14 +328,16 @@ CREATE INDEX idx_session_related_related ON session_related(related_session_id);
 ${SEARCH_INDEX_SCHEMA_SQL}
 
 -- ---------------------------------------------------------------------------
--- This machine: its id, minted at the daemon's first start, and the friendly
--- name read then. One row, kept the same at every later start.
+-- This machine: its id and its owner's user id, both minted at the daemon's
+-- first start, and the friendly name read then. One row, kept the same at
+-- every later start.
 -- ---------------------------------------------------------------------------
 CREATE TABLE local_machine (
-  singleton   INTEGER PRIMARY KEY CHECK (singleton = 1),
-  node_id     TEXT NOT NULL,
-  name        TEXT NOT NULL,
-  minted_at   TEXT NOT NULL                     -- RFC 3339 UTC, ms precision
+  singleton      INTEGER PRIMARY KEY CHECK (singleton = 1),
+  node_id        TEXT NOT NULL,
+  owner_user_id  TEXT NOT NULL,                 -- UUIDv7; a hosted account attaches to it
+  name           TEXT NOT NULL,
+  minted_at      TEXT NOT NULL                  -- RFC 3339 UTC, ms precision
 ) STRICT;
 
 -- ---------------------------------------------------------------------------

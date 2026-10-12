@@ -14,7 +14,7 @@ import type {
   ApprovalProjectionRow,
 } from "@ai-sidekicks/contracts/approval";
 
-import { ApprovalRequestReader, type StoredApprovalRequest } from "./store.js";
+import { ApprovalRequestReader, type StoredApprovalRequest } from "../store.js";
 
 // Every control character left once the escape sequences are gone, a line break among them.
 const CONTROL_CHARACTERS = /\p{Cc}+/gu;

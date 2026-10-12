@@ -496,6 +496,7 @@ export class CodexAppServerConnection {
             this.#handlers.onHeldRequestsDropped([readDroppedRequest(requestId, held)]);
           } else {
             this.#heldRequests.set(requestId, held);
+            decision.onHeld?.();
           }
           return;
         }

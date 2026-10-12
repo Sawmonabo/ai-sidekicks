@@ -11,6 +11,7 @@
 // a rule that cannot be kept never leaves the call waiting. A command allow Codex would keep as a
 // prefix that also lets a force push through is never handed over: the daemon answers each ask.
 
+import type { ApprovalRequestId } from "@ai-sidekicks/contracts/approval";
 import type { QuestionPrompt } from "@ai-sidekicks/contracts/question";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -141,12 +142,12 @@ function composeCorrectionSteer(action: ProviderAskAction, editedAction: string)
 }
 
 // What a corrected action is matched by when Codex asks for it again in the turn it was made in.
-function correctionKeyOf(turnId: string, action: ProviderAskAction): string | undefined {
+function correctionKeyOf(action: ProviderAskAction): string | undefined {
   if (action.kind === "command") {
-    return `${turnId}\u0000command\u0000${action.command}`;
+    return `command\u0000${action.command}`;
   }
   return action.kind === "file_change" && action.paths.length === 1
-    ? `${turnId}\u0000file_change\u0000${action.paths[0] ?? ""}`
+    ? `file_change\u0000${action.paths[0] ?? ""}`
     : undefined;
 }
 
@@ -160,9 +161,12 @@ export class CodexAskHandOff {
   readonly #diskFlush: DiskFlush;
   // The approvals held for their card, by session then Codex's request id.
   readonly #heldBySession = new Map<SessionId, Map<string, CodexHeldApproval>>();
-  // The corrected commands and paths approved, by session, each taken by Codex's next ask for it in
-  // the same turn.
-  readonly #correctionsBySession = new Map<SessionId, Set<string>>();
+  // The corrected commands and paths approved, by session then turn, each with the card it was
+  // approved on, taken by Codex's next ask for it in the same turn and dropped when the turn ends.
+  readonly #correctionsBySession = new Map<
+    SessionId,
+    Map<string, Map<string, ApprovalRequestId>>
+  >();
 
   constructor(dependencies: CodexAskHandOffDependencies) {
     this.#dispatch = dependencies.dispatch;
@@ -175,8 +179,8 @@ export class CodexAskHandOff {
 
   /**
    * Delivers one approval or question as a permission ask on its run's binding and, once the run
-   * engine admits it, hands it to its owner and holds it for the answer. An ask on no run, or one
-   * the run engine absorbed or refused, is refused at Codex.
+   * engine admits it, holds it for the answer, an approval handed to its owner by the decision's
+   * `onHeld`. An ask on no run, or one the run engine absorbed or refused, is refused at Codex.
    */
   async hold(
     sessionId: SessionId,
@@ -269,8 +273,17 @@ export class CodexAskHandOff {
     this.#correctionsBySession.delete(sessionId);
   }
 
+  /** Drops the corrections an ended turn's asks could have carried out, which no later turn may. */
+  forgetTurnCorrections(sessionId: SessionId, turnId: string): void {
+    const byTurn = this.#correctionsBySession.get(sessionId);
+    byTurn?.delete(turnId);
+    if (byTurn?.size === 0) {
+      this.#correctionsBySession.delete(sessionId);
+    }
+  }
+
   // The words a decline is followed by: a decline's reason, or the corrected command or path, which
-  // Codex's next ask for is then answered `accept` by the daemon.
+  // Codex's next ask for then carries out the card it was approved on.
   #steerAfter(
     sessionId: SessionId,
     held: CodexHeldApproval,
@@ -279,20 +292,25 @@ export class CodexAskHandOff {
     if (answer.decision === "refuse") {
       return answer.reason;
     }
-    if (answer.editedAction === undefined) {
+    const { correction } = answer;
+    if (correction === undefined) {
       return undefined;
     }
     const corrected: ProviderAskAction =
       held.action.kind === "command"
-        ? { kind: "command", command: answer.editedAction }
-        : { kind: "file_change", paths: [answer.editedAction] };
-    const key = held.turnId === undefined ? undefined : correctionKeyOf(held.turnId, corrected);
-    if (key !== undefined) {
-      const corrections = this.#correctionsBySession.get(sessionId) ?? new Set<string>();
-      corrections.add(key);
-      this.#correctionsBySession.set(sessionId, corrections);
+        ? { kind: "command", command: correction.editedAction }
+        : { kind: "file_change", paths: [correction.editedAction] };
+    const key = correctionKeyOf(corrected);
+    if (held.turnId !== undefined && key !== undefined) {
+      const byTurn =
+        this.#correctionsBySession.get(sessionId) ??
+        new Map<string, Map<string, ApprovalRequestId>>();
+      const corrections = byTurn.get(held.turnId) ?? new Map<string, ApprovalRequestId>();
+      corrections.set(key, correction.approvalRequestId);
+      byTurn.set(held.turnId, corrections);
+      this.#correctionsBySession.set(sessionId, byTurn);
     }
-    return composeCorrectionSteer(held.action, answer.editedAction);
+    return composeCorrectionSteer(held.action, correction.editedAction);
   }
 
   #takeHeld(sessionId: SessionId, requestId: string): CodexHeldApproval | undefined {
@@ -323,8 +341,8 @@ export class CodexAskHandOff {
     }
   }
 
-  // An approval for a command or path a person corrected and approved is answered `accept` at once;
-  // every other is held for its card.
+  // Holds an approval for the approval pipeline, naming the card an ask for a command or path a
+  // person corrected and approved carries out, so the permission check answers it with no card.
   #handApproval(
     sessionId: SessionId,
     runId: RunId,
@@ -338,10 +356,12 @@ export class CodexAskHandOff {
         : this.#recordFor(sessionId)?.delivery.changedPathsByItemId.get(itemId);
     const { action, ruleScopes } = readCodexAskAction(request.method, params, changedPaths);
     const turnId = readNonEmptyString(params, "turnId");
-    const correctionKey = turnId === undefined ? undefined : correctionKeyOf(turnId, action);
-    const corrections = this.#correctionsBySession.get(sessionId);
-    if (correctionKey !== undefined && corrections?.delete(correctionKey) === true) {
-      return { decision: "allow" };
+    const correctionKey = correctionKeyOf(action);
+    const corrections =
+      turnId === undefined ? undefined : this.#correctionsBySession.get(sessionId)?.get(turnId);
+    const correctionOf = correctionKey === undefined ? undefined : corrections?.get(correctionKey);
+    if (correctionKey !== undefined) {
+      corrections?.delete(correctionKey);
     }
     const port = this.#owners.permissionAsks.port;
     if (port === undefined) {
@@ -355,23 +375,27 @@ export class CodexAskHandOff {
       readNonEmptyString(params, "serverName") ??
       request.method;
     const prompt = readNonEmptyString(params, "reason") ?? readNonEmptyString(params, "message");
-    port
-      .takeAsk({
-        sessionId,
-        runId,
-        requestId: request.requestId,
-        toolName,
-        input: request.params,
-        action,
-        ruleScopes,
-        isProviderFlagged: false,
-        ...(itemId === undefined ? {} : { toolCallId: itemId }),
-        ...(prompt === undefined ? {} : { prompt }),
-      })
-      .catch((cause: unknown) => {
-        this.#reportOwnerFailure("permission-ask", sessionId, cause);
-      });
-    return { decision: "held" };
+    // Taken once the connection holds the ask, since a designed answer reaches it at once.
+    const takeAsk = (): void => {
+      port
+        .takeAsk({
+          sessionId,
+          runId,
+          requestId: request.requestId,
+          toolName,
+          input: request.params,
+          action,
+          ruleScopes,
+          isProviderFlagged: false,
+          ...(itemId === undefined ? {} : { toolCallId: itemId }),
+          ...(prompt === undefined ? {} : { prompt }),
+          ...(correctionOf === undefined ? {} : { correctionOf }),
+        })
+        .catch((cause: unknown) => {
+          this.#reportOwnerFailure("permission-ask", sessionId, cause);
+        });
+    };
+    return { decision: "held", onHeld: takeAsk };
   }
 
   #handQuestion(sessionId: SessionId, runId: RunId, request: CodexInboundServerRequest): void {
@@ -410,7 +434,7 @@ export class CodexAskHandOff {
 // through; a corrected one is a decline that the steer after it carries, and a refusal is a
 // decline.
 function composeCodexAnswer(answer: ProviderPermissionAnswer): CodexServerRequestAnswer {
-  if (answer.decision === "refuse" || answer.editedAction !== undefined) {
+  if (answer.decision === "refuse" || answer.correction !== undefined) {
     return {
       decision: "refuse",
       reason: answer.decision === "refuse" ? (answer.reason ?? "") : "",

@@ -553,11 +553,12 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 
 ```sql
 -- Owner: Plan-025
--- This machine: its id, minted at the daemon's first start, and the friendly name read then
--- (Spec-002). One row, kept the same at every later start.
+-- This machine: its id and its owner's user id, both minted at the daemon's first start, and the
+-- friendly name read then (Spec-002). One row, kept the same at every later start.
 CREATE TABLE local_machine (
   singleton         INTEGER PRIMARY KEY CHECK (singleton = 1),
   node_id           TEXT NOT NULL,
+  owner_user_id     TEXT NOT NULL,  -- a hosted account signed in to later attaches to it
   name              TEXT NOT NULL,
   minted_at         TEXT NOT NULL
 ) STRICT;
@@ -682,9 +683,25 @@ CREATE TABLE approval_resolutions (
                                               -- its provider did not keep (Spec-010 §Interfaces And Contracts)
                            CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('session', 'project')),
   remembered_scope_pattern TEXT,              -- the derived subject of that rule, nullable
+  edited_action            TEXT,              -- the command or path as the person corrected it on the card, which is what
+                                              -- runs (approval.approved.editedAction); NULL for an answer that changed
+                                              -- nothing and for every decline
   resolved_at              TEXT NOT NULL,
-  CHECK((remembered_scope_kind IS NULL) = (remembered_scope_pattern IS NULL)) -- a rule names its subject
+  CHECK((remembered_scope_kind IS NULL) = (remembered_scope_pattern IS NULL)), -- a rule names its subject
+  CHECK(edited_action IS NULL OR decision = 'approved')
 ) STRICT;
+
+-- Owner: Plan-009
+CREATE TABLE approval_correction_uses (
+  request_id   TEXT PRIMARY KEY,              -- the approved card whose corrected command or path its provider's next ask
+                                              -- carried out, one row each, so the correction runs once, across a restart too.
+                                              -- No REFERENCES: the requests are rebuilt from the log, and this row outlives
+                                              -- a rebuild; a session purge deletes it
+  session_id   TEXT NOT NULL,
+  used_at      TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX idx_approval_correction_uses_session ON approval_correction_uses(session_id);
 
 -- Owner: Plan-009
 CREATE TABLE reviewer_denials (

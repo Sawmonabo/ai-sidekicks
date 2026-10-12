@@ -251,9 +251,12 @@ export function readCodexQuestionAnswer(response: unknown): CodexServerRequestAn
 /**
  * What the responder did with one ask: answered it now, or `held` it for the person, who answers
  * later through `respondToRequest` with a {@link CodexServerRequestAnswer}. A held ask stays
- * pending at the provider until then.
+ * pending at the provider until then. `onHeld` runs once the connection holds the ask, so an answer
+ * the daemon reaches at once finds it held; a connection that closed first runs none.
  */
-export type CodexServerRequestDecision = CodexServerRequestAnswer | { readonly decision: "held" };
+export type CodexServerRequestDecision =
+  | CodexServerRequestAnswer
+  | { readonly decision: "held"; readonly onHeld?: (() => void) | undefined };
 
 /**
  * The port the daemon binds to answer routed asks: the callback-tool host for `item/tool/call`,

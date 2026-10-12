@@ -1,13 +1,24 @@
-// The intake of provider asks: an ask the daemon answers itself goes straight back with no card,
-// while a destructive git command, an ask the provider's own check flagged and an ask a rule never
-// named still reach the card; an ask delivered again while held raises one card, and its request
-// id once settled a new one; an ask its provider takes back while its card is being raised is
-// canceled once it is; a card's answer reaches the provider once, decision first with the rule it
-// made, which is recorded once the provider kept it and never when it could not.
+// The intake of provider asks, through the permission check: an ask the daemon answers itself goes
+// straight back with no card, the level's own allow of an ask its added rule sent among them, and
+// an allow among them marks the session's working folder stale, while a destructive git command,
+// an ask the provider's own check flagged and an ask a rule never named still reach the card; an
+// ask the check could not decide is refused at its provider, and the failure thrown on; an ask
+// delivered again while held raises one card, and its request id once settled a new one; an ask
+// its provider takes back while its card is being raised is canceled once it is; a card's answer
+// reaches the provider once, decision first with the rule it made, which is recorded once the
+// provider kept it and never when it could not; and the ask for a command a person corrected runs
+// with no card once, only on the approved card's own run and only for exactly that command.
+
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { afterEach, beforeEach, expect, it } from "vitest";
 
-import type { ApprovalResolveRequest } from "@ai-sidekicks/contracts/approval";
+import {
+  ApprovalRequestIdSchema,
+  type ApprovalResolveRequest,
+} from "@ai-sidekicks/contracts/approval";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
@@ -15,6 +26,7 @@ import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../events/log-service.js";
+import { PermissionCheckService } from "../../policy/permission-check.js";
 import type { RespondToRequestParams } from "../../provider/driver/contract.js";
 import {
   ProviderRuleNotKeptError,
@@ -29,6 +41,7 @@ import { ApprovalService } from "../service.js";
 
 const SESSION_ID = "00000000-0000-7000-8000-000000000001" as SessionId;
 const RUN_ID = "00000000-0000-7000-8000-0000000000b1" as RunId;
+const OTHER_RUN_ID = "00000000-0000-7000-8000-0000000000b2" as RunId;
 const LAPTOP = "device-laptop" as DeviceId;
 const CREATED_AT = "2026-10-11T00:00:00.000Z";
 const NPM_TEST: ProviderPermissionAsk = {
@@ -52,6 +65,9 @@ const NPM_TEST_RULE: ProviderAskRule = {
 
 let database: ScratchDatabase;
 let service: ApprovalService;
+let memoryFolder: string;
+// The sessions whose working folder was marked stale, once per mark.
+let staleSessions: SessionId[];
 let responses: RespondToRequestParams[];
 let rulesInForce: ProviderAskRule[];
 let recordFailure: Error | undefined;
@@ -60,8 +76,14 @@ let recorded: { made: ProviderAnswerRule; afterAnswers: number }[];
 // Holds a card's raising until the test lets it go, when set, after telling the test it began.
 let createGate: Promise<void> | undefined;
 let onCreate: () => void;
+// Thrown by a card's raising, when set.
+let createFailure: Error | undefined;
 
 beforeEach(async () => {
+  memoryFolder = await mkdtemp(path.join(tmpdir(), "permission-asks-memory-"));
+  await mkdir(path.join(memoryFolder, "reviewer"));
+  await writeFile(path.join(memoryFolder, "reviewer", "MEMORY.md"), "# Notes\n");
+  staleSessions = [];
   database = await openScratchDatabase();
   await database.writer.write([
     {
@@ -69,13 +91,14 @@ beforeEach(async () => {
             VALUES (?, 'project', 'active', ?, ?, ?)`,
       bindings: [SESSION_ID, CREATED_AT, CREATED_AT, CREATED_AT],
     },
-    {
+    ...[RUN_ID, OTHER_RUN_ID].map((runId) => ({
       sql: `INSERT INTO runs (run_id, session_id, state, run_version) VALUES (?, ?, 'running', 1)`,
-      bindings: [RUN_ID, SESSION_ID],
-    },
+      bindings: [runId, SESSION_ID],
+    })),
   ]);
   service = new ApprovalService({
     reader: database.reader,
+    writer: database.writer,
     sessionEvents: new EventLogService({
       writer: database.writer,
       reader: database.reader,
@@ -84,7 +107,11 @@ beforeEach(async () => {
       },
     }),
     followAll: () => () => {},
-    workingFolders: { raiseStaleness: async () => {} },
+    workingFolders: {
+      raiseStaleness: async (sessionId) => {
+        staleSessions.push(sessionId);
+      },
+    },
     writeServiceLog: (line) => {
       throw new Error(`unexpected service log line: ${line}`);
     },
@@ -96,10 +123,12 @@ beforeEach(async () => {
   recorded = [];
   createGate = undefined;
   onCreate = () => {};
+  createFailure = undefined;
 });
 
 afterEach(async () => {
   await database.close();
+  await rm(memoryFolder, { recursive: true, force: true });
 });
 
 function buildAsks(): PermissionAsks {
@@ -114,22 +143,35 @@ function buildAsks(): PermissionAsks {
     },
     readProjectFolders: () => PROJECT_FOLDERS,
   };
-  return new PermissionAsks({
-    pathRules: HOST_OPERATING_SYSTEM.pathRules,
+  const permissionCheck = new PermissionCheckService({
+    authorizer: {
+      decide: () => {
+        throw new Error("a provider ask takes no rule evaluation");
+      },
+    },
     approvals: {
       create: async (request, origin) => {
         onCreate();
         await createGate;
+        if (createFailure !== undefined) {
+          throw createFailure;
+        }
         return await service.create(request, origin);
       },
-      resolve: service.resolve.bind(service),
-      withdraw: service.withdraw.bind(service),
-      readRequest: service.readRequest.bind(service),
-      readAskRequest: service.readAskRequest.bind(service),
+      takeCorrection: async (approvalRequestId, ask) =>
+        await service.takeCorrection(approvalRequestId, ask),
     },
     rules,
-    agentMemoryFolder: "/data/agent-memory",
+    agentMemoryFolder: memoryFolder,
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     readRunAgent: () => "agent-1",
+    readOwner: () => undefined,
+    readPosture: () => undefined,
+  });
+  return new PermissionAsks({
+    approvals: service,
+    permissionCheck,
+    rules,
     respondToRequest: async (params) => {
       responses.push(params);
       if (providerFailure !== undefined) {
@@ -161,20 +203,38 @@ function approveAlways(
   } as ApprovalResolveRequest;
 }
 
-it("answers itself, with no card, a background command and an ask a rule in force covers", async () => {
+it("answers a background command, a memory note and a rule's ask with no card", async () => {
   const asks = buildAsks();
   rulesInForce = [NPM_TEST_RULE, { ...NPM_TEST_RULE, sense: "block", subject: "npm publish" }];
 
   await asks.takeAsk({ ...NPM_TEST, action: { kind: "command", command: "claude --bg fix" } });
-  await asks.takeAsk(NPM_TEST);
   await asks.takeAsk({ ...NPM_TEST, action: { kind: "command", command: "npm publish" } });
+  // Each refusal leaves the working folder as it was.
+  expect(staleSessions).toEqual([]);
+  await asks.takeAsk(NPM_TEST);
+  await asks.takeAsk({
+    ...NPM_TEST,
+    requestId: "8",
+    action: { kind: "file_change", paths: [path.join(memoryFolder, "reviewer", "MEMORY.md")] },
+  });
+  // A removal the level's own ask rule sent, which the level allows.
+  await asks.takeAsk({
+    ...NPM_TEST,
+    requestId: "9",
+    action: { kind: "command", command: "rm -f build.log" },
+    isSentByLevelRule: true,
+  });
 
-  expect(responses.map(({ response }) => (response as ProviderPermissionAnswer).decision)).toEqual([
-    "refuse",
-    "allow",
-    "refuse",
+  expect(responses.map(({ response }) => response as ProviderPermissionAnswer)).toEqual([
+    { decision: "refuse", reason: expect.stringContaining("claude --bg") as unknown },
+    { decision: "refuse", reason: "A rule in force on this session blocks this." },
+    { decision: "allow", answeredByRule: NPM_TEST_RULE },
+    { decision: "allow" },
+    { decision: "allow" },
   ]);
   expect(readCards()).toEqual([]);
+  // Each allow the daemon gave marks the folder stale once, after its answer went back.
+  expect(staleSessions).toEqual([SESSION_ID, SESSION_ID, SESSION_ID]);
 });
 
 it("answers a block in force itself on an ask that offers no rule", async () => {
@@ -202,6 +262,29 @@ it.each([
   await asks.takeAsk({ ...NPM_TEST, action: { kind: "command", command }, isProviderFlagged });
 
   expect(responses).toEqual([]);
+  expect(readCards()).toMatchObject([{ state: "pending" }]);
+});
+
+it("refuses at its provider an ask the check failed on, and throws the failure", async () => {
+  const asks = buildAsks();
+  createFailure = new Error("the log is full");
+
+  await expect(asks.takeAsk(NPM_TEST)).rejects.toThrow("the log is full");
+
+  expect(responses).toEqual([
+    {
+      runId: RUN_ID,
+      requestId: "7",
+      response: {
+        decision: "refuse",
+        reason: "This call could not be checked, so it did not run.",
+      },
+    },
+  ]);
+  expect(readCards()).toEqual([]);
+  // Refused, the ask is held no more: the provider's resend is checked afresh.
+  createFailure = undefined;
+  await asks.takeAsk(NPM_TEST);
   expect(readCards()).toMatchObject([{ state: "pending" }]);
 });
 
@@ -292,4 +375,73 @@ it("raises one card for an ask delivered again while held, and a new one once it
   const cards = readCards();
   expect(cards.map((card) => card.state)).toEqual(["approved", "pending"]);
   expect(new Set(cards.map((card) => card.ask_id)).size).toBe(2);
+});
+
+it("runs a card's corrected command once, on its own run, and no other command", async () => {
+  const asks = buildAsks();
+  await asks.takeAsk(NPM_TEST);
+  await asks.takeAsk({ ...NPM_TEST, requestId: "8" });
+  const [approved, open] = readCards();
+  const approvedId = ApprovalRequestIdSchema.parse(approved?.id);
+  const openId = ApprovalRequestIdSchema.parse(open?.id);
+  await asks.resolve(
+    {
+      approvalRequestId: approvedId,
+      decision: "approved",
+      clientResolutionId: "00000000-0000-4000-8000-0000000000d1",
+      editedAction: "npm test -- --run",
+    },
+    LAPTOP,
+  );
+  const corrected = { kind: "command", command: "npm test -- --run" } as const;
+  const askFor = (requestId: string, overrides: Partial<ProviderPermissionAsk>) =>
+    asks.takeAsk({ ...NPM_TEST, requestId, correctionOf: approvedId, ...overrides });
+
+  // Each of these names the approved card and still waits on its own: another run's ask for the
+  // corrected command, this run's ask for another command, and an ask naming a card still open.
+  await askFor("9", { runId: OTHER_RUN_ID, action: corrected });
+  await askFor("10", { action: { kind: "command", command: "npm test -- --watch" } });
+  await askFor("11", { action: corrected, correctionOf: openId });
+  // The corrected command on the card's own run runs with no card, once.
+  await askFor("12", { action: corrected });
+  await askFor("13", { action: corrected });
+
+  expect(responses).toEqual([
+    {
+      runId: RUN_ID,
+      requestId: "7",
+      response: {
+        decision: "allow",
+        correction: { editedAction: "npm test -- --run", approvalRequestId: approvedId },
+      },
+    },
+    { runId: RUN_ID, requestId: "12", response: { decision: "allow" } },
+  ]);
+  expect(readCards().map((card) => card.state)).toEqual([
+    "approved",
+    "pending",
+    "pending",
+    "pending",
+    "pending",
+    "pending",
+  ]);
+  // The one use is kept in the database, so a service built again after a restart refuses it too.
+  const restarted = new ApprovalService({
+    reader: database.reader,
+    writer: database.writer,
+    sessionEvents: new EventLogService({
+      writer: database.writer,
+      reader: database.reader,
+      writeServiceLog: () => {},
+    }),
+    followAll: () => () => {},
+    workingFolders: { raiseStaleness: async () => {} },
+    writeServiceLog: () => {},
+  });
+  expect(
+    await restarted.takeCorrection(approvedId, {
+      runId: RUN_ID,
+      correctedSubject: corrected.command,
+    }),
+  ).toBe(false);
 });

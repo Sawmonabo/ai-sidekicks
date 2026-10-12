@@ -78,6 +78,7 @@ interface ApprovalResolvedPayload {
   effectiveScope: string; // recorded effective scope (≤ requested, I-009-6)
   deviceId: DeviceId; // the answering device's id, the device whose connection carried the answer; a card answered elsewhere reads it as `Answered on <device>`
   clientResolutionId: string; // the resolving request's own `clientResolutionId`, echoed so the device whose answer landed knows it did
+  editedAction?: string; // on `approval.approved` only, the command or path the person corrected on the card: the one action the approval covers, which the permission check lets run once, on the card's own run (local-sqlite-schema.md §Approval Tables)
 }
 interface ApprovalCanceledPayload {
   sessionId: SessionId;
@@ -199,30 +200,40 @@ interface ApprovalResolveResponse {
 }
 
 // PermissionCheck (daemon-internal pre-execution gate — no wire method string, D-009-5/D-009-18;
-// both shapes are the daemon's own, in `packages/runtime-daemon/src/policy/`)
-interface PermissionCheckRequest {
-  runId: RunId;
-  category: ApprovalCategory;
-  scope: string;
-  resourceDescriptor: Record<string, unknown>;
-}
-interface PermissionCheckResponse {
-  allowed: boolean;
-  reason: "policy_allow" | "remembered_rule" | "approved" | "pending_approval" | "denied";
-  // D-009-17 semantics: policy_allow = a built-in permit with no human approval artifact — plain
-  // code answering a provider's ask, Cedar only for the workflow actions (Spec-010 §Required
-  // Behavior); remembered_rule = the session's own answers carry an allow on this subject that the
-  // daemon answers for a provider with no verb of its own (a Codex session allow after a restart);
-  // approved = a recorded approved resolution covers this exact request; pending_approval = request
-  // created/open (allowed=false); denied = a built-in refusal (plain code on a provider's ask, a
-  // Cedar forbid, only ever on a workflow action), a rejected resolution, a host the session
-  // blocked on Codex, which has no session block of its own, or fail-closed refusal (the typed
-  // `approval.persistence_unavailable` error additionally surfaces on fail-closed paths so audit
-  // can distinguish them).
-  // Invariants: allowed === (reason ∈ {policy_allow, remembered_rule, approved});
-  approvalRequestId?: ApprovalRequestId; // present iff reason = 'pending_approval': the one request
-  // the ask opened, which the first answer from any device settles.
-}
+// both shapes are the daemon's own, in `packages/runtime-daemon/src/policy/permission-check.ts`)
+type PermissionCheckRequest =
+  // A provider's permission ask, under the id the daemon minted for it; `signal` aborts once the
+  // provider takes the ask back, and an ask taken back before its card is raised raises none.
+  | { kind: "provider_ask"; ask: ProviderPermissionAsk; askId: string; signal: AbortSignal }
+  // A call of one of the app's own tools that its provider runs without asking first (Codex, with
+  // the daemon's tool server set to approve): gated by the calling session's level alone.
+  | { kind: "tool_call"; sessionId: SessionId; runId: RunId; toolName: string; toolCallId: string }
+  // A workflow start an agent's tool or a trigger asks for; `askingRunId` is the calling agent's
+  // run, whose posture the Cedar context carries, and a trigger's start names none.
+  | { kind: "workflow_start"; workflowId: WorkflowDefinitionId; askingRunId: RunId | undefined };
+type PermissionCheckResponse =
+  | { allowed: true; reason: "policy_allow" }
+  | { allowed: true; reason: "approved" }
+  | { allowed: true; reason: "remembered_rule"; rule: ProviderAskRule }
+  | { allowed: false; reason: "pending_approval"; approvalRequestId: ApprovalRequestId }
+  | { allowed: false; reason: "denied"; refusal: string }; // `refusal`: the line the agent reads
+// D-009-17 semantics, by what asks:
+// - provider_ask (no Cedar): policy_allow = the daemon's designed answer, or the level's own allow
+//   of an ask its added ask rule sent (a Reviewed removal Claude Code's `Bash(rm *)` rule sent that
+//   its own check did not flag); denied = a designed refusal or a session block rule in force on
+//   the subject; approved = the person approved the card whose corrected command or path this ask
+//   carries out, on the card's own run, taken once (`approval_correction_uses`); remembered_rule =
+//   a session allow in force on the subject, where a standing allow may stand; pending_approval =
+//   the card was raised and recorded before the check returned.
+// - tool_call (no Cedar): policy_allow at `sandboxed` and `yolo`; pending_approval at `readonly`,
+//   `ask` and `reviewed`, the ordinary `tool_execution` card the caller waits on; denied for a run
+//   with no level to read.
+// - workflow_start (Cedar, `statefulIsAuthorized` over the resident policy set): policy_allow on a
+//   permit, denied on a forbid, an evaluation error, an owner that does not resolve, or an agent's
+//   start whose run has no posture to read; context = `{ posture }` of the asking run, `{}` for a
+//   trigger's start. No start waits on a card.
+// A card that cannot be recorded rejects with the typed `approval.persistence_unavailable`, and the
+// action does not proceed; a provider ask the check could not decide is refused at its provider.
 
 // ApprovalProjectionRead
 interface ApprovalProjectionReadRequest {

@@ -11,7 +11,12 @@
 //     listener the run engine registers: an answer, or the provider taking its ask back. A
 //     cancellation with the run's or the session's end tells it nothing, since the run has ended.
 //   * An approval marks the session's working folder stale, after the commit, since work the person
-//     has not seen may land there; a decline and a cancellation mark nothing.
+//     has not seen may land there, as does an allow the daemon gives an ask itself; a decline and a
+//     cancellation mark nothing.
+//   * An approval that corrected the command or path records the corrected words with the answer,
+//     and the provider's ask that carries them out takes the correction once, in a guarded write.
+//   * A card the daemon raised itself, for a call no provider asked about, is waited on until it
+//     settles: answered, or canceled with its run or its session.
 
 import type { Database } from "better-sqlite3";
 
@@ -21,6 +26,7 @@ import {
   type ApprovalRequestId,
   type ApprovalResolveRequest,
   type ApprovalResolveResponse,
+  type ApprovalState,
 } from "@ai-sidekicks/contracts/approval";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
@@ -28,7 +34,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import type { ServiceLogWriter } from "../daemon/service-log.js";
-import { WriteRefusedError } from "../database/writer.js";
+import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
 import type { SessionEventLog } from "../events/session/appender.js";
 import type { WorkingFolderWatcher } from "../git/worktree/watch.js";
 import { describeRejection } from "../rejection.js";
@@ -50,6 +56,7 @@ import {
 } from "./request-create.js";
 import {
   ApprovalRequestReader,
+  insertCorrectionUseStatement,
   insertRequestStatement,
   insertResolutionStatement,
   runLiveStatement,
@@ -72,6 +79,8 @@ export interface ApprovalOutcomeListener {
 export interface ApprovalServiceDeps {
   /** The read-only connection the asks and the sessions are read on. */
   readonly reader: Database;
+  /** The writer a correction's one use is recorded through. */
+  readonly writer: Pick<DatabaseWriter, "write">;
   readonly sessionEvents: SessionEventLog;
   /** Follows every session's events; `onGap` names a session whose missed events went unread. */
   readonly followAll: (
@@ -100,6 +109,21 @@ export interface ResolvedAnswer {
   readonly wasRecorded: boolean;
 }
 
+/** How an ask settled. */
+export type SettledApprovalState = Exclude<ApprovalState, "pending">;
+
+// The events that settle an ask, which wake whoever waits on it.
+const SETTLING_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "approval.approved",
+  "approval.rejected",
+  "approval.canceled",
+]);
+
+interface SettleWaiter {
+  readonly resolve: (state: SettledApprovalState) => void;
+  readonly reject: (error: unknown) => void;
+}
+
 /** Raises asks, records their answers and cancels the ones their run or session leaves open. */
 export class ApprovalService {
   readonly #deps: ApprovalServiceDeps;
@@ -108,6 +132,8 @@ export class ApprovalService {
   readonly #now: () => string;
   // The sweeps of closed sessions under way, which a stop waits for.
   readonly #sweeps = new Set<Promise<void>>();
+  // Whoever waits on each card until it settles, by the card's id.
+  readonly #settleWaiters = new Map<ApprovalRequestId, SettleWaiter[]>();
   #listener: ApprovalOutcomeListener | undefined;
   #detachFromLog: (() => void) | undefined;
 
@@ -139,10 +165,18 @@ export class ApprovalService {
         if (event.type === "session.closed") {
           this.#sweepEndedSession(event.sessionId);
         }
+        if (SETTLING_EVENT_TYPES.has(event.type)) {
+          const { approvalRequestId } = event.payload as { approvalRequestId: ApprovalRequestId };
+          this.#wakeSettleWaiters(approvalRequestId);
+        }
       },
       (sessionId) => {
         if (this.#requests.isSessionEnded(sessionId)) {
           this.#sweepEndedSession(sessionId);
+        }
+        // A settle among the missed events is read back from its row.
+        for (const approvalRequestId of [...this.#settleWaiters.keys()]) {
+          this.#wakeSettleWaiters(approvalRequestId);
         }
       },
     );
@@ -151,10 +185,54 @@ export class ApprovalService {
     }
   }
 
-  /** Stops following the log and waits for the sweeps under way. */
+  /**
+   * Stops following the log and waits for the sweeps under way; whoever still waits on a card is
+   * rejected, since no settle can reach them now.
+   */
   async stop(): Promise<void> {
     this.#detachFromLog?.();
+    const stopped = new Error("The approval service stopped before the card settled");
+    for (const waiters of this.#settleWaiters.values()) {
+      for (const waiter of waiters) {
+        waiter.reject(stopped);
+      }
+    }
+    this.#settleWaiters.clear();
     await Promise.all(this.#sweeps);
+  }
+
+  /**
+   * Resolves once the card under `approvalRequestId` settles, with how it settled: at once for one
+   * settled already. Rejects with `approval.not_found` for a card the daemon holds none of, and
+   * when the service stops first. Settles are heard from the log the service follows once started.
+   */
+  waitForSettle(approvalRequestId: ApprovalRequestId): Promise<SettledApprovalState> {
+    return new Promise((resolve, reject) => {
+      const waiters = this.#settleWaiters.get(approvalRequestId) ?? [];
+      waiters.push({ resolve, reject });
+      this.#settleWaiters.set(approvalRequestId, waiters);
+      // Read after the wait is listed, so a settle committed in between still wakes it.
+      this.#wakeSettleWaiters(approvalRequestId);
+    });
+  }
+
+  #wakeSettleWaiters(approvalRequestId: ApprovalRequestId): void {
+    const waiters = this.#settleWaiters.get(approvalRequestId);
+    if (waiters === undefined) {
+      return;
+    }
+    const stored = this.#requests.readRequest(approvalRequestId);
+    if (stored?.state === "pending") {
+      return;
+    }
+    this.#settleWaiters.delete(approvalRequestId);
+    for (const waiter of waiters) {
+      if (stored === undefined) {
+        waiter.reject(new ApprovalNotFoundError(approvalRequestId));
+      } else {
+        waiter.resolve(stored.state);
+      }
+    }
   }
 
   /**
@@ -241,6 +319,7 @@ export class ApprovalService {
           effectiveScope,
           deviceId: answeringDeviceId,
           clientResolutionId: request.clientResolutionId,
+          ...(request.editedAction === undefined ? {} : { editedAction: request.editedAction }),
         },
         {
           occurredAt: resolvedAt,
@@ -253,6 +332,7 @@ export class ApprovalService {
               clientResolutionId: request.clientResolutionId,
               decision: request.decision,
               effectiveScope,
+              editedAction: request.editedAction,
               resolvedAt,
             }),
           ],
@@ -279,7 +359,7 @@ export class ApprovalService {
     }
     await this.#listener?.onSettled(stored.runId, stored.approvalRequestId);
     if (request.decision === "approved") {
-      await this.#raiseStaleness(stored.sessionId);
+      await this.markWorkingFolderStale(stored.sessionId);
     }
     return {
       response: {
@@ -303,6 +383,42 @@ export class ApprovalService {
       return;
     }
     await this.#listener?.onSettled(stored.runId, approvalRequestId);
+  }
+
+  /**
+   * Takes the correction an approved card carries for the provider ask that carries it out: true
+   * once, for an ask on the card's own run whose command or path is exactly the corrected one, and
+   * false for any other ask, a card that is not approved or names no correction, and a correction
+   * already carried out, which the guarded write refuses even across a restart. Throws
+   * `approval.persistence_unavailable` when the use could not be recorded.
+   */
+  async takeCorrection(
+    approvalRequestId: ApprovalRequestId,
+    ask: { readonly runId: RunId; readonly correctedSubject: string },
+  ): Promise<boolean> {
+    const stored = this.#requests.readRequest(approvalRequestId);
+    if (
+      stored?.state !== "approved" ||
+      stored.runId !== ask.runId ||
+      stored.resolution?.editedAction !== ask.correctedSubject
+    ) {
+      return false;
+    }
+    try {
+      await this.#deps.writer.write([
+        insertCorrectionUseStatement({
+          approvalRequestId,
+          sessionId: stored.sessionId,
+          usedAt: this.#now(),
+        }),
+      ]);
+    } catch (error) {
+      if (error instanceof WriteRefusedError) {
+        return false;
+      }
+      throw new ApprovalPersistenceUnavailableError(error);
+    }
+    return true;
   }
 
   /** The ask under `approvalRequestId`, or `undefined` when the daemon holds none. */
@@ -401,14 +517,17 @@ export class ApprovalService {
     this.#sweeps.add(sweep);
   }
 
-  // The answer is already kept, so a folder that could not be marked goes to the service log rather
-  // than failing an answer that stands.
-  async #raiseStaleness(sessionId: SessionId): Promise<void> {
+  /**
+   * Marks the session's working folder stale once an action was allowed, since work the person has
+   * not seen may land there. The allow already stands, so a folder that could not be marked goes to
+   * the service log rather than failing it.
+   */
+  async markWorkingFolderStale(sessionId: SessionId): Promise<void> {
     try {
       await this.#deps.workingFolders.raiseStaleness(sessionId);
     } catch (error) {
       this.#deps.writeServiceLog(
-        `Marking the working folder of session ${sessionId} stale after an approval failed: ` +
+        `Marking the working folder of session ${sessionId} stale after an allow failed: ` +
           describeRejection(error),
       );
     }

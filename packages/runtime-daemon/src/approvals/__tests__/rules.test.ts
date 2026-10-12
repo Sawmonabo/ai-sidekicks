@@ -130,6 +130,7 @@ beforeEach(async () => {
   };
   service = new ApprovalService({
     reader: database.reader,
+    writer: database.writer,
     sessionEvents,
     followAll: () => () => {},
     workingFolders: { raiseStaleness: async () => {} },
