@@ -32,6 +32,8 @@ import { PageTabStrip } from "#renderer/features/preview/components/PageTab/Page
 import { previewPage } from "#renderer/features/preview/page-list-reading.test-support.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { SessionPaneLayout } from "#renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
+import { failOnPaneSizesRefusal } from "#renderer/features/sessions/pane-layout/kept-sizes.test-support.js";
+import { openStore } from "#renderer/store/persistence/ui-state-store.test-support.js";
 import { PaneLayoutStore } from "#renderer/features/sessions/pane-layout/store.js";
 import { PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
@@ -628,6 +630,8 @@ async function mountPaneRowInSecondWindow(): Promise<{
               isSessionOpen
               sessionId={undefined}
               conversation={<p>the conversation</p>}
+              uiStateStore={openStore()}
+              onPaneSizesRefused={failOnPaneSizesRefusal}
             />
           </div>,
           secondWindow.document.body,

@@ -36,6 +36,7 @@ import { type AppRoute } from "#renderer/routing/routes.js";
 import { type WindowStore } from "#renderer/store/window/store.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type DraftStore } from "#renderer/store/drafts.js";
+import { isUnreadableRecordRefusal } from "#renderer/store/persistence/durable-view-state.js";
 import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 
 import { SessionHeader } from "./header/components/SessionHeader.js";
@@ -101,7 +102,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   // render would drop every later session's banner.
   const saveRefused = useCallback(
     (refusal: Refusal, savedSessionId: string) => {
-      recordRefusal(clock, "pane-layout-not-saved", savedSessionId, refusal);
+      recordRefusal(clock, "pane-layout-not-saved", `session ${savedSessionId}`, refusal);
       const publishIntoTheVisitOnScreen = settleBanners();
       publishIntoTheVisitOnScreen((current) =>
         raiseSessionBanner(current, PANE_LAYOUT_NOT_SAVED_BANNER),
@@ -118,9 +119,27 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
     [settleBanners],
   );
 
+  // The pane sizes are kept for the install: a read that failed says so in its own words, and a
+  // refused write is the pane layout not saved.
+  const paneSizesRefused = useCallback(
+    (refusal: Refusal) => {
+      const isUnreadable = isUnreadableRecordRefusal(refusal);
+      recordRefusal(
+        clock,
+        isUnreadable ? "pane-sizes-not-read" : "pane-sizes-not-saved",
+        "pane sizes",
+        refusal,
+      );
+      const banner = isUnreadable ? { words: [refusal.detail] } : PANE_LAYOUT_NOT_SAVED_BANNER;
+      const publishIntoTheVisitOnScreen = settleBanners();
+      publishIntoTheVisitOnScreen((current) => raiseSessionBanner(current, banner));
+    },
+    [clock, settleBanners],
+  );
+
   const restoreRefused = useCallback(
     (refusal: Refusal, restoredSessionId: string) => {
-      recordRefusal(clock, "pane-layout-not-restored", restoredSessionId, refusal);
+      recordRefusal(clock, "pane-layout-not-restored", `session ${restoredSessionId}`, refusal);
     },
     [clock],
   );
@@ -245,6 +264,8 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
         isSessionOpen={props.sessionStore !== undefined}
         sessionId={sessionId}
         conversation={conversation}
+        uiStateStore={props.uiStateStore}
+        onPaneSizesRefused={paneSizesRefused}
       />
     </div>
   );
@@ -282,20 +303,15 @@ function carryFlowHeight(screen: HTMLElement | null): (() => void) | undefined {
 }
 
 /**
- * One warning in the window's diagnostic capture for a refusal this screen does not
- * draw, naming the session and the refusal's code.
+ * One warning in the window's diagnostic capture for a refusal, naming what was refused and the
+ * refusal's code.
  */
-function recordRefusal(
-  clock: Clock,
-  kind: string,
-  refusedSessionId: string,
-  refusal: Refusal,
-): void {
+function recordRefusal(clock: Clock, kind: string, refusedSubject: string, refusal: Refusal): void {
   windowDiagnosticCapture.record({
     at: diagnosticStampAt(clock),
     severity: "warning",
     source: "features/sessions",
     kind,
-    detail: `session ${refusedSessionId}: ${refusal.code}`,
+    detail: `${refusedSubject}: ${refusal.code}`,
   });
 }

@@ -45,10 +45,6 @@ export interface PaneLayoutState {
   readonly terminalPlace: TerminalPlace;
   /** The pane holding the whole width, or `undefined` while the row is drawn. */
   readonly fullWidthPaneId: string | undefined;
-  /** Each kind's width a person dragged or nudged its edge to, in CSS px; absent at its default. */
-  readonly paneWidthsPx: Readonly<Partial<Record<BlockPaneKind, number>>>;
-  /** The stacked terminal's height a person set, in CSS px; `undefined` at its default third. */
-  readonly terminalHeightPx: number | undefined;
   /** The last open, so the view scrolls that pane into view once per open. */
   readonly lastOpened: OpenedPane | undefined;
   /** Monotonic, so a test can count transitions rather than infer them. */

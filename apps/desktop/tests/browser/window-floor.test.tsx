@@ -32,6 +32,8 @@ import { wireFacet } from "#renderer/features/inspector/entity-detail/facets.js"
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { SessionPaneLayout } from "#renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
+import { failOnPaneSizesRefusal } from "#renderer/features/sessions/pane-layout/kept-sizes.test-support.js";
+import { openStore } from "#renderer/store/persistence/ui-state-store.test-support.js";
 import type { SessionPane } from "#renderer/features/sessions/pane-layout/state.js";
 import { PaneLayoutStore } from "#renderer/features/sessions/pane-layout/store.js";
 import { PANE_WIDTH_RULE_BY_KIND } from "#renderer/features/sessions/pane-layout/widths.js";
@@ -236,6 +238,8 @@ async function renderPaneLayoutInFrame(layout: PaneLayoutStore): Promise<void> {
         isSessionOpen
         sessionId={undefined}
         conversation={<p>the conversation</p>}
+        uiStateStore={openStore()}
+        onPaneSizesRefused={failOnPaneSizesRefusal}
       />
     </LiveAnnouncerProvider>,
   );

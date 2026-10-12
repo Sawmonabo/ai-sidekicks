@@ -2,11 +2,15 @@
 // mounted screen. Sessions are opened and never closed, so moving between two re-renders this
 // component and a queued arrangement can flush after the screen shows the other session.
 
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { collectSentDiagnostics, type SentDiagnostics } from "#test/helpers/sent-diagnostics.js";
+import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-adapter.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { openStoreOver } from "#renderer/store/persistence/ui-state-store.test-support.js";
+import { WindowStore } from "#renderer/store/window/store.js";
+import { ReadFailurePersistenceAdapter } from "#test/helpers/read-failure-persistence-adapter.js";
 import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/persistence.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import {
@@ -106,5 +110,69 @@ describe("SessionScreen — navigating between two sessions the window already h
     const filedUnderSecond = adapter.asked.filter((write) => write.partition === SESSION_B_ID);
     expect(filedUnderSecond.length).toBeGreaterThan(0);
     expect(filedUnderSecond.map((write) => panesInRecord(write.value))).not.toContain(2);
+  });
+});
+
+describe("SessionScreen — the pane sizes kept for this install", () => {
+  /** Preview's slot and the width it is drawn at, as its style sets it. */
+  function previewWidth(container: HTMLElement): string | undefined {
+    return (
+      container
+        .querySelector<HTMLElement>('.meridian-pane-layout__pane:has([data-body="browser"])')
+        ?.style.getPropertyValue("--meridian-pane-width") ?? undefined
+    );
+  }
+
+  it("opens a pane at the width set in another session, and after a reload", async () => {
+    const adapter = new MemoryPersistenceAdapter();
+    const store = openStoreOver(adapter);
+    await saveLayout(store, SESSION_ID, ["browser"]);
+    await saveLayout(store, SESSION_B_ID, ["browser"]);
+    const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
+    const { container, rerender } = render(workspaceFor(first, store));
+    await waitFor(() => {
+      expect(previewWidth(container)).toMatch(/rem$/u);
+    });
+    const openingWidth = previewWidth(container);
+
+    // A nudge sets the width, as a drag's release does.
+    fireEvent.keyDown(
+      container.querySelector(".meridian-pane-edge") ?? expect.fail("Preview draws its edge"),
+      { key: "ArrowLeft" },
+    );
+    const setWidth = previewWidth(container);
+    expect(setWidth).toMatch(/px$/u);
+
+    rerender(workspaceFor(otherSession(), store));
+    await waitFor(() => {
+      expect(container.querySelector('[data-body="browser"]')).not.toBeNull();
+    });
+    expect(previewWidth(container)).toBe(setWidth);
+
+    // A reload: the window's store opened again over what the first one wrote.
+    cleanup();
+    const reopened = render(workspaceFor(first, openStoreOver(adapter)));
+    await waitFor(() => {
+      expect(previewWidth(reopened.container)).toBe(setWidth);
+    });
+    expect(setWidth).not.toBe(openingWidth);
+  });
+
+  it("opens every pane at its opening width, and says so in one line, when the store throws", async () => {
+    const store = new UiStateStore({ adapter: new ReadFailurePersistenceAdapter() });
+    const frameStore = new WindowStore({
+      initialRoute: { kind: "session", sessionId: SESSION_ID },
+    });
+    const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
+    const { container } = render(workspaceFor(first, store, undefined, frameStore));
+    frameStore.paneOpenRequests.request({ sessionId: SESSION_ID, address: { kind: "browser" } });
+    await waitFor(() => {
+      expect(container.textContent).toContain(
+        "Could not read what you last set here, so this view starts from its defaults.",
+      );
+    });
+    await waitFor(() => {
+      expect(previewWidth(container)).toMatch(/rem$/u);
+    });
   });
 });

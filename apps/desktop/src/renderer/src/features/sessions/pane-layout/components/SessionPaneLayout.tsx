@@ -11,7 +11,7 @@
 
 import "./SessionPaneLayout.css";
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { PaneEdgeDragContext } from "#renderer/components/PaneFrame/edge-drag.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
@@ -24,12 +24,14 @@ import { useReorderDrag, type ReorderDragSettings } from "#renderer/hooks/useReo
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
+import type { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import {
   CONVERSATION_FLOOR_REM,
   PANE_ROW_HEIGHT_FLOOR_REM,
   TERMINAL_PANE_HEIGHT_FLOOR_REM,
 } from "#renderer/styles/palette.js";
 import { usePaneLayoutState } from "../hooks/usePaneLayoutState.js";
+import { useKeptPaneSizes } from "../hooks/useKeptPaneSizes.js";
 import { type PaneLayoutStore } from "../store.js";
 import { paneLayoutActsOn } from "../acts.js";
 import { useMountedPaneLayout } from "../hooks/useMountedPaneLayout.js";
@@ -52,6 +54,10 @@ export interface SessionPaneLayoutProps {
   readonly sessionId: string | undefined;
   /** The conversation the block stands beside: its header, transcript and composer. */
   readonly conversation: React.ReactNode;
+  /** The durable store the pane sizes a person set are kept in, for this install. */
+  readonly uiStateStore: UiStateStore;
+  /** Told each refusal of the kept sizes: a read that failed, or a write the store refused. */
+  readonly onPaneSizesRefused: (refusal: Refusal) => void;
 }
 
 /** The conversation and the block of panes beside it, arranged by a `PaneLayoutStore`. */
@@ -74,6 +80,13 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
   const row = useMemo(() => rowPanes(state.panes), [state.panes]);
   const terminal = terminalPane(state.panes);
   const isFull = state.fullWidthPaneId !== undefined;
+  const sizes = useKeptPaneSizes(props.uiStateStore);
+  const { onPaneSizesRefused } = props;
+  useEffect(() => {
+    if (sizes.lastRefusal !== undefined) {
+      onPaneSizesRefused(sizes.lastRefusal);
+    }
+  }, [sizes.lastRefusal, onPaneSizesRefused]);
 
   // Built once per (layout, announcer) pair and shared by this component's keys, the window's
   // chords and the palette rows in `contributions/commands.ts`, so a chord and a row cannot mean
@@ -251,18 +264,6 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
     },
     [layout],
   );
-  const setPaneWidth = useCallback(
-    (kind: SessionPane["kind"], widthPx: number | undefined) => {
-      layout.setPaneWidth(kind, widthPx);
-    },
-    [layout],
-  );
-  const setTerminalHeight = useCallback(
-    (heightPx: number | undefined) => {
-      layout.setTerminalHeight(heightPx);
-    },
-    [layout],
-  );
   // A pane may be dragged as wide as leaves the conversation its floor.
   const measureWidthCeilingPx = useCallback((): number => {
     const element = layoutRef.current;
@@ -272,7 +273,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
     const width = element.getBoundingClientRect().width;
     return width - CONVERSATION_FLOOR_REM * rootFontSizePx(element.ownerDocument);
   }, []);
-  const terminalHeightPx = state.terminalHeightPx;
+  const { terminalHeightPx, setPaneWidth, setTerminalHeight } = sizes;
   // The terminal and the row each keep the height they stop being readable under.
   const measureTerminalHeight = useCallback((): PaneEdgeReading => {
     const block = blockRef.current;
@@ -304,7 +305,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
         placement={placement}
         side={state.side}
         terminalPlace={state.terminalPlace}
-        widthPx={state.paneWidthsPx[pane.kind]}
+        widthPx={sizes.widthsPx[pane.kind]}
         isFullWidth={state.fullWidthPaneId === pane.paneId}
         registry={props.registry}
         paneContextFor={props.paneContextFor}

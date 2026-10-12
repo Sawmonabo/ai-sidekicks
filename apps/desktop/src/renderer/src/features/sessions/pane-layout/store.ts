@@ -1,5 +1,6 @@
 // The pane block's live arrangement: which panes are open, their order along the row, the side of
-// the conversation the block stands on, where the terminal sits, and the widths a person set.
+// the conversation the block stands on, and where the terminal sits. The sizes a person set are
+// kept for the install, not the view (`kept-sizes.ts`).
 //
 // One pane per kind: a second open of a kind focuses the pane already open and re-points it at
 // the address's entity. The pane registry (`registries/panes/registry.ts`) enforces one pane per
@@ -43,8 +44,6 @@ export class PaneLayoutStore {
     side: DEFAULT_PANE_BLOCK_SIDE,
     terminalPlace: DEFAULT_TERMINAL_PLACE,
     fullWidthPaneId: undefined,
-    paneWidthsPx: {},
-    terminalHeightPx: undefined,
     lastOpened: undefined,
     revision: 0,
   };
@@ -241,27 +240,6 @@ export class PaneLayoutStore {
       return;
     }
     this.#commit({ fullWidthPaneId: paneId });
-  }
-
-  /** Sets one kind's width in CSS px, or returns it to its default with `undefined`. */
-  public setPaneWidth(kind: BlockPaneKind, widthPx: number | undefined): void {
-    if (this.#state.paneWidthsPx[kind] === widthPx) {
-      return;
-    }
-    const paneWidthsPx = { ...this.#state.paneWidthsPx };
-    if (widthPx === undefined) {
-      delete paneWidthsPx[kind];
-    } else {
-      paneWidthsPx[kind] = widthPx;
-    }
-    this.#commit({ paneWidthsPx });
-  }
-
-  /** Sets the stacked terminal's height in CSS px, or returns it to a third with `undefined`. */
-  public setTerminalHeight(heightPx: number | undefined): void {
-    if (this.#state.terminalHeightPx !== heightPx) {
-      this.#commit({ terminalHeightPx: heightPx });
-    }
   }
 
   /** The record stored under the `layout` value class. */

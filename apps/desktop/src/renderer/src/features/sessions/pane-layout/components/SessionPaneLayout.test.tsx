@@ -12,6 +12,8 @@ import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAn
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { SessionPaneLayout } from "./SessionPaneLayout.js";
+import { failOnPaneSizesRefusal } from "../kept-sizes.test-support.js";
+import { openStore } from "#renderer/store/persistence/ui-state-store.test-support.js";
 import { PaneLayoutStore } from "../store.js";
 
 /** Sidekicks, Preview and the terminal, Sidekicks focused. */
@@ -69,6 +71,8 @@ function renderPaneLayout(layout: PaneLayoutStore): HTMLElement {
           isSessionOpen
           sessionId={undefined}
           conversation={<p>the conversation</p>}
+          uiStateStore={openStore()}
+          onPaneSizesRefused={failOnPaneSizesRefusal}
         />
       </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,

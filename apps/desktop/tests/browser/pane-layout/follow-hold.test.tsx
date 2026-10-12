@@ -16,6 +16,8 @@ import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { SessionPaneLayout } from "#renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
+import { failOnPaneSizesRefusal } from "#renderer/features/sessions/pane-layout/kept-sizes.test-support.js";
+import { openStore } from "#renderer/store/persistence/ui-state-store.test-support.js";
 import { PaneLayoutStore } from "#renderer/features/sessions/pane-layout/store.js";
 import { TranscriptFeed } from "#renderer/features/transcript/feed/components/TranscriptFeed.js";
 import {
@@ -137,6 +139,8 @@ async function mountConversationBesidePreview(
                 />
               </div>
             }
+            uiStateStore={openStore()}
+            onPaneSizesRefused={failOnPaneSizesRefusal}
           />
         </div>
       </LiveAnnouncerProvider>
