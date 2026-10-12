@@ -1,7 +1,9 @@
 // `ProtocolNegotiator`: the `daemon.hello` handshake checks the session token and picks a protocol
 // version, and the gated registry serves nothing on a connection until a hello with the right
 // token has succeeded, and mutating methods only after a compatible one, while an unregistered
-// method on a handshaken connection still answers method_not_found.
+// method on a handshaken connection still answers method_not_found. A hello whose caller the
+// system could not name is refused for good, and a hello whose caller is still being read latches
+// nothing once its connection is refused or closed.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -57,8 +59,11 @@ const DEVICE_ID = DeviceIdSchema.parse("calling-device");
 // The process the gateway says opened every connection here, one the daemon did not start.
 const CALLER_PROCESS_ID = 4242;
 
-function makeFixture(): NegotiatorFixture {
-  const negotiator = new ProtocolNegotiator(SESSION_TOKEN, () => Promise.resolve(false));
+// `isRefusedCaller` answers the caller check; by default every caller is accepted.
+function makeFixture(
+  isRefusedCaller: (callerProcessId: number) => Promise<boolean> = () => Promise.resolve(false),
+): NegotiatorFixture {
+  const negotiator = new ProtocolNegotiator(SESSION_TOKEN, isRefusedCaller);
   const raw = new MethodRegistryImpl();
   const gated = negotiator.wrap(raw);
   negotiator.registerHandshakeMethod(gated);
@@ -352,4 +357,85 @@ describe("the session token", () => {
       }
     },
   );
+});
+
+describe("the caller check", () => {
+  const hello: DaemonHello = { sessionToken: SESSION_TOKEN, protocolVersion: "2026-05-01" };
+
+  // A caller check that answers only when the test says so.
+  function makePendingCheck(): {
+    readonly check: () => Promise<boolean>;
+    readonly answer: (isRefused: boolean) => void;
+  } {
+    let answer: (isRefused: boolean) => void = () => undefined;
+    const pending = new Promise<boolean>((resolve) => {
+      answer = resolve;
+    });
+    return { check: () => pending, answer };
+  }
+
+  it("refuses a hello whose caller the system could not name, and keeps refusing", async () => {
+    const { raw, gated } = makeFixture();
+    raw.register(
+      "session.read",
+      passthroughSchema<unknown>(),
+      passthroughSchema<{ ok: true }>(),
+      async () => ({ ok: true }),
+      { mutating: false },
+    );
+    const ctx: HandlerContext = { transportId: 401, deviceId: DEVICE_ID };
+
+    const refused = await captureRejection(gated.dispatch(DAEMON_HELLO_METHOD, hello, ctx));
+    const retried = await captureRejection(
+      gated.dispatch(DAEMON_HELLO_METHOD, hello, { ...ctx, callerProcessId: CALLER_PROCESS_ID }),
+    );
+    const read = await captureRejection(gated.dispatch("session.read", {}, ctx));
+
+    for (const caught of [refused, retried, read]) {
+      expect(caught).toBeInstanceOf(NegotiationError);
+      expect((caught as NegotiationError).negotiationCode).toBe("auth.caller_refused");
+    }
+  });
+
+  it("refuses a hello whose caller was read while another hello refused the connection", async () => {
+    const { check, answer } = makePendingCheck();
+    const { gated, negotiator } = makeFixture(check);
+    const ctx: HandlerContext = {
+      transportId: 402,
+      deviceId: DEVICE_ID,
+      callerProcessId: CALLER_PROCESS_ID,
+    };
+
+    const first = captureRejection(gated.dispatch(DAEMON_HELLO_METHOD, hello, ctx));
+    const wrongToken = await captureRejection(
+      gated.dispatch(DAEMON_HELLO_METHOD, { ...hello, sessionToken: "b".repeat(64) }, ctx),
+    );
+    answer(false);
+
+    for (const caught of [wrongToken, await first]) {
+      expect(caught).toBeInstanceOf(NegotiationError);
+      expect((caught as NegotiationError).negotiationCode).toBe("auth.token_invalid");
+    }
+    expect(negotiator.getState(402).kind).toBe("refused");
+  });
+
+  it("latches nothing for a hello whose connection closed while its caller was read", async () => {
+    const { check, answer } = makePendingCheck();
+    const { gated, negotiator } = makeFixture(check);
+    const ctx: HandlerContext = {
+      transportId: 403,
+      deviceId: DEVICE_ID,
+      callerProcessId: CALLER_PROCESS_ID,
+    };
+
+    const pending = captureRejection(gated.dispatch(DAEMON_HELLO_METHOD, hello, ctx));
+    negotiator.cleanupTransport(403);
+    answer(false);
+
+    expect((await pending) as Error).toHaveProperty(
+      "message",
+      `${DAEMON_HELLO_METHOD}: the connection closed while its caller was read`,
+    );
+    expect(negotiator.getState(403).kind).toBe("pre");
+  });
 });

@@ -4,9 +4,10 @@
 //
 // * The token is checked in constant time; a hello without it or with a wrong one latches the
 //   connection refused, so nothing more is served on it, a second guess included.
-// * A hello with the token from a process the daemon itself started, outside the person's
-//   terminals, latches the connection refused too: reading the token file is not enough to be
-//   the machine's own client.
+// * A hello with the token latches the connection refused too when its caller is an agent's: a
+//   process the daemon started outside the person's terminals, or one a provider service the
+//   daemon holds a connection to started, or one the system could not name or trace. Reading the
+//   token file is not enough to be the machine's own client.
 // * After the handshake read-only methods are always allowed; an unregistered method
 //   (`isMutating` is `undefined`) falls through to the inner not-found error.
 // * The wire schemas live in `@ai-sidekicks/contracts` because this package has no `zod`
@@ -53,8 +54,8 @@ import { callingDeviceOf, DelegatingRegistry } from "./registry.js";
  * Codes for gate refusals: any method but `daemon.hello` before a hello completed
  * (`handshake_required`), a mutating method after one that returned `compatible: false`
  * (`version_mismatch`), anything on a connection whose hello lacked the right session token
- * (`auth.token_invalid`), and anything on one a process the daemon started opened
- * (`auth.caller_refused`).
+ * (`auth.token_invalid`), and anything on one opened by a process the daemon or a provider service
+ * it holds started, or by one the system could not name or trace (`auth.caller_refused`).
  */
 export type NegotiationErrorCode =
   | "protocol.handshake_required"
@@ -350,6 +351,11 @@ export class ProtocolNegotiator {
     if (!this.#callerReads.has(transportId)) {
       throw new Error(`${DAEMON_HELLO_METHOD}: the connection closed while its caller was read`);
     }
+    // Another hello on the connection may have been refused while this one's caller was read.
+    const refusal = this.#refusedTransports.get(transportId);
+    if (refusal !== undefined) {
+      throw refusalFor(refusal);
+    }
     if (isRefusedCaller) {
       this.#refusedTransports.set(transportId, NEGOTIATION_CALLER_REFUSED_CODE);
       throw callerRefusal();
@@ -401,8 +407,9 @@ function refusalFor(code: RefusalCode): NegotiationError {
 function callerRefusal(): NegotiationError {
   return new NegotiationError(
     NEGOTIATION_CALLER_REFUSED_CODE,
-    "protocol-negotiation: the connection was opened by a process this daemon started, such as " +
-      "a command an agent ran, so nothing is served on it",
+    "protocol-negotiation: the connection was opened by a process this daemon or a provider " +
+      "service it reaches started, such as a command an agent ran, or by one the system could " +
+      "not name or trace, so nothing is served on it",
   );
 }
 

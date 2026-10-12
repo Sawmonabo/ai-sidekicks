@@ -101,9 +101,10 @@ export const NEGOTIATION_VERSION_MISMATCH_CODE = "protocol.version_mismatch" as 
 export const NEGOTIATION_TOKEN_INVALID_CODE = "auth.token_invalid" as const;
 
 /**
- * The error code (`error.data.type`) every call is refused with on a connection opened by a
- * process the daemon itself started outside the person's terminals, such as a command an agent
- * ran, or by one the system could not name, the hello included, whatever token it carried.
+ * The error code (`error.data.type`) every call is refused with, the hello included, whatever
+ * token it carried, on a connection opened by a process the daemon started outside the person's
+ * terminals, such as a command an agent ran, by one a provider service the daemon holds a
+ * connection to started, or by one the system could not name or trace to its first process.
  */
 export const NEGOTIATION_CALLER_REFUSED_CODE = "auth.caller_refused" as const;
 

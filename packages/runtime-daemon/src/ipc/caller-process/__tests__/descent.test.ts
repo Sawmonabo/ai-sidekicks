@@ -3,7 +3,8 @@
 // a client outside the daemon's tree, as the desktop and the command line are, and a program in a
 // terminal the daemon opened for the person, are both accepted. A command the person's own
 // provider service ran, outside the daemon's tree, is refused while the daemon holds a
-// connection to that service.
+// connection to that service. Over a fake reader, a chain that breaks, a chain that loops and a
+// caller that is itself a held service are each refused, so the check fails closed.
 
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -13,6 +14,8 @@ import * as path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import type { CallerProcessReader } from "../contract.js";
 
 import {
   CURRENT_PROTOCOL_VERSION,
@@ -285,5 +288,80 @@ describe.skipIf(process.platform === "win32")("a connection's caller", () => {
     } finally {
       service.destroy();
     }
+  });
+});
+
+describe("the caller check over a fake reader", () => {
+  // Process ids no real process near this test holds; the daemon is this test's own process.
+  const CALLER = 900_001;
+  const PARENT = 900_002;
+
+  // Runs the check on `CALLER`, whose parents are `parentOf`'s, with `held` the held services.
+  async function checkCaller(
+    parentOf: ReadonlyMap<number, number | undefined>,
+    held: ReadonlySet<number> = new Set(),
+  ): Promise<boolean> {
+    const reader: CallerProcessReader = {
+      readPeerProcessId: () => {
+        throw new Error("the check reads no socket");
+      },
+      readParentProcessId: (processId) => {
+        if (!parentOf.has(processId)) {
+          throw new Error(`no parent was set for ${String(processId)}`);
+        }
+        return Promise.resolve(parentOf.get(processId));
+      },
+    };
+    const check = createAgentCallerCheck(
+      reader,
+      { readTerminalProcessIds: () => new Set() },
+      { has: (processId) => held.has(processId) },
+    );
+    return await check(CALLER);
+  }
+
+  it("accepts a chain that ends at the system's first process", async () => {
+    expect(
+      await checkCaller(
+        new Map([
+          [CALLER, PARENT],
+          [PARENT, 1],
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a chain whose parent ended during the walk", async () => {
+    expect(
+      await checkCaller(
+        new Map([
+          [CALLER, PARENT],
+          [PARENT, undefined],
+        ]),
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses a chain that loops back on itself", async () => {
+    expect(
+      await checkCaller(
+        new Map([
+          [CALLER, PARENT],
+          [PARENT, CALLER],
+        ]),
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses a caller that is itself a held provider service", async () => {
+    expect(
+      await checkCaller(
+        new Map([
+          [CALLER, PARENT],
+          [PARENT, 1],
+        ]),
+        new Set([CALLER]),
+      ),
+    ).toBe(true);
   });
 });

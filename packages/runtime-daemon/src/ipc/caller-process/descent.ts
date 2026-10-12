@@ -24,9 +24,6 @@ export function createAgentCallerCheck(
 ): (callerProcessId: number) => Promise<boolean> {
   const daemonProcessId = process.pid;
   return async (callerProcessId) => {
-    if (callerProcessId === daemonProcessId) {
-      return false;
-    }
     const visited = new Set<number>([callerProcessId]);
     let processId = callerProcessId;
     for (;;) {
