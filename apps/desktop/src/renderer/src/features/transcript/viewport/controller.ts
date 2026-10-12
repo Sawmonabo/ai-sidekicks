@@ -286,12 +286,15 @@ export class ViewportController {
       noteReaderInput: (inputAtMs, towardSide) => {
         this.anchor.noteReaderInput(inputAtMs, towardSide);
         this.#pruneCycle.noteReaderInput(inputAtMs);
-        this.#drawnBand.noteReaderInput(inputAtMs, towardSide);
+        this.#drawnBand.widenFully(towardSide);
       },
       noteScrollEnd: () => {
         this.anchor.noteScrollEnd();
         this.#pruneCycle.noteScrollEnd();
         this.#drawnBand.noteScrollEnd();
+      },
+      noteTouchStart: (inputAtMs) => {
+        this.#drawnBand.noteTouchStart(inputAtMs);
       },
       notePointerDown: (isDown) => {
         this.anchor.notePointerDown(isDown);

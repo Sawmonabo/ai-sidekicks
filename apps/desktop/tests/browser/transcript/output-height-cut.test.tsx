@@ -279,27 +279,44 @@ function recordCutFrames(outputsOf: () => readonly Element[], count: number): Pr
   });
 }
 
+/** The frames a case's render may take to cut an output: two seconds of frames at 60 a second. */
+const CUT_FRAME_LIMIT = 120;
+
 /**
  * What each of the `count` frames after the commit that first cuts an output shows of the outputs
  * drawn, as `recordCutFrames` reads them, counted from that commit rather than from when the case
  * next runs: an awaited `act` returns a task later, and a busy machine starts a frame in between.
- * `onCut` runs in the commit's own task, before any frame starts.
+ * `onCut` runs in the commit's own task, before any frame starts. Rejects once `CUT_FRAME_LIMIT`
+ * frames pass with no output cut.
  */
 function recordCutFramesFromCut(count: number, onCut: () => void = () => {}): Promise<CutFrame[]> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    let framesWithoutCut = 0;
+    let frameRequest = 0;
     const changes = new MutationObserver(() => {
       if (document.querySelector(CUT_BODY_SELECTOR) !== null) {
         changes.disconnect();
+        cancelAnimationFrame(frameRequest);
         onCut();
         resolve(recordCutFrames(() => outputsIn(document.body), count));
       }
     });
+    const countFrame = (): void => {
+      framesWithoutCut += 1;
+      if (framesWithoutCut >= CUT_FRAME_LIMIT) {
+        changes.disconnect();
+        reject(new Error(`no output was cut within ${String(CUT_FRAME_LIMIT)} frames`));
+        return;
+      }
+      frameRequest = requestAnimationFrame(countFrame);
+    };
     changes.observe(document.body, {
       subtree: true,
       childList: true,
       attributes: true,
       attributeFilter: ["class"],
     });
+    frameRequest = requestAnimationFrame(countFrame);
   });
 }
 

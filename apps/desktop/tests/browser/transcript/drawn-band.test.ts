@@ -38,10 +38,12 @@ const TOUCH_FLING_PX = FEED_HEIGHT_PX * 3;
 /** A quick flick, whose momentum carries on long after the hand lets go, in pixels a second. */
 const QUICK_FLICK_SPEED = 8000;
 /**
- * The flick a frame of momentum is drawn late in: its late frame carries the box past the leading
- * band at rest, and short of the band's 3-screen cap, which the product does not fill beyond.
+ * The flick a frame of momentum is drawn late in, in pixels a second: from the commit that drew the
+ * rows to the frame after the late one it carries the box past the leading band at rest, and short
+ * of the band's 3-screen cap, which the product does not fill beyond, on both a fling curve that
+ * slows fast and one that slows late.
  */
-const LATE_FRAME_FLICK_SPEED = QUICK_FLICK_SPEED;
+const LATE_FRAME_FLICK_SPEED = 7500;
 /**
  * The hand's travel toward the tail in the fling a frame is drawn late in: one screen, so the late
  * frame ends far from the window's end and only the band's reach is read.
@@ -258,10 +260,12 @@ interface LateFrame {
 }
 
 /** The rows a commit drew, in pixels off the box's top then, with each row's top by position. */
-type DrawnRows = Omit<LateFrame, "boxTopPx"> & { readonly rowTopsPx: ReadonlyMap<number, number> };
+type CommittedRows = Omit<LateFrame, "boxTopPx"> & {
+  readonly rowTopsPx: ReadonlyMap<number, number>;
+};
 
 /** The rows drawn in `scroller` now, off the box's top now. */
-function readDrawnRows(scroller: HTMLElement): DrawnRows {
+function readCommittedRows(scroller: HTMLElement): CommittedRows {
   const box = scroller.getBoundingClientRect();
   const rows = drawnRows(scroller);
   return {
@@ -297,12 +301,18 @@ function drawOneFrameLate(scroller: HTMLElement): {
     hasHandLetGo = true;
   };
   scroller.addEventListener("touchend", onTouchEnd, { passive: true });
-  let lastCommit = readDrawnRows(scroller);
+  let lastCommit = readCommittedRows(scroller);
   const commits = new MutationObserver(() => {
-    lastCommit = readDrawnRows(scroller);
+    lastCommit = readCommittedRows(scroller);
   });
-  commits.observe(scroller, { subtree: true, childList: true });
-  let beforeStall: DrawnRows | undefined;
+  // A commit mounts and takes down rows, and moves those it keeps by their transform.
+  commits.observe(scroller, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["style"],
+  });
+  let beforeStall: CommittedRows | undefined;
   let lateFrame: LateFrame | undefined;
   const onFrame = (): void => {
     if (!isWatching || lateFrame !== undefined) {

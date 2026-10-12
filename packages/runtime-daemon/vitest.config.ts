@@ -13,12 +13,10 @@ import {
 // loader its workers and child processes inherit.
 const SOURCE_LOADER = new URL("./tests/helpers/typescript-source-loader.mjs", import.meta.url).href;
 
-// Node strips a worker thread's TypeScript with a WebAssembly module, so each test that starts and
-// ends a daemon builds and drops that module in thread after thread. Node 24's V8 can free a
-// WebAssembly import wrapper twice while its code collector frees a dead thread's code, aborting
-// the whole test process (`Check failed: jit_page.has_value()`). Turning that collector off keeps
-// a test process's WebAssembly code until it exits. Remove once Node 24 ships V8's fix.
-const WASM_CODE_GC_WORKAROUND: string[] = process.versions.node.startsWith("24.")
+// Node 24's V8 can free a WebAssembly import wrapper twice as its code collector frees a stopped
+// worker thread's code, aborting the test process; Node strips each worker's TypeScript with a
+// WebAssembly module, and these tests stop many workers. Keeping that code until exit avoids it.
+const WASM_CODE_COLLECTOR_OFF_FLAGS: readonly string[] = process.versions.node.startsWith("24.")
   ? ["--no-wasm-code-gc"]
   : [];
 
@@ -32,7 +30,7 @@ const isMutationRun = process.env["STRYKER_MUTATOR_WORKER"] !== undefined;
 export default defineConfig({
   test: {
     environment: "node",
-    execArgv: ["--import", SOURCE_LOADER, ...WASM_CODE_GC_WORKAROUND],
+    execArgv: ["--import", SOURCE_LOADER, ...WASM_CODE_COLLECTOR_OFF_FLAGS],
     passWithNoTests: false,
     reporters: ["default"],
     // Coverage is read only at the root once projects are declared.

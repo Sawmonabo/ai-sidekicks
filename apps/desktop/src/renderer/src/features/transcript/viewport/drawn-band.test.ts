@@ -106,29 +106,53 @@ describe("a fling's reach", () => {
     expect(band.screenHeights.tail).toBe(TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS);
   });
 
-  it("times a gesture's first sample from the touch that began it, and no later input", () => {
-    // A drag at 10 px a millisecond that a busy page first meets 60 ms after the touch, in one
-    // burst: read from the last sample of the gesture before, it would carry no speed.
-    const { band } = wholeBand();
-    band.observeGeometry(sampleAt(1_000, 0));
-    band.observeGeometry(sampleAt(1_010, 16));
-    band.noteScrollEnd();
-    band.noteReaderInput(5_000);
-    band.observeGeometry(sampleAt(1_600, 5_060));
-    expect(band.screenHeights.tail).toBe(TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS);
+  it("times a touch drag's first sample from the touch, and a one-frame jump from no input", () => {
+    /** A band that last moved in a gesture that has ended, 3 s before `0`. */
+    const restedBand = (): ViewportDrawnBand => {
+      const { band } = wholeBand();
+      band.observeGeometry(sampleAt(1_000, -3_016));
+      band.observeGeometry(sampleAt(1_010, -3_000));
+      band.noteScrollEnd();
+      return band;
+    };
 
-    // A slow drag whose touches each arrive just before the frame's sample: each sample's travel
-    // took the frame since the sample before, not the moment since its touch.
-    const slow = wholeBand().band;
-    let scrollTop = 1_000;
-    let inputAt = 0;
-    slow.observeGeometry(sampleAt(scrollTop, inputAt));
-    for (let frame = 0; frame < 4; frame += 1) {
-      inputAt += 16;
-      slow.noteReaderInput(inputAt - 2);
-      scrollTop += 16;
-      slow.observeGeometry(sampleAt(scrollTop, inputAt));
+    // A drag at 10 px a millisecond that a busy page first meets 60 ms after the touch, in one
+    // burst: read from the gesture before, it would carry no speed.
+    const burst = restedBand();
+    burst.noteTouchStart(0);
+    burst.observeGeometry(sampleAt(1_610, 60));
+    expect(burst.screenHeights.tail).toBe(TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS);
+
+    // A drag at reading pace, a sample each frame: the leading band after every one.
+    const reading = restedBand();
+    reading.noteTouchStart(0);
+    for (let frame = 1; frame <= 4; frame += 1) {
+      reading.observeGeometry(sampleAt(1_010 + frame * 16, frame * 16));
+      expect(reading.screenHeights.tail).toBe(LEADING);
     }
-    expect(slow.screenHeights.tail).toBe(LEADING);
+
+    // A wheel notch, an arrow and a Page Down, each landing in one frame 6 ms after its input:
+    // a jump, not a fling, so each keeps the leading band, notch after notch.
+    for (const jumpPx of [100, 900, 40, 600]) {
+      const jumped = restedBand();
+      for (let jump = 0; jump < 5; jump += 1) {
+        jumped.observeGeometry(sampleAt(1_010 + jumpPx * (jump + 1), jump * 3_000 + 6));
+        expect(jumped.screenHeights.tail).toBe(LEADING);
+      }
+    }
+
+    // A hand that catches a fling times nothing from its touch: the box it stops reads slow.
+    const caught = restedBand();
+    caught.noteTouchStart(0);
+    let scrollTop = 1_010;
+    for (let frame = 1; frame <= 3; frame += 1) {
+      scrollTop += 192;
+      caught.observeGeometry(sampleAt(scrollTop, frame * 16));
+    }
+    expect(caught.screenHeights.tail).toBe(TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS);
+    caught.noteTouchStart(60);
+    caught.observeGeometry(sampleAt(scrollTop + 30, 64));
+    caught.observeGeometry(sampleAt(scrollTop + 40, 80));
+    expect(caught.screenHeights.tail).toBe(LEADING);
   });
 });

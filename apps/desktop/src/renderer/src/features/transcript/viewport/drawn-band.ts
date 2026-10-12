@@ -9,9 +9,10 @@
 // band before the next render draws, so each side the box can still move toward reaches as far as
 // the leading side does. A fling's leading side reaches as far as its speed carries the box over a
 // late frame and the frames either side of it, a step at a time, and back once it slows or a press
-// stops it. A busy machine's own late frames read as the speed they carried the box at, the first
-// of a gesture timed from the reader's input that began it, and one slow sample amid a fling, a
-// frame that came in a burst, drops no reach.
+// stops it. A busy machine's own late frames read as the speed they carried the box at, and one
+// slow sample amid a fling, a frame that came in a burst, drops no reach. A touch drag's first
+// sample is timed from the touch that began it, so a drag a busy page first meets late still
+// reaches as far as its speed.
 
 import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import {
@@ -60,7 +61,10 @@ export class ViewportDrawnBand {
   #isAtTail = false;
   /** The offset of the last sample, so a scroll event's sample tells which way the reader moved. */
   #lastScrollTopPx: number | undefined;
-  /** The reader's gesture over the samples scroll events published, so each one's speed is told. */
+  /**
+   * The reader's gesture over the samples scroll events published, the touch that began it and the
+   * box's `scrollend`, so each sample's speed is told.
+   */
   readonly #gesture = new ReaderGesture();
   /** How far the leading side reaches for the fling under way, in screen heights; `0` at rest. */
   #flingScreenHeights = 0;
@@ -128,16 +132,14 @@ export class ViewportDrawnBand {
   }
 
   /**
-   * The reader's wheel, key or touch at `inputAtMs`, on the timeline scroll events stamp their
-   * samples on, toward `towardSide` when it says which way: the whole band now, and a gesture
-   * that begins with it times its first sample's travel from it.
+   * The reader's touch landed at `inputAtMs`, on the timeline scroll events stamp their samples
+   * on: a gesture it begins times its first sample's travel from it.
    */
-  public noteReaderInput(inputAtMs: number, towardSide?: WindowSide): void {
-    this.#gesture.observe(inputAtMs, undefined);
-    this.widenFully(towardSide);
+  public noteTouchStart(inputAtMs: number): void {
+    this.#gesture.noteTouchStart(inputAtMs);
   }
 
-  /** The box's `scrollend` arrived: the reader's next input begins a gesture. */
+  /** The box's `scrollend` arrived: the scroll sequence that kept the gesture going is over. */
   public noteScrollEnd(): void {
     this.#gesture.noteScrollEnd();
   }

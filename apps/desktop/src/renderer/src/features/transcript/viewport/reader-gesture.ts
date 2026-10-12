@@ -10,24 +10,20 @@
 // again. Between the two, a sample whose box moved through a long gap at half the gesture's pace or
 // more carries the gesture on when no input came in the gap, as none does in a fling's momentum:
 // half keeps a fling's late frame of up to about 430 ms, over which the platform's fling curve
-// still averages more than half the speed it entered at. A sample's speed is its travel over the
-// time since the sample before, or, for a gesture's first, since the input that began the gesture:
-// the box stood still until then, so a drag the page first meets late, in one burst, reads the
-// speed it carried the box at. An input within a gesture times no travel, since the box was
-// already moving before it.
+// still averages more than half the speed it entered at. A touch that begins a gesture times the
+// first sample's travel from where the hand landed, since a hand moves the box steadily from then
+// on, so a drag a busy page first meets late, in one burst, reads the speed it carried the box at.
+// A wheel or a key moves the box in one jump, which only the samples time.
 
 import { TRANSCRIPT_GESTURE_GAP_MS } from "./caps.js";
 
 /** One sample of the reader's gesture, as `ReaderGesture.observe` read it. */
 export interface ReaderGestureSample {
-  /**
-   * The time the sample's travel took, in milliseconds: since the sample before, or since the
-   * input that began the gesture; `undefined` when neither was read.
-   */
+  /** The time since the sample before, in milliseconds; `undefined` for the first one read. */
   readonly gapMs: number | undefined;
   /**
-   * The box's speed over `gapMs`, in pixels a millisecond; `undefined` without a `gapMs`, for one
-   * that says no travel, or one stamped no later than where its travel is timed from.
+   * The box's speed since the sample before, in pixels a millisecond; `undefined` for the first
+   * sample, one that says no travel, or one stamped no later than the sample before.
    */
   readonly speedPxPerMs: number | undefined;
   /** Whether the sample carries on the gesture of the sample before it. */
@@ -37,8 +33,6 @@ export interface ReaderGestureSample {
 /** The reader's gesture over their samples: each sample's speed and whether it ends a gesture. */
 export class ReaderGesture {
   #lastAtMs: number | undefined;
-  /** Where the next sample's travel is timed from: the sample before, or the gesture's input. */
-  #travelFromAtMs: number | undefined;
   /** The speeds of the gesture's last two samples, its pace; empty as a gesture starts. */
   #paceSpeedsPxPerMs: readonly number[] = [];
   /** Whether a sample moved the box since its last `scrollend`, so the platform owes one. */
@@ -51,27 +45,39 @@ export class ReaderGesture {
   public observe(atMs: number, travelPx: number | undefined): ReaderGestureSample {
     const lastAtMs = this.#lastAtMs;
     this.#lastAtMs = atMs;
-    const sinceLastMs = lastAtMs === undefined ? undefined : atMs - lastAtMs;
-    const gapMs = this.#travelFromAtMs === undefined ? undefined : atMs - this.#travelFromAtMs;
+    const gapMs = lastAtMs === undefined ? undefined : atMs - lastAtMs;
     const speedPxPerMs =
       gapMs === undefined || gapMs <= 0 || travelPx === undefined ? undefined : travelPx / gapMs;
     const continuesGesture =
-      sinceLastMs !== undefined &&
+      gapMs !== undefined &&
       (this.#isScrollEndOwed ||
-        sinceLastMs < TRANSCRIPT_GESTURE_GAP_MS ||
+        gapMs < TRANSCRIPT_GESTURE_GAP_MS ||
         this.#isCarriedOnAt(speedPxPerMs));
     if (!continuesGesture) {
       this.#paceSpeedsPxPerMs = [];
     } else if (speedPxPerMs !== undefined) {
       this.#paceSpeedsPxPerMs = [...this.#paceSpeedsPxPerMs.slice(-1), speedPxPerMs];
     }
-    if (travelPx !== undefined || !continuesGesture) {
-      this.#travelFromAtMs = atMs;
-    }
     if (travelPx !== undefined && travelPx > 0) {
       this.#isScrollEndOwed = true;
     }
     return { gapMs, speedPxPerMs, continuesGesture };
+  }
+
+  /**
+   * The reader's touch landed at `atMs`. When it begins a gesture the next sample's travel is
+   * timed from it; within one, a hand that catches a fling, it times nothing.
+   */
+  public noteTouchStart(atMs: number): void {
+    const lastAtMs = this.#lastAtMs;
+    if (
+      lastAtMs !== undefined &&
+      (this.#isScrollEndOwed || atMs - lastAtMs < TRANSCRIPT_GESTURE_GAP_MS)
+    ) {
+      return;
+    }
+    this.#lastAtMs = atMs;
+    this.#paceSpeedsPxPerMs = [];
   }
 
   /** The box's `scrollend` arrived: nothing is owed until a sample moves the box again. */
@@ -82,7 +88,6 @@ export class ReaderGesture {
   /** Forgets the samples read, so the next one starts a gesture. */
   public forget(): void {
     this.#lastAtMs = undefined;
-    this.#travelFromAtMs = undefined;
     this.#paceSpeedsPxPerMs = [];
     this.#isScrollEndOwed = false;
   }
