@@ -30,12 +30,11 @@ CREATE TABLE users (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   display_name    TEXT NOT NULL,                 -- Owner: Plan-015
-  identity_ref    TEXT NOT NULL UNIQUE,          -- Owner: Plan-015; the account's random WebAuthn user handle as unpadded base64url, carried by every passkey it holds — Plan-015 D-015-2
-  metadata        JSONB NOT NULL DEFAULT '{}'    -- Owner: Plan-015
+  identity_ref    TEXT NOT NULL UNIQUE           -- Owner: Plan-015; the account's random WebAuthn user handle as unpadded base64url, carried by every passkey it holds — Plan-015 D-015-2
 );
 ```
 
-Plan-001 owns `id` and `created_at`, the fields every referencing table needs; Plan-015 owns the identity columns (`display_name`, `identity_ref`, `metadata`), declared in the same `CREATE TABLE users`. No user rows exist before `Create an account` on Plan-015's device-code page writes the account's one row.
+Plan-001 owns `id` and `created_at`, the fields every referencing table needs; Plan-015 owns the identity columns (`display_name`, `identity_ref`), declared in the same `CREATE TABLE users`. No user rows exist before `Create an account` on Plan-015's device-code page writes the account's one row.
 
 ---
 
@@ -55,15 +54,15 @@ CREATE INDEX idx_users_identity ON users(identity_ref);
 
 ## WebAuthn Ceremony (Plan-015)
 
-Backs the relying party's half of the WebAuthn ceremony [ADR-010](../../decisions/010-tokens-passkeys-and-the-remote-channel.md) requires, owned by Plan-015 Phase 6 (T6.1 — CP-015-8). The web client and the phone apps call these routes over their authenticated control-plane channel, and the device-code page `sidekicks sign-in` opens calls the authentication-options route and hands the assertion to the device-code grant's approval route; the desktop app carries no WebAuthn, and no JSON-RPC method string is involved.
+Backs the relying party's half of the WebAuthn ceremony [ADR-010](../../decisions/010-tokens-passkeys-and-the-remote-channel.md) requires, owned by Plan-015 Phase 6 (T6.1 — CP-015-8). The web client and the phone apps call these routes, the authentication pair with no sign-in and the rest signed in, and the device-code page `sidekicks sign-in` opens calls the authentication-options route, and for `Create an account` the registration-options route with no sign-in, and hands the assertion or attestation to the device-code grant's approval route; the desktop app carries no WebAuthn, and no JSON-RPC method string is involved.
 
 ```sql
 -- Owner: Plan-015 (T6.1)
 CREATE TABLE webauthn_credentials (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id    UUID NOT NULL REFERENCES users(id),
+  user_id           UUID NOT NULL REFERENCES users(id),
   credential_id     TEXT NOT NULL UNIQUE,   -- base64url; authenticator-minted, unique by construction
   public_key        BYTEA NOT NULL,         -- COSE public key, as returned by the verification library
+  aaguid            UUID NOT NULL,          -- the authenticator's AAGUID, which names the passkey's provider on the Devices page
   signature_counter BIGINT NOT NULL DEFAULT 0,
   transports        TEXT[],                 -- authenticator-reported transport hints, for allowCredentials
   registered_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -76,7 +75,7 @@ CREATE INDEX idx_webauthn_credentials_user ON webauthn_credentials(user_id);
 CREATE TABLE webauthn_challenges (
   challenge       TEXT PRIMARY KEY,         -- the challenge IS the selector a verification presents
   transaction_id  UUID NOT NULL UNIQUE,     -- the correlator an unauthenticated caller quotes back
-  user_id  UUID REFERENCES users(id),  -- NULL until a discoverable-credential sign-in is verified
+  user_id         UUID REFERENCES users(id),  -- the signed-in user adding a passkey; NULL for a sign-in, whose user is known only from the verified response, and for account creation
   ceremony        TEXT NOT NULL CHECK (ceremony IN ('registration','authentication')),
   expires_at      TIMESTAMPTZ NOT NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -85,20 +84,20 @@ CREATE TABLE webauthn_challenges (
 CREATE INDEX idx_webauthn_challenges_expires ON webauthn_challenges(expires_at);
 ```
 
-**`webauthn_challenges` is the single-use fence, and consuming a challenge is deleting its row (Plan-015 T6.4 / I-015-6).** Consumption is one statement — `DELETE FROM webauthn_challenges WHERE challenge = $1 AND transaction_id = $2 AND expires_at > now() RETURNING *` — so two concurrent verifications of one challenge cannot both find a row, and an expired row is never returned even before the periodic sweep reaches it. The sweep is hygiene, not the correctness mechanism. A sealed stateless challenge was considered and rejected: single-use is the property that matters, and a self-contained token stays replayable until it expires unless a durable fence records its consumption, so the stateless design does not remove the write — it adds a second signing secret to rotate beside a write it still has to perform.
+**`webauthn_challenges` is the single-use fence, and consuming a challenge is deleting its row (Plan-015 T6.4 / I-015-6).** Consumption is one statement — `DELETE FROM webauthn_challenges WHERE challenge = $1 AND transaction_id = $2 AND expires_at > now() RETURNING *` — so two concurrent verifications of one challenge cannot both find a row, and an expired row is never returned even before the issue leg's delete reaches it. Each issue first deletes the rows whose `expires_at` has passed, in the same transaction, on the `expires_at` index, so no timer runs and the table holds at most the challenges of the last five minutes; that delete is hygiene, not the correctness mechanism. A sealed stateless challenge was considered and rejected: single-use is the property that matters, and a self-contained token stays replayable until it expires unless a durable fence records its consumption, so the stateless design does not remove the write — it adds a second signing secret to rotate beside a write it still has to perform.
 
-**The verification transaction takes this table `FOR UPDATE` (Plan-015 I-015-8).** The signature-counter advance is a locked read and a conditional write inside the same transaction that consumed the challenge, so the ceremony's lock order is `webauthn_challenges` → `webauthn_credentials`, registered below at [§Lock Ordering Across Shared Tables](#lock-ordering-across-shared-tables). An unlocked read-then-write is defeated by the exact adversary the counter exists to detect: two concurrent replays of a cloned authenticator each read the pre-existing value and each find the presented counter greater.
+**The verification transaction takes `webauthn_credentials` `FOR UPDATE` (Plan-015 I-015-8).** The signature-counter advance is a locked read and a conditional write inside the same transaction that consumed the challenge, so the ceremony's lock order is `webauthn_challenges` → `webauthn_credentials`, registered below at [§Lock Ordering Across Shared Tables](#lock-ordering-across-shared-tables). An unlocked read-then-write is defeated by the exact adversary the counter exists to detect: two concurrent replays of a cloned authenticator each read the pre-existing value and each find the presented counter greater.
 
 Both tables carry `REFERENCES users(id)` for the same reason `devices` does — it places them inside the [Spec-020 §Path 2](../../specs/020-data-retention-export-and-deletion.md#erasure-paths) exhaustive inbound-FK erasure closure, and the closure costs nothing because a WebAuthn credential is verified live and no retained row re-verifies one post-erasure.
 
 ---
 
-## Token Revocation
+## Tokens And Sign-In
 
-Backs the hosted account's refresh tokens: `refresh_token_families` holds one row per signed-in machine, its live sign-in, and the denylist tables hold what was revoked. Every revocation — a sign-out, a spent refresh token presented again, a device revoked through the statement chain, the account's deletion — writes the token's `jti` or its whole family to the denylist. A trade is one compare-and-swap on the family's row, `UPDATE refresh_token_families SET current_jti = <new>, last_traded_at = now() WHERE family_id = <presented family> AND current_jti = <presented jti>`: one row updated is a good trade; no row updated while the family's row exists means the presented `jti` was already spent, which is reuse, so the same transaction deletes the family's row and writes its `revoked_token_families` row; a family with neither a live row nor a revoked row is refused. The swap also settles two trades racing with one token: only one updates the row. Built by Plan-015 Phase 5 with the account work.
+Backs the hosted account's tokens: `refresh_token_families` holds one row per live sign-in, a machine's or a phone's or browser's, the denylist tables hold what was revoked, `dpop_proof_jtis` holds the DPoP proofs already seen, and `device_authorizations` holds each pending `sidekicks sign-in`. Every revocation — a sign-out, a spent refresh token presented again, a device revoked through the statement chain, the account's deletion — writes the token's `jti` or its whole family to the denylist. A trade is one compare-and-swap on the family's row, `UPDATE refresh_token_families SET current_jti = <new>, last_traded_at = now() WHERE family_id = <presented family> AND current_jti = <presented jti>`: one row updated is a good trade; no row updated while the family's row exists means the presented `jti` was already spent, which is reuse, so the same transaction deletes the family's row and writes its `revoked_token_families` row; a family with neither a live row nor a revoked row is refused. The swap also settles two trades racing with one token: only one updates the row. `refresh_token_families`, the denylist tables and `dpop_proof_jtis` are Plan-015 T6.6's, which checks every proof and every signed-in request against them; `device_authorizations`, the trade, reuse detection and sign-out are T5.4's.
 
 ```sql
--- Owner: Plan-015 (Phase 5, the control plane's account work)
+-- Owner: Plan-015 (T6.6, the control plane's tokens)
 CREATE TABLE revoked_jtis (
   jti              TEXT PRIMARY KEY,
   user_id   UUID REFERENCES users(id) ON DELETE SET NULL,  -- nullable + SET NULL on erasure (Plan-019 D-019-3)
@@ -113,7 +112,7 @@ CREATE INDEX idx_revoked_jtis_user ON revoked_jtis(user_id);
 CREATE INDEX idx_revoked_jtis_family ON revoked_jtis(family_id);
 CREATE INDEX idx_revoked_jtis_expires ON revoked_jtis(expires_at);
 
--- Owner: Plan-015 (Phase 5, the control plane's account work)
+-- Owner: Plan-015 (T6.6, the control plane's tokens)
 CREATE TABLE revoked_token_families (
   family_id        UUID PRIMARY KEY,
   user_id   UUID NOT NULL REFERENCES users(id),  -- the family's account: a refresh token has no lifetime of its own, so the row stays for the account's life and is deleted with the account
@@ -124,24 +123,48 @@ CREATE TABLE revoked_token_families (
 
 CREATE INDEX idx_revoked_families_user ON revoked_token_families(user_id);
 
--- Owner: Plan-015 (Phase 5, the control plane's account work)
--- One row per live sign-in, that is per signed-in machine. A trade is one compare-and-swap on
--- current_jti; a presented jti of a live family that is not current is spent, which is reuse.
+-- Owner: Plan-015 (T6.6, the control plane's tokens)
+-- One row per live sign-in: a machine's, or a phone's or browser's. A trade is one compare-and-swap
+-- on current_jti; a presented jti of a live family that is not current is spent, which is reuse.
 CREATE TABLE refresh_token_families (
   family_id        UUID PRIMARY KEY,
   user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  cnf_jkt          TEXT NOT NULL,                 -- the thumbprint of the machine's DPoP key the family is bound to
+  cnf_jkt          TEXT NOT NULL,                 -- the thumbprint of the DPoP key the family is bound to
   current_jti      TEXT NOT NULL,                 -- the one refresh token of the family that may still be traded
   issued_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_traded_at   TIMESTAMPTZ
 );
 
 CREATE INDEX idx_refresh_token_families_user ON refresh_token_families(user_id);
+
+-- Owner: Plan-015 (T6.6, the control plane's tokens) — each DPoP proof's jti, accepted once
+CREATE TABLE dpop_proof_jtis (
+  jti              TEXT PRIMARY KEY,              -- an insert that finds its jti already here refuses the proof as a replay
+  expires_at       TIMESTAMPTZ NOT NULL           -- the proof's iat plus the accepted window
+);
+
+CREATE INDEX idx_dpop_proof_jtis_expires ON dpop_proof_jtis(expires_at);
+
+-- Owner: Plan-015 (T5.4, the device-code sign-in) — one row per pending `sidekicks sign-in`
+CREATE TABLE device_authorizations (
+  device_code          TEXT PRIMARY KEY,          -- what the command line polls the token route with
+  user_code            TEXT NOT NULL UNIQUE,      -- what the person compares on the device-code page
+  expires_at           TIMESTAMPTZ NOT NULL,
+  approved_user_id     UUID REFERENCES users(id) ON DELETE CASCADE, -- set when the page approves the code
+  pending_identity_ref TEXT,                      -- `Create an account`: the user handle minted for the new account
+  pending_display_name TEXT,                      -- `Create an account`: the typed `Name`
+  first_passkey_proof  JSONB,                     -- `Create an account`: the first passkey's assertion over the device-code challenge, its nonce and the browser that made it, returned by the token route
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_device_authorizations_expires ON device_authorizations(expires_at);
 ```
 
-**Account deletion.** On `revoked_jtis`, `user_id` is nullable + `ON DELETE SET NULL` by design: a user hard-DELETE severs the data-subject link, while the denylist key (`jti`, the PRIMARY KEY — **not** `user_id`) survives to its `expires_at + 24h` reap, so erasure cannot resurrect a revoked access token within its validity window. A `revoked_token_families` row is hard-deleted with its account, in `account.delete`'s inbound-foreign-key closure (Plan-019 CP-019-3): no refresh token of a deleted account can be traded, so nothing is left for the row to block. Canonical: [Plan-019 D-019-3](../../plans/019-data-retention-export-and-deletion.md), [Spec-020 §Erasure Paths](../../specs/020-data-retention-export-and-deletion.md#erasure-paths); `sidekicks delete-account` is the one deletion path; the [Hosted Account Deletion Runbook](../../operations/hosted-account-deletion-runbook.md) is the person's break-glass procedure, run only when they can no longer sign in.
+**Nothing here runs on a timer.** Each insert into `dpop_proof_jtis`, `revoked_jtis` and `device_authorizations` first deletes that table's rows past their time, in the same transaction, on its `expires_at` index, as the [WebAuthn ceremony](#webauthn-ceremony-plan-015)'s issue leg does. The token route deletes a code's `device_authorizations` row when it issues the refresh token, so a code yields one sign-in, and the approval's creation arm writes the user record from that row's pending columns.
 
-**Retention:** A `revoked_jtis` row is reaped 24 hours past its `expires_at`, the access token's own 15-minute expiry, so the table holds only tokens that could still verify. A `revoked_token_families` row has no expiry: the refresh token lasts until sign-out or revocation (see [security-architecture.md §Token revocation](../security-architecture.md#token-revocation)), so a revoked family stays on the denylist for its account's life and goes with the account (`account.delete`). The table grows by one row per sign-out or revocation. `refresh_token_families` holds one row per signed-in machine: a trade updates that row in place, so nothing grows per trade, and the row goes at sign-out or revocation (to the denylist) and with the account (`ON DELETE CASCADE`).
+**Account deletion.** On `revoked_jtis`, `user_id` is nullable + `ON DELETE SET NULL` by design: a user hard-DELETE severs the data-subject link, while the denylist key (`jti`, the PRIMARY KEY — **not** `user_id`) survives to its `expires_at + 24h` reap, so erasure cannot resurrect a revoked access token within its validity window. A `revoked_token_families` row is hard-deleted with its account, in `account.delete`'s inbound-foreign-key closure (Plan-019 CP-019-3): no refresh token of a deleted account can be traded, so nothing is left for the row to block. A `device_authorizations` row approved for the account goes with it (`ON DELETE CASCADE`). Canonical: [Plan-019 D-019-3](../../plans/019-data-retention-export-and-deletion.md), [Spec-020 §Erasure Paths](../../specs/020-data-retention-export-and-deletion.md#erasure-paths); `sidekicks delete-account` is the one deletion path; the [Hosted Account Deletion Runbook](../../operations/hosted-account-deletion-runbook.md) is the person's break-glass procedure, run only when they can no longer sign in.
+
+**Retention:** A `revoked_jtis` row is deleted by the first insert 24 hours past its `expires_at`, the access token's own 15-minute expiry, so the table holds only tokens that could still verify. A `revoked_token_families` row has no expiry: the refresh token lasts until sign-out or revocation (see [security-architecture.md §Token revocation](../security-architecture.md#token-revocation)), so a revoked family stays on the denylist for its account's life and goes with the account (`account.delete`). The table grows by one row per sign-out or revocation. `refresh_token_families` holds one row per live sign-in, a machine's or a phone's or browser's: a trade updates that row in place, so nothing grows per trade, and the row goes at sign-out or revocation (to the denylist) and with the account (`ON DELETE CASCADE`).
 
 ---
 
@@ -218,6 +241,7 @@ Row-lock ordering over the tables above is recorded here. Every control-plane tr
 | Registrant | Lock order | Per-transaction detail |
 | --- | --- | --- |
 | WebAuthn ceremony verification (Plan-015 I-015-8) | `webauthn_challenges` → `webauthn_credentials` | A plan's own uncontested pair, registered here rather than in that plan alone. The challenge is consumed by a single `DELETE … RETURNING` (the single-use fence); the same transaction then takes `webauthn_credentials` `FOR UPDATE` before reading the stored signature counter and commits the advance conditionally on the presented value exceeding it. An unlocked read-then-write is defeated by exactly the cloned-authenticator replay the counter exists to detect: two concurrent replays each read the pre-existing value and each find the presented counter greater |
+| Device-code approval (Plan-015 T5.4) | `webauthn_challenges` → `webauthn_credentials` → `device_authorizations` | The approval route checks the passkey as the authentication verify leg does, so it consumes the challenge and takes the credential row `FOR UPDATE` in that order, and only then updates the code's `device_authorizations` row; `Create an account`'s arm consumes its challenge, inserts the user record and its first `webauthn_credentials` row, and then updates the same `device_authorizations` row. The token route later deletes that row alone, so no transaction takes it before a WebAuthn table |
 
 ### Tables that deliberately register nothing
 

@@ -2,7 +2,7 @@
 
 The MCP server governance tables of the daemon's one SQLite schema. The [Local SQLite Schema](local-sqlite-schema.md) holds its pragmas, its conventions and every other area.
 
-Node-scoped governance state for [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) (V1 feature #15): the binding store (each binding's enabled overlay and native-tool baseline), the per-tool override store, the governance-mutation idempotency receipt store, and the record of which OAuth client each server admitted. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-024 § State And Data Implications](../../specs/024-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; settled sign-ins are the `mcp.*` event type in the `mcp_governance` category, appended through the Plan-004 `EventLogService` path, and a status change is a live notice on `mcp.subscribe` written to no log (receipts are retry-window dedup evidence, deliberately not audit rows).
+Node-scoped governance state for [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) (V1 feature #15): the binding store (each binding's enabled overlay and native-tool baseline), the per-tool override store, the per-project switch for the servers Claude Code brings itself, the governance-mutation idempotency receipt store, and the record of which OAuth client each server admitted. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-024 § State And Data Implications](../../specs/024-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; settled sign-ins are the `mcp.*` event type in the `mcp_governance` category, appended through the Plan-004 `EventLogService` path, and a status change is a live notice on `mcp.subscribe` written to no log (receipts are retry-window dedup evidence, deliberately not audit rows).
 
 ```sql
 -- Owner: Plan-022
@@ -10,8 +10,8 @@ CREATE TABLE mcp_server_bindings (
   provider           TEXT NOT NULL
                      CHECK(provider IN ('claude', 'codex')),  -- the McpProvider contract union (driver id namespace); an unchecked value would hand inventory code an impossible row its exhaustive McpProvider handling cannot represent
   scope              TEXT NOT NULL
-                     CHECK(scope IN ('user', 'project', 'local', 'plugin')),  -- scope axis of the binding identity (Spec-024 §Unified Inventory): writable at user, project and local on both providers; a Codex 'local' binding is the daemon's emulation and has a row like any other; a 'plugin' binding is a server an installed plugin declares, whose row holds the person's switch and tool overrides while its declaration changes only with the plugin
-  scope_ref          TEXT NOT NULL DEFAULT '',  -- canonical project root (project) / keying directory (local) / the plugin's name (plugin); '' for user scope
+                     CHECK(scope IN ('user', 'project', 'local', 'plugin', 'connector', 'managed')),  -- scope axis of the binding identity (Spec-024 §Unified Inventory): writable at user, project and local on both providers; 'connector' (a claude.ai connector) and 'managed' (an organization's server) are Claude Code's own, read-only, their rows holding the tool overrides; a Codex 'local' binding is the daemon's emulation and has a row like any other; a 'plugin' binding is a server an installed plugin declares, whose row holds the person's switch and tool overrides while its declaration changes only with the plugin
+  scope_ref          TEXT NOT NULL DEFAULT '',  -- canonical project root (project) / keying directory (local) / the plugin's name (plugin) / the provider account's id (connector); '' for user and managed scope
   server_name        TEXT NOT NULL,
   enabled_override   INTEGER
                      CHECK(enabled_override IS NULL OR enabled_override IN (0, 1)),  -- the daemon's per-server enabled overlay (Claude bindings and every plugin binding — Claude user scope has no enabled field, and a plugin's declaration is the plugin's; Codex's own bindings use its native `enabled` config field); NULL = no overlay
@@ -20,8 +20,8 @@ CREATE TABLE mcp_server_bindings (
   updated_at         TEXT NOT NULL,
   PRIMARY KEY (provider, scope, scope_ref, server_name),
   -- binding-ref structural validity, mirroring the schema-level discriminated union (defense in depth):
-  -- user scope has no scope_ref ('' sentinel); project/local/plugin REQUIRE one, on both providers
-  CHECK((scope = 'user') = (scope_ref = ''))
+  -- user and managed scope have no scope_ref ('' sentinel); project/local/plugin/connector REQUIRE one
+  CHECK((scope IN ('user', 'managed')) = (scope_ref = ''))
 );
 ```
 
@@ -31,7 +31,7 @@ CREATE TABLE mcp_tool_overrides (
   provider          TEXT NOT NULL
                     CHECK(provider IN ('claude', 'codex')),  -- the closed McpProvider union, mirroring mcp_server_bindings
   scope             TEXT NOT NULL
-                    CHECK(scope IN ('user', 'project', 'local', 'plugin')),  -- binding identity axes mirror mcp_server_bindings
+                    CHECK(scope IN ('user', 'project', 'local', 'plugin', 'connector', 'managed')),  -- binding identity axes mirror mcp_server_bindings
   scope_ref         TEXT NOT NULL DEFAULT '',
   server_name       TEXT NOT NULL,
   tool_name         TEXT NOT NULL,
@@ -50,7 +50,7 @@ CREATE TABLE mcp_tool_overrides (
   -- facet-less override dies as a typed validation error before it can reach this constraint
   CHECK(enabled IS NOT NULL OR approval_mode IS NOT NULL OR idempotency_class IS NOT NULL),
   -- binding-ref structural validity, mirroring mcp_server_bindings (defense in depth)
-  CHECK((scope = 'user') = (scope_ref = '')),
+  CHECK((scope IN ('user', 'managed')) = (scope_ref = '')),
   FOREIGN KEY (provider, scope, scope_ref, server_name)
     REFERENCES mcp_server_bindings(provider, scope, scope_ref, server_name)
     ON DELETE CASCADE  -- overrides never outlive their binding row
@@ -73,6 +73,27 @@ CREATE TABLE mcp_mutation_receipts (
 ```
 
 Receipts are **two-phase** because the provider config write is an external side effect no SQLite transaction can span. The `'pending'` intent row (key and operation) commits in its **own transaction before** the provider leg runs; finalization — `status = 'committed'` plus the recorded response — commits in the **same transaction** as the mutation's governance-store writes, making the acknowledgment and the saved result atomic. That closes both crash windows: crash before the provider leg leaves a pending intent with no provider effect (startup reconciliation expires it — the caller retries fresh); crash after a durable provider write but before finalization leaves a pending intent whose provider state startup reconciliation verifies, completing the store writes **exactly once, late**, then finalizing. An identical-key retry that meets a pending row first drives that reconciliation, then returns the finalized response; a lost IPC response after commit can re-drive only the provider leg (safe by construction — sanctioned provider writes are upserts, full-set replacements, or version-guarded), never a second acknowledgment. Receipts carry no config values.
+
+```sql
+-- Owner: Plan-022 (T22.2.12)
+-- The daemon's own per-project switch for a server Claude Code brings itself, a claude.ai connector or an
+-- organization's server: one row per such server switched off for one project, deleted when it is switched
+-- back on. Claude Code's own `disabledMcpServers` is read, never written; a server named there is off for
+-- that project as well.
+CREATE TABLE mcp_project_server_switches (
+  provider      TEXT NOT NULL CHECK(provider = 'claude'),
+  scope         TEXT NOT NULL CHECK(scope IN ('connector', 'managed')),
+  scope_ref     TEXT NOT NULL DEFAULT '',  -- the provider account's id (connector); '' (managed)
+  server_name   TEXT NOT NULL,
+  project_root  TEXT NOT NULL,             -- canonical project root the switch is off for
+  updated_at    TEXT NOT NULL,
+  PRIMARY KEY (provider, scope, scope_ref, server_name, project_root),
+  CHECK((scope = 'managed') = (scope_ref = '')),
+  FOREIGN KEY (provider, scope, scope_ref, server_name)
+    REFERENCES mcp_server_bindings(provider, scope, scope_ref, server_name)
+    ON DELETE CASCADE  -- a switch never outlives its binding row
+);
+```
 
 ```sql
 -- Owner: Plan-022
