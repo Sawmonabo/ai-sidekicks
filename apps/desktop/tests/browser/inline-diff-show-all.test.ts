@@ -117,25 +117,29 @@ async function framesDrawnUntilFilled(
       },
       transferMode: "ReportEvents",
     });
-    // Two frames, so the capturer is running before the scroll is driven.
-    await nextFrame();
-    await nextFrame();
-    performance.mark(DRIVE_MARK);
-    await drive();
-    for (let frame = 0; !isFilled(block, LONG_LINE_COUNT); frame += 1) {
-      if (frame > FILL_FRAME_LIMIT) {
-        throw new Error(`the block was not filled within ${String(FILL_FRAME_LIMIT)} frames`);
-      }
+    try {
+      // Two frames, so the capturer is running before the scroll is driven.
       await nextFrame();
+      await nextFrame();
+      performance.mark(DRIVE_MARK);
+      await drive();
+      for (let frame = 0; !isFilled(block, LONG_LINE_COUNT); frame += 1) {
+        if (frame > FILL_FRAME_LIMIT) {
+          throw new Error(`the block was not filled within ${String(FILL_FRAME_LIMIT)} frames`);
+        }
+        await nextFrame();
+      }
+      performance.mark(FILLED_MARK);
+      // A picture is taken after its frame is drawn, so the trace runs on, asking for no frame,
+      // until the last frame's picture is in.
+      await new Promise((resolve) => {
+        setTimeout(resolve, TRACE_SETTLE_MS);
+      });
+    } finally {
+      // Ended when the case fails too, or the browser refuses every later trace.
+      await session.send("Tracing.end");
+      await traceEnded;
     }
-    performance.mark(FILLED_MARK);
-    // A picture is taken after its frame is drawn, so the trace runs on, asking for no frame,
-    // until the last frame's picture is in.
-    await new Promise((resolve) => {
-      setTimeout(resolve, TRACE_SETTLE_MS);
-    });
-    await session.send("Tracing.end");
-    await traceEnded;
   } finally {
     session.off("Tracing.dataCollected", collect);
     session.off("Tracing.tracingComplete", complete);

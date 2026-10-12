@@ -430,32 +430,43 @@ async function forcedLayoutPassesByCommitOf(
     // land on a second session the trace never reports to.
     await session.send("Tracing.getCategories");
     // The trace is read back as a stream, whose handle the end announces.
+    let announceStream = (_handle: string): void => undefined;
     const stream = new Promise<string>((resolve) => {
-      session.on("Tracing.tracingComplete", (payload) => {
-        resolve(payload.stream ?? expect.fail("the trace is returned as a stream"));
+      announceStream = resolve;
+    });
+    const complete = (payload: { readonly stream?: string }): void => {
+      announceStream(payload.stream ?? expect.fail("the trace is returned as a stream"));
+    };
+    session.on("Tracing.tracingComplete", complete);
+    try {
+      await session.send("Tracing.start", {
+        traceConfig: {
+          includedCategories: [
+            "devtools.timeline",
+            "disabled-by-default-devtools.timeline",
+            "disabled-by-default-devtools.timeline.stack",
+          ],
+        },
+        transferMode: "ReturnAsStream",
       });
-    });
-    await session.send("Tracing.start", {
-      traceConfig: {
-        includedCategories: [
-          "devtools.timeline",
-          "disabled-by-default-devtools.timeline",
-          "disabled-by-default-devtools.timeline.stack",
-        ],
-      },
-      transferMode: "ReturnAsStream",
-    });
-    await run();
-    await session.send("Tracing.end");
-    const handle = await stream;
-    let streamed = "";
-    for (let isAtEnd = false; !isAtEnd; ) {
-      const chunk = await session.send("IO.read", { handle });
-      streamed += chunk.data;
-      isAtEnd = chunk.eof;
+      try {
+        await run();
+      } finally {
+        // Ended when the case fails too, or the browser refuses every later trace.
+        await session.send("Tracing.end");
+      }
+      const handle = await stream;
+      let streamed = "";
+      for (let isAtEnd = false; !isAtEnd; ) {
+        const chunk = await session.send("IO.read", { handle });
+        streamed += chunk.data;
+        isAtEnd = chunk.eof;
+      }
+      await session.send("IO.close", { handle });
+      return streamed;
+    } finally {
+      session.off("Tracing.tracingComplete", complete);
     }
-    await session.send("IO.close", { handle });
-    return streamed;
   });
   const { traceEvents } = JSON.parse(text) as { readonly traceEvents: readonly TraceEvent[] };
   const stamps = traceEvents.filter(

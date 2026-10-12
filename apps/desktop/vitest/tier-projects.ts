@@ -23,6 +23,7 @@ import {
 } from "./browser-mode.js";
 import { iconCompilationPlugin } from "./icon-compilation.js";
 import { overlayScrollbarBundlePlugin } from "./overlay-scrollbar-bundle.js";
+import { browserTraceLockCommands } from "./trace-lock.js";
 import { touchFling } from "./touch-fling.js";
 
 /**
@@ -64,8 +65,12 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
       include: ["tests/browser/**/*.test.{ts,tsx}"],
       globals: true,
       setupFiles: BROWSER_MODE_SETUP_FILES,
-      // The hand of a touch fling, played from outside the page.
-      browser: { ...browserModeOptions(), commands: { touchFling } },
+      // The hand of a touch fling, played from outside the page, and the lock the pages' traces
+      // take turns on.
+      browser: {
+        ...browserModeOptions(),
+        commands: { touchFling, ...browserTraceLockCommands() },
+      },
     },
   },
   {
