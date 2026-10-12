@@ -12,7 +12,7 @@ import {
   AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
 } from "@ai-sidekicks/contracts/agent/provider-binding";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 const CLAUDE_BINDING = {
   driverName: "claude",
@@ -34,7 +34,7 @@ function failedSwitch(attempted: Record<string, unknown>): Record<string, unknow
   };
 }
 
-function renderSystemMessage(row: TranscriptEventRow): HTMLElement {
+function renderSystemMessage(row: ProjectedTranscriptRow): HTMLElement {
   const systemMessage = new SystemMessageClassifier().classify(row);
   if (systemMessage === undefined) {
     throw new Error(`expected ${row.type} to classify as a system message`);
@@ -47,7 +47,7 @@ function renderSystemMessage(row: TranscriptEventRow): HTMLElement {
 
 describe("the system message — the switch outcomes", () => {
   it("names the failed switch by the provider it tried, as the one caution, with no actor", () => {
-    const failedRow = (attempted: Record<string, unknown>): TranscriptEventRow =>
+    const failedRow = (attempted: Record<string, unknown>): ProjectedTranscriptRow =>
       runRow({
         id: "sf",
         sequence: 5,

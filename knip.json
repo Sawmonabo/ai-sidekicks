@@ -129,9 +129,7 @@
         // The strokes a person draws to mark up the Preview page.
         "perfect-freehand",
         // A Codex voice hold played into the call faster with its pitch kept.
-        "signalsmith-stretch",
-        // Long transcript text held packed: the markdown worker compiles the codec module.
-        "@ai-sidekicks/text-compression"
+        "signalsmith-stretch"
       ],
 
       // Whole files kept for a consumer that is not built yet, each with what will consume it.

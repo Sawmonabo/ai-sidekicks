@@ -3,7 +3,7 @@
 // caller passes, so a lane is never a second publisher on the engine's channel.
 
 import type { RevealDelta, RevealDiagnostic, RevealLaneState } from "./model.js";
-import { type PublishedText } from "./published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import { RevealTextRope } from "./text-rope.js";
 
 /** Where a lane's diagnostics go. The engine's emitter, in practice. */

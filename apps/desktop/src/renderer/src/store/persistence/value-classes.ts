@@ -27,7 +27,7 @@ import {
   isIdentifierShaped,
   isSingleNameIdentifierShaped,
 } from "#renderer/lib/identifier-grammar.js";
-import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
+import { measureUtf8ByteLength } from "#renderer/lib/text/utf8-byte-length.js";
 import { refusePersistence, type PersistenceRefusal } from "./refusals.js";
 
 /**

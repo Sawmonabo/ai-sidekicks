@@ -2,9 +2,8 @@
 // it classifies into (kinds, wire types, labels, the one caution) is in `kinds.ts`. Whether a row
 // is superseded is its own mark, not a classification.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { SYSTEM_MESSAGE_KINDS, SYSTEM_MESSAGE_BINDINGS, type SystemMessageKind } from "./kinds.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** One system message: the act it names, its words, and the row and moment it stands at. */
 export interface SystemMessageReading {
@@ -36,7 +35,7 @@ export class SystemMessageClassifier {
    * One row's system message, or `undefined` when the row is not one or its payload is off
    * contract, in which case the row is drawn as any other event row.
    */
-  public classify(row: TranscriptEventRow): SystemMessageReading | undefined {
+  public classify(row: ProjectedTranscriptRow): SystemMessageReading | undefined {
     const kind = row.kind === "rollback_boundary" ? "rollback" : this.#kindByWireType.get(row.type);
     if (kind === undefined) {
       return undefined;

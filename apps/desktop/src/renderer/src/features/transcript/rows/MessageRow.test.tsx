@@ -17,7 +17,7 @@ import {
 import type { ClipboardContent } from "#shared/preload-api.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { ManualClock } from "#renderer/lib/clock.js";
-import { TEXT_PIECE_LENGTH } from "#renderer/lib/text-pieces.js";
+import { TEXT_PIECE_LENGTH } from "#renderer/lib/text/pieces.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { MessageRow } from "./MessageRow.js";
 import { PreparedBodiesContext } from "./prepared-bodies.js";
@@ -38,8 +38,8 @@ import { useReveal } from "../reveal/hooks/useReveal.js";
 import { useAnimationFrameScheduler } from "../hooks/useAnimationFrameScheduler.js";
 import { replyRowIdsByFootRowId } from "../window/reply-rows.js";
 import { DrawnReplyText } from "../copy/drawn-reply-text.js";
-import { REVEAL_TEXT_CHUNK_CHARACTERS } from "../reveal/caps.js";
-import { publishedTextOf } from "../reveal/published-text.js";
+import { TEXT_CHUNK_MAX_BYTES } from "#renderer/lib/text/compression.js";
+import { publishedTextOf } from "#renderer/lib/text/published.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { appMarkdownWorkers } from "#test/helpers/markdown-worker.js";
@@ -375,10 +375,10 @@ describe("a reply's foot", () => {
     // The reply's text was drawn and then dropped, as when its row leaves the window or folds into
     // its run group: the foot keeps its time and its Copy, which still takes the dropped text,
     // every character of it, though the lane held it in several chunks.
-    const droppedReply = Array.from({ length: 3 * 128 }, (_, index) => `word${String(index)}`).join(
+    const droppedReply = Array.from({ length: 5_000 }, (_, index) => `word${String(index)}`).join(
       " ",
     );
-    expect(droppedReply.length).toBeGreaterThan(REVEAL_TEXT_CHUNK_CHARACTERS * 2);
+    expect(droppedReply.length).toBeGreaterThan(TEXT_CHUNK_MAX_BYTES * 2);
     const clock = new ManualClock();
     const reveal = renderHook(() =>
       useReveal({ frameScheduler: useAnimationFrameScheduler(clock), clock }),

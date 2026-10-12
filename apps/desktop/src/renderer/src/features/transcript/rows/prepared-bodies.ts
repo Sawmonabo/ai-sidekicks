@@ -7,7 +7,7 @@
 import { createContext, type Context } from "react";
 
 import { workInSlices } from "#renderer/lib/work-slices.js";
-import { type PublishedText } from "../reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import { type AnsiLineChunkList } from "./ansi/lines/chunks.js";
 import { type MarkdownBodyBlocks } from "./markdown/body-blocks/reader.js";
 

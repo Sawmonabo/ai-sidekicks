@@ -1,7 +1,7 @@
 import { useCallback, useContext, useEffect, useSyncExternalStore } from "react";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { joinIntoPieces, type PiecedText } from "#renderer/lib/text-pieces.js";
+import { joinIntoPieces, type PiecedText } from "#renderer/lib/text/pieces.js";
 import { RowRevealContext } from "../../reveal/components/RowRevealProvider.js";
 import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
 import { PART_SEPARATOR } from "../conversation-selection.js";

@@ -7,15 +7,14 @@
 // `AgentHueAllocator` over the session log, `isSuperseded` is the row's superseded mark read by
 // the list, and `density` is whether a person folded the row.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { type DiagramPictures } from "#renderer/components/Markdown/diagram/pictures.js";
 import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 import { SingleEntryRegistry } from "#renderer/lib/single-entry-registry.js";
-import { type PublishedText } from "../reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import { type OutputReach } from "./ansi/preparation.js";
 import { type PreparedBodies } from "./prepared-bodies.js";
 import { type OffListTables } from "./markdown/table-window/off-list.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
  * Whether a row is folded: a call with a body is open until a person folds it, and nothing folds
@@ -29,7 +28,7 @@ export type TranscriptRowDensity = (typeof TRANSCRIPT_ROW_DENSITIES)[number];
 /** What the transcript list hands each row. */
 export interface TranscriptRowProps {
   /** The projected row, wire-verbatim, as `@ai-sidekicks/contracts` defines it. */
-  readonly row: TranscriptEventRow;
+  readonly row: ProjectedTranscriptRow;
   /**
    * The author's place on the twelve-step wheel, or `undefined` for a row with no attributable
    * agent. The whole assignment, not a color string: past twelve agents the wheel wraps and two
@@ -62,7 +61,7 @@ export interface TranscriptRowRenderer {
    * Whether `render` draws anything for this row. The feed asks before a row reaches the list, so
    * a row with no body takes no place and no height there.
    */
-  readonly drawsBody: (row: TranscriptEventRow) => boolean;
+  readonly drawsBody: (row: ProjectedTranscriptRow) => boolean;
   /**
    * Starts the work a row's first frame waits on that is not done yet, such as a finished
    * diagram's picture or a long command output's parse, so the feed lists the row only once it
@@ -113,7 +112,7 @@ export interface TranscriptRowPreparation {
  * time the work started so far has all landed or failed.
  */
 export type TranscriptRowPreparer = (
-  row: TranscriptEventRow,
+  row: ProjectedTranscriptRow,
   sources: TranscriptRowSources,
   onReady: () => void,
 ) => TranscriptRowPreparation | undefined;

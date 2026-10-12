@@ -10,6 +10,7 @@ import { expect } from "vitest";
 import { MarkdownWorkerAnswers } from "./answer.js";
 import { MarkdownWorkerConnection, type MarkdownWorkerPort } from "./connection.js";
 import type {
+  CompiledTextCompression,
   MarkdownParseRequest,
   MarkdownWorkerMessage,
   MarkdownWorkerReply,
@@ -18,6 +19,7 @@ import { BlockCut, MARKDOWN_SETTLE_LAG_BLOCKS } from "../parse/block-cut.js";
 import { appPageParser } from "../parse/page-parser.js";
 import { parseMarkdownTree, serializeMarkdownTree } from "../parse/serialized-tree.js";
 import { readTopLevelChildren } from "../parse/top-level-children.js";
+import { appTextCompression } from "#renderer/lib/text/compression.js";
 
 /** One stand-in worker: the texts it was sent to parse, and the answers a test holds back. */
 export class InThreadMarkdownWorker implements MarkdownWorkerPort {
@@ -45,7 +47,11 @@ export class InThreadMarkdownWorker implements MarkdownWorkerPort {
     if (message.kind === "load") {
       this.loads.push(message.parser);
       if (message.parser === undefined) {
-        this.#say({ status: "compiled", parser: inThreadParserModule() });
+        this.#say({
+          status: "compiled",
+          parser: inThreadParserModule(),
+          textCompression: IN_THREAD_TEXT_COMPRESSION,
+        });
       }
       return;
     }
@@ -165,8 +171,22 @@ export class InThreadMarkdownWorkers {
  * module to the app's page parser, which a suite starts before it runs.
  */
 export function inThreadMarkdownWorker(view: Window): MarkdownWorkerConnection {
-  return new MarkdownWorkerConnection(new InThreadMarkdownWorkers().start, view, appPageParser);
+  return new MarkdownWorkerConnection(
+    new InThreadMarkdownWorkers().start,
+    view,
+    appPageParser,
+    appTextCompression,
+  );
 }
+
+/**
+ * The codec a stand-in worker hands the page: none, since the tier grants no idle moments to pack
+ * in, so every packed text there stays plain.
+ */
+export const IN_THREAD_TEXT_COMPRESSION: CompiledTextCompression = {
+  status: "absent",
+  reason: "The in-thread markdown worker compiles no text codec",
+};
 
 /**
  * The module a stand-in worker compiles and hands the page: an empty one, which Sätteri's Node

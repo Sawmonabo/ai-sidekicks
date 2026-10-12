@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
 
-import { type PublishedText } from "#renderer/features/transcript/reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import { type MarkdownBodyBlocks } from "../../markdown/body-blocks/reader.js";
 import { type MarkdownBodyBlocksSnapshot } from "../../markdown/body-blocks/snapshot.js";
 

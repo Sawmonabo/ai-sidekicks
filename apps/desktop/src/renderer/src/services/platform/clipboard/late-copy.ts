@@ -9,7 +9,7 @@
 // held in the bridge's pending copies, which a paste in this app waits for.
 
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
-import { piecedTextOf, TEXT_PIECE_LENGTH, type PiecedText } from "#renderer/lib/text-pieces.js";
+import { piecedTextOf, TEXT_PIECE_LENGTH, type PiecedText } from "#renderer/lib/text/pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
 import type {
   ClipboardContent,

@@ -16,7 +16,7 @@ import {
 } from "./caps.js";
 import { safeRevealCeiling } from "./gate.js";
 import { RevealLane } from "./lane.js";
-import { type PublishedText } from "./published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import type {
   RevealDelta,
   RevealDiagnostic,

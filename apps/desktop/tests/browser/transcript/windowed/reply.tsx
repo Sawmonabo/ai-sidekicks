@@ -18,7 +18,7 @@ import { appPageParser } from "#renderer/components/Markdown/parse/page-parser.j
 import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
 import { bodyBlocksForTest } from "#renderer/features/transcript/rows/markdown/body-blocks/reader.test-support.js";
 import { COPY_FLAVOR_ATTRIBUTE } from "#renderer/features/transcript/copy/conversation-selection.js";
-import { publishedTextOf } from "#renderer/features/transcript/reveal/published-text.js";
+import { publishedTextOf } from "#renderer/lib/text/published.js";
 import { StreamingMarkdown } from "#renderer/features/transcript/rows/bodies/StreamingMarkdown.js";
 import {
   SuiteWindowViewportProvider,

@@ -3,7 +3,7 @@
 // the tool card reads, as its output's opening. A card's stored body is its row's own `content`.
 // Extending that contract means a member added to it reaches every card.
 
-import { type PublishedText } from "../reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import type { TranscriptRowProps } from "./renderer.js";
 import type { FootnoteRegistry } from "./markdown/footnotes/registry.js";
 

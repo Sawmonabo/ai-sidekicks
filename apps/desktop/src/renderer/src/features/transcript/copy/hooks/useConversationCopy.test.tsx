@@ -12,7 +12,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ClipboardContent, TextClipboardContent } from "#shared/preload-api.js";
-import { piecedTextOf, TEXT_PIECE_LENGTH, type PiecedText } from "#renderer/lib/text-pieces.js";
+import { piecedTextOf, TEXT_PIECE_LENGTH, type PiecedText } from "#renderer/lib/text/pieces.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { inThreadMarkdownWorker } from "#renderer/components/Markdown/worker/connection.test-support.js";
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";

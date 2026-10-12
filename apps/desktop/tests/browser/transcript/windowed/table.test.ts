@@ -54,6 +54,7 @@ import {
 import { readerScrollsTo } from "#test/helpers/transcript/reader-scroll.js";
 import { mountTranscriptFeed } from "../long-tool-feed.js";
 import { hearResizeLoopErrors } from "../resize-loop-errors.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 
 /** The height of what a row draws above its body, in CSS pixels. */
 const LEAD_HEIGHT_PX = 48;
@@ -526,7 +527,7 @@ describe("browser — a long table drawn as a window over its rows", () => {
         ...pagedSessionEventAt(index),
         kind: "assistant.message",
         payload: { contentType: "text/markdown" },
-        content: { status: "available", body: reply },
+        content: projectedContentOf({ status: "available", body: reply }),
       })),
       undefined,
     );

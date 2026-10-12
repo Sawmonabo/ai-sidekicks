@@ -25,7 +25,7 @@ import {
   type DrawnPartCopy,
   type MarkdownWorkerConnection,
 } from "#renderer/components/Markdown/worker/connection.js";
-import type { PiecedText } from "#renderer/lib/text-pieces.js";
+import type { PiecedText } from "#renderer/lib/text/pieces.js";
 import { resolveRowTextPosition } from "../viewport/selection/preservation.js";
 import { type RowSelection } from "../viewport/selection/record.js";
 import { type DrawnWindowSource } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";

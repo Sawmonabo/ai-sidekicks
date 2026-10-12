@@ -10,9 +10,10 @@
 // entities, so new run facts over the same log seal again only the groups whose header they move.
 // A whole derivation carries each stretch's count of the rows the store let go to the next one.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
-import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import {
+  type ProjectedSessionEvent,
+  type ProjectedTranscriptRow,
+} from "#renderer/store/session/entities/vocabulary.js";
 import {
   ChildRunIndex,
   type ChildRunEntry,
@@ -38,14 +39,14 @@ import { hasSameMembers } from "./row-retention.js";
 export interface TranscriptPipelineStage {
   readonly window: TranscriptWindowModel;
   /** The rows this stage took out of the window it was handed, in log order. */
-  readonly removedRows: readonly TranscriptEventRow[];
+  readonly removedRows: readonly ProjectedTranscriptRow[];
 }
 
 /**
  * The removal a pass-through stage reports. One shared array: a consumer keys a memo on its
  * identity, and a fresh `[]` per pass would re-run that memo on every append.
  */
-export const NO_ROWS_REMOVED: readonly TranscriptEventRow[] = [];
+export const NO_ROWS_REMOVED: readonly ProjectedTranscriptRow[] = [];
 
 /**
  * Everything one render of the transcript needs, derived once per store revision. A member that
@@ -54,7 +55,7 @@ export const NO_ROWS_REMOVED: readonly TranscriptEventRow[] = [];
 export interface TranscriptWindowModel {
   /** The virtualizer's identity list; the viewport keys its reconcile on it. */
   readonly viewportRows: readonly ViewportRow[];
-  readonly rowsByKey: ReadonlyMap<string, TranscriptEventRow>;
+  readonly rowsByKey: ReadonlyMap<string, ProjectedTranscriptRow>;
   /** Which rows a rollback boundary later in the log supersedes. */
   readonly supersededRowIds: ReadonlySet<string>;
   /**
@@ -82,7 +83,7 @@ export interface TranscriptWindowModel {
    */
   readonly replyRowIdsByFootRowId: ReadonlyMap<string, readonly string[]>;
   /** The rows in log order, for find and the run group fold. */
-  readonly rows: readonly TranscriptEventRow[];
+  readonly rows: readonly ProjectedTranscriptRow[];
   /** The runs the log names that have not ended, by run id: the log is busy while one stands. */
   readonly liveRunIds: ReadonlySet<string>;
 }
@@ -97,7 +98,7 @@ export class TranscriptWindowDerivation {
   #transcript: readonly ProjectedSessionEvent[] = [];
   #runEntities: RunEntitiesByRunId | undefined;
   /** The row each held event was last published as, kept across whole derivations. */
-  readonly #rowByEvent = new WeakMap<ProjectedSessionEvent, TranscriptEventRow>();
+  readonly #rowByEvent = new WeakMap<ProjectedSessionEvent, ProjectedTranscriptRow>();
   /** The last window published, and the indexes it was published from. */
   #held: { model: TranscriptWindowModel; readonly accumulation: WindowAccumulation } | undefined;
 
@@ -147,7 +148,7 @@ export function deriveTranscriptWindow(
  */
 class WindowAccumulation {
   readonly #projector: TranscriptRowProjector;
-  readonly #rows = new PublishedKeyedList<TranscriptEventRow, TranscriptEventRow>(
+  readonly #rows = new PublishedKeyedList<ProjectedTranscriptRow, ProjectedTranscriptRow>(
     (row) => row.id,
     (row) => row,
   );
@@ -176,7 +177,7 @@ class WindowAccumulation {
    * `runEntities` are the store's run entities the run groups first read.
    */
   public constructor(
-    rowByEvent: WeakMap<ProjectedSessionEvent, TranscriptEventRow>,
+    rowByEvent: WeakMap<ProjectedSessionEvent, ProjectedTranscriptRow>,
     runEntities: RunEntitiesByRunId,
   ) {
     this.#projector = new TranscriptRowProjector(rowByEvent);
@@ -195,10 +196,10 @@ class WindowAccumulation {
     const previousIdentityByKey = new Map(
       (previous?.viewportRows ?? []).map((identity) => [identity.key, identity]),
     );
-    const admittedRows: TranscriptEventRow[] = [];
+    const admittedRows: ProjectedTranscriptRow[] = [];
     // Retained before any index reads a row, so every index, the feed and every memo under it see
     // the object actually published.
-    const retain = (row: TranscriptEventRow): TranscriptEventRow => {
+    const retain = (row: ProjectedTranscriptRow): ProjectedTranscriptRow => {
       const previousRow = previous?.rowsByKey.get(row.id);
       return previousRow !== undefined && hasSameMembers(previousRow, row) ? previousRow : row;
     };
@@ -268,7 +269,7 @@ class WindowAccumulation {
   }
 
   /** Join `row` to every index, answering the key of the run group it joined, if any. */
-  #admitRow(row: TranscriptEventRow): string | undefined {
+  #admitRow(row: ProjectedTranscriptRow): string | undefined {
     const systemMessage = this.#classifier.classify(row);
     // The group is decided here, before anything is drawn, so every stage and the window cap read
     // one membership.
@@ -321,7 +322,7 @@ class WindowAccumulation {
  * page would make the cap all-or-nothing over every row the page delivered.
  */
 function identityOf(
-  row: TranscriptEventRow,
+  row: ProjectedTranscriptRow,
   parentKey: string | undefined,
   previousIdentity: ViewportRow | undefined,
 ): ViewportRow {

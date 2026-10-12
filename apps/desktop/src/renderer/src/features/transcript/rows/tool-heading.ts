@@ -2,15 +2,16 @@
 // elapsed time and its result chip. The card draws it, and a copy of a row
 // the window let go reads its text from the same reading, so both say the same words.
 
-import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { formatDuration, formatWireString } from "#renderer/lib/wire/figures.js";
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { type ChipTone } from "#renderer/components/Chip/Chip.js";
 import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
 import { toolResultState, type ToolResultState } from "./kind.js";
 import { readDeclaredToolKind, type ToolKindReading } from "./tool-kinds/vocabulary.js";
+import {
+  type ProjectedTranscriptRow,
+  type ProjectedRowContent,
+} from "#renderer/store/session/entities/vocabulary.js";
 
 /** What a tool row's heading draws, read from the row and its body. */
 export interface ToolRowHeading {
@@ -29,8 +30,8 @@ export const ABSENT_TOOL_NAME_LABEL = "No tool name";
 
 /** The heading a tool row draws. */
 export function toolRowHeadingOf(
-  row: TranscriptEventRow,
-  content: TranscriptRowContent | undefined,
+  row: ProjectedTranscriptRow,
+  content: ProjectedRowContent | undefined,
 ): ToolRowHeading {
   const payload = projectedPayload(row);
   const durationMs = readWireCount(payload, "durationMs");

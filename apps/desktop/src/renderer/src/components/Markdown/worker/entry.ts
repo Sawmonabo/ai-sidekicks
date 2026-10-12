@@ -1,5 +1,6 @@
 // The markdown worker: loads the parser, compiling it from the renderer's own origin when the page
-// hands it none and sending the compiled module back for later workers, and then, off the page's
+// hands it none and sending the compiled module back for later workers, with the text-compression
+// module compiled beside it for the page, which compiles nothing itself; and then, off the page's
 // thread, parses each text the page sends into the parser's binary tree, cuts each body's text the
 // page sends into blocks, makes each reply's markdown into HTML under the screen's policy, and
 // reads each drawn part back into the text it copies as, with its HTML when it is copied as
@@ -10,12 +11,14 @@
 // the rest.
 
 import parserModuleUrl from "@bruits/satteri-wasm32-wasi/satteri_napi.wasm32-wasi.wasm?url";
+import textCompressionModuleUrl from "@ai-sidekicks/text-compression/text-compression.wasm?url";
 
 import { describeFailure } from "#shared/failure-message.js";
 import { BlockCut, MARKDOWN_SETTLE_LAG_BLOCKS } from "../parse/block-cut.js";
 import { loadMarkdownParserCalls, type MarkdownParserCalls } from "../parse/parser-calls.js";
 import { MarkdownWorkerAnswers, type MarkdownTreeParser } from "./answer.js";
 import type {
+  CompiledTextCompression,
   MarkdownBlockEnds,
   MarkdownCutRequest,
   MarkdownParserLoad,
@@ -86,15 +89,34 @@ class AnswerOutbox<Answer> {
   }
 }
 
-/** Loads the parser the page hands over, or compiles it, and warms it on a short reply. */
+/**
+ * Loads the parser the page hands over, or compiles it, with the text-compression module beside
+ * it, and warms it on a short reply.
+ */
 async function loadParser(load: MarkdownParserLoad): Promise<MarkdownParserCalls> {
   let parser = load.parser;
   if (parser === undefined) {
-    parser = await WebAssembly.compileStreaming(fetch(parserModuleUrl));
-    workerScope.postMessage({ status: "compiled", parser }, []);
+    const [compiledParser, textCompression] = await Promise.all([
+      WebAssembly.compileStreaming(fetch(parserModuleUrl)),
+      compileTextCompression(),
+    ]);
+    parser = compiledParser;
+    workerScope.postMessage({ status: "compiled", parser, textCompression }, []);
   }
   workerScope.satteriWasmModule = parser;
   return await loadMarkdownParserCalls();
+}
+
+/** The text-compression module compiled from the renderer's own origin, or why it was not. */
+async function compileTextCompression(): Promise<CompiledTextCompression> {
+  try {
+    return {
+      status: "compiled",
+      module: await WebAssembly.compileStreaming(fetch(textCompressionModuleUrl)),
+    };
+  } catch (error: unknown) {
+    return { status: "absent", reason: describeFailure(error) };
+  }
 }
 
 /**

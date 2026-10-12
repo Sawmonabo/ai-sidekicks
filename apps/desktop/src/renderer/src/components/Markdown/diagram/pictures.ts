@@ -11,7 +11,7 @@
 import { createContext, type Context } from "react";
 
 import { ByteBoundedCache } from "#renderer/lib/byte-bounded-cache.js";
-import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
+import { measureUtf8ByteLength } from "#renderer/lib/text/utf8-byte-length.js";
 import { defaultLabelFacesFor } from "./default-label-faces.js";
 import type { DiagramPalette } from "./palette.js";
 import { LabelMeasurer } from "./label-measurer.js";

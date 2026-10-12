@@ -3,10 +3,9 @@
 // compaction inside the child never moves the card. Identity is read, never inferred: guessing
 // it from the actor would merge concurrent subagents of one provider onto a single anchor.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** One provider-attributed subagent, keyed as the orchestration contract keys it. */
 export interface SubagentIdentity {
@@ -39,7 +38,7 @@ export class SubagentAnchorIndex {
   readonly #anchorsByRowId = new Map<string, SubagentAnchor>();
 
   /** Fold one row in, after every row admitted before it. */
-  public admit(row: TranscriptEventRow): void {
+  public admit(row: ProjectedTranscriptRow): void {
     const identity = subagentIdentityOf(row);
     if (identity === undefined) {
       return;
@@ -87,7 +86,7 @@ export function subagentIdentityKey(identity: SubagentIdentity): string {
  * no provider cannot be keyed as the contract keys one, and a fabricated provider would merge two
  * providers' subagents sharing an id. `runId` comes off the row, and a `general` row has none.
  */
-export function subagentIdentityOf(row: TranscriptEventRow): SubagentIdentity | undefined {
+export function subagentIdentityOf(row: ProjectedTranscriptRow): SubagentIdentity | undefined {
   if (row.kind === "general") {
     return undefined;
   }

@@ -1,17 +1,18 @@
 // Transcript rows for the cards' own tests. Test-only: not exported through any barrel, so the
 // application graph never imports it. A builder rather than literals per test, because
-// `TranscriptEventRow` is a discriminated union whose `run` arm requires three members that are
+// `ProjectedTranscriptRow` is a discriminated union whose `run` arm requires three members that are
 // all-or-none; a literal could write a row the projector never emits.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { clockLocaleFor, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
 import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** The session every sample row belongs to. Opaque on the wire; branded in the contract. */
 const SAMPLE_SESSION_ID = "01J0000000000000000000000A" as SessionId;
@@ -51,7 +52,10 @@ export interface SampleRowOverrides {
   readonly actor?: string;
   readonly timestamp?: string;
   readonly payload?: Readonly<Record<string, unknown>>;
-  /** The row's body, as a read brings it; absent, the row is one the stream delivered. */
+  /**
+   * The row's body, as a read brings it, held packed as the store admits it; absent, the row is
+   * one the stream delivered.
+   */
   readonly content?: TranscriptRowContent;
 }
 
@@ -59,7 +63,7 @@ export interface SampleRowOverrides {
  * A run-scoped row, the arm every message and tool row takes. `position` and `epoch` are present
  * because the arm requires them; without them the contract's own parse fails.
  */
-export function sampleRunRow(overrides: SampleRowOverrides = {}): TranscriptEventRow {
+export function sampleRunRow(overrides: SampleRowOverrides = {}): ProjectedTranscriptRow {
   return {
     kind: "run",
     id: overrides.id ?? "event-01",
@@ -74,14 +78,14 @@ export function sampleRunRow(overrides: SampleRowOverrides = {}): TranscriptEven
     position: 1,
     epoch: 0,
     ...(overrides.actor === undefined ? {} : { actor: overrides.actor }),
-    ...(overrides.content === undefined ? {} : { content: overrides.content }),
+    ...(overrides.content === undefined ? {} : { content: projectedContentOf(overrides.content) }),
   };
 }
 
 /** A person's message row, its payload the `user.message` shape the body reads it from. */
 export function sampleUserMessageRow(
   overrides: Omit<SampleRowOverrides, "payload" | "type"> & { readonly message: string },
-): TranscriptEventRow {
+): ProjectedTranscriptRow {
   return sampleRunRow({
     ...overrides,
     type: "user.message",
@@ -90,7 +94,7 @@ export function sampleUserMessageRow(
 }
 
 /** A non-run row — the arm a receipt takes. */
-export function sampleGeneralRow(overrides: SampleRowOverrides = {}): TranscriptEventRow {
+export function sampleGeneralRow(overrides: SampleRowOverrides = {}): ProjectedTranscriptRow {
   return {
     kind: "general",
     id: overrides.id ?? "event-02",

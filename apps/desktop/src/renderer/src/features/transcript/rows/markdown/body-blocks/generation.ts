@@ -9,10 +9,7 @@ import {
 } from "#renderer/components/Markdown/parse/trees.js";
 import { MARKDOWN_SETTLE_LAG_BLOCKS } from "#renderer/components/Markdown/parse/block-cut.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import {
-  publishedTextOf,
-  type PublishedText,
-} from "#renderer/features/transcript/reveal/published-text.js";
+import { publishedTextOf, type PublishedText } from "#renderer/lib/text/published.js";
 import { BlockFlag, BlockRecords } from "../block-records.js";
 import { BodyDefinitions } from "./definitions.js";
 

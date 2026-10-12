@@ -4,7 +4,7 @@
 // classes, and it follows the screen's own policy.
 
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
-import type { PiecedText } from "#renderer/lib/text-pieces.js";
+import type { PiecedText } from "#renderer/lib/text/pieces.js";
 import type { PiecedTextClipboardContent } from "#renderer/services/platform/clipboard/late-copy.js";
 
 /**

@@ -4,7 +4,7 @@
 import { expect, vi } from "vitest";
 
 import type { TextClipboardContent } from "#shared/preload-api.js";
-import { joinPieces, TEXT_PIECE_LENGTH, type PiecedText } from "#renderer/lib/text-pieces.js";
+import { joinPieces, TEXT_PIECE_LENGTH, type PiecedText } from "#renderer/lib/text/pieces.js";
 import type { PiecedTextClipboardContent } from "#renderer/services/platform/clipboard/late-copy.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 

@@ -4,11 +4,13 @@
 // Inline cards (diff, attachment, artifact) are not row kinds; `MessageRow` renders them.
 
 import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
-import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
 import type { GlyphName } from "#renderer/styles/glyphs.js";
+import {
+  type ProjectedTranscriptRow,
+  type ProjectedRowContent,
+} from "#renderer/store/session/entities/vocabulary.js";
 
 /**
  * Every kind of card a transcript row can take. Closed.
@@ -84,7 +86,7 @@ const ROW_KIND_BY_EVENT_TYPE: ReadonlyMap<string, TranscriptRowKind> = new Map([
  *
  * `undefined` is the ordinary case: only six event types carry a body a transcript card draws.
  */
-export function classifyTranscriptRow(row: TranscriptEventRow): RowKindDescriptor | undefined {
+export function classifyTranscriptRow(row: ProjectedTranscriptRow): RowKindDescriptor | undefined {
   const kind = ROW_KIND_BY_EVENT_TYPE.get(row.type);
   return kind === undefined ? undefined : DESCRIPTORS_BY_ROW_KIND[kind];
 }
@@ -99,7 +101,7 @@ export function describeRowKind<TKind extends TranscriptRowKind>(kind: TKind): D
  * payload counts a body, or whose output is streaming in now. A call with neither draws no
  * chevron, because nothing would open.
  */
-export function isFoldableCall(row: TranscriptEventRow, hasLiveText: boolean): boolean {
+export function isFoldableCall(row: ProjectedTranscriptRow, hasLiveText: boolean): boolean {
   if (classifyTranscriptRow(row)?.kind !== "tool-call") {
     return false;
   }
@@ -130,7 +132,7 @@ export type ToolResultState = (typeof TOOL_RESULT_STATES)[number];
  */
 export function toolResultState(
   eventType: string,
-  content: TranscriptRowContent | undefined,
+  content: ProjectedRowContent | undefined,
 ): ToolResultState {
   if (eventType === "tool.error") {
     return "error";

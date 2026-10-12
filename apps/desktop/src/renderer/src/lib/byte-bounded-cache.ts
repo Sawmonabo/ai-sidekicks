@@ -5,7 +5,7 @@
 // entries no one holds are kept in their own order too, so passing the cap visits only those it
 // evicts, however many entries are held.
 
-import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
+import { measureUtf8ByteLength } from "#renderer/lib/text/utf8-byte-length.js";
 
 /** Content-addressed LRU cache with a byte cap; an entry larger than the cap is not stored. */
 export class ByteBoundedCache<TValue> {

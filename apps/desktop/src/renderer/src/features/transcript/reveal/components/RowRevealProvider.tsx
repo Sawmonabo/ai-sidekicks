@@ -8,7 +8,7 @@ import { createContext, type Context } from "react";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type DrawnReplyText } from "../../copy/drawn-reply-text.js";
-import { type PublishedText } from "../published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 
 /** How a row body reaches the text one lane of the reveal engine is publishing. */
 export interface RowRevealContextValue {

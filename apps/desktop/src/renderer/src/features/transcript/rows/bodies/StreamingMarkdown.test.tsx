@@ -14,7 +14,7 @@ import { type MarkdownBodyBlocks } from "../markdown/body-blocks/reader.js";
 import { bodyBlocksForTest } from "../markdown/body-blocks/reader.test-support.js";
 import { type MarkdownBodyBlocksSnapshot } from "../markdown/body-blocks/snapshot.js";
 import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
-import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
+import { publishedTextOf, type PublishedText } from "#renderer/lib/text/published.js";
 
 /** A markdown body drawn inside a window, which supplies its code colors. */
 function renderInWindow(body: React.JSX.Element): RenderResult {

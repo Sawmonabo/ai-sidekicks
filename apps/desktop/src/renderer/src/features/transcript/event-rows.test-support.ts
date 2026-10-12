@@ -1,22 +1,22 @@
 // Transcript-row builders for this subtree's co-located tests. Every row is a real
-// `TranscriptEventRow` under the contract's discriminated union, so a test never asserts against a
+// `ProjectedTranscriptRow` under the contract's discriminated union, so a test never asserts against a
 // shape the daemon cannot send.
 
 import {
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
-  type TranscriptEventRow,
 } from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** The one session every fixture row belongs to. */
 const FIXTURE_SESSION_ID = "11111111-2222-4333-8444-555555555555" as SessionId;
 
 /** The `general` arm — a row carrying no run attribution. */
-export function generalRow(input: FixtureRowInput): TranscriptEventRow {
+export function generalRow(input: FixtureRowInput): ProjectedTranscriptRow {
   return { ...commonFields(input), kind: "general", payload: input.payload ?? {} };
 }
 
@@ -26,7 +26,7 @@ export function runRow(
     readonly runId: string;
     readonly position: number;
   },
-): TranscriptEventRow {
+): ProjectedTranscriptRow {
   return {
     ...commonFields(input),
     kind: "run",
@@ -45,7 +45,7 @@ export function userMessageRow(input: {
   readonly id: string;
   readonly sequence: number;
   readonly message: string;
-}): TranscriptEventRow {
+}): ProjectedTranscriptRow {
   return generalRow({
     id: input.id,
     sequence: input.sequence,
@@ -67,7 +67,7 @@ export function rollbackBoundaryRow(
      */
     readonly targetPosition?: number;
   },
-): TranscriptEventRow {
+): ProjectedTranscriptRow {
   return {
     ...commonFields({ ...input, type: TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE }),
     category: TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,

@@ -6,7 +6,7 @@
 
 import { Emitter } from "#renderer/lib/emitter.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { type PublishedText } from "../reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import { outputKindOf } from "../rows/bodies/output-kinds.js";
 import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
 

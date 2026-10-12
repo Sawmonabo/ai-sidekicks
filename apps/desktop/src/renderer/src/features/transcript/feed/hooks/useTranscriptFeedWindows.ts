@@ -8,8 +8,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
@@ -34,7 +32,10 @@ import {
   type TranscriptPipelineStage,
   type TranscriptWindowModel,
 } from "../../window/transcript-window.js";
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import {
+  type ProjectedSessionEvent,
+  type ProjectedTranscriptRow,
+} from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { useHistoryLookAhead } from "../../history/hooks/useHistoryLookAhead.js";
 import { useReleaseOutsideWindow } from "../../history/hooks/useReleaseOutsideWindow.js";
@@ -191,7 +192,8 @@ export function useTranscriptFeedWindows(
   const drawnWindow = useDrawnRows(runGroupFold.window, drawsBody, inputs.sessionStore.sessionId);
   // Over the unfurled window's system messages, which name the rows a fold hides as well.
   const drawsRow = useCallback(
-    (row: TranscriptEventRow) => isDrawnRow(row, unfurledWindow.systemMessageByRowId, drawsBody),
+    (row: ProjectedTranscriptRow) =>
+      isDrawnRow(row, unfurledWindow.systemMessageByRowId, drawsBody),
     [unfurledWindow, drawsBody],
   );
   // The reveal engine is this feed's, minted once and disposed with it. The frame scheduler is

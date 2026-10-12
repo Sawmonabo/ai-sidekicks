@@ -12,7 +12,7 @@
 // output, with no parse drawn yet, draws each slice's parse as it lands.
 
 import { startSlice } from "#renderer/lib/work-slices.js";
-import { type PublishedText } from "../../reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import { type OutputParse, type PreparedBodies } from "../prepared-bodies.js";
 import { AnsiLineChunks } from "./lines/chunks.js";
 

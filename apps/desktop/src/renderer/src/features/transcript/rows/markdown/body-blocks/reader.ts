@@ -27,7 +27,7 @@ import type {
 import { Emitter } from "#renderer/lib/emitter.js";
 import { startSlice } from "#renderer/lib/work-slices.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import type { PublishedText } from "#renderer/features/transcript/reveal/published-text.js";
+import type { PublishedText } from "#renderer/lib/text/published.js";
 import { VolatileTailParser } from "../parse/volatile-tail.js";
 import { LINK_DEFINITION_LINE } from "../settled-block.js";
 import {

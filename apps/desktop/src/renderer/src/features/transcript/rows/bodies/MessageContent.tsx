@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 
-import { type PublishedText } from "../../reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import { MachineBody, type MachineBodyProps } from "./MachineBody.js";
 import { outputKindOf, type OutputKind } from "./output-kinds.js";
 

@@ -16,14 +16,16 @@
 // past keeps counting the drawn rows it let go, carried from one derivation of the log to the
 // next until they are read back.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import {
   isTranscriptRunEnded,
   transcriptRunHeaderStateOf,
   type TranscriptRunFactsFold,
 } from "@ai-sidekicks/contracts/transcript/run-facts";
 
-import type { StoredEntity } from "#renderer/store/session/entities/vocabulary.js";
+import {
+  type StoredEntity,
+  type ProjectedTranscriptRow,
+} from "#renderer/store/session/entities/vocabulary.js";
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { SystemMessageClassifier } from "../system-messages/classifier.js";
 import { PublishedKeyedList } from "../window/published-keyed-list.js";
@@ -43,7 +45,7 @@ export interface ReleasedRunEntries {
   /** The highest sequence they were let go from. */
   readonly toSequence: number;
   /** The outermost event let go: the stretch's first at its earlier end, its last at the later. */
-  readonly outermostEvent: Pick<TranscriptEventRow, "sequence" | "cursor">;
+  readonly outermostEvent: Pick<ProjectedTranscriptRow, "sequence" | "cursor">;
 }
 
 /**
@@ -53,7 +55,7 @@ export interface ReleasedRunEntries {
 export interface PreviousRunGroups {
   readonly runGroupByHeaderKey: ReadonlyMap<string, RunGroup>;
   readonly runGroupKeyByRowId: ReadonlyMap<string, string>;
-  readonly rowsByKey: ReadonlyMap<string, TranscriptEventRow>;
+  readonly rowsByKey: ReadonlyMap<string, ProjectedTranscriptRow>;
 }
 
 /** One stretch of one run's rows, folded. */
@@ -136,7 +138,7 @@ export class RunGroupIndex {
    * Fold one row in, in log order, and answer the key of the group it joined, or `undefined` for
    * a row that stands outside every group. `isNotification` is whether the row is a system message.
    */
-  public admit(row: TranscriptEventRow, isNotification: boolean): string | undefined {
+  public admit(row: ProjectedTranscriptRow, isNotification: boolean): string | undefined {
     const rowKind = classifyTranscriptRow(row)?.kind;
     if (rowKind === "user-message") {
       // A person's message is never a run's own row, even one stamped with the run it steers.
@@ -225,8 +227,8 @@ export class RunGroupIndex {
    */
   public carryReleasedRows(
     previous: PreviousRunGroups,
-    rows: readonly TranscriptEventRow[],
-    rowOf: (rowId: string) => TranscriptEventRow | undefined,
+    rows: readonly ProjectedTranscriptRow[],
+    rowOf: (rowId: string) => ProjectedTranscriptRow | undefined,
   ): void {
     const isLetGo = letGoReaderOf(rows, previous.rowsByKey);
     for (const group of this.#groups) {
@@ -358,7 +360,7 @@ export class RunGroupIndex {
    * before lost the card that put it there, which only a release does. Then it joins the group that
    * holds that stretch's rows, or opens one for its run.
    */
-  #notificationGroupOf(row: TranscriptEventRow): GroupAccumulator | undefined {
+  #notificationGroupOf(row: ProjectedTranscriptRow): GroupAccumulator | undefined {
     const lastCardGroup = this.#lastCardGroup;
     const previousKey = this.#previous?.runGroupKeyByRowId.get(row.id);
     const newestCardId = lastCardGroup?.cardRowIds.at(-1);
@@ -384,7 +386,7 @@ export class RunGroupIndex {
     this.#lastCardGroup = undefined;
   }
 
-  #openGroup(run: RunAccumulator, row: TranscriptEventRow): GroupAccumulator {
+  #openGroup(run: RunAccumulator, row: ProjectedTranscriptRow): GroupAccumulator {
     const group: GroupAccumulator = {
       key: this.#mintKey(run.runId, row.id),
       run,
@@ -409,7 +411,7 @@ export class RunGroupIndex {
 
   #join(
     group: GroupAccumulator,
-    row: TranscriptEventRow,
+    row: ProjectedTranscriptRow,
     hasCard: boolean,
     isDrawn: boolean,
   ): void {
@@ -472,7 +474,7 @@ export class RunGroupIndex {
 
 /** The run groups of one loaded window, its rows folded in one pass. */
 export function groupRowsByRun(
-  rows: readonly TranscriptEventRow[],
+  rows: readonly ProjectedTranscriptRow[],
   runEntities: RunEntitiesByRunId,
 ): readonly RunGroup[] {
   const runGroupIndex = new RunGroupIndex(runEntities);
@@ -553,8 +555,8 @@ function sealDrawnRunGroup(group: GroupAccumulator): readonly RunGroup[] {
  * it, in sequence, are rows `previous` held too, and so is the nearer end's row past an end.
  */
 function letGoReaderOf(
-  rows: readonly TranscriptEventRow[],
-  previousRowsByKey: ReadonlyMap<string, TranscriptEventRow>,
+  rows: readonly ProjectedTranscriptRow[],
+  previousRowsByKey: ReadonlyMap<string, ProjectedTranscriptRow>,
 ): (sequence: number) => boolean {
   return (sequence) => {
     let low = 0;
@@ -593,7 +595,7 @@ function isAmong(
 /** `entries` with one more drawn row let go at the `side` end of the stretch. */
 function withReleasedRow(
   entries: ReleasedRunEntries | undefined,
-  row: TranscriptEventRow,
+  row: ProjectedTranscriptRow,
   side: "earlier" | "later",
 ): ReleasedRunEntries {
   if (entries === undefined) {

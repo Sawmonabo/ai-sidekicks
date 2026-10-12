@@ -10,12 +10,10 @@
 // it settles, or a tool's; and, with no lane, or once its lane retires, the stored body, finished.
 // A typesetter, diagram or table failure counts as landed: the body draws its error state.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
-import { publishedTextOf, type PublishedText } from "../reveal/published-text.js";
+import { publishedTextOf, type PublishedText } from "#renderer/lib/text/published.js";
 import { StrippedText } from "./ansi/escape-sequences.js";
 import { AnsiOutputPreparation } from "./ansi/preparation.js";
 import { outputKindOf } from "./bodies/output-kinds.js";
@@ -29,6 +27,7 @@ import {
   type TranscriptRowPreparer,
   type TranscriptRowSources,
 } from "./renderer.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
  * Starts what a transcript row's first frame waits on: a message row's body, its finished formulas
@@ -54,11 +53,11 @@ export const prepareTranscriptRow: TranscriptRowPreparer = (row, sources, onRead
  * refresh reads only what changed since the last one, and asks for each formula and diagram once.
  */
 class MessageRowPreparation implements TranscriptRowPreparation {
-  readonly #row: TranscriptEventRow;
+  readonly #row: ProjectedTranscriptRow;
   readonly #sources: TranscriptRowSources;
   readonly #onReady: () => void;
   readonly #blocks = new MarkdownBodyBlocks(appMarkdownTrees);
-  readonly #strippedText: StrippedText;
+  readonly #strippedText = new StrippedText();
   /** The reply's body parsed into lines, while it is drawn as command output or plain text. */
   readonly #output: AnsiOutputPreparation;
   readonly #drawnBlockWaits: DrawnBlockWaits;
@@ -66,8 +65,13 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   #outputText: PublishedText | undefined;
   /** The body last read, its text's revision then, and the reader's. */
   #readBody: ReadBody | undefined;
-  /** The settled body last read and its source, so a refresh over the same string reads nothing. */
-  #settledBody: { readonly source: string; readonly body: MarkdownBody | undefined } | undefined;
+  /**
+   * The settled body last read and its source, a person's message or a stored body's holder, so a
+   * refresh over the same source reads nothing.
+   */
+  #settledBody:
+    | { readonly source: string | PublishedText; readonly body: MarkdownBody | undefined }
+    | undefined;
   /** Lands the row's wait for its body to draw, while it waits. */
   #bodyDrawn: (() => void) | undefined;
   /** Whether the block reader changed while the row was read, so it is read once more. */
@@ -80,9 +84,12 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   #pendingCount = 0;
   #isReleased = false;
 
-  public constructor(row: TranscriptEventRow, sources: TranscriptRowSources, onReady: () => void) {
+  public constructor(
+    row: ProjectedTranscriptRow,
+    sources: TranscriptRowSources,
+    onReady: () => void,
+  ) {
     this.#row = row;
-    this.#strippedText = new StrippedText(row.id);
     this.#sources = sources;
     this.#onReady = onReady;
     this.#output = new AnsiOutputPreparation(
@@ -211,7 +218,9 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   #readMarkdownBody(): MarkdownBody | undefined {
     if (classifyTranscriptRow(this.#row)?.kind === "user-message") {
       const message = userMessageTextOf(this.#row);
-      return message === undefined ? undefined : this.#settledBodyOf(message, publishedTextOf);
+      return message === undefined
+        ? undefined
+        : this.#settledBodyOf(message, () => publishedTextOf(message));
     }
     const liveText = this.#sources.publishedTextFor(this.#row.id);
     if (liveText !== undefined) {
@@ -225,7 +234,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
       this.#outputText = undefined;
       return undefined;
     }
-    return this.#settledBodyOf(content.body, (source) => this.#proseOf(publishedTextOf(source)));
+    return this.#settledBodyOf(content.body, () => this.#proseOf(content.body));
   }
 
   /**
@@ -255,13 +264,13 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     }
   }
 
-  /** The finished body read from `source`, read once per string. */
+  /** The finished body read from `source`, read once per message string or stored holder. */
   #settledBodyOf(
-    source: string,
-    readText: (source: string) => PublishedText | undefined,
+    source: string | PublishedText,
+    readText: () => PublishedText | undefined,
   ): MarkdownBody | undefined {
     if (this.#settledBody?.source !== source) {
-      const text = readText(source);
+      const text = readText();
       this.#settledBody = {
         source,
         body: text === undefined ? undefined : { text, isComplete: true },
@@ -293,13 +302,15 @@ class MessageRowPreparation implements TranscriptRowPreparation {
  * drawn as plain text, carries no escape, so it is parsed as it is.
  */
 class ToolRowPreparation implements TranscriptRowPreparation {
-  readonly #row: TranscriptEventRow;
+  readonly #row: ProjectedTranscriptRow;
   readonly #sources: TranscriptRowSources;
   readonly #output: AnsiOutputPreparation;
-  /** The stored body last read and its handle, so a refresh over the same string reads nothing. */
-  #storedOutput: { readonly source: string; readonly text: PublishedText } | undefined;
 
-  public constructor(row: TranscriptEventRow, sources: TranscriptRowSources, onReady: () => void) {
+  public constructor(
+    row: ProjectedTranscriptRow,
+    sources: TranscriptRowSources,
+    onReady: () => void,
+  ) {
     this.#row = row;
     this.#sources = sources;
     this.#output = new AnsiOutputPreparation(
@@ -324,26 +335,17 @@ class ToolRowPreparation implements TranscriptRowPreparation {
     // A folded call draws no output, so it waits on no parse until it opens.
     const isFolded =
       this.#sources.isCallFolded(rowId) && isFoldableCall(this.#row, liveText !== undefined);
+    const content = this.#row.content;
     this.#output.read(
-      isFolded ? undefined : (liveText ?? this.#readStoredOutput()),
+      isFolded
+        ? undefined
+        : (liveText ?? (content?.status === "available" ? content.body : undefined)),
       this.#sources.reachOf(rowId),
     );
   }
 
   public release(): void {
     this.#output.release();
-  }
-
-  /** The stored body's handle, or `undefined` while the row carries none to draw. */
-  #readStoredOutput(): PublishedText | undefined {
-    const content = this.#row.content;
-    if (content?.status !== "available") {
-      return undefined;
-    }
-    if (this.#storedOutput?.source !== content.body) {
-      this.#storedOutput = { source: content.body, text: publishedTextOf(content.body) };
-    }
-    return this.#storedOutput.text;
   }
 }
 

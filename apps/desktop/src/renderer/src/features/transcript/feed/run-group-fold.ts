@@ -4,7 +4,6 @@
 // every row on each press. When the window only grew at its end, the fold applies what grew; a
 // press, or a window derived again whole, folds the whole window.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import {
   runWindowEdgeKey,
   type RunCallWindow,
@@ -20,6 +19,7 @@ import {
   type TranscriptPipelineStage,
   type TranscriptWindowModel,
 } from "../window/transcript-window.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** The windows of a session's long runs, and what they are measured in. */
 export interface RunWindowInputs {
@@ -117,8 +117,8 @@ export class RunGroupFold {
     runWindowInputs: RunWindowInputs,
   ): TranscriptPipelineStage {
     const viewportRows: ViewportRow[] = [];
-    const rows: TranscriptEventRow[] = [];
-    const removedRows: TranscriptEventRow[] = [];
+    const rows: ProjectedTranscriptRow[] = [];
+    const removedRows: ProjectedTranscriptRow[] = [];
     let withheldSystemMessageCount = 0;
     const identityByKey = new Map<string, ViewportRow>();
     const windowByKey = new Map<string, RunCallWindow>();
@@ -214,11 +214,11 @@ export class RunGroupFold {
     }
     const lists = new FoldedLists(previousStage);
     for (const position of growth.replacedPositions) {
-      const previousRow = previousInput.rows[position] as TranscriptEventRow;
+      const previousRow = previousInput.rows[position] as ProjectedTranscriptRow;
       if (
         previousInput.systemMessageByRowId.has(previousRow.id) !==
           model.systemMessageByRowId.has(previousRow.id) ||
-        !lists.replaceRow(previousRow, model.rows[position] as TranscriptEventRow)
+        !lists.replaceRow(previousRow, model.rows[position] as ProjectedTranscriptRow)
       ) {
         return undefined;
       }
@@ -249,11 +249,11 @@ export class RunGroupFold {
       grownWindows.set(runGroupKey, grown);
     }
     let withheldSystemMessageCount = this.#withheldSystemMessageCount;
-    const countWithheld = (row: TranscriptEventRow): void => {
+    const countWithheld = (row: ProjectedTranscriptRow): void => {
       withheldSystemMessageCount += model.systemMessageByRowId.has(row.id) ? 1 : 0;
     };
     for (let position = growth.appendedFrom; position < model.rows.length; position += 1) {
-      const row = model.rows[position] as TranscriptEventRow;
+      const row = model.rows[position] as ProjectedTranscriptRow;
       const identity = model.viewportRows[position] as ViewportRow;
       const runGroupKey = identity.parentKey;
       if (runGroupKey === undefined) {
@@ -376,15 +376,15 @@ function withoutKey<TValue>(
 class FoldedLists {
   readonly #previous: TranscriptPipelineStage;
   #viewportRows: ViewportRow[] | undefined;
-  #rows: TranscriptEventRow[] | undefined;
-  #removedRows: TranscriptEventRow[] | undefined;
+  #rows: ProjectedTranscriptRow[] | undefined;
+  #removedRows: ProjectedTranscriptRow[] | undefined;
 
   public constructor(previous: TranscriptPipelineStage) {
     this.#previous = previous;
   }
 
   /** Append a row the fold lets through, with its place in the identity list. */
-  public admit(identity: ViewportRow, row: TranscriptEventRow): void {
+  public admit(identity: ViewportRow, row: ProjectedTranscriptRow): void {
     this.#writableViewportRows().push(identity);
     this.#writableRows().push(row);
   }
@@ -395,12 +395,12 @@ class FoldedLists {
   }
 
   /** Append a row the fold withholds. Appended rows are the log's newest, so log order holds. */
-  public withhold(row: TranscriptEventRow): void {
+  public withhold(row: ProjectedTranscriptRow): void {
     this.#writableRemovedRows().push(row);
   }
 
   /** Put a row projected again where its earlier object stands. Answers whether it stood. */
-  public replaceRow(previous: TranscriptEventRow, next: TranscriptEventRow): boolean {
+  public replaceRow(previous: ProjectedTranscriptRow, next: ProjectedTranscriptRow): boolean {
     const rowPosition = positionOfRow(this.#previous.window.rows, previous);
     if (rowPosition !== -1) {
       this.#writableRows()[rowPosition] = next;
@@ -418,7 +418,7 @@ class FoldedLists {
    * Move an admitted row out of the window and into the withheld rows at its place in log order.
    * Answers whether it was admitted.
    */
-  public letGo(row: TranscriptEventRow): boolean {
+  public letGo(row: ProjectedTranscriptRow): boolean {
     const rows = this.#writableRows();
     const rowPosition = positionOfRow(rows, row);
     if (rowPosition === -1) {
@@ -447,12 +447,12 @@ class FoldedLists {
   }
 
   /** The admitted rows as they now stand. */
-  public rows(): readonly TranscriptEventRow[] {
+  public rows(): readonly ProjectedTranscriptRow[] {
     return this.#rows ?? this.#previous.window.rows;
   }
 
   /** The withheld rows as they now stand, in log order. */
-  public removedRows(): readonly TranscriptEventRow[] {
+  public removedRows(): readonly ProjectedTranscriptRow[] {
     return this.#removedRows ?? this.#previous.removedRows;
   }
 
@@ -461,12 +461,12 @@ class FoldedLists {
     return this.#viewportRows;
   }
 
-  #writableRows(): TranscriptEventRow[] {
+  #writableRows(): ProjectedTranscriptRow[] {
     this.#rows ??= [...this.#previous.window.rows];
     return this.#rows;
   }
 
-  #writableRemovedRows(): TranscriptEventRow[] {
+  #writableRemovedRows(): ProjectedTranscriptRow[] {
     this.#removedRows ??= [...this.#previous.removedRows];
     return this.#removedRows;
   }
@@ -501,8 +501,8 @@ function isAdmitted(
 function foldedStage(
   model: TranscriptWindowModel,
   viewportRows: readonly ViewportRow[],
-  rows: readonly TranscriptEventRow[],
-  removedRows: readonly TranscriptEventRow[],
+  rows: readonly ProjectedTranscriptRow[],
+  removedRows: readonly ProjectedTranscriptRow[],
   foldedRunGroupKeys: ReadonlySet<string>,
   admittedRowIdsByKey: ReadonlyMap<string, ReadonlySet<string>>,
   withheldSystemMessageCount: number,

@@ -21,6 +21,7 @@ import {
   MarkdownWorkerConnection,
 } from "#renderer/components/Markdown/worker/connection.js";
 import { mendVolatileTail, VolatileTailParser, type VolatileTailView } from "./volatile-tail.js";
+import { appTextCompression } from "#renderer/lib/text/compression.js";
 
 /** A tail parser on its own trees, and the stand-in workers those trees parse with. */
 function tailParser(): {
@@ -38,7 +39,9 @@ function standInTrees(): {
 } {
   const workers = new InThreadMarkdownWorkers();
   return {
-    trees: new MarkdownTrees(new MarkdownWorkerConnection(workers.start, window, appPageParser)),
+    trees: new MarkdownTrees(
+      new MarkdownWorkerConnection(workers.start, window, appPageParser, appTextCompression),
+    ),
     workers,
   };
 }

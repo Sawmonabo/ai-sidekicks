@@ -10,10 +10,13 @@ import {
   TranscriptReadResponseSchema,
   type TranscriptReadRequest,
 } from "@ai-sidekicks/contracts/transcript/operations";
-import type { TranscriptEventRow, TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { EVENT_ID_STEM } from "#fixtures/scenarios/transcript-states.js";
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import {
+  type ProjectedSessionEvent,
+  type ProjectedTranscriptRow,
+} from "#renderer/store/session/entities/vocabulary.js";
 import type { TranscriptWindowEdge } from "#renderer/store/session/state.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
@@ -159,8 +162,12 @@ export function transcriptReadRowAt(index: number): TranscriptReadRow {
  * A row projected from the log as `transcript.read` serves it: with its event's body, or `absent`
  * where its event carries none, as the daemon reads an event with nothing stored beside it.
  */
-export function readRowOf(row: TranscriptEventRow): TranscriptReadRow {
-  return { ...row, content: row.content ?? { status: "unavailable", reason: "absent" } };
+export function readRowOf(row: ProjectedTranscriptRow): TranscriptReadRow {
+  const content = row.content ?? { status: "unavailable", reason: "absent" };
+  return {
+    ...row,
+    content: content.status === "available" ? { ...content, body: content.body.slice(0) } : content,
+  };
 }
 
 /** The message at one log position of the paged session, as the stream delivers it. */

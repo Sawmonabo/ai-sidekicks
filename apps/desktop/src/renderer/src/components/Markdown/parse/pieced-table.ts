@@ -18,7 +18,7 @@ import { materializeNode } from "satteri/mdast-materializer";
 import { MdastReader, NodeType } from "satteri/mdast-reader";
 
 import { ByteBoundedCache } from "#renderer/lib/byte-bounded-cache.js";
-import { hasPrefix } from "#renderer/lib/text-prefix.js";
+import { hasPrefix } from "#renderer/lib/text/prefix.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import type { MarkdownParseAnswer } from "../worker/messages.js";
 import { mayHoldLiteralText, restoreLiteralText } from "./literal-text.js";

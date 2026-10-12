@@ -8,9 +8,9 @@ import {
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
 } from "@ai-sidekicks/contracts/agent/provider-binding";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { readProviderBindingChangeFailedPayload } from "#renderer/services/daemon/payload/provider-binding-change-failed.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
  * Every system message the transcript draws. Closed; `SystemMessageKind` derives from this tuple
@@ -34,7 +34,7 @@ export interface SystemMessageBinding {
    * The act's name the one-line row reads for `row`: the app's words, never the wire's.
    * `undefined` where the row's payload is off contract and names nothing to word.
    */
-  readonly labelOf: (row: TranscriptEventRow) => string | undefined;
+  readonly labelOf: (row: ProjectedTranscriptRow) => string | undefined;
   /** The wire event types that produce this system message, verbatim. */
   readonly wireTypes: readonly string[];
   /** Whether the system message is drawn as a caution; only the failed switch is. */
@@ -74,7 +74,7 @@ export const SYSTEM_MESSAGE_BINDINGS: Readonly<Record<SystemMessageKind, SystemM
 
 // The switch it tried, by the provider it was moving to: `Switch to Codex failed`. A switch that
 // names no provider stays on the one it had.
-function failedSwitchLabel(row: TranscriptEventRow): string | undefined {
+function failedSwitchLabel(row: ProjectedTranscriptRow): string | undefined {
   const failed = readProviderBindingChangeFailedPayload(row.payload);
   if (failed === undefined) {
     return undefined;

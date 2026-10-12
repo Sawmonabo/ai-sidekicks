@@ -5,8 +5,6 @@
 // message's line. While a query is set the log moves under it on every admitted event, so a held
 // search reads only the rows that moved.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { isDrawnRow } from "../feed/drawn-rows.js";
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { type TranscriptRowRenderer } from "../rows/renderer.js";
@@ -14,6 +12,7 @@ import { toolRowHeadingOf, toolRowHeadingText } from "../rows/tool-heading.js";
 import { userMessageTextOf } from "../rows/user-message.js";
 import { type SystemMessageReading } from "../system-messages/classifier.js";
 import { rowGrowthOf } from "../window/row-positions.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
  * Matches the find field ranks and offers next/previous over.
@@ -57,7 +56,7 @@ export interface FindResult {
  * new rows; any other list is searched whole.
  */
 export class FindMatchList {
-  #rows: readonly TranscriptEventRow[] = [];
+  #rows: readonly ProjectedTranscriptRow[] = [];
   #systemMessageByRowId: ReadonlyMap<string, SystemMessageReading> = new Map();
   #result: FindResult = emptyFindResult(0);
 
@@ -67,7 +66,7 @@ export class FindMatchList {
    * only the rows it added or replaced.
    */
   public resultOf(
-    rows: readonly TranscriptEventRow[],
+    rows: readonly ProjectedTranscriptRow[],
     query: string,
     systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>,
   ): FindResult {
@@ -86,7 +85,7 @@ export class FindMatchList {
   }
 
   #grownResult(
-    rows: readonly TranscriptEventRow[],
+    rows: readonly ProjectedTranscriptRow[],
     systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>,
   ): FindResult | undefined {
     const growth = rowGrowthOf(this.#rows, rows);
@@ -96,8 +95,8 @@ export class FindMatchList {
     const held = this.#result;
     const needle = held.query.toLowerCase();
     for (const position of growth.replacedPositions) {
-      const previousRow = this.#rows[position] as TranscriptEventRow;
-      const nextRow = rows[position] as TranscriptEventRow;
+      const previousRow = this.#rows[position] as ProjectedTranscriptRow;
+      const nextRow = rows[position] as ProjectedTranscriptRow;
       if (
         previousRow.sequence !== nextRow.sequence ||
         rowMatches(previousRow, needle, this.#systemMessageByRowId) !==
@@ -109,7 +108,7 @@ export class FindMatchList {
     const appendedMatches: FindMatch[] = [];
     let totalMatchCount = held.totalMatchCount;
     for (let position = growth.appendedFrom; position < rows.length; position += 1) {
-      const row = rows[position] as TranscriptEventRow;
+      const row = rows[position] as ProjectedTranscriptRow;
       if (!rowMatches(row, needle, systemMessageByRowId)) {
         continue;
       }
@@ -136,7 +135,7 @@ export class FindMatchList {
  * about the row object, so a row both lists hold keeps its place in the count.
  */
 export class FoldedMatchCount {
-  #rows: readonly TranscriptEventRow[] = [];
+  #rows: readonly ProjectedTranscriptRow[] = [];
   #needle = "";
   #systemMessageByRowId: ReadonlyMap<string, SystemMessageReading> = new Map();
   #drawsBody: TranscriptRowRenderer["drawsBody"] | undefined;
@@ -147,18 +146,18 @@ export class FoldedMatchCount {
    * message of `systemMessageByRowId`, the unfurled window's, or a row `drawsBody` has a body for.
    */
   public countOf(
-    rows: readonly TranscriptEventRow[],
+    rows: readonly ProjectedTranscriptRow[],
     query: string,
     systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>,
     drawsBody: TranscriptRowRenderer["drawsBody"],
   ): number {
     const needle = query.trim().toLowerCase();
-    const isCounted = (row: TranscriptEventRow): boolean =>
+    const isCounted = (row: ProjectedTranscriptRow): boolean =>
       rowMatches(row, needle, systemMessageByRowId) &&
       isDrawnRow(row, systemMessageByRowId, drawsBody);
     // A row that left is matched as it was counted, against the system messages of its own pass.
     const previousSystemMessageByRowId = this.#systemMessageByRowId;
-    const wasCounted = (row: TranscriptEventRow): boolean =>
+    const wasCounted = (row: ProjectedTranscriptRow): boolean =>
       rowMatches(row, needle, previousSystemMessageByRowId) &&
       isDrawnRow(row, previousSystemMessageByRowId, drawsBody);
     const isSameQuestion = needle === this.#needle && drawsBody === this.#drawsBody;
@@ -182,9 +181,9 @@ export class FoldedMatchCount {
   // either list is passed once, as one both hold or as one that left or joined, so the count holds
   // for lists in any order; in log order, only the rows that moved are matched.
   #countMoved(
-    rows: readonly TranscriptEventRow[],
-    isCounted: (row: TranscriptEventRow) => boolean,
-    wasCounted: (row: TranscriptEventRow) => boolean,
+    rows: readonly ProjectedTranscriptRow[],
+    isCounted: (row: ProjectedTranscriptRow) => boolean,
+    wasCounted: (row: ProjectedTranscriptRow) => boolean,
   ): number {
     const previousRows = this.#rows;
     let count = this.#count;
@@ -204,14 +203,14 @@ export class FoldedMatchCount {
         (previousRow !== undefined && previousRow.sequence <= row.sequence)
       ) {
         previousPosition += 1;
-        count -= wasCounted(previousRow as TranscriptEventRow) ? 1 : 0;
+        count -= wasCounted(previousRow as ProjectedTranscriptRow) ? 1 : 0;
       }
       if (
         previousRow === undefined ||
         (row !== undefined && row.sequence <= previousRow.sequence)
       ) {
         position += 1;
-        count += isCounted(row as TranscriptEventRow) ? 1 : 0;
+        count += isCounted(row as ProjectedTranscriptRow) ? 1 : 0;
       }
     }
     return count;
@@ -230,7 +229,7 @@ export function emptyFindResult(searchedRowCount: number): FindResult {
  * nearly every row on a short query. An empty or whitespace-only query matches nothing.
  */
 export function findInTranscript(
-  rows: readonly TranscriptEventRow[],
+  rows: readonly ProjectedTranscriptRow[],
   query: string,
   systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>,
 ): FindResult {
@@ -262,7 +261,7 @@ export function findInTranscript(
 
 /** Whether the text a row draws holds `needle`, already lowercased. */
 function rowMatches(
-  row: TranscriptEventRow,
+  row: ProjectedTranscriptRow,
   needle: string,
   systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>,
 ): boolean {
@@ -274,7 +273,7 @@ function rowMatches(
  * window does not hold: a reply or a reasoning body.
  */
 function drawnTextOf(
-  row: TranscriptEventRow,
+  row: ProjectedTranscriptRow,
   systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>,
 ): string | undefined {
   const systemMessage = systemMessageByRowId.get(row.id);

@@ -1,11 +1,14 @@
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { describe, expect, it } from "vitest";
 
 // The row-id namespace comes from the transcript scenario that declares it: a stem
 // restated here would be a second namespace the day the scenario's own moved.
 import { EVENT_ID_STEM } from "#fixtures/scenarios/transcript-states.js";
 import { isContractTranscriptReadRow } from "./rows.test-support.js";
-import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
+import type {
+  ProjectedSessionEvent,
+  ProjectedTranscriptRow,
+} from "#renderer/store/session/entities/vocabulary.js";
 import { TranscriptRowProjector } from "./rows.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
@@ -15,7 +18,7 @@ const AGENT_TWO = "019b793b-7b60-7a6e-8120-d1a4c1150102";
 const USER = "019b793b-7b60-79a4-8110-cca0117a0410";
 
 /** A whole log read as rows in one stretch. */
-function rowsOf(events: readonly ProjectedSessionEvent[]): readonly TranscriptEventRow[] {
+function rowsOf(events: readonly ProjectedSessionEvent[]): readonly ProjectedTranscriptRow[] {
   return new TranscriptRowProjector().project(events).rows;
 }
 
@@ -43,8 +46,10 @@ function runEvent(sequence: number, runId: string, kind = "run.running"): Projec
 }
 
 describe("the log-derived row projection", () => {
-  it("produces rows the contract's own validator accepts, a read event's body carried", () => {
+  it("produces rows the contract's own validator accepts, an admitted body read back exactly", () => {
     // Read from history, so each event carries the body its row does; a streamed event has none.
+    // The reply's body, under the inline cap, crosses a packed chunk edge.
+    const wireBody = "Café — 漢字とかな 🙂 a line\n".repeat(800);
     const rows = rowsOf([
       event({
         sequence: 1,
@@ -53,14 +58,21 @@ describe("the log-derived row projection", () => {
         content: { status: "unavailable", reason: "absent" },
       }),
       { ...runEvent(2, RUN_ONE), content: { status: "large", contentLength: 40_000 } },
+      {
+        ...runEvent(3, RUN_ONE, "assistant.message"),
+        content: projectedContentOf({ status: "available", body: wireBody, contentLength: 9 }),
+      },
     ]);
 
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     for (const row of rows) {
       // The real contract validator, not a local shape check: a row it refuses is unusable
       // downstream.
       expect(isContractTranscriptReadRow(row)).toBe(true);
     }
+    const content = rows[2]?.content;
+    expect(content?.status === "available" ? content.body.slice(0) : undefined).toBe(wireBody);
+    expect(content?.status === "available" ? content.contentLength : undefined).toBe(9);
   });
 
   it("files a run-attributed event on the run arm and an unattributed one on general", () => {
@@ -100,7 +112,7 @@ describe("the log-derived row projection", () => {
 
   it("keys rows by the event's own canonical id, wire-verbatim", () => {
     // The id is carried, not composed: the hydrated-event read is keyed `{sessionId, eventId}`
-    // and a row jump finds a row by `TranscriptEventRow.id`, so a `session:sequence` key would
+    // and a row jump finds a row by `ProjectedTranscriptRow.id`, so a `session:sequence` key would
     // resolve for no caller.
     const events = [runEvent(7, RUN_ONE), runEvent(8, RUN_ONE)];
     const rows = rowsOf(events);

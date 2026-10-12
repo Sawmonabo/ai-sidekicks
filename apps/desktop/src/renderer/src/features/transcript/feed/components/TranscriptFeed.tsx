@@ -11,8 +11,6 @@ import "./TranscriptFeed.css";
 
 import { useCallback, useMemo } from "react";
 
-import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
-
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -34,6 +32,7 @@ import {
   useDependentReadFailed,
   useSessionDegraded,
 } from "#renderer/store/session/hooks/useSessionInitialized.js";
+import { type ProjectedFullBody } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
@@ -231,7 +230,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const rowTextSources = useCallback(
     (
       rowTextWindow: TranscriptWindowModel,
-      fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
+      fullBodyOf: (rowId: string) => ProjectedFullBody | undefined,
     ): RowTextSources => ({
       transcriptWindow: rowTextWindow,
       reveal: revealChannel,
@@ -246,7 +245,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     (
       rowKey: string,
       rowTextWindow: TranscriptWindowModel,
-      fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
+      fullBodyOf: (rowId: string) => ProjectedFullBody | undefined,
     ) => readRowText(rowKey, rowTextSources(rowTextWindow, fullBodyOf)),
     [rowTextSources],
   );
@@ -254,7 +253,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     (
       rowKey: string,
       rowTextWindow: TranscriptWindowModel,
-      fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
+      fullBodyOf: (rowId: string) => ProjectedFullBody | undefined,
     ) => readRowBodyText(rowKey, rowTextSources(rowTextWindow, fullBodyOf)),
     [rowTextSources],
   );

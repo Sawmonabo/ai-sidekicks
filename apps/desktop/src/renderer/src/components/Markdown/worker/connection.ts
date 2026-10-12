@@ -1,7 +1,8 @@
 // The page's end of the markdown worker, one for the whole app. It starts the worker on a sign the
 // app will soon draw markdown or on the first request, and hands it the parser: the module the
 // first worker compiled and sent back, which every later worker only instantiates. That module is
-// handed to the page's own parser too, at an idle moment, which parses the blocks a body mounts;
+// handed to the page's own parser too, at an idle moment, which parses the blocks a body mounts,
+// and the text-compression module the worker compiled beside it goes to the page's text codec;
 // the worker parses what the page does not: a streaming tail, a block too long to parse on the
 // page, a long table's pieces, and every block while the page's parser could not start. It sends
 // each text to parse and hands back the parser's binary tree; a reply's markdown as the UTF-8
@@ -20,6 +21,7 @@ import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected
 import { queueIdleTaskIn } from "#renderer/lib/idle-task.js";
 import type { WorkerPort, WorkerStart } from "#renderer/lib/worker-port.js";
 import { queueTaskIn } from "#renderer/lib/queued-task.js";
+import { appTextCompression, type TextCompression } from "#renderer/lib/text/compression.js";
 import { startSlice } from "#renderer/lib/work-slices.js";
 import { describeFailure } from "#shared/failure-message.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -28,12 +30,13 @@ import {
   encodePiecesInSlices,
   piecesOf,
   type PiecedText,
-} from "#renderer/lib/text-pieces.js";
+} from "#renderer/lib/text/pieces.js";
 import { drawnTreeLength, drawnTreeText, type CopyFlavor, type DrawnTree } from "../drawn-text.js";
 import { appPageParser, type PageParser } from "../parse/page-parser.js";
 import { piecedRowsOf } from "../parse/pieced-table.js";
 import { holdTableRows, passTableRows } from "../parse/table-rows.js";
 import type {
+  CompiledTextCompression,
   MarkdownCutAnswer,
   MarkdownParseAnswer,
   MarkdownWorkerMade,
@@ -81,6 +84,8 @@ export const MARKDOWN_WORKER_IDLE_STOP_MS = 60_000;
 export class MarkdownWorkerConnection {
   /** The page's parser, which this connection hands the compiled module to. */
   public readonly pageParser: PageParser;
+  /** The page's text codec, which this connection hands the text-compression module to. */
+  readonly #textCompression: TextCompression;
   readonly #startWorker: MarkdownWorkerStart;
   readonly #view: Window;
   /** Each request to make a copy sent and not answered, by its id. */
@@ -114,12 +119,18 @@ export class MarkdownWorkerConnection {
 
   /**
    * `view` is the window whose thread encodes and decodes the texts, a slice at a time, and starts
-   * `pageParser` in an idle moment.
+   * `pageParser` in an idle moment; `textCompression` takes the codec module the worker compiles.
    */
-  public constructor(startWorker: MarkdownWorkerStart, view: Window, pageParser: PageParser) {
+  public constructor(
+    startWorker: MarkdownWorkerStart,
+    view: Window,
+    pageParser: PageParser,
+    textCompression: TextCompression,
+  ) {
     this.#startWorker = startWorker;
     this.#view = view;
     this.pageParser = pageParser;
+    this.#textCompression = textCompression;
   }
 
   /**
@@ -313,6 +324,7 @@ export class MarkdownWorkerConnection {
       case "compiled":
         this.#parser = reply.parser;
         this.#handToPageParser(reply.parser);
+        this.#handToTextCompression(reply.textCompression);
         return;
       case "load-failed":
         // Compiled again by the next worker, since what failed may have been the module handed.
@@ -354,6 +366,23 @@ export class MarkdownWorkerConnection {
         this.pageParser.start(parser);
       }
     });
+  }
+
+  /**
+   * Hands the page's codec the text-compression module the worker compiled, or its word that it
+   * compiled none, which is recorded, and after which the page holds every chunk plain.
+   */
+  #handToTextCompression(textCompression: CompiledTextCompression): void {
+    if (textCompression.status === "compiled") {
+      this.#textCompression.provide(textCompression.module);
+      return;
+    }
+    recordRejectedRequest(
+      "components/Markdown/worker",
+      "text-compression-not-compiled",
+      new Error(textCompression.reason),
+    );
+    this.#textCompression.provide(undefined);
   }
 
   #landTrees(
@@ -667,4 +696,5 @@ export const markdownWorker: MarkdownWorkerConnection = new MarkdownWorkerConnec
   startMarkdownWorker,
   window,
   appPageParser,
+  appTextCompression,
 );

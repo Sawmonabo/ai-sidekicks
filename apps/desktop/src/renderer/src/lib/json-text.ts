@@ -7,7 +7,7 @@ import {
   piecesOf,
   TEXT_PIECE_LENGTH,
   type PiecedText,
-} from "./text-pieces.js";
+} from "./text/pieces.js";
 
 /**
  * `value`, a value read from JSON (strings, numbers, booleans, `null`, and arrays and objects of

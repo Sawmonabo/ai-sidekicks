@@ -20,7 +20,7 @@ import {
   windowDiagnosticCapture,
 } from "#renderer/lib/diagnostic-capture/capture.js";
 import { queueIdleTaskIn } from "#renderer/lib/idle-task.js";
-import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
+import { measureUtf8ByteLength } from "#renderer/lib/text/utf8-byte-length.js";
 import { startSlice } from "#renderer/lib/work-slices.js";
 
 /**

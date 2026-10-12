@@ -2,7 +2,7 @@ import { useCallback, useContext, useSyncExternalStore } from "react";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { RowRevealContext } from "../components/RowRevealProvider.js";
-import { type PublishedText } from "../published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 
 /** Nothing to unsubscribe from. Module-scope, so the subscribe callback stays stable. */
 const NO_REVEAL_SUBSCRIPTION: Unsubscribe = () => {};

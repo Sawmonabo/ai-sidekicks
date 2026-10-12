@@ -2,9 +2,8 @@
 // its stretch, the ones the store let go included, a reply's foot from every row of the reply, and
 // a child run's summary from the child's own rows; any other row from its own event.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { type TranscriptWindowModel } from "./transcript-window.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** The windows a row's sources are read from: the log unfolded, and as the feed draws it. */
 export interface RowSourceWindows {
@@ -15,7 +14,7 @@ export interface RowSourceWindows {
 }
 
 /** Where one event stands in the log: its sequence, and the cursor a read beside it is asked at. */
-export type RowSourceEvent = Pick<TranscriptEventRow, "sequence" | "cursor">;
+export type RowSourceEvent = Pick<ProjectedTranscriptRow, "sequence" | "cursor">;
 
 /** The oldest and newest event one row of the window is drawn from. */
 export interface RowSourceSpan {
@@ -74,7 +73,7 @@ export function rowSourceSpanReader(
 /** A run group's first and last row, or `undefined` when the log holds neither. */
 function runGroupSpan(
   rowIds: readonly string[],
-  rowsByKey: ReadonlyMap<string, TranscriptEventRow>,
+  rowsByKey: ReadonlyMap<string, ProjectedTranscriptRow>,
 ): RowSourceSpan | undefined {
   const firstRowId = rowIds[0];
   const lastRowId = rowIds.at(-1);
@@ -84,7 +83,7 @@ function runGroupSpan(
 }
 
 /** Each run's oldest and newest row in the log. */
-function runSpans(rows: readonly TranscriptEventRow[]): ReadonlyMap<string, RowSourceSpan> {
+function runSpans(rows: readonly ProjectedTranscriptRow[]): ReadonlyMap<string, RowSourceSpan> {
   const spanByRunId = new Map<string, RowSourceSpan>();
   for (const row of rows) {
     if (row.kind === "general") {

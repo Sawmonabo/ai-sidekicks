@@ -2,17 +2,15 @@
 // expression: a pattern holding these control bytes trips `no-control-regex`, and each kind of
 // sequence is one branch that can be read against the standard.
 
+import { PackedText } from "#renderer/lib/text/packed.js";
 import {
+  joinIntoPieces,
   joinIntoPiecesInSlices,
   joinPieces,
   piecesOf,
   type PiecedText,
-} from "#renderer/lib/text-pieces.js";
-import { piecedTextOfPublished, type PublishedText } from "../../reveal/published-text.js";
-import { RevealTextRope } from "../../reveal/text-rope.js";
-
-/** The one byte every ANSI sequence opens with. */
-const ESCAPE = "\u001b";
+} from "#renderer/lib/text/pieces.js";
+import { ESCAPE, type PublishedText } from "#renderer/lib/text/published.js";
 
 /** The BEL that terminates an OSC sequence. */
 const BELL = "\u0007";
@@ -71,20 +69,16 @@ export class EscapeSequenceStripper {
 
 /**
  * One body's text without escape sequences, kept as the body grows: each read strips only what
- * arrived since the last, a piece at a time, into a rope of its own, so no read copies or strips
- * the whole text again. A body carrying no escape is answered as itself; a different handle, or a
- * rewrite below what was read, is stripped again from the start.
+ * arrived since the last, a piece at a time, into a packed text of its own, so no read copies or
+ * strips the whole text again and no second UTF-16 copy is held. A body carrying no escape is
+ * answered as itself; a different handle, or a rewrite below what was read, is stripped again from
+ * the start.
  */
 export class StrippedText {
-  readonly #rope: RevealTextRope;
+  readonly #text = new PackedText();
   #stripper = new EscapeSequenceStripper();
   /** The handle last read, at the revision and length it was read at. */
   #read: StrippedRead | undefined;
-
-  /** `bodyId` names the body, as a lane's id names the lane its rope holds. */
-  public constructor(bodyId: string) {
-    this.#rope = new RevealTextRope(bodyId);
-  }
 
   /**
    * `source` without escape sequences: `source` itself when it carries none, otherwise this text's
@@ -100,36 +94,33 @@ export class StrippedText {
         this.#append([source.slice(read.length)]);
       }
     } else {
-      this.#rope.rebase("", 0);
+      this.#text.truncate(0);
       this.#stripper = new EscapeSequenceStripper();
       this.#append(source.chunks());
     }
     this.#read = { source, revision: source.revision, length: source.length };
-    return this.#rope;
+    return this.#text;
   }
 
-  /** Strips `chunks` on from where the last read ended, and shows what they keep. */
-  #append(chunks: readonly string[]): void {
+  /** Strips `chunks` on from where the last read ended, one append a piece. */
+  #append(chunks: Iterable<string>): void {
     for (const chunk of chunks) {
       for (const piece of piecesOf(chunk)) {
-        for (const run of this.#stripper.strip(piece)) {
-          this.#rope.append(run);
-        }
+        this.#text.append(joinPieces(this.#stripper.strip(piece)));
       }
     }
-    this.#rope.advance(this.#rope.pendingCharacterCount);
   }
 }
 
 /**
- * Whether a body carries ANSI escape sequences, judged by the ESC byte alone. A streaming body
- * answers from where it last looked, so asking each frame reads only the frame's growth.
+ * Whether a body carries ANSI escape sequences, judged by the ESC byte alone, which every text
+ * notes as it is admitted or grows, so asking each frame reads nothing.
  *
  * This is the reading for a body with no declared media type, such as a tool result; a
  * declared type wins (see `outputKindOf`).
  */
 export function carriesAnsiEscapes(source: PublishedText): boolean {
-  return source.firstIndexOf(ESCAPE) !== -1;
+  return source.holdsEscape;
 }
 
 /**
@@ -154,7 +145,7 @@ export function withoutResidualEscapesInPieces(
 ): PiecedText | Promise<PiecedText> {
   return carriesAnsiEscapes(text)
     ? joinIntoPiecesInSlices(keptRunsOf(text.chunks()), view)
-    : piecedTextOfPublished(text);
+    : joinIntoPieces(text.chunks());
 }
 
 /** The handle a `StrippedText` last read, at the revision and length it was read at. */
@@ -223,7 +214,7 @@ function stateAfterIntroducer(introducer: string): ScanState {
 }
 
 /** The runs outside every escape sequence of the text `chunks` join, read a piece at a time. */
-function* keptRunsOf(chunks: readonly string[]): Generator<string> {
+function* keptRunsOf(chunks: Iterable<string>): Generator<string> {
   const stripper = new EscapeSequenceStripper();
   for (const chunk of chunks) {
     for (const piece of piecesOf(chunk)) {

@@ -8,8 +8,6 @@ import { act, render } from "@testing-library/react";
 import { onTestFinished, vi } from "vitest";
 import { Profiler, useRef, type ReactNode } from "react";
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import {
   createFixtureBridge,
@@ -28,6 +26,7 @@ import { type TranscriptRowProps } from "../../rows/renderer.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { ViewportController } from "../../viewport/controller.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** An event count short enough that the window never lets one of its rows go. */
 export const SHORT_LOG_EVENT_COUNT = 10;
@@ -55,7 +54,7 @@ export function renderFeed(
   options: {
     readonly messageAnchorCursor?: string;
     readonly readTranscriptPage?: TranscriptPageRead;
-    readonly drawsBody?: (row: TranscriptEventRow) => boolean;
+    readonly drawsBody?: (row: ProjectedTranscriptRow) => boolean;
     readonly fixture?: FixtureBridge;
     readonly onCommit?: (feed: HTMLElement) => void;
     readonly scheduler?: Scheduler;

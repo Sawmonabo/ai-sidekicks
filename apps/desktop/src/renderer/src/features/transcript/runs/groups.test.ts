@@ -2,7 +2,6 @@
 // standing over another run's rows, or a live run read as ended, still renders).
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import type { TranscriptRunFactsFold } from "@ai-sidekicks/contracts/transcript/run-facts";
 import { describe, expect, it } from "vitest";
 
@@ -11,9 +10,10 @@ import { RunGroupIndex, groupRowsByRun, type RunEntitiesByRunId } from "./groups
 import { findRunGroup, mixedWindow } from "./groups.test-support.js";
 import { runGroupHeadingOf } from "./heading.js";
 import { generalRow, runRow } from "../event-rows.test-support.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** A call and its result of `runId`, the `call`th pair in the log from `sequence`. */
-function callPair(runId: string, sequence: number): readonly TranscriptEventRow[] {
+function callPair(runId: string, sequence: number): readonly ProjectedTranscriptRow[] {
   return [
     runRow({
       id: `${runId}-call-${String(sequence)}`,
@@ -49,7 +49,7 @@ function runEntitiesHolding(
 
 /** An index over `rows`, its run groups reading `runEntities`. */
 function indexOf(
-  rows: readonly TranscriptEventRow[],
+  rows: readonly ProjectedTranscriptRow[],
   runEntities: RunEntitiesByRunId,
 ): RunGroupIndex {
   const runGroupIndex = new RunGroupIndex(runEntities);

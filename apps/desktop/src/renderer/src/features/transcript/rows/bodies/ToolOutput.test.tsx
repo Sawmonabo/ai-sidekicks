@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { PreparedBodiesContext } from "../prepared-bodies.js";
 import { prepareOutputForTest } from "../ansi/preparation.test-support.js";
 import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 import { ToolOutput } from "./ToolOutput.js";
 
 const ESCAPE = "\u001b";
@@ -18,7 +19,7 @@ function renderToolOutput(body: string, label: string): HTMLElement {
   return render(
     <PreparedBodiesContext value={prepared.outputs}>
       <ToolOutput
-        content={{ status: "available", body }}
+        content={projectedContentOf({ status: "available", body })}
         sourceId="event-01"
         footnotes={new FootnoteRegistry()}
         label={label}

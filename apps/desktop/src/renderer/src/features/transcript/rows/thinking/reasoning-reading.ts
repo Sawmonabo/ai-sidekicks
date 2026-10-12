@@ -5,8 +5,8 @@
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ReasoningSurfaceReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-import { type PublishedText } from "../../reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** One arm of the contract's closed availability discriminant. */
 export type ReasoningAvailability = ReasoningSurfaceReadResponse["availability"];
@@ -93,7 +93,7 @@ export const REASONING_AVAILABILITY_COPY: Readonly<
  * attribution (a `general` row), which keeps the expand control off a row the read cannot
  * answer for.
  */
-export function reasoningRunIdOf(row: TranscriptEventRow): RunId | undefined {
+export function reasoningRunIdOf(row: ProjectedTranscriptRow): RunId | undefined {
   return row.kind === "run" ? row.runId : undefined;
 }
 

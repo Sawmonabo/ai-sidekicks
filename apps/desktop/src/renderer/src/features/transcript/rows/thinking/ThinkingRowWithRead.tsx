@@ -1,9 +1,9 @@
 // The reasoning row with its read. Its own component because hooks bind a component, not
 // a tree: only a reasoning row builds a read, and the ordinary row does not pay for one.
 
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 
-import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import { ThinkingRow } from "./ThinkingRow.js";
 import { useReasoningRead } from "./hooks/useReasoningRead.js";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
@@ -15,7 +15,7 @@ export interface ThinkingRowWithReadProps {
   /** Text the reveal engine is publishing for this row right now, while it streams. */
   readonly liveText: PublishedText | undefined;
   /** The reasoning entry the row a read returned carries, or `undefined` on a streamed row. */
-  readonly storedBody: string | undefined;
+  readonly storedText: PublishedText | undefined;
   /** Hold the row where it stands while the read's answer grows it. */
   readonly holdRowInPlace: () => void;
 }
@@ -23,11 +23,6 @@ export interface ThinkingRowWithReadProps {
 /** One reasoning row, fed by its own on-demand read. */
 export function ThinkingRowWithRead(props: ThinkingRowWithReadProps): React.JSX.Element {
   const reasoningRead = useReasoningRead(props.runId);
-  // One handle per stored string, so the tail's cut sees the same text across renders.
-  const storedText = useMemo(
-    () => (props.storedBody === undefined ? undefined : publishedTextOf(props.storedBody)),
-    [props.storedBody],
-  );
   const { holdRowInPlace } = props;
   const expand = reasoningRead.expand;
   const expandHeld = useCallback(() => {
@@ -38,7 +33,7 @@ export function ThinkingRowWithRead(props: ThinkingRowWithReadProps): React.JSX.
     <ThinkingRow
       runId={props.runId}
       liveText={props.liveText}
-      storedText={storedText}
+      storedText={props.storedText}
       reading={reasoningRead.reading}
       onExpand={expandHeld}
     />

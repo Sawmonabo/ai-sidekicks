@@ -4,12 +4,11 @@
 
 import { useCallback } from "react";
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { type FindStepDirection } from "../../find/matcher.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { type SystemMessageReading } from "../../system-messages/classifier.js";
 import { type TranscriptFindState, useTranscriptFind } from "../../find/hooks/useTranscriptFind.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** Everything the find field needs, over one transcript. */
 export interface TranscriptFindAndJump {
@@ -26,7 +25,7 @@ export interface TranscriptFindAndJump {
 /** Wire the find field to the rows it searches and the scroll writer it jumps through. */
 export function useTranscriptFindAndJump(inputs: {
   /** What the run group fold reported withholding, for the count beside the field. */
-  readonly foldedAwayRows: readonly TranscriptEventRow[];
+  readonly foldedAwayRows: readonly ProjectedTranscriptRow[];
   /** The unfurled window's system messages, which the feed always draws, folded or not. */
   readonly systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>;
   /**
@@ -34,7 +33,7 @@ export function useTranscriptFindAndJump(inputs: {
    */
   readonly drawsBody: TranscriptRowRenderer["drawsBody"];
   /** The rows the feed draws, in log order, whether or not the viewport's window holds them. */
-  readonly rows: readonly TranscriptEventRow[];
+  readonly rows: readonly ProjectedTranscriptRow[];
   /**
    * Whether the feed shows its rows. Until it does, nothing hidden is found or counted, folded
    * rows included, and the field claims no count.
@@ -77,4 +76,4 @@ export function useTranscriptFindAndJump(inputs: {
 }
 
 /** What the walk and the folded count see while the rows are hidden. */
-const NO_ROWS: readonly TranscriptEventRow[] = [];
+const NO_ROWS: readonly ProjectedTranscriptRow[] = [];

@@ -5,7 +5,7 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { publishedTextOf } from "../../reveal/published-text.js";
+import { publishedTextOf } from "#renderer/lib/text/published.js";
 import { type ReasoningReading } from "./reasoning-reading.js";
 import { ThinkingRow } from "./ThinkingRow.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";

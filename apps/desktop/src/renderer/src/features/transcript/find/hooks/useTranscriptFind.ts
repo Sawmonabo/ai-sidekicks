@@ -5,8 +5,6 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { type SystemMessageReading } from "../../system-messages/classifier.js";
 import {
@@ -16,6 +14,7 @@ import {
   type FindStepDirection,
   type FindResult,
 } from "../matcher.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** The find field's state, and the walk over one window's matches. */
 export interface TranscriptFindState {
@@ -49,12 +48,12 @@ export interface TranscriptFindState {
 /** The rows the walk searches, and what the run fold withheld from them. */
 export interface TranscriptFindInputs {
   /** The rows the feed draws, in log order: every one a step can land on. */
-  readonly rows: readonly TranscriptEventRow[];
+  readonly rows: readonly ProjectedTranscriptRow[];
   /**
    * The rows the run fold withheld, as that stage reported them. Re-deriving them would walk
    * the whole projection on every appended row while a query is set.
    */
-  readonly foldedAwayRows: readonly TranscriptEventRow[];
+  readonly foldedAwayRows: readonly ProjectedTranscriptRow[];
   /**
    * The system message behind each row of the unfurled window, folded rows included. With
    * `drawsBody` it says whether the feed draws a row: a folded row it draws nothing for stays

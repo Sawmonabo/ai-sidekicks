@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { publishedTextOf } from "#renderer/features/transcript/reveal/published-text.js";
+import { publishedTextOf } from "#renderer/lib/text/published.js";
 import { AnsiLineChunks, type AnsiLineChunkList } from "./chunks.js";
 
 /** Built from its code point: a raw control byte in source is invisible in a diff. */

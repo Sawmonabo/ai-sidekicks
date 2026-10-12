@@ -1,4 +1,5 @@
-// What the page and the markdown worker say to each other: the parser the worker loads; a text to
+// What the page and the markdown worker say to each other: the parser the worker loads, and the
+// text-compression module it compiles beside it for the page's packed texts; a text to
 // parse and the trees the worker sends back as the parser's own binary buffers; a text to cut into
 // blocks and where each block ends; a reply's markdown asked for as HTML, or a drawn part asked for
 // as the text it copies as; the worker's asks for a long table's undrawn rows and the page's
@@ -21,6 +22,14 @@ export interface MarkdownParserLoad {
   readonly kind: "load";
   readonly parser: WebAssembly.Module | undefined;
 }
+
+/**
+ * The text-compression module the worker compiled beside the parser, or why it compiled none: a
+ * failure there never fails the parser, and the page then holds every text's chunks plain.
+ */
+export type CompiledTextCompression =
+  | { readonly status: "compiled"; readonly module: WebAssembly.Module }
+  | { readonly status: "absent"; readonly reason: string };
 
 /** One text to parse, the body's definitions already ahead of it. */
 export interface MarkdownParseRequest {
@@ -124,7 +133,8 @@ export interface MarkdownWorkerMade {
 }
 
 /**
- * What the worker says: the parser it compiled, which the page keeps for later workers; the trees
+ * What the worker says: the parser it compiled, which the page keeps for later workers, with the
+ * text-compression module it compiled, which the page runs; the trees
  * of the texts it parsed since it last sent trees, and where the blocks of the texts it cut since it
  * last sent cuts end, each sent together so the page lands them in one pass; that the parser failed
  * to load or failed on a text, after which the page ends this worker; or, about one request to
@@ -132,7 +142,11 @@ export interface MarkdownWorkerMade {
  * made, or why it made nothing. A request has one ask unanswered at most.
  */
 export type MarkdownWorkerReply =
-  | { readonly status: "compiled"; readonly parser: WebAssembly.Module }
+  | {
+      readonly status: "compiled";
+      readonly parser: WebAssembly.Module;
+      readonly textCompression: CompiledTextCompression;
+    }
   | { readonly status: "parsed"; readonly trees: readonly SerializedMarkdownTree[] }
   | { readonly status: "cut"; readonly cuts: readonly MarkdownBlockEnds[] }
   | { readonly status: "load-failed"; readonly reason: string }

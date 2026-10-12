@@ -1,8 +1,8 @@
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { expect, it } from "vitest";
 
 import { generalRow } from "../event-rows.test-support.js";
 import { hasSameMembers } from "./row-retention.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 it("tells a row apart from one that lost, gained or swapped a member, and keeps an equal one", () => {
   const payload = { text: "hello" };
@@ -16,5 +16,7 @@ it("tells a row apart from one that lost, gained or swapped a member, and keeps 
   expect(hasSameMembers(row, rowOf({ payload: { ...payload } }))).toBe(false);
   // As many members, one of them set to `undefined` where the other row has a different one.
   const withUndefinedContent = { ...withoutActor, content: undefined };
-  expect(hasSameMembers(row, withUndefinedContent as unknown as TranscriptEventRow)).toBe(false);
+  expect(hasSameMembers(row, withUndefinedContent as unknown as ProjectedTranscriptRow)).toBe(
+    false,
+  );
 });

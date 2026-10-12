@@ -10,8 +10,6 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { useReleaseOutsideWindow } from "../history/hooks/useReleaseOutsideWindow.js";
 import { type TranscriptHistory } from "../history/hooks/useTranscriptHistory.js";
 import {
@@ -19,7 +17,7 @@ import {
   transcriptFixtureEventId,
   transcriptReadRowAt,
 } from "../logs.test-support.js";
-import { publishedTextOf } from "../reveal/published-text.js";
+import { publishedTextOf } from "#renderer/lib/text/published.js";
 import { RevealTextRope } from "../reveal/text-rope.js";
 import { AnsiLineChunks, chunkTextOf, type AnsiLineChunkList } from "../rows/ansi/lines/chunks.js";
 import { PreparedBodies } from "../rows/prepared-bodies.js";
@@ -36,6 +34,8 @@ import { type ViewportSnapshot } from "../viewport/snapshot.js";
 import { type PruneOutcome } from "../viewport/window-cap.js";
 import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
 import { PreparedRowGate, type FeedRowSources } from "./prepared-rows.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 
 /** The gate never reads these: the stand-in preparation below decides every row itself. */
 const SOURCES: FeedRowSources = {
@@ -59,7 +59,7 @@ class HeldPreparations {
   readonly releasedRowIds: string[] = [];
 
   public readonly prepareRow = (
-    row: TranscriptEventRow,
+    row: ProjectedTranscriptRow,
     _sources: TranscriptRowSources,
     onReady: () => void,
   ): TranscriptRowPreparation => {
@@ -98,19 +98,21 @@ function keysOf(rows: readonly { readonly key: string }[]): string[] {
 const ESCAPE = String.fromCodePoint(0x1b);
 
 /** A tool's result row, as the store's first row stands, with the stored body `body` if given. */
-function toolRow(body?: string): TranscriptEventRow {
+function toolRow(body?: string): ProjectedTranscriptRow {
   const row = transcriptReadRowAt(0);
   return row.kind === "general"
     ? {
         ...row,
         type: "tool.result",
-        ...(body === undefined ? {} : { content: { status: "available", body } }),
+        content: projectedContentOf(
+          body === undefined ? row.content : { status: "available", body },
+        ),
       }
     : expect.fail("the store's first row is a general row");
 }
 
 /** The store's window of its first row alone, standing as `row`. */
-function windowOf(row: TranscriptEventRow): TranscriptWindowModel {
+function windowOf(row: ProjectedTranscriptRow): TranscriptWindowModel {
   const snapshot = openPagedSessionStore(0, 0).snapshot();
   const model = deriveTranscriptWindow(snapshot.transcript, snapshot.partitions.run);
   expect(keysOf(model.viewportRows)).toEqual([row.id]);

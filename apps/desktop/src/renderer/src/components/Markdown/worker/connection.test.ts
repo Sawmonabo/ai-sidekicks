@@ -8,7 +8,7 @@
 import type { Table, TableCell } from "mdast";
 import { expect, it, vi } from "vitest";
 
-import { decodeTextPieces, encodeTextPieces } from "#renderer/lib/text-pieces.js";
+import { decodeTextPieces, encodeTextPieces } from "#renderer/lib/text/pieces.js";
 import { SLICE_MS } from "#renderer/lib/work-slices.js";
 import { SteppedTasks } from "#test/helpers/stepped-tasks.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
@@ -21,7 +21,8 @@ import type {
   SerializedMarkdownTree,
 } from "./messages.js";
 import { MarkdownWorkerConnection, type MarkdownWorkerPort } from "./connection.js";
-import { inThreadParserModule } from "./connection.test-support.js";
+import { IN_THREAD_TEXT_COMPRESSION, inThreadParserModule } from "./connection.test-support.js";
+import { appTextCompression } from "#renderer/lib/text/compression.js";
 
 /** A stand-in worker that keeps the requests to make a copy it is sent and answers only when told. */
 class StandInWorker implements MarkdownWorkerPort {
@@ -115,13 +116,18 @@ it("hands the compiled parser to the page; a worker's later load failure leaves 
     },
     view,
     pageParser,
+    appTextCompression,
   );
   void connection.html("# one").catch(() => undefined);
   await vi.waitFor(() => {
     expect(workers[0]?.loads).toStrictEqual([undefined]);
   });
   const module = inThreadParserModule();
-  workers[0]?.say({ status: "compiled", parser: module });
+  workers[0]?.say({
+    status: "compiled",
+    parser: module,
+    textCompression: IN_THREAD_TEXT_COMPRESSION,
+  });
   // Handed over in an idle moment, never on the turn the module arrives.
   expect(pageParser.state).toBe("idle");
   runIdleTasks();
@@ -143,12 +149,21 @@ it("reports a page parser that fails to start as failed, while the worker still 
   const worker = new StandInWorker();
   const { view, runIdleTasks } = idleTasksView();
   const pageParser = pageParserFor(new Error("the page refused the module"));
-  const connection = new MarkdownWorkerConnection(() => worker, view, pageParser);
+  const connection = new MarkdownWorkerConnection(
+    () => worker,
+    view,
+    pageParser,
+    appTextCompression,
+  );
   const first = connection.html("# one");
   await vi.waitFor(() => {
     expect(worker.requests).toHaveLength(1);
   });
-  worker.say({ status: "compiled", parser: inThreadParserModule() });
+  worker.say({
+    status: "compiled",
+    parser: inThreadParserModule(),
+    textCompression: IN_THREAD_TEXT_COMPRESSION,
+  });
   runIdleTasks();
   await settledAt(pageParser, "failed");
 
@@ -160,7 +175,12 @@ it("reports a page parser that fails to start as failed, while the worker still 
 it("hands over an answer's trees a slice at a time, in the order the texts were sent", async () => {
   const tasks = new SteppedTasks();
   const worker = new StandInWorker();
-  const connection = new MarkdownWorkerConnection(() => worker, tasks.window, pageParserFor());
+  const connection = new MarkdownWorkerConnection(
+    () => worker,
+    tasks.window,
+    pageParserFor(),
+    appTextCompression,
+  );
   const handed: string[] = [];
   for (const source of ["first", "second", "third"]) {
     connection.parse(source, () => {
@@ -196,6 +216,7 @@ it("fails every text when its worker stops, and starts a new one for the next", 
     },
     TASKS_AT_ONCE,
     pageParserFor(),
+    appTextCompression,
   );
 
   const first = connection.html("# one");
@@ -225,7 +246,12 @@ it.each([
   { asked: "rows past the table's last", tableKey: "table", lastIndex: 1 },
 ])("fails a copy whose worker asks for $asked", async ({ tableKey, lastIndex }) => {
   const worker = new StandInWorker();
-  const connection = new MarkdownWorkerConnection(() => worker, TASKS_AT_ONCE, pageParserFor());
+  const connection = new MarkdownWorkerConnection(
+    () => worker,
+    TASKS_AT_ONCE,
+    pageParserFor(),
+    appTextCompression,
+  );
   const cell: TableCell = { type: "tableCell", children: [{ type: "text", value: "x" }] };
   const table: Table = {
     type: "table",

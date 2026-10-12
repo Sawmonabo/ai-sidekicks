@@ -12,7 +12,7 @@
 import { useContext } from "react";
 
 import { type MarkdownTableOffer } from "#renderer/components/Markdown/table-offer.js";
-import { type PublishedText } from "../../reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { type MarkdownBodyBlocks } from "../markdown/body-blocks/reader.js";
 import { type MarkdownBodyBlocksSnapshot } from "../markdown/body-blocks/snapshot.js";

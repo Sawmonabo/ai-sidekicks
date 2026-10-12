@@ -9,8 +9,6 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { RESOLVED_SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import { DiagramPictures } from "#renderer/components/Markdown/diagram/pictures.js";
 import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
@@ -24,6 +22,8 @@ import { PreparedBodies } from "./prepared-bodies.js";
 import { prepareTranscriptRow } from "./preparation.js";
 import { OffListTables } from "./markdown/table-window/off-list.js";
 import { type TranscriptRowSources } from "./renderer.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 
 /** A share far larger than these cases draw. */
 const CACHE_BYTE_CAP = 16 * 1024 * 1024;
@@ -54,7 +54,7 @@ function diagramMessageRow(
   id: string,
   sequence: number,
   sources: readonly string[],
-): TranscriptEventRow {
+): ProjectedTranscriptRow {
   return userMessageRow({
     id,
     sequence,
@@ -77,10 +77,14 @@ function sentSources(workers: FakeDiagramWorkers): string[] {
 }
 
 /** A reply row, with the stored body `content` when given. */
-function replyRow(content?: TranscriptEventRow["content"]): TranscriptEventRow {
+function replyRow(content?: ProjectedTranscriptRow["content"]): ProjectedTranscriptRow {
   const message = transcriptReadRowAt(0);
   return message.kind === "general"
-    ? { ...message, type: "assistant.message", ...(content === undefined ? {} : { content }) }
+    ? {
+        ...message,
+        type: "assistant.message",
+        content: content ?? projectedContentOf(message.content),
+      }
     : expect.fail("a message row is a general row");
 }
 
@@ -218,7 +222,7 @@ describe("a message row's preparation", () => {
     let laneText: RevealTextRope | undefined = new RevealTextRope("reply");
     revealInto(laneText, body);
     const preparation = prepareTranscriptRow(
-      replyRow({ status: "available", body }),
+      replyRow(projectedContentOf({ status: "available", body })),
       sourcesWith(pictures, () => laneText),
       () => undefined,
     );

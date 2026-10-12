@@ -5,13 +5,12 @@
 // the fold's lists beside the ones it last walked and asks the renderer only about a row object it
 // has not decided before.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { type TranscriptRowRenderer } from "../rows/renderer.js";
 import { type SystemMessageReading } from "../system-messages/classifier.js";
 import { type ViewportRow } from "../viewport/snapshot.js";
 import { holdsSameObjects } from "../window/row-positions.js";
 import { type TranscriptWindowModel } from "../window/transcript-window.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
  * Takes the rows the feed draws nothing for out of the folded window, holding the last pass's
@@ -40,7 +39,7 @@ export class DrawnRowFilter {
         : undefined;
     const decisions = new HeldDecisions(previous?.input ?? [], previous?.output.rows ?? []);
     const viewportRows: ViewportRow[] = [];
-    const rows: TranscriptEventRow[] = [];
+    const rows: ProjectedTranscriptRow[] = [];
     let isAnyRowLeftOut = false;
     let rowPosition = 0;
     // The fold lists each row's identity in the rows' own order, a header standing before a run
@@ -84,7 +83,7 @@ export class DrawnRowFilter {
  * row only when the registered renderer has a body for it.
  */
 export function isDrawnRow(
-  row: TranscriptEventRow,
+  row: ProjectedTranscriptRow,
   systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>,
   drawsBody: TranscriptRowRenderer["drawsBody"],
 ): boolean {
@@ -97,25 +96,25 @@ export function isDrawnRow(
  * answers each row seen before by identity; a row that is new, or new as an object, is decided.
  */
 class HeldDecisions {
-  readonly #previousRows: readonly TranscriptEventRow[];
-  readonly #previousKeptRows: readonly TranscriptEventRow[];
+  readonly #previousRows: readonly ProjectedTranscriptRow[];
+  readonly #previousKeptRows: readonly ProjectedTranscriptRow[];
   #previousPosition = 0;
   #keptPosition = 0;
 
   public constructor(
-    previousRows: readonly TranscriptEventRow[],
-    previousKeptRows: readonly TranscriptEventRow[],
+    previousRows: readonly ProjectedTranscriptRow[],
+    previousKeptRows: readonly ProjectedTranscriptRow[],
   ) {
     this.#previousRows = previousRows;
     this.#previousKeptRows = previousKeptRows;
   }
 
   /** Whether `row` is drawn: as decided before when it is the same object, else by `decide`. */
-  public decisionFor(row: TranscriptEventRow, decide: () => boolean): boolean {
+  public decisionFor(row: ProjectedTranscriptRow, decide: () => boolean): boolean {
     // A row gone since the last pass is passed over; a row inserted ahead of rows seen before
     // passes over all of them, and they are decided again, which costs time and never a stale row.
     while (this.#previousPosition < this.#previousRows.length) {
-      const previousRow = this.#previousRows[this.#previousPosition] as TranscriptEventRow;
+      const previousRow = this.#previousRows[this.#previousPosition] as ProjectedTranscriptRow;
       this.#previousPosition += 1;
       const wasKept = this.#previousKeptRows[this.#keptPosition] === previousRow;
       if (wasKept) {

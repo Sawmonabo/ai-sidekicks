@@ -23,7 +23,7 @@ import type {
   ParsedMarkdown,
 } from "#renderer/components/Markdown/parse/trees.js";
 import { Emitter } from "#renderer/lib/emitter.js";
-import { hasPrefix } from "#renderer/lib/text-prefix.js";
+import { hasPrefix } from "#renderer/lib/text/prefix.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 
 /**

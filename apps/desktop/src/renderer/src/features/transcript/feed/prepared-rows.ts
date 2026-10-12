@@ -20,8 +20,6 @@
 // shown only once no held row would join the rows drawn, so a session opens with each row it shows
 // formatted where it stays.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { type OutputReach } from "../rows/ansi/preparation.js";
 import {
   type TranscriptRowPreparation,
@@ -31,6 +29,7 @@ import {
 import { type ViewportRow } from "../viewport/snapshot.js";
 import { holdsSameObjects } from "../window/row-positions.js";
 import { type TranscriptWindowModel } from "../window/transcript-window.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** What the feed hands the gate for its rows to read: everything but what the gate itself says. */
 export type FeedRowSources = Omit<TranscriptRowSources, "reachOf" | "isCallFolded">;
@@ -254,7 +253,7 @@ export class PreparedRowGate {
     const sources = this.#rowSourcesOf(feedSources);
     this.#reachUnlistedRows(model.rows);
     const viewportRows: ViewportRow[] = [];
-    const rows: TranscriptEventRow[] = [];
+    const rows: ProjectedTranscriptRow[] = [];
     const preparingRows: ViewportRow[] = [];
     const listedRowIds = new Set<string>();
     const heldRowIds = new Set<string>();
@@ -271,8 +270,8 @@ export class PreparedRowGate {
       }
     };
     // What each row is listed as, its last version while a change of it is prepared.
-    const listedRowById = new Map<string, TranscriptEventRow | undefined>();
-    const lastVersionById = new Map<string, TranscriptEventRow>();
+    const listedRowById = new Map<string, ProjectedTranscriptRow | undefined>();
+    const lastVersionById = new Map<string, ProjectedTranscriptRow>();
     for (const row of model.rows) {
       listedRowById.set(row.id, this.#listedRowOf(row, prepareRow, sources));
     }
@@ -394,7 +393,7 @@ export class PreparedRowGate {
    * joins after is, or above every listed row, as the first of them is. With none listed, the
    * feed is opening at its tail, and every row is.
    */
-  #reachUnlistedRows(rows: readonly TranscriptEventRow[]): void {
+  #reachUnlistedRows(rows: readonly ProjectedTranscriptRow[]): void {
     const firstListedRow = rows.find((row) => this.#listedRowIds.has(row.id));
     let isWithinReach = firstListedRow === undefined || this.#reachByRowId.has(firstListedRow.id);
     for (const row of rows) {
@@ -458,8 +457,8 @@ export class PreparedRowGate {
    * rather than between rows on screen.
    */
   #lastHeldBeforeListedRows(
-    rows: readonly TranscriptEventRow[],
-    listedRowById: ReadonlyMap<string, TranscriptEventRow | undefined>,
+    rows: readonly ProjectedTranscriptRow[],
+    listedRowById: ReadonlyMap<string, ProjectedTranscriptRow | undefined>,
   ): string | undefined {
     let lastHeldRowId: string | undefined;
     for (const row of rows) {
@@ -480,10 +479,10 @@ export class PreparedRowGate {
    * listed row is still being prepared.
    */
   #listedRowOf(
-    row: TranscriptEventRow,
+    row: ProjectedTranscriptRow,
     prepareRow: TranscriptRowPreparer,
     sources: TranscriptRowSources,
-  ): TranscriptEventRow | undefined {
+  ): ProjectedTranscriptRow | undefined {
     const wasListed = this.#listedRowIds.has(row.id);
     const held = this.#preparations.get(row.id);
     if (held?.row === row) {
@@ -533,7 +532,7 @@ export class PreparedRowGate {
   }
 
   /** What a row held since the last pass is listed as, letting its last version go once whole. */
-  #settledRowOf(held: HeldPreparation, wasListed: boolean): TranscriptEventRow | undefined {
+  #settledRowOf(held: HeldPreparation, wasListed: boolean): ProjectedTranscriptRow | undefined {
     if (held.drawn === undefined) {
       return wasListed || this.#isListable(held.row.id, held.preparation) ? held.row : undefined;
     }
@@ -561,7 +560,7 @@ export class PreparedRowGate {
 
 /** One row's preparation, the row object it was started for, and the version drawn meanwhile. */
 interface HeldPreparation {
-  readonly row: TranscriptEventRow;
+  readonly row: ProjectedTranscriptRow;
   readonly preparation: TranscriptRowPreparation;
   /** The row's last listed version, drawn while this changed one is prepared. */
   readonly drawn: HeldPreparation | undefined;

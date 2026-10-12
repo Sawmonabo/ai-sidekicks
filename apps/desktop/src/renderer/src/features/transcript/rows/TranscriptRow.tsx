@@ -8,8 +8,6 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { useRowReveal } from "../reveal/hooks/useRowReveal.js";
 import { useRowToggle } from "./hooks/useRowToggle.js";
 import { type OutputOpening } from "./bodies/OutputHeightCut.js";
@@ -21,6 +19,7 @@ import { classifyTranscriptRow } from "./kind.js";
 import { ThinkingRowWithRead } from "./thinking/ThinkingRowWithRead.js";
 import { reasoningRunIdOf } from "./thinking/reasoning-reading.js";
 import { ToolRow } from "./ToolRow.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
  * One row, through the card its kind names. The classifier decides once and this switch spends
@@ -104,7 +103,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
               <ThinkingRowWithRead
                 runId={attributedRunId}
                 liveText={liveText}
-                storedBody={
+                storedText={
                   props.row.content?.status === "available" ? props.row.content.body : undefined
                 }
                 holdRowInPlace={holdRow}
@@ -120,7 +119,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
  * Whether `TranscriptRow` draws a card for this row: only a row the kind table names has one. The
  * same classification the row's own switch spends, so the two cannot disagree.
  */
-export function drawsTranscriptRowBody(row: TranscriptEventRow): boolean {
+export function drawsTranscriptRowBody(row: ProjectedTranscriptRow): boolean {
   return classifyTranscriptRow(row) !== undefined;
 }
 

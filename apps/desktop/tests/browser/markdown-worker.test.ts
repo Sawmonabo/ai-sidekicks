@@ -7,7 +7,9 @@
 // reference links and images, footnotes, a loose list beside a tight one, raw HTML and a table;
 // and reads a drawn part into the same text as the page, as plain text, and as markdown with its
 // HTML, a table's undrawn rows among it, and a text longer than one piece crosses whole. The page
-// runs the module the worker compiled into the same tree the worker makes. The worker cuts a body
+// runs the module the worker compiled into the same tree the worker makes, and runs the
+// text-compression module the worker compiled beside it to pack a text's chunks and unpack them
+// to the same text. The worker cuts a body
 // into exactly the top-level blocks one parse of the whole body reads, whole and as it streams in,
 // on the constructs a scan for blank lines cuts wrongly; holding back one block instead of two
 // splits a loose ordered list. A body no longer than a block the page parses is cut on the page,
@@ -52,9 +54,11 @@ import type {
   MarkdownWorkerReply,
 } from "#renderer/components/Markdown/worker/messages.js";
 import { longReplyMarkdown } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
-import { TEXT_PIECE_LENGTH } from "#renderer/lib/text-pieces.js";
+import { TEXT_PIECE_LENGTH } from "#renderer/lib/text/pieces.js";
 import { endWorkersWithTest } from "../helpers/worker-start.js";
 import cutCases from "./markdown-cut-cases.json" with { type: "json" };
+import { TEXT_CHUNK_MAX_BYTES, TextCompression } from "#renderer/lib/text/compression.js";
+import { PackedText } from "#renderer/lib/text/packed.js";
 
 /** A reply whose parts each read something defined elsewhere in it, or as markup. */
 const REPLY = [
@@ -87,6 +91,12 @@ const REPLY = [
  * end, so the bytes cross between pieces as the page and the worker cut them.
  */
 const LONG_REPLY = `${"a".repeat(TEXT_PIECE_LENGTH - 1)}\u{1F600} and ${REPLY}`;
+
+/** Lines of two-, three- and four-byte characters among ASCII, several packed chunks long. */
+const MULTIBYTE_TEXT = Array.from(
+  { length: 2_400 },
+  (_, line) => `${String(line)}. Café — 漢字とかな 🙂 ok\n`,
+).join("");
 
 it("compiles the parser, and moves a tree to the page as a plain buffer", async () => {
   expect(globalThis.crossOriginIsolated).toBe(false);
@@ -169,6 +179,44 @@ it("parses a block on the page, from the worker's module, into the same tree the
 
   expect(plainTreeOf(onPage.root)).toStrictEqual(plainTreeOf(onWorker.root));
   expect(onPage.root.children.map((node) => node.type)).toContain("table");
+});
+
+it("packs and unpacks a chunk on the page with the worker's text-compression module", async () => {
+  const textCompression = new TextCompression(window);
+  const connection = new MarkdownWorkerConnection(
+    endWorkersWithTest(startMarkdownWorker),
+    window,
+    new PageParser(loadMarkdownParserCalls),
+    textCompression,
+  );
+  connection.wake();
+  await vi.waitFor(() => {
+    expect(textCompression.state).toBe("provided");
+  });
+
+  // A full chunk of whole multibyte characters, cut where the next one would not fit.
+  const plain = new Uint8Array(TEXT_CHUNK_MAX_BYTES);
+  const { written } = new TextEncoder().encodeInto(MULTIBYTE_TEXT, plain);
+  const chunk = plain.slice(0, written);
+  const packed = textCompression.pack(chunk) ?? expect.fail("the chunk packs smaller");
+  expect(textCompression.state).toBe("running");
+  expect(packed.byteLength).toBeLessThan(chunk.byteLength);
+  expect(textCompression.decode(packed, chunk.byteLength, true)).toBe(
+    new TextDecoder().decode(chunk),
+  );
+
+  // A text of several chunks packs each at an idle moment and reads back exactly, unpacked.
+  const packing = vi.spyOn(textCompression, "pack");
+  const text = PackedText.of(MULTIBYTE_TEXT, textCompression);
+  const chunkCount = Math.ceil(text.byteLength / TEXT_CHUNK_MAX_BYTES);
+  await vi.waitFor(() => {
+    expect(packing.mock.calls.length).toBeGreaterThanOrEqual(chunkCount);
+  });
+  expect(packing.mock.results.every((result) => result.value instanceof Uint8Array)).toBe(true);
+  expect([...text.chunks()].join("")).toBe(MULTIBYTE_TEXT);
+  expect(text.slice(TEXT_CHUNK_MAX_BYTES - 7, TEXT_CHUNK_MAX_BYTES * 3)).toBe(
+    MULTIBYTE_TEXT.slice(TEXT_CHUNK_MAX_BYTES - 7, TEXT_CHUNK_MAX_BYTES * 3),
+  );
 });
 
 it("cuts a body into the top-level blocks one parse of the whole body reads", async () => {
@@ -258,6 +306,7 @@ function workerOnly(): { readonly connection: MarkdownWorkerConnection } {
       endWorkersWithTest(startMarkdownWorker),
       window,
       new PageParser(loadMarkdownParserCalls),
+      new TextCompression(window),
     ),
   };
 }
@@ -288,6 +337,7 @@ async function pageAndWorker(): Promise<{
     },
     window,
     pageParser,
+    new TextCompression(window),
   );
   const trees = new MarkdownTrees(connection);
   trees.wakeWorker();

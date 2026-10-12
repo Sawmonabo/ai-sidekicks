@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { publishedTextOf } from "../../reveal/published-text.js";
+import { publishedTextOf } from "#renderer/lib/text/published.js";
 import { reasoningTailOf } from "./reasoning-reading.js";
 
 describe("reasoningTailOf", () => {

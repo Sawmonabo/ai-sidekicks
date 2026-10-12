@@ -18,7 +18,7 @@ import {
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { copyOnceBuilt } from "#renderer/services/platform/clipboard/late-copy.js";
-import { piecedTextOf } from "#renderer/lib/text-pieces.js";
+import { piecedTextOf } from "#renderer/lib/text/pieces.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { useHeldPaste } from "./useHeldPaste.js";
 
