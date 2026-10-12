@@ -402,7 +402,7 @@ Payload shape: `{nodeId, operationId, occurredAt}` (base). Per-event payload ext
 | `event.compacted` | A session deletion (`Delete old data`) deleted the rows of the sessions it removed, with `secure_delete` on, and checkpointed the write-ahead log with `TRUNCATE` once the delete committed ([Spec-020 §Ordering And Atomicity](./020-data-retention-export-and-deletion.md#ordering-and-atomicity)). It is the only record of a deletion: no background work writes one. It names the sessions removed and the range deleted in each. | base + the removed sessions with the deleted range of each (`fromSeq`, `toSeq`) |
 | `backup.completed` | A backup of the service's store finished — `Back up now`, or the daily run the person turned on: the database copied online, the machine's settings file, each chat session's workspace, the agent memory folder, and each kept session's checkpoint copies and conversation files ([Spec-013 §Backup Policy](./013-persistence-and-recovery.md#backup-policy)). | base |
 | `backup.failed` | A backup run failed; the backups already made are kept, and the next run tries again. | base |
-| `backup.restored` | A backup was restored into the service's store. | base |
+| `backup.restored` | A backup was restored into the service's store; the daemon program's offline restore mode writes it into the restored database before the service starts. | base |
 
 **Precedent — `event.compacted`.** No upstream event literally named `event.compacted` records a whole-session deletion; its field set is the removed sessions and the range deleted in each.
 
