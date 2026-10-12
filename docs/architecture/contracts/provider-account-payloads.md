@@ -350,11 +350,18 @@ interface ProviderAccountUpdateRequest {
   // itself and no helper exists. Omitted = unchanged.
   wakeForWindowStartEnabled?: boolean;
 }
+// The machine's one wake helper. This reply reads `installed` or `notInstalled`; `daemon.status.read`
+// reads `installed`, `turnedOff` (macOS, turned off in the system's login items) or `missing`.
+type ProviderWakeHelperState =
+  | { state: "installed" }
+  | { state: "notInstalled"; reason: string }
+  | { state: "turnedOff" }
+  | { state: "missing" };
 interface ProviderAccountUpdateResponse {
   account: ProviderAccount;
   // Present when this update moved `wakeForWindowStartEnabled`: whether the wake helper is installed
   // now, or why it could not be.
-  wakeHelper?: { state: "installed" } | { state: "notInstalled"; reason: string };
+  wakeHelper?: ProviderWakeHelperState;
 }
 // NOT updatable, by omission from the request and enforced on write: `accountId` (immutable
 // identity), `provider` (an account does not change vendor), `credentialHomePath` (rebinding a
