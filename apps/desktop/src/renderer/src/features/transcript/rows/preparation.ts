@@ -2,17 +2,17 @@
 // the tree of each settled block, of the footnotes each defines and of the streaming tail in the
 // app's shared trees, so the body mounted next draws them formatted from its first frame, the
 // formula typesetter, once the row holds a finished formula, the picture of each finished diagram,
-// and each long table's geometry; in a
-// reply or a tool's result drawn as command output or plain text, its parse into lines, read in
-// slices while the row is within the drawn band's reach and, for a call, open. A reply's text is
-// stripped of escapes here, once, and handed to its body to draw. The feed lists a row that arrives
-// (a page read, a jump, a row read back) only once these have landed, and keeps every row it holds
-// ready to scroll to by reading each one's text again as it grows. A row's text is read as its body
-// reads it: a person's message, finished; a reply's live text, whose tail is still streaming and
-// shows its source until it settles, or a tool's; and, with no lane, or once its lane retires, the
-// stored body, finished. A typesetter, diagram or table failure counts as landed: the body draws
-// its error state. A formula or diagram fence still streaming starts the typesetter's load or the
-// diagram worker as soon as it names its language, without the row waiting on either.
+// and each long table's geometry; in a reply or a tool's result drawn as command output or plain
+// text, its parse into lines, read in slices while the row is within the drawn band's reach and,
+// for a call, open. A reply's text is stripped of escapes here, once, and handed to its body to
+// draw. The feed lists a row that arrives (a page read, a jump, a row read back) only once these
+// have landed, and keeps every row it holds ready to scroll to by reading each one's text again as
+// it grows. A row's text is read as its body reads it: a person's message, finished; a reply's live
+// text, whose tail is still streaming and shows its source until it settles, or a tool's; and, with
+// no lane, or once its lane retires, the stored body, finished. A typesetter, diagram or table
+// failure counts as landed: the body draws its error state. A formula or diagram fence still
+// streaming starts the typesetter's load or the diagram worker as soon as it names its language,
+// without the row waiting on either.
 
 import type { Nodes, RootContent } from "mdast";
 

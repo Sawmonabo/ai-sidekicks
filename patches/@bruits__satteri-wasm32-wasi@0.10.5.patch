@@ -15,8 +15,8 @@ index 9610aa4d0404bed84a5661566f1e3beb31f5e63f..034be3b4de438a2525364fdc7920d70d
  })
  
 -const __wasmFile = await fetch(__wasmUrl).then((res) => res.arrayBuffer())
-+// The module the page compiled once, which the worker that loads this file is handed before it
-+// imports it, in place of fetching and compiling the parser in every worker.
++// The compiled parser, set by the worker that loads this file before it imports it: the first
++// worker compiles it, and the page keeps it and hands it to every later worker to instantiate.
 +const __wasmFile = await globalThis.satteriWasmModule
 +if (!(__wasmFile instanceof WebAssembly.Module)) {
 +  throw new TypeError('globalThis.satteriWasmModule holds no compiled parser')

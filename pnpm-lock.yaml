@@ -25,7 +25,7 @@ catalogs:
 
 patchedDependencies:
   '@bruits/satteri-wasm32-wasi@0.10.5':
-    hash: bb57cb152084297be7388ccdfc21a7610e5919451dc3c13a31ff72b434b0886d
+    hash: f1a825280907a9e0ba87f8a084f63aed12b7f8e3f9f07c98880f9a1c873b173c
     path: patches/@bruits__satteri-wasm32-wasi@0.10.5.patch
   '@xyflow/react@12.12.0':
     hash: dcfbb662e50e85a3098a8d97041868db13aed36bf36462fc1026870abea63b85
@@ -165,7 +165,7 @@ importers:
         version: 1.8.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@bruits/satteri-wasm32-wasi':
         specifier: 0.10.5
-        version: 0.10.5(patch_hash=bb57cb152084297be7388ccdfc21a7610e5919451dc3c13a31ff72b434b0886d)
+        version: 0.10.5(patch_hash=f1a825280907a9e0ba87f8a084f63aed12b7f8e3f9f07c98880f9a1c873b173c)
       '@dagrejs/dagre':
         specifier: 3.1.1
         version: 3.1.1
@@ -8444,7 +8444,7 @@ snapshots:
   '@bruits/satteri-linux-x64-musl@0.10.5':
     optional: true
 
-  '@bruits/satteri-wasm32-wasi@0.10.5(patch_hash=bb57cb152084297be7388ccdfc21a7610e5919451dc3c13a31ff72b434b0886d)':
+  '@bruits/satteri-wasm32-wasi@0.10.5(patch_hash=f1a825280907a9e0ba87f8a084f63aed12b7f8e3f9f07c98880f9a1c873b173c)':
     dependencies:
       '@emnapi/core': 1.11.1
       '@emnapi/runtime': 1.11.1
@@ -14855,7 +14855,7 @@ snapshots:
       '@bruits/satteri-linux-arm64-musl': 0.10.5
       '@bruits/satteri-linux-x64-gnu': 0.10.5
       '@bruits/satteri-linux-x64-musl': 0.10.5
-      '@bruits/satteri-wasm32-wasi': 0.10.5(patch_hash=bb57cb152084297be7388ccdfc21a7610e5919451dc3c13a31ff72b434b0886d)
+      '@bruits/satteri-wasm32-wasi': 0.10.5(patch_hash=f1a825280907a9e0ba87f8a084f63aed12b7f8e3f9f07c98880f9a1c873b173c)
       '@bruits/satteri-win32-arm64-msvc': 0.10.5
       '@bruits/satteri-win32-x64-msvc': 0.10.5
 

@@ -14,10 +14,10 @@ export const INCOMPLETE_LINK_SENTINEL = "streamdown:incomplete-link";
 
 /**
  * The fence info strings whose rendering waits for the block to settle, and what each one is:
- * math and mermaid diagrams, both wrong when fed a prefix. The parser runs with its math syntax
- * off and has no diagram node, so neither gets its own node type and the set is keyed by the info
- * string. A diagram fence shows its source while it
- * streams and is drawn as a picture once settled, so mermaid never parses a half-written diagram.
+ * math and mermaid diagrams, both wrong when fed a prefix. The parser runs with its math syntax off
+ * and has no diagram node, so neither gets its own node type and the set is keyed by the info
+ * string. A diagram fence shows its source while it streams and is drawn as a picture once settled,
+ * so mermaid never parses a half-written diagram.
  */
 export const DEFERRED_FENCE_KINDS = {
   math: "math",

@@ -44,7 +44,8 @@ declare module "*?worker" {
   export default WorkerScript;
 }
 
-// A WebAssembly module the page compiles as it streams in, emitted and addressed the same way.
+// A WebAssembly module the markdown worker compiles as it streams in, emitted and addressed the
+// same way.
 declare module "*.wasm?url" {
   const assetUrl: string;
   export default assetUrl;
