@@ -72,13 +72,20 @@ function callRowOf(scroller: HTMLElement, toolName: string): HTMLElement | undef
   );
 }
 
-/** Whether the call's output is drawn whole: its box uncut and no `Show all` under it. */
+/**
+ * Whether the call's output is drawn whole: its box uncut, as tall as all its lines, which its
+ * window draws near the view and holds the room of past it, and no `Show all` under it.
+ */
 function isDrawnWhole(row: HTMLElement): boolean {
   const box =
-    row.querySelector(".meridian-machine-body__plain") ?? expect.fail("the call draws its output");
+    row.querySelector<HTMLElement>(".meridian-machine-body__plain") ??
+    expect.fail("the call draws its output");
+  const content =
+    box.querySelector(".meridian-output-cut__content") ?? expect.fail("the box holds its lines");
+  const lineHeightPx = parseFloat(getComputedStyle(box).lineHeight);
   return (
     !box.classList.contains("meridian-output-cut__body--cut") &&
-    box.textContent.includes(`line ${String(PRINTED_LINE_COUNT)}`) &&
+    Math.round(content.getBoundingClientRect().height / lineHeightPx) === PRINTED_LINE_COUNT &&
     row.querySelector(".meridian-full-output") === null
   );
 }

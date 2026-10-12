@@ -14,6 +14,7 @@ import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRe
 import { useDrawnBandScreenHeights } from "../../bodies/hooks/useDrawnBandScreenHeights.js";
 import { useSelectionPins } from "../../bodies/hooks/useSelectionPins.js";
 import { DrawnWindowSourcesContext } from "../../drawn-window-sources.js";
+import { requestLayoutRead } from "../../layout-reads.js";
 import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
 import { rangeEnds, withPinnedIndexes } from "../../markdown/block-window/selection-pins.js";
 import { type AnsiLineChunkList } from "../lines/chunks.js";
@@ -57,13 +58,17 @@ export function useAnsiLineWindow(
   layout.setChunks(chunks);
   const [, redrawRows] = useReducer(countRedraws, 0);
   // The first render draws the output's first chunks, as the whole output draws them, and the
-  // lines are laid out with them once to read their type; the window draws its own chunks before
-  // the frame paints.
-  useLayoutEffect(() => {
-    if (layout.readTypeOnMount()) {
-      redrawRows();
-    }
-  }, [layout]);
+  // lines' type is read with them, with the other reads of the commit's mounted bodies; the window
+  // draws its own chunks before the frame paints.
+  useLayoutEffect(
+    () =>
+      requestLayoutRead(() => {
+        if (layout.readTypeOnMount()) {
+          redrawRows();
+        }
+      }),
+    [layout],
+  );
 
   // The chunks a copy reads its undrawn lines from, held from the commit that draws its spacers,
   // so a copy asked after any commit finds the chunks that frame drew from.
@@ -169,17 +174,13 @@ export function useAnsiLineWindow(
 
 /**
  * The rows drawn before the lines' type is read: the first chunks, enough of a long output that
- * its cut reads it running past from the first frame, each under a key of its own, so the window's
- * chunks mount in their place and are measured.
+ * its cut reads it running past from the first frame, each under the key the window draws it at,
+ * so a chunk the window draws too stays mounted and is measured from then.
  */
 function firstChunkRows(chunkCount: number): AnsiLineWindowRow[] {
   return Array.from(
     { length: Math.min(chunkCount, FIRST_DRAWN_CHUNK_COUNT) },
-    (_unused, index) => ({
-      kind: "chunk",
-      key: `first:${String(index)}`,
-      index,
-    }),
+    (_unused, index) => ({ kind: "chunk", key: String(index), index }),
   );
 }
 

@@ -13,6 +13,13 @@ export interface CountingScrollContainer extends HTMLElement {
    */
   moveTo(offset: number, inputAtMs?: number): void;
   /**
+   * Move the offset the way a fling's momentum does once the hand let go: the scroll event alone,
+   * stamped `atMs`, with no input of the reader's.
+   */
+  coastTo(offset: number, atMs: number): void;
+  /** End the scroll sequence the way the platform does once the box stops: its `scrollend`. */
+  endScroll(): void;
+  /**
    * Change the reported box the way a pane resize does. No scroll event fires; the
    * controller's overflow pass on the frozen clock is what notices.
    */
@@ -90,6 +97,15 @@ export function createCountingScrollContainer(
       element.dispatchEvent(wheel);
       scrollOffsetPx = offset;
       element.dispatchEvent(event);
+    },
+    coastTo: (offset: number, atMs: number): void => {
+      const event = new Event("scroll");
+      Object.defineProperty(event, "timeStamp", { value: atMs });
+      scrollOffsetPx = offset;
+      element.dispatchEvent(event);
+    },
+    endScroll: (): void => {
+      element.dispatchEvent(new Event("scrollend"));
     },
     resizeTo: (clientHeight: number, scrollHeight: number): void => {
       viewportHeightPx = clientHeight;

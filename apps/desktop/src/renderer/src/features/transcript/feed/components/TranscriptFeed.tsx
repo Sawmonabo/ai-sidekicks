@@ -12,7 +12,6 @@ import "./TranscriptFeed.css";
 import { useCallback, useMemo } from "react";
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
@@ -29,7 +28,7 @@ import { useFullBodyReads } from "../hooks/useFullBodyReads.js";
 import { FullBodyReadsContext } from "../../rows/full-body-reads.js";
 import { OffListTableFrames } from "../../rows/bodies/OffListTableFrames.js";
 import { ListedBodiesContext } from "../../rows/markdown/table-window/context.js";
-import { PreparedAnsiOutputsContext } from "../../rows/ansi/preparation.js";
+import { PreparedBodiesContext } from "../../rows/prepared-bodies.js";
 import { DrawnWindowSourcesContext } from "../../rows/drawn-window-sources.js";
 import {
   useDependentReadFailed,
@@ -111,8 +110,8 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     foldedAwayRows: windows.runGroupFold.removedRows,
     systemMessageByRowId: windows.unfurledWindow.systemMessageByRowId,
     drawsBody: props.rowRenderer.drawsBody,
-    // Nothing hidden is found: the walk sees the rows once they are shown.
-    rows: isDrawable ? transcriptWindow.rows : NO_ROWS,
+    rows: transcriptWindow.rows,
+    areRowsShown: isDrawable,
     jumpToRow,
     focusTranscriptViewport: viewport.focusScrollContainer,
   });
@@ -269,13 +268,13 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     [revealChannel, foldedCallRowIds],
   );
   const readPage = props.readTranscriptPage;
-  const deriveDrawnWindow = windows.deriveDrawnWindow;
+  const deriveRowSourceWindows = windows.deriveRowSourceWindows;
   const copyHistory = useMemo(
     () =>
       readPage === undefined
         ? undefined
-        : { sessionStore: props.sessionStore, readPage, deriveDrawnWindow },
-    [props.sessionStore, readPage, deriveDrawnWindow],
+        : { sessionStore: props.sessionStore, readPage, deriveRowSourceWindows },
+    [props.sessionStore, readPage, deriveRowSourceWindows],
   );
   useConversationCopy({
     selectionTracker: viewport.selectionTracker,
@@ -300,7 +299,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
           <RowRevealProvider channel={revealChannel}>
             <FullBodyReadsContext value={fullBodyReads}>
               <ListedBodiesContext value={windows.offListTables}>
-                <PreparedAnsiOutputsContext value={windows.preparedOutputs}>
+                <PreparedBodiesContext value={windows.preparedBodies}>
                   <DrawnWindowSourcesContext value={windows.drawnWindowSources}>
                     <TranscriptViewport
                       binding={viewport}
@@ -319,7 +318,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
                       }
                     />
                   </DrawnWindowSourcesContext>
-                </PreparedAnsiOutputsContext>
+                </PreparedBodiesContext>
               </ListedBodiesContext>
             </FullBodyReadsContext>
           </RowRevealProvider>
@@ -334,6 +333,3 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     </div>
   );
 }
-
-/** What the find walk sees while the rows are hidden. */
-const NO_ROWS: readonly TranscriptEventRow[] = [];

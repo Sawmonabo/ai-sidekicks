@@ -61,8 +61,8 @@ export interface FixtureBridge {
   readonly bridge: PlatformBridge;
   readonly scenarioEngine: ScenarioEngine;
   /**
-   * The pieces of the late copy the bridge holds, as main holds them, which a suite answering a
-   * late write itself reads the copy's content from.
+   * The pieces of the late copies the bridge holds, one for each clipboard, as main holds them,
+   * which a suite answering a late write itself reads the copy's content from.
    */
   readonly clipboardPieces: ClipboardPieces;
 }
@@ -75,6 +75,9 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
   let appearanceRecord: AppearanceRecord = DEFAULT_APPEARANCE_RECORD;
   const appearanceHandlers = new Set<(record: AppearanceRecord) => void>();
   const clipboardPieces = new ClipboardPieces();
+  // The late copy whose text the system clipboard holds, the one fact of a clipboard a fixture
+  // keeps.
+  let heldLateCopyId: string | undefined;
   // A fixture runs no main, so the machine's region and clock never change under it.
   const app: PlatformBridge["app"] = {
     ...FIXTURE_APP_META,
@@ -97,13 +100,18 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       openInEditor: () => refuseAbsentCapability("native.openInEditor"),
       listEditors: () => refuseAbsentCapability("native.listEditors"),
       getNotificationPermission: () => refuseAbsentCapability("native.getNotificationPermission"),
-      copyToClipboard: async () => {
-        // A no-op is safe: nothing reads the result back, and a refusal would make every "copy id"
-        // affordance untestable.
+      copyToClipboard: async (_content, clipboard) => {
+        // Nothing reads the result back, and a refusal would make every "copy id" affordance
+        // untestable; a write takes the system clipboard from any late copy that held it.
+        if (clipboard === undefined) {
+          heldLateCopyId = undefined;
+        }
       },
-      // The fixture keeps no clipboard: a snapshot reads it empty, so a later write always lands,
-      // as the same write a copy at once makes, read at the call so a spy on it sees the write.
-      takeClipboardSnapshot: async () => ({ digest: "" }),
+      // The fixture keeps no clipboard's content: a snapshot reads it empty, so a later write
+      // lands while its pieces are held, as the same write a copy at once makes, read at the call
+      // so a spy on it sees the write.
+      takeClipboardSnapshot: async (clipboard) =>
+        clipboard === undefined ? { digest: "" } : { clipboard, digest: "" },
       sendClipboardPiece: async (piece) => {
         clipboardPieces.take(piece);
       },
@@ -111,17 +119,38 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
         clipboardPieces.drop(copyId);
       },
       // A picture lands nowhere, the fixture keeping no clipboard; its pieces stay for a test.
-      copyToClipboardUnlessChanged: async (copyId) => {
+      copyToClipboardUnlessChanged: async (copyId, since) => {
+        if (!clipboardPieces.isHeld(copyId)) {
+          return false;
+        }
         const content = clipboardPieces.contentOf(copyId);
         if (!("png" in content)) {
-          await bridge.native.copyToClipboard(content);
+          await (since.clipboard === undefined
+            ? bridge.native.copyToClipboard(content)
+            : bridge.native.copyToClipboard(content, since.clipboard));
+        }
+        if (since.clipboard === undefined) {
+          heldLateCopyId = copyId;
         }
         return true;
       },
-      // The fixture keeps no clipboard, so none still holds a copy's text; the copy is let go.
+      // Beside the copy's text while no other write took the system clipboard; the copy is let go.
       addClipboardFormatting: async (copyId) => {
+        if (!clipboardPieces.isHeld(copyId)) {
+          return false;
+        }
+        const content = clipboardPieces.contentOf(copyId);
         clipboardPieces.drop(copyId);
-        return false;
+        if (!("html" in content) || content.html === undefined) {
+          throw new Error(
+            "A clipboard copy's formatting was asked for before its pieces were sent.",
+          );
+        }
+        if (heldLateCopyId !== copyId) {
+          return false;
+        }
+        await bridge.native.copyToClipboard(content);
+        return true;
       },
       revealInFileExplorer: () => refuseAbsentCapability("native.revealInFileExplorer"),
     },

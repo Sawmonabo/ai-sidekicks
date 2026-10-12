@@ -12,7 +12,9 @@
 // What a header says of its run (who acts for it, the account it is billed to, its state) and
 // whether the run has ended are the run's facts from the session store, which the daemon folded
 // over the whole log, never the window's rows: a run whose naming row lies outside the window
-// reads the same as one whose rows are all held.
+// reads the same as one whose rows are all held. A long stretch whose window the store let go
+// past keeps counting the drawn rows it let go, carried from one derivation of the log to the
+// next until they are read back.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import {
@@ -29,6 +31,31 @@ import { PublishedKeyedList } from "../window/published-keyed-list.js";
 /** The session store's run entities by run id, whose facts each run group reads. */
 export type RunEntitiesByRunId = Readonly<Record<string, StoredEntity>>;
 
+/**
+ * The drawn rows of a stretch the store let go past one end of the rows it holds, and have not
+ * been read back.
+ */
+export interface ReleasedRunEntries {
+  /** How many drawn rows went there. */
+  readonly count: number;
+  /** The lowest sequence they were let go from, so a row read back among them counts back. */
+  readonly fromSequence: number;
+  /** The highest sequence they were let go from. */
+  readonly toSequence: number;
+  /** The outermost event let go: the stretch's first at its earlier end, its last at the later. */
+  readonly outermostEvent: Pick<TranscriptEventRow, "sequence" | "cursor">;
+}
+
+/**
+ * The window derived before a whole derivation, which carries what its stretches let go and where
+ * its notifications sat.
+ */
+export interface PreviousRunGroups {
+  readonly runGroupByHeaderKey: ReadonlyMap<string, RunGroup>;
+  readonly runGroupKeyByRowId: ReadonlyMap<string, string>;
+  readonly rowsByKey: ReadonlyMap<string, TranscriptEventRow>;
+}
+
 /** One stretch of one run's rows, folded. */
 export interface RunGroup {
   /**
@@ -39,7 +66,10 @@ export interface RunGroup {
   readonly key: string;
   /** The run this group is a stretch of, wire-verbatim. */
   readonly runId: string;
-  /** The row the header stands above: the stretch's first card, its first drawn row. */
+  /**
+   * The row the header stands above: the stretch's first card, its first drawn row; with rows let
+   * go before it, its first drawn row the log holds.
+   */
   readonly headerRowId: string;
   /** The group's row ids in arrival order, cached so the header and body read one array. */
   readonly rowIds: readonly string[];
@@ -59,6 +89,10 @@ export interface RunGroup {
   readonly runStateEventType: string | undefined;
   /** The provider account the run was admitted under, wire-verbatim, or `undefined` for none. */
   readonly payingAccountId: string | undefined;
+  /** The drawn rows let go before the first row the log holds, or `undefined` for none. */
+  readonly releasedEarlier: ReleasedRunEntries | undefined;
+  /** The drawn rows let go after the last row the log holds, or `undefined` for none. */
+  readonly releasedLater: ReleasedRunEntries | undefined;
 }
 
 /**
@@ -87,6 +121,10 @@ export class RunGroupIndex {
   #lastCardGroup: GroupAccumulator | undefined;
   readonly #liveRunIds = new Set<string>();
   #publishedLiveRunIds: ReadonlySet<string> | undefined;
+  /** The window derived before this log, whose stretches a notification may stay in. */
+  #previous: PreviousRunGroups | undefined;
+  /** The group of this log that took the first row of each earlier stretch, by its earlier key. */
+  readonly #groupByPreviousKey = new Map<string, GroupAccumulator>();
   #runEntities: RunEntitiesByRunId;
 
   /** `runEntities` are the session store's run entities, whose facts each run's groups read. */
@@ -107,7 +145,7 @@ export class RunGroupIndex {
     }
     const run = row.kind === "general" ? undefined : this.#runOf(row.runId);
     if (isNotification) {
-      const group = this.#lastCardGroup;
+      const group = this.#notificationGroupOf(row);
       if (group === undefined || (run !== undefined && group.run !== run)) {
         return undefined;
       }
@@ -128,6 +166,15 @@ export class RunGroupIndex {
     }
     this.#join(group, row, hasCard, hasCard);
     return group.key;
+  }
+
+  /**
+   * Read the window derived before this one while a whole log is admitted, so a notification whose
+   * card the store let go stays in the stretch that card put it in, as the whole log has it.
+   * Called before the log's first row.
+   */
+  public followPrevious(previous: PreviousRunGroups): void {
+    this.#previous = previous;
   }
 
   /**
@@ -162,6 +209,75 @@ export class RunGroupIndex {
     }
     for (const group of this.#groups) {
       group.key = adoptedKeyByGroup.get(group) ?? this.#mintKey(group.run.runId, group.firstRowId);
+    }
+  }
+
+  /**
+   * Carry the drawn rows each stretch let go across a whole derivation, after `adoptKeys`. A group
+   * carries the counts of the group `previous` held under its key: a drawn row read back is
+   * counted back, and a drawn row of that group this log lacks is counted as let go before or
+   * after the rows the group holds. A row is let go when the log still holds rows of `previous` on
+   * both sides of it, or on its one side where it lay past an end: the store let go of history it
+   * can read again. A row this log lacks any other way went with a read that replaced the window,
+   * so the group counts its own rows alone. A group with rows let go before it stands its header
+   * at its first drawn row, as the whole log has the rows it holds under the header. `rows` are
+   * this log's rows in order, and `rowOf` reads one by id.
+   */
+  public carryReleasedRows(
+    previous: PreviousRunGroups,
+    rows: readonly TranscriptEventRow[],
+    rowOf: (rowId: string) => TranscriptEventRow | undefined,
+  ): void {
+    const isLetGo = letGoReaderOf(rows, previous.rowsByKey);
+    for (const group of this.#groups) {
+      const carried = previous.runGroupByHeaderKey.get(group.key);
+      const firstSequence = rowOf(group.firstRowId)?.sequence;
+      if (carried === undefined || firstSequence === undefined) {
+        continue;
+      }
+      let earlier = carried.releasedEarlier;
+      let later = carried.releasedLater;
+      // A drawn row read back since `previous` is counted back from the end it was let go at.
+      for (const position of group.drawnRowPositions) {
+        const rowId = group.rowIds[position]!;
+        const sequence = rowOf(rowId)?.sequence;
+        if (sequence === undefined || previous.rowsByKey.has(rowId)) {
+          continue;
+        }
+        if (isAmong(earlier, sequence)) {
+          earlier = { ...earlier, count: earlier.count - 1 };
+        } else if (isAmong(later, sequence)) {
+          later = { ...later, count: later.count - 1 };
+        }
+      }
+      let isReplaced = false;
+      for (const position of carried.drawnRowPositions) {
+        const rowId = carried.rowIds[position]!;
+        const row = previous.rowsByKey.get(rowId);
+        if (row === undefined || rowOf(rowId) !== undefined) {
+          continue;
+        }
+        if (!isLetGo(row.sequence)) {
+          isReplaced = true;
+        } else if (row.sequence < firstSequence) {
+          earlier = withReleasedRow(earlier, row, "earlier");
+        } else {
+          later = withReleasedRow(later, row, "later");
+        }
+      }
+      group.releasedEarlier =
+        !isReplaced && earlier !== undefined && earlier.count > 0 ? earlier : undefined;
+      group.releasedLater =
+        !isReplaced && later !== undefined && later.count > 0 ? later : undefined;
+      const firstDrawnPosition = group.drawnRowPositions[0];
+      if (
+        group.releasedEarlier !== undefined &&
+        group.headerRowId !== undefined &&
+        firstDrawnPosition !== undefined
+      ) {
+        group.headerRowId = group.rowIds[firstDrawnPosition];
+      }
+      this.#touchedGroups.add(group);
     }
   }
 
@@ -237,6 +353,32 @@ export class RunGroupIndex {
     return key;
   }
 
+  /**
+   * The group a notification joins: the one the newest card joined, unless the stretch it sat in
+   * before lost the card that put it there, which only a release does. Then it joins the group that
+   * holds that stretch's rows, or opens one for its run.
+   */
+  #notificationGroupOf(row: TranscriptEventRow): GroupAccumulator | undefined {
+    const lastCardGroup = this.#lastCardGroup;
+    const previousKey = this.#previous?.runGroupKeyByRowId.get(row.id);
+    const newestCardId = lastCardGroup?.cardRowIds.at(-1);
+    const newestCardKey =
+      newestCardId === undefined ? undefined : this.#previous?.runGroupKeyByRowId.get(newestCardId);
+    // A card new to this log, read back since, places the notification as the log stands.
+    const isPlacedByNewestCard =
+      newestCardId !== undefined &&
+      (newestCardKey === previousKey || this.#previous?.rowsByKey.has(newestCardId) !== true);
+    if (previousKey === undefined || isPlacedByNewestCard) {
+      return lastCardGroup;
+    }
+    const held = this.#groupByPreviousKey.get(previousKey);
+    const runId = this.#previous?.runGroupByHeaderKey.get(previousKey)?.runId;
+    if (held !== undefined || runId === undefined) {
+      return held;
+    }
+    return this.#openGroup(this.#runOf(runId), row);
+  }
+
   #countOutsideCard(): void {
     this.#cardCount += 1;
     this.#lastCardGroup = undefined;
@@ -252,6 +394,8 @@ export class RunGroupIndex {
       drawnRowPositions: [],
       headerRowId: undefined,
       lastCardCount: undefined,
+      releasedEarlier: undefined,
+      releasedLater: undefined,
     };
     if (run.newestGroup !== undefined && headerStateOf(run.facts) !== undefined) {
       // The run's state moves to the new group's header.
@@ -274,6 +418,10 @@ export class RunGroupIndex {
     }
     group.rowIds.push(row.id);
     this.#memberships.push({ rowId: row.id, group });
+    const previousKey = this.#previous?.runGroupKeyByRowId.get(row.id);
+    if (previousKey !== undefined && !this.#groupByPreviousKey.has(previousKey)) {
+      this.#groupByPreviousKey.set(previousKey, group);
+    }
     if (hasCard) {
       group.cardRowIds.push(row.id);
       if (group.headerRowId === undefined) {
@@ -322,7 +470,7 @@ export class RunGroupIndex {
   }
 }
 
-/** Partition one loaded window into run groups, for a caller that folds a log once. */
+/** The run groups of one loaded window, its rows folded in one pass. */
 export function groupRowsByRun(
   rows: readonly TranscriptEventRow[],
   runEntities: RunEntitiesByRunId,
@@ -359,10 +507,14 @@ interface GroupAccumulator {
   readonly cardRowIds: string[];
   /** Where its rows that draw something stand: its cards and the notifications that joined it. */
   readonly drawnRowPositions: number[];
-  /** The group's first card, or `undefined` while it has none and so draws nothing. */
+  /** The row its header stands above; see `RunGroup.headerRowId`. `undefined` with no card. */
   headerRowId: string | undefined;
   /** The card count at the group's newest card, or `undefined` before its first. */
   lastCardCount: number | undefined;
+  /** The drawn rows let go before the rows the log holds; see `RunGroup.releasedEarlier`. */
+  releasedEarlier: ReleasedRunEntries | undefined;
+  /** The drawn rows let go after the rows the log holds; see `RunGroup.releasedLater`. */
+  releasedLater: ReleasedRunEntries | undefined;
 }
 
 /** One member row and the group it joined. */
@@ -390,8 +542,80 @@ function sealDrawnRunGroup(group: GroupAccumulator): readonly RunGroup[] {
       actorId: run.facts?.actor,
       runStateEventType: run.newestGroup === group ? headerStateOf(run.facts) : undefined,
       payingAccountId: run.facts?.admittedProviderAccountId,
+      releasedEarlier: group.releasedEarlier,
+      releasedLater: group.releasedLater,
     },
   ];
+}
+
+/**
+ * Whether a row of `previous` at a sequence this log lacks was let go: the rows of `rows` beside
+ * it, in sequence, are rows `previous` held too, and so is the nearer end's row past an end.
+ */
+function letGoReaderOf(
+  rows: readonly TranscriptEventRow[],
+  previousRowsByKey: ReadonlyMap<string, TranscriptEventRow>,
+): (sequence: number) => boolean {
+  return (sequence) => {
+    let low = 0;
+    let high = rows.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if ((rows[middle]?.sequence ?? 0) < sequence) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    const before = rows[low - 1];
+    const after = rows[low];
+    return (
+      (before !== undefined || after !== undefined) &&
+      (before === undefined || previousRowsByKey.has(before.id)) &&
+      (after === undefined || previousRowsByKey.has(after.id))
+    );
+  };
+}
+
+/** Whether `entries` still count a row let go at `sequence`. */
+function isAmong(
+  entries: ReleasedRunEntries | undefined,
+  sequence: number,
+): entries is ReleasedRunEntries {
+  return (
+    entries !== undefined &&
+    entries.count > 0 &&
+    sequence >= entries.fromSequence &&
+    sequence <= entries.toSequence
+  );
+}
+
+/** `entries` with one more drawn row let go at the `side` end of the stretch. */
+function withReleasedRow(
+  entries: ReleasedRunEntries | undefined,
+  row: TranscriptEventRow,
+  side: "earlier" | "later",
+): ReleasedRunEntries {
+  if (entries === undefined) {
+    return {
+      count: 1,
+      fromSequence: row.sequence,
+      toSequence: row.sequence,
+      outermostEvent: { sequence: row.sequence, cursor: row.cursor },
+    };
+  }
+  const isOutermost =
+    side === "earlier"
+      ? row.sequence < entries.outermostEvent.sequence
+      : row.sequence > entries.outermostEvent.sequence;
+  return {
+    count: entries.count + 1,
+    fromSequence: Math.min(entries.fromSequence, row.sequence),
+    toSequence: Math.max(entries.toSequence, row.sequence),
+    outermostEvent: isOutermost
+      ? { sequence: row.sequence, cursor: row.cursor }
+      : entries.outermostEvent,
+  };
 }
 
 // A run the store holds no facts for has not been seen to end.

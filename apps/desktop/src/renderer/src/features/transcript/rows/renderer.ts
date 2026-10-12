@@ -13,7 +13,8 @@ import { type DiagramPictures } from "#renderer/components/Markdown/diagram/pict
 import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 import { SingleEntryRegistry } from "#renderer/lib/single-entry-registry.js";
 import { type PublishedText } from "../reveal/published-text.js";
-import { type OutputReach, type PreparedAnsiOutputs } from "./ansi/preparation.js";
+import { type OutputReach } from "./ansi/preparation.js";
+import { type PreparedBodies } from "./prepared-bodies.js";
 import { type OffListTables } from "./markdown/table-window/off-list.js";
 
 /**
@@ -82,7 +83,7 @@ export interface TranscriptRowSources {
   /** Where a row's long tables are measured before it is listed. */
   readonly offListTables: OffListTables;
   /** Where a row's command output is parsed before it is listed, and drawn from after. */
-  readonly preparedOutputs: PreparedAnsiOutputs;
+  readonly preparedBodies: PreparedBodies;
   /**
    * How near the viewport a row stands, which decides when its command output is parsed; a row
    * outside the drawn band's reach waits on its parse again.

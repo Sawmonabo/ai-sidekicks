@@ -20,8 +20,10 @@ import { ManualClock } from "#renderer/lib/clock.js";
 import { TEXT_PIECE_LENGTH } from "#renderer/lib/text-pieces.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { MessageRow } from "./MessageRow.js";
+import { PreparedBodiesContext } from "./prepared-bodies.js";
 import { classifyTranscriptRow } from "./kind.js";
 import { FootnoteRegistry } from "./markdown/footnotes/registry.js";
+import { prepareRowBodiesForTest } from "./preparation.test-support.js";
 import {
   SAMPLE_RUN_ROW_TIME_SELECTOR,
   sampleRunRow,
@@ -83,26 +85,32 @@ function renderMessageCard(
   if (rowKind === undefined) {
     throw new Error(`${row.type} is not a message kind`);
   }
+  const liveText =
+    overrides.liveText === undefined ? undefined : publishedTextOf(overrides.liveText);
+  const preparedBodies = prepareRowBodiesForTest(
+    [row],
+    new Map(liveText === undefined ? [] : [[row.id, liveText]]),
+  ).bodies;
   const { container } = render(
     <FixtureBridgeProvider
       fixture={overrides.fixture ?? createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}
     >
       <RowRevealContext value={overrides.revealChannel}>
-        <MessageRow
-          row={row}
-          rowKind={rowKind}
-          agentHue={undefined}
-          isSuperseded={false}
-          density="expanded"
-          footnotes={new FootnoteRegistry()}
-          thinkingRow={undefined}
-          {...(overrides.liveText === undefined
-            ? {}
-            : { liveText: publishedTextOf(overrides.liveText) })}
-          {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}
-          {...(overrides.replyRowIds === undefined ? {} : { replyRowIds: overrides.replyRowIds })}
-          editControl={undefined}
-        />
+        <PreparedBodiesContext value={preparedBodies}>
+          <MessageRow
+            row={row}
+            rowKind={rowKind}
+            agentHue={undefined}
+            isSuperseded={false}
+            density="expanded"
+            footnotes={new FootnoteRegistry()}
+            thinkingRow={undefined}
+            {...(liveText === undefined ? {} : { liveText })}
+            {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}
+            {...(overrides.replyRowIds === undefined ? {} : { replyRowIds: overrides.replyRowIds })}
+            editControl={undefined}
+          />
+        </PreparedBodiesContext>
       </RowRevealContext>
     </FixtureBridgeProvider>,
     { wrapper: LiveAnnouncerProvider },

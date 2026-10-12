@@ -52,6 +52,11 @@ afterEach(() => {
  * scroller's height and offset are given, since this DOM lays nothing out.
  */
 function mountWindow(text: string, footnotes: FootnoteRegistry): MountedWindow {
+  // happy-dom has no idle callback; one that never fires stands in, as on a page granting no idle.
+  vi.stubGlobal("requestIdleCallback", () => 0);
+  teardowns.push(() => {
+    vi.unstubAllGlobals();
+  });
   const scroller = document.createElement("div");
   let scrollTop = 0;
   Object.defineProperty(scroller, "clientHeight", { get: () => SCROLLER_HEIGHT_PX });

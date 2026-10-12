@@ -1,5 +1,6 @@
 // electron-vite configuration: three build targets (main, preload, renderer), and the renderer's
-// diagram worker, which the renderer build bundles apart from the page.
+// workers (markdown, diagram, PNG), which the renderer build bundles apart from the page, each by
+// the name `WORKER_BUNDLE_NAMES` gives it.
 //
 // The renderer loads over a custom protocol, not file://. Source maps are "hidden": readable for a
 // crash report's stack but not referenced from the shipped bundle. The release fixture gate
@@ -26,16 +27,21 @@
 // smoke bundle from running the probe on its own.
 //
 // The dev server's Content-Security-Policy: `electron-vite dev` serves the renderer over HTTP,
-// which bypasses the protocol handler's response headers, so the `server` block sends the same
-// policy, composed from the directive list in `src/main/services/renderer/scheme.ts` and widened
-// only to admit the HMR websocket. `strictPort` holds because the policy names that port.
+// which bypasses the protocol handler's response headers, so the dev server sends the same
+// policies, composed from the directive list in `src/main/services/renderer/scheme.ts` and widened
+// only to admit the HMR websocket: the diagram worker's on its script, the page's on every other
+// response. `strictPort` holds because the policy names that port.
 
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { defineConfig, type ElectronViteConfigFnObject } from "electron-vite";
+import type { Plugin } from "vitest/config";
 
-import { clearThirdPartyNotices, thirdPartyNoticesPlugin } from "./build/third-party-notices.ts";
+import { clearThirdPartyNotices, thirdPartyNoticesPlugins } from "./build/third-party-notices.ts";
 import {
+  DIAGRAM_WORKER_BUNDLE_NAME,
+  DIAGRAM_WORKER_DEV_CONTENT_SECURITY_POLICY,
   RENDERER_DEV_CONTENT_SECURITY_POLICY,
   RENDERER_DEV_SERVER_PORT,
 } from "./src/main/services/renderer/scheme.js";
@@ -116,6 +122,59 @@ export function isFixtureOnlyModule(moduleId: string): boolean {
   );
 }
 
+/** The renderer's source root, which the dev server serves under `/src/`. */
+const RENDERER_SOURCE_DIRECTORY = fileURLToPath(new URL("./src/renderer/src/", import.meta.url));
+
+/** The diagram worker's entry under the renderer's source root. */
+const DIAGRAM_WORKER_ENTRY = "components/Markdown/diagram/worker/entry.ts";
+
+/**
+ * Each worker's bundle name, by its entry under the renderer's source root. A worker is built as
+ * `assets/<name>-<hash>.js` and writes its notices to `<name>.txt`; the protocol handler knows the
+ * diagram worker's script by its name.
+ */
+const WORKER_BUNDLE_NAMES: Readonly<Record<string, string>> = {
+  "components/Markdown/worker/entry.ts": "markdown-worker",
+  [DIAGRAM_WORKER_ENTRY]: DIAGRAM_WORKER_BUNDLE_NAME,
+  "components/Markdown/diagram/png/entry.ts": "png-worker",
+};
+
+/** A worker's bundle name, by its entry module. Throws for a worker the table does not name. */
+function workerBundleNameOf(entryModuleId: string): string {
+  const entry = path.relative(RENDERER_SOURCE_DIRECTORY, entryModuleId).split(path.sep).join("/");
+  const bundleName = WORKER_BUNDLE_NAMES[entry];
+  if (bundleName === undefined) {
+    throw new Error(`the worker ${entry} has no bundle name in electron.vite.config.ts`);
+  }
+  return bundleName;
+}
+
+/** The diagram worker's script as the dev server serves it, from source. */
+const DEV_DIAGRAM_WORKER_PATH = `/src/${DIAGRAM_WORKER_ENTRY}`;
+
+/**
+ * Sends the dev transport's policy on every response the dev server answers: the diagram worker's
+ * on its script, which a dedicated worker takes its policy from, and the page's on every other.
+ */
+function devContentSecurityPolicyPlugin(): Plugin {
+  return {
+    name: "dev-content-security-policy",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const requestPath = new URL(request.url ?? "/", "http://localhost").pathname;
+        response.setHeader(
+          "Content-Security-Policy",
+          requestPath === DEV_DIAGRAM_WORKER_PATH
+            ? DIAGRAM_WORKER_DEV_CONTENT_SECURITY_POLICY
+            : RENDERER_DEV_CONTENT_SECURITY_POLICY,
+        );
+        next();
+      });
+    },
+  };
+}
+
 // Annotated rather than inferred: `isolatedDeclarations` is repo-wide, and
 // `tests/budget/release-absence.test.ts` imports this module (it reads `isFixtureOnlyModule`), so
 // it is part of a checked program.
@@ -138,7 +197,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ command, 
 
   return {
     main: {
-      plugins: [thirdPartyNoticesPlugin("main")],
+      plugins: thirdPartyNoticesPlugins(() => "main"),
       // See the header on `define`: a textual substitution, so Rollup folds `if (false && expr)`
       // and drops the probe body from the release bundle.
       define: {
@@ -195,21 +254,32 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ command, 
       plugins: [
         iconCompilationPlugin(),
         overlayScrollbarBundlePlugin(),
-        thirdPartyNoticesPlugin("renderer"),
+        devContentSecurityPolicyPlugin(),
+        ...thirdPartyNoticesPlugins(() => "renderer"),
       ],
-      // The diagram worker is a module: merman loads its WebAssembly glue with a dynamic import,
-      // which a classic worker bundle cannot split out. Its bundle is built apart from the page's,
-      // so it writes notices of its own.
-      worker: { format: "es", plugins: () => [thirdPartyNoticesPlugin("diagram-worker")] },
+      // Workers are modules: merman loads its WebAssembly glue with a dynamic import, which a
+      // classic worker bundle cannot split out. Each worker's bundle is built apart from the
+      // page's, with plugins made afresh for it, so each writes notices of its own.
+      worker: {
+        format: "es",
+        plugins: () => thirdPartyNoticesPlugins(workerBundleNameOf),
+        rolldownOptions: {
+          output: {
+            entryFileNames: (chunk) => {
+              if (chunk.facadeModuleId === null) {
+                throw new Error(`the worker entry chunk ${chunk.name} has no entry module`);
+              }
+              return `assets/${workerBundleNameOf(chunk.facadeModuleId)}-[hash].js`;
+            },
+          },
+        },
+      },
       server: {
         port: RENDERER_DEV_SERVER_PORT,
         // See the header note: the policy names this port, so a silent
         // fallback to the next free one must fail instead.
         strictPort: true,
-        headers: {
-          "Content-Security-Policy": RENDERER_DEV_CONTENT_SECURITY_POLICY,
-          "X-Content-Type-Options": "nosniff",
-        },
+        headers: { "X-Content-Type-Options": "nosniff" },
       },
       // The renderer's fixture gate, beside the smoke gate above and for the same reason: a
       // build-time literal, not a runtime flag. A runtime environment variable would ship every

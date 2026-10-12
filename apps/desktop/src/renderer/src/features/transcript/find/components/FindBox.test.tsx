@@ -45,6 +45,7 @@ function renderField(
     <FindBox
       query={options.query ?? result.query}
       result={result}
+      areRowsShown
       currentMatchIndex={options.currentMatchIndex ?? -1}
       openRequestCount={options.openRequestCount ?? 1}
       onQueryChange={(query) => acts.push(`query:${query}`)}

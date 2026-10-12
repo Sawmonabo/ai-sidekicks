@@ -76,12 +76,6 @@ export class ChildRunIndex {
     (entry) => entry,
   );
 
-  public constructor(rows: readonly TranscriptEventRow[] = []) {
-    for (const row of rows) {
-      this.admit(row);
-    }
-  }
-
   /** Fold one row in, after every row admitted before it. */
   public admit(row: TranscriptEventRow): void {
     this.#subagentAnchors.admit(row);
@@ -111,16 +105,6 @@ export class ChildRunIndex {
     if (handoffPosition !== undefined) {
       this.#handoffEntries.set(handoffPosition, handoffEntryOf(next));
     }
-  }
-
-  /** Every summarized child run in the window, in log order. */
-  public childRunEntries(): readonly ChildRunEntry[] {
-    return this.#childRunEntries.list();
-  }
-
-  /** Every handoff in the window, in log order. */
-  public handoffEntries(): readonly HandoffEntry[] {
-    return this.#handoffEntries.list();
   }
 
   /** The child-run entry behind a row, for the feed's per-row dispatch. Kept until one moves. */
@@ -176,21 +160,6 @@ export class ChildRunIndex {
       this.#handoffEntries.push(handoffEntryOf(row));
     }
   }
-}
-
-/**
- * Every row carrying a child-run summary, in log order, for a caller that reads a log once. A
- * re-summarized child keeps one entry, at its first row.
- */
-export function deriveChildRunEntries(
-  rows: readonly TranscriptEventRow[],
-): readonly ChildRunEntry[] {
-  return new ChildRunIndex(rows).childRunEntries();
-}
-
-/** Every handoff in the window, in log order, for a caller that reads a log once. */
-export function deriveHandoffEntries(rows: readonly TranscriptEventRow[]): readonly HandoffEntry[] {
-  return new ChildRunIndex(rows).handoffEntries();
 }
 
 /** One handoff row's entry, its members read off the payload and rendered verbatim. */

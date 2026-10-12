@@ -1,7 +1,7 @@
 // The band a window nested in a row draws its items within, against the rows' own band. A fling's
 // first frame can carry the box further than the band before a render draws, so before the reader
 // has moved one way the nested windows reach as far as a leading side on every side the box can
-// still move toward.
+// still move toward. A fling's reach holds through the samples a busy machine sends.
 
 import { describe, expect, it } from "vitest";
 
@@ -9,6 +9,7 @@ import { ManualClock } from "#renderer/lib/clock.js";
 import { type ScrollGeometry } from "#renderer/lib/scroll/geometry/sample.js";
 import {
   TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS,
+  TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS,
   TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS,
 } from "./caps.js";
 import { ViewportDrawnBand } from "./drawn-band.js";
@@ -75,5 +76,32 @@ describe("the band a window nested in a row draws within", () => {
 
     band.narrow();
     expect(band.nestedScreenHeights).toStrictEqual({ head: 0, tail: 0 });
+  });
+});
+
+describe("a fling's reach", () => {
+  it("holds through a slow sample and the late frames of a busy machine", () => {
+    const { band } = wholeBand();
+    let scrollTop = 1_000;
+    let inputAt = 0;
+    band.observeGeometry(sampleAt(scrollTop));
+    const moveBy = (travelPx: number, gapMs: number): void => {
+      scrollTop += travelPx;
+      inputAt += gapMs;
+      band.observeGeometry(sampleAt(scrollTop, inputAt));
+    };
+    // A fling toward the tail at 12 px a millisecond, a sample each frame.
+    moveBy(192, 16);
+    moveBy(192, 16);
+    expect(band.screenHeights.tail).toBe(TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS);
+
+    // A frame that came in a burst: little travel over a frame and a half.
+    moveBy(50, 24);
+    expect(band.screenHeights.tail).toBe(TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS);
+
+    // Two frames drawn late in a row, each carrying the fling on.
+    moveBy(1_400, 183);
+    moveBy(1_000, 183);
+    expect(band.screenHeights.tail).toBe(TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS);
   });
 });

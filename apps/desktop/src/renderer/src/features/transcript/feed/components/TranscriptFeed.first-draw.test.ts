@@ -1,11 +1,11 @@
 // When the feed first shows its rows: once the session's first read has landed and the faces its
 // first rows draw in have settled. Until then the rows are laid out hidden, `Loading…` stands past
 // the loading line's delay, or nothing while the line under the session header says the read
-// failed, and find walks none of them. The test DOM has no font set, so a case that waits on the
-// faces hands the document one whose loads it settles.
+// failed, and find walks and counts none of them. The test DOM has no font set, so a case that
+// waits on the faces hands the document one whose loads it settles.
 
 import { act, cleanup, fireEvent } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { LOADING_NOTICE_DELAY_MS } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
@@ -29,15 +29,11 @@ import {
   withdrawTranscriptCommands,
 } from "./TranscriptFeed.test-support.js";
 
-let detachForwarder: (() => void) | undefined;
-
 // A command acts in the window used last; the test's document stands in for it.
 beforeEach(() => publishCommandWindow(() => document));
 
 afterEach(() => {
   Reflect.deleteProperty(document, "fonts");
-  detachForwarder?.();
-  detachForwarder = undefined;
   withdrawTranscriptCommands();
   vi.restoreAllMocks();
 });
@@ -159,9 +155,11 @@ describe("the transcript feed — its first draw", () => {
     withLaidOutViewport();
     handDocumentFonts("loading");
     const records: string[] = [];
-    detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
-      records.push(jsonLines);
-    });
+    onTestFinished(
+      windowDiagnosticCapture.installForwarder((jsonLines) => {
+        records.push(jsonLines);
+      }),
+    );
     const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
     const feed = renderFeed(
       openSessionStoreWithGeneralLog(SHORT_LOG_EVENT_COUNT),
@@ -179,7 +177,7 @@ describe("the transcript feed — its first draw", () => {
     expect(records.join("\n")).toContain("typefaces-still-loading");
   });
 
-  it("finds nothing among the hidden rows, and the rows once they are shown", async () => {
+  it("claims no count over the hidden rows, and counts the shown ones, none included", async () => {
     withLaidOutViewport();
     contributeTranscriptCommands();
     const settleFaces = handDocumentFonts("loading");
@@ -189,14 +187,21 @@ describe("the transcript feed — its first draw", () => {
       feed.querySelector<HTMLInputElement>(".meridian-find__input") ??
       expect.fail("the find field opened");
     fireEvent.change(findField, { target: { value: "user" } });
-    const countWhileHidden = feed.querySelector(".meridian-find")?.textContent ?? "";
+    const countText = (): string | undefined =>
+      feed.querySelector(".meridian-find__count")?.textContent;
+    const countWhileHidden = countText();
     await act(async () => {
       settleFaces();
       await Promise.resolve();
     });
 
-    expect(countWhileHidden).toContain("No matches");
-    expect(feed.querySelector(".meridian-find")?.textContent ?? "").not.toContain("No matches");
+    const countOnceShown = countText();
+    fireEvent.change(findField, { target: { value: "no row says this" } });
+
+    expect(countWhileHidden).toBe("");
+    expect(countOnceShown).toMatch(/^1 of \d+$/);
+    // Once the rows are shown, a query that finds none says so.
+    expect(countText()).toBe("No matches");
   });
 
   it("puts focus on the log once shown when find closes while it is hidden, unless it moved", async () => {

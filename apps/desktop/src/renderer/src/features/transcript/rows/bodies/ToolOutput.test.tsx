@@ -3,7 +3,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { PreparedAnsiOutputsContext } from "../ansi/preparation.js";
+import { PreparedBodiesContext } from "../prepared-bodies.js";
 import { prepareOutputForTest } from "../ansi/preparation.test-support.js";
 import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { ToolOutput } from "./ToolOutput.js";
@@ -16,14 +16,14 @@ const BEL = "\u0007";
 function renderToolOutput(body: string, label: string): HTMLElement {
   const prepared = prepareOutputForTest("event-01", body);
   return render(
-    <PreparedAnsiOutputsContext value={prepared.outputs}>
+    <PreparedBodiesContext value={prepared.outputs}>
       <ToolOutput
         content={{ status: "available", body }}
         sourceId="event-01"
         footnotes={new FootnoteRegistry()}
         label={label}
       />
-    </PreparedAnsiOutputsContext>,
+    </PreparedBodiesContext>,
   ).container;
 }
 

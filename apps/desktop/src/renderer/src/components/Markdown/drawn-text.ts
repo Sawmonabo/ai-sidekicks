@@ -13,6 +13,7 @@ import { defaultHandlers, toMdast, type Handle } from "hast-util-to-mdast";
 import { toText } from "hast-util-to-text";
 import type { Table, TableRow } from "mdast";
 import { gfmToMarkdown } from "mdast-util-gfm";
+import type { InlineMath } from "mdast-util-math";
 import { toMarkdown, type Handle as MarkdownHandle, type Options } from "mdast-util-to-markdown";
 
 import {
@@ -62,10 +63,16 @@ export interface DrawnMarkdown {
 
 /**
  * What stands for undrawn rows in a text while the rest of it is read: a noncharacter, which
- * Unicode keeps for a program's own use and no text exchanged holds. One code unit, so no piece of
- * a text cuts it in two.
+ * Unicode keeps for a program's own use. One code unit, so no piece of a text cuts it in two. A
+ * text may still hold one, so `escapeMarkers` writes those apart before any marker goes in.
  */
 export const UNDRAWN_ROWS_MARKER = "\uFDD0";
+
+/**
+ * What a marker or an escape a text already holds is written as while markers are in it: this,
+ * then `0` for a marker or `1` for an escape, so every marker left stands for undrawn rows.
+ */
+export const MARKER_ESCAPE = "\uFDD1";
 
 /** The text the drawn part `tree`, holding no stand-in for undrawn rows, copies as in `flavor`. */
 export function drawnTreeText(tree: DrawnTree, flavor: CopyFlavor): string {
@@ -87,12 +94,16 @@ export async function drawnTreeMarkdown(
   if ("children" in tree) {
     findUndrawnRuns(tree, undrawnRows.alignments, standIns);
   }
+  const hasStandIns = standIns.length > 0;
+  if (hasStandIns) {
+    escapeMarkers(tree);
+  }
   for (const { parent, index, run } of standIns) {
     parent.children[index] = markerRow(run.align, await undrawnRowsWidths(run, undrawnRows.pull));
   }
-  const markdown = rebuildMarkdown(tree);
+  const markdown = rebuildMarkdown(tree, hasStandIns);
   const html = markdownToHtml(markdown);
-  return standIns.length === 0
+  return !hasStandIns
     ? { markdown: [markdown], html: [html] }
     : withUndrawnRuns(
         markdown,
@@ -100,6 +111,31 @@ export async function drawnTreeMarkdown(
         standIns.map((standIn) => standIn.run),
         undrawnRows.pull,
       );
+}
+
+/**
+ * Writes each marker and escape the text of `tree` holds as an escape and a digit, before markers
+ * are put in; `withoutMarkerEscapes` reads them back.
+ */
+export function escapeMarkers(tree: DrawnTree): void {
+  if (tree.type === "text") {
+    tree.value = tree.value.replace(MARKER_CHARACTERS, (character) =>
+      character === UNDRAWN_ROWS_MARKER ? `${MARKER_ESCAPE}0` : `${MARKER_ESCAPE}1`,
+    );
+    return;
+  }
+  if ("children" in tree) {
+    for (const child of tree.children) {
+      escapeMarkers(child);
+    }
+  }
+}
+
+/** `text`, read from a tree `escapeMarkers` wrote, with each escaped character as it was. */
+export function withoutMarkerEscapes(text: string): string {
+  return text.replace(ESCAPED_MARKER_CHARACTERS, (_escaped, digit: string) =>
+    digit === "0" ? UNDRAWN_ROWS_MARKER : MARKER_ESCAPE,
+  );
 }
 
 /** How many characters of text `tree` holds. */
@@ -248,10 +284,11 @@ async function undrawnRowsWidths(
     exitTable();
     return "";
   };
+  const options = markdownOptions();
   await forEachChunkOf(run, pull, (rows) => {
     toMarkdown(rebuiltRows(run.align, rows, []), {
-      ...markdownOptions(),
-      handlers: { table: measureCells },
+      ...options,
+      handlers: { ...options.handlers, table: measureCells },
     });
   });
   return widths;
@@ -328,8 +365,8 @@ async function withUndrawnRuns(
       .map((cell) => cell.length - 2);
     const rowStart = html.lastIndexOf("<tr>", htmlMarkerAt);
     const rowEnd = html.indexOf("</tr>", htmlMarkerAt) + "</tr>".length;
-    markdownPieces.push(markdown.slice(markdownAt, lineStart));
-    htmlPieces.push(html.slice(htmlAt, rowStart));
+    markdownPieces.push(withoutMarkerEscapes(markdown.slice(markdownAt, lineStart)));
+    htmlPieces.push(withoutMarkerEscapes(html.slice(htmlAt, rowStart)));
     await forEachChunkOf(run, pull, (rows, firstIndex) => {
       const chunk = undrawnRowsChunk(run.align, rows, columnWidths);
       const lineBefore = firstIndex === run.firstIndex ? "" : "\n";
@@ -339,8 +376,8 @@ async function withUndrawnRuns(
     markdownAt = lineEnd;
     htmlAt = rowEnd;
   }
-  markdownPieces.push(markdown.slice(markdownAt));
-  htmlPieces.push(html.slice(htmlAt));
+  markdownPieces.push(withoutMarkerEscapes(markdown.slice(markdownAt)));
+  htmlPieces.push(withoutMarkerEscapes(html.slice(htmlAt)));
   return { markdown: markdownPieces, html: htmlPieces };
 }
 
@@ -398,16 +435,38 @@ function asDrawnRow(row: MarkdownHastElement): MarkdownHastElement {
   return { ...row, children: row.children.filter((cell) => cell.type === "element") };
 }
 
-/** The markdown that made the drawn reply elements in `tree`, rebuilt from them. */
-function rebuildMarkdown(tree: DrawnTree): string {
+/**
+ * The markdown that made the drawn reply elements in `tree`, rebuilt from them. A table written
+ * `hasMarkerEscapes` pads each cell to its width once its escapes are read back.
+ */
+function rebuildMarkdown(tree: DrawnTree, hasMarkerEscapes = false): string {
   const markdownTree = toMdast(tree, { handlers: DRAWN_MARKDOWN_HANDLERS });
-  return toMarkdown(markdownTree, markdownOptions()).trimEnd();
+  const options = markdownOptions();
+  return toMarkdown(
+    markdownTree,
+    hasMarkerEscapes
+      ? { ...options, extensions: [gfmToMarkdown({ stringLength: unescapedLength })] }
+      : options,
+  ).trimEnd();
 }
 
-/** How a drawn part's markdown is written, made per call as the extension is. */
+/** The length of `text` once each escape in it and the digit after are read back as one. */
+function unescapedLength(text: string): number {
+  return text.length - (text.split(MARKER_ESCAPE).length - 1);
+}
+
+/**
+ * How a drawn part's markdown is written, made per call as the extension is. An inline formula is
+ * written between single dollars by hand: the math extension's writer would escape every other
+ * dollar, so a copied price would gain a backslash the reply never had.
+ */
 function markdownOptions(): Options {
   // `-` is the bullet agents and people write most; the drawing does not keep which one was used.
-  return { bullet: "-", extensions: [gfmToMarkdown()] };
+  return {
+    bullet: "-",
+    extensions: [gfmToMarkdown()],
+    handlers: { inlineMath: (node: InlineMath) => `$${node.value}$` },
+  };
 }
 
 /** What one element handler answers, derived from the library's own handler. */
@@ -415,11 +474,15 @@ type RebuiltNodes = ReturnType<Handle>;
 
 /**
  * How the markdown drawing's own elements read back: a heading is a `p` carrying its level, a
- * list item is tight unless marked loose, a fenced block names its language on the `pre`, and a
- * table cell carries its column's alignment as `data-align`, which the table's reader takes from
- * `align`.
+ * list item is tight unless marked loose, a fenced block names its language on the `pre`, an
+ * inline formula is a `code` naming `math` as its language, and a table cell carries its column's
+ * alignment as `data-align`, which the table's reader takes from `align`.
  */
 const DRAWN_MARKDOWN_HANDLERS: Record<string, Handle> = {
+  code: (state, element) =>
+    element.properties["dataLanguage"] === "math"
+      ? ({ type: "inlineMath", value: toText(element) } as RebuiltNodes)
+      : defaultHandlers.code(state, element),
   p: (state, element) => {
     const level = Number(element.properties["ariaLevel"]);
     return element.properties["role"] === "heading" && isHeadingDepth(level)
@@ -458,3 +521,9 @@ function alignCellsOf(parent: DrawnElement): void {
 function isHeadingDepth(level: number): level is 1 | 2 | 3 | 4 | 5 | 6 {
   return Number.isInteger(level) && level >= 1 && level <= 6;
 }
+
+/** A marker or an escape, as a text holds them before `escapeMarkers` writes it. */
+const MARKER_CHARACTERS = /[\uFDD0\uFDD1]/g;
+
+/** An escape and its digit, as `escapeMarkers` writes them. */
+const ESCAPED_MARKER_CHARACTERS = /\uFDD1([01])/g;

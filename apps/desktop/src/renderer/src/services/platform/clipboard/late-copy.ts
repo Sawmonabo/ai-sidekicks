@@ -4,10 +4,11 @@
 // content is written only while the clipboard still holds that, so a copy made meanwhile, in this
 // app or another, stands. The content's text and formatted flavor, or its picture's bytes, go to
 // main a few pieces a slice before the write that names them, so no message, and no task on the
-// page, grows with the content; main holds one copy's pieces at a time, and a copy that settles
-// lets its pieces go. Until a system-clipboard copy has written or given up it is held in the
-// bridge's pending copies, which a paste in this app waits for.
+// page, grows with the content; main holds one copy's pieces for each clipboard, and a copy that
+// settles lets its pieces go. Until a system-clipboard copy has written, given up or failed it is
+// held in the bridge's pending copies, which a paste in this app waits for.
 
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { piecedTextOf, TEXT_PIECE_LENGTH, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
 import type {
@@ -16,6 +17,7 @@ import type {
   PictureClipboardContent,
 } from "#shared/preload-api.js";
 import type { PlatformBridge } from "../bridge.js";
+import type { PendingCopyOutcome } from "./pending-copies.js";
 
 /** A copy's text and any formatted flavor, each held in pieces. */
 export interface PiecedTextClipboardContent {
@@ -44,10 +46,10 @@ export type ReadyClipboardContent = ClipboardContent | PiecedClipboardContent;
 /**
  * Starts a copy now whose content `build` writes later through the write it is handed, which
  * lands only while no newer copy took the clipboard, and whose formatted flavor it may add after
- * its text through the second function; settles as `build` does, once the copy's pieces main
- * holds are let go. Pieces are sent a few a slice in `view`. A copy to the system clipboard is
- * pending until its first write settles or `build` settles, whichever comes first. A refused read
- * of the clipboard rejects that write.
+ * its text through the second function; settles as `build` does, and asks main to let the copy's
+ * pieces go, recording a refusal of that. Pieces are sent a few a slice in `view`. A copy to the
+ * system clipboard is pending until its first write settles or `build` settles, whichever comes
+ * first. A refused read of the clipboard rejects that write.
  */
 export async function copyOnceBuilt<Result>(
   bridge: PlatformBridge,
@@ -58,7 +60,7 @@ export async function copyOnceBuilt<Result>(
   const snapshot = bridge.native.takeClipboardSnapshot(clipboard);
   // A refused read rejects the write that awaits it; a copy that writes nothing waits on none.
   snapshot.catch(() => undefined);
-  let endPending = (): void => undefined;
+  let endPending = (_outcome: PendingCopyOutcome): void => undefined;
   if (clipboard === undefined) {
     bridge.pendingClipboardCopies.hold(
       new Promise((resolve) => {
@@ -67,12 +69,14 @@ export async function copyOnceBuilt<Result>(
     );
   }
   const copyId = crypto.randomUUID();
+  // Every piece names its clipboard, so main holds it beside the other clipboard's copy.
+  const naming = clipboard === undefined ? { copyId } : { copyId, clipboard };
   let isSent = false;
   const send = async (flavor: "text" | "html", text: PiecedText): Promise<void> => {
     isSent = true;
     // An empty text goes as one empty piece, since its first piece starts a copy.
     const pieces = text.pieces.length === 0 ? [""] : text.pieces;
-    await sendPieces(bridge, view, pieces, (piece, index) => ({ copyId, flavor, index, piece }));
+    await sendPieces(bridge, view, pieces, (piece, index) => ({ ...naming, flavor, index, piece }));
   };
   const sendPicture = async (png: Uint8Array<ArrayBuffer>): Promise<void> => {
     isSent = true;
@@ -82,7 +86,7 @@ export async function copyOnceBuilt<Result>(
     );
     // Each piece its own copy of its bytes: a view into the picture would send all of them.
     await sendPieces(bridge, view, starts, (start, index) => ({
-      copyId,
+      ...naming,
       flavor: "png",
       index,
       piece: png.slice(start, start + PICTURE_PIECE_BYTES),
@@ -98,9 +102,12 @@ export async function copyOnceBuilt<Result>(
           await send("html", content.html);
         }
       }
-      return await bridge.native.copyToClipboardUnlessChanged(copyId, await snapshot);
-    } finally {
-      endPending();
+      const isWritten = await bridge.native.copyToClipboardUnlessChanged(copyId, await snapshot);
+      endPending(isWritten ? "written" : "given-up");
+      return isWritten;
+    } catch (failure: unknown) {
+      endPending("failed");
+      throw failure;
     }
   };
   const addFormatting: LateClipboardFormatting = async (html) => {
@@ -108,12 +115,19 @@ export async function copyOnceBuilt<Result>(
     return await bridge.native.addClipboardFormatting(copyId);
   };
   try {
-    return await build(write, addFormatting);
+    const result = await build(write, addFormatting);
+    endPending("given-up");
+    return result;
+  } catch (failure: unknown) {
+    endPending("failed");
+    throw failure;
   } finally {
-    endPending();
-    // A newer copy's first piece has let these go already, which this asks again harmlessly.
+    // A newer copy's first piece has let these go already, which this asks again harmlessly; a
+    // refusal leaves the copy's settlement as it was.
     if (isSent) {
-      await bridge.native.dropClipboardPieces(copyId);
+      bridge.native.dropClipboardPieces(copyId).catch((failure: unknown) => {
+        recordRejectedRequest(LATE_COPY_SOURCE, "clipboard-pieces-not-dropped", failure);
+      });
     }
   }
 }
@@ -136,7 +150,15 @@ export async function copyReadyContent(
   const text = wholeTextOf(content.text);
   const html = content.html === undefined ? undefined : wholeTextOf(content.html);
   if (text.length + (html?.length ?? 0) <= TEXT_PIECE_LENGTH) {
-    await bridge.native.copyToClipboard(html === undefined ? { text } : { text, html });
+    const writing = bridge.native.copyToClipboard(html === undefined ? { text } : { text, html });
+    // Pending too, so a paste pressed while main writes it pastes it.
+    bridge.pendingClipboardCopies.hold(
+      writing.then(
+        (): PendingCopyOutcome => "written",
+        (): PendingCopyOutcome => "failed",
+      ),
+    );
+    await writing;
     return true;
   }
   const pieced: PiecedTextClipboardContent =
@@ -153,6 +175,9 @@ function wholeTextOf(text: string | PiecedText): string {
 function piecedOf(text: string | PiecedText): PiecedText {
   return typeof text === "string" ? piecedTextOf(text) : text;
 }
+
+/** Where a late copy's records in the window's diagnostics come from. */
+const LATE_COPY_SOURCE = "services/platform/clipboard";
 
 /**
  * The most bytes of a picture one piece carries: a few of them a slice keep the page's task, and

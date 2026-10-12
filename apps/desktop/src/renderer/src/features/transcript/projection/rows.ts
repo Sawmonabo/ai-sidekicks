@@ -25,14 +25,6 @@ import { readRollbackBoundaryPayload } from "#renderer/services/daemon/payload/r
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { ChildRunSummaries } from "./child-run-summaries.js";
 
-/**
- * What one projection pass produced. An event type with no registered category draws nothing:
- * the screen's list of rows is closed.
- */
-export interface TranscriptRowProjection {
-  readonly rows: readonly TranscriptEventRow[];
-}
-
 /** What projecting one stretch appended to a log produced. */
 export interface TranscriptRowBatch {
   /** The stretch's own rows, in log order. */
@@ -177,13 +169,6 @@ export class TranscriptRowProjector {
       payload: event.payload ?? {},
     };
   }
-}
-
-/** Reads a whole log as transcript rows, for a caller that projects a log once. */
-export function projectTranscriptRows(
-  events: readonly ProjectedSessionEvent[],
-): TranscriptRowProjection {
-  return { rows: new TranscriptRowProjector().project(events).rows };
 }
 
 /**

@@ -1,7 +1,8 @@
 // The write side of the console's scheduling: one queue, no interval. It accumulates events and
 // drains them into the store's chokepoint on one frame boundary, so four streaming lanes cost one
-// transition and one render. `lib/reads/refresh/scheduler.ts` is the read half; the two share no
-// symbol.
+// transition and one render. A window that draws no frames, as a hidden one on some systems does,
+// still drains when the frame's fallback timeout runs out. `lib/reads/refresh/scheduler.ts` is
+// the read half; the two share no symbol.
 //
 // It takes the clock as a dependency rather than reaching for `requestAnimationFrame`, so a test
 // drives it on frozen time and `ManualClock.pendingCount === 0` after settle checks that no
@@ -15,6 +16,12 @@
 
 import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
+
+/**
+ * How long a batch waits for a frame before it drains without one: one frame at 60 Hz, so a
+ * window that draws frames drains on its frame, and one that draws none drains this late.
+ */
+export const APPLY_FRAME_FALLBACK_MS = 16;
 
 /** The drain the queue performs. Exactly one call per frame that held events. */
 export type ApplyDrain = (events: readonly ProjectedSessionEvent[]) => void;
@@ -38,7 +45,8 @@ export class ApplyQueue {
   readonly #drain: ApplyDrain;
   readonly #onDrainError: ((error: unknown) => void) | undefined;
   #buffer: ProjectedSessionEvent[] = [];
-  #armedHandle: ScheduledHandle | undefined;
+  /** The frame a batch waits for, and the timeout that drains it if no frame comes first. */
+  #armedHandles: readonly [ScheduledHandle, ScheduledHandle] | undefined;
   #drainCount = 0;
   #failedDrainCount = 0;
   #droppedAfterDisposeCount = 0;
@@ -76,7 +84,7 @@ export class ApplyQueue {
     return this.#droppedAfterDisposeCount;
   }
 
-  /** Enqueue one event. Arms a single frame; never a timeout or an interval. */
+  /** Enqueue one event. Arms a single frame and its fallback timeout; never an interval. */
   public enqueue(event: ProjectedSessionEvent): void {
     this.enqueueAll([event]);
   }
@@ -100,10 +108,7 @@ export class ApplyQueue {
    * the drain throws. The retry rides the next enqueue, so a failing drain cannot spin a loop.
    */
   public flush(): void {
-    if (this.#armedHandle !== undefined) {
-      this.#clock.cancel(this.#armedHandle);
-      this.#armedHandle = undefined;
-    }
+    this.#disarm();
     if (this.#buffer.length === 0) {
       return;
     }
@@ -124,10 +129,7 @@ export class ApplyQueue {
    * base state: what is queued came from the stream that base replaces.
    */
   public discardPending(): void {
-    if (this.#armedHandle !== undefined) {
-      this.#clock.cancel(this.#armedHandle);
-      this.#armedHandle = undefined;
-    }
+    this.#disarm();
     this.#buffer = [];
   }
 
@@ -137,14 +139,24 @@ export class ApplyQueue {
     this.discardPending();
   }
 
+  // Whichever of the two runs first drains, and the drain cancels the other.
   #arm(): void {
-    if (this.#armedHandle !== undefined) {
+    if (this.#armedHandles !== undefined) {
       return;
     }
     const run = (): void => {
-      this.#armedHandle = undefined;
       this.flush();
     };
-    this.#armedHandle = this.#clock.scheduleFrame(run);
+    this.#armedHandles = [
+      this.#clock.scheduleFrame(run),
+      this.#clock.scheduleTimeout(run, APPLY_FRAME_FALLBACK_MS),
+    ];
+  }
+
+  #disarm(): void {
+    for (const handle of this.#armedHandles ?? []) {
+      this.#clock.cancel(handle);
+    }
+    this.#armedHandles = undefined;
   }
 }

@@ -149,17 +149,21 @@ export type ClipboardContent = TextClipboardContent | PictureClipboardContent;
  * One piece of a late copy, sent to main ahead of the write that names the copy, so no one message
  * carries a long text or a whole picture: a piece of its text or of its formatted flavor, or of a
  * picture's PNG bytes. `index` counts the flavor's pieces from 0, and the first piece of the text
- * or of the picture starts the copy, in place of any copy main holds.
+ * or of the picture starts the copy, in place of any copy main holds for the same clipboard.
+ * `clipboard` names the selection clipboard; absent, the system one. Main holds one copy per
+ * clipboard.
  */
 export type ClipboardPiece =
   | {
       readonly copyId: string;
+      readonly clipboard?: "selection" | undefined;
       readonly flavor: "text" | "html";
       readonly index: number;
       readonly piece: string;
     }
   | {
       readonly copyId: string;
+      readonly clipboard?: "selection" | undefined;
       readonly flavor: "png";
       readonly index: number;
       readonly piece: Uint8Array<ArrayBuffer>;
@@ -464,8 +468,8 @@ export interface PreloadApi {
     takeClipboardSnapshot(clipboard?: "selection"): Promise<ClipboardSnapshot>;
     /**
      * Hand main one piece of a late copy's text, formatted flavor or picture. Refused for a piece
-     * naming a copy main does not hold, and for one out of its flavor's order, which also lets the
-     * copy go.
+     * naming a copy main does not hold, for one out of its flavor's order, and for a copy past
+     * main's bounds on its size or its count of pieces; the last two also let the copy go.
      */
     sendClipboardPiece(piece: ClipboardPiece): Promise<void>;
     /** Let the pieces of the copy `copyId` names go, when main holds them. */
@@ -474,15 +478,16 @@ export interface PreloadApi {
      * Put the copy whose pieces were sent under `copyId`, its text and formatted flavor or its
      * picture, on the clipboard `since` names in one write, only while that clipboard still holds
      * what it held when `since` was taken; resolves `false`, writing nothing, once a newer copy,
-     * from this app or another, holds it, or once its pieces were let go. Refused for a copy whose
-     * pieces main does not hold, and for a picture that is not a PNG.
+     * from this app or another, holds it, or once main no longer holds its pieces. Refused for a
+     * picture that is not a PNG.
      */
     copyToClipboardUnlessChanged(copyId: string, since: ClipboardSnapshot): Promise<boolean>;
     /**
      * Put the formatted flavor whose pieces were sent under `copyId` beside the copy's text on the
      * system clipboard, in one write, only while the clipboard still holds that text, then let the
      * copy's pieces go; resolves `false`, writing nothing, once a newer copy, from this app or
-     * another, holds it. Refused for a copy main holds no formatted flavor of.
+     * another, holds it or was asked for, or once main no longer holds the copy's pieces. Refused
+     * for a copy main holds no formatted flavor of.
      */
     addClipboardFormatting(copyId: string): Promise<boolean>;
     /** Show a file or folder selected in the platform's file manager. */

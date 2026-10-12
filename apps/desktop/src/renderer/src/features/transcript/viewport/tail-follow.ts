@@ -146,7 +146,9 @@ export class ViewportTailFollow {
     ) {
       return undefined;
     }
-    const tailPx = Math.max(0, virtualizer.getTotalSize() - geometry.viewportHeight);
-    return geometry.scrollTop < tailPx - SCROLL_TAIL_TOLERANCE_PX ? tailPx : undefined;
+    const tailPx = this.#scroll.maximumScrollTop();
+    return tailPx !== undefined && geometry.scrollTop < tailPx - SCROLL_TAIL_TOLERANCE_PX
+      ? tailPx
+      : undefined;
   }
 }

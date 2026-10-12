@@ -37,18 +37,21 @@ export class PngStream {
    */
   public async writeRows(scanlines: Uint8Array<ArrayBuffer>, rows: number): Promise<void> {
     this.#rowsWritten += rows;
-    await this.#writer.write(scanlines);
+    await this.#failWithOutput(this.#writer.write(scanlines));
   }
 
   /** The whole file, once the rows written fill the picture. */
   public async finish(): Promise<Uint8Array<ArrayBuffer>> {
     if (this.#rowsWritten !== this.#height) {
-      await this.#writer.abort();
-      throw new Error(
+      const failure = new Error(
         `A picture of ${String(this.#height)} rows was given ${String(this.#rowsWritten)}.`,
       );
+      // Aborting fails the compression's output with `failure` too, awaited so only one reports it.
+      await this.#writer.abort(failure);
+      await Promise.allSettled([this.#drained]);
+      throw failure;
     }
-    await this.#writer.close();
+    await this.#failWithOutput(this.#writer.close());
     await this.#drained;
     this.#chunks.push(chunkOf("IEND", new Uint8Array()));
     const file = new Uint8Array(this.#chunks.reduce((length, chunk) => length + chunk.length, 0));
@@ -58,6 +61,19 @@ export class PngStream {
       offset += chunk.length;
     }
     return file;
+  }
+
+  /**
+   * Awaits `input`, a write to the compression. When it fails the compression's output fails with
+   * it, the same failure, which is awaited too so only `input`'s rejection reaches the caller.
+   */
+  async #failWithOutput(input: Promise<void>): Promise<void> {
+    try {
+      await input;
+    } catch (error) {
+      await Promise.allSettled([this.#drained]);
+      throw error;
+    }
   }
 
   async #writeDataChunks(compressed: ReadableStream<Uint8Array<ArrayBuffer>>): Promise<void> {

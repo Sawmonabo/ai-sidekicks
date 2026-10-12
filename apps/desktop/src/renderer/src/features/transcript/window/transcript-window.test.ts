@@ -3,7 +3,8 @@
 // scripted session one event at a time, so a rollback rewrites held rows, a release and an earlier
 // page replace the log, and a person folds and opens groups, exactly as on screen. At every step
 // the held windows must publish what a whole derivation publishes, a run group under the key it
-// kept from earlier windows where a whole derivation mints one; must not change what they
+// kept from earlier windows where a whole derivation mints one, and counting the drawn rows the
+// store let go, which a whole derivation of the log alone cannot see; must not change what they
 // published before; and must keep an unchanged row's object while giving a changed row a new one.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
@@ -28,6 +29,7 @@ import { SessionStore } from "#renderer/store/session/store.js";
 import { type WaitingOnPersonRecords } from "#renderer/store/session/waiting-on-person/register.js";
 import { DrawnRowFilter } from "../feed/drawn-rows.js";
 import { type RunEntitiesByRunId } from "../runs/groups.js";
+import { runGroupHeadingOf } from "../runs/heading.js";
 import { RunGroupFold } from "../feed/run-group-fold.js";
 import {
   fixedRunWindowInputs,
@@ -155,6 +157,9 @@ describe("the transcript windows held across a session's revisions", () => {
     const held = new HeldWindows(heldRunWindowInputs);
     let foldedRunIds: ReadonlySet<string> = new Set<string>();
     let previous: CheckedStep | undefined;
+    /** The events the store let go and has not read back. */
+    let letGoEvents: readonly ProjectedSessionEvent[] = [];
+    const entryTexts = new EntryTexts();
     const coverage = {
       rebuilds: 0,
       runWindowLetGo: 0,
@@ -183,12 +188,15 @@ describe("the transcript windows held across a session's revisions", () => {
         "a key no row carries",
       ];
       const published = plainText(contentOf(windows));
-      const heldText = withMintedRunGroupKeys(windows, published);
+      const heldText = withoutReleasedCounts(withMintedRunGroupKeys(windows, published));
       const wholeText = withMintedRunGroupKeys(whole, plainText(contentOf(whole)));
       if (heldText !== wholeText) {
         expect(JSON.parse(heldText)).toStrictEqual(JSON.parse(wholeText));
       }
       expect(keysAnsweredApartFromEntries(windows, probeKeys)).toStrictEqual([]);
+      if (letGoEvents.length > 0) {
+        expectStretchesAsInWholeLog(windows, [...letGoEvents, ...transcript], partitions.run);
+      }
       // The mark reaches the window from each event's own stamp, and nothing else dims a row.
       expect([...windows.unfurled.supersededRowIds]).toStrictEqual(
         transcript
@@ -210,7 +218,12 @@ describe("the transcript windows held across a session's revisions", () => {
         );
         const isAppend = startsWith(transcript, previous.transcript);
         coverage.rebuilds += isAppend ? 0 : 1;
-        coverage.restampedCreationRows += expectIdentityFollowsContent(previous, step, isAppend);
+        coverage.restampedCreationRows += expectIdentityFollowsContent(
+          previous,
+          step,
+          isAppend,
+          entryTexts,
+        );
       }
       if (windows.fold.removedRows.some((row) => !foldedRunIds.has(rowRunId(row)))) {
         coverage.runWindowLetGo += 1;
@@ -253,6 +266,7 @@ describe("the transcript windows held across a session's revisions", () => {
     const firstKept = beforeRelease.transcript[12] as ProjectedSessionEvent;
     const newest = beforeRelease.transcript.at(-1) as ProjectedSessionEvent;
     store.releaseOutside(encodeEventCursor(firstKept.sequence), encodeEventCursor(newest.sequence));
+    letGoEvents = releasedEvents;
     expect(check().transcript[0]).toBe(firstKept);
     for (const event of tailEvents) {
       store.applyBatch([event]);
@@ -264,6 +278,7 @@ describe("the transcript windows held across a session's revisions", () => {
       edge: { cursor: undefined, hasMore: false },
       runs: [],
     });
+    letGoEvents = [];
     const restored = check();
     // A row the window let go and read back is a new object, never the one held before.
     for (const event of releasedEvents) {
@@ -277,6 +292,7 @@ describe("the transcript windows held across a session's revisions", () => {
       encodeEventCursor((restored.transcript[0] as ProjectedSessionEvent).sequence),
       encodeEventCursor(keptLast.sequence),
     );
+    letGoEvents = restored.transcript.slice(-2);
     expect(check().transcript.at(-1)).toBe(keptLast);
 
     // The script reaches every path the held windows take: a rollback and the release and read
@@ -404,6 +420,50 @@ function withMintedRunGroupKeys(windows: Windows, text: string): string {
   );
 }
 
+/**
+ * Each run group the held windows draw counts the entries, and holds the drawn rows, that its
+ * stretch has in `wholeLog`, the log as if the store had let nothing go.
+ */
+function expectStretchesAsInWholeLog(
+  windows: Windows,
+  wholeLog: readonly ProjectedSessionEvent[],
+  runEntities: RunEntitiesByRunId,
+): void {
+  const held = windows.unfurled;
+  const whole = new TranscriptWindowDerivation().derive(
+    wholeLog.toSorted((left, right) => left.sequence - right.sequence),
+    runEntities,
+  );
+  const stretchOf = (model: TranscriptWindowModel, rowId: string) => {
+    const runGroupKey = model.runGroupKeyByRowId.get(rowId);
+    const runGroup =
+      runGroupKey === undefined ? undefined : model.runGroupByHeaderKey.get(runGroupKey);
+    return runGroup === undefined
+      ? undefined
+      : {
+          entries: runGroupHeadingOf(runGroup).entryCount,
+          drawnRows: runGroup.drawnRowPositions
+            .map((position) => runGroup.rowIds[position] ?? "")
+            .filter((drawnRowId) => held.rowsByKey.has(drawnRowId)),
+        };
+  };
+  for (const runGroup of held.runGroupByHeaderKey.values()) {
+    expect(stretchOf(held, runGroup.headerRowId)).toStrictEqual(
+      stretchOf(whole, runGroup.headerRowId),
+    );
+  }
+}
+
+/**
+ * `text` with the drawn rows each run group counts as let go read as none, as a whole derivation
+ * of the log alone reads them.
+ */
+function withoutReleasedCounts(text: string): string {
+  return JSON.stringify(JSON.parse(text), (member, value: unknown) =>
+    member === "releasedEarlier" || member === "releasedLater" ? "(undefined)" : value,
+  );
+}
+
 /** One text for a published value, keeping a member set to `undefined` apart from an absent one. */
 function plainText(value: unknown): string {
   return JSON.stringify(value, (_key, member: unknown) =>
@@ -412,22 +472,24 @@ function plainText(value: unknown): string {
 }
 
 /**
- * The text of one published row or run group, taken once: each step's whole derivation is read
+ * The text of each published row or run group, taken once: each step's whole derivation is read
  * again as the next step's previous one, and an absent entry reads as `undefined`.
  */
-function entryText(entry: object | undefined): string | undefined {
-  if (entry === undefined) {
-    return undefined;
-  }
-  let text = ENTRY_TEXTS.get(entry);
-  if (text === undefined) {
-    text = plainText(entry);
-    ENTRY_TEXTS.set(entry, text);
-  }
-  return text;
-}
+class EntryTexts {
+  readonly #texts = new WeakMap<object, string>();
 
-const ENTRY_TEXTS = new WeakMap<object, string>();
+  public textOf(entry: object | undefined): string | undefined {
+    if (entry === undefined) {
+      return undefined;
+    }
+    let text = this.#texts.get(entry);
+    if (text === undefined) {
+      text = plainText(entry);
+      this.#texts.set(entry, text);
+    }
+    return text;
+  }
+}
 
 /**
  * On a step that only grew the log, a row or run group whose whole derivation did not change keeps
@@ -440,6 +502,7 @@ function expectIdentityFollowsContent(
   previous: CheckedStep,
   next: CheckedStep,
   isAppend: boolean,
+  entryTexts: EntryTexts,
 ): number {
   const stale: string[] = [];
   const churned: string[] = [];
@@ -450,7 +513,8 @@ function expectIdentityFollowsContent(
       continue;
     }
     const isUnchanged =
-      entryText(previous.whole.unfurled.rowsByKey.get(rowId)) === entryText(nextWholeRow);
+      entryTexts.textOf(previous.whole.unfurled.rowsByKey.get(rowId)) ===
+      entryTexts.textOf(nextWholeRow);
     const isSameObject = next.windows.unfurled.rowsByKey.get(rowId) === previousRow;
     if (!isUnchanged && isSameObject) {
       stale.push(`row ${rowId}`);
@@ -466,8 +530,8 @@ function expectIdentityFollowsContent(
   if (isAppend) {
     for (const [runId, previousRunGroup] of previous.windows.unfurled.runGroupByHeaderKey) {
       const isUnchanged =
-        entryText(previous.whole.unfurled.runGroupByHeaderKey.get(runId)) ===
-        entryText(next.whole.unfurled.runGroupByHeaderKey.get(runId));
+        entryTexts.textOf(previous.whole.unfurled.runGroupByHeaderKey.get(runId)) ===
+        entryTexts.textOf(next.whole.unfurled.runGroupByHeaderKey.get(runId));
       const isSameObject =
         next.windows.unfurled.runGroupByHeaderKey.get(runId) === previousRunGroup;
       if (isUnchanged !== isSameObject) {

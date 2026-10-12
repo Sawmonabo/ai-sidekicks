@@ -4,7 +4,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AnsiOutput } from "./AnsiOutput.js";
-import { PreparedAnsiOutputsContext } from "./preparation.js";
+import { PreparedBodiesContext } from "../prepared-bodies.js";
 import { prepareOutputForTest } from "./preparation.test-support.js";
 
 describe("rendering ANSI output", () => {
@@ -13,9 +13,9 @@ describe("rendering ANSI output", () => {
     // a tool that prints a tag prints a tag rather than creating one.
     const prepared = prepareOutputForTest("row", "<img src=x>");
     const { container } = render(
-      <PreparedAnsiOutputsContext value={prepared.outputs}>
-        <AnsiOutput label="Output" rowKey="row" />
-      </PreparedAnsiOutputsContext>,
+      <PreparedBodiesContext value={prepared.outputs}>
+        <AnsiOutput className="meridian-ansi__body" label="Output" rowKey="row" />
+      </PreparedBodiesContext>,
     );
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toContain("<img src=x>");

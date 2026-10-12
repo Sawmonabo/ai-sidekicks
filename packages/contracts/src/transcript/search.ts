@@ -10,14 +10,8 @@ import { EventCursorSchema, SessionIdSchema, type SessionId } from "../session/i
 import { type EventCursor } from "../session/event-cursor.js";
 
 import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
-import { TRANSCRIPT_READ_LIMIT_MAX } from "./limits.js";
+import { TRANSCRIPT_READ_LIMIT_MAX, TRANSCRIPT_SEARCH_TEXT_MAX_LEN } from "./limits.js";
 import { countSchema } from "../internal/wire-scalars.js";
-
-/**
- * The longest query, and the longest snippet a hit carries, in UTF-16 code units: each is one
- * line of a row's text.
- */
-export const TRANSCRIPT_SEARCH_TEXT_MAX_LEN = 4096;
 
 /**
  * Search one session. Hits come newest first; `beforeCursor` continues from the

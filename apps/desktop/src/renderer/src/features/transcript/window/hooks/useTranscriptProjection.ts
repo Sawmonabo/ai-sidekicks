@@ -1,7 +1,5 @@
 import { useMemo } from "react";
 
-import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
-import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import {
   useSessionPartition,
   useSessionStore,
@@ -32,15 +30,7 @@ export interface TranscriptProjection {
 export function useTranscriptProjection(sessionStore: SessionStore): TranscriptProjection {
   const transcript = useSessionStore(sessionStore, selectTranscript);
   const runEntities = useSessionPartition(sessionStore, "run");
-  // One derivation per session, seeded during render so the first pass over a session already
-  // uses that session's and a navigation never carries the previous session's rows over.
-  const bridge = usePlatformBridge();
-  const derivation = useSubjectScopedState(
-    bridge,
-    sessionStore.sessionId,
-    () => new TranscriptWindowDerivation(),
-  );
-  const heldDerivation = derivation.value;
+  const heldDerivation = derivationOf(sessionStore);
   return useMemo(
     () => ({
       unfurledWindow: heldDerivation.derive(transcript, runEntities),
@@ -49,4 +39,22 @@ export function useTranscriptProjection(sessionStore: SessionStore): TranscriptP
     }),
     [transcript, runEntities, heldDerivation],
   );
+}
+
+/**
+ * One derivation per session store, as long as the store lives, read during render so the first
+ * pass over a session already uses that session's and a navigation never carries another session's
+ * rows over. It outlives the feed's mount because it carries the counts of the rows the store let
+ * go from inside its window, which a feed mounted again could not count.
+ */
+const derivationByStore = new WeakMap<SessionStore, TranscriptWindowDerivation>();
+
+function derivationOf(sessionStore: SessionStore): TranscriptWindowDerivation {
+  const held = derivationByStore.get(sessionStore);
+  if (held !== undefined) {
+    return held;
+  }
+  const derivation = new TranscriptWindowDerivation();
+  derivationByStore.set(sessionStore, derivation);
+  return derivation;
 }

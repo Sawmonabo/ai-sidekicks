@@ -70,22 +70,6 @@ export class ChildRunSummaries {
   public summaryOf(eventId: string): ChildRunSummary | undefined {
     return this.#summaryByEventId.get(eventId);
   }
-
-  /** Every summary, keyed by the creation event it is stamped on, in the order children arrived. */
-  public summaries(): ReadonlyMap<string, ChildRunSummary> {
-    return this.#summaryByEventId;
-  }
-}
-
-/** Every child run one log names, keyed by the event id of the row it is stamped on. */
-export function deriveChildRunSummaries(
-  events: readonly ProjectedSessionEvent[],
-): ReadonlyMap<string, ChildRunSummary> {
-  const childRunSummaries = new ChildRunSummaries();
-  for (const event of events) {
-    childRunSummaries.admit(event);
-  }
-  return childRunSummaries.summaries();
 }
 
 /** What the fold has learned about one child run, before it is composed. */

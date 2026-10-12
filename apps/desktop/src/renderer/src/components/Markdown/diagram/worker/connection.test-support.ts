@@ -74,6 +74,7 @@ export function drawnOutcome(label: string, width = 121, height = 80): DrawnDiag
   return {
     kind: "drawn",
     markup: `<svg><text>${label}</text></svg>`,
+    textAlternative: label,
     width,
     height,
     groundColor: "#ffffff",

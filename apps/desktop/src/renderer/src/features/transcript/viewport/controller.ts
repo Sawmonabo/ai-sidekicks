@@ -253,6 +253,7 @@ export class ViewportController {
       logPositionOf: (rowKey) => this.rowWindow.logPositionOf(rowKey),
       rowHeightPx: (rowKey) => this.measurements.heightOf(rowKey),
       viewportHeightPx: () => this.scroll.geometry?.viewportHeight ?? 0,
+      maximumScrollTop: () => this.scroll.maximumScrollTop(),
       isRowPrepared: options.isRowPrepared ?? ALWAYS_PREPARED,
       isRowHeldOut: options.isRowHeldOut ?? NEVER_HELD_OUT,
       holdsRowAfter: options.holdsRowAfter ?? NEVER_HELD_OUT,
@@ -284,7 +285,12 @@ export class ViewportController {
     this.#readerInput = new ViewportReaderInput({
       noteReaderInput: (inputAtMs, towardSide) => {
         this.anchor.noteReaderInput(inputAtMs, towardSide);
+        this.#pruneCycle.noteReaderInput(inputAtMs);
         this.#drawnBand.widenFully(towardSide);
+      },
+      noteScrollEnd: () => {
+        this.anchor.noteScrollEnd();
+        this.#pruneCycle.noteScrollEnd();
       },
       notePointerDown: (isDown) => {
         this.anchor.notePointerDown(isDown);
@@ -301,8 +307,8 @@ export class ViewportController {
       jumpToTail: () => {
         this.jumpToTail();
       },
-      reviewPullAt: (side, inputAtMs) => {
-        this.#reviewPullAt(side, inputAtMs);
+      reviewPullAt: (side) => {
+        this.#reviewPullAt(side);
       },
     });
     this.#teardown.push(
@@ -759,7 +765,7 @@ export class ViewportController {
    * Asks the window for the pass a pull past one end owes, when the box already stands at that
    * end: there it cannot scroll, so the pull publishes no sample for `#reviewWindowAfter`.
    */
-  #reviewPullAt(side: WindowSide, inputAtMs: number): void {
+  #reviewPullAt(side: WindowSide): void {
     const geometry = this.scroll.geometry;
     if (this.landing.isPending || geometry === undefined) {
       return;
@@ -768,7 +774,7 @@ export class ViewportController {
     if (distanceFromEndPx >= SCROLL_GEOMETRY_EPSILON_PX) {
       return;
     }
-    const request = this.#pruneCycle.passOwedByPullAt(side, inputAtMs);
+    const request = this.#pruneCycle.passOwedByPullAt(side);
     const conditions = this.#pruneCycle.lastConditions;
     if (request !== undefined && conditions !== undefined) {
       this.#runPass(conditions, { admitSide: request.admitSide, isRender: false });

@@ -24,7 +24,9 @@ import {
   sampleRunRow,
   sampleUserMessageRow,
 } from "#test/helpers/transcript/event-row-samples.js";
+import { PreparedBodiesContext } from "../rows/prepared-bodies.js";
 import { classifyTranscriptRow } from "../rows/kind.js";
+import { prepareRowBodiesForTest } from "../rows/preparation.test-support.js";
 import { MessageRow } from "../rows/MessageRow.js";
 import { ToolRow } from "../rows/ToolRow.js";
 import { DrawnWindowSources } from "../rows/drawn-window-sources.js";
@@ -166,36 +168,39 @@ describe("a selection across the conversation", () => {
     if (askedKind === undefined) {
       throw new Error("a user message is a message kind");
     }
+    const ran = sampleRunRow({
+      id: "ran",
+      type: "tool.result",
+      actor: "Claude",
+      payload: { toolName: "bash", contentLength: "first line\n  second line".length },
+      content: { status: "available", body: "first line\n  second line" },
+    });
     const { container } = render(
       <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
-        <div {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: "0" }}>
-          <MessageRow
-            row={asked}
-            rowKind={askedKind}
-            agentHue={undefined}
-            isSuperseded={false}
-            density="expanded"
-            footnotes={new FootnoteRegistry()}
-            thinkingRow={undefined}
-            editControl={undefined}
-          />
-        </div>
-        <div {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: "1" }}>
-          <ToolRow
-            row={sampleRunRow({
-              id: "ran",
-              type: "tool.result",
-              actor: "Claude",
-              payload: { toolName: "bash", contentLength: "first line\n  second line".length },
-              content: { status: "available", body: "first line\n  second line" },
-            })}
-            agentHue={undefined}
-            isSuperseded={false}
-            density="expanded"
-            footnotes={new FootnoteRegistry()}
-            onDensityToggle={() => undefined}
-          />
-        </div>
+        <PreparedBodiesContext value={prepareRowBodiesForTest([asked, ran]).bodies}>
+          <div {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: "0" }}>
+            <MessageRow
+              row={asked}
+              rowKind={askedKind}
+              agentHue={undefined}
+              isSuperseded={false}
+              density="expanded"
+              footnotes={new FootnoteRegistry()}
+              thinkingRow={undefined}
+              editControl={undefined}
+            />
+          </div>
+          <div {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: "1" }}>
+            <ToolRow
+              row={ran}
+              agentHue={undefined}
+              isSuperseded={false}
+              density="expanded"
+              footnotes={new FootnoteRegistry()}
+              onDensityToggle={() => undefined}
+            />
+          </div>
+        </PreparedBodiesContext>
       </FixtureBridgeProvider>,
     );
     const toolTime = container.querySelector(
@@ -272,19 +277,21 @@ describe("a selection across the conversation", () => {
     }
     const { container } = render(
       <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
-        <div {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: "0" }}>
-          <MessageRow
-            row={reply}
-            rowKind={replyKind}
-            agentHue={undefined}
-            isSuperseded={false}
-            density="expanded"
-            footnotes={new FootnoteRegistry()}
-            thinkingRow={undefined}
-            editControl={undefined}
-            replyRowIds={["replies"]}
-          />
-        </div>
+        <PreparedBodiesContext value={prepareRowBodiesForTest([reply]).bodies}>
+          <div {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: "0" }}>
+            <MessageRow
+              row={reply}
+              rowKind={replyKind}
+              agentHue={undefined}
+              isSuperseded={false}
+              density="expanded"
+              footnotes={new FootnoteRegistry()}
+              thinkingRow={undefined}
+              editControl={undefined}
+              replyRowIds={["replies"]}
+            />
+          </div>
+        </PreparedBodiesContext>
       </FixtureBridgeProvider>,
     );
     const copied = copyOfDrawnRows(container);
@@ -469,11 +476,32 @@ describe("a formula in a selection", () => {
     );
   });
 
+  it("copies an inline formula as inline math inside its sentence's markdown", () => {
+    const formulaMarkup = renderToString(FORMULA_SOURCE, { output: "htmlAndMathml" });
+    const conversation = document.createElement("div");
+    conversation.innerHTML =
+      `<div ${WINDOWED_ROW_INDEX_ATTRIBUTE}="0"><div ${COPY_FLAVOR_ATTRIBUTE}="markdown">` +
+      `<p>So <span data-math="inline">${formulaMarkup}</span> holds.</p></div></div>`;
+
+    expect(copyOfDrawnRows(conversation)?.text).toBe(`So $${FORMULA_SOURCE}$ holds.`);
+  });
+
   it("negative control: an unmarked drawing copies more than its source", () => {
     const unmarked = conversationWithFormula("text", 'class="other"');
     const copied = copyOfDrawnRows(unmarked)?.text;
 
     expect(copied).toContain(FORMULA_SOURCE);
     expect(copied).not.toBe(FORMULA_SOURCE);
+  });
+});
+
+describe("a frame drawn hidden inside a row", () => {
+  it("copies none of the rows it draws to measure", () => {
+    const conversation = document.createElement("div");
+    conversation.innerHTML =
+      `<div ${WINDOWED_ROW_INDEX_ATTRIBUTE}="0"><div ${COPY_FLAVOR_ATTRIBUTE}="text">` +
+      `<p>drawn row</p><div aria-hidden="true" inert><p>sample row</p></div></div></div>`;
+
+    expect(copyOfDrawnRows(conversation)).toStrictEqual({ text: "drawn row" });
   });
 });

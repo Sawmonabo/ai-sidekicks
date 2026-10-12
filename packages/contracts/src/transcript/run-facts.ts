@@ -47,7 +47,7 @@ export const RUN_STATE_EVENT_TYPES: readonly RunStateEventType[] = Object.freeze
 );
 
 /** The type of a person's message, which is never a run's own event even when it steers one. */
-const USER_MESSAGE_EVENT_TYPE: Extract<SessionEventType, "user.message"> = "user.message";
+export const USER_MESSAGE_EVENT_TYPE: Extract<SessionEventType, "user.message"> = "user.message";
 
 /** The payload member naming the account a run was admitted under, carried by its creation. */
 const ADMITTED_PROVIDER_ACCOUNT_MEMBER = "admittedProviderAccountId";
@@ -138,8 +138,7 @@ export function foldTranscriptRunFacts(
   if (beat.sequence <= facts.foldedThroughSequence || beat.type === USER_MESSAGE_EVENT_TYPE) {
     return facts;
   }
-  // An empty actor names no one.
-  const actor = facts.actor ?? (beat.actor === null || beat.actor === "" ? undefined : beat.actor);
+  const actor = facts.actor ?? beat.actor ?? undefined;
   const admittedProviderAccountId =
     facts.admittedProviderAccountId ??
     (beat.type === RUN_CREATION_EVENT_TYPE ? admittedProviderAccountIdOf(beat.payload) : undefined);

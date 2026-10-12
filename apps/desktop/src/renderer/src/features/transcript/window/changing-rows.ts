@@ -26,7 +26,8 @@ export class ChangingRowIndex {
   #rows: readonly TranscriptEventRow[] = [];
   #isInSequenceOrder = true;
   readonly #toolCallsByRunId = new Map<string, RunToolCalls>();
-  readonly #questionRowIdsByRunId = new Map<string, string[]>();
+  /** Each run's newest question, the one its wait on a person answers; earlier ones are settled. */
+  readonly #newestQuestionRowIdByRunId = new Map<string, string>();
 
   /**
    * The ids of the rows still changing, read off the window's rows and the session's register of
@@ -36,7 +37,7 @@ export class ChangingRowIndex {
    *   run has answered; one that names no call cannot be paired, so it counts as running while it
    *   is its run's newest tool row;
    * - the row that opened an approval or intervention the register still holds open;
-   * - a question asked by a live run whose newest state waits on a person.
+   * - the newest question asked by a live run whose newest state waits on a person.
    */
   public changingRowIdsOf(
     window: TranscriptWindowModel,
@@ -51,14 +52,12 @@ export class ChangingRowIndex {
         }
       }
     }
-    for (const [runId, questionRowIds] of this.#questionRowIdsByRunId) {
+    for (const [runId, questionRowId] of this.#newestQuestionRowIdByRunId) {
       if (
         window.liveRunIds.has(runId) &&
         waitingOnPerson.runsByRunId.get(runId)?.state === WAITING_FOR_INPUT
       ) {
-        for (const rowId of questionRowIds) {
-          changingRowIds.add(rowId);
-        }
+        changingRowIds.add(questionRowId);
       }
     }
     for (const [runId, toolCalls] of this.#toolCallsByRunId) {
@@ -90,7 +89,7 @@ export class ChangingRowIndex {
     if (!isGrowth) {
       this.#isInSequenceOrder = true;
       this.#toolCallsByRunId.clear();
-      this.#questionRowIdsByRunId.clear();
+      this.#newestQuestionRowIdByRunId.clear();
     }
     for (let position = admitFrom; position < rows.length; position += 1) {
       const row = rows[position] as TranscriptEventRow;
@@ -106,9 +105,7 @@ export class ChangingRowIndex {
   #admit(row: TranscriptEventRow): void {
     const questionRunId = readQuestion(row)?.runId;
     if (questionRunId !== undefined) {
-      const questionRowIds = this.#questionRowIdsByRunId.get(questionRunId) ?? [];
-      questionRowIds.push(row.id);
-      this.#questionRowIdsByRunId.set(questionRunId, questionRowIds);
+      this.#newestQuestionRowIdByRunId.set(questionRunId, row.id);
     }
     if (row.kind !== "run" || !isToolRow(row)) {
       return;

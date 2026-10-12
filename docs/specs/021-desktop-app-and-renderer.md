@@ -132,7 +132,7 @@ Every renderer document must be served with a strict `Content-Security-Policy`. 
 
 ```
 default-src 'self';
-script-src 'self' 'wasm-unsafe-eval';
+script-src 'self';
 style-src 'self' 'unsafe-inline';
 connect-src 'self' https://<configured-control-plane-origin> wss://<configured-relay-origin>;
 img-src 'self' data: blob:;
@@ -143,7 +143,7 @@ base-uri 'none';
 form-action 'none';
 ```
 
-`'wasm-unsafe-eval'` lets the diagram worker compile merman's WebAssembly ([ADR-042](../decisions/042-diagrams-drawn-by-merman.md)); it allows no JavaScript evaluation, so `eval`, `new Function` and `'unsafe-eval'` stay refused.
+The diagram worker's script is served with the same policy and `script-src 'self' 'wasm-unsafe-eval'`, which lets it compile merman's WebAssembly ([ADR-042](../decisions/042-diagrams-drawn-by-merman.md)). A dedicated worker takes its policy from its own script's response, so no document and no other worker can compile WebAssembly. The keyword allows no JavaScript evaluation, so `eval`, `new Function` and `'unsafe-eval'` stay refused everywhere.
 
 Electron Fuses — the app binary must be packaged with the following fuses (see [Desktop App Implementation Notes §Electron Fuses](../architecture/desktop-implementation-notes.md#electron-fuses) for rationale and primary-source citations):
 

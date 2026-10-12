@@ -8,6 +8,8 @@ import { AgentIdSchema, type AgentId } from "../agent/definition.js";
 import { EventEnvelopeSchema, type EventEnvelope } from "../event/envelope.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
+import { EVENT_FIELD_MAX_LEN } from "../event/version.js";
+import { ProviderAccountIdSchema, type ProviderAccountId } from "../provider/account/record.js";
 import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import {
   StreamFrameSchema,
@@ -138,6 +140,10 @@ export interface SessionLiveRun {
   runVersion: number;
   /** The agent the run was created for, as its `run.queued` names it. */
   agentId: AgentId;
+  /** Who the run's first event naming anyone names, wire-verbatim; absent while none has. */
+  actor?: string | undefined;
+  /** The account the run was admitted under, as its creation named it. */
+  admittedProviderAccountId?: ProviderAccountId | undefined;
   /** When the run's newest `run_lifecycle` event occurred. */
   touchedAt: string;
 }
@@ -150,6 +156,8 @@ export const SessionLiveRunSchema: z.ZodType<SessionLiveRun> = z
     state: RunStateSchema,
     runVersion: countSchema,
     agentId: AgentIdSchema,
+    actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "SessionLiveRun.actor").optional(),
+    admittedProviderAccountId: ProviderAccountIdSchema.optional(),
     touchedAt: isoDateTimeSchema,
   })
   .strict();

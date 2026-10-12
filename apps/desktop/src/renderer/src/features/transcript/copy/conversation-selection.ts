@@ -168,10 +168,10 @@ export function readRowPart(
 
 /**
  * What `part` holds, with a large body's place holding the body read in full as preformatted text,
- * without the controls drawn among it, since a button's label is no one's text, and with each
- * formula as its TeX source: as text, or as a math block the markdown rebuild reads as one. A part
- * inside one table, between rows or cells, is put back in that table, so it copies as a table
- * rather than as loose rows.
+ * without the controls or the hidden frames drawn among it, and with each formula as its TeX
+ * source: as text, or as a math block the markdown rebuild reads as one. A part inside one table,
+ * between rows or cells, is put back in that table, so it copies as a table rather than as loose
+ * rows.
  */
 function selectedContentOf(
   part: Range,
@@ -191,8 +191,9 @@ function selectedContentOf(
   for (const largeBody of content.querySelectorAll(`[${LARGE_BODY_ATTRIBUTE}]`)) {
     largeBody.replaceWith(largeBodyNode(largeBody.ownerDocument, readBodyText));
   }
-  for (const control of content.querySelectorAll("button")) {
-    control.remove();
+  // A button's label is no one's text, and an inert frame is drawn hidden only to measure rows.
+  for (const unread of content.querySelectorAll("button, [inert]")) {
+    unread.remove();
   }
   for (const formula of content.querySelectorAll(FORMULA_SELECTOR)) {
     formula.replaceWith(formulaSourceNode(formula, flavor));
@@ -279,7 +280,10 @@ function formulaHolding(node: Node): Element | null {
   return (isElement(node) ? node : node.parentElement)?.closest(FORMULA_SELECTOR) ?? null;
 }
 
-/** The node a copied formula becomes: its TeX source, fenced as math for the markdown flavor. */
+/**
+ * The node a copied formula becomes: its TeX source, and for the markdown flavor an inline formula
+ * as inline math and a display one fenced as math.
+ */
 function formulaSourceNode(formula: Element, flavor: CopyFlavor): Node {
   const ownerDocument = formula.ownerDocument;
   const source = ownerDocument.createTextNode(formulaSourceOf(formula));
@@ -288,6 +292,10 @@ function formulaSourceNode(formula: Element, flavor: CopyFlavor): Node {
   }
   const code = ownerDocument.createElement("code");
   code.append(source);
+  if (formula.getAttribute("data-math") === "inline") {
+    code.setAttribute("data-language", "math");
+    return code;
+  }
   const block = ownerDocument.createElement("pre");
   block.setAttribute("data-language", "math");
   block.append(code);

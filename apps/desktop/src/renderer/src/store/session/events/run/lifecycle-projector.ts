@@ -71,13 +71,18 @@ export const RUN_LIFECYCLE_PROJECTOR_OWNER = "session";
 
 /**
  * The run entity a read's record of a run not yet ended establishes: the state the run is in now,
- * as facts holding through `readThroughSequence`, the log position the record was read at; when its
- * newest run event occurred; and the body members the record carries, its agent among them. A
- * window opened below a run's events learns these here rather than from the events it never read.
+ * who acts for it and the account it is billed to, as facts holding through `readThroughSequence`,
+ * the log position the record was read at; when its newest run event occurred; and the body
+ * members the record carries, its agent among them. A window opened below a run's events learns
+ * these here rather than from the events it never read.
  */
 export function projectLiveRun(run: SessionLiveRun, readThroughSequence: number): StoredEntity {
   return {
     ...runEntityOfFacts(run.runId, {
+      ...(run.actor === undefined ? {} : { actor: run.actor }),
+      ...(run.admittedProviderAccountId === undefined
+        ? {}
+        : { admittedProviderAccountId: run.admittedProviderAccountId }),
       stateEventType: `run.${run.state}`,
       isRewound: false,
       foldedThroughSequence: readThroughSequence,

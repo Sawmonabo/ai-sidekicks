@@ -21,6 +21,7 @@ import {
   startMarkdownWorker,
 } from "#renderer/components/Markdown/worker/connection.js";
 import { TEXT_PIECE_LENGTH } from "#renderer/lib/text-pieces.js";
+import { endWorkersWithTest } from "../helpers/worker-start.js";
 
 /** A reply whose parts each read something defined elsewhere in it, or as markup. */
 const REPLY = [
@@ -55,14 +56,14 @@ const REPLY = [
 const LONG_REPLY = `${"a".repeat(TEXT_PIECE_LENGTH - 1)}\u{1F600} and ${REPLY}`;
 
 it("makes the same HTML bytes off the page's thread as on it", async () => {
-  const connection = new MarkdownWorkerConnection(startMarkdownWorker, window);
+  const connection = new MarkdownWorkerConnection(endWorkersWithTest(startMarkdownWorker), window);
 
   expect((await connection.html(REPLY)).text).toBe(markdownToHtml(REPLY));
   expect((await connection.html(LONG_REPLY)).text).toBe(markdownToHtml(LONG_REPLY));
 });
 
 it("reads a drawn part into the same text and HTML off the page's thread as on it", async () => {
-  const connection = new MarkdownWorkerConnection(startMarkdownWorker, window);
+  const connection = new MarkdownWorkerConnection(endWorkersWithTest(startMarkdownWorker), window);
   const drawing = document.createElement("div");
   drawing.innerHTML =
     '<p role="heading" aria-level="2">Findings</p>' +

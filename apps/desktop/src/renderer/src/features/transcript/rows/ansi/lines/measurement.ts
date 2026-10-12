@@ -18,12 +18,14 @@ export interface AnsiIndexedChunk {
   readonly chunk: AnsiLineChunk;
 }
 
-/** What one slice draws hidden: some of an output's chunks, at its lines' width. */
+/** What one slice draws hidden: some of an output's chunks, at its lines' width and type. */
 export interface AnsiChunkMeasuringFrame {
   /** The document the frame is drawn in, the output's own, whose fonts it is set in. */
   readonly ownerDocument: Document;
   /** The lines' content width, in CSS pixels. */
   readonly widthPx: number;
+  /** The lines' type in their row, as CSS declarations. */
+  readonly textStyle: string;
   /** Which slice drew the frame, so each slice's chunks mount anew and are observed. */
   readonly slice: number;
   readonly chunks: readonly AnsiIndexedChunk[];
@@ -36,9 +38,13 @@ export interface AnsiMeasuredChunkHeight extends AnsiIndexedChunk {
 
 /** What a measurement reads its output from, and hands the heights it measured to. */
 export interface AnsiChunkMeasurementHost {
-  /** The output's lines once laid out: their document and content width; else `undefined`. */
+  /** The output's lines once laid out: their document, content width and type; else `undefined`. */
   readonly readLines: () =>
-    | { readonly ownerDocument: Document; readonly widthPx: number }
+    | {
+        readonly ownerDocument: Document;
+        readonly widthPx: number;
+        readonly textStyle: string;
+      }
     | undefined;
   /** The chunks still to measure, in order, `count` at most. */
   readonly readUnmeasuredChunks: (count: number) => readonly AnsiIndexedChunk[];
@@ -207,6 +213,47 @@ export class AnsiChunkMeasurement {
     }
   }
 }
+
+/** The type of the lines `style` was computed for, as CSS declarations a frame's box takes. */
+export function linesTextStyleOf(style: CSSStyleDeclaration): string {
+  const declarations = LINES_TEXT_PROPERTIES.map(
+    (name) => `${name}: ${style.getPropertyValue(name)};`,
+  );
+  // The transcript sets its line heights as a share of the type's size, and Chromium lays a line
+  // height set in pixels at another pitch, a fraction of a pixel a line that adds up down a long
+  // output; so the frame takes the share.
+  const lineHeightShare = parseFloat(style.lineHeight) / parseFloat(style.fontSize);
+  declarations.push(
+    `line-height: ${Number.isFinite(lineHeightShare) ? lineHeightShare.toFixed(6) : style.lineHeight};`,
+  );
+  return declarations.join(" ");
+}
+
+/**
+ * The inherited properties that set how an output's lines break and how tall they stand, which a
+ * frame drawn outside the lines' row takes from them.
+ */
+const LINES_TEXT_PROPERTIES = [
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "font-stretch",
+  "font-kerning",
+  "font-feature-settings",
+  "font-variation-settings",
+  "font-variant-caps",
+  "font-variant-ligatures",
+  "font-variant-numeric",
+  "letter-spacing",
+  "word-spacing",
+  "tab-size",
+  "text-transform",
+  "text-rendering",
+  "word-break",
+  "line-break",
+  "hyphens",
+] as const;
 
 /** The most chunks one slice draws, however quickly the last one went. */
 const MAX_CHUNKS_PER_SLICE = 64;

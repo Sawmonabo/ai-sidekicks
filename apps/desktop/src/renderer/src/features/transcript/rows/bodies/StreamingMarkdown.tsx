@@ -13,7 +13,11 @@ import { useContext } from "react";
 import { type MarkdownTableOffer } from "#renderer/components/Markdown/table-offer.js";
 import { type PublishedText } from "../../reveal/published-text.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
-import { MarkdownWindowViewportContext } from "../markdown/block-window/context.js";
+import { type MarkdownBodyBlocksSnapshot } from "../markdown/body-blocks.js";
+import {
+  MarkdownWindowViewportContext,
+  type MarkdownWindowViewport,
+} from "../markdown/block-window/context.js";
 import {
   MarkdownBlockIndexContext,
   TableWindowBodyContext,
@@ -21,7 +25,10 @@ import {
 import { useFlowBodyPlacement } from "./hooks/useFlowBodyPlacement.js";
 import { useFootnoteDefinitionRegistration } from "./hooks/useFootnoteDefinitionRegistration.js";
 import { useMarkdownBodyBlocks } from "./hooks/useMarkdownBodyBlocks.js";
-import { useMarkdownRenderContexts } from "./hooks/useMarkdownRenderContexts.js";
+import {
+  useMarkdownRenderContexts,
+  type MarkdownRenderContexts,
+} from "./hooks/useMarkdownRenderContexts.js";
 import { SettledBlock } from "./SettledBlock.js";
 import { VolatileBlock } from "./VolatileBlock.js";
 import { WindowedMarkdown } from "./WindowedMarkdown.js";
@@ -74,12 +81,6 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
     props.offersBlockCopy,
     viewport === undefined ? undefined : renderWindowedTable,
   );
-  const flowTableBody = useFlowBodyPlacement(
-    viewport,
-    props.sourceId,
-    blocks,
-    props.publishedText.length,
-  );
 
   if (isWindowed) {
     return (
@@ -94,6 +95,35 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
       />
     );
   }
+  return (
+    <WholeMarkdown
+      blocks={blocks}
+      bodyTextLength={props.publishedText.length}
+      contexts={contexts}
+      viewport={viewport}
+      rowKey={props.sourceId}
+    />
+  );
+}
+
+/**
+ * A body drawn whole, every block in flow; inside a viewport its long tables window their rows
+ * from the body's placement, which only a body drawn whole holds.
+ */
+function WholeMarkdown(props: {
+  readonly blocks: MarkdownBodyBlocksSnapshot;
+  readonly bodyTextLength: number;
+  readonly contexts: MarkdownRenderContexts;
+  readonly viewport: MarkdownWindowViewport | undefined;
+  readonly rowKey: string;
+}): React.JSX.Element {
+  const { blocks, contexts } = props;
+  const flowTableBody = useFlowBodyPlacement(
+    props.viewport,
+    props.rowKey,
+    blocks,
+    props.bodyTextLength,
+  );
   const wholeBody = (
     <div className="meridian-markdown" ref={flowTableBody?.attachBody}>
       {blocks.settledBlocks.map((block, index) => (

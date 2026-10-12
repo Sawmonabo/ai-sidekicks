@@ -2,9 +2,9 @@
 // draws it, in the engine that lays it out: a selection dragged from one line to another far past
 // the window copies every line between from the output's chunks, assistive technology is told the
 // output's name and reads its drawn lines as the output holds them, never a spacer, the output's
-// whole height is laid out, its undrawn lines measured off screen, before any scroll, and an
-// output that sets a style again and again and never resets it mounts in heap that grows with its
-// text alone.
+// whole height is laid out, its undrawn lines measured off screen, before any scroll, and an output
+// that sets a style again and again and never resets it mounts in heap that grows with its text
+// alone. A long plain output, a tool's result with no escape, is drawn through the same window.
 
 import { act, render, within } from "@testing-library/react";
 import { describe, expect, it, onTestFinished } from "vitest";
@@ -17,8 +17,14 @@ import {
   ANSI_LINE_CHUNK_INDEX_ATTRIBUTE,
   ANSI_OUTPUT_KEY_ATTRIBUTE,
 } from "#renderer/features/transcript/rows/ansi/lines/markers.js";
-import { PreparedAnsiOutputsContext } from "#renderer/features/transcript/rows/ansi/preparation.js";
+import {
+  PreparedBodiesContext,
+  type PreparedBodies,
+} from "#renderer/features/transcript/rows/prepared-bodies.js";
 import { prepareOutputForTest } from "#renderer/features/transcript/rows/ansi/preparation.test-support.js";
+import { ToolOutput } from "#renderer/features/transcript/rows/bodies/ToolOutput.js";
+import { FootnoteRegistry } from "#renderer/features/transcript/rows/markdown/footnotes/registry.js";
+import { prepareRowBodiesForTest } from "#renderer/features/transcript/rows/preparation.test-support.js";
 import {
   SuiteWindowViewportProvider,
   suiteWindowViewport,
@@ -31,6 +37,7 @@ import { ViewportSelectionTracker } from "#renderer/features/transcript/viewport
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
+import { sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
 import { SCROLLER_HEIGHT_PX, settleFrames } from "./reply.js";
 
 const ESCAPE = String.fromCodePoint(0x1b);
@@ -38,6 +45,8 @@ const ROW_KEY = "output";
 const LABEL = "Output of build";
 /** Lines enough for the window to draw a few of its chunks out of many. */
 const LINE_COUNT = 4_000;
+/** A plain output's lines, far more than any view draws. */
+const PLAIN_LINE_COUNT = 50_000;
 
 /**
  * The output's lines as a reader sees them, each named for its place, every tenth long, of words
@@ -55,15 +64,32 @@ const OUTPUT = LINES.map(
     `${ESCAPE}[3${String(index % 8)}m${index % 7 === 0 ? `${ESCAPE}[1m` : ""}${line}`,
 ).join("\n");
 
+/** A mounted output: its scroller, its row, and the sources a copy reads undrawn lines from. */
+interface MountedOutput {
+  readonly scroller: HTMLElement;
+  readonly row: HTMLElement;
+  readonly sources: DrawnWindowSources;
+}
+
 /**
  * Draws `output`, the suite's own unless given, in a scroller inside a viewport, as the transcript
  * draws a tool's row.
  */
-async function mountOutput(output: string = OUTPUT): Promise<{
-  readonly scroller: HTMLElement;
-  readonly row: HTMLElement;
-  readonly sources: DrawnWindowSources;
-}> {
+async function mountOutput(output: string = OUTPUT): Promise<MountedOutput> {
+  // Parsed whole before it mounts, as the feed lists a row only once its output is.
+  const prepared = prepareOutputForTest(ROW_KEY, output);
+  onTestFinished(() => {
+    prepared.release();
+  });
+  await prepared.whole;
+  return mountInRow(
+    prepared.outputs,
+    <AnsiOutput className="meridian-ansi__body" label={LABEL} rowKey={ROW_KEY} />,
+  );
+}
+
+/** Draws `body` in the suite's row, in a scroller inside a viewport, drawing from `bodies`. */
+async function mountInRow(bodies: PreparedBodies, body: React.ReactNode): Promise<MountedOutput> {
   installMeridianTokens(document);
   const scrollController = new ScrollController({ clock: new ManualClock() });
   const tracker = new ViewportSelectionTracker({
@@ -76,12 +102,6 @@ async function mountOutput(output: string = OUTPUT): Promise<{
     read: () => tracker.selectionRange,
   });
   const sources = new DrawnWindowSources();
-  // Parsed whole before it mounts, as the feed lists a row only once its output is.
-  const prepared = prepareOutputForTest(ROW_KEY, output);
-  onTestFinished(() => {
-    prepared.release();
-  });
-  await prepared.whole;
   const view = render(
     <div
       data-testid="scroller"
@@ -112,11 +132,9 @@ async function mountOutput(output: string = OUTPUT): Promise<{
         style={{ width: "600px" }}
       >
         <SuiteWindowViewportProvider viewport={viewport}>
-          <PreparedAnsiOutputsContext value={prepared.outputs}>
-            <DrawnWindowSourcesContext value={sources}>
-              <AnsiOutput label={LABEL} rowKey={ROW_KEY} />
-            </DrawnWindowSourcesContext>
-          </PreparedAnsiOutputsContext>
+          <PreparedBodiesContext value={bodies}>
+            <DrawnWindowSourcesContext value={sources}>{body}</DrawnWindowSourcesContext>
+          </PreparedBodiesContext>
         </SuiteWindowViewportProvider>
       </div>
     </div>,
@@ -239,9 +257,9 @@ describe("browser — a long command output drawn as a window over its lines", (
     await prepared.whole;
     const whole = render(
       <div style={{ width: "600px" }}>
-        <PreparedAnsiOutputsContext value={prepared.outputs}>
-          <AnsiOutput label={LABEL} rowKey="whole" />
-        </PreparedAnsiOutputsContext>
+        <PreparedBodiesContext value={prepared.outputs}>
+          <AnsiOutput className="meridian-ansi__body" label={LABEL} rowKey="whole" />
+        </PreparedBodiesContext>
       </div>,
     );
     onTestFinished(() => {
@@ -313,5 +331,50 @@ describe("browser — a long command output drawn as a window over its lines", (
       const drawnLines = drawnText.replace(/\n$/u, "").split("\n");
       expect(drawnLines).toEqual(LINES.slice(firstDrawn, firstDrawn + drawnLines.length));
     }
+  });
+
+  it("draws only the lines near the view of a 50,000-line plain output, the rest held at their own height", async () => {
+    const printed = Array.from(
+      { length: PLAIN_LINE_COUNT },
+      (_, index) => `P${String(index).padStart(5, "0")}: printed`,
+    );
+    const body = printed.join("\n");
+    const toolRow = sampleRunRow({
+      id: ROW_KEY,
+      type: "tool.result",
+      content: { status: "available", body },
+    });
+    const { row } = await mountInRow(
+      prepareRowBodiesForTest([toolRow]).bodies,
+      // The type a transcript row's body sets, which a plain output inherits.
+      <div
+        style={{
+          fontSize: "var(--meridian-text-sm)",
+          lineHeight: "var(--meridian-reading-line-height)",
+        }}
+      >
+        <ToolOutput
+          content={{ status: "available", body }}
+          sourceId={ROW_KEY}
+          footnotes={new FootnoteRegistry()}
+          label={LABEL}
+        />
+      </div>,
+    );
+    await settleMeasuring();
+    const box = row.querySelector(".meridian-machine-body__plain") ?? expect.fail("a plain box");
+    const drawnLines = (box.textContent ?? "").split("\n").filter((line) => line !== "");
+
+    // The first lines, where the reader stands, are drawn as printed; the far ones are not.
+    expect(drawnLines.slice(0, 3)).toStrictEqual(printed.slice(0, 3));
+    expect(drawnLines.length).toBeLessThan(PLAIN_LINE_COUNT / 20);
+    expect(box.textContent).not.toContain(printed.at(-1));
+    // Every undrawn line is held at the height a drawn one stands at, none of these lines wrapping.
+    const firstChunk =
+      box.querySelector(`[${ANSI_LINE_CHUNK_INDEX_ATTRIBUTE}="0"]`) ?? expect.fail("a drawn chunk");
+    const firstChunkLineCount = (firstChunk.textContent ?? "").split("\n").length - 1;
+    const linePitchPx = firstChunk.getBoundingClientRect().height / firstChunkLineCount;
+    const lines = box.querySelector(".meridian-ansi__lines") ?? expect.fail("the output's lines");
+    expect(lines.getBoundingClientRect().height).toBeCloseTo(PLAIN_LINE_COUNT * linePitchPx, 0);
   });
 });

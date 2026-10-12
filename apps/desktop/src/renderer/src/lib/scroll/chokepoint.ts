@@ -3,8 +3,9 @@
 // Geometry is published, never polled, and with no hit test. A container attached with its
 // content height (a virtualizer's total size) costs a scroll event one read, `scrollTop`: the
 // viewport height comes from the resize observation. One attached without it reads
-// `clientHeight` and `scrollHeight` beside the offset. A write to the offset the last sample holds
-// is skipped, and one that rounding would undo only once the display is known to round offsets.
+// `clientHeight` and `scrollHeight` beside the offset. A write to the offset the box stands at is
+// skipped, and one that rounding would undo only once the display is known to round offsets; a
+// write the frame repeats reads where the box stands from the last sample, so it reads nothing.
 
 import { type Clock } from "#renderer/lib/clock.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -171,12 +172,16 @@ export class ScrollController {
     if (scrollContainer === undefined || this.#disposed) {
       return undefined;
     }
-    const maximumScrollTop = this.#maximumScrollTop(scrollContainer);
+    const maximumScrollTop = this.#maximumScrollTopOf(scrollContainer);
     const requestedScrollTop = clampToContent(targetScrollTop, maximumScrollTop);
-    // The held sample's offset, not the element's: reading or writing `scrollTop` lays out what
-    // the caller just changed, and a write that moves nothing needs no layout.
-    const currentScrollTop =
-      this.#geometryPublisher.lastGeometry?.scrollTop ?? scrollContainer.scrollTop;
+    // A write the frame repeats reads the held sample's offset, not the element's: reading or
+    // writing `scrollTop` lays out what the caller just changed, and a write that moves nothing
+    // needs no layout. A sample can trail the box until its scroll event, which moves the next
+    // repeat's target too; a write asked once is never asked again, so it reads the box.
+    const heldScrollTop = isAskedOnce(caller)
+      ? undefined
+      : this.#geometryPublisher.lastGeometry?.scrollTop;
+    const currentScrollTop = heldScrollTop ?? scrollContainer.scrollTop;
     this.#writeCountByCaller.set(caller, (this.#writeCountByCaller.get(caller) ?? 0) + 1);
     if (
       requestedScrollTop === currentScrollTop ||
@@ -206,11 +211,18 @@ export class ScrollController {
 
   /** Glide to the bottom of the log. */
   public glideToTail(caller: ScrollCaller): ScrollWrite | undefined {
+    const maximumScrollTop = this.maximumScrollTop();
+    return maximumScrollTop === undefined ? undefined : this.glideTo(caller, maximumScrollTop);
+  }
+
+  /**
+   * The offset that shows the content's end, read now from the supplied content height or else
+   * the element, so every caller aiming at the tail aims where a write is clamped; `undefined`
+   * while no container is attached.
+   */
+  public maximumScrollTop(): number | undefined {
     const scrollContainer = this.#scrollContainer;
-    if (scrollContainer === undefined) {
-      return undefined;
-    }
-    return this.glideTo(caller, this.#maximumScrollTop(scrollContainer));
+    return scrollContainer === undefined ? undefined : this.#maximumScrollTopOf(scrollContainer);
   }
 
   /**
@@ -287,7 +299,7 @@ export class ScrollController {
     return this.#writeCountByCaller.get(caller) ?? 0;
   }
 
-  #maximumScrollTop(scrollContainer: HTMLElement): number {
+  #maximumScrollTopOf(scrollContainer: HTMLElement): number {
     const { contentHeight, viewportHeight } = this.#readHeights(scrollContainer);
     return Math.max(0, contentHeight - viewportHeight);
   }
@@ -356,6 +368,29 @@ export function scrollForReorderDrag(
   const maximum = Math.max(0, container.scrollHeight - container.clientHeight);
   container.scrollTop = Math.min(Math.max(0, offset), maximum);
   return container.scrollTop;
+}
+
+/**
+ * Whether a caller's write is a person's one ask, which nothing repeats, rather than a write the
+ * frame makes again as the log or the box moves.
+ */
+function isAskedOnce(caller: ScrollCaller): boolean {
+  switch (caller) {
+    case "jump-to-tail":
+    case "jump-to-head":
+    case "find-match":
+    case "message-anchor":
+    case "window-opening":
+    case "row-reveal":
+    case "settings-control-landing":
+      return true;
+    case "follow-tail":
+    case "follow-arriving-text":
+    case "hold-reading-position":
+    case "prune-compensation":
+    case "measurement-compensation":
+      return false;
+  }
 }
 
 function clampToContent(targetScrollTop: number, maximumScrollTop: number): number {

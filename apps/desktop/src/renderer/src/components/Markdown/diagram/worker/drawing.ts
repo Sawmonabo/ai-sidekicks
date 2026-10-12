@@ -15,10 +15,10 @@ import { describeFailure } from "#shared/failure-message.js";
 import type { DiagramPalette } from "../palette.js";
 import {
   DRAWING_DEADLINE_MS,
-  type DiagramDrawing,
   type DiagramOutcome,
   type DiagramPictureKind,
   type LabelMeasureRequest,
+  type WorkerDrawingOutcome,
 } from "./messages.js";
 import type { LabelWidths } from "./text-measurer.js";
 
@@ -37,7 +37,7 @@ export async function drawMeasuredDiagram(
   pictureKind: DiagramPictureKind,
   labelWidths: LabelWidths,
   measureOnPage: PageLabelMeasuring,
-): Promise<DiagramDrawing> {
+): Promise<WorkerDrawingOutcome> {
   const firstPass = labelWidths.pass(palette.fontFamily);
   const drawing = drawDiagram(source, palette, pictureKind, firstPass.measurer);
   const misses = firstPass.misses();
@@ -69,7 +69,7 @@ export function drawDiagram(
   palette: DiagramPalette,
   pictureKind: DiagramPictureKind,
   textMeasurer: HostTextMeasurer,
-): DiagramDrawing {
+): WorkerDrawingOutcome {
   let svg: string;
   try {
     svg = renderSvgWithTextMeasurer(
@@ -187,6 +187,7 @@ function pictureOf(svg: string, palette: DiagramPalette): DiagramOutcome {
   return {
     kind: "drawn",
     markup: `${root[1] ?? ""}${sizedAttributes}${root[3] ?? ""}${svg.slice(root[0].length)}`,
+    textAlternative: textAlternativeOf(svg, attributes),
     width,
     height,
     groundColor: palette.groundColor,
@@ -213,6 +214,78 @@ function unboxedSizeOf(attributes: string): PictureSize | undefined {
   const style = attributePattern("style").exec(attributes)?.[1] ?? "";
   const width = Number(/max-width\s*:\s*([\d.]+)px/u.exec(style)?.[1]);
   return width > 0 ? { width, height: UNSIZED_SVG_HEIGHT } : undefined;
+}
+
+/**
+ * The picture in words: the title and description the root names as its label, which a diagram's
+ * `accTitle` and `accDescr` give, or else the kind merman names on the root, as words.
+ */
+function textAlternativeOf(svg: string, rootAttributes: string): string {
+  const words = [
+    labelTextOf(svg, "title", attributePattern("aria-labelledby").exec(rootAttributes)?.[1]),
+    labelTextOf(svg, "desc", attributePattern("aria-describedby").exec(rootAttributes)?.[1]),
+  ].filter((text) => text !== undefined && text !== "");
+  if (words.length > 0) {
+    return words.join(": ");
+  }
+  const kind = attributePattern("aria-roledescription").exec(rootAttributes)?.[1]?.slice(1, -1);
+  return kind === undefined ? "Diagram" : kindWordsOf(kind);
+}
+
+/** The text of the `element` whose id `quotedId` names, its character references read. */
+function labelTextOf(
+  svg: string,
+  element: "title" | "desc",
+  quotedId: string | undefined,
+): string | undefined {
+  if (quotedId === undefined) {
+    return undefined;
+  }
+  const id = quotedId.slice(1, -1).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const text = new RegExp(`<${element}\\s[^>]*?id="${id}"[^>]*>([^<]*)</${element}>`, "u").exec(
+    svg,
+  )?.[1];
+  return text?.replace(CHARACTER_REFERENCE, readCharacterReference).trim();
+}
+
+/** A character reference: one of XML's five named ones, or a decimal or hexadecimal one. */
+const CHARACTER_REFERENCE = /&(?:(lt|gt|amp|quot|apos)|#(\d+)|#x([\da-f]+));/giu;
+
+const NAMED_CHARACTERS: Readonly<Record<string, string>> = {
+  lt: "<",
+  gt: ">",
+  amp: "&",
+  quot: '"',
+  apos: "'",
+};
+
+function readCharacterReference(
+  reference: string,
+  name: string | undefined,
+  decimal: string | undefined,
+  hexadecimal: string | undefined,
+): string {
+  if (name !== undefined) {
+    return NAMED_CHARACTERS[name.toLowerCase()] ?? reference;
+  }
+  const codePoint = Number.parseInt(decimal ?? hexadecimal ?? "", decimal === undefined ? 16 : 10);
+  return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : reference;
+}
+
+/**
+ * A diagram kind as merman names it, as words: `classDiagram` reads "Class diagram", `er` reads
+ * "ER diagram" and `flowchart-v2` reads "Flowchart".
+ */
+function kindWordsOf(kind: string): string {
+  const words = kind
+    .replace(/-v\d+$/u, "")
+    .replace(/([a-z\d])([A-Z])/gu, "$1 $2")
+    .split(/[\s_-]+/u)
+    .filter((word) => word !== "")
+    .map((word) => (word.length <= 2 ? word.toUpperCase() : word.toLowerCase()));
+  const named = words.join(" ");
+  const sentence = named.charAt(0).toUpperCase() + named.slice(1);
+  return /(?:diagram|chart|graph|map)$/u.test(named) ? sentence : `${sentence} diagram`;
 }
 
 /** A message's first line, without the colon that introduces the lines under it. */

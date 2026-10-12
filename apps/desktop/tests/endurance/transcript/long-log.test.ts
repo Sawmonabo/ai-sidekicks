@@ -36,7 +36,10 @@ import type { ProjectedSessionEvent } from "#renderer/store/session/entities/voc
 import { HeapSampler, retainedGrowthBytes, type HeapSample } from "../heap/sampling.js";
 import { createTranscriptEnduranceFixture } from "./long-log.test-support.js";
 import { RunGroupFold } from "#renderer/features/transcript/feed/run-group-fold.js";
-import { measuredRunWindowInputs } from "#renderer/features/transcript/feed/run-group-fold.test-support.js";
+import {
+  measuredRunWindowInputs,
+  wholeRunWindowInputs,
+} from "#renderer/features/transcript/feed/run-group-fold.test-support.js";
 import { type RunWindowEdge } from "#renderer/features/transcript/runs/call-window.js";
 import {
   longRunEvents,
@@ -47,7 +50,10 @@ import {
   TRANSCRIPT_LET_GO_SCREEN_HEIGHTS,
   TRANSCRIPT_STRETCH_SCREEN_HEIGHTS,
 } from "#renderer/features/transcript/viewport/caps.js";
-import { deriveTranscriptWindow } from "#renderer/features/transcript/window/transcript-window.js";
+import {
+  deriveTranscriptWindow,
+  type TranscriptPipelineStage,
+} from "#renderer/features/transcript/window/transcript-window.js";
 import { BudgetRegistry } from "../../helpers/budget/registry.js";
 import { evaluateBudget } from "../../helpers/budget/evaluation.js";
 import { runEntitiesOf } from "#test/helpers/transcript/run-facts.js";
@@ -88,6 +94,9 @@ const RUN_WINDOW_MEASURE = { screenHeightPx: () => 1_000, rowHeightPx: () => 20 
 
 /** Sweeps from the newest calls to the first and back, the first a warm-up nothing is read from. */
 const RUN_WINDOW_SWEEP_COUNT = 9;
+
+/** Sweeps of the planted control: the warm-up and one read, since each planted press is slow. */
+const PLANTED_SWEEP_COUNT = 2;
 
 /** How long the fold takes after one press, in processor time; its row says why that figure. */
 const pressMedianBudget = registry.requireBudget("run-window-press-cpu-median");
@@ -208,97 +217,176 @@ describe("endurance — the transcript's fold over a long session", () => {
   });
 
   it("walks a ten-thousand-call run's window end to end at a bounded cost per press", async () => {
-    const heapSampler = new HeapSampler();
-    expect(heapSampler.isCollectorAvailable, "this runtime gives no collector").toBe(true);
-    const events = longRunEvents(LONG_RUN_EVENT_COUNT);
-    const model = deriveTranscriptWindow(events, runEntitiesOf(events));
-    const runGroup = onlyRunGroupOf(model);
-    const inputs = measuredRunWindowInputs(RUN_WINDOW_MEASURE);
-    const fold = new RunGroupFold();
-    fold.fold(model, new Set(), inputs);
-    const listRowBound = mostListRowsUnderLetGo(model.viewportRows.length, runGroup);
-
-    // Read into arrays sized before the first press, so the readings add nothing to the heap
-    // they measure. A press moves the window at least a stretch, which bounds the presses.
-    const stretchCalls =
-      (TRANSCRIPT_STRETCH_SCREEN_HEIGHTS * RUN_WINDOW_MEASURE.screenHeightPx()) /
-      RUN_WINDOW_MEASURE.rowHeightPx();
-    const pressCapacity =
-      RUN_WINDOW_SWEEP_COUNT *
-      2 *
-      (Math.ceil(runGroup.drawnRowPositions.length / stretchCalls) + 1);
-    const pressCpuMs = new Float64Array(pressCapacity);
-    const growthBytes = new Float64Array(RUN_WINDOW_SWEEP_COUNT - 1);
-    let pressCount = 0;
-    let measuredFrom = 0;
-    let mostListRows = 0;
-    let baseline: HeapSample | undefined;
-    for (let sweep = 0; sweep < RUN_WINDOW_SWEEP_COUNT; sweep += 1) {
-      for (const edge of ["earlier", "later"] as const) {
-        while (
-          callsBeyond(inputs.windows.resolvedWindowOf(runGroup.key), edge) > 0 &&
-          pressCount < pressCapacity
-        ) {
-          const before = process.threadCpuUsage();
-          inputs.windows.openStretch(runGroup, edge, RUN_WINDOW_MEASURE);
-          const stage = fold.fold(model, new Set(), { ...inputs, moveCount: pressCount + 1 });
-          const spent = process.threadCpuUsage(before);
-          pressCpuMs[pressCount] = (spent.user + spent.system) / 1000;
-          pressCount += 1;
-          mostListRows = Math.max(mostListRows, stage.window.viewportRows.length);
-        }
-      }
-      // The warm-up sweep's presses compile the walk; they are timed but not read.
-      if (sweep === 0) {
-        measuredFrom = pressCount;
-        baseline = await heapSampler.sample();
-      } else if (baseline !== undefined) {
-        growthBytes[sweep - 1] = retainedGrowthBytes(baseline, await heapSampler.sample());
-      }
-    }
-
-    const measured = pressCpuMs.subarray(measuredFrom, pressCount);
-    const medianMs = medianOf(measured);
-    const worstMs = Math.max(...measured);
-    const peakGrowthBytes = Math.max(...growthBytes);
+    const walk = await walkRunWindow(RUN_WINDOW_SWEEP_COUNT, undefined);
     process.stdout.write(
-      `[endurance] run window over ${String(runGroup.drawnRowPositions.length)} calls: ` +
-        `${String(measured.length)} presses, fold cpu median ${medianMs.toFixed(2)} ms, worst ` +
-        `${worstMs.toFixed(2)} ms; most list rows ${String(mostListRows)} of ` +
-        `${String(listRowBound)}; heap growth by sweep ` +
-        `${[...growthBytes].map((bytes) => String(Math.round(bytes / 1024))).join(", ")} kB\n`,
+      `[endurance] run window over ${String(walk.callCount)} calls: ` +
+        `${String(walk.measuredPressCount)} presses, fold cpu median ` +
+        `${walk.medianMs.toFixed(2)} ms, worst ${walk.worstMs.toFixed(2)} ms; most list rows ` +
+        `${String(walk.mostListRows)} of ${String(walk.listRowBound)}; heap growth by sweep ` +
+        `${walk.growthKilobytesBySweep.join(", ")} kB\n`,
     );
 
     // Every sweep reached both ends of the run: a window that never reaches one stops the sweep
     // at the presses' bound rather than spinning forever.
-    expect(pressCount, "a sweep never reached an end of the run").toBeLessThan(pressCapacity);
+    expect(walk.hasReachedEveryEnd, "a sweep never reached an end of the run").toBe(true);
     // The sweeps walked the whole run a stretch at a time: a press that skipped ahead would be
     // cheap and pass everything else.
-    const callsOutsideWindow =
-      runGroup.drawnRowPositions.length -
-      (TRANSCRIPT_LET_GO_SCREEN_HEIGHTS * RUN_WINDOW_MEASURE.screenHeightPx()) /
-        RUN_WINDOW_MEASURE.rowHeightPx();
-    expect(measured.length).toBeGreaterThanOrEqual(
-      (RUN_WINDOW_SWEEP_COUNT - 1) * 2 * Math.floor(callsOutsideWindow / stretchCalls),
+    expect(walk.measuredPressCount).toBeGreaterThanOrEqual(
+      (RUN_WINDOW_SWEEP_COUNT - 1) * 2 * walk.leastPressesPerWay,
     );
-    expect(mostListRows).toBeLessThanOrEqual(listRowBound);
+    expect(walk.mostListRows).toBeLessThanOrEqual(walk.listRowBound);
     expect(
-      evaluateBudget(pressMedianBudget, medianMs).withinBudget,
-      `${pressMedianBudget.label}: ${medianMs.toFixed(2)} ms against a ` +
+      evaluateBudget(pressMedianBudget, walk.medianMs).withinBudget,
+      `${pressMedianBudget.label}: ${walk.medianMs.toFixed(2)} ms against a ` +
         `${String(pressMedianBudget.limit.canonicalValue)} ms ceiling`,
     ).toBe(true);
     expect(
-      evaluateBudget(pressWorstBudget, worstMs).withinBudget,
-      `${pressWorstBudget.label}: ${worstMs.toFixed(2)} ms against a ` +
+      evaluateBudget(pressWorstBudget, walk.worstMs).withinBudget,
+      `${pressWorstBudget.label}: ${walk.worstMs.toFixed(2)} ms against a ` +
         `${String(pressWorstBudget.limit.canonicalValue)} ms ceiling`,
     ).toBe(true);
     expect(
-      evaluateBudget(runWindowRetentionBudget, peakGrowthBytes).withinBudget,
-      `${runWindowRetentionBudget.label}: ${String(peakGrowthBytes)} B against a ` +
+      evaluateBudget(runWindowRetentionBudget, walk.peakGrowthBytes).withinBudget,
+      `${runWindowRetentionBudget.label}: ${String(walk.peakGrowthBytes)} B against a ` +
         `${String(runWindowRetentionBudget.limit.canonicalValue)} B ceiling`,
     ).toBe(true);
   });
+
+  it("negative control: a run drawn whole crosses the walk's list-row bound", () => {
+    // Without this the walk above could pass over a fold that never cut the run: such a fold costs
+    // a press about as little as a cut one, so only the rows it lists tell the two apart.
+    const events = longRunEvents(LONG_RUN_EVENT_COUNT);
+    const model = deriveTranscriptWindow(events, runEntitiesOf(events));
+    const listRowBound = mostListRowsUnderLetGo(model.viewportRows.length, onlyRunGroupOf(model));
+
+    const stage = new RunGroupFold().fold(model, new Set(), wholeRunWindowInputs());
+
+    expect(stage.window.viewportRows.length).toBeGreaterThan(listRowBound);
+  });
+
+  it("negative control: a press that walks every admitted row and keeps its stage crosses the press and retention ceilings", async () => {
+    // Without this the walk's ceilings could pass over a reading that timed nothing of the press
+    // or a heap sample that saw nothing it kept. Each press resolves the window again for every
+    // row it admits, and keeps the stage it folded.
+    const keptStages: TranscriptPipelineStage[] = [];
+    const walk = await walkRunWindow(PLANTED_SWEEP_COUNT, (press) => {
+      for (let row = 0; row < press.stage.window.viewportRows.length; row += 1) {
+        press.inputs.windows.windowOf(press.runGroup, RUN_WINDOW_MEASURE);
+      }
+      keptStages.push(press.stage);
+    });
+    process.stdout.write(
+      `[endurance] run window under a planted press: fold cpu median ` +
+        `${walk.medianMs.toFixed(2)} ms, worst ${walk.worstMs.toFixed(2)} ms; heap growth ` +
+        `${String(Math.round(walk.peakGrowthBytes / 1024))} kB over ` +
+        `${String(keptStages.length)} kept stages\n`,
+    );
+
+    expect(evaluateBudget(pressMedianBudget, walk.medianMs).withinBudget).toBe(false);
+    expect(evaluateBudget(pressWorstBudget, walk.worstMs).withinBudget).toBe(false);
+    expect(evaluateBudget(runWindowRetentionBudget, walk.peakGrowthBytes).withinBudget).toBe(false);
+  });
 });
+
+/** One press of the walk, as a planted regression sees it inside the press's timing. */
+interface RunWindowPress {
+  readonly stage: TranscriptPipelineStage;
+  readonly inputs: ReturnType<typeof measuredRunWindowInputs>;
+  readonly runGroup: RunGroup;
+}
+
+/** What one walk of a long run's window read. */
+interface RunWindowWalk {
+  readonly callCount: number;
+  /** Whether every sweep reached both ends before the presses' bound. */
+  readonly hasReachedEveryEnd: boolean;
+  /** Presses after the warm-up sweep. */
+  readonly measuredPressCount: number;
+  /** The fewest presses one way of a sweep can take, a stretch at a time past the let-go span. */
+  readonly leastPressesPerWay: number;
+  readonly medianMs: number;
+  readonly worstMs: number;
+  readonly mostListRows: number;
+  readonly listRowBound: number;
+  readonly peakGrowthBytes: number;
+  readonly growthKilobytesBySweep: readonly number[];
+}
+
+/**
+ * Sweeps a ten-thousand-call run's window `sweepCount` times from its newest calls to its first and
+ * back, a press at a time, timing each press's fold with `plant` run inside the timing, and reads
+ * the heap behind a forced collection after each sweep. The first sweep is a warm-up nothing is
+ * read from.
+ */
+async function walkRunWindow(
+  sweepCount: number,
+  plant: ((press: RunWindowPress) => void) | undefined,
+): Promise<RunWindowWalk> {
+  const heapSampler = new HeapSampler();
+  expect(heapSampler.isCollectorAvailable, "this runtime gives no collector").toBe(true);
+  const events = longRunEvents(LONG_RUN_EVENT_COUNT);
+  const model = deriveTranscriptWindow(events, runEntitiesOf(events));
+  const runGroup = onlyRunGroupOf(model);
+  const inputs = measuredRunWindowInputs(RUN_WINDOW_MEASURE);
+  const fold = new RunGroupFold();
+  fold.fold(model, new Set(), inputs);
+
+  // Read into arrays sized before the first press, so the readings add nothing to the heap
+  // they measure. A press moves the window at least a stretch, which bounds the presses.
+  const stretchCalls =
+    (TRANSCRIPT_STRETCH_SCREEN_HEIGHTS * RUN_WINDOW_MEASURE.screenHeightPx()) /
+    RUN_WINDOW_MEASURE.rowHeightPx();
+  const pressCapacity =
+    sweepCount * 2 * (Math.ceil(runGroup.drawnRowPositions.length / stretchCalls) + 1);
+  const pressCpuMs = new Float64Array(pressCapacity);
+  const growthBytes = new Float64Array(sweepCount - 1);
+  let pressCount = 0;
+  let measuredFrom = 0;
+  let mostListRows = 0;
+  let baseline: HeapSample | undefined;
+  for (let sweep = 0; sweep < sweepCount; sweep += 1) {
+    for (const edge of ["earlier", "later"] as const) {
+      while (
+        callsBeyond(inputs.windows.resolvedWindowOf(runGroup.key), edge) > 0 &&
+        pressCount < pressCapacity
+      ) {
+        const before = process.threadCpuUsage();
+        inputs.windows.openStretch(runGroup, edge, RUN_WINDOW_MEASURE);
+        const stage = fold.fold(model, new Set(), { ...inputs, moveCount: pressCount + 1 });
+        plant?.({ stage, inputs, runGroup });
+        const spent = process.threadCpuUsage(before);
+        pressCpuMs[pressCount] = (spent.user + spent.system) / 1000;
+        pressCount += 1;
+        mostListRows = Math.max(mostListRows, stage.window.viewportRows.length);
+      }
+    }
+    // The warm-up sweep's presses compile the walk; they are timed but not read.
+    if (sweep === 0) {
+      measuredFrom = pressCount;
+      baseline = await heapSampler.sample();
+    } else if (baseline !== undefined) {
+      growthBytes[sweep - 1] = retainedGrowthBytes(baseline, await heapSampler.sample());
+    }
+  }
+
+  const measured = pressCpuMs.subarray(measuredFrom, pressCount);
+  const callsOutsideWindow =
+    runGroup.drawnRowPositions.length -
+    (TRANSCRIPT_LET_GO_SCREEN_HEIGHTS * RUN_WINDOW_MEASURE.screenHeightPx()) /
+      RUN_WINDOW_MEASURE.rowHeightPx();
+  return {
+    callCount: runGroup.drawnRowPositions.length,
+    hasReachedEveryEnd: pressCount < pressCapacity,
+    measuredPressCount: measured.length,
+    leastPressesPerWay: Math.floor(callsOutsideWindow / stretchCalls),
+    medianMs: medianOf(measured),
+    worstMs: Math.max(...measured),
+    mostListRows,
+    listRowBound: mostListRowsUnderLetGo(model.viewportRows.length, runGroup),
+    peakGrowthBytes: Math.max(...growthBytes),
+    growthKilobytesBySweep: [...growthBytes].map((bytes) => Math.round(bytes / 1024)),
+  };
+}
 
 /** The median of `values`, read from a sorted copy. */
 function medianOf(values: Float64Array): number {

@@ -1,8 +1,9 @@
-// A paced delivery runs the app's frame work. The fixture's frozen clock runs no frame by itself,
-// since no window paces it, so a run whose loop only advanced it would measure an app whose scroll
-// writes and other frame work never ran. The concurrent-streaming script is paced across the
-// window's own frames into its open session; the frame work it arms must have been armed and must
-// all have run once the script is in and the window has drawn a few more frames.
+// Every endurance figure taken under a paced delivery measures an app whose frame work ran. The
+// fixture's frozen clock runs no frame by itself, since no window paces it, so a pace that only
+// advanced it would report frame times for an app that applied no event and wrote no scroll, and
+// every such figure would pass for the wrong reason. The concurrent-streaming script is paced
+// across the window's own frames into its open session; the frame work it arms must have been
+// armed and must all have run once the script is in and the window has drawn a few more frames.
 
 import { describe, expect, it } from "vitest";
 
@@ -27,8 +28,8 @@ const bundleIsBuilt = fixtureBundleExists();
  */
 const SETTLING_FRAME_COUNT = 30;
 
-describe.skipIf(!bundleIsBuilt)("endurance — a paced delivery runs the app's frame work", () => {
-  it("runs every frame callback the delivery arms on the frozen clock", async () => {
+describe.skipIf(!bundleIsBuilt)("endurance — the figures a paced delivery measures", () => {
+  it("come from an app that ran every frame callback the delivery armed", async () => {
     await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (appUnderTest) => {
       await openConcurrentStreamingSessionRoute(appUnderTest);
       const beats = CONCURRENT_STREAMING_SCENARIO.beats;

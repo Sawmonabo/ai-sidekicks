@@ -8,11 +8,7 @@ import {
   piecesOf,
   type PiecedText,
 } from "#renderer/lib/text-pieces.js";
-import {
-  piecedTextOfPublished,
-  publishedTextOf,
-  type PublishedText,
-} from "../../reveal/published-text.js";
+import { piecedTextOfPublished, type PublishedText } from "../../reveal/published-text.js";
 import { RevealTextRope } from "../../reveal/text-rope.js";
 
 /** The one byte every ANSI sequence opens with. */
@@ -145,14 +141,6 @@ export function carriesAnsiEscapes(source: PublishedText): boolean {
  */
 export function withoutResidualEscapes(text: string): string {
   return text.includes(ESCAPE) ? joinPieces(new EscapeSequenceStripper().strip(text)) : text;
-}
-
-/**
- * A body's text without escape sequences: the same handle for a text that carries none, the usual
- * case. One that carries some is stripped whole, into a string of its own.
- */
-export function withoutResidualEscapesOf(text: PublishedText): PublishedText {
-  return carriesAnsiEscapes(text) ? publishedTextOf(withoutResidualEscapes(text.slice(0))) : text;
 }
 
 /**

@@ -27,10 +27,7 @@ import {
   publishedTextOf,
   type PublishedText,
 } from "../reveal/published-text.js";
-import {
-  withoutResidualEscapesInPieces,
-  withoutResidualEscapesOf,
-} from "../rows/ansi/escape-sequences.js";
+import { withoutResidualEscapesInPieces } from "../rows/ansi/escape-sequences.js";
 import { UNREAD_BODY_TITLE } from "../rows/bodies/MachineBody.js";
 import { UNAVAILABLE_BODY_TITLE } from "../rows/bodies/UnavailableBody.js";
 import { describeRowKind, classifyTranscriptRow, isFoldableCall } from "../rows/kind.js";
@@ -82,17 +79,23 @@ export function readRowText(
 
 /**
  * The text of a row's body alone, as `readRowText` reads it: an open call's output without the
- * lines above it, nothing for a folded call, and any other row's whole text, which is its body.
+ * lines above it, at once or once a long one is stripped of its escape sequences in slices,
+ * nothing for a folded call, and any other row's whole text, which is its body.
  */
-export function readRowBodyText(rowKey: string, sources: RowTextSources): string | undefined {
+export function readRowBodyText(
+  rowKey: string,
+  sources: RowTextSources,
+): string | Promise<string> | undefined {
   const toolRow = toolRowAt(rowKey, sources);
   if (toolRow === undefined) {
     return readRowTextAtOnce(rowKey, sources)?.text;
   }
   const body = rowBodyOf(toolRow, sources);
-  return body === undefined
-    ? undefined
-    : withoutResidualEscapesOf(toolOutputOf(body, toolRow, sources)).slice(0);
+  if (body === undefined) {
+    return undefined;
+  }
+  const output = withoutResidualEscapesInPieces(toolOutputOf(body, toolRow, sources), sources.view);
+  return output instanceof Promise ? output.then((stripped) => stripped.text) : output.text;
 }
 
 /**

@@ -8,8 +8,8 @@
 //     that line; any other row at the median of its kind's newest measured rows or, before any,
 //     at the kind's seed. An open call is estimated no taller than it draws with its output cut
 //     at a share of the visible flow, and one whose output was opened whole no shorter. All three
-//     move only when published. A row still revealing
-//     its text joins its kind's samples once it settles, so its growth moves no estimate.
+//     move only when published. A row still revealing its text joins its kind's samples once it
+//     settles, so its growth moves no estimate.
 //   - Layout validity: a display or row width change re-lays out every row, so the heights and
 //     the samples measured before it are dropped.
 //   - Duplicate keys: its caches are keyed by item key, so two rows sharing one would displace

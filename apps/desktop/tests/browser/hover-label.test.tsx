@@ -304,6 +304,7 @@ it("closes the Find field and a label the pointer alone opened on one Escape", a
         <FindBox
           query=""
           result={findInTranscript([], "", new Map())}
+          areRowsShown
           currentMatchIndex={-1}
           openRequestCount={1}
           onQueryChange={() => undefined}

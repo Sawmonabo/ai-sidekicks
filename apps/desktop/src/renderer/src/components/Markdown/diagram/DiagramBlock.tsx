@@ -53,7 +53,7 @@ export function DiagramBlock(props: DiagramBlockProps): React.JSX.Element {
               className="meridian-diagram__picture"
               width={drawing.picture.width}
               height={drawing.picture.height}
-              alt="Diagram"
+              alt={drawing.picture.textAlternative}
             />
           ) : (
             source

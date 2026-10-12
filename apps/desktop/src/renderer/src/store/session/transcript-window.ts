@@ -1,8 +1,9 @@
 // The edges of the window a store holds of its session's log, and the ways they move besides the
 // stream: a page read before the head grows it backward, a page read after a detached tail grows
 // it forward, a page read at either end of the log takes the place of the whole window, a release
-// lets go of rows far from where the person reads, a window no screen shows keeps only its newest
-// rows, and a large body read in full takes the place of its size. Pure folds, so the store holds
+// lets go of rows far from where the person reads, and of stretches between rows it keeps, a page
+// read inside such a stretch brings it back, a window no screen shows keeps only its newest rows,
+// and a large body read in full takes the place of its size. Pure folds, so the store holds
 // no arithmetic; `sequence-reconciler.ts` owns the stream's direction, and its
 // vocabulary would call a row from beyond an edge a duplicate or a divergence.
 //
@@ -37,6 +38,7 @@ import {
   CLOSED_WINDOW_EDGE,
   heldRowCursor,
   liveTailAfter,
+  type ReleasedEventStretch,
   type SessionStoreState,
   type TranscriptWindowEdge,
   type TranscriptWindowTail,
@@ -82,6 +84,26 @@ export interface LogEndPageMerge {
   /** Rows refused for repeating a sequence the page itself already carried. */
   readonly duplicates: number;
 }
+
+/** What one page read inside a released stretch brought back. */
+export interface ReleasedStretchMerge {
+  /** Rows admitted into the stretch. */
+  readonly admitted: number;
+  /** Rows refused for repeating a sequence the page itself already carried. */
+  readonly duplicates: number;
+}
+
+/** A stretch to let go inside the window: every event strictly between two events it keeps. */
+export interface ReleasedStretchBounds {
+  readonly lastHeldCursorBefore: EventCursor;
+  readonly firstHeldCursorAfter: EventCursor;
+}
+
+/**
+ * Which way a page read inside a released stretch went: back from the event after it, or on from
+ * the event before it.
+ */
+export type ReleasedStretchReadDirection = "backward" | "forward";
 
 /**
  * One `transcript.read` window as a page fold takes it: its rows as app events, its far edge, and
@@ -247,6 +269,7 @@ export function foldLogEndPage(
       ...current,
       partitions: admitServedRunFacts(current.partitions, page.runs),
       transcript: rows,
+      releasedStretches: [],
       transcriptHead: logEnd === "start" ? CLOSED_WINDOW_EDGE : edge,
       transcriptTail:
         logEnd === "start"
@@ -259,8 +282,9 @@ export function foldLogEndPage(
 }
 
 /**
- * The state with every row outside `[firstKeptCursor, lastKeptCursor]` let go, each edge that
- * moved recording the read that brings its rows back, or `undefined` when nothing was let go. A
+ * The state with every row outside `[firstKeptCursor, lastKeptCursor]` let go, and every row
+ * strictly inside each of `releasedBetween`, each edge that moved recording the read that brings
+ * its rows back and each stretch recorded the same way, or `undefined` when nothing was let go. A
  * cursor the window no longer holds, as after a read replaced it, lets go of nothing. Letting go
  * past the newest row detaches the tail.
  */
@@ -268,6 +292,7 @@ export function releaseOutsideKept(
   current: SessionStoreState,
   firstKeptCursor: EventCursor,
   lastKeptCursor: EventCursor,
+  releasedBetween: readonly ReleasedStretchBounds[] = [],
 ): SessionStoreState | undefined {
   const { transcript } = current;
   const firstKept = transcript.findIndex((row) => row.cursor === firstKeptCursor);
@@ -275,14 +300,38 @@ export function releaseOutsideKept(
   if (firstKept === -1 || lastKept < firstKept) {
     return undefined;
   }
+  const stretches = releasedBetween.flatMap((bounds) => {
+    const before = transcript.findIndex((row) => row.cursor === bounds.lastHeldCursorBefore);
+    const after = transcript.findIndex((row) => row.cursor === bounds.firstHeldCursorAfter);
+    return before >= firstKept && after <= lastKept && after > before + 1
+      ? [{ before, after }]
+      : [];
+  });
   const releasesHead = firstKept > 0;
   const releasesTail = lastKept < transcript.length - 1;
-  if (!releasesHead && !releasesTail) {
+  if (!releasesHead && !releasesTail && stretches.length === 0) {
     return undefined;
   }
+  const kept = transcript
+    .slice(firstKept, lastKept + 1)
+    .filter((_row, offset) =>
+      stretches.every(
+        ({ before, after }) => firstKept + offset <= before || firstKept + offset >= after,
+      ),
+    );
   return {
     ...current,
-    transcript: transcript.slice(firstKept, lastKept + 1),
+    transcript: kept,
+    releasedStretches: releasedStretchesHeldIn(
+      [
+        ...current.releasedStretches,
+        ...stretches.map(({ before, after }) => ({
+          lastHeldSequenceBefore: transcript[before]!.sequence,
+          firstHeldCursorAfter: heldRowCursor(transcript[after]!),
+        })),
+      ],
+      kept,
+    ),
     // A backward read answers the rows at or before its cursor, so the head names the newest row
     // let go there; a forward read answers the rows after its cursor, so the tail names the
     // newest row kept.
@@ -310,9 +359,11 @@ export function releaseBeyondNewest(
   if (firstKept <= 0) {
     return undefined;
   }
+  const kept = transcript.slice(firstKept);
   return {
     ...current,
-    transcript: transcript.slice(firstKept),
+    transcript: kept,
+    releasedStretches: releasedStretchesHeldIn(current.releasedStretches, kept),
     transcriptHead: { cursor: heldRowCursor(transcript[firstKept - 1]!), hasMore: true },
     transcriptTail:
       current.transcriptTail.following === "detached"
@@ -320,6 +371,97 @@ export function releaseBeyondNewest(
         : { cursor: heldRowCursor(transcript.at(-1)!), hasMore: true, following: "detached" },
     revision: current.revision + 1,
   };
+}
+
+/**
+ * One page read inside `stretch`, from the rows it carried to the state a store commits: the rows
+ * strictly inside the stretch join the log between the two events that bound it, and the stretch
+ * shrinks to what the page did not reach, or goes once the page reached its other end or the log
+ * has nothing past the page. A stretch the window no longer records, or a page that admitted
+ * nothing and reached nothing, moves nothing.
+ */
+export function foldReleasedStretchPage(
+  current: SessionStoreState,
+  stretch: ReleasedEventStretch,
+  direction: ReleasedStretchReadDirection,
+  page: TranscriptWindowPage,
+  dependencies: TranscriptPageDependencies,
+): TranscriptPageFold<ReleasedStretchMerge> {
+  const { transcript, releasedStretches } = current;
+  const stretchAt = releasedStretches.findIndex(
+    (held) =>
+      held.lastHeldSequenceBefore === stretch.lastHeldSequenceBefore &&
+      held.firstHeldCursorAfter === stretch.firstHeldCursorAfter,
+  );
+  const after = transcript.findIndex((row) => row.cursor === stretch.firstHeldCursorAfter);
+  const upperSequence = transcript[after]?.sequence;
+  if (stretchAt === -1 || upperSequence === undefined) {
+    return { merge: { admitted: 0, duplicates: 0 }, nextState: undefined };
+  }
+  const lowerSequence = stretch.lastHeldSequenceBefore;
+  const admissible = admissibleRows(page.events, dependencies.sessionId);
+  const { rows, duplicates } = rowsBeyondEdge(
+    admissible,
+    (sequence) => sequence <= lowerSequence || sequence >= upperSequence,
+  );
+  const isReached =
+    !page.edge.hasMore ||
+    admissible.some((event) =>
+      direction === "backward" ? event.sequence <= lowerSequence : event.sequence >= upperSequence,
+    );
+  const merge: ReleasedStretchMerge = { admitted: rows.length, duplicates };
+  const nearestRow = direction === "backward" ? rows[0] : rows.at(-1);
+  if (nearestRow === undefined && !isReached) {
+    return { merge, nextState: undefined };
+  }
+  const remaining: readonly ReleasedEventStretch[] =
+    isReached || nearestRow === undefined
+      ? []
+      : [
+          direction === "backward"
+            ? {
+                lastHeldSequenceBefore: lowerSequence,
+                firstHeldCursorAfter: heldRowCursor(nearestRow),
+              }
+            : {
+                lastHeldSequenceBefore: nearestRow.sequence,
+                firstHeldCursorAfter: stretch.firstHeldCursorAfter,
+              },
+        ];
+  recoverRows(rows, dependencies);
+  return {
+    merge,
+    nextState: {
+      ...current,
+      partitions: admitServedRunFacts(current.partitions, page.runs),
+      transcript: [...transcript.slice(0, after), ...rows, ...transcript.slice(after)],
+      releasedStretches: releasedStretches.toSpliced(stretchAt, 1, ...remaining),
+      standingEvents: mergeStandingEvents(current.standingEvents, rows),
+      revision: current.revision + 1,
+    },
+  };
+}
+
+/**
+ * The stretches of `stretches` whose two bounding events `transcript` still holds, oldest first:
+ * one whose bound was let go lies past an edge or inside a wider stretch, which records it.
+ */
+export function releasedStretchesHeldIn(
+  stretches: readonly ReleasedEventStretch[],
+  transcript: readonly ProjectedSessionEvent[],
+): readonly ReleasedEventStretch[] {
+  if (stretches.length === 0) {
+    return stretches;
+  }
+  const heldSequences = new Set(transcript.map((row) => row.sequence));
+  const heldCursors = new Set(transcript.map((row) => heldRowCursor(row)));
+  return stretches
+    .filter(
+      (stretch) =>
+        heldSequences.has(stretch.lastHeldSequenceBefore) &&
+        heldCursors.has(stretch.firstHeldCursorAfter),
+    )
+    .toSorted((left, right) => left.lastHeldSequenceBefore - right.lastHeldSequenceBefore);
 }
 
 /**

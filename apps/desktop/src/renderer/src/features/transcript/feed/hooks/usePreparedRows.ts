@@ -7,7 +7,7 @@ import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/disposal.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { type RowRevealContextValue } from "../../reveal/components/RowRevealProvider.js";
-import { type PreparedAnsiOutputs } from "../../rows/ansi/preparation.js";
+import { type PreparedBodies } from "../../rows/prepared-bodies.js";
 import { type OffListTables } from "../../rows/markdown/table-window/off-list.js";
 import { type TranscriptRowPreparer } from "../../rows/renderer.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
@@ -34,14 +34,14 @@ export interface PreparedRowsBinding
  * scroll to, reading a row's live text through the reveal channel its body reads. One gate per
  * session, disposed with the feed, so a held row of one log never waits in another's. A held row's
  * long tables are measured in `offListTables`, and the command output of a row within the drawn
- * band's reach, unless its call is among `foldedCallRowIds`, is parsed into `preparedOutputs`.
+ * band's reach, unless its call is among `foldedCallRowIds`, is parsed into `preparedBodies`.
  */
 export function usePreparedRows(
   model: TranscriptWindowModel,
   prepareRow: TranscriptRowPreparer,
   revealChannel: RowRevealContextValue,
   offListTables: OffListTables,
-  preparedOutputs: PreparedAnsiOutputs,
+  preparedBodies: PreparedBodies,
   foldedCallRowIds: ReadonlySet<string>,
   sessionId: string,
 ): PreparedRowsBinding {
@@ -52,8 +52,8 @@ export function usePreparedRows(
   const diagramPictures = useContext(DiagramPicturesContext);
   const publishedTextFor = revealChannel.publishedTextFor;
   const sources = useMemo<FeedRowSources>(
-    () => ({ publishedTextFor, ownerWindow, diagramPictures, offListTables, preparedOutputs }),
-    [publishedTextFor, ownerWindow, diagramPictures, offListTables, preparedOutputs],
+    () => ({ publishedTextFor, ownerWindow, diagramPictures, offListTables, preparedBodies }),
+    [publishedTextFor, ownerWindow, diagramPictures, offListTables, preparedBodies],
   );
   // Every drained frame may have settled a block in a row the virtualizer has not mounted, and a
   // new palette draws every picture again, so both refresh the rows the window lists.
@@ -69,9 +69,11 @@ export function usePreparedRows(
       stopPalette();
     };
   }, [gate, subscribeToFrames, ownerWindow]);
-  gate.observeFolds(foldedCallRowIds);
-  return useMemo(
-    () => ({
+  // The gate's work in render is this one pass, run again only when what it reads changes: the
+  // folds it parses no output under, then the rows that draw whole.
+  return useMemo(() => {
+    gate.observeFolds(foldedCallRowIds);
+    return {
       ...gate.filter(model, prepareRow, sources),
       isPrepared: gate.isPrepared,
       isHeldOut: gate.isHeldOut,
@@ -81,10 +83,9 @@ export function usePreparedRows(
       isOutputParsed: gate.isOutputParsed,
       toggleCall: gate.toggleCall,
       holdsUnparsedRowInView: gate.holdsUnparsedRowInView,
-    }),
+    };
     // A held row becoming ready is what `readiness` reports; the pass reads it from the gate.
-    [gate, model, prepareRow, sources, readiness],
-  );
+  }, [gate, foldedCallRowIds, model, prepareRow, sources, readiness]);
 }
 
 function openGate(): PreparedRowGate {

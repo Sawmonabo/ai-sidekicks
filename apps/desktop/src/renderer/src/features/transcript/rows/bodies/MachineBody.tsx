@@ -6,10 +6,12 @@
 // call's output is cut at a share of the visible flow until opened, a large one opened by the
 // press that reads it, so it draws whole once read. A live body is read through its lane's
 // handle and a stored one through a handle over its string, so neither is copied whole on a frame.
+// What the body draws, the row's preparation readied: an output's lines and a reply's markdown,
+// stripped of escapes there, so a body is drawn only inside the feed that prepares it.
 
 import "./MachineBody.css";
 
-import { useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useContext, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 
@@ -18,11 +20,11 @@ import { byteFigurePart } from "#renderer/lib/figure-sentence.js";
 import { LARGE_BODY_ATTRIBUTE } from "../../copy/conversation-selection.js";
 import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
 import { AnsiOutput } from "../ansi/AnsiOutput.js";
-import { StrippedText } from "../ansi/escape-sequences.js";
+import { PreparedBodiesContext } from "../prepared-bodies.js";
 import { FullBodyReadsContext, type FullBodyReads } from "../full-body-reads.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { FullOutputControl } from "./FullOutputControl.js";
-import { OutputHeightCut, type OutputOpening } from "./OutputHeightCut.js";
+import { type OutputOpening } from "./OutputHeightCut.js";
 import { type OutputKind } from "./output-kinds.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { TruncationNotice } from "./TruncationNotice.js";
@@ -71,14 +73,6 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
   );
   const bodyText = props.liveText ?? storedText;
   const kind = bodyText === undefined ? undefined : props.readOutputKind(bodyText);
-  const revision = bodyText?.revision;
-  const [strippedText] = useState(() => new StrippedText(props.sourceId));
-  const drawnText = useMemo(
-    () =>
-      bodyText === undefined || kind === "command-output" ? bodyText : strippedText.read(bodyText),
-    // A live handle stays the same while it grows; its revision is what changed.
-    [bodyText, revision, kind, strippedText],
-  );
 
   const fullBodyReads = useContext(FullBodyReadsContext);
   // Only a call's output names its running size; a streaming reply is never cut.
@@ -86,7 +80,7 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
     props.opening === undefined ? undefined : props.liveText,
   );
 
-  if (bodyText === undefined || kind === undefined || drawnText === undefined) {
+  if (kind === undefined) {
     if (props.content?.status === "unavailable") {
       return <UnavailableBody />;
     }
@@ -106,11 +100,11 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
   }
 
   if (props.liveText !== undefined || props.content?.status !== "available") {
-    return renderBodyText(props, kind, drawnText, false, liveByteLength);
+    return renderBodyText(props, kind, false, liveByteLength);
   }
   return (
     <div className="meridian-machine-body">
-      {renderBodyText(props, kind, drawnText, true, undefined)}
+      {renderBodyText(props, kind, true, undefined)}
       {props.content.contentTruncated === true ? (
         <TruncationNotice
           storedBody={props.content.body}
@@ -166,47 +160,69 @@ function LargeBody(props: LargeBodyProps): React.JSX.Element {
 
 /**
  * The body's text through the renderer its kind names, a running command's output with the bytes
- * arrived so far. Escapes were stripped for the markdown and plain arms but not the ANSI one, where
- * `anser` parses the styling out first.
+ * arrived so far, each as the row's preparation readied it.
  */
 function renderBodyText(
   props: MachineBodyProps,
   kind: OutputKind,
-  drawnText: PublishedText,
   isComplete: boolean,
   liveByteLength: number | undefined,
 ): React.JSX.Element {
-  if (kind === "command-output") {
-    // The row's preparation parsed the text, past what it already parsed, for the block to draw.
+  if (kind === "prose") {
     return (
-      <AnsiOutput
-        label={props.label}
-        rowKey={props.sourceId}
-        opening={props.opening}
-        liveByteLength={liveByteLength}
+      <ReplyMarkdown
+        sourceId={props.sourceId}
+        footnotes={props.footnotes}
+        isComplete={isComplete}
       />
     );
   }
-  if (kind === "plain-text") {
-    // Verbatim: no parse, no footnotes. Preformatted, so text copied out of it keeps its lines.
-    // Drawn as the text's own chunks, one text node each, so the tree shares them.
-    return (
-      <OutputHeightCut
-        className="meridian-machine-body__plain"
-        rowKey={props.sourceId}
-        opening={props.opening}
-        liveByteLength={liveByteLength}
-      >
-        {drawnText.chunks()}
-      </OutputHeightCut>
+  // The row's preparation parsed the text into lines, past what it already parsed. Plain text is
+  // drawn verbatim, its lines unstyled: no markdown, no footnotes, preformatted, so text copied out
+  // of it keeps its lines.
+  const isCommandOutput = kind === "command-output";
+  return (
+    <AnsiOutput
+      className={isCommandOutput ? "meridian-ansi__body" : "meridian-machine-body__plain"}
+      label={isCommandOutput ? props.label : undefined}
+      rowKey={props.sourceId}
+      opening={props.opening}
+      liveByteLength={liveByteLength}
+    />
+  );
+}
+
+/** Which reply's markdown to draw, and how. */
+interface ReplyMarkdownProps {
+  readonly sourceId: string;
+  readonly footnotes: FootnoteRegistry;
+  readonly isComplete: boolean;
+}
+
+/**
+ * A reply's markdown, as its row's preparation stripped and published it; empty while none is
+ * published. Throws outside a feed, where nothing prepares it.
+ */
+function ReplyMarkdown(props: ReplyMarkdownProps): React.JSX.Element | null {
+  const preparedBodies = useContext(PreparedBodiesContext);
+  if (preparedBodies === undefined) {
+    throw new Error(
+      "A reply's markdown is drawn only inside a transcript feed, which prepares it.",
     );
+  }
+  const { sourceId } = props;
+  const markdownText = useSyncExternalStore(preparedBodies.subscribe, () =>
+    preparedBodies.markdownTextOf(sourceId),
+  );
+  if (markdownText === undefined) {
+    return null;
   }
   return (
     <StreamingMarkdown
-      publishedText={drawnText}
-      sourceId={props.sourceId}
+      publishedText={markdownText}
+      sourceId={sourceId}
       footnotes={props.footnotes}
-      isComplete={isComplete}
+      isComplete={props.isComplete}
       // Only an agent's reply is drawn as prose here; a tool's output never is.
       offersBlockCopy
     />

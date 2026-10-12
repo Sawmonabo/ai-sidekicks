@@ -1,6 +1,6 @@
-// The rows of the log one row of a window is drawn from: a run group's header from every row of its
-// group, a reply's foot from every row of the reply, and a child run's summary from the child's own
-// rows; any other row from its own event.
+// The events of the log one row of a window is drawn from: a run group's header from every event of
+// its stretch, the ones the store let go included, a reply's foot from every row of the reply, and
+// a child run's summary from the child's own rows; any other row from its own event.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -14,15 +14,19 @@ export interface RowSourceWindows {
   readonly transcriptWindow: TranscriptWindowModel;
 }
 
-/** The oldest and newest row one row of the window is drawn from. */
+/** Where one event stands in the log: its sequence, and the cursor a read beside it is asked at. */
+export type RowSourceEvent = Pick<TranscriptEventRow, "sequence" | "cursor">;
+
+/** The oldest and newest event one row of the window is drawn from. */
 export interface RowSourceSpan {
-  readonly first: TranscriptEventRow;
-  readonly last: TranscriptEventRow;
+  readonly first: RowSourceEvent;
+  readonly last: RowSourceEvent;
 }
 
 /**
- * Reads a window row's key as the span of rows it is drawn from, or `undefined` for a key the log
- * no longer carries. Each child run's span is gathered once, on the first key that asks for one.
+ * Reads a window row's key as the span of events it is drawn from, or `undefined` for a key the
+ * log no longer carries. A run group's header spans its whole stretch, past the rows the store let
+ * go at either end. Each child run's span is gathered once, on the first key that asks for one.
  */
 export function rowSourceSpanReader(
   sources: RowSourceWindows,
@@ -36,7 +40,17 @@ export function rowSourceSpanReader(
   return (rowKey) => {
     const runGroup = transcriptWindow.runGroupByHeaderKey.get(rowKey);
     if (runGroup !== undefined) {
-      return runGroupSpan(runGroup.rowIds, unfurledWindow.rowsByKey);
+      const heldSpan = runGroupSpan(runGroup.rowIds, unfurledWindow.rowsByKey);
+      return heldSpan === undefined
+        ? undefined
+        : widestSpan([
+            heldSpan,
+            ...[runGroup.releasedEarlier, runGroup.releasedLater].flatMap((released) =>
+              released === undefined
+                ? []
+                : [{ first: released.outermostEvent, last: released.outermostEvent }],
+            ),
+          ]);
     }
     const row = unfurledWindow.rowsByKey.get(rowKey);
     if (row === undefined) {

@@ -6,7 +6,6 @@
 
 import type { Database, Statement } from "better-sqlite3";
 
-import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { RUN_INITIAL_STATE } from "@ai-sidekicks/contracts/run/state";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -14,11 +13,13 @@ import { TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE } from "@ai-sidekicks/contracts/trans
 import {
   RUN_STATE_EVENT_TYPES,
   UNFOLDED_TRANSCRIPT_RUN_FACTS,
+  USER_MESSAGE_EVENT_TYPE,
   foldTranscriptRunFacts,
   type TranscriptRunBeat,
   type TranscriptRunFacts,
 } from "@ai-sidekicks/contracts/transcript/run-facts";
 
+import { sqlListOf } from "../database/sql-list.js";
 import { sessionReadBound, type DamagedFromSequenceReader } from "../events/session/read.js";
 import { outsideSkippedRangesSql } from "../events/session/skipped-ranges.js";
 
@@ -48,8 +49,6 @@ const SELECT_CREATION_SQL = `SELECT ${BEAT_COLUMNS_SQL} FROM session_events AS e
   ORDER BY sequence
   LIMIT 1`;
 
-const USER_MESSAGE_EVENT_TYPE: SessionEventType = "user.message";
-
 // Through the run-and-actor index; a person's message steering the run is not the run's own.
 const SELECT_FIRST_ACTOR_SQL = `SELECT ${BEAT_COLUMNS_SQL} FROM session_events AS event
   WHERE session_id = @sessionId AND run_id = @runId AND actor IS NOT NULL
@@ -57,9 +56,10 @@ const SELECT_FIRST_ACTOR_SQL = `SELECT ${BEAT_COLUMNS_SQL} FROM session_events A
   ORDER BY sequence
   LIMIT 1`;
 
-const STATE_BEAT_TYPES_SQL = [...RUN_STATE_EVENT_TYPES, TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE]
-  .map((type) => `'${type}'`)
-  .join(", ");
+const STATE_BEAT_TYPES_SQL = sqlListOf([
+  ...RUN_STATE_EVENT_TYPES,
+  TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
+]);
 
 // Through the run-and-type index, one seek per type. The unary `+` keeps the planner from walking
 // the session's whole log down its sequence index to skip sorting the run's few state events.

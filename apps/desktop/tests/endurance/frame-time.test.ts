@@ -1,7 +1,6 @@
-// The four-lane frame-time budget: the median of three warm launches' 95th-percentile frame
+// The four-lane frame-time budget: the median of three fresh launches' 95th-percentile frame
 // duration while four agent lanes stream into the transcript, in refreshes of the display the run
-// drew on, compared through the registry's own `evaluateBudget`. The cold launch before them is
-// printed on its own as the first-launch figure (`frame-sampling.ts` says why).
+// drew on, compared through the registry's own `evaluateBudget`.
 //
 // A frame's duration is the main-thread work it costs, not the interval between frames: the
 // interval between animation-frame callbacks is the display's refresh period, so its p95 could
@@ -107,13 +106,13 @@ describe.skipIf(!bundleIsBuilt)(
   "endurance — frame time with the concurrent-streaming session open",
   () => {
     it("holds the 95th-percentile frame duration under the budget's ceiling", async () => {
-      const { firstLaunch, warmLaunches } = await measureLaunches(async () => {
+      const launches = await measureLaunches(async () => {
         const run = await runOnce(0);
         expectFourLaneWorkloadInsideWindow(run);
         return run;
       });
-      const perRunPercentiles = warmLaunches.map(p95InRefreshes);
-      const perRunMedians = warmLaunches.map((run) =>
+      const perRunPercentiles = launches.map(p95InRefreshes);
+      const perRunMedians = launches.map((run) =>
         percentileByNearestRank(run.frameDurationsMs, 0.5),
       );
       const measuredP95 = percentileByNearestRank(perRunPercentiles, 0.5);
@@ -124,19 +123,13 @@ describe.skipIf(!bundleIsBuilt)(
       // the instrument reports how often frames arrive.
       process.stdout.write(
         `[endurance] frame time p95 ${measuredP95.toFixed(3)} refreshes ` +
-          `(median of ${String(MEASURED_RUN_COUNT)} warm launches: ` +
+          `(median of ${String(MEASURED_RUN_COUNT)} fresh launches: ` +
           `${perRunPercentiles.map((value) => value.toFixed(3)).join(", ")}) ` +
           `of a ${String(budget.limit.canonicalValue)} refresh ceiling ` +
           `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget); ` +
           `p50 ${percentileByNearestRank(perRunMedians, 0.5).toFixed(2)} ms ` +
           `(${perRunMedians.map((value) => value.toFixed(2)).join(", ")}); ` +
-          `${warmLaunches.map(describeRunLoad).join("; ")} — ${RUNNER_CLASS_DESCRIPTION}\n`,
-      );
-      process.stdout.write(
-        `[endurance] frame time first launch, cold GPU caches, not gated: p95 ` +
-          `${p95InRefreshes(firstLaunch).toFixed(3)} refreshes; p50 ` +
-          `${percentileByNearestRank(firstLaunch.frameDurationsMs, 0.5).toFixed(2)} ms; ` +
-          `${describeRunLoad(firstLaunch)} — ${RUNNER_CLASS_DESCRIPTION}\n`,
+          `${launches.map(describeRunLoad).join("; ")} — ${RUNNER_CLASS_DESCRIPTION}\n`,
       );
 
       gateOnPinnedRunner(

@@ -28,9 +28,8 @@
 //
 // Every run is a fresh launch, because the scenario's frozen clock does not rewind. Idle, the clock
 // stops at the end of the history; streaming, it moves through the four lanes' stretch at a steady
-// pace across the series (`startPacedDelivery`). Each load launches once cold, printed on its own
-// as the first-launch figure, and gates on the median over the warm launches after it
-// (`../frame-sampling.ts` says why).
+// pace across the series (`startPacedDelivery`). Each load gates on the median over three fresh
+// launches (`../frame-sampling.ts`).
 
 import process from "node:process";
 
@@ -167,18 +166,17 @@ describe.skipIf(!bundleIsBuilt)("endurance — scrolling the conversation", () =
     it(`${load}: a frame each refresh through the flings, no janky or unrastered frame, each fling moving as soon as on a plain page`, async () => {
       // Every launch runs inside the test: the harness binds each app's lifetime to the running
       // test, which a hook is not.
-      const { firstLaunch, warmLaunches: runs } = await measureLaunches(
+      const runs = await measureLaunches(
         async () =>
           await scrollConversationOnce({ load, flingCount: FLING_COUNT, planted: undefined }),
       );
-      reportFirstLaunch(load, firstLaunch);
 
       const frameGapExcessesMs = runs.map(({ conversation }) => frameGapExcessMs(conversation));
       const frameGapMs = medianOf(frameGapExcessesMs);
       const frameGapVerdict = evaluateBudget(frameGapBudget, frameGapMs);
       report(
         load,
-        `presented-frame gap p95 ${frameGapMs.toFixed(2)} ms past one refresh (median of warm ` +
+        `presented-frame gap p95 ${frameGapMs.toFixed(2)} ms past one refresh (median of fresh ` +
           `launches ${describeFigures(frameGapExcessesMs, 2)}; one refresh is ` +
           `${describeRefreshes(runs)} ms)`,
         frameGapVerdict,
@@ -189,7 +187,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — scrolling the conversation", () =
       const jankVerdict = evaluateBudget(jankyFramesBudget, jankShare);
       report(
         load,
-        `janky frames ${(jankShare * 100).toFixed(3)} % (median of warm launches ` +
+        `janky frames ${(jankShare * 100).toFixed(3)} % (median of fresh launches ` +
           `${runs.map(({ conversation }) => describeJank(conversation)).join(", ")})`,
         jankVerdict,
       );
@@ -200,7 +198,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — scrolling the conversation", () =
       report(
         load,
         `frames drawn with unrastered content ${String(unrasteredCount)} ` +
-          `(warm launches ${unrasteredCounts.join(" + ")} of ` +
+          `(fresh launches ${unrasteredCounts.join(" + ")} of ` +
           `${runs.map(({ conversation }) => String(conversation.presentedFrameCount)).join(" + ")})`,
         unrasteredVerdict,
       );
@@ -211,7 +209,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — scrolling the conversation", () =
       report(
         load,
         `median first moved frame ${firstMovedMs.toFixed(2)} ms over the plain page's (median ` +
-          `of warm launches ${describeFigures(firstMovedExcessesMs, 2)}; ` +
+          `of fresh launches ${describeFigures(firstMovedExcessesMs, 2)}; ` +
           `${runs.map(describeFirstMovedFrames).join("; ")})`,
         firstMovedVerdict,
       );
@@ -537,21 +535,5 @@ function report(load: ConversationLoad, reading: string, verdict: BudgetVerdict)
       `${String(verdict.limitCanonicalValue)} ${verdict.canonicalUnit} ceiling ` +
       `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget) — ` +
       `${RUNNER_CLASS_DESCRIPTION}\n`,
-  );
-}
-
-/** Prints the cold first launch's four readings on one line, apart from the gated medians. */
-function reportFirstLaunch(load: ConversationLoad, run: ConversationRun): void {
-  const { conversation } = run;
-  process.stdout.write(
-    `[endurance] scrolling the conversation, ${load}: first launch, cold GPU caches, not ` +
-      `gated: presented-frame gap p95 ${frameGapExcessMs(conversation).toFixed(2)} ms past one ` +
-      `refresh (one refresh is ${conversation.refreshIntervalMs.toFixed(3)} ms); janky frames ` +
-      `${(jankShareOf(conversation) * 100).toFixed(3)} % ` +
-      `(${describeJank(conversation)}); frames drawn with unrastered content ` +
-      `${String(conversation.unrasteredFrameCount)} of ` +
-      `${String(conversation.presentedFrameCount)}; median first moved frame ` +
-      `${firstMovedFrameExcessMs(run).toFixed(2)} ms over the plain page's ` +
-      `(${describeFirstMovedFrames(run)}) — ${RUNNER_CLASS_DESCRIPTION}\n`,
   );
 }

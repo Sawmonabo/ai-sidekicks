@@ -16,6 +16,7 @@ import { flushSync } from "react-dom";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { watchElementsResize } from "#renderer/lib/element-resize.js";
+import { requestLayoutRead } from "../../layout-reads.js";
 import {
   MarkdownWindowViewportContext,
   type MarkdownWindowViewport,
@@ -90,9 +91,7 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
     // cut's, which the browser raises as a resize loop. A row that reached the box at the report
     // with no scroll draws the answer inside it, before the frame paints.
     let isFirstReportDeferred = viewport !== undefined && isRowScreensAboveBox(viewport, rowKey, 1);
-    let cancelFirstRead = isFirstReportDeferred
-      ? undefined
-      : firstCutReads.request(readFirstAnswer);
+    let cancelFirstRead = isFirstReportDeferred ? undefined : requestLayoutRead(readFirstAnswer);
     let stopWatchingScroll: Unsubscribe | undefined;
     // The first answer no longer waits, so the scroll has nothing more to tell this row.
     const endFirstReportDeferral = (): void => {
@@ -104,7 +103,7 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
       const unsubscribe = viewport.scrollController.subscribeToGeometry(() => {
         if (isFirstReportDeferred && !isRowScreensAboveBox(viewport, rowKey, 0)) {
           endFirstReportDeferral();
-          cancelFirstRead = firstCutReads.request(readFirstAnswer);
+          cancelFirstRead = requestLayoutRead(readFirstAnswer);
         }
       });
       // Subscribing replays the last sample, which may already have ended the wait.
@@ -155,47 +154,6 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
 
 /** Under half a pixel is the layout's rounding, not a line past the cut. */
 const CUT_TOLERANCE_PX = 0.5;
-
-/**
- * The first reads of the cuts one commit arms, each measuring its box and content and answering
- * whether the output runs past the cut, made once the commit is done and before the frame paints.
- * The conversation writes each inserted row's place as it measures it, between the rows' effects,
- * so a read in each effect lays the rows out again; read together after the commit, the inserted
- * rows are laid out once.
- */
-class FirstCutReads {
-  readonly #pending = new Set<() => void>();
-
-  /** Runs `read` with the others its commit armed; the returned call drops it unrun. */
-  public request(read: () => void): () => void {
-    if (this.#pending.size === 0) {
-      queueMicrotask(() => {
-        this.#readPending();
-      });
-    }
-    this.#pending.add(read);
-    return () => {
-      this.#pending.delete(read);
-    };
-  }
-
-  #readPending(): void {
-    const reads = [...this.#pending];
-    this.#pending.clear();
-    if (reads.length === 0) {
-      return;
-    }
-    // The answers are drawn together once every read is made, before the frame paints, so the
-    // conversation measures each row with its `Show all`.
-    flushSync(() => {
-      for (const read of reads) {
-        read();
-      }
-    });
-  }
-}
-
-const firstCutReads = new FirstCutReads();
 
 /**
  * Whether row `rowKey` ends `screenCount` screens or more above the conversation's box, at the

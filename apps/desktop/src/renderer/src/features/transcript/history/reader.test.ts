@@ -102,4 +102,53 @@ describe("TranscriptHistoryReader", () => {
       hasPageLanded: true,
     });
   });
+
+  it("offers a failed read inside the window again on the catch-up line", async () => {
+    // The whole log held but rows 11 to 49, which a run's window left out.
+    const sessionStore = openPagedSessionStore(0, LOG_ROW_COUNT - 1);
+    sessionStore.releaseOutside(
+      transcriptFixtureStreamCursor(0),
+      transcriptFixtureStreamCursor(LOG_ROW_COUNT - 1),
+      [
+        {
+          lastHeldCursorBefore: transcriptFixtureStreamCursor(10),
+          firstHeldCursorAfter: transcriptFixtureStreamCursor(50),
+        },
+      ],
+    );
+    const queuedTasks: (() => void)[] = [];
+    const reader = new TranscriptHistoryReader(sessionStore, new ManualClock(), (task) => {
+      queuedTasks.push(task);
+    });
+    reader.measureWith({
+      screenHeightPx: () => OWED_HEIGHT_PX,
+      smallestRowHeightPx: () => SMALLEST_ROW_ESTIMATE_PX,
+      heldHeightPx: (transcript) => transcript.length * ROW_HEIGHT_PX,
+    });
+    const log = scriptedTranscriptLog(LOG_ROW_COUNT);
+    const runQueuedTasks = async () => {
+      for (const task of queuedTasks.splice(0)) {
+        task();
+      }
+      await letReadsLand();
+    };
+    const failedReads = () => sessionStore.failedDependentReads.readable.getState().failedReads;
+    const [stretch] = sessionStore.snapshot().releasedStretches;
+
+    log.refuseNextRead();
+    expect(reader.readReleasedStretch(stretch!, "backward", log.read)).toBe(true);
+    await runQueuedTasks();
+    expect(failedReads()).toHaveLength(1);
+    expect(reader.state().inside).toMatchObject({ isReading: false, hasFailed: true });
+
+    sessionStore.failedDependentReads.retryFailed();
+    await runQueuedTasks();
+    expect(log.requests).toHaveLength(2);
+    expect(failedReads()).toEqual([]);
+    // The page landed nearest the window, so the stretch still let go ends lower.
+    const [shrunk, ...others] = sessionStore.snapshot().releasedStretches;
+    expect(others).toEqual([]);
+    expect(shrunk?.lastHeldSequenceBefore).toBe(10);
+    expect(shrunk?.firstHeldCursorAfter).not.toBe(stretch?.firstHeldCursorAfter);
+  });
 });

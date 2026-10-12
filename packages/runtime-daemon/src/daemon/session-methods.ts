@@ -17,7 +17,10 @@ import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import { EventLogService } from "../events/log-service.js";
-import type { DamagedFromSequenceReader } from "../events/session/read.js";
+import {
+  prepareSessionEventReads,
+  type DamagedFromSequenceReader,
+} from "../events/session/read.js";
 import { SessionPurge, type ProjectRuleWithdrawal } from "../events/session/purge.js";
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
 import {
@@ -387,15 +390,21 @@ export function registerSessionMethods(
       writeServiceLog: deps.writeServiceLog,
     }),
   });
+  // One set of prepared log reads serves the window and the body reads.
+  const transcriptEventReads = prepareSessionEventReads(
+    database.reader,
+    deps.readDamagedFromSequence,
+  );
   registerTranscriptRead(registry, {
     transcriptWindows: new TranscriptWindowReader(
       database.reader,
+      transcriptEventReads,
       transcriptProjector,
       deps.readDamagedFromSequence,
     ),
   });
   registerTranscriptBodyRead(registry, {
-    transcriptBodies: new TranscriptBodyReader(database.reader, deps.readDamagedFromSequence),
+    transcriptBodies: new TranscriptBodyReader(transcriptEventReads, deps.readDamagedFromSequence),
   });
   registerTranscriptSearch(registry, {
     transcriptSearch: {

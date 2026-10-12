@@ -69,7 +69,7 @@ describe("the viewport controller — the row under the reader stays put", () =>
 });
 
 describe("the viewport controller — one stretch per gesture", () => {
-  it("tells gestures apart by the scroll events' own time stamps, whatever the app clock reads", () => {
+  it("ends a gesture at the box's scrollend and a pause after it, whatever the app clock reads", () => {
     const rows = syntheticRows(LOG_ROW_COUNT);
     // The app clock never moves, as in a fixture build: only the events' stamps can end a gesture.
     const controller = new ViewportController({ clock: new ManualClock() });
@@ -99,9 +99,58 @@ describe("the viewport controller — one stretch per gesture", () => {
     approachTop(2 * rowHeightPx, 1_016);
     expect(firstHeldKey()).toBe(headAfterFirstStretch);
 
-    // A pause as long as the gap ends the gesture, so the next approach brings a stretch of its
-    // own.
-    approachTop(rowHeightPx, 1_016 + TRANSCRIPT_GESTURE_GAP_MS);
+    // A trackpad's momentum wheel a busy machine handed over long late, moving the box slowly:
+    // before the box's scrollend it is still the same gesture.
+    const lateMomentumAtMs = 1_016 + 400;
+    approachTop(2 * rowHeightPx - 1, lateMomentumAtMs);
+    expect(firstHeldKey()).toBe(headAfterFirstStretch);
+
+    // The box stops and the platform ends the scroll; a pause as long as the gap after it ends the
+    // gesture, so the next approach brings a stretch of its own.
+    scrollContainer.endScroll();
+    approachTop(rowHeightPx, lateMomentumAtMs + TRANSCRIPT_GESTURE_GAP_MS);
+    expect(firstHeldKey()).not.toBe(headAfterFirstStretch);
+  });
+
+  it("carries a fling on through a frame a busy machine drew late, and ends it at a pause", () => {
+    const rows = syntheticRows(LOG_ROW_COUNT);
+    const controller = new ViewportController({ clock: new ManualClock() });
+    const rowHeightPx = controller.measurements.heightOf("row-0");
+    const scrollContainer = createCountingScrollContainer({
+      initialScrollTop: 200 * rowHeightPx,
+      clientHeight: VIEWPORT_HEIGHT_PX,
+      scrollHeight: 400_000,
+    });
+    controller.attach(scrollContainer);
+    controller.reconcile({ rows, ...CALM }, NO_LINK);
+    controller.anchor.capture({ rowKey: READER_ROW_KEY, offsetWithinViewportPx: 0 });
+    const firstHeldKey = (): string | undefined => controller.snapshot().rowKeys[0];
+    const scrollTopPx = (): number => controller.scroll.geometry?.scrollTop ?? Number.NaN;
+    const commitHold = (): void => {
+      controller.commitPendingPositionHold(controller.snapshot().rows);
+    };
+
+    // The hand flicks toward the head and lets go; the first stretch arrives.
+    scrollContainer.moveTo(3 * rowHeightPx, 1_000);
+    commitHold();
+    const headAfterFirstStretch = firstHeldKey();
+    // A frame on, the momentum moves the box a pixel, the gesture's pace from here. The
+    // transcript's own write in that frame fires a scrollend while the fling goes on.
+    scrollContainer.coastTo(scrollTopPx() - 1, 1_016);
+    commitHold();
+    scrollContainer.endScroll();
+    // The main thread draws the next frame late, and the box moved on through it faster than that
+    // pace: the same gesture, so no stretch more.
+    const lateFrameAtMs = 1_016 + TRANSCRIPT_GESTURE_GAP_MS + 33;
+    scrollContainer.coastTo(rowHeightPx, lateFrameAtMs);
+    commitHold();
+    expect(firstHeldKey()).toBe(headAfterFirstStretch);
+
+    // The fling ends, then after a pause with the box still the reader's wheel jumps it half a row,
+    // faster than the gesture's pace too: the input after the pause makes it a gesture of its own.
+    scrollContainer.endScroll();
+    scrollContainer.moveTo(rowHeightPx / 2, lateFrameAtMs + TRANSCRIPT_GESTURE_GAP_MS);
+    commitHold();
     expect(firstHeldKey()).not.toBe(headAfterFirstStretch);
   });
 });

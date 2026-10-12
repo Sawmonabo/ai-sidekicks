@@ -26,7 +26,9 @@ import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { sampleRunRow, sampleUserMessageRow } from "#test/helpers/transcript/event-row-samples.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { MessageRow } from "../../rows/MessageRow.js";
+import { PreparedBodiesContext } from "../../rows/prepared-bodies.js";
 import { classifyTranscriptRow } from "../../rows/kind.js";
+import { prepareRowBodiesForTest } from "../../rows/preparation.test-support.js";
 import { FootnoteRegistry } from "../../rows/markdown/footnotes/registry.js";
 import { DrawnWindowSources } from "../../rows/drawn-window-sources.js";
 import { ViewportSelectionTracker } from "../../viewport/selection/tracker.js";
@@ -100,6 +102,7 @@ function Conversation(props: { readonly rows: typeof ROWS }): React.JSX.Element 
       }),
   );
   const [drawnWindowSources] = useState(() => new DrawnWindowSources());
+  const [preparedBodies] = useState(() => prepareRowBodiesForTest(props.rows).bodies);
   const [rowElements] = useState(() => new Map<string, Element>());
   useConversationCopy({
     selectionTracker: tracker,
@@ -126,44 +129,46 @@ function Conversation(props: { readonly rows: typeof ROWS }): React.JSX.Element 
     history: undefined,
   });
   return (
-    <div
-      ref={(element) => {
-        if (element === null) {
-          tracker.detach();
-          return;
-        }
-        tracker.attach(element);
-      }}
-    >
-      {props.rows.map((row, index) => {
-        const rowKind = classifyTranscriptRow(row) ?? expect.fail(`${row.type} is a message`);
-        return (
-          <WindowedListRow
-            key={row.id}
-            as="div"
-            rowIndex={index}
-            totalRowCount={props.rows.length}
-            rowRef={(element) => {
-              if (element !== null) {
-                rowElements.set(row.id, element);
-                tracker.addRow(element, row.id);
-              }
-            }}
-          >
-            <MessageRow
-              row={row}
-              rowKind={rowKind}
-              agentHue={undefined}
-              isSuperseded={false}
-              density="expanded"
-              footnotes={new FootnoteRegistry()}
-              thinkingRow={undefined}
-              editControl={undefined}
-            />
-          </WindowedListRow>
-        );
-      })}
-    </div>
+    <PreparedBodiesContext value={preparedBodies}>
+      <div
+        ref={(element) => {
+          if (element === null) {
+            tracker.detach();
+            return;
+          }
+          tracker.attach(element);
+        }}
+      >
+        {props.rows.map((row, index) => {
+          const rowKind = classifyTranscriptRow(row) ?? expect.fail(`${row.type} is a message`);
+          return (
+            <WindowedListRow
+              key={row.id}
+              as="div"
+              rowIndex={index}
+              totalRowCount={props.rows.length}
+              rowRef={(element) => {
+                if (element !== null) {
+                  rowElements.set(row.id, element);
+                  tracker.addRow(element, row.id);
+                }
+              }}
+            >
+              <MessageRow
+                row={row}
+                rowKind={rowKind}
+                agentHue={undefined}
+                isSuperseded={false}
+                density="expanded"
+                footnotes={new FootnoteRegistry()}
+                thinkingRow={undefined}
+                editControl={undefined}
+              />
+            </WindowedListRow>
+          );
+        })}
+      </div>
+    </PreparedBodiesContext>
   );
 }
 

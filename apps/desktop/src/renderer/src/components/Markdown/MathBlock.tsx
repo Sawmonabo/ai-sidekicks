@@ -32,13 +32,15 @@ export function MathBlock(props: MathBlockProps): React.JSX.Element {
   const displayRef = useMeasureNaturalWidth(
     state.status === "rendered" && props.isDisplayMode ? state.mathMarkup : undefined,
   );
+  // Read by a copy, which writes an inline formula back inline and a display one as a block.
+  const formulaKind = props.isDisplayMode ? "display" : "inline";
 
   if (state.status === "rendered") {
     return (
       <span
         ref={displayRef}
         className={props.isDisplayMode ? "meridian-math--display" : "meridian-math--inline"}
-        data-math=""
+        data-math={formulaKind}
         // KaTeX's HTML and MathML output over `trust: false`.
         dangerouslySetInnerHTML={{ __html: state.mathMarkup }}
       />
@@ -46,7 +48,7 @@ export function MathBlock(props: MathBlockProps): React.JSX.Element {
   }
 
   return (
-    <span className="meridian-math--source" data-math="">
+    <span className="meridian-math--source" data-math={formulaKind}>
       <code>{props.source}</code>
       {state.status === "unrenderable" ? (
         <Nothing

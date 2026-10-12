@@ -2,8 +2,9 @@
 // first event its start row is drawn from and the last its end row is drawn from, noted while the
 // log holds them, or an end of the conversation, the stream's newest event as the copy is asked
 // for at its end, and the events between, read when the copy is asked for, from the store where it
-// holds them and back through `transcript.read` where it does not. The store keeps only the rows
-// its window holds, so a long selection costs memory only while its copy is read.
+// holds them and back through `transcript.read` where it does not: before and after what it holds,
+// and in each stretch it let go between, as a long run's calls cut from its window. The store keeps
+// only the rows its window holds, so a long selection costs memory only while its copy is read.
 
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
@@ -15,6 +16,7 @@ import {
 } from "#renderer/services/daemon/transcript/page.js";
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import type { SessionStoreState } from "#renderer/store/session/state.js";
 import { type RowSelection, type RowSelectionBoundary } from "../viewport/selection/record.js";
 import { type RowSourceSpan } from "../window/row-sources.js";
 
@@ -31,12 +33,20 @@ export interface SelectionEventSpan {
   readonly end: SelectionEndEvent;
 }
 
-/** The store's log as a copy found it: its events, oldest first, and the read before the first. */
+/**
+ * The store's log as a copy found it: its events, oldest first, the read before the first, and the
+ * stretches it let go between them.
+ */
 export interface HeldTranscript {
   readonly events: readonly ProjectedSessionEvent[];
   /** The cursor a read before the oldest held event is asked with; `undefined` at the start. */
   readonly headCursor: EventCursor | undefined;
+  /** The stretches let go between held events, in log order. */
+  readonly releasedStretches: readonly ReleasedEventStretch[];
 }
+
+/** One stretch the store let go inside the log it holds, as the store names it. */
+export type ReleasedEventStretch = SessionStoreState["releasedStretches"][number];
 
 /** What a copy reads the events of its selection with. */
 export interface SelectedEventsRead {
@@ -95,8 +105,9 @@ export class SelectionEventSpanRecord {
 
 /**
  * Every event from `span`'s start to its end, oldest first: the ones `held` holds, and the rest
- * read back through `transcript.read`, a page at a time, before and after it. `undefined` when a
- * newer copy took over. Throws a `RefusalError` when a page is refused, so no part is copied.
+ * read back through `transcript.read`, a page at a time, before and after it and in each stretch
+ * it let go between. `undefined` when a newer copy took over. Throws a `RefusalError` when a page
+ * is refused, so no part is copied.
  */
 export async function readSelectedEvents(
   span: SelectionEventSpan,
@@ -124,10 +135,36 @@ export async function readSelectedEvents(
   if (before === undefined || after === undefined) {
     return undefined;
   }
-  const between = held.events.filter(
-    (event) => event.sequence >= start.sequence && event.sequence <= end.sequence,
-  );
-  return [...before, ...between, ...after];
+  const releasedReads = await readReleasedStretches(span, held, read);
+  if (releasedReads === undefined) {
+    return undefined;
+  }
+  // Each stretch read back goes in before the first held event after it.
+  const events = [...before];
+  let readIndex = 0;
+  const takeReleasedBefore = (sequence: number): void => {
+    for (
+      let released = releasedReads[readIndex];
+      released !== undefined && released.lastHeldSequenceBefore < sequence;
+      released = releasedReads[readIndex]
+    ) {
+      for (const releasedEvent of released.events) {
+        events.push(releasedEvent);
+      }
+      readIndex += 1;
+    }
+  };
+  for (const event of held.events) {
+    takeReleasedBefore(event.sequence);
+    if (event.sequence >= start.sequence && event.sequence <= end.sequence) {
+      events.push(event);
+    }
+  }
+  takeReleasedBefore(Infinity);
+  for (const afterEvent of after) {
+    events.push(afterEvent);
+  }
+  return events;
 }
 
 /** What an end of a selection was noted as: its row's event, or an end of the conversation. */
@@ -168,6 +205,58 @@ function endEventOf(row: {
   return { sequence: row.sequence, cursor: row.cursor };
 }
 
+/** The events of one stretch the store let go, read back, after the held event before it. */
+interface ReleasedStretchRead {
+  readonly lastHeldSequenceBefore: number;
+  readonly events: readonly ProjectedSessionEvent[];
+}
+
+/**
+ * The events of each stretch `held` let go that lies between `span`'s ends, each read back from
+ * the first held event after it, or from the end where the end lies inside it, down to the
+ * stretch's start or the span's, in log order; `undefined` when a newer copy took over.
+ */
+async function readReleasedStretches(
+  span: SelectionEventSpan,
+  held: HeldTranscript,
+  read: SelectedEventsRead,
+): Promise<ReleasedStretchRead[] | undefined> {
+  const { start, end } = span;
+  const reads: ReleasedStretchRead[] = [];
+  // Stretches come in log order, so one walk through the held events finds what follows each.
+  let heldIndex = 0;
+  for (const stretch of held.releasedStretches) {
+    const { lastHeldSequenceBefore, firstHeldCursorAfter } = stretch;
+    if (lastHeldSequenceBefore >= end.sequence) {
+      break;
+    }
+    while ((held.events[heldIndex]?.sequence ?? Infinity) <= lastHeldSequenceBefore) {
+      heldIndex += 1;
+    }
+    const firstHeldSequenceAfter = held.events[heldIndex]?.sequence ?? Infinity;
+    if (firstHeldSequenceAfter <= start.sequence) {
+      continue;
+    }
+    const isEndInside = end.sequence < firstHeldSequenceAfter;
+    const events = await readBackward(
+      isEndInside ? end.cursor : firstHeldCursorAfter,
+      Math.max(start.sequence, lastHeldSequenceBefore + 1),
+      read,
+    );
+    if (events === undefined) {
+      return undefined;
+    }
+    reads.push({
+      lastHeldSequenceBefore,
+      // A read from the held event after the stretch takes that event too, which is held.
+      events: isEndInside
+        ? events
+        : events.filter((event) => event.sequence < firstHeldSequenceAfter),
+    });
+  }
+  return reads;
+}
+
 /**
  * The events at or before `cursor` down to the one at `downToSequence`, oldest first, read a page
  * at a time; `undefined` when a newer copy took over between pages.
@@ -177,7 +266,8 @@ async function readBackward(
   downToSequence: number,
   read: SelectedEventsRead,
 ): Promise<ProjectedSessionEvent[] | undefined> {
-  const events: ProjectedSessionEvent[] = [];
+  // Newest page first; joined once, oldest first, at the end.
+  const pages: ProjectedSessionEvent[][] = [];
   for (let next = cursor; next !== undefined; ) {
     const reply = await read.readPage({
       sessionId: heldIdAsWireId(read.sessionId),
@@ -191,9 +281,9 @@ async function readBackward(
       throw new RefusalError(reply.refusal);
     }
     const page = readTranscriptPage(reply.value);
-    events.unshift(...page.events.filter((event) => event.sequence >= downToSequence));
+    pages.push(page.events.filter((event) => event.sequence >= downToSequence));
     const reachedStart = page.events.some((event) => event.sequence <= downToSequence);
     next = reachedStart || !page.edge.hasMore ? undefined : page.edge.cursor;
   }
-  return events;
+  return pages.reverse().flat();
 }

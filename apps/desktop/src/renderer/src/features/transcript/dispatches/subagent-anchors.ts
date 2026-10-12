@@ -38,12 +38,6 @@ export class SubagentAnchorIndex {
   readonly #heldByKey = new Map<string, { anchor: SubagentAnchor; rowIds: string[] }>();
   readonly #anchorsByRowId = new Map<string, SubagentAnchor>();
 
-  public constructor(rows: readonly TranscriptEventRow[] = []) {
-    for (const row of rows) {
-      this.admit(row);
-    }
-  }
-
   /** Fold one row in, after every row admitted before it. */
   public admit(row: TranscriptEventRow): void {
     const identity = subagentIdentityOf(row);
@@ -68,19 +62,9 @@ export class SubagentAnchorIndex {
     this.#anchorsByRowId.set(row.id, anchor);
   }
 
-  /** Every anchor, keyed by its identity's key, in first-appearance order. */
-  public anchors(): ReadonlyMap<string, SubagentAnchor> {
-    return new Map([...this.#heldByKey].map(([key, held]) => [key, held.anchor]));
-  }
-
   /** The anchor a row belongs to, for the feed's per-row dispatch. */
   public anchorForRowId(rowId: string): SubagentAnchor | undefined {
     return this.#anchorsByRowId.get(rowId);
-  }
-
-  /** Whether this row is the one its subagent's activity hangs from. */
-  public isAnchorRow(rowId: string): boolean {
-    return this.anchorForRowId(rowId)?.anchorRowId === rowId;
   }
 
   /**
@@ -96,13 +80,6 @@ export class SubagentAnchorIndex {
 /** `runId`, `provider` and `subagentId` as one map key. */
 export function subagentIdentityKey(identity: SubagentIdentity): string {
   return `${identity.runId} ${identity.provider} ${identity.subagentId}`;
-}
-
-/** Derive every subagent anchor over one window, for a caller that reads a log once. */
-export function deriveSubagentAnchors(
-  rows: readonly TranscriptEventRow[],
-): ReadonlyMap<string, SubagentAnchor> {
-  return new SubagentAnchorIndex(rows).anchors();
 }
 
 /**

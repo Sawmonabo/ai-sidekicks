@@ -1,4 +1,4 @@
-// The members a command output's virtualizer is built with, and the state behind them. The window
+// The members an output's virtualizer is built with, and the state behind them. The window
 // lays the output's chunks of lines out against the conversation scroller through
 // `ScrollerWindowMembers`, from the top of the output's lines in the scroller's content, read from
 // its row's top and the lines' place in the row. Drawn chunks sit in flow as blocks of their own
@@ -17,6 +17,7 @@ import { offsetInRowPx, ScrollerWindowMembers } from "../../markdown/scroller-wi
 import { type AnsiLineChunk, type AnsiLineChunkList } from "./chunks.js";
 import {
   AnsiChunkMeasurement,
+  linesTextStyleOf,
   type AnsiIndexedChunk,
   type AnsiMeasuredChunkHeight,
 } from "./measurement.js";
@@ -70,7 +71,11 @@ export class AnsiLineWindowLayout {
       const type = this.#type;
       return element === undefined || type === undefined || this.#virtualizer === undefined
         ? undefined
-        : { ownerDocument: element.ownerDocument, widthPx: type.widthPx };
+        : {
+            ownerDocument: element.ownerDocument,
+            widthPx: type.widthPx,
+            textStyle: type.textStyle,
+          };
     },
     readUnmeasuredChunks: (count) => this.#unmeasuredChunks(count),
     takeHeights: (heights) => {
@@ -189,8 +194,8 @@ export class AnsiLineWindowLayout {
   }
 
   /**
-   * Reads the lines' type as they first mount, laying the page out once, so the window draws its
-   * chunks before the first frame paints; answers whether it read one.
+   * Reads the lines' type as they first mount, with the other layout reads of the commit, so the
+   * window draws its chunks before the first frame paints; answers whether it read one.
    */
   public readTypeOnMount(): boolean {
     const element = this.#linesElement;
@@ -342,16 +347,33 @@ export class AnsiLineWindowLayout {
     }
   }
 
-  /** The first `count` chunks whose height the virtualizer does not hold, in order. */
+  /**
+   * The first `count` chunks whose height the virtualizer does not hold, in order. A drawn chunk's
+   * is held, as its resize observation reports each change, so a growing last chunk drawn on screen
+   * is never measured again off screen.
+   */
   #unmeasuredChunks(count: number): AnsiIndexedChunk[] {
     const chunks: AnsiIndexedChunk[] = [];
     for (let index = 0; index < this.#chunks.count && chunks.length < count; index += 1) {
       const chunk = this.#chunks.chunkAt(index);
-      if (this.#measuredChunks[index] !== chunk) {
+      if (this.#measuredChunks[index] === chunk) {
+        continue;
+      }
+      if (this.#isDrawn(index)) {
+        this.#measuredChunks[index] = chunk;
+      } else {
         chunks.push({ index, chunk });
       }
     }
     return chunks;
+  }
+
+  /** Whether chunk `index` is drawn in the output's lines now, observed as it resizes. */
+  #isDrawn(index: number): boolean {
+    const virtualizer = this.#virtualizer;
+    return (
+      virtualizer?.elementsCache.get(virtualizer.options.getItemKey(index))?.isConnected === true
+    );
   }
 
   /**
@@ -383,13 +405,19 @@ interface AnsiLinesType {
   readonly widthPx: number;
   readonly lineHeightPx: number;
   readonly font: string;
-  /** One character's advance in the face; every character is taken as one, the face monospace. */
+  /**
+   * One digit's advance in the face; every character is taken as one, exact in a monospace face
+   * and an estimate in a proportional one, until the chunk is measured.
+   */
   readonly advancePx: number;
+  /** The lines' type as computed CSS declarations, which a frame outside their row is set in. */
+  readonly textStyle: string;
 }
 
 /**
- * The lines' type at `widthPx`, read from their computed style; the advance is measured on a
- * canvas only when the face changed from `held`'s. Throws where no canvas can measure.
+ * The lines' type at `widthPx`, read from their computed style; the advance is measured on the
+ * document's one canvas only when the face changed from `held`'s. Throws where no canvas can
+ * measure.
  */
 function readLinesType(
   element: HTMLElement,
@@ -399,17 +427,36 @@ function readLinesType(
   const style = getComputedStyle(element);
   const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
   const lineHeightPx = parseFloat(style.lineHeight);
+  const textStyle = linesTextStyleOf(style);
   if (held !== undefined && held.font === font) {
-    return { widthPx, lineHeightPx, font, advancePx: held.advancePx };
+    return { widthPx, lineHeightPx, font, advancePx: held.advancePx, textStyle };
   }
-  const context = element.ownerDocument.createElement("canvas").getContext("2d");
-  if (context === null) {
-    throw new Error("A canvas could not measure an output's lines.");
-  }
+  const context = advanceCanvases.contextOf(element.ownerDocument);
   context.font = font;
   const advancePx = context.measureText(ADVANCE_SAMPLE).width / ADVANCE_SAMPLE.length;
-  return { widthPx, lineHeightPx, font, advancePx };
+  return { widthPx, lineHeightPx, font, advancePx, textStyle };
 }
+
+/** One canvas per document that outputs' faces are measured on, made when first asked. */
+class AdvanceCanvases {
+  readonly #contexts = new WeakMap<Document, CanvasRenderingContext2D>();
+
+  /** The canvas context of `ownerDocument`. Throws where no canvas can measure. */
+  public contextOf(ownerDocument: Document): CanvasRenderingContext2D {
+    const held = this.#contexts.get(ownerDocument);
+    if (held !== undefined) {
+      return held;
+    }
+    const context = ownerDocument.createElement("canvas").getContext("2d");
+    if (context === null) {
+      throw new Error("A canvas could not measure an output's lines.");
+    }
+    this.#contexts.set(ownerDocument, context);
+    return context;
+  }
+}
+
+const advanceCanvases = new AdvanceCanvases();
 
 /** Characters enough that one advance reads past the canvas's rounding. */
 const ADVANCE_SAMPLE = "0".repeat(64);

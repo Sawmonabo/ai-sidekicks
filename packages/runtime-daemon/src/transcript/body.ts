@@ -1,26 +1,24 @@
 // The stored row `transcript.bodyRead` opens: one event of one session by its id, with the body its
 // `content_payload` column holds, read whole only when a client asks for it.
 
-import type { Database } from "better-sqlite3";
-
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { StoredEventContentRow } from "../events/content/read.js";
-import {
-  prepareSessionEventReads,
-  type DamagedFromSequenceReader,
-  type SessionEventReads,
-} from "../events/session/read.js";
+import type { DamagedFromSequenceReader, SessionEventReads } from "../events/session/read.js";
 import { readTranscriptHead } from "./window.js";
 
-/** Reads a transcript row's stored event and body from the daemon's read-only connection. */
+/** Reads a transcript row's stored event and body through the transcript's prepared reads. */
 export class TranscriptBodyReader {
-  readonly #reads: SessionEventReads;
+  readonly #reads: Pick<SessionEventReads, "readHead" | "readStoredRow">;
   readonly #readDamagedFromSequence: DamagedFromSequenceReader;
 
-  // `readDamagedFromSequence` keeps a damaged session's rows past its last good point unread.
-  constructor(reader: Database, readDamagedFromSequence: DamagedFromSequenceReader) {
-    this.#reads = prepareSessionEventReads(reader, readDamagedFromSequence);
+  // `reads` are prepared with `readDamagedFromSequence`, which also tells a session damaged
+  // before its first event from one this daemon lacks.
+  constructor(
+    reads: Pick<SessionEventReads, "readHead" | "readStoredRow">,
+    readDamagedFromSequence: DamagedFromSequenceReader,
+  ) {
+    this.#reads = reads;
     this.#readDamagedFromSequence = readDamagedFromSequence;
   }
 

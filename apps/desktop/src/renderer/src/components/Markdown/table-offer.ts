@@ -50,6 +50,11 @@ export interface MarkdownTableFrame {
   readonly bodyRef?: React.Ref<HTMLTableSectionElement>;
   /** The widths the columns are held at; `undefined` lays them out from the rows drawn. */
   readonly columns: HeldTableColumns | undefined;
+  /**
+   * Whether held columns keep only their shares of the table, which then shrinks to its room: the
+   * room is narrower than the one they were measured in, until they are measured at its width.
+   */
+  readonly isShrunkToRoom: boolean;
   /** Every row of the table, the head row included, for assistive technology; or `undefined`. */
   readonly rowCount: number | undefined;
   readonly headRow: React.ReactNode;

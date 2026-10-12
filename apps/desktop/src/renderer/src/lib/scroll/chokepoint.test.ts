@@ -37,7 +37,7 @@ describe("the scroll chokepoint — writes", () => {
     expect(controller.glideTo("find-match", Number.NaN)?.appliedScrollTop).toBe(0);
   });
 
-  it("skips a write to the offset the last sample holds, reading and writing nothing", () => {
+  it("skips a repeated write to the offset the last sample holds, and moves a one-shot one", () => {
     controller.attach(scrollContainer);
     scrollContainer.moveTo(1000);
     // The box moves again with its scroll event still to come; that event publishes where it
@@ -51,6 +51,12 @@ describe("the scroll chokepoint — writes", () => {
     expect(write?.wasSkipped).toBe(true);
     expect(offsetRead).not.toHaveBeenCalled();
     expect(offsetWrite).not.toHaveBeenCalled();
+
+    // A person's one ask to that offset is never asked again, so it reads the box and moves it.
+    const jump = controller.glideTo("find-match", 1000);
+
+    expect(jump?.wasSkipped).toBe(false);
+    expect(scrollContainer.scrollTop).toBe(1000);
   });
 });
 

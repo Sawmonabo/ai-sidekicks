@@ -41,10 +41,10 @@ import {
   LONG_LOG_EVENT_COUNT,
   RowIdBody,
   boundController,
-  readerScrollsTo,
   renderFeed,
   scrollContainerOf,
 } from "./TranscriptFeed.test-support.js";
+import { readerScrollsTo } from "#test/helpers/transcript/reader-scroll.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -173,8 +173,9 @@ describe("the transcript feed — reading earlier history", () => {
     });
     expect(log.requests).toHaveLength(1);
 
-    // A pause ends the gesture, timed by the pulls' own event stamps, and the next pull at the top
-    // reads before the new head.
+    // The scroll ends and a pause after it ends the gesture, timed by the pulls' own event stamps,
+    // and the next pull at the top reads before the new head.
+    fireEvent(scrollContainer, new Event("scrollend"));
     const headCursor = sessionStore.snapshot().transcriptHead.cursor;
     const pullAfterPause = new WheelEvent("wheel", { deltaY: -100, bubbles: true });
     Object.defineProperty(pullAfterPause, "timeStamp", {

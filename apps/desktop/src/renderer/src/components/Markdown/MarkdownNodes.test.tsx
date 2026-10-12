@@ -7,10 +7,10 @@ import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { MarkdownNodes } from "./MarkdownNodes.js";
 import { parseSettledBlock } from "./parse.js";
 
-/** These documents hold no code block, so nothing may ask for colors. */
 /** Leaves the renderer's caches alone: no case here shows enough pictures to empty them for. */
 const keepUnusedMemory = (): void => undefined;
 
+/** These documents hold no code block, so nothing may ask for colors. */
 const NO_CODE_SPANS: CodeSpanReader = {
   heldSpans: () => {
     throw new Error("A document here asked for code colors.");

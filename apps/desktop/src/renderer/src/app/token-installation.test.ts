@@ -2,17 +2,10 @@
 // leaving the text it sets in the fallback with nothing said. The test DOM has no font set, so the
 // case hands the document one whose loads it answers.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 
 import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
 import { installMeridianTokens } from "./token-installation.js";
-
-let detachForwarder: (() => void) | undefined;
-
-afterEach(() => {
-  detachForwarder?.();
-  detachForwarder = undefined;
-});
 
 describe("installMeridianTokens", () => {
   it("records a face that fails to load, with its reason", async () => {
@@ -29,9 +22,10 @@ describe("installMeridianTokens", () => {
       },
     });
     const batches: string[] = [];
-    detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
+    const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
       batches.push(jsonLines);
     });
+    onTestFinished(detachForwarder);
 
     installMeridianTokens(targetDocument);
     await Promise.resolve();

@@ -4,15 +4,24 @@
 // they arrive. A formula's markup is kept once typeset, so a formula drawn again is not typeset
 // again. The first formula costs work no later one does: the platform's font fallback starting up,
 // then opening each system face the MathML KaTeX draws beside its glyphs falls back to, and
-// KaTeX's own code compiling. All of it is paid once, a step per idle task, before any formula is
-// drawn, rather than inside the frame that draws the first one.
+// KaTeX's own code compiling. All of it is paid once, in idle tasks a slice at a time, before any
+// formula is drawn, rather than inside the frame that draws the first one. A warm-up that fails is
+// recorded and given up: formulas then draw at once and pay that cost themselves.
 
 import "./sheet.scss";
 
 import { ParseError, renderToString } from "katex";
 
+import { describeFailure } from "#shared/failure-message.js";
 import { ByteBoundedCache } from "#renderer/lib/byte-bounded-cache.js";
+import { RealClock } from "#renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "#renderer/lib/diagnostic-capture/capture.js";
+import { queueIdleTaskIn } from "#renderer/lib/idle-task.js";
 import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
+import { startSlice } from "#renderer/lib/work-slices.js";
 
 /**
  * Bytes of typeset markup kept across every formula, charged against the source and the markup.
@@ -75,23 +84,23 @@ export async function prepareMathDrawing(windowDocument: Document): Promise<void
 
 /**
  * The first-formula work, done once for the app: starting the platform's font fallback, opening
- * each system face it picks for KaTeX's symbols, then compiling KaTeX's code, each step alone in an
- * idle task of the window that first draws a formula.
+ * each system face it picks for KaTeX's symbols, then compiling KaTeX's code, in idle tasks of the
+ * window that first draws a formula. A failure is recorded in the window's diagnostics and the
+ * warm-up counts as done, so no formula waits on it again.
  */
 class MathWarmUp {
   #warmed: Promise<void> | undefined;
 
   public warm(view: Window): Promise<void> {
-    if (this.#warmed === undefined) {
-      const warmed = this.#warmIn(view);
-      this.#warmed = warmed;
-      // A failed warm-up is not kept, so the chunk load's retry warms again.
-      warmed.catch(() => {
-        if (this.#warmed === warmed) {
-          this.#warmed = undefined;
-        }
+    this.#warmed ??= this.#warmIn(view).catch((failure: unknown) => {
+      windowDiagnosticCapture.record({
+        at: diagnosticStampAt(new RealClock()),
+        severity: "warning",
+        source: MATH_WARM_UP_SOURCE,
+        kind: "math-warm-up-failed",
+        detail: `Warm up the formula typesetter: ${describeFailure(failure)}`,
       });
-    }
+    });
     return this.#warmed;
   }
 
@@ -109,8 +118,10 @@ class MathWarmUp {
       created.measureText(MATH_FACE_WARM_UP_TEXT);
       return created;
     });
-    for (const symbol of FALLBACK_WARM_UP_SYMBOLS) {
-      await runInIdleTask(view, () => context.measureText(symbol));
+    let measuredCount = 0;
+    while (measuredCount < FALLBACK_WARM_UP_SYMBOLS.length) {
+      const from = measuredCount;
+      measuredCount = await runInIdleTask(view, () => measureSymbolsFrom(context, from));
     }
     // KaTeX compiles each part of its code on first use; a formula touching the common parts
     // compiles them here, so the first real formula typesets at a warm formula's cost.
@@ -120,6 +131,9 @@ class MathWarmUp {
 
 const mathWarmUp = new MathWarmUp();
 
+/** Where a failed warm-up is recorded from. */
+const MATH_WARM_UP_SOURCE = "components/Markdown/typesetter";
+
 /** The face the warm-up measures in: the platform's math face, which MathML is drawn in. */
 const FALLBACK_WARM_UP_FONT = "16px math";
 
@@ -127,31 +141,36 @@ const FALLBACK_WARM_UP_FONT = "16px math";
 const MATH_FACE_WARM_UP_TEXT = "x";
 
 /**
- * One symbol for each system face macOS falls back to for the MathML KaTeX draws, found by laying
- * out every symbol KaTeX defines; the first, a mathematical italic small x, starts the fallback.
- * The rest are a dot operator, maps-to, a macron, a double right arrow, alef, a frown, a midline
- * ellipsis and a check mark.
+ * One symbol from each Unicode block KaTeX defines symbols in, the first it defines there, so
+ * whatever face a platform falls back to for a block is opened, on any platform. The first, a
+ * mathematical italic small x, is how the MathML draws a single-letter variable.
  */
-const FALLBACK_WARM_UP_SYMBOLS = [
+const FALLBACK_WARM_UP_SYMBOLS: readonly string[] = [
   "\u{1D465}",
-  "\u22C5",
-  "\u21A6",
-  "\u02C9",
-  "\u21D2",
+  "\u00A7",
+  "\u0131",
+  "\u02CA",
+  "\u03DD",
+  "\u2020",
+  "\u20D7",
   "\u2135",
-  "\u2322",
-  "\u22EF",
+  "\u21D0",
+  "\u2261",
+  "\u2323",
+  "\u24C8",
+  "\u2571",
+  "\u25EF",
+  "\u266D",
   "\u2713",
-] as const;
+  "\u27EF",
+  "\u27F5",
+  "\u29EB",
+  "\u2AAF",
+  "\uE010",
+];
 
 /** A formula touching KaTeX's common parts: scripts, a sum, a fraction, a root, delimiters. */
 const KATEX_WARM_UP_FORMULA = String.raw`\sum_{i=1}^{n} \frac{x_i}{\sqrt{y}} \le \left\lceil \alpha \right\rceil`;
-
-/**
- * How long a warm-up step waits for the window to idle before it runs anyway, in milliseconds: a
- * window drawing frame after frame may grant no idle time at all.
- */
-const IDLE_WAIT_MS = 50;
 
 /** KaTeX's markup for one formula, or a thrown `ParseError` when the source does not parse. */
 function renderMarkup(source: string, isDisplayMode: boolean): string {
@@ -166,18 +185,32 @@ function renderMarkup(source: string, isDisplayMode: boolean): string {
   });
 }
 
-/** Run `step` alone in an idle task of `view`, waiting at most `IDLE_WAIT_MS` for one. */
+/**
+ * Measures the warm-up symbols from `from` on for one slice, at least one, and answers how many
+ * are measured in all. A face opening runs past the slice by its own cost at most.
+ */
+function measureSymbolsFrom(context: OffscreenCanvasRenderingContext2D, from: number): number {
+  const hasTime = startSlice();
+  let measuredCount = from;
+  for (const symbol of FALLBACK_WARM_UP_SYMBOLS.slice(from)) {
+    context.measureText(symbol);
+    measuredCount += 1;
+    if (!hasTime()) {
+      break;
+    }
+  }
+  return measuredCount;
+}
+
+/** Run `step` alone in an idle task of `view`; rejects with what it throws. */
 function runInIdleTask<TResult>(view: Window, step: () => TResult): Promise<TResult> {
   return new Promise((resolve, reject) => {
-    view.requestIdleCallback(
-      () => {
-        try {
-          resolve(step());
-        } catch (error) {
-          reject(error as Error);
-        }
-      },
-      { timeout: IDLE_WAIT_MS },
-    );
+    queueIdleTaskIn(view, () => {
+      try {
+        resolve(step());
+      } catch (error) {
+        reject(error as Error);
+      }
+    });
   });
 }

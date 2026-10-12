@@ -5,7 +5,8 @@
 //
 // The store holds a window of the session's log, not the log: a read places it, the reader's pages
 // grow it at either edge (`transcript-window.ts`), `releaseOutside` lets go of what lies far from
-// the reading position, and `releaseBeyondNewest` bounds a session no screen shows. The stream
+// the reading position and of stretches inside it no one draws, `readReleasedStretch` takes one
+// such stretch back, and `releaseBeyondNewest` bounds a session no screen shows. The stream
 // keeps folding into the entities, the waiting-on-person register and the standing events whether
 // or not the window's tail follows it, so what is outstanding, and every fact a standing event
 // carries, outlives every row the window let go.
@@ -43,11 +44,16 @@ import {
   foldEarlierWindowPage,
   foldLaterWindowPage,
   foldLogEndPage,
+  foldReleasedStretchPage,
   releaseBeyondNewest,
   releaseOutsideKept,
+  releasedStretchesHeldIn,
   type EarlierWindowMerge,
   type LaterWindowMerge,
   type LogEndPageMerge,
+  type ReleasedStretchBounds,
+  type ReleasedStretchMerge,
+  type ReleasedStretchReadDirection,
   type TranscriptPageDependencies,
   type TranscriptWindowPage,
 } from "./transcript-window.js";
@@ -84,6 +90,7 @@ import {
   repairResumeRowCursor,
   uninitializedState,
   withDegradedCause,
+  type ReleasedEventStretch,
   type RepairReopening,
   type RepairResumePoint,
   type SessionBaseState,
@@ -421,17 +428,51 @@ export class SessionStore {
   }
 
   /**
-   * Lets go of the events outside `[firstKeptCursor, lastKeptCursor]` (by sequence), recording
-   * each edge so a later read brings them back; letting go past the tail detaches it. A cursor the
-   * window does not hold, as after a read replaced it, lets go of nothing.
+   * Lets go of the events outside `[firstKeptCursor, lastKeptCursor]` (by sequence), and of those
+   * strictly inside each of `releasedBetween`, recording each edge and stretch so a later read
+   * brings them back; letting go past the tail detaches it. A cursor the window does not hold, as
+   * after a read replaced it, lets go of nothing.
    */
-  public releaseOutside(firstKeptCursor: EventCursor, lastKeptCursor: EventCursor): void {
-    const next = releaseOutsideKept(this.#store.getState(), firstKeptCursor, lastKeptCursor);
+  public releaseOutside(
+    firstKeptCursor: EventCursor,
+    lastKeptCursor: EventCursor,
+    releasedBetween: readonly ReleasedStretchBounds[] = [],
+  ): void {
+    const next = releaseOutsideKept(
+      this.#store.getState(),
+      firstKeptCursor,
+      lastKeptCursor,
+      releasedBetween,
+    );
     if (next === undefined) {
       return;
     }
     this.#store.setState(next);
     recordStoreSize(this.#sessionId, next.transcript.length);
+  }
+
+  /**
+   * Adds a page read inside the released stretch `stretch`, `direction` from the event that bounds
+   * it; returns what it admitted. Not a second apply chokepoint, on the terms of
+   * {@link prependEarlierEvents}.
+   */
+  public readReleasedStretch(
+    stretch: ReleasedEventStretch,
+    direction: ReleasedStretchReadDirection,
+    page: TranscriptWindowPage,
+  ): ReleasedStretchMerge {
+    const { merge, nextState } = foldReleasedStretchPage(
+      this.#store.getState(),
+      stretch,
+      direction,
+      page,
+      this.#pageDependencies,
+    );
+    if (nextState !== undefined) {
+      this.#store.setState(nextState);
+      recordStoreSize(this.#sessionId, nextState.transcript.length);
+    }
+    return merge;
   }
 
   /**
@@ -576,6 +617,8 @@ export class SessionStore {
       // A replay under way lacks what the window took since it started and what the read carried.
       standingEvents: mergeStandingEvents(source.standingEvents, window.standingEvents),
       transcript,
+      // The stream sends again what follows the checkpoint, so only the stretches before it stay.
+      releasedStretches: releasedStretchesHeldIn(source.releasedStretches, transcript),
       transcriptTail:
         transcript.at(-1)?.sequence === point.cursor
           ? liveTailAfter(transcript)
@@ -620,11 +663,14 @@ export class SessionStore {
     const replayed = replay.state;
     this.#replay = undefined;
     this.#reconciler = replay.reconciler;
+    const window = replay.windowOnto(visible);
     return countingRaisedAgainCause(
       visible,
       {
         ...replayed,
-        ...replay.windowOnto(visible),
+        ...window,
+        // The window may have let its edges go past a stretch while the replay ran.
+        releasedStretches: releasedStretchesHeldIn(replayed.releasedStretches, window.transcript),
         // A page loaded while the replay ran advanced the window's.
         standingEvents: mergeStandingEvents(replayed.standingEvents, visible.standingEvents),
         isReplaying: false,
@@ -671,6 +717,7 @@ export class SessionStore {
 /** What a replay's start state clears: it begins whole, with nothing missing and no read failed. */
 const REPLAY_START = {
   lastAdmittedEvents: [],
+  releasedStretches: [],
   degradedCause: undefined,
   isReplaying: false,
   lastReadFailed: false,

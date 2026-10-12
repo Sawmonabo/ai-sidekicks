@@ -13,6 +13,7 @@ import { captureRejection } from "../../__fixtures__/capture-failure.js";
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { registerTranscriptBodyRead } from "../../ipc/handlers/transcript-methods.js";
 import { MethodRegistryImpl, RegistryDispatchError } from "../../ipc/registry.js";
+import { prepareSessionEventReads } from "../../events/session/read.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { insertStoredEvent } from "../../session/__fixtures__/stored-event.js";
 import { TranscriptBodyReader } from "../body.js";
@@ -61,7 +62,10 @@ describe("transcript.bodyRead — a row's whole body", () => {
     await seedMessage(1, null);
     const registry = new MethodRegistryImpl();
     registerTranscriptBodyRead(registry, {
-      transcriptBodies: new TranscriptBodyReader(scratch.reader, () => undefined),
+      transcriptBodies: new TranscriptBodyReader(
+        prepareSessionEventReads(scratch.reader),
+        () => undefined,
+      ),
     });
     const bodyRead = (sessionId: SessionId, rowId: string): Promise<unknown> =>
       registry.dispatch(TRANSCRIPT_BODY_READ_METHOD, { sessionId, rowId }, dispatchContext);

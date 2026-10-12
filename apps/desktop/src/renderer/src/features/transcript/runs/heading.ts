@@ -18,9 +18,15 @@ export interface RunGroupHeading {
 /** The words before the billed account. */
 export const BILLED_TO_LABEL = "billed to ";
 
-/** The line a run group header draws, counting the whole stretch, in its window or not. */
+/**
+ * The line a run group header draws, counting the whole stretch, in its window or not, and the
+ * drawn rows the store let go at either end of it.
+ */
 export function runGroupHeadingOf(runGroup: RunGroup): RunGroupHeading {
-  const entryCount = runGroup.drawnRowPositions.length;
+  const entryCount =
+    (runGroup.releasedEarlier?.count ?? 0) +
+    runGroup.drawnRowPositions.length +
+    (runGroup.releasedLater?.count ?? 0);
   return {
     actorId: runGroup.actorId,
     runState: runGroup.runStateEventType,

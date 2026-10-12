@@ -5,6 +5,7 @@ import type {
   ClipboardCopyStatus,
 } from "#renderer/components/CopyButton/CopyButton.js";
 import type { ScheduledHandle } from "#renderer/lib/clock.js";
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { TRANSIENT_STATUS_DURATION_MS } from "#renderer/lib/transient-status.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import {
@@ -23,8 +24,9 @@ import { usePlatformBridge } from "./usePlatformBridge.js";
  * text then held in pieces. Content that answers later, and text too long for one message, is
  * written only while the clipboard holds what it held when the copy was asked for, so a newer
  * copy made meanwhile, in this app or another, stands and this one settles nothing. A refused
- * copy, or content that could not be built, ends as `failed`, which the control says in place;
- * `onSettled` hears each outcome of a copy whose control is still mounted.
+ * copy, or content that could not be built, ends as `failed`, which the control says in place,
+ * its cause recorded in the window's diagnostics; `onSettled` hears each outcome of a copy whose
+ * control is still mounted.
  */
 export function useClipboardCopy(
   content: ReadyClipboardContent | (() => ReadyClipboardContent | Promise<PiecedClipboardContent>),
@@ -78,7 +80,8 @@ export function useClipboardCopy(
           settle("copied");
         }
       },
-      () => {
+      (failure: unknown) => {
+        recordRejectedRequest("services/platform/useClipboardCopy", "copy-failed", failure);
         settle("failed");
       },
     );

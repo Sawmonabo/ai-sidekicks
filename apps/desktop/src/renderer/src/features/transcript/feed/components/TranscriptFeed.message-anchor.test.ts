@@ -1,7 +1,8 @@
 // Opening a session at one message, as a link from a workflow run does: the feed finds the row by
 // its event cursor, keeps it however far back it sits, scrolls to it and puts focus on the log. A
 // message older than the window is reached by reading back. A cursor no read holds leaves the page
-// where it is, with nothing landed and one line saying the message was not found.
+// where it is, with nothing landed and one line saying the message was not found. One newer than a
+// tail the store let go is reached by reading forward.
 
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -28,6 +29,7 @@ import { withLaidOutViewport } from "../../viewport/controller.test-support.js";
 import {
   openPagedSessionStore,
   openSessionStoreWithGeneralLog,
+  scriptedTranscriptLog,
   transcriptFixtureEventId,
   transcriptFixtureStreamCursor,
   transcriptReadRowAt,
@@ -274,5 +276,32 @@ describe("the transcript feed — opened at a message older than the window", ()
     // The reading back is still owed, so the line offers `Try again` and says nothing is missing.
     expect(feed.textContent).toContain("Try again");
     expect(feed.textContent).not.toContain("Message not found");
+  });
+});
+
+describe("the transcript feed — opened at a message after a tail the store let go", () => {
+  it("reads forward to the message and lands on it, never announcing it missing", async () => {
+    withLaidOutViewport();
+    const lastIndex = 3 * PAGE_ROWS - 1;
+    const keptTailIndex = PAGE_ROWS - 1;
+    const linkedIndex = lastIndex - 10;
+    const log = scriptedTranscriptLog(lastIndex + 1);
+    // The store holds the conversation's start and let go of everything after its first page,
+    // as it does once a reader went far back; the message lies two pages past that tail.
+    const sessionStore = openPagedSessionStore(0, lastIndex);
+    sessionStore.releaseOutside(
+      transcriptFixtureStreamCursor(0),
+      transcriptFixtureStreamCursor(keptTailIndex),
+    );
+    const feed = renderFeed(sessionStore, undefined, RowIdBody, {
+      messageAnchorCursor: transcriptFixtureStreamCursor(linkedIndex),
+      readTranscriptPage: log.read,
+    });
+    await waitFor(() => {
+      expect(isMounted(feed, linkedIndex)).toBe(true);
+    });
+    expect(log.requests.every((request) => request.afterCursor !== undefined)).toBe(true);
+    expect(feed.textContent).not.toContain("Message not found");
+    expect(document.activeElement).toBe(scrollContainerOf(feed));
   });
 });

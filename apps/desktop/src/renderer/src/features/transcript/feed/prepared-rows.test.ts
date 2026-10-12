@@ -22,7 +22,7 @@ import {
 import { publishedTextOf } from "../reveal/published-text.js";
 import { RevealTextRope } from "../reveal/text-rope.js";
 import { AnsiLineChunks, chunkTextOf, type AnsiLineChunkList } from "../rows/ansi/lines/chunks.js";
-import { PreparedAnsiOutputs } from "../rows/ansi/preparation.js";
+import { PreparedBodies } from "../rows/prepared-bodies.js";
 import { OffListTables } from "../rows/markdown/table-window/off-list.js";
 import { prepareTranscriptRow } from "../rows/preparation.js";
 import { type TranscriptRowPreparation, type TranscriptRowSources } from "../rows/renderer.js";
@@ -43,7 +43,7 @@ const SOURCES: FeedRowSources = {
   ownerWindow: window,
   diagramPictures: undefined,
   offListTables: new OffListTables(document, () => undefined),
-  preparedOutputs: new PreparedAnsiOutputs(),
+  preparedBodies: new PreparedBodies(),
 };
 
 /**
@@ -273,6 +273,7 @@ describe("PreparedRowGate", () => {
         unfurledWindow,
         transcriptWindow: prepared.window,
         preparingRows: prepared.preparingRows,
+        callWindowOf: () => undefined,
       });
     });
 
@@ -289,6 +290,7 @@ describe("PreparedRowGate", () => {
         unfurledWindow,
         transcriptWindow: prepared.window,
         preparingRows: [],
+        callWindowOf: () => undefined,
       });
     });
     expect(store.snapshot().transcript.map((event) => event.id)).toEqual(
@@ -300,13 +302,13 @@ describe("PreparedRowGate", () => {
 describe("PreparedRowGate over a command output", () => {
   it("draws a listed output from its parse alone: each slice's lines as it grows, its last while a change parses", async () => {
     const tasks = new SteppedTasks();
-    const preparedOutputs = new PreparedAnsiOutputs();
+    const preparedBodies = new PreparedBodies();
     let liveText: RevealTextRope | undefined = new RevealTextRope("call");
     const sources: FeedRowSources = {
       ...SOURCES,
       publishedTextFor: () => liveText,
       ownerWindow: tasks.window,
-      preparedOutputs,
+      preparedBodies,
     };
     const gate = new PreparedRowGate();
     const firstLines = coloredLines(0, 10);
@@ -318,7 +320,7 @@ describe("PreparedRowGate over a command output", () => {
     expect(gate.filter(streamed, prepareTranscriptRow, sources).window.rows).toEqual([]);
     expect(await tasks.runNext()).toBe(true);
     expect(gate.filter(streamed, prepareTranscriptRow, sources).window.rows).toEqual([streamedRow]);
-    const streamedChunks = preparedOutputs.chunksOf(streamedRow.id);
+    const streamedChunks = preparedBodies.chunksOf(streamedRow.id);
     expect(streamedChunks === undefined ? "" : chunksTextOf(streamedChunks)).not.toContain(ESCAPE);
 
     // Lines far past one slice arrive in one revision: the row stays listed, drawing each slice's
@@ -335,7 +337,7 @@ describe("PreparedRowGate over a command output", () => {
       expect(gate.filter(streamed, prepareTranscriptRow, sources).window.rows).toEqual([
         streamedRow,
       ]);
-      const drawn = preparedOutputs.chunksOf(streamedRow.id) ?? expect.fail("an output is drawn");
+      const drawn = preparedBodies.chunksOf(streamedRow.id) ?? expect.fail("an output is drawn");
       const drawnText = chunksTextOf(drawn);
       expect(drawnText).not.toContain(ESCAPE);
       expect(wholeText.startsWith(drawnText)).toBe(true);
@@ -352,7 +354,7 @@ describe("PreparedRowGate over a command output", () => {
 
     // The lane retires into the stored body, under a handle of its own: the row changed, so its
     // last version stays listed, drawing its last parse, until the new one is parsed whole.
-    const drawnBefore = preparedOutputs.chunksOf(streamedRow.id);
+    const drawnBefore = preparedBodies.chunksOf(streamedRow.id);
     liveText = undefined;
     const storedRow = toolRow(firstLines + grownLines);
     const stored = windowOf(storedRow);
@@ -361,29 +363,29 @@ describe("PreparedRowGate over a command output", () => {
     expect(gate.filter(stored, prepareTranscriptRow, sources).window.rows).toEqual([streamedRow]);
     sliceCount = 1;
     while (heard.mock.calls.length === 0) {
-      expect(preparedOutputs.chunksOf(storedRow.id)).toBe(drawnBefore);
+      expect(preparedBodies.chunksOf(storedRow.id)).toBe(drawnBefore);
       expect(await tasks.runNext()).toBe(true);
       sliceCount += 1;
     }
     expect(sliceCount).toBeGreaterThan(2);
     expect(gate.filter(stored, prepareTranscriptRow, sources).window.rows).toEqual([storedRow]);
-    const drawnAfter = preparedOutputs.chunksOf(storedRow.id) ?? expect.fail("an output is drawn");
+    const drawnAfter = preparedBodies.chunksOf(storedRow.id) ?? expect.fail("an output is drawn");
     expect(drawnAfter).not.toBe(drawnBefore);
     expect(chunksTextOf(drawnAfter)).toBe(wholeText);
   });
 
   it("parses an output only within the band's reach, and draws a row coming back once parsed whole", async () => {
     const feed = await openFortyRowFeed();
-    const { controller, gate, preparedOutputs } = feed;
+    const { controller, gate, preparedBodies } = feed;
 
     // The band at the head: the last row leaves its reach and lets its parse go.
     expect(feed.drawnRowKeysAt(0, 1)).not.toContain(FAR_ROW_ID);
-    expect(preparedOutputs.chunksOf(FAR_ROW_ID)).toBeUndefined();
+    expect(preparedBodies.chunksOf(FAR_ROW_ID)).toBeUndefined();
     expect(gate.isPrepared(FAR_ROW_ID)).toBe(false);
 
     // Back at the tail, in view: the row is parsed again, whole in the walk that draws it.
     expect(feed.drawnRowKeysAt(38, 39)).toContain(FAR_ROW_ID);
-    const drawn = preparedOutputs.chunksOf(FAR_ROW_ID) ?? expect.fail("an output is drawn");
+    const drawn = preparedBodies.chunksOf(FAR_ROW_ID) ?? expect.fail("an output is drawn");
     expect(chunksTextOf(drawn)).toBe(feed.longOutputText);
     controller.dispose();
     gate.dispose();
@@ -391,13 +393,13 @@ describe("PreparedRowGate over a command output", () => {
 
   it("draws a row rewritten while out of view whole in the walk that brings it into view", async () => {
     const tasks = new SteppedTasks();
-    const preparedOutputs = new PreparedAnsiOutputs();
+    const preparedBodies = new PreparedBodies();
     const liveText = new RevealTextRope("call");
     const sources: FeedRowSources = {
       ...SOURCES,
       publishedTextFor: () => liveText,
       ownerWindow: tasks.window,
-      preparedOutputs,
+      preparedBodies,
     };
     const gate = new PreparedRowGate();
     const firstLines = coloredLines(0, 60_000);
@@ -423,7 +425,7 @@ describe("PreparedRowGate over a command output", () => {
     // The walk that brings it into view parses it whole, so the row is drawn in that walk.
     gate.observeReach(new Set([row.id]), new Set([row.id]));
     expect(gate.isOutputParsed(row.id)).toBe(true);
-    const drawn = preparedOutputs.chunksOf(row.id) ?? expect.fail("an output is drawn");
+    const drawn = preparedBodies.chunksOf(row.id) ?? expect.fail("an output is drawn");
     expect(chunksTextOf(drawn)).toBe(
       chunksTextOf(new AnsiLineChunks().read(publishedTextOf(rewrittenLines), () => true).chunks),
     );
@@ -432,9 +434,9 @@ describe("PreparedRowGate over a command output", () => {
 
   it("lands on a row outside the band's reach only once its output is parsed whole", async () => {
     const feed = await openFortyRowFeed();
-    const { controller, gate, preparedOutputs, tasks } = feed;
+    const { controller, gate, preparedBodies, tasks } = feed;
     expect(feed.drawnRowKeysAt(0, 1)).not.toContain(FAR_ROW_ID);
-    expect(preparedOutputs.chunksOf(FAR_ROW_ID)).toBeUndefined();
+    expect(preparedBodies.chunksOf(FAR_ROW_ID)).toBeUndefined();
 
     // A find step onto the last row: the landing hands its screen over as within reach and waits
     // on the row's parse, moving nothing until it is whole.
@@ -446,7 +448,7 @@ describe("PreparedRowGate over a command output", () => {
       sliceCount += 1;
     }
     expect(sliceCount).toBeGreaterThan(2);
-    const drawn = preparedOutputs.chunksOf(FAR_ROW_ID) ?? expect.fail("an output is drawn");
+    const drawn = preparedBodies.chunksOf(FAR_ROW_ID) ?? expect.fail("an output is drawn");
     expect(chunksTextOf(drawn)).toBe(feed.longOutputText);
     controller.dispose();
     gate.dispose();
@@ -464,15 +466,15 @@ async function openFortyRowFeed(): Promise<{
   readonly gate: PreparedRowGate;
   readonly controller: ViewportController;
   readonly tasks: SteppedTasks;
-  readonly preparedOutputs: PreparedAnsiOutputs;
+  readonly preparedBodies: PreparedBodies;
   /** The whole parse of the last row's output, as its chunks' text. */
   readonly longOutputText: string;
   /** Walks the band over the rows from `startIndex` to `endIndex` in view: the rows it draws. */
   readonly drawnRowKeysAt: (startIndex: number, endIndex: number) => string[];
 }> {
   const tasks = new SteppedTasks();
-  const preparedOutputs = new PreparedAnsiOutputs();
-  const sources: FeedRowSources = { ...SOURCES, ownerWindow: tasks.window, preparedOutputs };
+  const preparedBodies = new PreparedBodies();
+  const sources: FeedRowSources = { ...SOURCES, ownerWindow: tasks.window, preparedBodies };
   const gate = new PreparedRowGate();
   const longOutput = coloredLines(0, 60_000);
   const rows = Array.from({ length: 40 }, (_unused, index) => ({
@@ -504,7 +506,7 @@ async function openFortyRowFeed(): Promise<{
     gate,
     controller,
     tasks,
-    preparedOutputs,
+    preparedBodies,
     longOutputText: chunksTextOf(
       new AnsiLineChunks().read(publishedTextOf(longOutput), () => true).chunks,
     ),

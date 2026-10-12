@@ -28,11 +28,11 @@ import {
   boundController,
   contributeTranscriptCommands,
   dispatchCommand,
-  readerScrollsTo,
   renderFeed,
   scrollContainerOf,
   withdrawTranscriptCommands,
 } from "./TranscriptFeed.test-support.js";
+import { readerScrollsTo } from "#test/helpers/transcript/reader-scroll.js";
 
 beforeEach(() => {
   // A command acts in the window used last; the test's document stands in for it.

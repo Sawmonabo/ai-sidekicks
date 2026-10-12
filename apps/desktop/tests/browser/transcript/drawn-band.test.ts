@@ -6,7 +6,10 @@ import { describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
 import { letFramesPassUntil } from "../../helpers/animation-frame.js";
-import { TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS } from "#renderer/features/transcript/viewport/caps.js";
+import {
+  TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS,
+  TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS,
+} from "#renderer/features/transcript/viewport/caps.js";
 import { RealClock, type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import {
   FEED_HEIGHT_PX,
@@ -34,6 +37,16 @@ const LONG_TURN_PX = FEED_HEIGHT_PX * 1.25;
 const TOUCH_FLING_PX = FEED_HEIGHT_PX * 3;
 /** A quick flick, whose momentum carries on long after the hand lets go, in pixels a second. */
 const QUICK_FLICK_SPEED = 8000;
+/**
+ * The flick a frame of momentum is drawn late in: its late frame carries the box past the leading
+ * band at rest, and short of the band's 3-screen cap, which the product does not fill beyond.
+ */
+const LATE_FRAME_FLICK_SPEED = QUICK_FLICK_SPEED;
+/**
+ * The hand's travel toward the tail in the fling a frame is drawn late in: one screen, so the late
+ * frame ends far from the window's end and only the band's reach is read.
+ */
+const LATE_FRAME_FLING_PX = -FEED_HEIGHT_PX;
 /** The frames a fling's control may take to land once its momentum has run out. */
 const CONTROL_FRAME_LIMIT = 120;
 /** The wheel gestures before the first take-back a case may start at, near the window's end. */
@@ -41,7 +54,7 @@ const GESTURES_BEFORE_NEAR_END = 2;
 /** The wheel gestures before a take-back a case may start at, deep in the window's middle. */
 const GESTURES_BEFORE_MIDDLE = 8;
 /** How long a busy machine holds the page's main thread for one frame drawn late. */
-const LATE_FRAME_STALL_MS = 100;
+const LATE_FRAME_STALL_MS = 150;
 
 /**
  * The wall clock, except that its timeouts wait until the case runs them, so the band a land
@@ -225,34 +238,73 @@ async function wheelToTakeBack(scroller: HTMLElement, minimumGestureCount: numbe
   expect.fail("no gesture took rows back from the head");
 }
 
+/** What the compositor had to show across a frame drawn late, in pixels off the box's top then. */
+interface LateFrame {
+  /** The top of the first row drawn before the stall. */
+  readonly drawnTopPx: number;
+  /** The bottom of the last row drawn before the stall. */
+  readonly drawnBottomPx: number;
+  /** The top of the content the box could scroll over during the stall. */
+  readonly contentTopPx: number;
+  /** The bottom of the content the box could scroll over during the stall. */
+  readonly contentBottomPx: number;
+  /** Where the box's top had gone when the main thread came back, read off a row still drawn. */
+  readonly boxTopPx: number;
+  /** The box's height. */
+  readonly boxHeightPx: number;
+}
+
 /**
- * Holds the page's main thread for `LATE_FRAME_STALL_MS` on one frame, as a busy machine draws a
- * frame late while the compositor carries a fling on: the first frame after the box takes rows
- * back at its head and moves half a screen further. `travelPx` answers how far the box moved
- * from that frame to the next, `undefined` before the late frame has passed.
+ * Holds the page's main thread for `LATE_FRAME_STALL_MS` on one frame of a touch fling's
+ * momentum, as a busy machine draws a frame late while the compositor carries the fling on: the
+ * first frame once the hand's touch has ended on the page. `lateFrame` answers the rows drawn
+ * before the stall and where the box went during it, read on the next frame; `undefined` until
+ * then. The box's travel is read off a row
+ * drawn on both sides of the stall, since rows a gesture takes back above it move the offset too.
  */
 function drawOneFrameLate(scroller: HTMLElement): {
-  readonly travelPx: () => number | undefined;
+  readonly lateFrame: () => LateFrame | undefined;
   readonly stop: () => void;
 } {
-  const startScrollHeightPx = scroller.scrollHeight;
   let isWatching = true;
-  let takenBackAtPx: number | undefined;
-  let lateAtPx: number | undefined;
-  let travelPx: number | undefined;
+  let hasHandLetGo = false;
+  const onTouchEnd = (): void => {
+    hasHandLetGo = true;
+  };
+  scroller.addEventListener("touchend", onTouchEnd, { passive: true });
+  let beforeStall:
+    | (Omit<LateFrame, "boxTopPx"> & { readonly rowTopsPx: ReadonlyMap<number, number> })
+    | undefined;
+  let lateFrame: LateFrame | undefined;
   const onFrame = (): void => {
-    if (!isWatching) {
+    if (!isWatching || lateFrame !== undefined) {
       return;
     }
-    const scrollTopPx = scroller.scrollTop;
-    if (lateAtPx !== undefined) {
-      travelPx ??= Math.abs(scrollTopPx - lateAtPx);
-    } else if (takenBackAtPx === undefined) {
-      if (scroller.scrollHeight > startScrollHeightPx) {
-        takenBackAtPx = scrollTopPx;
-      }
-    } else if (takenBackAtPx - scrollTopPx >= FEED_HEIGHT_PX / 2) {
-      lateAtPx = scrollTopPx;
+    if (beforeStall !== undefined) {
+      const { rowTopsPx, ...drawn } = beforeStall;
+      const boxTopPx = scroller.getBoundingClientRect().top;
+      const boxTopsPx = drawnRows(scroller).flatMap(({ position, rect }) => {
+        const rowTopPx = position === undefined ? undefined : rowTopsPx.get(position);
+        return rowTopPx === undefined ? [] : [rowTopPx - (rect.top - boxTopPx)];
+      });
+      lateFrame = { ...drawn, boxTopPx: boxTopsPx[0] ?? Number.NaN };
+      return;
+    }
+    if (hasHandLetGo) {
+      const box = scroller.getBoundingClientRect();
+      const rows = drawnRows(scroller);
+      beforeStall = {
+        drawnTopPx: (rows[0]?.rect.top ?? Number.NaN) - box.top,
+        drawnBottomPx: Math.max(...rows.map(({ rect }) => rect.bottom)) - box.top,
+        contentTopPx: -scroller.scrollTop,
+        contentBottomPx: scroller.scrollHeight - scroller.scrollTop,
+        boxHeightPx: box.height,
+        rowTopsPx: new Map(
+          rows.flatMap(({ position, rect }) =>
+            position === undefined ? [] : [[position, rect.top - box.top] as const],
+          ),
+        ),
+      };
       const stallEndMs = performance.now() + LATE_FRAME_STALL_MS;
       while (performance.now() < stallEndMs) {
         // The main thread is busy; the compositor carries the fling on without it.
@@ -262,9 +314,10 @@ function drawOneFrameLate(scroller: HTMLElement): {
   };
   requestAnimationFrame(onFrame);
   return {
-    travelPx: () => travelPx,
+    lateFrame: () => lateFrame,
     stop: () => {
       isWatching = false;
+      scroller.removeEventListener("touchend", onTouchEnd);
     },
   };
 }
@@ -403,23 +456,34 @@ describe("a land draws the rows the reader ends on first", () => {
     async () => {
       // The band's own steps never run, so only the fling's own scroll keeps it wide.
       const { scroller } = await mountLongToolFeed(new HeldTimeoutClock());
-      await wheelToTakeBack(scroller, GESTURES_BEFORE_NEAR_END);
-      const lateFrame = drawOneFrameLate(scroller);
-      const unfilledFramesPx = await unfilledFramesPxDuring(scroller, async () => {
-        await touchFling(scroller, TOUCH_FLING_PX, QUICK_FLICK_SPEED);
-        await letFramesPassUntil(
-          () => scroller.scrollTop === 0,
-          CONTROL_FRAME_LIMIT,
-          "the fling never reached the head",
-        );
-      });
-      lateFrame.stop();
+      await wheelToTakeBack(scroller, GESTURES_BEFORE_MIDDLE);
+      const watch = drawOneFrameLate(scroller);
+      await touchFling(scroller, LATE_FRAME_FLING_PX, LATE_FRAME_FLICK_SPEED);
+      watch.stop();
+      const lateFrame = watch.lateFrame();
+      if (lateFrame === undefined) {
+        expect.fail("no frame of the fling was drawn late");
+      }
+      const { boxTopPx, boxHeightPx } = lateFrame;
+      // The setup: the box stopped short of the content's ends and of the band's cap, so how far
+      // the band reached is what the check below reads.
+      expect(boxTopPx, "the box reached the content's head").toBeGreaterThan(
+        lateFrame.contentTopPx + GRAIN_PX,
+      );
+      expect(boxTopPx + boxHeightPx, "the box reached the content's tail").toBeLessThan(
+        lateFrame.contentBottomPx - GRAIN_PX,
+      );
+      expect(Math.abs(boxTopPx), "the late frame carried past the band's cap").toBeLessThan(
+        FEED_HEIGHT_PX * TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS,
+      );
       // The control: across the late frame the box moved further than the leading band reaches
       // at rest, so a band sized from the window height alone leaves part of the box undrawn.
-      expect(lateFrame.travelPx()).toBeGreaterThan(
+      expect(Math.abs(boxTopPx)).toBeGreaterThan(
         FEED_HEIGHT_PX * TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS,
       );
-      expect(unfilledFramesPx).toEqual([]);
+      // While the main thread was held, the compositor had only the rows drawn before it to show.
+      expect(boxTopPx).toBeGreaterThanOrEqual(lateFrame.drawnTopPx - GRAIN_PX);
+      expect(boxTopPx + boxHeightPx).toBeLessThanOrEqual(lateFrame.drawnBottomPx + GRAIN_PX);
     },
   );
 

@@ -7,14 +7,18 @@
 // the one the browser raises when a resize watch resizes what it watches in the same pass. Glyph
 // widths round to whole pixels only on Linux, so only the Linux run shows the refit after a resize
 // matters; elsewhere the first measured width already fits. A formula that is only its equation
-// number fits too, and an empty one is left unmeasured. A formula inside a sentence is drawn at the
-// sentence's size, while a display formula keeps KaTeX's larger size.
+// number fits too, and an empty one is left unmeasured. A reply's formula between single dollars is
+// drawn inside its sentence at the sentence's size, while one between double dollars on its own
+// line is a display formula at KaTeX's larger size.
 
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
+import { MarkdownNodes } from "#renderer/components/Markdown/MarkdownNodes.js";
 import { MathBlock } from "#renderer/components/Markdown/MathBlock.js";
+import { parseSettledBlock } from "#renderer/components/Markdown/parse.js";
 import { changeLayout } from "#test/helpers/animation-frame.js";
 import { drawnText } from "#test/helpers/live-region.js";
 
@@ -34,6 +38,16 @@ const MATRIX_ROW = [..."abcdefghijklmnop"].join(" & ");
 
 /** A short formula with a relation and an operator. */
 const ROW_COUNT_FORMULA = String.raw`r = e \cdot y`;
+
+/** The reply below holds no code block, so nothing may ask for colors. */
+const NO_CODE_SPANS: CodeSpanReader = {
+  heldSpans: () => {
+    throw new Error("The reply asked for code colors.");
+  },
+  readSpans: () => {
+    throw new Error("The reply asked for code colors.");
+  },
+};
 
 /** KaTeX's own size for a formula, against the text around it (`.katex` in its sheet). */
 const KATEX_SIZE_RATIO = 1.21;
@@ -162,15 +176,19 @@ describe("browser — a formula drawn by KaTeX", () => {
     expect(empty.style.getPropertyValue("--math-natural-width")).toBe("");
   });
 
-  it("draws a formula inside a sentence at the sentence's size, and a display formula at KaTeX's larger size", async () => {
+  it("draws a reply's formula inside its sentence at the sentence's size, and a display formula at KaTeX's larger size", async () => {
+    const reply = `A row count of $${ROW_COUNT_FORMULA}$ fills the table.\n\n$$${ROW_COUNT_FORMULA}$$\n`;
     const { container } = render(
-      <div>
-        <p>
-          A row count of <MathBlock source={ROW_COUNT_FORMULA} isDisplayMode={false} /> fills the
-          table.
-        </p>
-        <MathBlock source={ROW_COUNT_FORMULA} isDisplayMode />
-      </div>,
+      <MarkdownNodes
+        nodes={parseSettledBlock(reply).children}
+        context={{
+          isSettled: true,
+          definedFootnoteIdentifiers: new Set(),
+          codeSpanReader: NO_CODE_SPANS,
+          renderCopy: undefined,
+          renderTable: undefined,
+        }}
+      />,
       { wrapper: LiveAnnouncerProvider },
     );
     const { inline, display } = await waitFor(

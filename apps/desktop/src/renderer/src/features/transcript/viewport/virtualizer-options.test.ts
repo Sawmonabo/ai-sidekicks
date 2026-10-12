@@ -21,6 +21,7 @@ import {
   MOUNTED_ROW_WIDTH_PX,
   MOUNTED_VIEWPORT_HEIGHT_PX,
   type MountedViewport,
+  attachHistoryLine,
   attachRow,
   mountViewport,
   reportRowSize,
@@ -197,6 +198,8 @@ describe("the virtualizer options — a follower after arriving text", () => {
   const GROWTH_PX = 120;
   /** The rows measured before the last one grows. */
   const MEASURED_ROW_COUNT = 5;
+  /** The history line above the rows, which the tail's offset counts. */
+  const HISTORY_LINE_HEIGHT_PX = 40;
 
   /**
    * A following transcript whose last row reveals its text while `isRevealing` says so. Its last
@@ -239,8 +242,9 @@ describe("the virtualizer options — a follower after arriving text", () => {
     return subject.scrollContainer.scrollTop;
   }
 
-  it("eases after text arriving in a revealing last row, never undone by a tail landing", async () => {
+  it("eases after text arriving in a revealing last row to the end below the history line, never undone by a tail landing", async () => {
     const { subject, lastRow, frameClock } = await mountFollowing(true);
+    attachHistoryLine(subject, HISTORY_LINE_HEIGHT_PX);
     const startPx = subject.scrollContainer.scrollTop;
 
     reportRowSize(subject, lastRow, MOUNTED_ROW_ESTIMATE_PX + GROWTH_PX);

@@ -53,11 +53,12 @@ import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/pa
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { letFramesPass, nextFrame } from "../../helpers/animation-frame.js";
+import { changeLayout, letFramesPass, nextFrame } from "../../helpers/animation-frame.js";
 import { ESCAPE, coloredOutputEventAt } from "./colored-output-event.js";
 import { ROW_SELECTOR } from "./long-tool-feed.js";
 import { PaintedFrameReader } from "./painted-frames.js";
-import { readerScrollsTo } from "./reader-scroll.js";
+import { readerScrollsTo } from "../../helpers/transcript/reader-scroll.js";
+import { endWorkersWithTest } from "../../helpers/worker-start.js";
 import { bridgeWrapper } from "../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../helpers/app/harness.js";
 import {
@@ -354,7 +355,7 @@ describe("a reply read back with a finished formula and diagram", () => {
     async () => {
       const pictures = new DiagramPictures(
         PICTURE_CACHE_BYTE_CAP,
-        () => new DelayedDiagramWorker(ANSWER_DELAY_MS),
+        endWorkersWithTest(() => new DelayedDiagramWorker(ANSWER_DELAY_MS)),
         () => undefined,
       );
       const history = heldHistoryRead(
@@ -471,7 +472,7 @@ describe("a held reply joining the list", () => {
       async () => {
         const pictures = new DiagramPictures(
           PICTURE_CACHE_BYTE_CAP,
-          startDiagramWorker,
+          endWorkersWithTest(startDiagramWorker),
           () => undefined,
         );
         const history = heldHistoryRead(
@@ -499,10 +500,12 @@ describe("a held reply joining the list", () => {
           { timeout: CASE_TIMEOUT_MS / 2 },
         );
         // The reader scrolls up: to the top of the list, or two box heights short of it.
-        await readerScrollsTo(
-          scrollContainer,
-          placement === "at the top of the box" ? 0 : 2 * scrollContainer.clientHeight,
-        );
+        await changeLayout(() => {
+          readerScrollsTo(
+            scrollContainer,
+            placement === "at the top of the box" ? 0 : 2 * scrollContainer.clientHeight,
+          );
+        });
         const listedRowIds = [
           ...scrollContainer.querySelectorAll<HTMLElement>("[data-row-id]"),
         ].map((row) => row.dataset["rowId"]);
@@ -602,7 +605,7 @@ describe("a reply read back holding a long table", () => {
     async () => {
       const pictures = new DiagramPictures(
         PICTURE_CACHE_BYTE_CAP,
-        startDiagramWorker,
+        endWorkersWithTest(startDiagramWorker),
         () => undefined,
       );
       const history = heldHistoryRead(
@@ -683,7 +686,7 @@ describe("a listed reply whose large body is opened", () => {
     async () => {
       const pictures = new DiagramPictures(
         PICTURE_CACHE_BYTE_CAP,
-        startDiagramWorker,
+        endWorkersWithTest(startDiagramWorker),
         () => undefined,
       );
       const largeBody =
@@ -813,7 +816,7 @@ describe("a session opening on command outputs", () => {
       firstRow.observe(document.body, { childList: true, subtree: true });
       const pictures = new DiagramPictures(
         PICTURE_CACHE_BYTE_CAP,
-        startDiagramWorker,
+        endWorkersWithTest(startDiagramWorker),
         () => undefined,
       );
       // The faces in first, as a session switched to finds them, so the rows show once committed.

@@ -3,7 +3,7 @@
 // waited on, so no painted frame shows a row in the fallback, and the first frame shown is already
 // where it stays, at the tail, with no correction after it.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 
 import { TYPEFACE_FACES } from "#renderer/styles/typeface.js";
 import { letFramesPass } from "../../helpers/animation-frame.js";
@@ -23,18 +23,9 @@ interface PaintedFeed {
   readonly scrollTopPx: number;
 }
 
-let addedFace: FontFace | undefined;
-
-afterEach(() => {
-  if (addedFace !== undefined) {
-    document.fonts.delete(addedFace);
-    addedFace = undefined;
-  }
-});
-
 /**
  * Adds an upright face of the rows' family that nothing has loaded, measured unlike the shipped
- * one: as the last face declared it is the one the rows' text asks for.
+ * one: as the last face declared it is the one the rows' text asks for. Removed when the test ends.
  */
 function addUnloadedRowFace(): FontFace {
   const shipped =
@@ -48,7 +39,9 @@ function addUnloadedRowFace(): FontFace {
     descentOverride: "0%",
   });
   document.fonts.add(face);
-  addedFace = face;
+  onTestFinished(() => {
+    document.fonts.delete(face);
+  });
   return face;
 }
 

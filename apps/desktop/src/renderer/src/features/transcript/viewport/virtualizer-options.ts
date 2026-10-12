@@ -321,10 +321,7 @@ export class VirtualizerOptions {
     }
     return this.#scroll.easeTo(
       "follow-arriving-text",
-      (geometry) =>
-        this.#isFollowing()
-          ? Math.max(0, virtualizer.getTotalSize() - geometry.viewportHeight)
-          : undefined,
+      () => (this.#isFollowing() ? this.#scroll.maximumScrollTop() : undefined),
       ARRIVING_TEXT_GLIDE,
     );
   }

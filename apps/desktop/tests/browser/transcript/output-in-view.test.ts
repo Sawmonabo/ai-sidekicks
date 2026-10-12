@@ -12,9 +12,9 @@ import {
   openPagedSessionStore,
   pagedSessionEventAt,
 } from "#renderer/features/transcript/logs.test-support.js";
-import { prepareTranscriptRow } from "#renderer/features/transcript/rows/preparation.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { letFramesPass } from "../../helpers/animation-frame.js";
+import { readerScrollsTo } from "../../helpers/transcript/reader-scroll.js";
 import { ESCAPE, coloredOutputEventAt } from "./colored-output-event.js";
 import { FEED_HEIGHT_PX, ROW_SELECTOR, mountTranscriptFeed } from "./long-tool-feed.js";
 import { PaintedFrameReader } from "./painted-frames.js";
@@ -65,9 +65,6 @@ describe("an output the band is still parsing, brought into the box by a write t
     const { scroller } = await mountTranscriptFeed(
       openPagedSessionStore(0, LOG_ROW_COUNT - 1, undefined, eventAt),
       undefined,
-      undefined,
-      undefined,
-      prepareTranscriptRow,
     );
     const painted: OutputFrame[] = [];
     const frames = new PaintedFrameReader(
@@ -81,9 +78,7 @@ describe("an output the band is still parsing, brought into the box by a write t
     // the reader scrolls brings the rows a screen above the new box within the band's reach, each
     // output waiting its turn to parse, and held out of the list meanwhile.
     act(() => {
-      scroller.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -FEED_HEIGHT_PX }));
-      scroller.scrollTop -= FEED_HEIGHT_PX;
-      fireEvent.scroll(scroller);
+      readerScrollsTo(scroller, scroller.scrollTop - FEED_HEIGHT_PX);
     });
     // The row above the first drawn one is held out, and the write brings its place into the box.
     const first = firstDrawnRow(scroller);

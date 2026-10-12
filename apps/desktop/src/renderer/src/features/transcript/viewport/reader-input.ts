@@ -15,6 +15,8 @@ export interface ViewportReaderInputOptions {
   readonly noteReaderInput: (inputAtMs: number, towardSide?: WindowSide) => void;
   /** A press in the box began or ended; a selection dragged past an edge scrolls it meanwhile. */
   readonly notePointerDown: (isDown: boolean) => void;
+  /** The box's scroll sequence ended: its `scrollend`, which a fling's momentum holds back. */
+  readonly noteScrollEnd: () => void;
   /** Select All pressed on the log: the whole conversation, not only the rows drawn. */
   readonly selectWholeConversation: () => void;
   /** The platform's press for a view's start, Home among them, on the log: its first row. */
@@ -22,9 +24,10 @@ export interface ViewportReaderInputOptions {
   /** The platform's press for a view's end, End among them, on the log: its last row, following. */
   readonly jumpToTail: () => void;
   /**
-   * The reader pulled toward `side` at `inputAtMs`, which owes a pass where the box stands there.
+   * The reader pulled toward `side`, which owes a pass where the box stands there; the input was
+   * noted first.
    */
-  readonly reviewPullAt: (side: WindowSide, inputAtMs: number) => void;
+  readonly reviewPullAt: (side: WindowSide) => void;
 }
 
 /** Hears the reader's input on one scroll container at a time and reports it to the frame. */
@@ -45,8 +48,12 @@ export class ViewportReaderInput {
     if (event.defaultPrevented) {
       return;
     }
-    // Any key the log hears may scroll it, from the box or from a row the focus sits in.
-    this.#options.noteReaderInput(event.timeStamp, keySideOf(event.key));
+    // Any key the log hears may scroll it, from the box or from a row the focus sits in. With
+    // Shift held an arrow, page or Home key extends a selection, which says no side to read.
+    this.#options.noteReaderInput(
+      event.timeStamp,
+      event.shiftKey ? undefined : keySideOf(event.key),
+    );
     if (event.target !== event.currentTarget) {
       return;
     }
@@ -62,9 +69,9 @@ export class ViewportReaderInput {
     } else if (hasModifier(event)) {
       return;
     } else if (event.key === "ArrowUp" || event.key === "PageUp") {
-      this.#options.reviewPullAt("head", event.timeStamp);
+      this.#options.reviewPullAt("head");
     } else if (event.key === "ArrowDown" || event.key === "PageDown") {
-      this.#options.reviewPullAt("tail", event.timeStamp);
+      this.#options.reviewPullAt("tail");
     }
   };
 
@@ -73,7 +80,7 @@ export class ViewportReaderInput {
     const side = event.deltaY < 0 ? "head" : event.deltaY > 0 ? "tail" : undefined;
     this.#options.noteReaderInput(event.timeStamp, side);
     if (side !== undefined) {
-      this.#options.reviewPullAt(side, event.timeStamp);
+      this.#options.reviewPullAt(side);
     }
   };
 
@@ -92,7 +99,11 @@ export class ViewportReaderInput {
     }
     const side = touchYPx > touchStartYPx ? "head" : "tail";
     this.#options.noteReaderInput(event.timeStamp, side);
-    this.#options.reviewPullAt(side, event.timeStamp);
+    this.#options.reviewPullAt(side);
+  };
+
+  readonly #onScrollContainerScrollEnd = (): void => {
+    this.#options.noteScrollEnd();
   };
 
   /** A press in the box, where a selection dragged past an edge scrolls it with no other input. */
@@ -122,6 +133,7 @@ export class ViewportReaderInput {
     scrollContainer.addEventListener("touchmove", this.#onScrollContainerTouchMove, {
       passive: true,
     });
+    scrollContainer.addEventListener("scrollend", this.#onScrollContainerScrollEnd);
     scrollContainer.addEventListener("pointerdown", this.#onScrollContainerPointerDown);
     for (const type of POINTER_RELEASE_EVENTS) {
       scrollContainer.ownerDocument.addEventListener(type, this.#onDocumentPointerRelease);
@@ -135,6 +147,7 @@ export class ViewportReaderInput {
     this.#scrollContainer?.removeEventListener("wheel", this.#onScrollContainerWheel);
     this.#scrollContainer?.removeEventListener("touchstart", this.#onScrollContainerTouchStart);
     this.#scrollContainer?.removeEventListener("touchmove", this.#onScrollContainerTouchMove);
+    this.#scrollContainer?.removeEventListener("scrollend", this.#onScrollContainerScrollEnd);
     this.#scrollContainer?.removeEventListener("pointerdown", this.#onScrollContainerPointerDown);
     for (const type of POINTER_RELEASE_EVENTS) {
       this.#scrollContainer?.ownerDocument.removeEventListener(

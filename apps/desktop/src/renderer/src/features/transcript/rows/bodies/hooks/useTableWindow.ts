@@ -19,7 +19,6 @@ import { useDirectlyPlacedVirtualizer } from "#renderer/hooks/useDirectlyPlacedV
 import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
 import { MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE } from "../../markdown/block-window/markers.js";
 import { rangeEnds, withPinnedIndexes } from "../../markdown/block-window/selection-pins.js";
-import { refuseScrollAdjustment } from "../../markdown/scroller-window.js";
 import {
   ListedBodiesContext,
   MarkdownBlockIndexContext,
@@ -41,6 +40,8 @@ export interface TableWindow {
   readonly tableKey: string;
   /** The widths the drawn table's columns are held at; `undefined` until they are measured. */
   readonly heldColumns: HeldTableColumns | undefined;
+  /** Whether the held columns give way to a body narrower than the one they were measured in. */
+  readonly isShrunkToRoom: boolean;
   /**
    * Whether the table is drawn whole while its first columns are measured: its body has a width
    * and no columns are held yet. Before the body has a width the table draws nothing.
@@ -113,14 +114,20 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
     [layout],
   );
   // A body that changed width wraps the cells anew: columns remembered at its width are taken
-  // before the frame paints, and otherwise measured while the table keeps its widths.
+  // before the frame paints, and otherwise measured while the table keeps its widths, giving way
+  // to a narrower body meanwhile.
   useEffect(
     () =>
       layout.followPlacement(() => {
         const columns = layout.heldColumns;
         const frame = layout.measuringFrame;
+        const isShrunkToRoom = layout.isShrunkToRoom;
         layout.update();
-        if (layout.heldColumns !== columns || layout.measuringFrame !== frame) {
+        if (
+          layout.heldColumns !== columns ||
+          layout.measuringFrame !== frame ||
+          layout.isShrunkToRoom !== isShrunkToRoom
+        ) {
           flushSync(redraw);
         }
       }),
@@ -176,19 +183,18 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
     onChange,
     indexAttribute: MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE,
   });
-  // The table follows the conversation's place and never moves it, however a row measures.
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = refuseScrollAdjustment;
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = layout.holdPlaceThroughResizedRow;
   useStopObservingRemovedItems(virtualizer);
 
   useEffect(() => {
     layout.bindWindow(virtualizer, setRevealedRowIndex);
   }, [layout, virtualizer]);
-  // Columns held anew wrap every row anew: each row's room is estimated again at their widths.
+  // Columns held anew wrap every row anew: each row is laid out again at their widths.
   const laidOutColumnsRef = useRef(heldColumns);
   useLayoutEffect(() => {
     if (laidOutColumnsRef.current !== heldColumns) {
       laidOutColumnsRef.current = heldColumns;
-      virtualizer.measure();
+      layout.relayOutRows(virtualizer);
     }
   });
 
@@ -203,6 +209,7 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
   return {
     tableKey,
     heldColumns,
+    isShrunkToRoom: layout.isShrunkToRoom,
     drawsWhole: heldColumns === undefined && layout.bodyType !== undefined,
     measuring,
     readMeasuringFrame: layout.readMeasuringFrame,

@@ -42,6 +42,13 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
     const firstBlock = settledTextsOf(segmenter.segment(publishedTextOf(fenced)))[0];
     expect(firstBlock).toContain("```ts");
     expect(firstBlock).toContain("const b = 2;");
+
+    // Display math between `$$` lines holds a blank line the same way, and its closer ends it.
+    const formula = "$$\na = 1\n\nb = 2\n$$\n\nafter\n\ntail\n\nlast\n\nend";
+    const formulaBlocks = settledTextsOf(
+      new MarkdownBlockSegmenter().segment(publishedTextOf(formula)),
+    );
+    expect(formulaBlocks[0]).toBe("$$\na = 1\n\nb = 2\n$$\n\n");
   });
 
   it("resets rather than gluing a new history onto an old tail", () => {

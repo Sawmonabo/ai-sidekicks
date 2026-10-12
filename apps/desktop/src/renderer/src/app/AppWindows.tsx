@@ -14,7 +14,6 @@ import {
   DiagramPictures,
   DiagramPicturesContext,
 } from "#renderer/components/Markdown/diagram/pictures.js";
-import { watchDiagramPalette } from "#renderer/components/Markdown/diagram/palette.js";
 import { startDiagramWorker } from "#renderer/components/Markdown/diagram/worker/connection.js";
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { pictureCacheByteCap } from "#renderer/lib/picture-cache-cap.js";
@@ -30,6 +29,7 @@ import { SafeStartNotice } from "#renderer/layout/AppShell/SafeStartNotice.js";
 import { renderBlockCopy } from "#renderer/features/transcript/index.js";
 import { useAppCommands } from "./hooks/useAppCommands.js";
 import { useAppearance } from "./hooks/useAppearance.js";
+import { useDiagramFaceWarm } from "./hooks/useDiagramFaceWarm.js";
 import { useKeptWindowLayout } from "./hooks/useKeptWindowLayout.js";
 import { useLazyBodyIdleWarm } from "./hooks/useLazyBodyIdleWarm.js";
 import { useSessionStoreRegistry } from "./hooks/useSessionStoreRegistry.js";
@@ -80,15 +80,7 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
         },
       ),
   );
-  // The faces diagrams label in, warmed in idle time after the first frame and again when the
-  // text size changes them, so a diagram does not pay for loading them.
-  useEffect(() => {
-    const paletteWatch = watchDiagramPalette(window);
-    diagramPictures.warmDefaultFaces(paletteWatch.read());
-    return paletteWatch.subscribe(() => {
-      diagramPictures.warmDefaultFaces(paletteWatch.read());
-    });
-  }, [diagramPictures]);
+  useDiagramFaceWarm(diagramPictures, openWindows);
 
   const sessionStoreRegistry = useSessionStoreRegistry(entityProjectorRegistry, props.readSession);
 

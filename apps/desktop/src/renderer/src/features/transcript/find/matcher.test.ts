@@ -1,6 +1,7 @@
 // The find matcher: what each row is searched by, the cap asserted beside the uncapped total so a
 // capped count cannot understate how broad the query is, and what a held search reads again.
 
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { describe, expect, it } from "vitest";
 
@@ -19,9 +20,11 @@ import { type SystemMessageReading } from "../system-messages/classifier.js";
 const NO_SYSTEM_MESSAGES: ReadonlyMap<string, SystemMessageReading> = new Map();
 
 /** The system message a rollback row draws, keyed by its row. */
-const ROLLBACK_LINE = new Map<string, SystemMessageReading>([
-  ["s1", { kind: "rollback", label: "Rolled back to the deploy", rowId: "s1", timestamp: "" }],
-]);
+function rollbackLine(): ReadonlyMap<string, SystemMessageReading> {
+  return new Map([
+    ["s1", { kind: "rollback", label: "Rolled back to the deploy", rowId: "s1", timestamp: "" }],
+  ]);
+}
 
 function searchWindow(): readonly TranscriptEventRow[] {
   return [
@@ -47,7 +50,9 @@ function searchWindow(): readonly TranscriptEventRow[] {
 
 /** The ids of the rows `query` matches in the search window. */
 function matchedRowIds(query: string): readonly string[] {
-  return findInTranscript(searchWindow(), query, ROLLBACK_LINE).matches.map((match) => match.rowId);
+  return findInTranscript(searchWindow(), query, rollbackLine()).matches.map(
+    (match) => match.rowId,
+  );
 }
 
 describe("find — what a query matches", () => {
@@ -65,6 +70,34 @@ describe("find — what a query matches", () => {
     expect(matchedRowIds("run_checks running")).toStrictEqual(["t1"]);
   });
 
+  it("matches the result chip a tool row's stored body puts on its heading", () => {
+    const resultRow = (
+      id: string,
+      sequence: number,
+      content: TranscriptRowContent,
+    ): TranscriptEventRow => ({
+      ...runRow({
+        id,
+        sequence,
+        type: "tool.result",
+        runId: "run-a",
+        position: sequence,
+        payload: { toolName: "read_file" },
+      }),
+      content,
+    });
+    const rows = [
+      resultRow("cut", 1, { status: "available", body: "lines", contentTruncated: true }),
+      resultRow("lost", 2, { status: "unavailable", reason: "absent" }),
+      resultRow("whole", 3, { status: "available", body: "lines" }),
+    ];
+    const rowIdsMatching = (query: string): readonly string[] =>
+      findInTranscript(rows, query, NO_SYSTEM_MESSAGES).matches.map((match) => match.rowId);
+
+    expect(rowIdsMatching("read_file truncated")).toStrictEqual(["cut"]);
+    expect(rowIdsMatching("body unavailable")).toStrictEqual(["lost"]);
+  });
+
   it("matches a system message's line", () => {
     expect(matchedRowIds("rolled back")).toStrictEqual(["s1"]);
   });
@@ -77,7 +110,7 @@ describe("find — what a query matches", () => {
 
   it("matches nothing on an empty or whitespace-only query", () => {
     for (const query of ["", "   ", "\t\n"]) {
-      const result = findInTranscript(searchWindow(), query, ROLLBACK_LINE);
+      const result = findInTranscript(searchWindow(), query, rollbackLine());
       expect(result.matches).toStrictEqual([]);
       expect(result.totalMatchCount).toBe(0);
       expect(result.searchedRowCount).toBe(4);
@@ -200,7 +233,7 @@ describe("find — stepping the walk", () => {
   });
 
   it("there is nothing to walk with no matches", () => {
-    const empty = findInTranscript(searchWindow(), "no row says this", ROLLBACK_LINE);
+    const empty = findInTranscript(searchWindow(), "no row says this", rollbackLine());
     expect(stepFindMatch(empty, 0, "next")).toBeUndefined();
   });
 });

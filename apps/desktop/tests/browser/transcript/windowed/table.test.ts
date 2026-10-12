@@ -22,7 +22,6 @@ import { BlockWindowLayout } from "#renderer/features/transcript/rows/markdown/b
 import { MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
 import { type TablePlacementChange } from "#renderer/features/transcript/rows/markdown/table-window/context.js";
 import { FlowBodyPlacement } from "#renderer/features/transcript/rows/markdown/table-window/flow-body-placement.js";
-import { prepareTranscriptRow } from "#renderer/features/transcript/rows/preparation.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
@@ -51,6 +50,7 @@ import {
   textEnds,
   type MountedBodies,
 } from "./reply.js";
+import { readerScrollsTo } from "#test/helpers/transcript/reader-scroll.js";
 import { mountTranscriptFeed } from "../long-tool-feed.js";
 
 /** The height of what a row draws above its body, in CSS pixels. */
@@ -536,21 +536,14 @@ describe("browser — a long table drawn as a window over its rows", () => {
         content: { status: "available", body: reply },
       })),
       undefined,
-      undefined,
-      undefined,
-      prepareTranscriptRow,
     );
     await waitFor(() => {
       expect(scroller.querySelector("table[aria-rowcount]")).not.toBe(null);
     });
     await settleConversation(scroller);
     for (const scrollTopPx of [Math.round(scroller.scrollHeight / 2), 0]) {
-      await act(async () => {
-        scroller.dispatchEvent(
-          new WheelEvent("wheel", { bubbles: true, deltaY: scrollTopPx - scroller.scrollTop }),
-        );
-        scroller.scrollTop = scrollTopPx;
-        scroller.dispatchEvent(new Event("scroll"));
+      act(() => {
+        readerScrollsTo(scroller, scrollTopPx);
       });
       await settleConversation(scroller);
     }

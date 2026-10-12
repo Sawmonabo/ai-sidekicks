@@ -1,8 +1,9 @@
 // After the viewport's window lets rows go, the store lets go of the events no held row is drawn
-// from, so the window's memory stays flat however long the session runs. A return reads them again
-// through the history reader, as any stretch past an edge of the store's window. The release runs
-// in a task of its own after the commit that let the rows go: the feed it re-renders is drawn
-// after the task the window's pass ran in, not inside it.
+// from, the calls each long run's window leaves out among them, so the window's memory stays flat
+// however long the session runs. A return reads them again through the history reader, as any
+// stretch past an edge of the store's window or inside it. The release runs in a task of its own
+// after the commit that let the rows go: the feed it re-renders is drawn after the task the
+// window's pass ran in, not inside it.
 
 import { useEffect, useRef } from "react";
 
@@ -27,6 +28,11 @@ export interface ReleaseOutsideWindowInputs {
   readonly transcriptWindow: TranscriptWindowModel;
   /** The rows held out of that window until they draw whole, whose events wait to be drawn. */
   readonly preparingRows: readonly ViewportRow[];
+  /**
+   * An open run group's window as the feed last cut it, reaching on over the calls read ahead past
+   * an edge line in the drawn band, or `undefined` for a folded group.
+   */
+  readonly callWindowOf: KeptEventSources["callWindowOf"];
 }
 
 /**
@@ -59,6 +65,7 @@ export function useReleaseOutsideWindow(inputs: ReleaseOutsideWindowInputs): voi
       unfurledWindow: inputs.unfurledWindow,
       transcriptWindow: inputs.transcriptWindow,
       log: sessionStore.snapshot().transcript,
+      callWindowOf: inputs.callWindowOf,
     });
   });
 }
@@ -126,7 +133,11 @@ class OutsideWindowRelease {
     const heldRows = [...committed.rows, ...committed.preparingRows];
     const kept = keptEventCursors(letGoRowKeys, heldRows, committed);
     if (kept !== undefined) {
-      this.#sessionStore.releaseOutside(kept.firstKeptCursor, kept.lastKeptCursor);
+      this.#sessionStore.releaseOutside(
+        kept.firstKeptCursor,
+        kept.lastKeptCursor,
+        kept.releasedBetween,
+      );
     }
   }
 }

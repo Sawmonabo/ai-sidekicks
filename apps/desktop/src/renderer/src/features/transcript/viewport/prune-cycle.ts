@@ -13,12 +13,9 @@
 import { type Clock } from "#renderer/lib/clock.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type ScrollGeometry } from "#renderer/lib/scroll/geometry/sample.js";
-import {
-  TRANSCRIPT_APPROACH_SCREEN_HEIGHTS,
-  TRANSCRIPT_GESTURE_GAP_MS,
-  TRANSCRIPT_LET_GO_SCREEN_HEIGHTS,
-} from "./caps.js";
+import { TRANSCRIPT_APPROACH_SCREEN_HEIGHTS, TRANSCRIPT_LET_GO_SCREEN_HEIGHTS } from "./caps.js";
 import { IdleMemoryTrim } from "./idle-trim.js";
+import { ReaderGesture } from "./reader-gesture.js";
 import { type ReadingAnchor, type ReadingAnchorPoint } from "./reading-anchor.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
 import { type ViewportConditions } from "./snapshot.js";
@@ -93,8 +90,8 @@ export class ViewportPruneCycle {
   #lastReadingRowKey: string | undefined;
   /** The last sample heard, of any cause, so an edge crossing the let-go distance is told apart. */
   #lastSample: ScrollGeometry | undefined;
-  /** The event stamp of the reader's last scroll sample or pull, which a pause measures from. */
-  #lastReaderInputAtMs: number | undefined;
+  /** The reader's gesture over their input and scroll samples, which a pause ends. */
+  readonly #gesture = new ReaderGesture();
   /** Whether the reader's current gesture has had its stretch. */
   #hasGestureAdmitted = false;
 
@@ -170,9 +167,9 @@ export class ViewportPruneCycle {
    * window holds of the log, the gesture's stretch is asked of the history reader instead.
    *
    * Only the reader's own scroll asks; a sample a programmatic write published is the transcript
-   * moving itself. A gesture ends at a pause of `TRANSCRIPT_GESTURE_GAP_MS` between the reader's
-   * samples, read off their scroll events' own time stamps, so a fling brings one stretch, arms
-   * no timer and is told apart whatever clock the app runs on.
+   * moving itself. A gesture ends where `ReaderGesture` reads a pause in the reader's samples,
+   * off their scroll events' own time stamps, so a fling brings one stretch, a busy machine's late
+   * frame mid-fling brings none, and no timer is armed whatever clock the app runs on.
    */
   public passOwedBy(geometry: ScrollGeometry): WindowPassRequest | undefined {
     const previous = this.#lastSample;
@@ -186,7 +183,10 @@ export class ViewportPruneCycle {
     ) {
       return undefined;
     }
-    this.#noteReaderInputAt(geometry.inputAt);
+    this.#noteReaderInputAt(
+      geometry.inputAt,
+      previous === undefined ? undefined : Math.abs(geometry.scrollTop - previous.scrollTop),
+    );
     const approachPx = TRANSCRIPT_APPROACH_SCREEN_HEIGHTS * screenHeightPx;
     const isNearHead = geometry.scrollTop < approachPx;
     const isNearTail = geometry.distanceFromTailPx < approachPx;
@@ -218,16 +218,30 @@ export class ViewportPruneCycle {
   }
 
   /**
-   * The pass a pull past one end owes with the reader already at that end, where the box cannot
-   * scroll and publishes no sample: a wheel, an arrow key or a drag. The same one stretch per
-   * gesture as an approach, from the log when the window has let that edge go, else from the
-   * history reader.
+   * The reader turned the wheel, pressed a key or touched the log at `inputAtMs`, on the timeline
+   * scroll events stamp their samples on: a pause before it ends the gesture, and a sample after a
+   * long gap carries a gesture on only when no input came in the gap, as none does in a fling's
+   * momentum.
    */
-  public passOwedByPullAt(side: WindowSide, inputAtMs: number): WindowPassRequest | undefined {
+  public noteReaderInput(inputAtMs: number): void {
+    this.#noteReaderInputAt(inputAtMs, undefined);
+  }
+
+  /** The box's `scrollend` arrived: the scroll sequence that kept the gesture going is over. */
+  public noteScrollEnd(): void {
+    this.#gesture.noteScrollEnd();
+  }
+
+  /**
+   * The pass a pull past one end owes with the reader already at that end, where the box cannot
+   * scroll and publishes no sample: a wheel, an arrow key or a drag, noted first through
+   * `noteReaderInput`. The same one stretch per gesture as an approach, from the log when the
+   * window has let that edge go, else from the history reader.
+   */
+  public passOwedByPullAt(side: WindowSide): WindowPassRequest | undefined {
     if (this.#lastConditions === undefined || this.#scroll.vetoesPrune()) {
       return undefined;
     }
-    this.#noteReaderInputAt(inputAtMs);
     if (this.#hasGestureAdmitted) {
       return undefined;
     }
@@ -265,16 +279,16 @@ export class ViewportPruneCycle {
     this.#lastOnScreenRowKeys = [];
   }
 
-  /** Starts a new gesture when the reader's input comes a gesture gap after their last one. */
-  #noteReaderInputAt(inputAtMs: number | undefined): void {
-    const lastReaderInputAtMs = this.#lastReaderInputAtMs;
-    this.#lastReaderInputAtMs = inputAtMs;
+  /**
+   * Starts a new gesture when the reader's sample at `inputAtMs`, which moved the box `travelPx`,
+   * or their input, which says no travel, does not carry on the gesture of the last one.
+   */
+  #noteReaderInputAt(inputAtMs: number | undefined, travelPx: number | undefined): void {
     // A sample no input published (the attach) starts a gesture, as a long pause does.
-    if (
-      lastReaderInputAtMs === undefined ||
-      inputAtMs === undefined ||
-      inputAtMs - lastReaderInputAtMs >= TRANSCRIPT_GESTURE_GAP_MS
-    ) {
+    if (inputAtMs === undefined) {
+      this.#gesture.forget();
+      this.#hasGestureAdmitted = false;
+    } else if (!this.#gesture.observe(inputAtMs, travelPx).continuesGesture) {
       this.#hasGestureAdmitted = false;
     }
   }

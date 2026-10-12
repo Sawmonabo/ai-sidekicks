@@ -1,11 +1,11 @@
 // A diagram drawn by merman in its worker in Chromium, since happy-dom has no worker, no layout, no
-// image decoding and no canvas: the place held for the picture, a picture an image can show, the
-// kept picture a remount lands at, the PNG `Copy as picture` writes, a picture one canvas holds
-// copied as its raster, one cut into strips and one into columns each copied whole and in place,
-// the reason a refused diagram shows, a drawing that ran out of time, labels sized from the page's
-// widths, a page that never measures them and one that grants no idle time, a link that goes
-// nowhere, a diagram that cannot loosen its security, the layout a diagram asks for, and one worker
-// for every window.
+// image decoding and no canvas: the place held for the picture, a picture an image can show and the
+// words it is named by, the kept picture a remount lands at, the PNG `Copy as picture` writes, a
+// picture one canvas holds copied as its raster, one cut into strips and one into columns each
+// copied whole and in place, the reason a refused diagram shows, a drawing that ran out of time,
+// labels sized from the page's widths, a page that never measures them and one that grants no idle
+// time, a link that goes nowhere, a diagram that cannot loosen its security, the layout a diagram
+// asks for, and one worker for every window.
 
 import { initMerman, type HostTextMeasurer } from "@mermanjs/web-render";
 import { cleanup, render, waitFor } from "@testing-library/react";
@@ -37,6 +37,7 @@ import { OwnerWindowProvider } from "#renderer/components/OwnerWindow/OwnerWindo
 import { TYPEFACE_FACES } from "#renderer/styles/typeface.js";
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
 import type { ClipboardContent } from "#shared/preload-api.js";
+import { endWorkersWithTest } from "../helpers/worker-start.js";
 
 /** A short, wide diagram, drawn lower than the place held for it, with a label set on two lines. */
 const SHORT_SOURCE = "flowchart LR\n  write[Write<br/>once] --> route\n  route --> store\n";
@@ -91,6 +92,9 @@ const PICTURE_WAIT = { timeout: 10_000 };
 
 /** A share of memory far larger than these cases draw, so nothing is evicted mid-case. */
 const TEST_CACHE_BYTE_CAP = 64 * 1024 * 1024;
+
+/** Starts the diagram worker, ended when the test finishes. */
+const startEndedDiagramWorker = endWorkersWithTest(startDiagramWorker);
 
 /** Leaves the renderer's caches alone: no case here shows enough pictures to empty them for. */
 const keepUnusedMemory = (): void => undefined;
@@ -203,7 +207,11 @@ function expectInert(markup: string): void {
 }
 
 it("holds its place, draws an image, remounts at its height and copies a PNG", async () => {
-  const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const pictures = new DiagramPictures(
+    TEST_CACHE_BYTE_CAP,
+    startEndedDiagramWorker,
+    keepUnusedMemory,
+  );
   const copied: ClipboardContent[] = [];
   const short = render(
     <DiagramPicturesContext.Provider value={pictures}>
@@ -220,6 +228,7 @@ it("holds its place, draws an image, remounts at its height and copies a PNG", a
   expect(frameHeightIn(short.container)).toBe(heldHeight);
   // Drawn at its natural size, not stretched to the column.
   expect(shortPicture.getBoundingClientRect().width).toBe(shortPicture.naturalWidth);
+  expect(shortPicture.alt).toBe("Flowchart");
   // Labels are set in faces the image document can draw, so they fit the boxes measured for them.
   const kept = pictures.read(SHORT_SOURCE, watchDiagramPalette(window).read());
   const markup = kept === undefined ? expect.fail("the picture is kept") : markupOf(kept);
@@ -256,8 +265,29 @@ it("holds its place, draws an image, remounts at its height and copies a PNG", a
   expect(frameHeightIn(remounted.container)).toBe(drawnHeight);
 });
 
-it("copies a mindmap as a picture with no HTML labels, which would taint the canvas", async () => {
+it("names a picture by the title and description its diagram gives, or else by its kind", async () => {
   const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const palette = watchDiagramPalette(window).read();
+  const textAlternativeOf = async (source: string): Promise<string> => {
+    const outcome = await new Promise<DiagramOutcome>((resolve) => {
+      pictures.request(source, palette, () => 0, resolve);
+    });
+    return outcome.kind === "drawn" ? outcome.textAlternative : expect.fail(outcome.reason);
+  };
+  expect(await textAlternativeOf(ONE_LABEL_SOURCE)).toBe("Class diagram");
+  expect(
+    await textAlternativeOf(
+      "flowchart LR\n  accTitle: Plan & ship\n  accDescr: Two steps\n  plan --> ship\n",
+    ),
+  ).toBe("Plan & ship: Two steps");
+});
+
+it("copies a mindmap as a picture with no HTML labels, which would taint the canvas", async () => {
+  const pictures = new DiagramPictures(
+    TEST_CACHE_BYTE_CAP,
+    startEndedDiagramWorker,
+    keepUnusedMemory,
+  );
   const palette = watchDiagramPalette(window).read();
   // The shown picture sets the mindmap's labels as HTML; the copy's carries none.
   expect(await drawnPicture(pictures, MINDMAP_SOURCE)).toContain("<foreignObject");
@@ -284,7 +314,11 @@ it("copies a mindmap as a picture with no HTML labels, which would taint the can
 });
 
 it("copies a picture one canvas holds as its whole raster, every pixel the same", async () => {
-  const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const pictures = new DiagramPictures(
+    TEST_CACHE_BYTE_CAP,
+    startEndedDiagramWorker,
+    keepUnusedMemory,
+  );
   const source = thirtyStepsSource("LR");
   const outcome = await pictures.drawCopy(source, watchDiagramPalette(window).read());
   const picture = outcome.kind === "drawn" ? outcome : expect.fail("the diagram is drawn");
@@ -295,7 +329,11 @@ it("copies a picture one canvas holds as its whole raster, every pixel the same"
 });
 
 it("copies a picture taller than one strip as the whole drawing, each strip's rows in place", async () => {
-  const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const pictures = new DiagramPictures(
+    TEST_CACHE_BYTE_CAP,
+    startEndedDiagramWorker,
+    keepUnusedMemory,
+  );
   const source = thirtyStepsSource("TD");
   const outcome = await pictures.drawCopy(source, watchDiagramPalette(window).read());
   const picture = outcome.kind === "drawn" ? outcome : expect.fail("the diagram is drawn");
@@ -311,7 +349,11 @@ it("copies a picture taller than one strip as the whole drawing, each strip's ro
 });
 
 it("copies a picture wider than one tile as the whole drawing, each tile's columns in place", async () => {
-  const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const pictures = new DiagramPictures(
+    TEST_CACHE_BYTE_CAP,
+    startEndedDiagramWorker,
+    keepUnusedMemory,
+  );
   const outcome = await pictures.drawCopy(FORKED_SOURCE, watchDiagramPalette(window).read());
   const picture = outcome.kind === "drawn" ? outcome : expect.fail("the diagram is drawn");
 
@@ -330,7 +372,7 @@ it("copies a picture wider than one tile as the whole drawing, each tile's colum
 it("shows the parser's reason above the source of a diagram it refuses", async () => {
   const block = render(
     <DiagramPicturesContext.Provider
-      value={new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory)}
+      value={new DiagramPictures(TEST_CACHE_BYTE_CAP, startEndedDiagramWorker, keepUnusedMemory)}
     >
       <DiagramBlock source={REFUSED_SOURCE} isSettled renderCopy={undefined} />
     </DiagramPicturesContext.Provider>,
@@ -343,7 +385,11 @@ it("shows the parser's reason above the source of a diagram it refuses", async (
 });
 
 it("draws a link to script as inert text, and a diagram cannot loosen its security", async () => {
-  const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const pictures = new DiagramPictures(
+    TEST_CACHE_BYTE_CAP,
+    startEndedDiagramWorker,
+    keepUnusedMemory,
+  );
   expectInert(await drawnPicture(pictures, SCRIPT_LINK_SOURCE));
   expectInert(await drawnPicture(pictures, LOOSE_SECURITY_SOURCE));
   expectInert(
@@ -352,7 +398,11 @@ it("draws a link to script as inert text, and a diagram cannot loosen its securi
 });
 
 it("keeps a diagram in the screen's colors and type whatever its init or front matter asks", async () => {
-  const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const pictures = new DiagramPictures(
+    TEST_CACHE_BYTE_CAP,
+    startEndedDiagramWorker,
+    keepUnusedMemory,
+  );
   const restyle = {
     theme: "dark",
     themeVariables: { primaryColor: "#ff00ff", lineColor: "#00ff00" },
@@ -430,7 +480,11 @@ it("sizes a drawing's second pass from the widths the page measured", async () =
 it("draws with merman's own widths and keeps nothing when the page never measures", async () => {
   // The page is never idle, so it never measures the labels the worker asks for.
   vi.stubGlobal("requestIdleCallback", () => 0);
-  const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const pictures = new DiagramPictures(
+    TEST_CACHE_BYTE_CAP,
+    startEndedDiagramWorker,
+    keepUnusedMemory,
+  );
   const palette = watchDiagramPalette(window).read();
   const outcome = await new Promise<DiagramOutcome>((resolve) => {
     pictures.request(ONE_LABEL_SOURCE, palette, () => 0, resolve);
@@ -451,14 +505,22 @@ it("measures the labels and keeps the picture when the page grants no idle time"
         options?.timeout ?? 2 ** 31 - 1,
       ),
   );
-  const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const pictures = new DiagramPictures(
+    TEST_CACHE_BYTE_CAP,
+    startEndedDiagramWorker,
+    keepUnusedMemory,
+  );
   const palette = watchDiagramPalette(window).read();
   await drawnPicture(pictures, ONE_LABEL_SOURCE);
   expect(pictures.read(ONE_LABEL_SOURCE, palette)?.kind).toBe("drawn");
 });
 
 it("lays a flowchart out with dagre, and with ELK when the diagram asks for it", async () => {
-  const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const pictures = new DiagramPictures(
+    TEST_CACHE_BYTE_CAP,
+    startEndedDiagramWorker,
+    keepUnusedMemory,
+  );
   const unset = await drawnPicture(pictures, LAYOUT_BODY);
   const dagre = await drawnPicture(pictures, `---\nconfig:\n  layout: dagre\n---\n${LAYOUT_BODY}`);
   const elk = await drawnPicture(pictures, `---\nconfig:\n  layout: elk\n---\n${LAYOUT_BODY}`);
@@ -482,7 +544,11 @@ it("draws every window's diagrams in one worker", async () => {
   const secondDocument = secondWindow.contentDocument ?? expect.fail("the frame has a document");
   installMeridianTokens(secondDocument);
   applyAppearance(secondDocument, DEFAULT_APPEARANCE_RECORD);
-  const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const pictures = new DiagramPictures(
+    TEST_CACHE_BYTE_CAP,
+    startEndedDiagramWorker,
+    keepUnusedMemory,
+  );
 
   const first = render(
     <DiagramPicturesContext.Provider value={pictures}>

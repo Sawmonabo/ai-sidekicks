@@ -203,6 +203,27 @@ describe("a repair takes the stream up again from the last row the window holds 
     ]);
   });
 
+  it("keeps no let-go stretch whose rows the window let go while the replay ran", () => {
+    const store = new SessionStore({ sessionId: SESSION_ID, projectors: runPerRow() });
+    store.initialize({ shape: "project", entities: [] });
+    store.applyBatch(eventsAt([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+    // A run's window left rows 3 and 4 out, and the store let them go.
+    store.releaseOutside(cursorAt(1), cursorAt(10), [
+      { lastHeldCursorBefore: cursorAt(2), firstHeldCursorAfter: cursorAt(5) },
+    ]);
+    store.applyBatch(eventsAt([12]));
+    expect(store.repair(readAfterRow(10), afterRow(10))).toBe(true);
+
+    // While the replay runs, the window lets its head go past that stretch.
+    store.releaseOutside(cursorAt(6), cursorAt(12));
+    store.applyBatch(eventsAt([11, 12]));
+
+    const swapped = store.snapshot();
+    expect(swapped.isReplaying).toBe(false);
+    expect(sequencesOf(swapped)).toStrictEqual([6, 7, 8, 9, 10, 11, 12]);
+    expect(swapped.releasedStretches).toStrictEqual([]);
+  });
+
   it("stands a window that lost only its stream whole, replaying nothing", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
     store.initialize({ shape: "project", entities: [] });

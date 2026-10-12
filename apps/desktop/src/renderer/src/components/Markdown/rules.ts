@@ -1,7 +1,8 @@
 // The markdown policy as values a test can assert and the mapper can be handed. Model HTML is
 // never rendered (nothing is parsed as markup, so there is no sanitizer), and no link is
-// clickable because there are no wire-validated path references. A math fence and a mermaid
-// diagram fence show their source until their block settles, then draw as a formula or a picture.
+// clickable because there are no wire-validated path references. Math, fenced or between dollars,
+// and a mermaid diagram fence show their source until their block settles, then draw as a formula
+// or a picture.
 
 /**
  * The URL `remend` writes into a link whose target has not finished arriving, copied verbatim

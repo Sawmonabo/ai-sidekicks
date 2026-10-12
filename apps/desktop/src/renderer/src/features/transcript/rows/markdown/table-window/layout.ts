@@ -15,6 +15,7 @@ import { type HeldTableColumns } from "#renderer/components/Markdown/table-offer
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { isSameBodyType, type MarkdownBodyType } from "../body-type.js";
 import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
+import { ReaderPlaceHold } from "../reader-place-hold.js";
 import { ScrollerWindowMembers } from "../scroller-window.js";
 import { type ListedBodies, type TableWindowBody } from "./context.js";
 import {
@@ -55,6 +56,7 @@ export type TableWindowRow =
 export class TableWindowLayout {
   readonly #body: TableWindowBody;
   readonly #scroller: ScrollerWindowMembers;
+  readonly #placeHold: ReaderPlaceHold;
   #table: Table;
   #blockIndex: number;
   #bodyElement: HTMLElement | undefined;
@@ -72,6 +74,12 @@ export class TableWindowLayout {
   #topPx = 0;
   /** The held columns, their rows' type and the rows' kept heights. */
   #geometry: TableGeometry | undefined;
+  /** The body width the held columns were measured at, in CSS pixels. */
+  #heldAtWidthPx: number | undefined;
+  /** Whether the body stood narrower than that at the last update. */
+  #isShrunkToRoom = false;
+  /** Whether every row is being laid out anew, whose change above the reader is held once. */
+  #isRelayingOut = false;
   /** The body type the geometry is kept at; `undefined` while the body had none to keep it at. */
   #keptBodyType: MarkdownBodyType | undefined;
   /** How many body rows the held columns were checked against: more arrive while it streams. */
@@ -139,11 +147,29 @@ export class TableWindowLayout {
     if (borderBox === undefined) {
       return instance.itemSizeCache.get(index) ?? this.estimateSize(index);
     }
-    const geometry = this.#geometry;
-    if (geometry !== undefined && index < geometry.rowHeightsPx.length) {
-      geometry.rowHeightsPx[index] = borderBox.blockSize;
-    }
+    this.#keepRowHeight(index, borderBox.blockSize);
     return borderBox.blockSize;
+  };
+
+  /**
+   * The library's question whether to move the offset for a row that resized, always answered no:
+   * its write would land on the table's body, which never scrolls. A row wholly above the
+   * scroller's top, in a row the table holds the reader's place inside, moves the conversation by
+   * its change instead, so the rows being read stay where they are.
+   */
+  public readonly holdPlaceThroughResizedRow = (
+    item: VirtualItem,
+    deltaPx: number,
+    instance: TableRowVirtualizer,
+  ): boolean => {
+    if (
+      !this.#isRelayingOut &&
+      item.end <= (instance.scrollOffset ?? 0) &&
+      this.#body.viewport.holdsPlaceInsideRow(this.#body.placement.rowKey)
+    ) {
+      this.#placeHold.add(deltaPx);
+    }
+    return false;
   };
 
   /** The table's body element, and its width observation, which reads its place in its block. */
@@ -190,6 +216,7 @@ export class TableWindowLayout {
       this.#readTopPx(),
     );
     this.#scroller = scroller;
+    this.#placeHold = new ReaderPlaceHold(body.viewport.scrollController);
     this.scrollToFn = scroller.scrollToFn;
     this.observeElementOffset = scroller.observeElementOffset;
     this.observeElementRect = scroller.observeElementRect;
@@ -204,6 +231,14 @@ export class TableWindowLayout {
   /** The columns the table is held at, or `undefined` until they are measured. */
   public get heldColumns(): HeldTableColumns | undefined {
     return this.#geometry?.columns;
+  }
+
+  /**
+   * Whether the held columns give way to a body narrower than the one they were measured in, so
+   * the table never runs past it before they are measured at its width; read at the last update.
+   */
+  public get isShrunkToRoom(): boolean {
+    return this.#isShrunkToRoom;
   }
 
   /**
@@ -246,50 +281,10 @@ export class TableWindowLayout {
    * measurement replaces it. A streaming table hands what it holds to its next mount each time.
    */
   public update(): void {
-    this.#seenLayoutCount = this.#body.placement.layoutCount;
-    const bodyType = this.bodyType;
-    if (this.#measurement?.measurement.geometry !== undefined) {
-      this.#holdMeasured(this.#measurement.measurement, this.#measurement.bodyType);
-    }
-    if (bodyType === undefined) {
-      return;
-    }
-    const geometry = this.#geometry;
-    if (
-      geometry !== undefined &&
-      !this.#isMeasuredInOldFonts &&
-      (this.#keptBodyType === undefined || isSameBodyType(this.#keptBodyType, bodyType))
-    ) {
-      if (this.#keptBodyType === undefined || this.#isStreaming()) {
-        this.#keep(bodyType, geometry);
-      }
-      this.#checkNewRows(geometry, bodyType);
-      return;
-    }
-    if (isSameBodyType(this.#measurement?.bodyType, bodyType)) {
-      return;
-    }
-    const remembered = this.#isMeasuredInOldFonts ? undefined : this.#recall(bodyType);
-    if (remembered === undefined) {
-      this.#measure(bodyType, this.#isMeasuredInOldFonts ? undefined : this.#known(bodyType));
-      return;
-    }
-    this.#measurement?.measurement.stop();
-    this.#measurement = undefined;
-    const { geometry: recalled, isHanded } = remembered;
-    this.#holdGeometry(recalled, this.rowCount);
-    if (!isSameTextSize(this.#cellMeasurerBodyType, bodyType)) {
-      this.#cellMeasurer = {
-        type: recalled.cellType,
-        measure: new TableCellMeasure(recalled.cellType, this.#ownerDocument()),
-      };
-      this.#cellMeasurerBodyType = bodyType;
-    }
-    this.#keptBodyType = bodyType;
-    this.setTable(this.#table, this.#blockIndex);
-    if (isHanded) {
-      this.#measure(bodyType, undefined);
-    }
+    this.#updateGeometry();
+    const widthPx = this.bodyType?.widthPx;
+    this.#isShrunkToRoom =
+      widthPx !== undefined && this.#heldAtWidthPx !== undefined && widthPx < this.#heldAtWidthPx;
   }
 
   /**
@@ -333,6 +328,38 @@ export class TableWindowLayout {
   public bindWindow(virtualizer: TableRowVirtualizer, keepRowDrawn: (index: number) => void): void {
     this.#virtualizer = virtualizer;
     this.#keepRowDrawn = keepRowDrawn;
+  }
+
+  /**
+   * Lays every row out anew at columns held anew: each drawn row at its height on the page, the
+   * rest at their estimates. The rows above the reader, in a row the table holds the reader's place
+   * inside, move the conversation by their change, so the rows being read stay where they are.
+   */
+  public relayOutRows(virtualizer: TableRowVirtualizer): void {
+    const readOffsetPx = virtualizer.scrollOffset ?? 0;
+    const readPlace = placeAt(virtualizer, readOffsetPx);
+    this.#isRelayingOut = true;
+    try {
+      virtualizer.measure();
+      // Every row laid out at its estimate first, so no drawn row is placed by the old heights.
+      virtualizer.getTotalSize();
+      for (const element of virtualizer.elementsCache.values()) {
+        if (element.isConnected) {
+          const index = virtualizer.indexFromElement(element);
+          const heightPx = element.getBoundingClientRect().height;
+          this.#keepRowHeight(index, heightPx);
+          virtualizer.resizeItem(index, heightPx);
+        }
+      }
+    } finally {
+      this.#isRelayingOut = false;
+    }
+    if (
+      readPlace !== undefined &&
+      this.#body.viewport.holdsPlaceInsideRow(this.#body.placement.rowKey)
+    ) {
+      this.#placeHold.add(startOfPlace(virtualizer, readPlace) - readPlace.startPx);
+    }
   }
 
   /**
@@ -426,6 +453,54 @@ export class TableWindowLayout {
       rows.length !== committed.length ||
       rows.some((row, index) => !isSameRow(row, committed[index]))
     );
+  }
+
+  /** Brings the held geometry up to the table and the body as they stand, as `update` says. */
+  #updateGeometry(): void {
+    this.#seenLayoutCount = this.#body.placement.layoutCount;
+    const bodyType = this.bodyType;
+    if (this.#measurement?.measurement.geometry !== undefined) {
+      this.#holdMeasured(this.#measurement.measurement, this.#measurement.bodyType);
+    }
+    if (bodyType === undefined) {
+      return;
+    }
+    const geometry = this.#geometry;
+    if (
+      geometry !== undefined &&
+      !this.#isMeasuredInOldFonts &&
+      (this.#keptBodyType === undefined || isSameBodyType(this.#keptBodyType, bodyType))
+    ) {
+      if (this.#keptBodyType === undefined || this.#isStreaming()) {
+        this.#keep(bodyType, geometry);
+      }
+      this.#checkNewRows(geometry, bodyType);
+      return;
+    }
+    if (isSameBodyType(this.#measurement?.bodyType, bodyType)) {
+      return;
+    }
+    const remembered = this.#isMeasuredInOldFonts ? undefined : this.#recall(bodyType);
+    if (remembered === undefined) {
+      this.#measure(bodyType, this.#isMeasuredInOldFonts ? undefined : this.#known(bodyType));
+      return;
+    }
+    this.#measurement?.measurement.stop();
+    this.#measurement = undefined;
+    const { geometry: recalled, isHanded } = remembered;
+    this.#holdGeometry(recalled, this.rowCount, bodyType);
+    if (!isSameTextSize(this.#cellMeasurerBodyType, bodyType)) {
+      this.#cellMeasurer = {
+        type: recalled.cellType,
+        measure: new TableCellMeasure(recalled.cellType, this.#ownerDocument()),
+      };
+      this.#cellMeasurerBodyType = bodyType;
+    }
+    this.#keptBodyType = bodyType;
+    this.setTable(this.#table, this.#blockIndex);
+    if (isHanded) {
+      this.#measure(bodyType, undefined);
+    }
   }
 
   /**
@@ -551,15 +626,31 @@ export class TableWindowLayout {
     this.#cellMeasurer = known.cellMeasurer;
     this.#cellMeasurerBodyType = bodyType;
     this.#widestCells = known.widestCells;
-    this.#holdGeometry(geometry, Math.max(0, measurement.table.children.length - 1));
+    this.#holdGeometry(geometry, Math.max(0, measurement.table.children.length - 1), bodyType);
     this.#keep(bodyType, geometry);
     this.setTable(this.#table, this.#blockIndex);
   }
 
-  /** Holds `geometry`, checked against the table's first `checkedRowCount` body rows. */
-  #holdGeometry(geometry: TableGeometry, checkedRowCount: number): void {
+  /**
+   * Holds `geometry`, measured at `bodyType`, checked against the table's first `checkedRowCount`
+   * body rows.
+   */
+  #holdGeometry(
+    geometry: TableGeometry,
+    checkedRowCount: number,
+    bodyType: MarkdownBodyType,
+  ): void {
     this.#geometry = geometry;
     this.#checkedRowCount = checkedRowCount;
+    this.#heldAtWidthPx = bodyType.widthPx;
+  }
+
+  /** Keeps body row `index`'s height in the held geometry, while the geometry has room for it. */
+  #keepRowHeight(index: number, heightPx: number): void {
+    const geometry = this.#geometry;
+    if (geometry !== undefined && index < geometry.rowHeightsPx.length) {
+      geometry.rowHeightsPx[index] = heightPx;
+    }
   }
 
   /**
@@ -669,6 +760,36 @@ function isSameRow(row: TableWindowRow, held: TableWindowRow | undefined): boole
     held.firstIndex === row.firstIndex &&
     held.lastIndex === row.lastIndex
   );
+}
+
+/**
+ * Where the reader stands in a table laid out at `offsetPx` from its body's top: the row the offset
+ * falls in and its top, or past the last row and the rows' end; `undefined` above the table.
+ */
+function placeAt(
+  virtualizer: TableRowVirtualizer,
+  offsetPx: number,
+): { readonly index: number | undefined; readonly startPx: number } | undefined {
+  const endPx = virtualizer.getTotalSize();
+  if (offsetPx <= 0 || endPx === 0) {
+    return undefined;
+  }
+  if (offsetPx >= endPx) {
+    return { index: undefined, startPx: endPx };
+  }
+  const item = virtualizer.getVirtualItemForOffset(offsetPx);
+  return item === undefined ? undefined : { index: item.index, startPx: item.start };
+}
+
+/** Where `place`'s row starts in the table as it is laid out now, or the rows' end past them. */
+function startOfPlace(
+  virtualizer: TableRowVirtualizer,
+  place: { readonly index: number | undefined },
+): number {
+  const endPx = virtualizer.getTotalSize();
+  return place.index === undefined
+    ? endPx
+    : (virtualizer.measurementsCache[place.index]?.start ?? endPx);
 }
 
 function isSameSample(sample: readonly number[], held: readonly number[]): boolean {

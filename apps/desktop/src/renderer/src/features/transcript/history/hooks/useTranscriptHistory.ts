@@ -2,7 +2,8 @@
 // external store that changes when the reader or a store edge moves, the one act every trigger
 // asks a stretch through: `Load earlier` and `Try again`, the viewport's approach to an edge, a
 // link reaching back for its message and the look-ahead that keeps rows loaded above the screen;
-// and the jump Home and End read an end of the log through.
+// the jump Home and End read an end of the log through; and the page a long run's window reads
+// back inside the store's window before it opens onto calls the store let go.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
@@ -12,7 +13,9 @@ import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposa
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
+import { type ReleasedEventStretch } from "#renderer/store/session/state.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
+import { type ReleasedStretchReadDirection } from "#renderer/store/session/transcript-window.js";
 import { type JumpToLogEnd } from "../../viewport/conversation-edge-jump.js";
 import { type WindowSide } from "../../viewport/window-side.js";
 import { queueTaskIn } from "#renderer/lib/queued-task.js";
@@ -30,6 +33,14 @@ export interface TranscriptHistory {
    * given; answers whether that edge has more to read. A failed read past it is sent again.
    */
   readonly readStretch: (side: WindowSide, owedHeightPx?: number) => boolean;
+  /**
+   * Asks for a page inside a stretch the store let go between two events it holds, `direction`
+   * from the event that bounds it; answers whether the read started.
+   */
+  readonly readReleasedStretch: (
+    stretch: ReleasedEventStretch,
+    direction: ReleasedStretchReadDirection,
+  ) => boolean;
   /**
    * Starts reading the page at one end of the log in place of the held window, calling
    * `beforePageLands` just before it takes the window's place; answers whether it started, not
@@ -89,6 +100,10 @@ export function useTranscriptHistory(
             state,
             readStretch: (side: WindowSide, owedHeightPx?: number) =>
               reader.readStretch(side, readPage, owedHeightPx),
+            readReleasedStretch: (
+              stretch: ReleasedEventStretch,
+              direction: ReleasedStretchReadDirection,
+            ) => reader.readReleasedStretch(stretch, direction, readPage),
             jumpTo: (side: WindowSide, beforePageLands: () => void) =>
               reader.jumpTo(side, readPage, beforePageLands),
             measureWith,

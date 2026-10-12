@@ -82,6 +82,27 @@ describe("the reading anchor — distance from the tail the reader did not make"
     expect(anchor.state.mode).toBe("reading");
   });
 
+  it("keeps a frame a busy machine drew late the reader's, and lets a pause end their gesture", () => {
+    // The reader starts toward the head from the tail; a write of the transcript's own fires a
+    // scrollend, and the main thread draws their next frame late while the box moves on through
+    // it, still inside the tail's band.
+    const anchor = new ReadingAnchor();
+    anchor.observeGeometry(geometry(4500, true));
+    anchor.noteReaderInput(1_000);
+    anchor.observeGeometry(geometry(4499, true, "scroll", 1_008));
+    expect(anchor.state.mode).toBe("reading");
+    anchor.noteScrollEnd();
+    const lateFrameAtMs = 1_008 + TRANSCRIPT_GESTURE_GAP_MS + 33;
+    anchor.observeGeometry(geometry(4479, true, "scroll", lateFrameAtMs));
+    expect(anchor.state.mode).toBe("reading");
+
+    // Once the scroll has ended and the box stood still, a scroll no input of theirs made is not
+    // the reader's.
+    anchor.noteScrollEnd();
+    anchor.observeGeometry(geometry(4478, true, "scroll", lateFrameAtMs + 400));
+    expect(anchor.state.mode).toBe("following");
+  });
+
   it("keeps following through a wheel toward the head of a box that cannot move there", () => {
     // A log shorter than its box stands at the head and the tail at once; the wheel moves nothing,
     // so no scroll sample would ever bring the follow back.

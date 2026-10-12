@@ -129,9 +129,10 @@ export function useTranscriptFolds(sessionId: string): TranscriptFolds {
   const openRunStretch = useCallback(
     (runGroup: RunGroup, edge: RunWindowEdge, measure: RunWindowMeasure) => {
       runCallWindows.openStretch(runGroup, edge, measure);
-      publishRunWindowMoveCount(runWindowMoveCount + 1);
+      // From the count held, so a second press before the repaint still counts.
+      publishRunWindowMoveCount((moveCount) => moveCount + 1);
     },
-    [runCallWindows, publishRunWindowMoveCount, runWindowMoveCount],
+    [runCallWindows, publishRunWindowMoveCount],
   );
 
   const foldedRunGroupKeys = foldedRunGroupKeysState.value;

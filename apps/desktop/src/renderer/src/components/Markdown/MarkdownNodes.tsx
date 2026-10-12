@@ -1,7 +1,7 @@
 // Maps mdast nodes to React elements; own-built because the libraries considered render raw HTML
 // by default. `html` nodes render as literal text (nothing is parsed as markup, so no sanitizer
-// is on this path), links render as their text with no anchor, and math and mermaid diagrams show
-// their source until `isSettled`, then draw as a formula or a picture.
+// is on this path), links render as their text with no anchor, and math, inline or display, and
+// mermaid diagrams show their source until `isSettled`, then draw as a formula or a picture.
 
 import "./MarkdownNodes.css";
 
@@ -21,6 +21,7 @@ import type { BlockCopyRenderer } from "./block-copy-offer.js";
 import {
   TABLE_LINE_KINDS,
   TABLE_SAMPLE_IDEOGRAPH,
+  type HeldTableColumns,
   type MarkdownTableFrame,
   type MarkdownTableOffer,
   type MarkdownTableRowAttributes,
@@ -94,6 +95,15 @@ function renderNode(
       return node.value;
     case "inlineCode":
       return <code className="meridian-markdown__code">{node.value}</code>;
+    case "inlineMath":
+      // A formula inside a sentence, set at the sentence's size once its block has settled.
+      return context.isSettled ? (
+        <MathBlock source={node.value} isDisplayMode={false} />
+      ) : (
+        <code className="meridian-markdown__code">{node.value}</code>
+      );
+    case "math":
+      return renderFence(node.value, "math", context);
     case "break":
       return <br />;
     case "thematicBreak":
@@ -219,6 +229,7 @@ function renderWholeTable(node: Table, context: MarkdownRenderContext): React.JS
   const [headerRow, ...bodyRows] = node.children;
   return renderTableFrame({
     columns: undefined,
+    isShrunkToRoom: false,
     rowCount: undefined,
     headRow:
       headerRow === undefined
@@ -235,7 +246,7 @@ function renderWholeTable(node: Table, context: MarkdownRenderContext): React.JS
 
 /**
  * A table's element around the rows a frame holds. Held columns lay the table out at their widths
- * alone, so the rows drawn never move a column.
+ * alone, so the rows drawn never move a column; shrunk to its room, at their shares of it.
  */
 function renderTableFrame(frame: MarkdownTableFrame): React.JSX.Element {
   const columns = frame.columns;
@@ -244,13 +255,13 @@ function renderTableFrame(frame: MarkdownTableFrame): React.JSX.Element {
       ref={frame.tableRef}
       className="meridian-markdown__table"
       data-columns={columns === undefined ? undefined : "held"}
-      style={columns === undefined ? undefined : { width: `${String(columns.tableWidthPx)}px` }}
+      style={columns === undefined ? undefined : { width: heldTableWidthOf(columns, frame) }}
       aria-rowcount={frame.rowCount}
     >
       {columns === undefined ? null : (
         <colgroup>
           {columns.widthsPx.map((widthPx, index) => (
-            <col key={index} style={{ width: `${String(widthPx)}px` }} />
+            <col key={index} style={{ width: heldColumnWidthOf(widthPx, columns, frame) }} />
           ))}
         </colgroup>
       )}
@@ -258,6 +269,23 @@ function renderTableFrame(frame: MarkdownTableFrame): React.JSX.Element {
       {frame.bodyRows === null ? null : <tbody ref={frame.bodyRef}>{frame.bodyRows}</tbody>}
     </table>
   );
+}
+
+/** The held table's width: as measured, or shrunk to its room, at most the room's. */
+function heldTableWidthOf(columns: HeldTableColumns, frame: MarkdownTableFrame): string {
+  const widthPx = String(columns.tableWidthPx);
+  return frame.isShrunkToRoom ? `min(${widthPx}px, 100%)` : `${widthPx}px`;
+}
+
+/** A held column's width: as measured, or shrunk to its room, its share of the table. */
+function heldColumnWidthOf(
+  widthPx: number,
+  columns: HeldTableColumns,
+  frame: MarkdownTableFrame,
+): string {
+  return frame.isShrunkToRoom
+    ? `${String((widthPx / columns.tableWidthPx) * 100)}%`
+    : `${String(widthPx)}px`;
 }
 
 /** The parts of one table, offered to a body that chooses which of its rows to draw. */

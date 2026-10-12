@@ -2,7 +2,7 @@
 // names next, the default row limit, the byte cut kept at the cursor's end with one row as its
 // floor, every row's body with it but a large one, and a session whose history is damaged before
 // its first event read as an empty log, and the facts of each run a page names, folded from the
-// whole log.
+// whole log and taking their bytes from the rows' budget.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -12,6 +12,8 @@ import {
   START_OF_LOG_POSITION,
 } from "@ai-sidekicks/contracts/session/event-cursor";
 import { CONTENT_PAYLOAD_PLAINTEXT_MAX } from "@ai-sidekicks/contracts/event/declared-variants";
+import { jsonUtf8ByteLength } from "@ai-sidekicks/contracts/jsonrpc/byte-length";
+import { PAGE_MAX_BYTES } from "@ai-sidekicks/contracts/jsonrpc/page";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   TRANSCRIPT_READ_LIMIT_MAX,
@@ -24,7 +26,10 @@ import {
 } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
-import type { DamagedFromSequenceReader } from "../../events/session/read.js";
+import {
+  prepareSessionEventReads,
+  type DamagedFromSequenceReader,
+} from "../../events/session/read.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { insertStoredEvent } from "../../session/__fixtures__/stored-event.js";
 import { TranscriptProjector } from "../projector.js";
@@ -78,11 +83,13 @@ interface SeededEvent {
   readonly payload: Readonly<Record<string, unknown>>;
 }
 
-async function seedLog(events: readonly SeededEvent[]): Promise<void> {
+// Appends `events` at sequences from `firstSequence` on.
+async function seedLog(events: readonly SeededEvent[], firstSequence = 0): Promise<void> {
   // Queued together, as `seedRenames` queues its rows.
   await Promise.all(
-    events.map((event, sequence) =>
-      insertStoredEvent(scratch.writer, {
+    events.map((event, position) => {
+      const sequence = firstSequence + position;
+      return insertStoredEvent(scratch.writer, {
         id: `event-${String(sequence)}`,
         sessionId: SESSION_ID,
         sequence,
@@ -95,8 +102,8 @@ async function seedLog(events: readonly SeededEvent[]): Promise<void> {
         correlationId: null,
         causationId: null,
         version: "1.0",
-      }),
-    ),
+      });
+    }),
   );
 }
 
@@ -144,6 +151,7 @@ function windowReader(
 ): TranscriptWindowReader {
   return new TranscriptWindowReader(
     scratch.reader,
+    prepareSessionEventReads(scratch.reader, readDamagedFromSequence),
     new TranscriptProjector(scratch.reader, readDamagedFromSequence),
     readDamagedFromSequence,
   );
@@ -360,5 +368,78 @@ describe("TranscriptWindowReader — one transcript.read window", () => {
       windowReader().read({ sessionId: SESSION_ID, beforeCursor: encodeEventCursor(6), limit: 1 })
         .runs,
     ).toStrictEqual([]);
+  });
+
+  it("cuts the rows to the budget left beside the run facts, and serves a rewind", async () => {
+    const shortName = "short";
+    const rename = (name: string): SeededEvent => ({
+      category: "session_lifecycle",
+      type: "session.renamed",
+      payload: { name, origin: "user" },
+    });
+    const approval: SeededEvent = {
+      category: "approval_flow",
+      type: "approval.requested",
+      actor: "agent-1",
+      payload: { runId: RUN_ID },
+    };
+    const rewound: readonly SeededEvent[] = [
+      runStateBeat("queued"),
+      runStateBeat("running"),
+      {
+        category: "run_lifecycle",
+        type: "run.rolled_back",
+        payload: { runId: RUN_ID, runVersion: 2, targetPosition: 0 },
+      },
+      rename(shortName),
+      approval,
+    ];
+    await seedLog(rewound);
+    const reader = windowReader();
+    const measured = reader.read({
+      sessionId: SESSION_ID,
+      beforeCursor: encodeEventCursor(4),
+      limit: 2,
+    });
+    const [shortRow, approvalRow] = measured.entries;
+    const factsBytes = jsonUtf8ByteLength(measured.runs);
+    // A rename whose row brings the page's two rows to half the facts' bytes under the budget:
+    // they fit alone and do not fit beside the facts.
+    const paddedName = "p".repeat(
+      PAGE_MAX_BYTES -
+        3 -
+        jsonUtf8ByteLength(approvalRow) -
+        jsonUtf8ByteLength(shortRow) +
+        shortName.length -
+        Math.floor(factsBytes / 2),
+    );
+    await seedLog([rename(paddedName)], rewound.length);
+
+    const page = reader.read({
+      sessionId: SESSION_ID,
+      afterCursor: encodeEventCursor(3),
+      limit: 2,
+    });
+    const paddedRow = reader.read({
+      sessionId: SESSION_ID,
+      beforeCursor: encodeEventCursor(5),
+      limit: 1,
+    }).entries;
+    const bothRowsBytes = jsonUtf8ByteLength([approvalRow, ...paddedRow]);
+
+    expect(bothRowsBytes).toBeLessThanOrEqual(PAGE_MAX_BYTES);
+    expect(bothRowsBytes + factsBytes).toBeGreaterThan(PAGE_MAX_BYTES);
+    expect(page.entries.map((row) => row.sequence)).toStrictEqual([4]);
+    expect(page.hasMore).toBe(true);
+    // The rewind came after the run's newest state, which it keeps.
+    expect(page.runs).toStrictEqual([
+      {
+        runId: RUN_ID,
+        actor: "agent-1",
+        stateEventType: "run.running",
+        isRewound: true,
+        foldedThroughSequence: 5,
+      },
+    ]);
   });
 });

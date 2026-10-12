@@ -4,7 +4,7 @@
 // laid-out box a virtualizer range needs is `withLaidOutViewport` in
 // `features/transcript/viewport/controller.test-support.ts`.
 
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { onTestFinished, vi } from "vitest";
 import { Profiler, useRef, type ReactNode } from "react";
 
@@ -124,26 +124,6 @@ export function scrollContainerOf(feed: HTMLElement): HTMLElement {
     throw new Error("the feed rendered no scroll container");
   }
   return scrollContainer;
-}
-
-/**
- * The reader's own scroll: their wheel, which turns no line here, then the box moves and says so,
- * as the platform does after a wheel. `inputAtMs`, where given, is both events' own time stamp.
- */
-export function readerScrollsTo(
-  scrollContainer: HTMLElement,
-  scrollTopPx: number,
-  inputAtMs?: number,
-): void {
-  const wheel = new WheelEvent("wheel", { deltaY: 0, bubbles: true });
-  const scroll = new UIEvent("scroll");
-  if (inputAtMs !== undefined) {
-    Object.defineProperty(wheel, "timeStamp", { value: inputAtMs });
-    Object.defineProperty(scroll, "timeStamp", { value: inputAtMs });
-  }
-  fireEvent(scrollContainer, wheel);
-  scrollContainer.scrollTop = scrollTopPx;
-  fireEvent(scrollContainer, scroll);
 }
 
 /**

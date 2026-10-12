@@ -5,9 +5,9 @@
 // an output runs past the cut is known in the commit that cuts it, so the conversation measures its
 // row with `Show all` in that frame, except in a row a screen above the box, which takes it from
 // its first report and draws it as the next frame starts, or at once if a scroll brings it into
-// the box first, raising no resize loop; the outputs one commit brings in are read together, laid
-// out once. Measured in Chromium, since the cut is CSS line units over the scroller's measured
-// height.
+// the box first, raising no resize loop; the outputs one commit brings in, their cuts and their
+// line windows, are read together, laid out once. Measured in Chromium, since the cut is CSS line
+// units over the scroller's measured height.
 
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { useState } from "react";
@@ -16,8 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
 import { openPagedSessionStore } from "#renderer/features/transcript/logs.test-support.js";
-import { PreparedAnsiOutputsContext } from "#renderer/features/transcript/rows/ansi/preparation.js";
-import { prepareOutputForTest } from "#renderer/features/transcript/rows/ansi/preparation.test-support.js";
+import { PreparedBodiesContext } from "#renderer/features/transcript/rows/prepared-bodies.js";
 import { OUTPUT_CUT_FLOW_SHARE } from "#renderer/features/transcript/rows/bodies/hooks/useOutputHeightCut.js";
 import { type OutputOpening } from "#renderer/features/transcript/rows/bodies/OutputHeightCut.js";
 import { ToolOutput } from "#renderer/features/transcript/rows/bodies/ToolOutput.js";
@@ -27,7 +26,7 @@ import {
 } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import { type MarkdownWindowViewport } from "#renderer/features/transcript/rows/markdown/block-window/context.js";
 import { FootnoteRegistry } from "#renderer/features/transcript/rows/markdown/footnotes/registry.js";
-import { prepareTranscriptRow } from "#renderer/features/transcript/rows/preparation.js";
+import { prepareRowBodiesForTest } from "#renderer/features/transcript/rows/preparation.test-support.js";
 import {
   publishedTextOf,
   type PublishedText,
@@ -36,7 +35,11 @@ import { ManualClock } from "#renderer/lib/clock.js";
 import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
+import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { DEFAULT_APPEARANCE_RECORD, TEXT_SIZES } from "#shared/appearance.js";
+import { readerScrollsTo } from "../../helpers/transcript/reader-scroll.js";
+import { sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
+import { letFramesPassUntilStill } from "../../helpers/animation-frame.js";
 import { toolOutputEventAt } from "./colored-output-event.js";
 import { FEED_HEIGHT_PX, ROW_SELECTOR, mountTranscriptFeed } from "./long-tool-feed.js";
 import { settleFrames } from "./windowed/reply.js";
@@ -49,16 +52,24 @@ const ESCAPE = String.fromCodePoint(0x1b);
 const LARGEST_TEXT_SIZE = TEXT_SIZES.reduce((largest, size) => (size > largest ? size : largest));
 /** The calls in the feed one commit brings a band of outputs in from. */
 const FEED_OUTPUT_COUNT = 60;
-/** The fewest outputs the jump brings in with one commit, as a fling's entering rows do. */
-const MIN_OUTPUTS_IN_ONE_COMMIT = 5;
+/**
+ * The fewest outputs the jump brings in, as a fling's entering rows do: those in view with its
+ * commit, parsed whole as they come into it, and the band's others as their parse lands.
+ */
+const MIN_OUTPUTS_BROUGHT_IN = 5;
+/** The frames the feed holds still for once the band the jump brought in has landed. */
+const BAND_STILL_FRAME_COUNT = 3;
 /** Every drawn output, its box and its `Show all`. */
 const OUTPUT_SELECTOR = ".meridian-output-cut";
 /** An output's box while it is cut. */
 const CUT_BODY_SELECTOR = ".meridian-output-cut__body--cut";
 /** The control that draws an output whole. */
 const SHOW_ALL_SELECTOR = ".meridian-full-output";
-/** The module whose reads the trace counts, as its stack frames name it. */
-const useOutputHeightCutModuleName = "useOutputHeightCut.ts";
+/**
+ * The reads a mounting output makes, as the trace's stack frames name them: its cut's first answer
+ * and its line window's type.
+ */
+const MOUNT_READ_FUNCTION_NAMES: readonly string[] = ["readFirstAnswer", "readTypeOnMount"];
 
 afterEach(() => {
   cleanup();
@@ -105,16 +116,22 @@ function printedLines(count: number): string {
   return Array.from({ length: count }, (_line, index) => printedLine(index + 1)).join("\n");
 }
 
-/** Whether the printed line `line` stands wholly inside the box's content edges, so it is seen. */
+/**
+ * Whether the printed line `line` stands wholly inside the box's content edges, so it is seen; a
+ * line the output's window holds undrawn is not.
+ */
 function isLineSeen(box: HTMLElement, line: number): boolean {
-  const text = box.querySelector(".meridian-output-cut__content")?.firstChild;
-  if (!(text instanceof Text)) {
-    return expect.fail("the plain output is one text node");
-  }
   const lineText = printedLine(line);
-  const start = `\n${text.data}\n`.indexOf(`\n${lineText}\n`);
-  if (start === -1) {
-    return expect.fail(`the output prints ${lineText}`);
+  // Each line is drawn inside one text node of its chunk's.
+  const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+  let text: Text | undefined;
+  let start = -1;
+  for (let node = walker.nextNode(); node !== null && start === -1; node = walker.nextNode()) {
+    text = node as Text;
+    start = `\n${text.data}\n`.indexOf(`\n${lineText}\n`);
+  }
+  if (text === undefined || start === -1) {
+    return false;
   }
   const range = document.createRange();
   range.setStart(text, start);
@@ -124,15 +141,41 @@ function isLineSeen(box: HTMLElement, line: number): boolean {
   return lineRect.top >= edges.top - 0.5 && lineRect.bottom <= edges.bottom + 0.5;
 }
 
-/** The row every held call's output belongs to. */
+/** The row a held call's output belongs to, unless the case names another. */
 const HELD_CALL_ROW_KEY = "call";
 
-/** A call's output whose opening the case holds, as the feed does, so a press repaints it. */
+/**
+ * A call's output whose opening the case holds, as the feed does, so a press repaints it, prepared
+ * as the feed prepares its row and read again as its live text grows.
+ */
 function HeldToolOutput(props: {
   readonly body: string;
   readonly liveText?: PublishedText;
+  readonly rowKey?: string;
 }): React.JSX.Element {
+  const rowKey = props.rowKey ?? HELD_CALL_ROW_KEY;
   const [isOpened, setIsOpened] = useState(false);
+  const [liveTexts] = useState(() => new Map<string, PublishedText>());
+  const [prepared] = useState(() => {
+    if (props.liveText !== undefined) {
+      liveTexts.set(rowKey, props.liveText);
+    }
+    return prepareRowBodiesForTest(
+      [
+        sampleRunRow({
+          id: rowKey,
+          type: "tool.result",
+          content: { status: "available", body: props.body },
+        }),
+      ],
+      liveTexts,
+    );
+  });
+  // A new live text is read before the body draws it, as the feed reads each drained frame.
+  if (props.liveText !== undefined && liveTexts.get(rowKey) !== props.liveText) {
+    liveTexts.set(rowKey, props.liveText);
+    prepared.refresh();
+  }
   const opening: OutputOpening = {
     isOpened,
     open: () => {
@@ -140,14 +183,16 @@ function HeldToolOutput(props: {
     },
   };
   return (
-    <ToolOutput
-      content={{ status: "available", body: props.body }}
-      {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
-      sourceId={HELD_CALL_ROW_KEY}
-      footnotes={new FootnoteRegistry()}
-      label="Output"
-      opening={opening}
-    />
+    <PreparedBodiesContext value={prepared.bodies}>
+      <ToolOutput
+        content={{ status: "available", body: props.body }}
+        {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
+        sourceId={rowKey}
+        footnotes={new FootnoteRegistry()}
+        label="Output"
+        opening={opening}
+      />
+    </PreparedBodiesContext>
   );
 }
 
@@ -182,7 +227,10 @@ async function renderInScroller(
       }}
       style={{ height: `${String(SCROLLER_HEIGHT_PX)}px`, overflowY: "scroll" }}
     >
-      <SuiteWindowViewportProvider viewport={viewport}>{drawn}</SuiteWindowViewportProvider>
+      <SuiteWindowViewportProvider viewport={viewport}>
+        {/* One row, as a transcript's list draws it, which a long output's window places itself in. */}
+        <div {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: 0 }}>{drawn}</div>
+      </SuiteWindowViewportProvider>
     </div>
   );
   // The outputs a commit brings in are read once it is done, before the frame paints, in the same
@@ -275,24 +323,85 @@ function rowEndBelowBoxTopPx(scroller: HTMLElement, output: Element): number {
   return row.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top;
 }
 
+/** The label of the time stamp a case leaves in the trace as a commit brings outputs in. */
+const OUTPUTS_COMMITTED_LABEL = "outputs committed";
+
+/**
+ * Stamps the trace as each commit brings outputs into `scroller`, ahead of the reads the commit
+ * arms, and keeps how many each brought in, until `stop`. It reads no layout, which would lay the
+ * page out ahead of those reads.
+ */
+function stampOutputCommits(scroller: HTMLElement): {
+  readonly outputCounts: readonly number[];
+  readonly stop: () => void;
+} {
+  const seen = new Set(outputsIn(scroller));
+  const outputCounts: number[] = [];
+  const observer = new MutationObserver(() => {
+    const added = outputsIn(scroller).filter((output) => !seen.has(output));
+    if (added.length === 0) {
+      return;
+    }
+    for (const output of added) {
+      seen.add(output);
+    }
+    outputCounts.push(added.length);
+    console.timeStamp(OUTPUTS_COMMITTED_LABEL);
+  });
+  observer.observe(scroller, { childList: true, subtree: true });
+  return {
+    outputCounts,
+    stop: () => {
+      observer.disconnect();
+    },
+  };
+}
+
+/** One frame of a trace event's script stack. */
+interface StackFrame {
+  readonly url: string;
+  readonly functionName: string;
+}
+
 /** One trace event of Chromium's main thread, as far as the count reads it. */
 interface TraceEvent {
   readonly name: string;
   readonly ph: string;
+  /** When it began, in the trace's clock. */
+  readonly ts: number;
   readonly args?: {
-    readonly beginData?: { readonly stackTrace?: readonly { readonly url: string }[] };
-    readonly data?: { readonly stackTrace?: readonly { readonly url: string }[] };
+    readonly beginData?: {
+      readonly stackTrace?: readonly StackFrame[];
+      /** The frame whose document it ran in. */
+      readonly frame?: string;
+    };
+    readonly data?: {
+      readonly stackTrace?: readonly StackFrame[];
+      /** The frame whose document it ran in. */
+      readonly frame?: string;
+      /** A time stamp's label. */
+      readonly message?: string;
+    };
   };
 }
 
+/** The style passes and layouts script forced in a stretch of the trace. */
+interface ForcedLayoutPasses {
+  readonly styleRecalcs: number;
+  readonly layouts: number;
+}
+
 /**
- * The style passes and layouts script in `moduleName` forced while `run` ran, read from a trace of
- * the page: a pass the frame runs carries no script stack, and one script forced names it.
+ * The style passes and layouts a function named in `functionNames` forced while `run` ran, read
+ * from a trace of the page: a pass the frame runs carries no script stack, and one script forced
+ * names its callers. They are counted apart before the first time stamp labeled
+ * `OUTPUTS_COMMITTED_LABEL` and after each, in the stamps' frame only: the trace holds every page
+ * of the browser, and the runner runs other test files in pages of their own at the same time.
  */
-async function forcedLayoutPassesOf(
-  moduleName: string,
+async function forcedLayoutPassesByCommitOf(
+  functionNames: readonly string[],
   run: () => Promise<void>,
-): Promise<{ readonly styleRecalcs: number; readonly layouts: number }> {
+): Promise<readonly ForcedLayoutPasses[]> {
   const session = cdp();
   // The runner opens its protocol session on the first call; a listener added before that can
   // land on a second session the trace never reports to.
@@ -324,16 +433,29 @@ async function forcedLayoutPassesOf(
   }
   await session.send("IO.close", { handle });
   const { traceEvents } = JSON.parse(text) as { readonly traceEvents: readonly TraceEvent[] };
-  const forcedBy = (name: string): number =>
-    traceEvents.filter(
-      (event) =>
-        event.name === name &&
-        event.ph === "X" &&
-        (event.args?.beginData?.stackTrace ?? event.args?.data?.stackTrace ?? []).some((frame) =>
-          frame.url.includes(moduleName),
-        ),
-    ).length;
-  return { styleRecalcs: forcedBy("UpdateLayoutTree"), layouts: forcedBy("Layout") };
+  const stamps = traceEvents.filter(
+    (event) => event.name === "TimeStamp" && event.args?.data?.message === OUTPUTS_COMMITTED_LABEL,
+  );
+  const caseFrame =
+    stamps[0]?.args?.data?.frame ?? expect.fail("a commit stamps the trace from the case's frame");
+  const stretchStarts = [
+    -Infinity,
+    ...stamps.map((event) => event.ts).sort((earlier, later) => earlier - later),
+  ];
+  const forced = traceEvents.filter(
+    (event) =>
+      event.ph === "X" &&
+      (event.args?.beginData?.frame ?? event.args?.data?.frame) === caseFrame &&
+      (event.args?.beginData?.stackTrace ?? event.args?.data?.stackTrace ?? []).some((frame) =>
+        functionNames.includes(frame.functionName),
+      ),
+  );
+  return stretchStarts.map((start, stretch) => {
+    const end = stretchStarts[stretch + 1] ?? Infinity;
+    const forcedBy = (name: string): number =>
+      forced.filter((event) => event.name === name && event.ts >= start && event.ts < end).length;
+    return { styleRecalcs: forcedBy("UpdateLayoutTree"), layouts: forcedBy("Layout") };
+  });
 }
 
 describe("a call's output cut at the visible flow", () => {
@@ -342,16 +464,15 @@ describe("a call's output cut at the visible flow", () => {
       { length: PRINTED_LINE_COUNT },
       (_line, index) => `${ESCAPE}[32mok${ESCAPE}[39m line ${String(index + 1)}`,
     ).join("\n");
-    const prepared = prepareOutputForTest(HELD_CALL_ROW_KEY, coloredOutput);
     const { container } = await renderInScroller(
-      <PreparedAnsiOutputsContext value={prepared.outputs}>
+      <>
         <div data-call="colored">
-          <HeldToolOutput body={coloredOutput} />
+          <HeldToolOutput body={coloredOutput} rowKey="colored-call" />
         </div>
         <div data-call="plain">
-          <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />
+          <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} rowKey="plain-call" />
         </div>
-      </PreparedAnsiOutputsContext>,
+      </>,
     );
     await settleFrames();
     const colored = drawnElement(container, ".meridian-ansi__body");
@@ -494,31 +615,41 @@ describe("a call's output cut at the visible flow", () => {
         toolOutputEventAt(index, printedLines(PRINTED_LINE_COUNT)),
       ),
       undefined,
-      undefined,
-      undefined,
-      prepareTranscriptRow,
     );
-    const drawnBefore = new Set(scroller.querySelectorAll(OUTPUT_SELECTOR));
     const resizeLoopErrors = hearResizeLoopErrors();
-    let entered: Element[] = [];
+    const commits = stampOutputCommits(scroller);
     let frames: CutFrame[] = [];
-    const forcedPasses = await forcedLayoutPassesOf(useOutputHeightCutModuleName, async () => {
-      // The reader leaves the tail and the offset jumps two screens toward the head, bringing a
-      // band of outputs in with one commit; the reads it arms run before the first frame.
+    const forcedPasses = await forcedLayoutPassesByCommitOf(MOUNT_READ_FUNCTION_NAMES, async () => {
+      // The reader leaves the tail and the offset jumps two screens toward the head. Its commit
+      // brings in the outputs in view, parsed whole as they come into it, and the reads it arms
+      // run before the first frame; the band's others mount as their parse lands, in commits of
+      // their own, each read with its commit's other outputs. The count runs until the band is
+      // whole.
       act(() => {
-        scroller.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -FEED_HEIGHT_PX }));
-        scroller.scrollTop -= 2 * FEED_HEIGHT_PX;
-        fireEvent.scroll(scroller);
+        readerScrollsTo(scroller, scroller.scrollTop - 2 * FEED_HEIGHT_PX);
       });
-      entered = [...scroller.querySelectorAll(OUTPUT_SELECTOR)].filter(
-        (output) => !drawnBefore.has(output),
-      );
       frames = await act(async () => await recordCutFrames(() => outputsReadAtOnce(scroller), 6));
+      await letFramesPassUntilStill(scroller, BAND_STILL_FRAME_COUNT);
     });
+    commits.stop();
 
-    expect(entered.length).toBeGreaterThanOrEqual(MIN_OUTPUTS_IN_ONE_COMMIT);
-    // One style pass and one layout for the whole band, not one for each output.
-    expect(forcedPasses).toStrictEqual({ styleRecalcs: 1, layouts: 1 });
+    // The jump's commit brings in several outputs, so a read for each would force a pass for each.
+    const [outputsWithJump = 0, ...outputsWithBand] = commits.outputCounts;
+    expect(outputsWithJump).toBeGreaterThan(1);
+    expect(
+      outputsWithBand.reduce((total, count) => total + count, outputsWithJump),
+    ).toBeGreaterThanOrEqual(MIN_OUTPUTS_BROUGHT_IN);
+    // One style pass and one layout for the outputs each commit brings in, their cuts and their
+    // line windows, not one for each: none before the jump's commit, one for it, and at most one
+    // for each of the band's.
+    const [beforeJump, withJump, ...withBand] = forcedPasses;
+    expect({ beforeJump, withJump }).toStrictEqual({
+      beforeJump: { styleRecalcs: 0, layouts: 0 },
+      withJump: { styleRecalcs: 1, layouts: 1 },
+    });
+    expect(
+      withBand.filter((passes) => passes.styleRecalcs > 1 || passes.layouts > 1),
+    ).toStrictEqual([]);
     expect(frames[0]?.cutCount).toBeGreaterThan(0);
     expect(frames.filter((frame) => frame.cutCount > frame.showAllCount)).toStrictEqual([]);
     expect(resizeLoopErrors.stop()).toStrictEqual([]);
@@ -530,34 +661,48 @@ describe("a call's output cut at the visible flow", () => {
         toolOutputEventAt(index, printedLines(PRINTED_LINE_COUNT)),
       ),
       undefined,
-      undefined,
-      undefined,
-      prepareTranscriptRow,
     );
     const resizeLoopErrors = hearResizeLoopErrors();
-    // The jump brings a band of outputs in with one commit; the rows a screen above the box wait
-    // for their first report, and a second scroll moves those within half a screen more of it into
-    // the box before any frame.
+    // The jump brings the outputs in view in with one commit; the band's others above the box
+    // mount as their parse lands, a screen above, waiting for their first report. The commit that
+    // mounts those within half a screen more of it is answered by a scroll moving them into the
+    // box before any frame.
     act(() => {
-      scroller.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -FEED_HEIGHT_PX }));
-      scroller.scrollTop -= 2 * FEED_HEIGHT_PX;
-      fireEvent.scroll(scroller);
+      readerScrollsTo(scroller, scroller.scrollTop - 2 * FEED_HEIGHT_PX);
     });
-    const farOutputs = outputsIn(scroller).filter((output) => {
-      const rowEndPx = rowEndBelowBoxTopPx(scroller, output);
-      return rowEndPx <= -FEED_HEIGHT_PX && rowEndPx > -1.5 * FEED_HEIGHT_PX;
-    });
-    act(() => {
-      scroller.scrollTop -= 1.5 * FEED_HEIGHT_PX;
-      fireEvent.scroll(scroller);
-    });
-    const outputsInBox = farOutputs.filter(
-      (output) => output.isConnected && rowEndBelowBoxTopPx(scroller, output) > 0,
+    const drawnAtJump = new Set(outputsIn(scroller));
+    const { outputsInBox, frames } = await act(
+      async () =>
+        await new Promise<{
+          readonly outputsInBox: readonly Element[];
+          readonly frames: Promise<CutFrame[]>;
+        }>((resolve) => {
+          const observer = new MutationObserver(() => {
+            const farOutputs = outputsIn(scroller).filter((output) => {
+              const rowEndPx = rowEndBelowBoxTopPx(scroller, output);
+              return (
+                !drawnAtJump.has(output) &&
+                rowEndPx <= -FEED_HEIGHT_PX &&
+                rowEndPx > -1.5 * FEED_HEIGHT_PX
+              );
+            });
+            if (farOutputs.length === 0) {
+              return;
+            }
+            observer.disconnect();
+            scroller.scrollTop -= 1.5 * FEED_HEIGHT_PX;
+            fireEvent.scroll(scroller);
+            const inBox = farOutputs.filter((output) => rowEndBelowBoxTopPx(scroller, output) > 0);
+            // Recorded from the next frame on, the first the scroll lets come.
+            resolve({ outputsInBox: inBox, frames: recordCutFrames(() => inBox, 6) });
+          });
+          observer.observe(scroller, { childList: true, subtree: true });
+        }),
     );
-    const frames = await act(async () => await recordCutFrames(() => outputsInBox, 6));
+    const recordedFrames = await act(async () => await frames);
 
     expect(outputsInBox.length).toBeGreaterThan(0);
-    expect(frames.filter((frame) => frame.cutCount > frame.showAllCount)).toStrictEqual([]);
+    expect(recordedFrames.filter((frame) => frame.cutCount > frame.showAllCount)).toStrictEqual([]);
     expect(resizeLoopErrors.stop()).toStrictEqual([]);
   });
 });

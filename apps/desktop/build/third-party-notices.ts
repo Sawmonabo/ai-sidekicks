@@ -4,7 +4,7 @@
 // Each bundle writes its own file under `out/third-party-notices/`, which electron-builder copies
 // beside the app's archive.
 
-import { readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,21 +54,51 @@ export function clearThirdPartyNotices(): void {
   rmSync(THIRD_PARTY_NOTICES_DIRECTORY, { recursive: true, force: true });
 }
 
-/** The build plugin that writes `bundleName`'s notices when the bundle is generated. */
-export function thirdPartyNoticesPlugin(bundleName: string): ReturnType<typeof license> {
-  return license({
+/** A plugin as the bundler takes it. */
+type BuildPlugin = ReturnType<typeof license>;
+
+/**
+ * The build plugins that write one bundle's notices to `<name>.txt` when the bundle is generated,
+ * the name given by `nameBundle` for the bundle's one entry module as the build starts. A worker's
+ * plugins are made afresh for each worker, so each worker names and writes its own file. Throws
+ * when the bundle has other than one entry, or when `nameBundle` does.
+ */
+export function thirdPartyNoticesPlugins(
+  nameBundle: (entryModuleId: string) => string,
+): BuildPlugin[] {
+  let bundleName: string | undefined;
+  const naming: BuildPlugin = {
+    name: "third-party-notices-bundle-name",
+    buildStart(options) {
+      const entries = Object.values(options.input);
+      const [entry] = entries;
+      if (entry === undefined || entries.length !== 1) {
+        throw new Error(`a bundle's notices need one entry, and it has ${String(entries.length)}`);
+      }
+      bundleName = nameBundle(entry);
+    },
+  };
+  const notices = license({
     thirdParty: {
       multipleVersions: true,
-      output: {
-        file: path.join(THIRD_PARTY_NOTICES_DIRECTORY, `${bundleName}.txt`),
-        template: (dependencies) =>
-          [...dependencies]
-            .sort((left, right) => (left.name ?? "").localeCompare(right.name ?? ""))
-            .map(noticeOf)
-            .join(`\n\n${"=".repeat(80)}\n\n`),
+      output: (dependencies) => {
+        if (bundleName === undefined) {
+          throw new Error("the notices were generated before the bundle was named");
+        }
+        mkdirSync(THIRD_PARTY_NOTICES_DIRECTORY, { recursive: true });
+        writeFileSync(
+          path.join(THIRD_PARTY_NOTICES_DIRECTORY, `${bundleName}.txt`),
+          dependencies.length === 0
+            ? "This bundle carries no third-party package.\n"
+            : [...dependencies]
+                .sort((left, right) => (left.name ?? "").localeCompare(right.name ?? ""))
+                .map(noticeOf)
+                .join(`\n\n${"=".repeat(80)}\n\n`),
+        );
       },
     },
   });
+  return [naming, notices];
 }
 
 function noticeOf(dependency: Dependency): string {

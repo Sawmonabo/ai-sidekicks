@@ -40,6 +40,11 @@ export interface ViewportLandingOptions {
   readonly rowHeightPx: (rowKey: string) => number;
   /** The box's height in pixels, `0` before the first sample. */
   readonly viewportHeightPx: () => number;
+  /**
+   * The offset that shows the content's end, read from the library's total size, which rebuilds
+   * its layout memo; `ScrollController.maximumScrollTop`, `undefined` with no box attached.
+   */
+  readonly maximumScrollTop: () => number | undefined;
   /** Whether a row draws whole if mounted now; see `TranscriptRowPreparation.isReady`. */
   readonly isRowPrepared: (rowKey: string) => boolean;
   /** Whether the feed holds a row out of the list until it draws whole. */
@@ -58,8 +63,8 @@ export interface ViewportLandingOptions {
 }
 
 /**
- * How reading back toward a linked message the log lacks stands: still reading back, or ended at
- * the start of history or a failed read without it.
+ * How reading toward a linked message the log lacks stands: still reading, or ended at both ends
+ * of history without it.
  */
 export type MessageReadBack = "reading-back" | "not-in-history";
 
@@ -96,6 +101,7 @@ export class ViewportLanding {
   readonly #logPositionOf: (rowKey: string) => number | undefined;
   readonly #rowHeightPx: (rowKey: string) => number;
   readonly #viewportHeightPx: () => number;
+  readonly #maximumScrollTop: () => number | undefined;
   readonly #isRowPrepared: (rowKey: string) => boolean;
   readonly #isRowHeldOut: (rowKey: string) => boolean;
   readonly #holdsRowAfter: (rowKey: string | undefined) => boolean;
@@ -133,6 +139,7 @@ export class ViewportLanding {
     this.#logPositionOf = options.logPositionOf;
     this.#rowHeightPx = options.rowHeightPx;
     this.#viewportHeightPx = options.viewportHeightPx;
+    this.#maximumScrollTop = options.maximumScrollTop;
     this.#isRowPrepared = options.isRowPrepared;
     this.#isRowHeldOut = options.isRowHeldOut;
     this.#holdsRowAfter = options.holdsRowAfter;
@@ -158,10 +165,11 @@ export class ViewportLanding {
     if (landing === undefined || virtualizer === undefined || index === undefined) {
       return undefined;
     }
-    // Rebuilds the library's layout memo when a row measured since, so the cache read is current.
-    const totalSizePx = virtualizer.getTotalSize();
+    // Reads the library's total size, which rebuilds its layout memo when a row measured since,
+    // so the cache read is current.
+    const maximumScrollTop = this.#maximumScrollTop();
     const item = virtualizer.measurementsCache[index];
-    if (item === undefined) {
+    if (maximumScrollTop === undefined || item === undefined) {
       return undefined;
     }
     const viewportHeightPx = this.#viewportHeightPx();
@@ -169,7 +177,7 @@ export class ViewportLanding {
       alignmentOf(landing.caller) === "center"
         ? item.start + (item.size - viewportHeightPx) / 2
         : item.start;
-    return Math.max(0, Math.min(startPx, totalSizePx - viewportHeightPx));
+    return Math.max(0, Math.min(startPx, maximumScrollTop));
   }
 
   /**
@@ -186,8 +194,8 @@ export class ViewportLanding {
    * Follows a link to a message: lands on its row once per row, since the key goes `undefined`
    * while the row is folded away or let go and its return must not pull the reader back or take
    * the focus. The link is the reader's own ask, so following ends while its message is read back,
-   * and the tail neither pulls the view nor lets go of the stretches arriving above; read back to
-   * the start of history or a failed read without it, the view stays where the reader is.
+   * and the tail neither pulls the view nor lets go of the stretches arriving above; read to both
+   * ends of history or a failed read without it, the view stays where the reader is.
    */
   public followMessageLink(link: MessageLink): void {
     const { landingRowKey, readBack } = link;

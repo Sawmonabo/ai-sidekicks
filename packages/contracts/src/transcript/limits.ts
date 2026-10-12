@@ -1,6 +1,7 @@
-// The transcript's limits: the most rows a read or a search page holds, and the largest body that
-// travels with its row. The transcript schemas are built from them; this module builds none, so
-// code that only builds transcript pages loads no schema library.
+// The transcript's limits: the most rows a read or a search page holds, the longest search query
+// and snippet, and the largest body that travels with its row. The transcript schemas are built
+// from them; this module builds none, so code that only builds transcript pages loads no schema
+// library.
 
 /**
  * Ceiling on a single `transcript.read` window, matching the package's other capped-count wire
@@ -8,6 +9,12 @@
  * trips first, since this many worst-case rows do not fit one frame.
  */
 export const TRANSCRIPT_READ_LIMIT_MAX = 256;
+
+/**
+ * The longest query, and the longest snippet a hit carries, in UTF-16 code units: each is one
+ * line of a row's text.
+ */
+export const TRANSCRIPT_SEARCH_TEXT_MAX_LEN = 4096;
 
 /**
  * The most JSON bytes a row's body takes and still travels with its row on a read; a larger one

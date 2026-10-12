@@ -36,6 +36,7 @@ export function TableSampleFrame(props: TableSampleFrameProps): React.JSX.Elemen
       {offer.drawFrame({
         tableRef: attachTable,
         columns: undefined,
+        isShrunkToRoom: false,
         rowCount: undefined,
         headRow: frame.kind === "cell-type" ? null : offer.drawHeadRow({}),
         bodyRows:

@@ -24,7 +24,7 @@ import {
   scriptedTranscriptLog,
   transcriptFixtureStreamCursor,
 } from "#renderer/features/transcript/logs.test-support.js";
-import { projectTranscriptRows } from "#renderer/features/transcript/projection/rows.js";
+import { TranscriptRowProjector } from "#renderer/features/transcript/projection/rows.js";
 import { TRANSCRIPT_LET_GO_SCREEN_HEIGHTS } from "#renderer/features/transcript/viewport/caps.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
@@ -101,7 +101,7 @@ describe("a selection the store lets go in a session read from its history", () 
         { cursor: transcriptFixtureStreamCursor(openingFirstIndex - 1), hasMore: true },
         messageAt,
       );
-      const logRows = projectTranscriptRows(
+      const logRows = new TranscriptRowProjector().project(
         Array.from({ length: LOG_ROW_COUNT }, (_, index) => messageAt(index)),
       ).rows;
       const history = scriptedTranscriptLog(LOG_ROW_COUNT, (index) =>

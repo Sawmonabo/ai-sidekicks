@@ -2,7 +2,8 @@
 // rows it runs across: each row's part in log order, then, whenever a reply is part of it, the
 // formatted flavor a part at a time, joined by a blank line into the content of one clipboard
 // write. A large body is read in full just before its row and let go once the row's part is read,
-// so a copy holds one at a time. A reply part too long to make into HTML within a slice is made by
+// so a copy holds one at a time; an end row's large output is stripped of its escape sequences in
+// slices before its part is read. A reply part too long to make into HTML within a slice is made by
 // the markdown worker, off the page's thread, and so is a long end row's part read into its text,
 // which, copied as markdown, comes with its HTML.
 // A copy built in slices is the same bytes as one built at once.
@@ -43,8 +44,14 @@ export interface ConversationCopyRows {
     rowKey: string,
     fullBodyOf: FullBodyOf,
   ) => SelectedPart | Promise<SelectedPart> | undefined;
-  /** The text of a row's body alone, read as `rowText` reads it. */
-  readonly rowBodyText: (rowKey: string, fullBodyOf: FullBodyOf) => string | undefined;
+  /**
+   * The text of a row's body alone, read as `rowText` reads it: at once, or once a long output is
+   * stripped of its escape sequences in slices.
+   */
+  readonly rowBodyText: (
+    rowKey: string,
+    fullBodyOf: FullBodyOf,
+  ) => string | Promise<string> | undefined;
   /** The source a spacer's key names, as it is drawn from or as the copy kept it. */
   readonly drawnSourceOf: (sourceKey: string) => DrawnWindowSource | undefined;
   /** The id of the row whose large body its text reads, which is read in full first. */
@@ -76,6 +83,9 @@ export type ConversationCopyStep =
 export class ConversationCopyBuild {
   readonly #rows: ConversationCopyRows;
   readonly #span: RowSpanSelection;
+  /** The large body read in full for the next row, by its row's id. */
+  readonly #fullBodyOf: FullBodyOf = (rowId) =>
+    this.#fullBody?.rowId === rowId ? this.#fullBody.content : undefined;
   #rowIndex = 0;
   /** The parts read so far that hold text. */
   readonly #parts: SelectedPart[] = [];
@@ -85,6 +95,8 @@ export class ConversationCopyBuild {
   #plainHtml: PlainHtmlMaking | undefined;
   /** The large body the next row reads, once it is read in full. */
   #fullBody: { readonly rowId: string; readonly content: HydratedSessionEventContent } | undefined;
+  /** The body text of the next row, an end row reaching a large body, once it is read. */
+  #bodyText: { readonly rowKey: string; readonly text: string | undefined } | undefined;
   /** What the build waits on before it goes on, while it waits. */
   #awaited: AwaitedWork | undefined;
   /** Whether every row's part is read, so the copy's plain text is whole. */
@@ -95,14 +107,16 @@ export class ConversationCopyBuild {
 
   public constructor(rows: ConversationCopyRows) {
     this.#rows = rows;
-    const fullBodyOf: FullBodyOf = (rowId) =>
-      this.#fullBody?.rowId === rowId ? this.#fullBody.content : undefined;
+    const fullBodyOf = this.#fullBodyOf;
     this.#span = {
       selection: rows.selection,
       rowKeys: rows.rowKeys,
       endRowElement: (rowKey) => rows.endRowElement(rowKey),
       rowText: (rowKey) => rows.rowText(rowKey, fullBodyOf),
-      rowBodyText: (rowKey) => rows.rowBodyText(rowKey, fullBodyOf),
+      rowBodyText: (rowKey) =>
+        this.#bodyText?.rowKey === rowKey
+          ? this.#bodyText.text
+          : bodyTextAtOnce(rows.rowBodyText(rowKey, fullBodyOf)),
       drawnSourceOf: (sourceKey) => rows.drawnSourceOf(sourceKey),
       markdownWorker: rows.markdownWorker,
     };
@@ -110,8 +124,9 @@ export class ConversationCopyBuild {
 
   /**
    * Builds one part after another while `hasTime` answers true, one at the least, and stops
-   * before a row whose large body is still to be read in full, after a row whose part is read in
-   * slices or by the markdown worker, or after a reply part whose formatted flavor it makes.
+   * before a row whose large body is still to be read in full or stripped in slices, after a row
+   * whose part is read in slices or by the markdown worker, or after a reply part whose formatted
+   * flavor it makes.
    */
   public buildWhile(hasTime: () => boolean): ConversationCopyStep {
     this.#step = this.#buildWhile(hasTime);
@@ -256,20 +271,37 @@ export class ConversationCopyBuild {
 
   /**
    * Reads the next row's part, its large body let go after it; `false` when the row's large body
-   * is still to be read in full, reading nothing, or when the part is read in slices or by the
-   * markdown worker.
+   * is still to be read in full or, at an end row, stripped in slices, reading nothing, or when the
+   * part is read in slices or by the markdown worker.
    */
   #readNextRow(): boolean {
     const rowKey =
       this.#rows.rowKeys[this.#rowIndex] ?? throwLostPlace("a row follows the last read");
-    const largeBodyRowId =
-      this.#rows.fullBodyReads === undefined ? undefined : this.#rows.largeBodyRowIdOf(rowKey);
-    if (largeBodyRowId !== undefined && this.#fullBody?.rowId !== largeBodyRowId) {
+    const largeBodyRowId = this.#rows.largeBodyRowIdOf(rowKey);
+    if (
+      this.#rows.fullBodyReads !== undefined &&
+      largeBodyRowId !== undefined &&
+      this.#fullBody?.rowId !== largeBodyRowId
+    ) {
       this.#awaited = { kind: "full-body", rowId: largeBodyRowId };
       return false;
     }
+    // An end row's part may reach its large body, which it reads as text, stripped ahead in slices.
+    if (
+      largeBodyRowId !== undefined &&
+      this.#isEndRow(rowKey) &&
+      this.#bodyText?.rowKey !== rowKey
+    ) {
+      const text = this.#rows.rowBodyText(rowKey, this.#fullBodyOf);
+      if (text instanceof Promise) {
+        this.#awaited = { kind: "body-text", rowKey, text };
+        return false;
+      }
+      this.#bodyText = { rowKey, text };
+    }
     const part = readRowPart(this.#span, rowKey);
     this.#fullBody = undefined;
+    this.#bodyText = undefined;
     this.#rowIndex += 1;
     if (part instanceof Promise) {
       this.#awaited = { kind: "row-part", part };
@@ -277,6 +309,14 @@ export class ConversationCopyBuild {
     }
     this.#keep(part);
     return true;
+  }
+
+  /** Whether `rowKey` is a row the selection starts or ends inside. */
+  #isEndRow(rowKey: string): boolean {
+    const { start, end } = this.#rows.selection;
+    return (
+      (start.at === "row" && start.rowKey === rowKey) || (end.at === "row" && end.rowKey === rowKey)
+    );
   }
 
   /** Keeps `part` when it holds text, read a piece at a time up to its first that does. */
@@ -308,6 +348,12 @@ export class ConversationCopyBuild {
         return false;
       }
       this.#keep(part);
+    } else if (awaited.kind === "body-text") {
+      const text = await awaited.text;
+      if (!isCurrent()) {
+        return false;
+      }
+      this.#bodyText = { rowKey: awaited.rowKey, text };
     } else {
       const fullBodyReads = this.#rows.fullBodyReads ?? throwLostPlace("a large body has a reader");
       const reply = await fullBodyReads.readFullBody(awaited.rowId);
@@ -325,12 +371,13 @@ export class ConversationCopyBuild {
 }
 
 /**
- * What a build waits on: the large body the next row reads, to be read in full, the last row's
- * part, read in slices or by the markdown worker, or the formatted flavor of the next reply part,
- * which the worker is making.
+ * What a build waits on: the large body the next row reads, to be read in full, an end row's body
+ * text, stripped in slices, the last row's part, read in slices or by the markdown worker, or the
+ * formatted flavor of the next reply part, which the worker is making.
  */
 type AwaitedWork =
   | { readonly kind: "full-body"; readonly rowId: string }
+  | { readonly kind: "body-text"; readonly rowKey: string; readonly text: Promise<string> }
   | { readonly kind: "row-part"; readonly part: Promise<SelectedPart> }
   | { readonly kind: "worker-html"; readonly html: Promise<PiecedText> };
 
@@ -364,6 +411,13 @@ function plainHtmlOf(piece: string): string {
       { type: "text" as const, value: line },
     ]),
   });
+}
+
+/** A body's text read as its row's part asks for it, which an end row's large body never is. */
+function bodyTextAtOnce(text: string | Promise<string> | undefined): string | undefined {
+  return text instanceof Promise
+    ? throwLostPlace("a body's text is stripped before its row")
+    : text;
 }
 
 function throwLostPlace(what: string): never {

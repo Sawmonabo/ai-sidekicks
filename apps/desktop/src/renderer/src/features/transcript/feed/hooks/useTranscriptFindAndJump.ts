@@ -19,6 +19,8 @@ export interface TranscriptFindAndJump {
   readonly onStep: (direction: FindStepDirection) => void;
   /** Close the field and put focus back on the log. */
   readonly onClose: () => void;
+  /** Whether the feed shows its rows, which the walk searches only once they are. */
+  readonly areRowsShown: boolean;
 }
 
 /** Wire the find field to the rows it searches and the scroll writer it jumps through. */
@@ -33,15 +35,25 @@ export function useTranscriptFindAndJump(inputs: {
   readonly drawsBody: TranscriptRowRenderer["drawsBody"];
   /** The rows the feed draws, in log order, whether or not the viewport's window holds them. */
   readonly rows: readonly TranscriptEventRow[];
+  /**
+   * Whether the feed shows its rows. Until it does, nothing hidden is found or counted, folded
+   * rows included, and the field claims no count.
+   */
+  readonly areRowsShown: boolean;
   /** The transcript's ONE scroll writer, which lands on a row its window let go. */
   readonly jumpToRow: (rowId: string) => void;
   readonly focusTranscriptViewport: () => void;
 }): TranscriptFindAndJump {
-  const { foldedAwayRows, systemMessageByRowId, drawsBody, rows } = inputs;
+  const { systemMessageByRowId, drawsBody, areRowsShown } = inputs;
   const { jumpToRow, focusTranscriptViewport } = inputs;
 
   // What the fold withholds is counted as that stage reported it rather than re-derived here.
-  const find = useTranscriptFind({ rows, foldedAwayRows, systemMessageByRowId, drawsBody });
+  const find = useTranscriptFind({
+    rows: areRowsShown ? inputs.rows : NO_ROWS,
+    foldedAwayRows: areRowsShown ? inputs.foldedAwayRows : NO_ROWS,
+    systemMessageByRowId,
+    drawsBody,
+  });
 
   const onStep = useCallback(
     (direction: FindStepDirection) => {
@@ -61,5 +73,8 @@ export function useTranscriptFindAndJump(inputs: {
     focusTranscriptViewport();
   }, [closeFind, focusTranscriptViewport]);
 
-  return { find, onStep, onClose };
+  return { find, onStep, onClose, areRowsShown };
 }
+
+/** What the walk and the folded count see while the rows are hidden. */
+const NO_ROWS: readonly TranscriptEventRow[] = [];

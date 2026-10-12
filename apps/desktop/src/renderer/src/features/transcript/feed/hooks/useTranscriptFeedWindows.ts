@@ -27,6 +27,7 @@ import { useDuplicateRowKeyCapture } from "../../viewport/hooks/useDuplicateRowK
 import { useTranscriptFirstReadSettled } from "../../window/hooks/useTranscriptFirstReadSettled.js";
 import { useTranscriptProjection } from "../../window/hooks/useTranscriptProjection.js";
 import { ChangingRowIndex } from "../../window/changing-rows.js";
+import { type RowSourceWindows } from "../../window/row-sources.js";
 import {
   deriveTranscriptWindow,
   type TranscriptPipelineStage,
@@ -36,6 +37,7 @@ import type { ProjectedSessionEvent } from "#renderer/store/session/entities/voc
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { useHistoryLookAhead } from "../../history/hooks/useHistoryLookAhead.js";
 import { useReleaseOutsideWindow } from "../../history/hooks/useReleaseOutsideWindow.js";
+import { useOpenRunStretch } from "./useOpenRunStretch.js";
 import { useStretchMeasure } from "../../history/hooks/useStretchMeasure.js";
 import {
   useTranscriptHistory,
@@ -50,13 +52,18 @@ import {
   type RunWindowEstimates,
 } from "../row-height-inputs.js";
 import { RunGroupFold, type RunWindowInputs } from "../run-group-fold.js";
-import { type RunWindowEdge, type RunWindowMeasure } from "../../runs/call-window.js";
+import {
+  runWindowEdgeKeysAmong,
+  runWindowEdgesAmong,
+  type RunWindowEdge,
+  type RunWindowMeasure,
+} from "../../runs/call-window.js";
 import { type RunGroup } from "../../runs/groups.js";
 import { useFoldedRunGroups } from "./useFoldedRunGroups.js";
 import { useDrawnRows } from "./useDrawnRows.js";
 import { usePreparedRows } from "./usePreparedRows.js";
 import { classifyTranscriptRow } from "../../rows/kind.js";
-import { PreparedAnsiOutputs } from "../../rows/ansi/preparation.js";
+import { PreparedBodies } from "../../rows/prepared-bodies.js";
 import { DrawnWindowSources } from "../../rows/drawn-window-sources.js";
 import { OffListTables } from "../../rows/markdown/table-window/off-list.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
@@ -105,7 +112,7 @@ export interface TranscriptFeedWindows {
   /** What the feed's windows draw from, which a copy reads their undrawn items from. */
   readonly drawnWindowSources: DrawnWindowSources;
   /** The command outputs of the rows within the drawn band's reach, parsed before each is drawn. */
-  readonly preparedOutputs: PreparedAnsiOutputs;
+  readonly preparedBodies: PreparedBodies;
   /**
    * Runs a press on a call's chevron: a fold at once, and an opening once the call's output is
    * parsed whole, so it opens formatted.
@@ -123,10 +130,11 @@ export interface TranscriptFeedWindows {
   /** Open the next stretch of a long run beyond `edge`, measured as the fold measures it. */
   readonly openRunStretch: (runGroup: RunGroup, edge: RunWindowEdge) => void;
   /**
-   * The window the feed would draw over `events`, folded and cut as the reader's runs stand now,
-   * without moving them: a copy reads the rows the store let go through it.
+   * The windows over `events`: unfolded, and as the feed would draw them, folded and cut as the
+   * reader's runs stand now, without moving them. A copy reads the rows the store let go through
+   * them, a run's cut rows from the unfolded one.
    */
-  readonly deriveDrawnWindow: (events: readonly ProjectedSessionEvent[]) => TranscriptWindowModel;
+  readonly deriveRowSourceWindows: (events: readonly ProjectedSessionEvent[]) => RowSourceWindows;
 }
 
 /** Derive every window this feed draws from, in the one order they may be derived in. */
@@ -199,7 +207,7 @@ export function useTranscriptFeedWindows(
     () => new OffListTables(ownerDocument, () => readRowWidthPxRef.current()),
   );
   const [drawnWindowSources] = useState(() => new DrawnWindowSources());
-  const [preparedOutputs] = useState(() => new PreparedAnsiOutputs());
+  const [preparedBodies] = useState(() => new PreparedBodies());
   // A row the log lets go takes its streaming tables' handed geometry with it.
   useEffect(() => {
     offListTables.streamingTables.retainRows(unfurledWindow.rowsByKey);
@@ -210,11 +218,23 @@ export function useTranscriptFeedWindows(
     inputs.prepareRow,
     reveal.channel,
     offListTables,
-    preparedOutputs,
+    preparedBodies,
     folds.foldedCallRowIds,
     inputs.sessionStore.sessionId,
   );
   const transcriptWindow = preparedRows.window;
+  // The edge lines within the drawn band's reach, as the viewport last walked it: their calls the
+  // store let go are read ahead, and kept while they stay within it.
+  const edgeKeysInReach = useRef<ReadonlySet<string>>(new Set());
+  const observePreparedRowReach = preparedRows.observeReach;
+  const observeRowReach = useCallback(
+    (rowKeys: ReadonlySet<string>, viewRowKeys: ReadonlySet<string>) => {
+      observePreparedRowReach(rowKeys, viewRowKeys);
+      edgeKeysInReach.current = runWindowEdgeKeysAmong(rowKeys);
+    },
+    [observePreparedRowReach],
+  );
+  const readEdgeKeysInReach = useCallback(() => edgeKeysInReach.current, []);
   const history = useTranscriptHistory(inputs.sessionStore, inputs.readTranscriptPage);
   // Resolved from the same windows the viewport is handed, so the landing reaches it on the
   // render that brings the row.
@@ -282,7 +302,7 @@ export function useTranscriptFeedWindows(
       isRowHeldOut: preparedRows.isHeldOut,
       holdsRowAfter: preparedRows.holdsRowAfter,
       subscribeToRowWork: preparedRows.subscribeToWork,
-      observeRowReach: preparedRows.observeReach,
+      observeRowReach,
       isRowOutputParsed: preparedRows.isOutputParsed,
       isRowRevealing: isRevealing,
       frameScheduler,
@@ -302,7 +322,7 @@ export function useTranscriptFeedWindows(
       preparedRows.isHeldOut,
       preparedRows.holdsRowAfter,
       preparedRows.subscribeToWork,
-      preparedRows.observeReach,
+      observeRowReach,
       preparedRows.isOutputParsed,
       isRevealing,
       frameScheduler,
@@ -332,22 +352,42 @@ export function useTranscriptFeedWindows(
     setRunWindowEstimates({ estimatedRowHeightPx, screenHeightPx, isRevealing });
   }, [estimatedRowHeightPx, screenHeightPx, isRevealing]);
   const foldsOpenRunStretch = folds.openRunStretch;
-  const openRunStretch = useCallback(
+  const openHeldRunStretch = useCallback(
     (runGroup: RunGroup, edge: RunWindowEdge) => {
       foldsOpenRunStretch(runGroup, edge, runWindowInputs.measureOf(unfurledWindow));
     },
     [foldsOpenRunStretch, runWindowInputs, unfurledWindow],
   );
   const foldedRunGroupKeys = folds.foldedRunGroupKeys;
-  const deriveDrawnWindow = useCallback(
-    (events: readonly ProjectedSessionEvent[]) =>
-      new DrawnRowFilter().filter(
-        new RunGroupFold().fold(deriveTranscriptWindow(events, runEntities), foldedRunGroupKeys, {
-          ...runWindowInputs,
-          windows: runCallWindows.clone(),
-        }).window,
-        drawsBody,
-      ),
+  const callWindowOf = useCallback(
+    (runGroupKey: string) =>
+      foldedRunGroupKeys.has(runGroupKey)
+        ? undefined
+        : runCallWindows.resolvedWindowOf(runGroupKey),
+    [foldedRunGroupKeys, runCallWindows],
+  );
+  const openRunStretch = useOpenRunStretch({
+    history,
+    sessionStore: inputs.sessionStore,
+    unfurledWindow,
+    callWindowOf,
+    edgeKeysInReach: readEdgeKeysInReach,
+    openHeldStretch: openHeldRunStretch,
+  });
+  const deriveRowSourceWindows = useCallback(
+    (events: readonly ProjectedSessionEvent[]): RowSourceWindows => {
+      const derivedWindow = deriveTranscriptWindow(events, runEntities);
+      return {
+        unfurledWindow: derivedWindow,
+        transcriptWindow: new DrawnRowFilter().filter(
+          new RunGroupFold().fold(derivedWindow, foldedRunGroupKeys, {
+            ...runWindowInputs,
+            windows: runCallWindows.clone(),
+          }).window,
+          drawsBody,
+        ),
+      };
+    },
     [foldedRunGroupKeys, runEntities, runWindowInputs, runCallWindows, drawsBody],
   );
   useHistoryLookAhead({
@@ -356,6 +396,23 @@ export function useTranscriptFeedWindows(
     measure: stretchMeasure,
     drawnRowCount: transcriptWindow.viewportRows.length,
   });
+  // The store keeps the rows an open group's window holds, and the calls a press on an edge line
+  // within the band's reach opens onto; a folded group draws no window, so it keeps every row of
+  // its stretch the log holds.
+  const keptCallWindowOf = useCallback(
+    (runGroupKey: string) => {
+      const runGroup = unfurledWindow.runGroupByHeaderKey.get(runGroupKey);
+      if (foldedRunGroupKeys.has(runGroupKey) || runGroup === undefined) {
+        return undefined;
+      }
+      return runCallWindows.resolvedWindowReaching(
+        runGroup,
+        runWindowEdgesAmong(runGroupKey, edgeKeysInReach.current),
+        runWindowInputs.measureOf(unfurledWindow),
+      );
+    },
+    [foldedRunGroupKeys, runCallWindows, unfurledWindow, runWindowInputs],
+  );
   useReleaseOutsideWindow({
     history,
     sessionStore: inputs.sessionStore,
@@ -363,6 +420,7 @@ export function useTranscriptFeedWindows(
     unfurledWindow,
     transcriptWindow,
     preparingRows: preparedRows.preparingRows,
+    callWindowOf: keptCallWindowOf,
   });
 
   // Registered here, where the session id and the one binding meet, so the session diagnostics a
@@ -406,13 +464,13 @@ export function useTranscriptFeedWindows(
     viewport,
     offListTables,
     drawnWindowSources,
-    preparedOutputs,
+    preparedBodies,
     toggleCall: preparedRows.toggleCall,
     holdsUnparsedRowInView: preparedRows.holdsUnparsedRowInView,
     history,
     messageReadBack: readBack,
     openRunStretch,
-    deriveDrawnWindow,
+    deriveRowSourceWindows,
   };
 }
 

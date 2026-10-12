@@ -1,6 +1,6 @@
 // The row a link to a message lands on. The link names the message by its event cursor, which the
-// store's log carries on every event, streamed or read back. A message older than the window is
-// reached by reading stretches back through the feed's history until the log holds it; one inside a
+// store's log carries on every event, streamed or read back. A message outside the window is
+// reached by reading stretches through the feed's history until the log holds it; one inside a
 // folded run group has the group opened first, once, so the row is drawn rather than hidden under
 // a header. An event the feed draws nothing for lands on the nearest row it does draw.
 
@@ -14,6 +14,7 @@ import { type SessionStore } from "#renderer/store/session/store.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";
 import { type RunGroup } from "../../runs/groups.js";
 import { type TranscriptHistory } from "../../history/hooks/useTranscriptHistory.js";
+import { type HistoryEdgeState } from "../../history/reader.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 import { type MessageReadBack } from "../../viewport/landing.js";
 
@@ -53,10 +54,11 @@ export interface MessageAnchorLanding {
  */
 export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): MessageAnchorLanding {
   const { sessionStore, messageAnchorCursor, unfurledWindow, transcriptWindow, drawsRow } = inputs;
-  // The log's oldest event moves when the log is first read and when a page lands: the only
-  // times an older message can arrive. Keyed on it, the lookup
-  // runs then and not on every streamed append, and stops at the message.
+  // The log's oldest event moves when the log is first read and when a page lands before it, and
+  // its newest past a let-go tail when a page lands after it: the only times a message the log
+  // lacked can arrive. Keyed on them, the lookup runs then and not on every streamed append.
   const oldestEvent = useSessionStore(sessionStore, selectOldestEvent);
+  const newestDetachedEvent = useSessionStore(sessionStore, selectNewestDetachedEvent);
   const eventId = useMemo(
     () =>
       messageAnchorCursor === undefined || oldestEvent === undefined
@@ -64,7 +66,7 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): Messa
         : sessionStore.readable
             .getState()
             .transcript.find((event) => event.cursor === messageAnchorCursor)?.id,
-    [sessionStore, messageAnchorCursor, oldestEvent],
+    [sessionStore, messageAnchorCursor, oldestEvent, newestDetachedEvent],
   );
   const readBack = useReadBackToMessage(messageAnchorCursor, eventId, inputs.history);
   const foldedRunGroup = useMemo(
@@ -99,12 +101,13 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): Messa
 }
 
 /**
- * Asks for the stretch before the window while the linked message is not in the log. Each landed
- * stretch re-renders with the grown log, so this reads back stretch by stretch and stops on its
- * own: at the message, at the start of history, or at a failed read, which the line at the top
- * shows and offers to try again. Once the message is found the reading back is over for that
- * link, so a row that later leaves the log is not chased back. Answers how the reading back
- * stands, or `undefined` when none is owed.
+ * Asks for a stretch past the window while the linked message is not in the log: after it while
+ * the tail was let go, then before it. A cursor carries no order, so the newer side is read
+ * first, where a link most often points. Each landed stretch re-renders with the grown log, so
+ * this reads stretch by stretch and stops on its own: at the message, at both ends of history, or
+ * at a failed read, which the line at the top offers to try again before the window. Once the
+ * message is found the reading back is over for that link, so a row that later leaves the log is
+ * not chased back. Answers how the reading back stands, or `undefined` when none is owed.
  */
 function useReadBackToMessage(
   messageAnchorCursor: string | undefined,
@@ -122,22 +125,33 @@ function useReadBackToMessage(
       setReachedCursor(messageAnchorCursor);
       return;
     }
-    const earlier = history?.state.earlier;
-    if (earlier?.hasMore === true && !earlier.isReading && !earlier.hasFailed) {
-      history?.readStretch("head");
+    if (history === undefined) {
+      return;
+    }
+    const { earlier, later } = history.state;
+    if (later.hasMore) {
+      if (!later.isReading && !later.hasFailed) {
+        history.readStretch("tail");
+      }
+      return;
+    }
+    if (earlier.hasMore && !earlier.isReading && !earlier.hasFailed) {
+      history.readStretch("head");
     }
   }, [messageAnchorCursor, reachedCursor, eventId, history]);
-  const earlier = history?.state.earlier;
   if (
     messageAnchorCursor === undefined ||
     reachedCursor === messageAnchorCursor ||
     eventId !== undefined ||
-    earlier === undefined
+    history === undefined
   ) {
     return undefined;
   }
-  // A failed read leaves the reading back owed: its `Try again` asks for the stretch again.
-  return !earlier.hasMore && !earlier.hasFailed ? "not-in-history" : "reading-back";
+  // A failed read leaves the reading back owed: asking for the stretch again resumes it.
+  const isEdgeExhausted = (edge: HistoryEdgeState): boolean => !edge.hasMore && !edge.hasFailed;
+  return isEdgeExhausted(history.state.earlier) && isEdgeExhausted(history.state.later)
+    ? "not-in-history"
+    : "reading-back";
 }
 
 /**
@@ -198,4 +212,9 @@ function landingRowKeyFor(
 
 function selectOldestEvent(state: SessionStoreState): ProjectedSessionEvent | undefined {
   return state.transcript[0];
+}
+
+// Only past a let-go tail, so a streamed append to a live tail changes nothing.
+function selectNewestDetachedEvent(state: SessionStoreState): ProjectedSessionEvent | undefined {
+  return state.transcriptTail.following === "detached" ? state.transcript.at(-1) : undefined;
 }

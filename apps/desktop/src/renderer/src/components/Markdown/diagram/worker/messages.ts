@@ -9,11 +9,19 @@ import type { DiagramPalette } from "../palette.js";
  */
 export type DiagramPictureKind = "shown" | "copied";
 
-/** A diagram drawn: its picture's SVG markup, its natural size and the ground it sits on. */
+/**
+ * A diagram drawn: its picture's SVG markup, what it shows in words, its natural size and the
+ * ground it sits on.
+ */
 export interface DrawnDiagram {
   readonly kind: "drawn";
   /** The SVG picture, as a standalone document. */
   readonly markup: string;
+  /**
+   * The picture in words, for an image's alternative text: the title and description the diagram
+   * gives itself, or else its kind.
+   */
+  readonly textAlternative: string;
   /** The picture's natural width, in CSS pixels. */
   readonly width: number;
   /** The picture's natural height, in CSS pixels. */
@@ -99,7 +107,7 @@ export type DiagramLibraryLoad =
  * measured by its own rules because the page's widths came too late; or merman's deadline passing
  * first. Only the diagram's own outcome is kept.
  */
-export type DiagramDrawing =
+export type WorkerDrawingOutcome =
   | { readonly status: "settled"; readonly outcome: DiagramOutcome }
   | { readonly status: "unmeasured"; readonly outcome: DrawnDiagram }
   | { readonly status: "timed-out" };
@@ -110,7 +118,7 @@ export type DiagramDrawing =
  * worker and starts another.
  */
 export type DiagramDrawReply =
-  | (DiagramDrawing & { readonly requestId: number })
+  | (WorkerDrawingOutcome & { readonly requestId: number })
   | { readonly requestId: number; readonly status: "library-failed"; readonly reason: string };
 
 /** Everything the worker sends the page. */

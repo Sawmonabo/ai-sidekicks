@@ -20,7 +20,7 @@ import {
   scriptedTranscriptLog,
   transcriptFixtureStreamCursor,
 } from "#renderer/features/transcript/logs.test-support.js";
-import { projectTranscriptRows } from "#renderer/features/transcript/projection/rows.js";
+import { TranscriptRowProjector } from "#renderer/features/transcript/projection/rows.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
 /** The session's log, many screens longer than the window keeps. */
@@ -63,7 +63,7 @@ describe("the ends of a conversation read from its history", () => {
         { cursor: transcriptFixtureStreamCursor(openingFirstIndex - 1), hasMore: true },
         messageAt,
       );
-      const logRows = projectTranscriptRows(
+      const logRows = new TranscriptRowProjector().project(
         Array.from({ length: LOG_ROW_COUNT }, (_, index) => messageAt(index)),
       ).rows;
       const history = scriptedTranscriptLog(LOG_ROW_COUNT, (index) =>

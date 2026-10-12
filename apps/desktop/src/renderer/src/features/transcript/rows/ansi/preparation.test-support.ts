@@ -2,12 +2,13 @@
 // outside a feed.
 
 import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
-import { AnsiOutputPreparation, PreparedAnsiOutputs } from "./preparation.js";
+import { PreparedBodies } from "../prepared-bodies.js";
+import { AnsiOutputPreparation } from "./preparation.js";
 
 /** One row's output being prepared: where its box reads it, and when its first parse is whole. */
 export interface PreparedOutputForTest {
   /** What the box's context provides. */
-  readonly outputs: PreparedAnsiOutputs;
+  readonly outputs: PreparedBodies;
   /** Settles once the output first read is parsed whole. */
   readonly whole: Promise<void>;
   /** Stops the slices and drops the output. */
@@ -19,7 +20,7 @@ export function prepareOutputForTest(
   rowKey: string,
   output: string | PublishedText,
 ): PreparedOutputForTest {
-  const outputs = new PreparedAnsiOutputs();
+  const outputs = new PreparedBodies();
   let landWhole: () => void = () => undefined;
   const whole = new Promise<void>((resolve) => {
     landWhole = resolve;

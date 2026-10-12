@@ -1,12 +1,14 @@
 // Measures diagram labels for the worker with the page's own canvas, in the faces the picture draws
 // with, so the worker loads no face of its own. It measures a little at a time while the main
 // thread is idle, at most `SLICE_MS` at a time, so measuring stays out of busy frames. A window
-// drawing no frames may grant no idle time at all, so a wait past `IDLE_WAIT_MS` measures one slice
-// anyway rather than starve the ask. A face's first measurement loads the face, up to 8 ms cold, so
-// each face is loaded once, alone in a task of its own: the faces handed to `warm` one per idle
-// callback while no ask waits, and the faces an ask needs that are still cold back to back after
-// its idle wait, before its labels are measured.
+// drawing no frames may grant no idle time at all, so an idle task that waited too long measures
+// one slice anyway rather than starve the ask. A face's first measurement loads the face, up to 8
+// ms cold, so each face is loaded once, alone in a task of its own: the faces handed to `warm` one
+// per idle callback while no ask waits, and the faces an ask needs that are still cold back to back
+// after its idle wait, before its labels are measured.
 
+import { queueIdleTaskIn } from "#renderer/lib/idle-task.js";
+import { queueTaskIn } from "#renderer/lib/queued-task.js";
 import { SLICE_MS } from "#renderer/lib/work-slices.js";
 import type { LabelFace, LabelMeasureRequest, LabelMeasurements } from "./worker/messages.js";
 
@@ -42,13 +44,11 @@ export class LabelMeasurer {
       return;
     }
     this.#isScheduled = true;
-    requestIdleCallback(
-      (deadline) => {
-        this.#isScheduled = false;
-        this.#workWhileIdle(deadline);
-      },
-      { timeout: IDLE_WAIT_MS },
-    );
+    // The page's own window: the measuring canvas and every ask belong to it.
+    queueIdleTaskIn(window, (deadline) => {
+      this.#isScheduled = false;
+      this.#workWhileIdle(deadline);
+    });
   }
 
   #workWhileIdle(deadline: IdleDeadline): void {
@@ -85,7 +85,7 @@ export class LabelMeasurer {
     if (face !== undefined) {
       this.#warmFace(face);
     }
-    this.#runAsTask(() => {
+    queueTaskIn(window, () => {
       if (rest.length > 0) {
         this.#warmInTurn(rest);
         return;
@@ -155,16 +155,6 @@ export class LabelMeasurer {
     this.#warmFonts.add(context.font);
   }
 
-  /** Run `step` in a task of its own, queued behind what the thread already has, with no wait. */
-  #runAsTask(step: () => void): void {
-    const channel = new MessageChannel();
-    channel.port1.onmessage = () => {
-      channel.port1.close();
-      step();
-    };
-    channel.port2.postMessage(undefined);
-  }
-
   /** The canvas, set to `face`; setting a face parses its font and loads nothing. */
   #contextFor(face: LabelFace): OffscreenCanvasRenderingContext2D {
     const context = (this.#context ??= openContext());
@@ -190,9 +180,6 @@ interface PendingAsk {
 
 /** The idle time, in milliseconds, below which measuring waits for the next idle moment. */
 const IDLE_FLOOR_MS = 1;
-
-/** How long an ask waits for idle time before a slice runs anyway, in milliseconds. */
-const IDLE_WAIT_MS = 50;
 
 function openContext(): OffscreenCanvasRenderingContext2D {
   const context = new OffscreenCanvas(1, 1).getContext("2d");

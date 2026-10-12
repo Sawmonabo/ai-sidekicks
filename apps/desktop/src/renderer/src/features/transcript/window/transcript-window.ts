@@ -8,6 +8,7 @@
 // does to its log (a rollback marking held rows, a page read before the head, a release, a fresh
 // read) derives the window again from the whole log. The run groups' headers read the store's run
 // entities, so new run facts over the same log seal again only the groups whose header they move.
+// A whole derivation carries each stretch's count of the rows the store let go to the next one.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -201,6 +202,9 @@ class WindowAccumulation {
       const previousRow = previous?.rowsByKey.get(row.id);
       return previousRow !== undefined && hasSameMembers(previousRow, row) ? previousRow : row;
     };
+    if (previous !== undefined) {
+      this.#runGroupIndex.followPrevious(previous);
+    }
     for (const row of this.#projector.project(transcript, retain).rows) {
       this.#admitRow(row);
       admittedRows.push(row);
@@ -209,6 +213,10 @@ class WindowAccumulation {
       // A stretch keeps its key, and a person's fold of it, across a page landing before it or a
       // release of its first row; identities are built after, so they hang from the kept key.
       this.#runGroupIndex.adoptKeys(previous.runGroupKeyByRowId);
+      this.#runGroupIndex.carryReleasedRows(previous, admittedRows, (rowId) => {
+        const position = this.#rows.positionOf(rowId);
+        return position === undefined ? undefined : this.#rows.at(position);
+      });
       this.#replyIndex.retainRowLists(previous.replyRowIdsByFootRowId);
     }
     const runGroupKeyByRowId = this.#runGroupIndex.runGroupKeyByRowId();

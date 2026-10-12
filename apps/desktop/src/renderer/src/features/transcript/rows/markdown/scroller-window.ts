@@ -103,11 +103,6 @@ export class ScrollerWindowMembers {
   }
 }
 
-/** The library's compensation for a resized item, refused: a nested window follows, never moves. */
-export function refuseScrollAdjustment(): boolean {
-  return false;
-}
-
 /** How far a body's top sits below its conversation row's, in CSS pixels; laying both out. */
 export function offsetInRowPx(body: Element): number {
   const row = body.closest(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`);

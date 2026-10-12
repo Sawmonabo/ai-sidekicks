@@ -4,7 +4,10 @@
 // both mounts a row and takes it down, and the row the reader saw stays where it stood.
 //
 // The app's script runs in the window that opened the frame's, so the case reads only the DOM:
-// rows are told apart as elements, and the screen is read on every scroll event and frame.
+// rows are told apart as elements, and the screen is read on every scroll event and frame and on
+// every change to the rows or to where they are placed. A hold that keeps the same rows drawn
+// moves only their placement, and the reader's next wheel scrolls the box before the next row
+// mounts, so a read at that mount alone would count the reader's own scroll as the hold's.
 
 import { describe, expect, it } from "vitest";
 
@@ -107,9 +110,9 @@ describe.skipIf(!bundleIsBuilt)("endurance — the reader's place as rows join a
 
 /**
  * Runs in the page: reads the reader's row and the offset on every scroll event and frame, and on
- * every change to the rows notes each row it both mounted and took down, how far the reader's row
- * moved, and whether the offset moved with it. Rows are told apart as elements: rows of the
- * conversation can read alike, and a row drawn again is a new element.
+ * every change to the rows or their placement notes each row it both mounted and took down, how
+ * far the reader's row moved, and whether the offset moved with it. Rows are told apart as
+ * elements: rows of the conversation can read alike, and a row drawn again is a new element.
  */
 function watchHolds(
   scrollerElement: HTMLElement,
@@ -167,7 +170,13 @@ function watchHolds(
       }
     }
     readScreen();
-  }).observe(scrollerElement, { childList: true, subtree: true });
+  }).observe(scrollerElement, {
+    childList: true,
+    subtree: true,
+    // A row's place and the list's height are written to their style.
+    attributes: true,
+    attributeFilter: ["style"],
+  });
   (window as unknown as { readingHold: { read: () => HoldReading } }).readingHold = {
     read: () => ({ churned, readerRowShiftsPx, movingHoldCount }),
   };

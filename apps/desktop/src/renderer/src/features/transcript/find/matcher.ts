@@ -1,9 +1,9 @@
 // The matcher behind the find field. It runs over the loaded rows only, and
 // `searchedRowCount` is part of the result so a find cannot be read as a claim about the
 // whole session. It searches the text a row draws, read on demand from what the window already
-// holds: a person's whole message, a tool row's heading and a system message's line. While a query
-// is set the log moves under it on every admitted event, so a held search reads only the rows that
-// moved.
+// holds: a person's whole message, a tool row's heading with its result chip, and a system
+// message's line. While a query is set the log moves under it on every admitted event, so a held
+// search reads only the rows that moved.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -285,7 +285,7 @@ function drawnTextOf(
     case "user-message":
       return userMessageTextOf(row);
     case "tool-call":
-      return toolRowHeadingText(toolRowHeadingOf(row, undefined));
+      return toolRowHeadingText(toolRowHeadingOf(row, row.content));
     case "agent-message":
     case "thinking":
     case undefined:

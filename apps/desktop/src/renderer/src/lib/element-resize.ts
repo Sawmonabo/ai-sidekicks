@@ -1,7 +1,6 @@
-// The app's one `ResizeObserver` construction site, shared by the preview geometry, the
-// session pane layout, the terminal, the overlay-registration hook, the scroll chokepoint's
-// overflow measurement, a call output's cut and the display formulas' fit to their columns.
-// Features never import each other, so `lib/` holds the one feature detection and teardown.
+// The app's one `ResizeObserver` construction site, for every feature and shared module that
+// follows an element's size. Features never import each other, so `lib/` holds the one feature
+// detection and teardown.
 
 import { getWindow } from "@floating-ui/utils/dom";
 

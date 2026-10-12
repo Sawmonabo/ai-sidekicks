@@ -1,6 +1,7 @@
 // A paste while a copy is still being written waits for it and then pastes the copy's text, in a
-// terminal as in any field; a copy that gives up lets the held paste go ahead; and a middle-click
-// paste of the primary selection goes straight through where the system keeps one.
+// terminal as in any field; a copy that gives up lets the held paste go ahead, and one that failed
+// drops it, since the clipboard still holds what came before; and a middle-click paste of the
+// primary selection goes straight through where the system keeps one.
 
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -162,12 +163,24 @@ describe("a paste while a copy is being written", () => {
     });
   });
 
-  it("lets a held paste go ahead with what the clipboard holds once the copy gives up", async () => {
+  it("pastes what the clipboard holds once the copy gives up, and nothing once it failed", async () => {
     const { bridge } = bridgeOverClipboard();
     const { field, pasted } = renderField(bridge);
+    const batches: string[] = [];
+    const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
+      batches.push(jsonLines);
+    });
+    // A newer copy took over before this one wrote anything.
+    const givenUp = copyOnceBuilt(bridge, TASKS_AT_ONCE, async () => undefined);
+    pasteInto(field, OLDER_COPY);
+    await givenUp;
+    await vi.waitFor(() => {
+      expect(pasted).toStrictEqual([OLDER_COPY]);
+    });
+
     let refuseBody = (): void => undefined;
-    const copied = copyOnceBuilt(bridge, TASKS_AT_ONCE, async (write) => {
-      // A large body the copy reads is refused, so it writes nothing.
+    const failed = copyOnceBuilt(bridge, TASKS_AT_ONCE, async (write) => {
+      // A large body the copy reads is refused, so it writes nothing and says it could not copy.
       await new Promise<void>((_resolve, reject) => {
         refuseBody = () => {
           reject(new Error("The body was refused."));
@@ -175,15 +188,17 @@ describe("a paste while a copy is being written", () => {
       });
       return write({ text: piecedTextOf(NEW_COPY) });
     });
-
     const held = pasteInto(field, OLDER_COPY);
-    expect([held.defaultPrevented, pasted]).toStrictEqual([true, []]);
+    expect(held.defaultPrevented).toBe(true);
     refuseBody();
-    await expect(copied).rejects.toThrow("The body was refused.");
+    await expect(failed).rejects.toThrow("The body was refused.");
 
     await vi.waitFor(() => {
-      expect(pasted).toStrictEqual([OLDER_COPY]);
+      windowDiagnosticCapture.flush();
+      expect(batches.join("\n")).toContain("the copy it waited for failed");
     });
+    detachForwarder();
+    expect(pasted).toStrictEqual([OLDER_COPY]);
   });
 
   it("pastes into the field it was pressed in, though focus moved meanwhile", async () => {

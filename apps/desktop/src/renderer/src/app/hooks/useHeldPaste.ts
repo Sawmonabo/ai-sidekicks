@@ -2,11 +2,12 @@
 // that copy, so it pastes what the person copied last rather than what the clipboard held before.
 // The paste is held before any field sees it (the message box, a terminal, any other), and once
 // every pending copy has written or given up, main pastes the clipboard into the field it was
-// pressed in, as the window's Edit menu does: focus goes back there first if it moved meanwhile,
-// and a paste whose field is gone is dropped, never put elsewhere, and recorded in the window's
-// diagnostics. A paste with no copy pending goes straight through, and so does the one a
-// middle-button release makes where that pastes the primary selection: the browser makes it in
-// the same task as the release, after the release's listeners.
+// pressed in, as the window's Edit menu does: focus goes back there first if it moved meanwhile.
+// A paste whose field is gone, or whose last copy failed, leaving the clipboard as it was before
+// that copy, is dropped, never put elsewhere, and recorded in the window's diagnostics; the failed
+// copy was already said aloud. A paste with no copy pending goes straight through, and so does
+// the one a middle-button release makes where that pastes the primary selection: the browser makes
+// it in the same task as the release, after the release's listeners.
 
 import { isHTMLElement } from "@floating-ui/utils/dom";
 import { useEffect } from "react";
@@ -39,17 +40,20 @@ export function useHeldPaste(bridge: PlatformBridge, ownerWindow: Window, window
         isMiddleClickPasting = false;
       }, 0);
     };
+    const dropPaste = (why: string): void => {
+      windowDiagnosticCapture.record({
+        at: diagnosticStampAt(new RealClock()),
+        severity: "warning",
+        source: "app/useHeldPaste",
+        kind: "held-paste-dropped",
+        detail: `Drop a held paste: ${why}.`,
+      });
+    };
     // Main pastes into the window's focused element, so the field the paste was pressed in takes
     // focus again first.
     const pasteInto = async (field: Element | null): Promise<void> => {
       if (field === null || !field.isConnected) {
-        windowDiagnosticCapture.record({
-          at: diagnosticStampAt(new RealClock()),
-          severity: "warning",
-          source: "app/useHeldPaste",
-          kind: "held-paste-dropped",
-          detail: "Drop a held paste: the field it was pressed in is gone.",
-        });
+        dropPaste("the field it was pressed in is gone");
         return;
       }
       if (ownerWindow.document.activeElement !== field && isHTMLElement(field)) {
@@ -66,7 +70,9 @@ export function useHeldPaste(bridge: PlatformBridge, ownerWindow: Window, window
       const field = ownerWindow.document.activeElement;
       void copies
         .settled()
-        .then(() => pasteInto(field))
+        .then((outcome) =>
+          outcome === "failed" ? dropPaste("the copy it waited for failed") : pasteInto(field),
+        )
         .catch((failure: unknown) => {
           recordRejectedRequest("app/useHeldPaste", "held-paste-not-pasted", failure);
         });

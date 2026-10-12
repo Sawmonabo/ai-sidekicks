@@ -25,7 +25,6 @@ import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 import type { TranscriptRunFacts } from "@ai-sidekicks/contracts/transcript/run-facts";
 
 import {
-  prepareSessionEventReads,
   resolveEventCursor,
   type DamagedFromSequenceReader,
   type SessionEventReads,
@@ -59,14 +58,16 @@ export class TranscriptWindowReader {
   readonly #runFacts: TranscriptRunFactsReader;
   readonly #readDamagedFromSequence: DamagedFromSequenceReader;
 
-  // `readDamagedFromSequence` stops every read at a damaged session's last good point.
+  // `reads` are prepared on `reader` with `readDamagedFromSequence`, which stops every read at a
+  // damaged session's last good point.
   constructor(
     reader: Database,
+    reads: SessionEventReads,
     projector: Pick<TranscriptProjector, "projectWindow">,
     readDamagedFromSequence: DamagedFromSequenceReader,
   ) {
     this.#reader = reader;
-    this.#reads = prepareSessionEventReads(reader, readDamagedFromSequence);
+    this.#reads = reads;
     this.#projector = projector;
     this.#runFacts = new TranscriptRunFactsReader(reader, readDamagedFromSequence);
     this.#readDamagedFromSequence = readDamagedFromSequence;

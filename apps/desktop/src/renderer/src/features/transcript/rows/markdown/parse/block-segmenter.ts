@@ -54,10 +54,10 @@ interface FenceState {
 
 /**
  * What the current block opened as, where that decides whether a blank line ends it. A blank
- * line is not always a boundary: fenced code, indented code and a list item (a loose list) hold
- * blank lines inside themselves, and splitting there would parse each half with no memory of
- * the other. Fences carry their own state; these are the other two. A blockquote needs none,
- * since a `>`-prefixed blank line does not trim to empty.
+ * line is not always a boundary: fenced code or math, indented code and a list item (a loose
+ * list) hold blank lines inside themselves, and splitting there would parse each half with no
+ * memory of the other. Fences carry their own state; these are the other two. A blockquote needs
+ * none, since a `>`-prefixed blank line does not trim to empty.
  */
 type BlockContainer = { readonly kind: "indented-code" } | ListContainer;
 
@@ -372,9 +372,12 @@ function leadingIndentColumns(line: string): number {
   return columns;
 }
 
-/** The fence this line opens, or `undefined`. Backticks and tildes, per commonmark. */
+/**
+ * The fence this line opens, or `undefined`: backticks and tildes, per commonmark, and the two or
+ * more dollars that open display math.
+ */
 function readFenceMarker(line: string): FenceState | undefined {
-  const match = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
+  const match = /^ {0,3}(`{3,}|~{3,}|\${2,})/u.exec(line);
   if (match === null) {
     return undefined;
   }
@@ -386,9 +389,9 @@ function readFenceMarker(line: string): FenceState | undefined {
   if (marker === undefined) {
     return undefined;
   }
-  // A backtick fence's info string may not itself contain a backtick, which is the one
-  // case where an apparent opener is ordinary text.
-  if (marker === "`" && line.slice(match.index + run.length).includes("`")) {
+  // A backtick or dollar fence's info string may not itself contain its marker, which is the one
+  // case where an apparent opener is ordinary text, as `$$x$$` on one line is.
+  if ((marker === "`" || marker === "$") && line.slice(match.index + run.length).includes(marker)) {
     return undefined;
   }
   return { marker, runLength: run.length };
@@ -396,7 +399,7 @@ function readFenceMarker(line: string): FenceState | undefined {
 
 /** Whether this line closes the open fence: same marker, at least as long, nothing else. */
 function closesFence(line: string, openFence: FenceState): boolean {
-  const match = /^ {0,3}(`{3,}|~{3,})\s*$/u.exec(line);
+  const match = /^ {0,3}(`{3,}|~{3,}|\${2,})\s*$/u.exec(line);
   const run = match?.[1];
   return run !== undefined && run[0] === openFence.marker && run.length >= openFence.runLength;
 }

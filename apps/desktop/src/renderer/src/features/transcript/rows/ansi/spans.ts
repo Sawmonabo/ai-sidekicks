@@ -269,16 +269,17 @@ function isReproducedAnsiDecoration(decoration: string): decoration is AnsiDecor
 }
 
 /**
- * The colors anser substitutes for an unset channel just before its own reverse swap: white
+ * The classes anser substitutes for an unset channel just before its own reverse swap: white
  * foreground, black background. They are undone, because the app maps `black` and `white`
- * to muted grays, so a substituted pair would paint gray on gray.
+ * to muted grays, so a substituted pair would paint gray on gray. A palette or true color near
+ * either keeps its own class, so it is never taken for one.
  *
  * An explicit `ESC[40m` or `ESC[37m` under reverse is indistinguishable from the substitution
  * and also collapses to the app default; telling them apart would need a second SGR state
  * machine beside the library's.
  */
-const ANSER_SUBSTITUTED_FOREGROUND: AnsiColorName = "white";
-const ANSER_SUBSTITUTED_BACKGROUND: AnsiColorName = "black";
+const ANSER_SUBSTITUTED_FOREGROUND_CLASS = "ansi-white";
+const ANSER_SUBSTITUTED_BACKGROUND_CLASS = "ansi-black";
 
 function toSpan(entry: AnserJsonEntry): AnsiSpan {
   // Anser strips `reverse` from `decorations` and publishes `isInverted`, which its shipped
@@ -296,13 +297,16 @@ function toSpan(entry: AnserJsonEntry): AnsiSpan {
 
   // Anser already swapped: its `fg` holds the stream's background and its `bg` the stream's
   // foreground. Undo that so the span reports what the stream said.
-  const streamBackground = resolveColor(entry.fg, entry.fg_truecolor);
-  const streamForeground = resolveColor(entry.bg, entry.bg_truecolor);
-
   return {
     text: entry.content,
-    foreground: streamForeground === ANSER_SUBSTITUTED_FOREGROUND ? undefined : streamForeground,
-    background: streamBackground === ANSER_SUBSTITUTED_BACKGROUND ? undefined : streamBackground,
+    foreground:
+      entry.bg === ANSER_SUBSTITUTED_FOREGROUND_CLASS
+        ? undefined
+        : resolveColor(entry.bg, entry.bg_truecolor),
+    background:
+      entry.fg === ANSER_SUBSTITUTED_BACKGROUND_CLASS
+        ? undefined
+        : resolveColor(entry.fg, entry.fg_truecolor),
     reversed: true,
     decorations: entry.decorations.filter(isReproducedAnsiDecoration),
   };

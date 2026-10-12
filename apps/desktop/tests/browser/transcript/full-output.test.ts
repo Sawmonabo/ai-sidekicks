@@ -27,7 +27,7 @@ import {
   transcriptFixtureEventId,
   transcriptFixtureStreamCursor,
 } from "#renderer/features/transcript/logs.test-support.js";
-import { projectTranscriptRows } from "#renderer/features/transcript/projection/rows.js";
+import { TranscriptRowProjector } from "#renderer/features/transcript/projection/rows.js";
 import { TRANSCRIPT_LET_GO_SCREEN_HEIGHTS } from "#renderer/features/transcript/viewport/caps.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
@@ -93,7 +93,7 @@ describe("a reply whose body is too large to travel with its row", () => {
         { cursor: transcriptFixtureStreamCursor(openingFirstIndex - 1), hasMore: true },
         eventAt,
       );
-      const logRows = projectTranscriptRows(
+      const logRows = new TranscriptRowProjector().project(
         Array.from({ length: LOG_ROW_COUNT }, (_, index) => eventAt(index)),
       ).rows;
       const history = scriptedTranscriptLog(LOG_ROW_COUNT, (index) =>

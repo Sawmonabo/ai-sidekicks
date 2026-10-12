@@ -9,12 +9,14 @@ import type { Database, Statement } from "better-sqlite3";
 
 import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
 import { decodeEventCursor, encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
-import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
 import {
+  TRANSCRIPT_READ_LIMIT_MAX,
   TRANSCRIPT_SEARCH_TEXT_MAX_LEN,
-  type TranscriptSearchHit,
-  type TranscriptSearchRequest,
-  type TranscriptSearchResponse,
+} from "@ai-sidekicks/contracts/transcript/limits";
+import type {
+  TranscriptSearchHit,
+  TranscriptSearchRequest,
+  TranscriptSearchResponse,
 } from "@ai-sidekicks/contracts/transcript/search";
 import type { SearchIndex, SearchQuery, SessionFind } from "@ai-sidekicks/search-index";
 

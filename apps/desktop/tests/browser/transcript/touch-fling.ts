@@ -1,10 +1,18 @@
 // A touch fling, as the platform plays one: the hand's travel, then the compositor's momentum,
-// one offset a frame, for the browser tier.
+// one offset a frame, for the browser tier. The hand is played from outside the page
+// (`vitest/touch-fling.ts`), so a page busy with its own work does not hold it back.
 
 import { getConfig } from "@testing-library/react";
-import { cdp } from "vitest/browser";
+import { commands } from "vitest/browser";
 
 import { letFramesPassUntilStill } from "#test/helpers/animation-frame.js";
+import type { TouchFlingGesture } from "#test/helpers/touch-fling.js";
+
+declare module "vitest/browser" {
+  interface BrowserCommands {
+    touchFling: (gesture: TouchFlingGesture) => Promise<void>;
+  }
+}
 
 /** The fastest flick a hand makes, in pixels a second. */
 export const FASTEST_FLICK_SPEED = 17000;
@@ -22,13 +30,11 @@ export async function touchFling(
 ): Promise<void> {
   const box = scroller.getBoundingClientRect();
   await getConfig().asyncWrapper(async () => {
-    await cdp().send("Input.synthesizeScrollGesture", {
-      x: Math.round(box.left + box.width / 2),
-      y: Math.round(box.top + box.height / 2),
-      yDistance: distancePx,
+    await commands.touchFling({
+      x: box.left + box.width / 2,
+      y: box.top + box.height / 2,
+      distancePx,
       speed,
-      gestureSourceType: "touch",
-      preventFling: false,
     });
   });
   await letFramesPassUntilStill(scroller, FLING_STILL_FRAME_COUNT);

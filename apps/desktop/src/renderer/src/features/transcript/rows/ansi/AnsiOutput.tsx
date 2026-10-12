@@ -1,11 +1,12 @@
-// Command output: the spans `spans.ts` parses from the output's text, grouped in chunks of whole
-// lines, in one output box, which a call's output takes cut at the visible flow until its opening
-// is pressed. Each chunk is a block of its lines in flow, so every line wraps and stands as it
-// would in one block. Inside a transcript viewport a long output draws as a window over its chunks,
-// only those near the reader mounted and a spacer holding the room of each run of the rest, its
-// chunks measured off screen a slice at a time so the spacers hold their real room. The box parses
-// nothing: it draws the chunks the row's preparation published, which parses a streaming output
-// only past what earlier revisions parsed, so a revision redraws only the last chunk.
+// A row's output, a command's or plain text: the spans `spans.ts` parses from the output's text,
+// styled or, for plain text, not, grouped in chunks of whole lines, in one output box, which a
+// call's output takes cut at the visible flow until its opening is pressed. Each chunk is a block
+// of its lines in flow, so every line wraps and stands as it would in one block. Inside a
+// transcript viewport a long output draws as a window over its chunks, only those near the reader
+// mounted and a spacer holding the room of each run of the rest, its chunks measured off screen a
+// slice at a time so the spacers hold their real room. The box parses nothing: it draws the chunks
+// the row's preparation published, which parses a streaming output only past what earlier revisions
+// parsed, so a revision redraws only the last chunk.
 
 import { memo, useContext, useSyncExternalStore } from "react";
 
@@ -24,15 +25,17 @@ import {
   ANSI_OUTPUT_KEY_ATTRIBUTE,
 } from "./lines/markers.js";
 import { type AnsiChunkMeasurement } from "./lines/measurement.js";
-import { PreparedAnsiOutputsContext } from "./preparation.js";
+import { PreparedBodiesContext } from "../prepared-bodies.js";
 import { ansiSpanClassNames } from "./spans.js";
 
 import "./AnsiOutput.css";
 
-/** Which row's output to render and the label a screen reader gives its block. */
+/** Which row's output to render, in which box, and the label a screen reader gives its block. */
 export interface AnsiOutputProps {
-  /** What a screen reader calls this block. */
-  readonly label: string;
+  /** The box's own class, which sets the lines' type and the box around them. */
+  readonly className: string;
+  /** What a screen reader calls this block, where it names one. */
+  readonly label?: string | undefined;
   /**
    * The row the output belongs to: its chunks are the ones the feed's preparation of the row
    * published, and a windowed output is laid out from the row's top.
@@ -45,23 +48,23 @@ export interface AnsiOutputProps {
 }
 
 /**
- * Renders a row's ANSI-styled command output in one output box, as the feed's preparation of the
- * row parsed it; empty while none is published. Throws outside a feed, where nothing parses it.
+ * Renders a row's output in one output box, as the feed's preparation of the row parsed it; empty
+ * while none is published. Throws outside a feed, where nothing parses it.
  */
 export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
-  const preparedOutputs = useContext(PreparedAnsiOutputsContext);
-  if (preparedOutputs === undefined) {
-    throw new Error("A command output is drawn only inside a transcript feed, which parses it.");
+  const preparedBodies = useContext(PreparedBodiesContext);
+  if (preparedBodies === undefined) {
+    throw new Error("An output is drawn only inside a transcript feed, which parses it.");
   }
   const rowKey = props.rowKey;
-  const chunks = useSyncExternalStore(preparedOutputs.subscribe, () =>
-    preparedOutputs.chunksOf(rowKey),
+  const chunks = useSyncExternalStore(preparedBodies.subscribe, () =>
+    preparedBodies.chunksOf(rowKey),
   );
   const viewport = useContext(MarkdownWindowViewportContext);
 
   return (
     <OutputHeightCut
-      className="meridian-ansi__body"
+      className={props.className}
       rowKey={rowKey}
       label={props.label}
       opening={props.opening}
@@ -76,6 +79,7 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
           chunks={chunks}
           viewport={viewport}
           rowKey={props.rowKey}
+          className={props.className}
         />
       ) : (
         <span className="meridian-ansi__lines">
@@ -108,6 +112,8 @@ interface WindowedAnsiLinesProps {
   readonly viewport: MarkdownWindowViewport;
   /** The row the output belongs to; held for the window's life. */
   readonly rowKey: string;
+  /** The output box's class, which the measuring frame's box takes too. */
+  readonly className: string;
 }
 
 /** A long output's lines, drawn chunk by chunk where the reader can see them. */
@@ -140,17 +146,19 @@ function WindowedAnsiLines(props: WindowedAnsiLinesProps): React.JSX.Element {
           ),
         )}
       </span>
-      <AnsiMeasuringFrame measurement={lineWindow.measurement} />
+      <AnsiMeasuringFrame measurement={lineWindow.measurement} className={props.className} />
     </>
   );
 }
 
 /**
  * The chunks a long output measures off screen, drawn hidden in the window's measuring frames at
- * the lines' width, inside an output box of their own, whose class sets the lines' type.
+ * the lines' width, inside an output box of their own: the output box's class, and the type the
+ * lines inherit in their row set on it, as the frames stand outside the row.
  */
 function AnsiMeasuringFrame(props: {
   readonly measurement: AnsiChunkMeasurement;
+  readonly className: string;
 }): React.JSX.Element | null {
   const { measurement } = props;
   const frame = useSyncExternalStore(measurement.subscribe, measurement.read);
@@ -159,7 +167,14 @@ function AnsiMeasuringFrame(props: {
   }
   return (
     <MeasuringFrames ownerDocument={frame.ownerDocument}>
-      <pre className="meridian-ansi__body">
+      <pre
+        className={props.className}
+        ref={(box) => {
+          if (box !== null) {
+            box.style.cssText = frame.textStyle;
+          }
+        }}
+      >
         <span className="meridian-ansi__lines" style={{ width: `${String(frame.widthPx)}px` }}>
           {frame.chunks.map(({ index, chunk }) => (
             <AnsiChunk

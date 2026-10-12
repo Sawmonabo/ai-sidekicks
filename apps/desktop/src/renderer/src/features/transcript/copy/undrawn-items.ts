@@ -14,8 +14,11 @@ import { chunkTextOf, type AnsiLineChunkList } from "../rows/ansi/lines/chunks.j
 import { type DrawnWindowSource } from "../rows/drawn-window-sources.js";
 import {
   drawnRowsText,
+  escapeMarkers,
+  MARKER_ESCAPE,
   markUndrawnRows,
   UNDRAWN_ROWS_MARKER,
+  withoutMarkerEscapes,
   type DrawnElement,
   type DrawnTree,
 } from "#renderer/components/Markdown/drawn-text.js";
@@ -60,8 +63,14 @@ export function withUndrawnItems(
 ): UndrawnItemsReading {
   const tables = new Map<string, Table>();
   const textRuns: UndrawnTextRun[] = [];
+  // Before the first spacer becomes a marker, the markers the part's own text holds are escaped.
+  let isEscaped = flavor === "markdown";
   if ("children" in tree) {
     readSpacers(tree, (spacer, kind, sourceKey, firstIndex, lastIndex): DrawnContent => {
+      if (!isEscaped) {
+        escapeMarkers(tree);
+        isEscaped = true;
+      }
       const source = drawnSourceOf(sourceKey);
       if (source?.kind === "output" && kind === "output") {
         if (flavor === "markdown") {
@@ -87,8 +96,9 @@ export function withUndrawnItems(
 
 /**
  * `drawnText`, read from a tree `withUndrawnItems` made, with each of `textRuns`' items read as
- * text in its marker's place, a few items a slice in `view`, the text in pieces. Throws when the
- * text holds the markers other than once each.
+ * text in its marker's place, a few items a slice in `view`, the text in pieces, and the markers
+ * the part held read back from their escapes. Throws when the text holds the markers other than
+ * once each.
  */
 export async function withUndrawnItemsText(
   drawnText: PiecedText | Promise<PiecedText>,
@@ -101,8 +111,15 @@ export async function withUndrawnItemsText(
   }
   const pieces: string[] = [];
   let runIndex = 0;
+  // An escape a piece ends on is read with the digit that opens the next.
+  let escapeCarried = "";
   for (const piece of (await drawnText).pieces) {
-    const [first = "", ...afterMarkers] = piece.split(UNDRAWN_ROWS_MARKER);
+    const carried = escapeCarried + piece;
+    escapeCarried = carried.endsWith(MARKER_ESCAPE) ? MARKER_ESCAPE : "";
+    const [first = "", ...afterMarkers] = carried
+      .slice(0, carried.length - escapeCarried.length)
+      .split(UNDRAWN_ROWS_MARKER)
+      .map(withoutMarkerEscapes);
     pieces.push(first);
     for (const after of afterMarkers) {
       const rows = runPieces[runIndex];

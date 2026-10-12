@@ -14,8 +14,11 @@ import {
 } from "../viewport/caps.js";
 import { type RunGroup } from "./groups.js";
 
+/** The edges of a run's window: toward the stretch's first call, and toward its newest. */
+const RUN_WINDOW_EDGES = ["earlier", "later"] as const;
+
 /** An edge of a run's window: toward the stretch's first call, or toward its newest. */
-export type RunWindowEdge = "earlier" | "later";
+export type RunWindowEdge = (typeof RUN_WINDOW_EDGES)[number];
 
 /** What a window is measured in: the screen, and each row's height as the list lays it out. */
 export interface RunWindowMeasure {
@@ -35,9 +38,9 @@ export interface RunCallWindow {
   readonly firstRowPosition: number;
   /** The last of the group's `rowIds` the outer list holds. */
   readonly lastRowPosition: number;
-  /** The drawn rows before the window, which the `earlier` edge counts. */
+  /** The drawn rows before the window, the ones the store let go included: the `earlier` edge's. */
   readonly earlierCount: number;
-  /** The drawn rows after the window, which the `later` edge counts. */
+  /** The drawn rows after the window, the ones the store let go included: the `later` edge's. */
   readonly laterCount: number;
 }
 
@@ -119,6 +122,31 @@ export class RunCallWindows {
   }
 
   /**
+   * The window the last `windowOf` resolved for `runGroup`, reaching on past each edge in `edges`
+   * over the calls the log holds that a press there opens onto: the calls read ahead for a press,
+   * which the store keeps while that edge line is in the drawn band.
+   */
+  public resolvedWindowReaching(
+    runGroup: RunGroup,
+    edges: readonly RunWindowEdge[],
+    measure: RunWindowMeasure,
+  ): RunCallWindow | undefined {
+    const window = this.#resolvedByKey.get(runGroup.key);
+    if (window === undefined || edges.length === 0) {
+      return window;
+    }
+    const walk = new CallWalk(runGroup, measure);
+    return walk.windowOf(
+      edges.includes("earlier")
+        ? walk.firstIndexBefore(window.firstCallIndex, TRANSCRIPT_STRETCH_SCREEN_HEIGHTS)
+        : window.firstCallIndex,
+      edges.includes("later")
+        ? walk.endIndexAfter(window.endCallIndex, TRANSCRIPT_STRETCH_SCREEN_HEIGHTS)
+        : window.endCallIndex,
+    );
+  }
+
+  /**
    * A copy of these windows as they stand, which a fold of another log may move without moving
    * these: a copy of rows the store let go cuts each run where the feed would draw it.
    */
@@ -140,11 +168,15 @@ export class RunCallWindows {
     }
   }
 
-  // An end at the newest call is held as none, so the window grows with the run.
+  // An end at the newest call is held as none, so the window grows with the run; not while the
+  // store let go of calls after it, which come before any the run adds.
   #hold(runGroup: RunGroup, walk: CallWalk, firstCallIndex: number, endCallIndex: number): void {
     this.#heldByKey.set(runGroup.key, {
       firstCallRowId: walk.rowIdOf(firstCallIndex),
-      lastCallRowId: endCallIndex >= walk.callCount ? undefined : walk.rowIdOf(endCallIndex - 1),
+      lastCallRowId:
+        endCallIndex >= walk.callCount && runGroup.releasedLater === undefined
+          ? undefined
+          : walk.rowIdOf(endCallIndex - 1),
     });
   }
 }
@@ -168,6 +200,25 @@ export function runWindowEdgeKey(runGroupKey: string, edge: RunWindowEdge): stri
   return `${runGroupKey}${EDGE_KEY_SEPARATOR}${edge}`;
 }
 
+/** The keys among `rowKeys` that name an edge line, whichever run group it is of. */
+export function runWindowEdgeKeysAmong(rowKeys: Iterable<string>): ReadonlySet<string> {
+  const edgeKeys = new Set<string>();
+  for (const rowKey of rowKeys) {
+    if (rowKey.includes(EDGE_KEY_SEPARATOR)) {
+      edgeKeys.add(rowKey);
+    }
+  }
+  return edgeKeys;
+}
+
+/** The edge lines of the run group `runGroupKey` among the edge line keys `edgeKeys`. */
+export function runWindowEdgesAmong(
+  runGroupKey: string,
+  edgeKeys: ReadonlySet<string>,
+): readonly RunWindowEdge[] {
+  return RUN_WINDOW_EDGES.filter((edge) => edgeKeys.has(runWindowEdgeKey(runGroupKey, edge)));
+}
+
 /** The edge line `rowKey` names, or `undefined` when it names none of these run groups'. */
 export function readRunWindowEdgeKey(
   rowKey: string,
@@ -179,8 +230,9 @@ export function readRunWindowEdgeKey(
   }
   const edge = rowKey.slice(separatorAt + EDGE_KEY_SEPARATOR.length);
   const runGroup = runGroupByHeaderKey.get(rowKey.slice(0, separatorAt));
-  return runGroup !== undefined && (edge === "earlier" || edge === "later")
-    ? { runGroup, edge }
+  const runWindowEdge = RUN_WINDOW_EDGES.find((candidate) => candidate === edge);
+  return runGroup !== undefined && runWindowEdge !== undefined
+    ? { runGroup, edge: runWindowEdge }
     : undefined;
 }
 
@@ -297,8 +349,8 @@ class CallWalk {
         endCallIndex >= this.callCount
           ? lastRowPosition
           : (positions[endCallIndex - 1] ?? lastRowPosition),
-      earlierCount: firstCallIndex,
-      laterCount: this.callCount - endCallIndex,
+      earlierCount: (this.#runGroup.releasedEarlier?.count ?? 0) + firstCallIndex,
+      laterCount: this.callCount - endCallIndex + (this.#runGroup.releasedLater?.count ?? 0),
     };
   }
 }

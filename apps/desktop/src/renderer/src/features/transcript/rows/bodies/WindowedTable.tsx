@@ -54,6 +54,7 @@ function LongTable(props: { readonly offer: MarkdownTableOffer }): React.JSX.Ele
         : offer.drawFrame({
             bodyRef: tableWindow.attachBody,
             columns: heldColumns,
+            isShrunkToRoom: tableWindow.isShrunkToRoom,
             // The head row counts as the first row; a body row's place follows it.
             rowCount: offer.bodyRowCount + 1,
             headRow: offer.drawHeadRow({ "aria-rowindex": 1 }),

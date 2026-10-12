@@ -65,7 +65,8 @@ describe("parsing ANSI output", () => {
       `${ESCAPE}[38;5;196mpalette red${ESCAPE}[39m ` +
         `${ESCAPE}[38;2;30;90;220mtrue blue${ESCAPE}[39m ` +
         `${ESCAPE}[38;5;244mpalette gray${ESCAPE}[39m ` +
-        `${ESCAPE}[7;38;2;250;250;250;48;5;34mreversed${ESCAPE}[0m`,
+        `${ESCAPE}[7;38;2;250;250;250;48;5;34mreversed${ESCAPE}[0m ` +
+        `${ESCAPE}[7;48;2;12;12;12mreversed near black${ESCAPE}[0m`,
     );
     const colored = spans.filter((span) => span.text.trim() !== "");
     expect(colored.map((span) => [span.text, span.foreground, span.background])).toEqual([
@@ -74,6 +75,8 @@ describe("parsing ANSI output", () => {
       ["palette gray", "bright-black", undefined],
       // Reverse video keeps what the stream set on each channel, true colors included.
       ["reversed", "bright-white", "green"],
+      // A near-black ground the stream set is its own, not the one anser fills in for none.
+      ["reversed near black", undefined, "black"],
     ]);
   });
 

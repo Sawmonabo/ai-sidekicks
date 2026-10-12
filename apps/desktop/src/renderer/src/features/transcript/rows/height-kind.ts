@@ -79,7 +79,8 @@ export const ROW_HEIGHT_SEED_REM: Readonly<Record<RowHeightKind, number>> = {
  * What an open call draws around its output once the output is cut, in rem: the header line, the
  * output box's padding above and below, the one line of its control a `space-1` under the box
  * (`Show all` once settled, `Show full output (<size>)` while the command runs), and the row gap.
- * The box's padding is a command output's, so a plain output's row comes out shorter.
+ * The box's padding is a command output's, so a plain output's row comes out shorter. Its edge,
+ * which no text size scales, is `OUTPUT_BOX_EDGE_PX`.
  */
 const CUT_CALL_SURROUND_REM =
   READING_LINE_REM +
@@ -94,5 +95,12 @@ const CUT_CALL_SURROUND_REM =
  * cut call is drawn taller, and no call whose output was opened whole shorter.
  */
 export function cutCallHeightPx(flowHeightPx: number, rootFontSizePx: number): number {
-  return flowHeightPx * OUTPUT_CUT_FLOW_SHARE + CUT_CALL_SURROUND_REM * rootFontSizePx;
+  return (
+    flowHeightPx * OUTPUT_CUT_FLOW_SHARE +
+    CUT_CALL_SURROUND_REM * rootFontSizePx +
+    2 * OUTPUT_BOX_EDGE_PX
+  );
 }
+
+/** The output box's edge above and below its padding, in CSS pixels. */
+const OUTPUT_BOX_EDGE_PX = 1;

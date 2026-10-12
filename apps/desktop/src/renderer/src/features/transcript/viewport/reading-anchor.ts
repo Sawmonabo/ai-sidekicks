@@ -19,6 +19,7 @@ import {
   type ScrollGeometry,
 } from "#renderer/lib/scroll/geometry/sample.js";
 import { TRANSCRIPT_GESTURE_GAP_MS } from "./caps.js";
+import { ReaderGesture } from "./reader-gesture.js";
 import { type WindowSide } from "./window-side.js";
 
 /**
@@ -71,6 +72,10 @@ export class ReadingAnchor {
   #lastReaderInputAtMs: number | undefined;
   /** Whether the reader's pointer is down in the box, where a dragged selection scrolls it. */
   #isReaderPointerDown = false;
+  /** The gesture over the reader's input and the scroll samples that carry it on. */
+  readonly #gesture = new ReaderGesture();
+  /** Whether the gesture under way is the reader's: their input, or a scroll sample of theirs. */
+  #isReaderGesture = false;
 
   /** Watch the reading state, and receive the current one immediately. */
   public subscribe(sink: (state: ReadingAnchorState) => void): Unsubscribe {
@@ -98,9 +103,10 @@ export class ReadingAnchor {
    *
    * Only the reader leaves the tail: their wheel, key or touch toward the head
    * ({@link noteReaderInput}), or a `"scroll"` sample whose offset moved toward the head and whose
-   * scroll event came within a gesture gap of their own wheel, key or touch, either side of it, or
-   * while their pointer is down in the box. The platform stamps a scroll event when the box moved,
-   * which can be before an input it dispatched ahead of that event. A write the transcript or the
+   * scroll event came within a gesture gap of their own wheel, key or touch, either side of it,
+   * carries on a gesture of theirs, as a busy machine's late frame does, or came while their
+   * pointer is down in the box. The platform stamps a scroll event when the box moved, which can
+   * be before an input it dispatched ahead of that event. A write the transcript or the
    * library made, a shrinking viewport and content growing under a still offset never stop
    * following; the controller lands the follower on the tail again. A scroll toward the head is a
    * decision and releases the follow at once, however small, even inside the tail band; arriving
@@ -111,7 +117,7 @@ export class ReadingAnchor {
     const previous = this.#lastGeometry;
     this.#lastGeometry = geometry;
     const readerMovedTowardHead =
-      this.#isReaderScroll(geometry) && hasOffsetMovedTowardHead(previous, geometry);
+      this.#isReaderScroll(geometry, previous) && hasOffsetMovedTowardHead(previous, geometry);
     if (geometry.isAtTail && !readerMovedTowardHead) {
       this.#transition("following", 0);
       return;
@@ -130,6 +136,8 @@ export class ReadingAnchor {
    */
   public noteReaderInput(inputAtMs: number, towardSide?: WindowSide): void {
     this.#lastReaderInputAtMs = inputAtMs;
+    this.#gesture.observe(inputAtMs, undefined);
+    this.#isReaderGesture = true;
     if (
       towardSide === "head" &&
       this.#mode === "following" &&
@@ -137,6 +145,11 @@ export class ReadingAnchor {
     ) {
       this.#transition("reading", this.#newRowCount);
     }
+  }
+
+  /** The box's `scrollend` arrived: the scroll sequence that kept the gesture going is over. */
+  public noteScrollEnd(): void {
+    this.#gesture.noteScrollEnd();
   }
 
   /**
@@ -240,20 +253,27 @@ export class ReadingAnchor {
     this.#heldRowKeys = [];
   }
 
-  /** Whether the reader's own input moved this sample, read off its scroll event's time stamp. */
-  #isReaderScroll(geometry: ScrollGeometry): boolean {
+  /**
+   * Whether the reader's own input moved this sample, read off its scroll event's time stamp and
+   * how far the box moved since `previous`.
+   */
+  #isReaderScroll(geometry: ScrollGeometry, previous: ScrollGeometry | undefined): boolean {
     const inputAtMs = geometry.inputAt;
     if (geometry.cause !== "scroll" || inputAtMs === undefined) {
       return false;
     }
-    if (this.#isReaderPointerDown) {
-      return true;
-    }
+    const { continuesGesture } = this.#gesture.observe(
+      inputAtMs,
+      previous === undefined ? undefined : Math.abs(geometry.scrollTop - previous.scrollTop),
+    );
     const sinceReaderInputMs =
       this.#lastReaderInputAtMs === undefined ? undefined : inputAtMs - this.#lastReaderInputAtMs;
-    return (
-      sinceReaderInputMs !== undefined && Math.abs(sinceReaderInputMs) <= TRANSCRIPT_GESTURE_GAP_MS
-    );
+    this.#isReaderGesture =
+      this.#isReaderPointerDown ||
+      (continuesGesture && this.#isReaderGesture) ||
+      (sinceReaderInputMs !== undefined &&
+        Math.abs(sinceReaderInputMs) <= TRANSCRIPT_GESTURE_GAP_MS);
+    return this.#isReaderGesture;
   }
 
   #transition(mode: ReadingMode, newRowCount: number): void {

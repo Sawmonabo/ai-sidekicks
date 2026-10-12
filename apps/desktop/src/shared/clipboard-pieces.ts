@@ -1,6 +1,7 @@
 // The pieces of a late copy, its text and formatted flavor or its picture's PNG bytes, held by
 // whoever answers the page's clipboard calls until the write that names the copy joins them: main,
-// or a fixture standing in for it. One copy is held at a time.
+// or a fixture standing in for it. One copy is held for each clipboard, so a copy for the selection
+// clipboard and one for the system clipboard never let each other go.
 
 import type { ClipboardContent, ClipboardPiece } from "./preload-api.js";
 
@@ -13,25 +14,30 @@ export interface HeldClipboardCopy {
 }
 
 /**
- * The pieces of the one late copy held, sent ahead of its write: a copy's first text or picture
- * piece takes the place of the copy held, so one copy's pieces are held at a time.
+ * The pieces of the late copy held for each clipboard, sent ahead of its write: a copy's first
+ * text or picture piece takes the place of the copy held for its clipboard, so one copy's pieces
+ * are held for each clipboard at a time.
  */
 export class ClipboardPieces {
-  #copy: MutableClipboardCopy | undefined;
+  #systemCopy: MutableClipboardCopy | undefined;
+  #selectionCopy: MutableClipboardCopy | undefined;
 
   /**
-   * Takes one piece. Throws for a piece naming a copy not held, which leaves the held copy
-   * standing, or one out of its flavor's order, which lets the held copy go, since a copy missing
-   * a piece would look whole.
+   * Takes one piece. Throws for a piece naming a copy not held for its clipboard, which leaves the
+   * held copy standing, or one out of its flavor's order, which lets the held copy go, since a copy
+   * missing a piece would look whole.
    */
   public take(piece: ClipboardPiece): void {
-    const { copyId, index } = piece;
+    const { copyId, index, clipboard } = piece;
     if (piece.flavor !== "html" && index === 0) {
-      this.#copy = { copyId, text: [], html: [], png: [] };
+      this.#hold(clipboard, { copyId, text: [], html: [], png: [] });
     }
-    const copy = this.#piecesOf(copyId);
+    const copy = this.#heldFor(clipboard);
+    if (copy?.copyId !== copyId) {
+      throw new Error("A clipboard piece names a copy that is not held.");
+    }
     if (index !== copy[piece.flavor].length) {
-      this.#copy = undefined;
+      this.#hold(clipboard, undefined);
       throw new Error("A clipboard piece came out of order.");
     }
     if (piece.flavor === "png") {
@@ -41,16 +47,19 @@ export class ClipboardPieces {
     }
   }
 
-  /** Lets the copy `copyId` names go, when it is the one held. */
+  /** Lets the copy `copyId` names go, when it is held for either clipboard. */
   public drop(copyId: string): void {
-    if (this.#copy?.copyId === copyId) {
-      this.#copy = undefined;
+    if (this.#systemCopy?.copyId === copyId) {
+      this.#systemCopy = undefined;
+    }
+    if (this.#selectionCopy?.copyId === copyId) {
+      this.#selectionCopy = undefined;
     }
   }
 
-  /** Whether the copy `copyId` names is still the one held. */
+  /** Whether the copy `copyId` names is still held for its clipboard. */
   public isHeld(copyId: string): boolean {
-    return this.#copy?.copyId === copyId;
+    return this.#copyNamed(copyId) !== undefined;
   }
 
   /** The pieces held for the copy `copyId` names, unjoined. Throws for a copy not held. */
@@ -78,15 +87,36 @@ export class ClipboardPieces {
       : { text: text.join(""), html: html.join("") };
   }
 
+  #heldFor(clipboard: "selection" | undefined): MutableClipboardCopy | undefined {
+    return clipboard === undefined ? this.#systemCopy : this.#selectionCopy;
+  }
+
+  #hold(clipboard: "selection" | undefined, copy: MutableClipboardCopy | undefined): void {
+    if (clipboard === undefined) {
+      this.#systemCopy = copy;
+    } else {
+      this.#selectionCopy = copy;
+    }
+  }
+
+  #copyNamed(copyId: string): MutableClipboardCopy | undefined {
+    return this.#systemCopy?.copyId === copyId
+      ? this.#systemCopy
+      : this.#selectionCopy?.copyId === copyId
+        ? this.#selectionCopy
+        : undefined;
+  }
+
   #piecesOf(copyId: string): MutableClipboardCopy {
-    if (this.#copy?.copyId !== copyId) {
+    const copy = this.#copyNamed(copyId);
+    if (copy === undefined) {
       throw new Error("A clipboard piece names a copy that is not held.");
     }
-    return this.#copy;
+    return copy;
   }
 }
 
-/** The copy held, its flavors' pieces growing as they arrive. */
+/** A copy held, its flavors' pieces growing as they arrive. */
 interface MutableClipboardCopy {
   readonly copyId: string;
   readonly text: string[];

@@ -20,10 +20,8 @@
 // it, so seconds of frames would deliver the whole script before the first sample. The advance per
 // frame is derived from the script's span.
 //
-// The harness hands Chromium's GPU caches from each launch of a test to the next, so a case's
-// first launch compiles its GPU pipelines from nothing and the ones after it do not. A measured
-// case launches once cold, prints that launch's figures on their own as the first-launch figure,
-// and gates on the median over the warm launches after it (`measureLaunches`).
+// A measured case gates on the median over fresh launches (`measureLaunches`), each from a new
+// profile, so each compiles its GPU pipelines from nothing, as an app's first launch does.
 
 import { expect } from "vitest";
 
@@ -56,27 +54,18 @@ export const MEASURED_RUN_COUNT = 3;
  */
 const WARM_UP_FRAME_COUNT = 30;
 
-/** A measured case's launches: the cold first one, and the warm ones its gate reads. */
-export interface MeasuredLaunches<TRun> {
-  /** The test's first launch, which started with no GPU caches. */
-  readonly firstLaunch: TRun;
-  /** `MEASURED_RUN_COUNT` launches, each started from the GPU caches the one before closed with. */
-  readonly warmLaunches: readonly TRun[];
-}
-
 /**
- * Launches once cold and then `MEASURED_RUN_COUNT` times warm, one after another. Called before
- * the running test's first launch, since only that one starts cold.
+ * Launches `MEASURED_RUN_COUNT` times, one after another, each a fresh launch, and answers each
+ * launch's run in order.
  */
 export async function measureLaunches<TRun>(
   launchOnce: () => Promise<TRun>,
-): Promise<MeasuredLaunches<TRun>> {
-  const firstLaunch = await launchOnce();
-  const warmLaunches: TRun[] = [];
+): Promise<readonly TRun[]> {
+  const runs: TRun[] = [];
   for (let runIndex = 0; runIndex < MEASURED_RUN_COUNT; runIndex += 1) {
-    warmLaunches.push(await launchOnce());
+    runs.push(await launchOnce());
   }
-  return { firstLaunch, warmLaunches };
+  return runs;
 }
 
 /** What one sampled run measured. */

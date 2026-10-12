@@ -1,11 +1,14 @@
-// Parsing a settled block, a block against the body's definitions, and mending the volatile tail.
+// Parsing a settled block, a block against the body's definitions, mathematics between dollars
+// beside prices and shell variables, and mending the volatile tail.
 
+import type { Nodes } from "mdast";
 import { describe, expect, it } from "vitest";
 
 import {
   footnoteDefinitionPreamble,
   holdSettledBlock,
   mendVolatileTail,
+  parseMarkdown,
   parseSettledBlock,
 } from "./parse.js";
 
@@ -68,6 +71,50 @@ describe("parsing a block against the whole body's definitions", () => {
     expect(parsed.children[0]?.type).toBe("code");
   });
 });
+
+describe("mathematics between dollars", () => {
+  it("reads a formula inside a sentence, and one alone between double dollars as a display one", () => {
+    expect(formulasIn("The ratio $x^2 + 1$ grows.\n")).toStrictEqual(["inlineMath x^2 + 1"]);
+    expect(formulasIn("$$\\sum_i x_i$$\n")).toStrictEqual(["math \\sum_i x_i"]);
+    expect(formulasIn("$$\n\\frac{a}{b}\n$$\n")).toStrictEqual(["math \\frac{a}{b}"]);
+  });
+
+  it("leaves a price and a shell variable as the words they are", () => {
+    for (const words of [
+      "It costs $5.\n",
+      "Set $HOME first.\n",
+      "Pay $5 and $10 today.\n",
+      "Between $5 and $10, take $20$30.\n",
+      "From $5-$10.\n",
+      "Run echo $PATH and $HOME.\n",
+    ]) {
+      expect(formulasIn(words), words).toStrictEqual([]);
+      expect(textOf(parseMarkdown(words)), words).toBe(words.trimEnd());
+    }
+  });
+});
+
+/** Each formula in `source`'s parse, as its kind and its TeX. */
+function formulasIn(source: string): string[] {
+  const formulas: string[] = [];
+  const visit = (node: Nodes): void => {
+    if (node.type === "math" || node.type === "inlineMath") {
+      formulas.push(`${node.type} ${node.value}`);
+    } else if ("children" in node) {
+      node.children.forEach(visit);
+    }
+  };
+  visit(parseMarkdown(source));
+  return formulas;
+}
+
+/** The text a tree holds, its text nodes joined. */
+function textOf(node: Nodes): string {
+  if (node.type === "text") {
+    return node.value;
+  }
+  return "children" in node ? node.children.map(textOf).join("") : "";
+}
 
 describe("mending the volatile tail", () => {
   it("leaves a lone dollar sign unclosed", () => {

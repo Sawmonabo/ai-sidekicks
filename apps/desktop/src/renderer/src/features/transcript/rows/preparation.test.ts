@@ -1,21 +1,25 @@
 // What a message row waits on before the feed lists it, against stand-in diagram workers: a
-// diagram that cannot be drawn still lets the row go, into the failure its body draws; and a
+// diagram that cannot be drawn still lets the row go, into the failure its body draws; a row in
+// view has its diagram drawn ahead of one outside the drawn band; a new palette withdraws the
+// asks made under the old one and the row waits on the new ones alone; a
 // listed reply whose live text settles a diagram has the picture asked for before anything mounts
 // it; a reply's stored body takes over from its retired lane, settling its last block; and a
 // streaming formula or diagram fence starts its typesetter or worker once it names its language,
 // while a fence of code starts neither.
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
+import { RESOLVED_SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import { DiagramPictures } from "#renderer/components/Markdown/diagram/pictures.js";
 import { FakeDiagramWorkers } from "#renderer/components/Markdown/diagram/worker/connection.test-support.js";
 import { typesetterLoadFor } from "#renderer/components/Markdown/typesetter/load.js";
 import { userMessageRow } from "../event-rows.test-support.js";
 import { transcriptReadRowAt } from "../logs.test-support.js";
 import { RevealTextRope } from "../reveal/text-rope.js";
-import { PreparedAnsiOutputs } from "./ansi/preparation.js";
+import { type OutputReach } from "./ansi/preparation.js";
+import { PreparedBodies } from "./prepared-bodies.js";
 import { prepareTranscriptRow } from "./preparation.js";
 import { OffListTables } from "./markdown/table-window/off-list.js";
 import { type TranscriptRowSources } from "./renderer.js";
@@ -31,17 +35,35 @@ const SETTLED_DIAGRAM = "flowchart LR\n  write --> store";
 function sourcesWith(
   pictures: DiagramPictures,
   publishedTextFor: TranscriptRowSources["publishedTextFor"] = () => undefined,
+  reachOf: (rowId: string) => OutputReach = () => "view",
 ): TranscriptRowSources {
   return {
     publishedTextFor,
     ownerWindow: window,
     diagramPictures: pictures,
     offListTables: new OffListTables(document, () => undefined),
-    preparedOutputs: new PreparedAnsiOutputs(),
-    reachOf: () => "view",
+    preparedBodies: new PreparedBodies(),
+    reachOf,
     isCallFolded: () => false,
   };
 }
+
+/** A person's message holding one settled diagram fence per source. */
+function diagramMessageRow(
+  id: string,
+  sequence: number,
+  sources: readonly string[],
+): TranscriptEventRow {
+  return userMessageRow({
+    id,
+    sequence,
+    message: sources.map((source) => `\`\`\`mermaid\n${source}\n\`\`\`\n`).join("\n"),
+  });
+}
+
+afterEach(() => {
+  document.documentElement.removeAttribute(RESOLVED_SCHEME_ATTRIBUTE);
+});
 
 /** Publish `text` on the lane whole, as one drained frame does. */
 function revealInto(laneText: RevealTextRope, text: string): void {
@@ -91,6 +113,68 @@ describe("a message row's preparation", () => {
     await vi.waitFor(() => {
       expect(onReady).toHaveBeenCalledTimes(1);
     });
+    expect(preparation?.isReady).toBe(true);
+  });
+
+  it("has a row in view's diagram drawn ahead of one outside the drawn band", async () => {
+    const workers = new FakeDiagramWorkers();
+    const pictures = new DiagramPictures(CACHE_BYTE_CAP, workers.start, () => undefined);
+    const reaches = new Map<string, OutputReach>([
+      ["far", "outside"],
+      ["near", "view"],
+    ]);
+    const sources = sourcesWith(pictures, undefined, (rowId) => reaches.get(rowId) ?? "outside");
+    const farDiagram = "flowchart LR\n  far --> away";
+    const nearDiagram = "flowchart LR\n  near --> here";
+
+    // Asked in log order, the far row first.
+    prepareTranscriptRow(diagramMessageRow("far", 0, [farDiagram]), sources, () => undefined);
+    prepareTranscriptRow(diagramMessageRow("near", 1, [nearDiagram]), sources, () => undefined);
+
+    await vi.waitFor(() => {
+      expect(sentSources(workers)).toEqual([nearDiagram]);
+    });
+  });
+
+  it("withdraws its asks under an old palette and waits on the new palette's alone", async () => {
+    const root = document.documentElement;
+    root.setAttribute(RESOLVED_SCHEME_ATTRIBUTE, "light");
+    const workers = new FakeDiagramWorkers();
+    const pictures = new DiagramPictures(CACHE_BYTE_CAP, workers.start, () => undefined);
+    const firstDiagram = "flowchart LR\n  first --> drawn";
+    const secondDiagram = "flowchart LR\n  second --> waiting";
+    const onReady = vi.fn();
+    const preparation = prepareTranscriptRow(
+      diagramMessageRow("message", 0, [firstDiagram, secondDiagram]),
+      sourcesWith(pictures),
+      onReady,
+    );
+    await vi.waitFor(() => {
+      expect(sentSources(workers)).toEqual([firstDiagram]);
+    });
+    const worker = workers.latest();
+    worker.load();
+
+    // The second light drawing is still waiting when the scheme turns dark.
+    root.setAttribute(RESOLVED_SCHEME_ATTRIBUTE, "dark");
+    await Promise.resolve();
+    preparation?.refresh();
+    worker.answer({ kind: "failed", reason: "drawn in the old palette" });
+    await vi.waitFor(() => {
+      expect(worker.requests).toHaveLength(2);
+    });
+    expect(worker.requests.map((request) => request.palette.isDark)).toEqual([false, true]);
+    expect(preparation?.isReady).toBe(false);
+
+    worker.answer({ kind: "failed", reason: "drawn in the new palette" });
+    await vi.waitFor(() => {
+      expect(worker.requests).toHaveLength(3);
+    });
+    worker.answer({ kind: "failed", reason: "drawn in the new palette" });
+    await vi.waitFor(() => {
+      expect(onReady).toHaveBeenCalledOnce();
+    });
+    expect(worker.requests.map((request) => request.palette.isDark)).toEqual([false, true, true]);
     expect(preparation?.isReady).toBe(true);
   });
 

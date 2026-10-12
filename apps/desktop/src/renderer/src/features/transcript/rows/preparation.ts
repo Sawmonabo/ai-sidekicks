@@ -1,15 +1,15 @@
 // What a row's first frame waits on: in a message row, the formula typesetter, once the row holds a
 // finished formula, the picture of each finished diagram, and each long table's geometry; in a
-// reply or a tool's result drawn as command output, its parse, read in slices while the row is
-// within the drawn band's reach and, for a call, open. The feed lists a row that arrives (a page
-// read, a jump, a row read back) only once these have landed, and keeps every row it holds ready to
-// scroll to by reading each one's text again as it grows. A row's text
-// is read as its body reads it: a person's message, finished; a reply's live text, whose tail is
-// still streaming and shows its source until it settles, or a tool's; and, with no lane, or once
-// its lane retires, the stored body, finished. A typesetter, diagram or table failure counts as
-// landed: the body draws its error state. A formula or diagram fence still streaming starts the
-// typesetter's load or the diagram worker as soon as it names its language, without the row
-// waiting on either.
+// reply or a tool's result drawn as command output or plain text, its parse into lines, read in
+// slices while the row is within the drawn band's reach and, for a call, open. A reply's text is
+// stripped of escapes here, once, and handed to its body to draw. The feed lists a row that arrives
+// (a page read, a jump, a row read back) only once these have landed, and keeps every row it holds
+// ready to scroll to by reading each one's text again as it grows. A row's text is read as its body
+// reads it: a person's message, finished; a reply's live text, whose tail is still streaming and
+// shows its source until it settles, or a tool's; and, with no lane, or once its lane retires, the
+// stored body, finished. A typesetter, diagram or table failure counts as landed: the body draws
+// its error state. A formula or diagram fence still streaming starts the typesetter's load or the
+// diagram worker as soon as it names its language, without the row waiting on either.
 
 import type { Nodes } from "mdast";
 
@@ -36,8 +36,8 @@ import { readWireString } from "#renderer/lib/wire/strings.js";
 import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
 import { publishedTextOf, type PublishedText } from "../reveal/published-text.js";
 import { StrippedText } from "./ansi/escape-sequences.js";
-import { AnsiOutputPreparation } from "./ansi/preparation.js";
-import { outputKindOf, toolOutputKindOf } from "./bodies/output-kinds.js";
+import { AnsiOutputPreparation, type OutputReach } from "./ansi/preparation.js";
+import { outputKindOf } from "./bodies/output-kinds.js";
 import { classifyTranscriptRow, isFoldableCall } from "./kind.js";
 import { userMessageTextOf } from "./user-message.js";
 import { MarkdownBodyBlocks, type MarkdownBodyBlocksSnapshot } from "./markdown/body-blocks.js";
@@ -51,7 +51,7 @@ import {
 
 /**
  * Starts what a transcript row's first frame waits on: a message row's finished formulas and
- * diagrams, and a reply's or a tool's command output, read now and again on each `refresh`.
+ * diagrams, and a reply's or a tool's output, read now and again on each `refresh`.
  * `undefined` for a row that draws neither markdown nor a tool's result.
  */
 export const prepareTranscriptRow: TranscriptRowPreparer = (row, sources, onReady) => {
@@ -79,9 +79,9 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   readonly #segmenter = new MarkdownBlockSegmenter();
   readonly #blocks = new MarkdownBodyBlocks();
   readonly #strippedText: StrippedText;
-  /** The reply's body parsed as command output, while it is drawn as one. */
+  /** The reply's body parsed into lines, while it is drawn as command output or plain text. */
   readonly #output: AnsiOutputPreparation;
-  /** The reply's text last read as command output, or `undefined` while its body draws none. */
+  /** The reply's text last read as an output, or `undefined` while its body draws none. */
   #outputText: PublishedText | undefined;
   /** The text last read, and its revision then. */
   #readText: { readonly text: PublishedText; readonly revision: number } | undefined;
@@ -95,10 +95,14 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   #hasStartedTypesetter = false;
   #hasStartedDiagramWorker = false;
   #hasAskedForTypesetter = false;
-  /** Every diagram the row holds, and the ones asked for under the palette last read. */
+  /** Every diagram the row holds, and each one asked for under the palette last read, by source. */
   readonly #diagramSources = new Set<string>();
-  readonly #askedDiagramSources = new Set<string>();
+  readonly #diagramAsks = new Map<string, DiagramAsk>();
   #askedPalette: DiagramPalette | undefined;
+  /** How far the row stands from the reading position, read each time the queue chooses. */
+  readonly #readingDistance: ReadingDistance = () =>
+    READING_DISTANCE_BY_REACH[this.#sources.reachOf(this.#row.id)];
+  /** The table preparations' releases. */
   readonly #withdrawals: (() => void)[] = [];
   /** The pictures loaded ahead of their blocks, each with the image that loaded it. */
   readonly #loadedPictures: {
@@ -115,7 +119,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     this.#onReady = onReady;
     this.#output = new AnsiOutputPreparation(
       row.id,
-      sources.preparedOutputs,
+      sources.preparedBodies,
       sources.ownerWindow,
       () => {
         if (this.#pendingCount === 0) {
@@ -142,8 +146,12 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   public release(): void {
     this.#isReleased = true;
     this.#output.release();
+    this.#sources.preparedBodies.withdrawMarkdownText(this.#row.id, this);
     for (const withdraw of this.#withdrawals) {
       withdraw();
+    }
+    for (const ask of this.#diagramAsks.values()) {
+      ask.withdraw();
     }
     this.#letPicturesGo();
   }
@@ -151,6 +159,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   /** Reads the blocks settled since the last read, for the formulas and diagrams they hold. */
   #readNewBlocks(): void {
     const body = this.#readMarkdownBody();
+    this.#publishReplyText(body?.text);
     if (
       body === undefined ||
       (body.text === this.#readText?.text && body.text.revision === this.#readText.revision)
@@ -171,7 +180,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     for (const block of settledBlocks.slice(this.#readBlockCount)) {
       const blockSource = blocks.readBlockSource(block);
       this.#prepareTableWindows(blockSource, block.fingerprint, blocks);
-      if (DEFERRED_FENCE_OPENER.test(blockSource)) {
+      if (DEFERRED_FENCE_OPENER.test(blockSource) || blockSource.includes("$")) {
         const fences: DeferredFence[] = [];
         collectDeferredFences(parseSettledBlock(blockSource, blocks.definitionPreamble), fences);
         for (const fence of fences) {
@@ -273,13 +282,28 @@ class MessageRowPreparation implements TranscriptRowPreparation {
 
   /**
    * A reply's text as its body draws it as markdown, or `undefined` for any other kind; a text
-   * drawn as command output is kept for its output box's parse.
+   * drawn as an output is kept for its output box's parse. Command output keeps its escapes, which
+   * the parse reads its styling from; the other kinds are drawn stripped.
    */
   #proseOf(text: PublishedText): PublishedText | undefined {
     const contentType = readWireString(projectedPayload(this.#row)["contentType"]);
     const kind = outputKindOf(text, contentType);
-    this.#outputText = kind === "command-output" ? text : undefined;
-    return kind === "prose" ? this.#strippedText.read(text) : undefined;
+    const drawnText = kind === "command-output" ? text : this.#strippedText.read(text);
+    this.#outputText = kind === "prose" ? undefined : drawnText;
+    return kind === "prose" ? drawnText : undefined;
+  }
+
+  /** Hands a reply's body the markdown it draws, or drops it; a person's message reads its own. */
+  #publishReplyText(text: PublishedText | undefined): void {
+    const rowId = this.#row.id;
+    if (classifyTranscriptRow(this.#row)?.kind !== "agent-message") {
+      return;
+    }
+    if (text === undefined) {
+      this.#sources.preparedBodies.withdrawMarkdownText(rowId, this);
+    } else {
+      this.#sources.preparedBodies.publishMarkdownText(rowId, this, text);
+    }
   }
 
   /** The finished body read from `source`, read once per string. */
@@ -312,7 +336,8 @@ class MessageRowPreparation implements TranscriptRowPreparation {
 
   /**
    * Asks for each diagram not yet asked for under the window's palette. A new palette (the theme
-   * or the text size changed) asks for every one again, since a picture is drawn in its palette.
+   * or the text size changed) withdraws every ask made under the old one and asks for every
+   * diagram again, since a picture is drawn in its palette; the row waits on the new asks alone.
    */
   #askForDiagrams(): void {
     const pictures = this.#sources.diagramPictures;
@@ -321,30 +346,36 @@ class MessageRowPreparation implements TranscriptRowPreparation {
       return;
     }
     const palette = watchDiagramPalette(this.#sources.ownerWindow).read();
+    const staleAsks = palette === this.#askedPalette ? [] : [...this.#diagramAsks.values()];
     if (palette !== this.#askedPalette) {
       this.#askedPalette = palette;
-      this.#askedDiagramSources.clear();
+      this.#diagramAsks.clear();
+      for (const ask of staleAsks) {
+        ask.withdraw();
+      }
       this.#letPicturesGo();
     }
-    if (this.#askedDiagramSources.size === this.#diagramSources.size) {
-      return;
-    }
     for (const source of this.#diagramSources) {
-      if (this.#askedDiagramSources.has(source)) {
+      if (this.#diagramAsks.has(source)) {
         continue;
       }
-      this.#askedDiagramSources.add(source);
       const landed = this.#startWaiting();
       const kept = pictures.read(source, palette);
       if (kept === undefined) {
-        this.#withdrawals.push(
-          pictures.request(source, palette, AT_READING_POSITION, (outcome) => {
+        this.#diagramAsks.set(source, {
+          withdraw: pictures.request(source, palette, this.#readingDistance, (outcome) => {
             this.#loadPicture(pictures, outcome, landed);
           }),
-        );
+          landed,
+        });
       } else {
+        this.#diagramAsks.set(source, { withdraw: NOTHING_TO_WITHDRAW, landed });
         this.#loadPicture(pictures, kept, landed);
       }
+    }
+    // Counted off once the new asks are counted, so the row is never ready in between.
+    for (const ask of staleAsks) {
+      ask.landed();
     }
   }
 
@@ -393,22 +424,23 @@ class MessageRowPreparation implements TranscriptRowPreparation {
 }
 
 /**
- * One tool row's preparation: its result parsed while it is drawn as command output and the call is
- * open, read as its body reads it, the lane's live text first and then the stored body.
+ * One tool row's preparation: its result parsed into lines while the call is open, read as its body
+ * reads it, the lane's live text first and then the stored body. A result is never markdown and,
+ * drawn as plain text, carries no escape, so it is parsed as it is.
  */
 class ToolRowPreparation implements TranscriptRowPreparation {
   readonly #row: TranscriptEventRow;
   readonly #sources: TranscriptRowSources;
   readonly #output: AnsiOutputPreparation;
-  /** The stored body last read and its output, so a refresh over the same string reads nothing. */
-  #storedOutput: { readonly source: string; readonly text: PublishedText | undefined } | undefined;
+  /** The stored body last read and its handle, so a refresh over the same string reads nothing. */
+  #storedOutput: { readonly source: string; readonly text: PublishedText } | undefined;
 
   public constructor(row: TranscriptEventRow, sources: TranscriptRowSources, onReady: () => void) {
     this.#row = row;
     this.#sources = sources;
     this.#output = new AnsiOutputPreparation(
       row.id,
-      sources.preparedOutputs,
+      sources.preparedBodies,
       sources.ownerWindow,
       onReady,
     );
@@ -429,11 +461,7 @@ class ToolRowPreparation implements TranscriptRowPreparation {
     const isFolded =
       this.#sources.isCallFolded(rowId) && isFoldableCall(this.#row, liveText !== undefined);
     this.#output.read(
-      isFolded
-        ? undefined
-        : liveText === undefined
-          ? this.#readStoredOutput()
-          : commandOutputOf(liveText),
+      isFolded ? undefined : (liveText ?? this.#readStoredOutput()),
       this.#sources.reachOf(rowId),
     );
   }
@@ -442,25 +470,17 @@ class ToolRowPreparation implements TranscriptRowPreparation {
     this.#output.release();
   }
 
-  /** The stored body as command output, or `undefined` for a body drawn otherwise or none. */
+  /** The stored body's handle, or `undefined` while the row carries none to draw. */
   #readStoredOutput(): PublishedText | undefined {
     const content = this.#row.content;
     if (content?.status !== "available") {
       return undefined;
     }
     if (this.#storedOutput?.source !== content.body) {
-      this.#storedOutput = {
-        source: content.body,
-        text: commandOutputOf(publishedTextOf(content.body)),
-      };
+      this.#storedOutput = { source: content.body, text: publishedTextOf(content.body) };
     }
     return this.#storedOutput.text;
   }
-}
-
-/** A tool's result if its body draws it as command output, or `undefined` for any other kind. */
-function commandOutputOf(text: PublishedText): PublishedText | undefined {
-  return toolOutputKindOf(text) === "command-output" ? text : undefined;
 }
 
 /** The markdown a row's body draws, and whether it is finished. */
@@ -469,13 +489,20 @@ interface MarkdownBody {
   readonly isComplete: boolean;
 }
 
-/** A fence that draws as a formula or a picture once its block has settled, and its source. */
+/**
+ * A fence or a formula that draws as a formula or a picture once its block has settled, and its
+ * source.
+ */
 interface DeferredFence {
   readonly kind: DeferredFenceKind;
   readonly source: string;
 }
 
 function collectDeferredFences(node: Nodes, into: DeferredFence[]): void {
+  if (node.type === "math" || node.type === "inlineMath") {
+    into.push({ kind: "math", source: node.value });
+    return;
+  }
   if (node.type === "code") {
     const kind = readDeferredFenceKind(node.lang);
     if (kind !== undefined) {
@@ -491,8 +518,8 @@ function collectDeferredFences(node: Nodes, into: DeferredFence[]): void {
 }
 
 /**
- * A fence that opens a formula or a diagram: what a block must hold before it is parsed for one.
- * Read loosely, so it may match a fence the parse then reads as code.
+ * A fence that opens a formula or a diagram: what a block must hold, or else a dollar, before it is
+ * parsed for one. Read loosely, so it may match a fence the parse then reads as code.
  */
 const DEFERRED_FENCE_OPENER = new RegExp(
   `(?:\`{3,}|~{3,})[ \\t]*(${Object.keys(DEFERRED_FENCE_KINDS).join("|")})(?![^\\s])`,
@@ -502,5 +529,21 @@ const DEFERRED_FENCE_OPENER = new RegExp(
 /** Every such fence in a run of complete lines, each with its language. */
 const OPEN_FENCE_LANGUAGES = new RegExp(DEFERRED_FENCE_OPENER.source, "giu");
 
-/** A row the feed holds is what the reader is about to see, so its pictures go first. */
-const AT_READING_POSITION: ReadingDistance = () => 0;
+/** One diagram a message row asked for: how to withdraw the ask, and how to count it landed. */
+interface DiagramAsk {
+  readonly withdraw: () => void;
+  readonly landed: () => void;
+}
+
+const NOTHING_TO_WITHDRAW = (): void => undefined;
+
+/**
+ * How far a row stands from the reading position by how near the viewport it is, for the drawing
+ * queue: a row in view at it, one in the drawn band after every mounted block's own distance in
+ * pixels, and one outside the band last. A row not mounted has no distance in pixels to give.
+ */
+const READING_DISTANCE_BY_REACH: Readonly<Record<OutputReach, number>> = {
+  view: 0,
+  band: Number.MAX_VALUE,
+  outside: Number.POSITIVE_INFINITY,
+};

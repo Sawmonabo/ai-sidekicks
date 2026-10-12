@@ -1,7 +1,8 @@
 // A long run's window in the engine that lays the rows out: its rows sit in the transcript's own
 // list with no scroller of their own, and a press on an edge line brings the next stretch while
-// the call beside the edge stays where the reader saw it. A DOM shim lays nothing out and never
-// moves the scroll position, so a held call there stays put with or without the hold.
+// the call beside the edge stays where the reader saw it; calls the store let go past an edge are
+// read once its line is drawn, so the press opens them at once. A DOM shim lays nothing out and
+// never moves the scroll position, so a held call there stays put with or without the hold.
 //
 // The pane is mounted the way the accessibility tier mounts it, with the real row renderer, over a
 // store holding one run long enough that its window leaves calls out at both ends after a press.
@@ -11,9 +12,10 @@ import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, onTestFinished } from "vitest";
 
 import { changeLayout, letFramesPass } from "../../helpers/animation-frame.js";
-import { readerScrollsTo } from "./reader-scroll.js";
+import { readerScrollsTo } from "../../helpers/transcript/reader-scroll.js";
 import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../helpers/app/harness.js";
+import { ROW_SELECTOR, mountTranscriptFeed, positionOfRow } from "./long-tool-feed.js";
 
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
@@ -24,8 +26,22 @@ import { registerTranscriptRows } from "#renderer/features/transcript/contributi
 import { SessionScreenContainer } from "#renderer/features/transcript/SessionScreenContainer.js";
 import { TranscriptPane } from "#renderer/features/transcript/TranscriptPane.js";
 import { transcriptPaneContext } from "#renderer/features/transcript/TranscriptPane.test-support.js";
-import { SESSION_ID } from "#renderer/features/transcript/logs.test-support.js";
-import { openSessionStoreWithLongRun } from "#renderer/features/transcript/runs/call-window.test-support.js";
+import {
+  PAGED_SESSION_ID,
+  SESSION_ID,
+  openPagedSessionStore,
+  pagedSessionEventAt,
+  readRowOf,
+  scriptedTranscriptLog,
+  transcriptFixtureStreamCursor,
+} from "#renderer/features/transcript/logs.test-support.js";
+import { TranscriptRowProjector } from "#renderer/features/transcript/projection/rows.js";
+import {
+  longRunEvents,
+  openSessionStoreWithLongRun,
+} from "#renderer/features/transcript/runs/call-window.test-support.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
@@ -234,7 +250,9 @@ describe("browser — a long run's window", () => {
     expect(scrollContainer.scrollHeight).toBeGreaterThan(scrollContainer.clientHeight);
 
     // The window opens on the run's newest calls, the earlier edge above them at the top.
-    await readerScrollsTo(scrollContainer, 0);
+    await changeLayout(() => {
+      readerScrollsTo(scrollContainer, 0);
+    });
     const earlierBefore = edgeCount(pane, "earlier");
     expect(earlierBefore).toBeGreaterThan(0);
     // The count wears the line's own quiet ink, never a brighter figure color of its own.
@@ -254,7 +272,9 @@ describe("browser — a long run's window", () => {
     expect(
       Math.abs(offsetInBoxPx(mounted, rowReading(pane, besideEarlierText)) - besideEarlierOffsetPx),
     ).toBeLessThanOrEqual(HELD_TOLERANCE_PX);
-    await readerScrollsTo(scrollContainer, 0);
+    await changeLayout(() => {
+      readerScrollsTo(scrollContainer, 0);
+    });
     const earlierAfter = edgeCount(pane, "earlier");
     expect(earlierAfter).toBeGreaterThan(0);
     expect(earlierAfter).toBeLessThan(earlierBefore);
@@ -262,10 +282,9 @@ describe("browser — a long run's window", () => {
     expect(innerScrollers(scrollContainer)).toStrictEqual([]);
 
     // The press left calls out after the window too; the later edge brings them back.
-    await readerScrollsTo(
-      scrollContainer,
-      scrollContainer.scrollHeight - scrollContainer.clientHeight,
-    );
+    await changeLayout(() => {
+      readerScrollsTo(scrollContainer, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+    });
     const laterBefore = edgeCount(pane, "later");
     expect(laterBefore).toBeGreaterThan(0);
     const besideLaterText = rowBeside(pane, "later", -1).textContent ?? "";
@@ -279,4 +298,97 @@ describe("browser — a long run's window", () => {
       Math.abs(offsetInBoxPx(mounted, rowReading(pane, besideLaterText)) - besideLaterOffsetPx),
     ).toBeLessThanOrEqual(HELD_TOLERANCE_PX);
   });
+
+  it("reads the calls the store let go before its edge line is pressed, and opens them at once", async () => {
+    // The person's message, then the run, in the paged session the log serves.
+    const events = [
+      pagedSessionEventAt(0),
+      ...longRunEvents(LONG_RUN_EVENT_COUNT).slice(1).map(inPagedSession),
+    ];
+    const sessionStore = openPagedSessionStore(
+      0,
+      events.length - 1,
+      undefined,
+      (index) => events[index] ?? expect.fail(`the log holds event ${String(index)}`),
+    );
+    const rows = new TranscriptRowProjector().project(events).rows;
+    const log = scriptedTranscriptLog(events.length, (index) =>
+      readRowOf(rows[index] ?? expect.fail(`the log holds row ${String(index)}`)),
+    );
+    // Each read is asked at once and answered when the case answers it.
+    const waitingReads: (() => void)[] = [];
+    const read: TranscriptPageRead = (request, options) => {
+      const reply = log.read(request, options);
+      return new Promise((resolve) => {
+        waitingReads.push(() => {
+          resolve(reply);
+        });
+      });
+    };
+    const { scroller } = await mountTranscriptFeed(sessionStore, read);
+    const pane = scroller;
+    await changeLayout(() => {
+      readerScrollsTo(scroller, 0);
+    });
+    const earlierBefore = edgeCount(pane, "earlier");
+    const firstCallPosition =
+      positionOfRow(rowBeside(pane, "earlier", 1)) ?? expect.fail("a call stands below the edge");
+    expect(log.requests).toStrictEqual([]);
+
+    // The store lets go of the calls before the window, between the message and its first call.
+    await changeLayout(() => {
+      sessionStore.releaseOutside(
+        transcriptFixtureStreamCursor(0),
+        transcriptFixtureStreamCursor(events.length - 1),
+        [
+          {
+            lastHeldCursorBefore: transcriptFixtureStreamCursor(0),
+            firstHeldCursorAfter: transcriptFixtureStreamCursor(firstCallPosition),
+          },
+        ],
+      );
+    });
+    // The edge line is drawn, so the page before it is read in the reader's next task, unpressed.
+    await expect
+      .poll(() => log.requests)
+      .toStrictEqual([
+        {
+          sessionId: PAGED_SESSION_ID,
+          beforeCursor: transcriptFixtureStreamCursor(firstCallPosition),
+          limit: expect.any(Number),
+        },
+      ]);
+    const heldBeforePage = sessionStore.snapshot().transcript.length;
+    await changeLayout(() => {
+      (waitingReads.shift() ?? expect.fail("a read is waiting"))();
+    });
+    await changeLayout(() => undefined);
+    expect(sessionStore.snapshot().transcript.length).toBeGreaterThan(heldBeforePage);
+    // Nothing on screen moved: the edge line counts the same calls.
+    expect(edgeCount(pane, "earlier")).toBe(earlierBefore);
+
+    // The press opens them in the commit it makes, asking for nothing more: calls before the
+    // window's first are drawn at once.
+    act(() => {
+      edgeLine(pane, "earlier").click();
+    });
+    expect(log.requests).toHaveLength(1);
+    const drawnPositions = [...scroller.querySelectorAll(ROW_SELECTOR)].flatMap(
+      (row) => positionOfRow(row) ?? [],
+    );
+    expect(drawnPositions.filter((position) => position < firstCallPosition)).not.toStrictEqual([]);
+    await changeLayout(() => {
+      readerScrollsTo(scroller, 0);
+    });
+    expect(edgeCount(pane, "earlier")).toBeLessThan(earlierBefore);
+  });
 });
+
+/** One event of the long run, as the paged session the scripted log serves holds it. */
+function inPagedSession(event: ProjectedSessionEvent): ProjectedSessionEvent {
+  return {
+    ...event,
+    sessionId: PAGED_SESSION_ID,
+    payload: { ...event.payload, sessionId: PAGED_SESSION_ID },
+  } as ProjectedSessionEvent;
+}

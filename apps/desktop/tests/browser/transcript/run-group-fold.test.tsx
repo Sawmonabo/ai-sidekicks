@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { changeLayout } from "../../helpers/animation-frame.js";
-import { readerScrollsTo } from "./reader-scroll.js";
+import { readerScrollsTo } from "../../helpers/transcript/reader-scroll.js";
 import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../helpers/app/harness.js";
 
@@ -126,13 +126,14 @@ describe("browser — a press on a run group header holds the header where it st
     for (const runState of ["run.completed", "run.running"]) {
       // The list mounts only the rows near the view, so the reader scrolls down from the top until
       // the header is drawn.
-      await readerScrollsTo(scrollContainer, 0);
+      await changeLayout(() => {
+        readerScrollsTo(scrollContainer, 0);
+      });
       while (mountedHeaderButtonOf(mounted.pane, runState) === undefined) {
         const scrollTopBeforePx = scrollContainer.scrollTop;
-        await readerScrollsTo(
-          scrollContainer,
-          scrollTopBeforePx + scrollContainer.clientHeight / 2,
-        );
+        await changeLayout(() => {
+          readerScrollsTo(scrollContainer, scrollTopBeforePx + scrollContainer.clientHeight / 2);
+        });
         if (scrollContainer.scrollTop === scrollTopBeforePx) {
           throw new Error(`the list drew no header reading ${runState} anywhere in the box`);
         }
@@ -145,7 +146,9 @@ describe("browser — a press on a run group header holds the header where it st
         scrollContainer.getBoundingClientRect().top +
         scrollContainer.scrollTop;
       const boxBottomPx = scrollContainer.clientHeight - HEADER_ABOVE_BOX_BOTTOM_PX;
-      await readerScrollsTo(scrollContainer, Math.max(0, headerTopInContentPx - boxBottomPx));
+      await changeLayout(() => {
+        readerScrollsTo(scrollContainer, Math.max(0, headerTopInContentPx - boxBottomPx));
+      });
       expect(headerButtonOf(mounted.pane, runState).getAttribute("aria-expanded")).toBe("true");
       const offsetBeforePx = headerOffsetPx(mounted, runState);
 
@@ -162,10 +165,9 @@ describe("browser — a press on a run group header holds the header where it st
     const mounted = await mountPane(openSessionStoreWithLiveRunAtTail());
     const { scrollContainer } = mounted;
     await pressHeader(mounted, "run.running");
-    await readerScrollsTo(
-      scrollContainer,
-      scrollContainer.scrollHeight - scrollContainer.clientHeight,
-    );
+    await changeLayout(() => {
+      readerScrollsTo(scrollContainer, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+    });
     // The control: the reader stands at the tail, where the list follows it.
     expect(
       scrollContainer.scrollHeight - scrollContainer.clientHeight - scrollContainer.scrollTop,
