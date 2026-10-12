@@ -25,7 +25,7 @@ catalogs:
 
 patchedDependencies:
   '@bruits/satteri-wasm32-wasi@0.10.5':
-    hash: f1a825280907a9e0ba87f8a084f63aed12b7f8e3f9f07c98880f9a1c873b173c
+    hash: e35e033f735678cc51b64817b7f2accd0e7be71895fec7e62d5e1be84ec00386
     path: patches/@bruits__satteri-wasm32-wasi@0.10.5.patch
   '@xyflow/react@12.12.0':
     hash: dcfbb662e50e85a3098a8d97041868db13aed36bf36462fc1026870abea63b85
@@ -46,7 +46,7 @@ patchedDependencies:
     hash: 1b90abe1ac5c9f7723925ab49b37e4a867d6c944f1bafe5b3e34f758f3f7faa3
     path: patches/overlayscrollbars@2.16.0.patch
   satteri@0.10.5:
-    hash: 1edab424a08224205698dbe95ccc0c5ad23dafbdb71828931617993781ba5a6c
+    hash: b794ffb9c3d62525d7590b4ff97a156fc75b8849f7a5f4d97a494cd9b49c3bf7
     path: patches/satteri@0.10.5.patch
   signalsmith-stretch@1.3.2:
     hash: 57d4569b9fb9b9f1948d03cb1df3a04d8a52bc27d8d0057761a9c9d387a92fc7
@@ -168,7 +168,7 @@ importers:
         version: 1.8.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@bruits/satteri-wasm32-wasi':
         specifier: 0.10.5
-        version: 0.10.5(patch_hash=f1a825280907a9e0ba87f8a084f63aed12b7f8e3f9f07c98880f9a1c873b173c)
+        version: 0.10.5(patch_hash=e35e033f735678cc51b64817b7f2accd0e7be71895fec7e62d5e1be84ec00386)
       '@dagrejs/dagre':
         specifier: 3.1.1
         version: 3.1.1
@@ -348,7 +348,7 @@ importers:
         version: 1.105.1
       satteri:
         specifier: 0.10.5
-        version: 0.10.5(patch_hash=1edab424a08224205698dbe95ccc0c5ad23dafbdb71828931617993781ba5a6c)
+        version: 0.10.5(patch_hash=b794ffb9c3d62525d7590b4ff97a156fc75b8849f7a5f4d97a494cd9b49c3bf7)
       signalsmith-stretch:
         specifier: 1.3.2
         version: 1.3.2(patch_hash=57d4569b9fb9b9f1948d03cb1df3a04d8a52bc27d8d0057761a9c9d387a92fc7)
@@ -8449,7 +8449,7 @@ snapshots:
   '@bruits/satteri-linux-x64-musl@0.10.5':
     optional: true
 
-  '@bruits/satteri-wasm32-wasi@0.10.5(patch_hash=f1a825280907a9e0ba87f8a084f63aed12b7f8e3f9f07c98880f9a1c873b173c)':
+  '@bruits/satteri-wasm32-wasi@0.10.5(patch_hash=e35e033f735678cc51b64817b7f2accd0e7be71895fec7e62d5e1be84ec00386)':
     dependencies:
       '@emnapi/core': 1.11.1
       '@emnapi/runtime': 1.11.1
@@ -14847,7 +14847,7 @@ snapshots:
     optionalDependencies:
       '@parcel/watcher': 2.6.0
 
-  satteri@0.10.5(patch_hash=1edab424a08224205698dbe95ccc0c5ad23dafbdb71828931617993781ba5a6c):
+  satteri@0.10.5(patch_hash=b794ffb9c3d62525d7590b4ff97a156fc75b8849f7a5f4d97a494cd9b49c3bf7):
     dependencies:
       '@types/estree-jsx': 1.0.5
       '@types/hast': 3.0.5
@@ -14860,7 +14860,7 @@ snapshots:
       '@bruits/satteri-linux-arm64-musl': 0.10.5
       '@bruits/satteri-linux-x64-gnu': 0.10.5
       '@bruits/satteri-linux-x64-musl': 0.10.5
-      '@bruits/satteri-wasm32-wasi': 0.10.5(patch_hash=f1a825280907a9e0ba87f8a084f63aed12b7f8e3f9f07c98880f9a1c873b173c)
+      '@bruits/satteri-wasm32-wasi': 0.10.5(patch_hash=e35e033f735678cc51b64817b7f2accd0e7be71895fec7e62d5e1be84ec00386)
       '@bruits/satteri-win32-arm64-msvc': 0.10.5
       '@bruits/satteri-win32-x64-msvc': 0.10.5
 
