@@ -180,3 +180,36 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - V1 Release Impact: none; the flag is on in tests only, and the daemon's own processes run without it.
 - Named gate: a Node 24 release that carries nodejs/node#66376.
 - Exit Criteria: that release is taken; the flag is removed from the daemon's test configuration; the daemon tests pass on the ubuntu leg; this entry is deleted.
+
+## BL-170: Sätteri parsing seven markdown cases as CommonMark and GFM do
+
+- Status: `blocked` (external-world wait — a Sätteri release carrying the parser fix)
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Desktop App Implementation Notes §Console Libraries](./architecture/desktop-implementation-notes.md#console-libraries) (the Streaming markdown row), [bruits/satteri#326](https://github.com/bruits/satteri/issues/326) (the seven cases), [bruits/satteri#327](https://github.com/bruits/satteri/pull/327) (the fix)
+- Summary: The app parses replies with Sätteri 0.10.5, the published release. Seven cases parse differently from CommonMark and remark-gfm: emphasis flanking, task lists, footnotes and autolinks. A reply holding one of them can draw differently from how another CommonMark renderer draws it. The app takes no fork and no local rebuild; it waits for a release.
+- V1 Release Impact: the seven cases draw as Sätteri 0.10.5 reads them until a release carries the fix.
+- Named gate: a Sätteri release carrying bruits/satteri#327.
+- Exit Criteria: that release is taken; the seven cases of bruits/satteri#326 parse as CommonMark and remark-gfm do; this entry is deleted.
+
+## BL-171: Sätteri's browser loader taking an already compiled parser
+
+- Status: `blocked` (external-world wait — a Sätteri release carrying the loader change)
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Desktop App Implementation Notes §Console Libraries](./architecture/desktop-implementation-notes.md#console-libraries) (the Streaming markdown row), [bruits/satteri#329](https://github.com/bruits/satteri/pull/329) (the change)
+- Summary: `patches/@bruits__satteri-wasm32-wasi@0.10.5.patch` makes the WebAssembly build's browser loader use the parser module the first markdown worker compiled, which each later worker is handed, instead of fetching and compiling its own. bruits/satteri#329 adds the same thing upstream under the global `__SATTERI_WASM_MODULE__`.
+- V1 Release Impact: none; the patch carries the behavior until a release does.
+- Named gate: a Sätteri release carrying bruits/satteri#329.
+- Exit Criteria: that release is taken; the patch and its `patchedDependencies` entry are deleted; `apps/desktop/src/renderer/src/components/Markdown/worker/entry.ts` hands the module under `__SATTERI_WASM_MODULE__` in place of `satteriWasmModule`; this entry is deleted.
+
+## BL-172: Sätteri exporting its tree reader and materializer on their own
+
+- Status: `blocked` (external-world wait — a Sätteri release carrying the exports)
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Desktop App Implementation Notes §Console Libraries](./architecture/desktop-implementation-notes.md#console-libraries) (the Streaming markdown row), [bruits/satteri#330](https://github.com/bruits/satteri/pull/330) (the change)
+- Summary: `patches/satteri@0.10.5.patch` exports the `satteri/mdast-reader` and `satteri/mdast-materializer` subpaths, which the page reads the worker's binary trees with, without loading the parser itself. bruits/satteri#330 adds the same exports upstream.
+- V1 Release Impact: none; the patch carries the exports until a release does.
+- Named gate: a Sätteri release carrying bruits/satteri#330.
+- Exit Criteria: that release is taken; the patch and its `patchedDependencies` entry are deleted; this entry is deleted.
