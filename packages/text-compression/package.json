@@ -1,0 +1,23 @@
+{
+  "name": "@ai-sidekicks/text-compression",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Packs and unpacks 16 KiB chunks of text with LZ4: a WebAssembly module written in Rust.",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24.21.0"
+  },
+  "exports": {
+    "./text-compression.wasm": "./dist/text-compression.wasm"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "cargo build --profile wasm-release --target wasm32-unknown-unknown -p text-compression --message-format=json-render-diagnostics | node --experimental-strip-types write-dist.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint write-dist.ts",
+    "test": "cargo test"
+  }
+}

@@ -53,6 +53,7 @@
     "@ai-sidekicks/contracts": "workspace:*",
     "@ai-sidekicks/runtime-daemon": "workspace:*",
     "@ai-sidekicks/search-ranking": "workspace:*",
+    "@ai-sidekicks/text-compression": "workspace:*",
     "@base-ui/react": "1.8.0",
     "@bruits/satteri-wasm32-wasi": "0.10.5",
     "@dagrejs/dagre": "3.1.1",

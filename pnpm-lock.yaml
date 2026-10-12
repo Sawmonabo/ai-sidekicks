@@ -160,6 +160,9 @@ importers:
       '@ai-sidekicks/search-ranking':
         specifier: workspace:*
         version: link:../../packages/search-ranking
+      '@ai-sidekicks/text-compression':
+        specifier: workspace:*
+        version: link:../../packages/text-compression
       '@base-ui/react':
         specifier: 1.8.0
         version: 1.8.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -656,6 +659,8 @@ importers:
         version: 3.10.8(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@26.6.3)
 
   packages/search-ranking: {}
+
+  packages/text-compression: {}
 
 packages:
 

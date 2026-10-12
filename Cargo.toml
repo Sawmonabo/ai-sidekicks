@@ -1,3 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["packages/search-index", "packages/sidecar-rust-pty"]
+members = ["packages/search-index", "packages/sidecar-rust-pty", "packages/text-compression"]
+
+# The text-compression WebAssembly module's build: small and fast, with no unwinding to carry. The
+# release profile the other crates build with stays as it is.
+[profile.wasm-release]
+inherits = "release"
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
