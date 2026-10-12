@@ -81,7 +81,7 @@ export interface DaemonCredentialProvider {
 }
 
 /**
- * Refuses every mint with a diagnostic naming the missing signing identity. It throws rather
+ * Refuses every mint with a diagnostic naming the missing control-plane sign-in. It throws rather
  * than returning empty headers so the person sees the real cause here, not a generic 401 from
  * the control plane.
  *
@@ -92,8 +92,8 @@ export class DeferredDaemonCredentialProvider implements DaemonCredentialProvide
   mintForAttempt(attempt: DaemonCredentialAttempt): Promise<DaemonCredentialMaterial> {
     return Promise.reject(
       new Error(
-        `DaemonCredentialProvider.mintForAttempt is deferred (PASETO auth): no daemon PASETO ` +
-          `signing identity exists yet, so no ${DPOP_AUTHORIZATION_SCHEME}-bound token can be ` +
+        `DaemonCredentialProvider.mintForAttempt has no control-plane sign-in: the daemon holds ` +
+          `no access token and no proof key, so no ${DPOP_AUTHORIZATION_SCHEME}-bound token can be ` +
           `minted for ${attempt.htm} ${attempt.htu} ` +
           `(session ${attempt.sessionId}, node ${attempt.nodeId}).`,
       ),
