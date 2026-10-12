@@ -43,8 +43,7 @@ const LINE_TIME_LIMIT_MS = 3_000;
 
 /**
  * The thread's heap and WebAssembly memory past which it is ended once its read is answered:
- * 128 MiB, which holds the TypeScript and TSX grammars together, the pair most reads alternate
- * between, and keeps the thread's resident memory within the colorer's budget.
+ * 128 MiB, which keeps the thread's resident memory within the colorer's budget.
  */
 const MEMORY_CEILING_BYTES = 128 * 1024 * 1024;
 
