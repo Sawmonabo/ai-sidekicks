@@ -1,6 +1,6 @@
 // The colorer's promises: a file colored line by line on its thread is colored as if in one
-// piece, code asked for twice is colored once, and a read nobody waits for any more is never
-// colored.
+// piece, a diff's lines and Markdown's own syntax take their classes, code asked for twice is
+// colored once, and a read nobody waits for any more is never colored.
 
 import { HIGHLIGHT_READ_REPLACED_CODE } from "@ai-sidekicks/contracts/highlight";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -45,6 +45,30 @@ describe("CodeHighlighter", () => {
     expect(decoded.slice(-2)).toStrictEqual([
       ["const", "keyword"],
       ["1", "number"],
+    ]);
+  });
+
+  it("colors a diff's lines and Markdown's own syntax, signs and marks included", async () => {
+    const markupHighlighter = new CodeHighlighter();
+    highlighter = markupHighlighter;
+    const diff = "--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n same\n-old\n+new\n";
+    expect(decodeSpans(diff, await markupHighlighter.readSpans(diff, "diff"))).toStrictEqual([
+      ["--- a/x", "deleted"],
+      ["+++ b/x", "inserted"],
+      ["@@ -1,2 +1,2 @@", "hunk"],
+      ["-old", "deleted"],
+      ["+new", "inserted"],
+    ]);
+    const markdown =
+      "# Title\n\nSome *soft* and **firm** text, `code` and a [link](https://x.y).\n";
+    expect(
+      decodeSpans(markdown, await markupHighlighter.readSpans(markdown, "markdown")),
+    ).toStrictEqual([
+      ["# Title", "heading"],
+      ["*soft*", "emphasis"],
+      ["**firm**", "emphasis"],
+      ["`code`", "inline-code"],
+      ["link", "string"],
     ]);
   });
 

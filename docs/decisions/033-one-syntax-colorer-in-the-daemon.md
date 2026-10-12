@@ -30,7 +30,8 @@ The console design shows the same file in the flow, in Review and in the file vi
 **One colorer, in the daemon, and every surface paints the spans it is handed.**
 
 - The daemon reads a file once, computes its color spans with `shiki`, and keeps them against what the file holds, so the same file opened in the flow, in Review and in the file view is colored from one read, and a second open costs nothing.
-- A span travels as a **class that names a kind of token**: keyword, name, string, number, comment. The renderer maps each class to a theme token. A span is never a color written on the element.
+- A span travels as a **class that names a kind of token**: keyword, name, string, number, comment for code; inserted, deleted and hunk for a `diff` block's added lines, removed lines and `@@` ranges; heading, emphasis and inline code for Markdown's own syntax. The renderer maps each class to a theme token. A span is never a color written on the element.
+- **A `diff` code block and a Markdown file are colored as GitHub draws them**: the block's `+` lines green (the theme's `ansi-green` role) and `-` lines red (`ansi-red`), the terminal's pair, since the red attention role is kept for a failure; its `@@` ranges dimmed (`text-faint`). Markdown's headings and inline code take `code-name`, its emphasis `code-keyword`, and a link's text `code-string` through the string class. Each sign and mark (`+`, `-`, `@@`, `#`, `*`, a backtick) colors with what it marks. The rest of a hunk's `@@` line and a diff's `diff --git` and `index` lines stay plain: the diff grammar gives them no scope of their own.
 - Changing the theme or the color scheme repaints the same spans in place. No block is colored twice, and none flashes plain first.
 - A diff takes a first pass from its own lines the moment it opens, so it is colored before the whole file's spans arrive, and corrects itself when they do. A string that opens above the hunk is the case that changes.
 - A file whose language is not recognized stays plain and asks the daemon for nothing.
@@ -43,15 +44,15 @@ The console design shows the same file in the flow, in Review and in the file vi
 
 ### Budget
 
-The workload: one read in each of the 15 languages, a real or hand-written file of 1 to 37 KB each, then four TypeScript and four TSX files read alternately, then nothing asked. Measured on macOS with Node 24.21, against the same process before its first read; resident memory is the whole process's, so the thread's own heap and its WebAssembly memory are counted:
+The workload: one read in each of the 15 languages, a real or hand-written file of 1 to 37 KB each, then four TypeScript and four TSX files read alternately, then nothing asked. Measured on macOS with Node 24.21, against the same process before its first read. Every figure here is resident memory (RSS, as `ps` and `process.resourceUsage().maxRSS` report it), not footprint (`phys_footprint`, what Activity Monitor's Memory column shows), which is lower. RSS is the whole process's, so the thread's own heap and its WebAssembly memory are counted:
 
-| State | Resident memory the colorer adds | Measured |
+| State | Resident memory (RSS) the colorer adds | Measured |
 | --- | --- | --- |
 | Once the thread has ended after five quiet minutes | 30 MB at most | 16.5 MB under the process's reading before its first read in the shipped build's run, and 25 to 29 MB over it in earlier runs of a thread ended the same way; the main thread's live heap 0.4 MB over |
 | While the thread is up | 160 MB at most | 154 MB at the peak, the process's own high-water mark; before the ceiling, a thread holding all 15 grammars took 248 MB |
 | The span cache | 1/2048 of physical memory at most, 8 MB on a 16 GB machine | bounded by its byte size |
 
-A change that raises a figure past its budget fails. The built daemon itself held 221 MB of resident memory 10 s after it was ready, before any read, so at the colorer's peak the whole daemon reaches about 375 MB, past its 256 MB operating target ([deployment-topology §Local Daemon Memory Instrumentation And Budget Triggers](../architecture/deployment-topology.md#local-daemon-memory-instrumentation-and-budget-triggers)); that document's trigger decides what follows, and colors are never cut to meet it. In the measured run the thread was ended twice at the ceiling, after a 25 KB TSX file read after TypeScript, and after Go; the reads that followed, JavaScript and SQL, took 161 ms and 30 ms on their fresh threads. In the alternation of smaller TypeScript and TSX files, 0.5 to 8 KB, the pair stayed on one thread, and every read after the first two took 3 to 62 ms.
+A change that raises a figure past its budget fails. The built daemon itself, idle before any read, holds 220 to 225 MB of RSS (182 to 189 MB of footprint) 10 to 15 s after start, so at the colorer's peak the whole daemon reaches about 375 MB of RSS, past its 256 MB operating target, which is an RSS figure ([deployment-topology §Local Daemon Memory Instrumentation And Budget Triggers](../architecture/deployment-topology.md#local-daemon-memory-instrumentation-and-budget-triggers)); that document's trigger decides what follows, and colors are never cut to meet it. In the measured run the thread was ended twice at the ceiling, after a 25 KB TSX file read after TypeScript, and after Go; the reads that followed, JavaScript and SQL, took 161 ms and 30 ms on their fresh threads. In the alternation of smaller TypeScript and TSX files, 0.5 to 8 KB, the pair stayed on one thread, and every read after the first two took 3 to 62 ms.
 
 ### Thesis — Why This Option
 
@@ -97,7 +98,7 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | `shiki` runs in the daemon's Node runtime at the pinned version | It is a Node library; the pin is the one the desktop package already uses | A different colorer would be chosen behind the same wire shape |
-| 2 | Five token kinds — keyword, name, string, number, comment — are enough for the console's themes | Four code tokens and the faint token are what the themes define for code | A sixth kind is one more class name |
+| 2 | Eleven token kinds — keyword, name, string, number and comment for code, inserted, deleted and hunk for a diff, heading, emphasis and inline code for Markdown — are enough for the console's themes | Four code tokens, the faint token and the terminal's green and red are what the themes define for them | Another kind is one more class name |
 | 3 | Span payloads are small next to the file text | A span is a range and a class name | Large files would need spans sent for the visible range only |
 
 ---

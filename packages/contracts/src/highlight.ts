@@ -35,8 +35,23 @@ export type HighlightLanguage = (typeof HIGHLIGHT_LANGUAGES)[number];
 export const HighlightLanguageSchema: z.ZodType<HighlightLanguage, HighlightLanguage> =
   z.enum(HIGHLIGHT_LANGUAGES);
 
-/** The classes a span paints as, in wire order; plain text has no span. */
-export const HIGHLIGHT_SPAN_CLASSES = ["keyword", "name", "string", "number", "comment"] as const;
+/**
+ * The classes a span paints as, in wire order; plain text has no span. The first five mark code;
+ * the rest mark a diff's lines and Markdown's own syntax.
+ */
+export const HIGHLIGHT_SPAN_CLASSES = [
+  "keyword",
+  "name",
+  "string",
+  "number",
+  "comment",
+  "inserted",
+  "deleted",
+  "hunk",
+  "heading",
+  "emphasis",
+  "inline-code",
+] as const;
 
 /** One class a span paints as. */
 export type HighlightSpanClass = (typeof HIGHLIGHT_SPAN_CLASSES)[number];

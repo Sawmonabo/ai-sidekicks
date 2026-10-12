@@ -57,9 +57,9 @@ export const ATTENTION_ROLES = [
 ] as const;
 
 /**
- * The four code span classes that carry a color of their own; a comment is an alias. A family
- * apart from the attention roles, since the two-hue rule governs what the app colors for
- * attention and a keyword is not one.
+ * The four code roles a code span paints in; a comment, a diff's lines and Markdown's syntax paint
+ * in these or in other roles of the table. A family apart from the attention roles, since the
+ * two-hue rule governs what the app colors for attention and a keyword is not one.
  */
 export const CODE_ROLES = ["code-keyword", "code-name", "code-string", "code-number"] as const;
 

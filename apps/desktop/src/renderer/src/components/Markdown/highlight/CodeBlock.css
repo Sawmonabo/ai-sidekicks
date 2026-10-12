@@ -1,8 +1,9 @@
 /* A code block and the code palette its highlighted source paints with. */
 
 /*
- * A code block paints the daemon's five span classes through theme tokens (each theme's table in
- * `src/shared/theme/`), so a theme or scheme switch repaints the same spans in place. A comment uses the faint text color.
+ * A code block paints the daemon's span classes through theme tokens (each theme's table in
+ * `src/shared/theme/`), so a theme or scheme switch repaints the same spans in place. A comment
+ * uses the faint text color.
  */
 .meridian-code__keyword {
   color: var(--meridian-code-keyword);
@@ -22,6 +23,32 @@
 
 .meridian-code__comment {
   color: var(--meridian-code-comment);
+}
+
+/*
+ * A diff's added and removed lines take the theme's own green and red, the terminal's pair, since
+ * the red role is kept for a failure; its hunk ranges are dimmed.
+ */
+.meridian-code__inserted {
+  color: var(--meridian-ansi-green);
+}
+
+.meridian-code__deleted {
+  color: var(--meridian-ansi-red);
+}
+
+.meridian-code__hunk {
+  color: var(--meridian-text-faint);
+}
+
+/* Markdown's headings and inline code read as names; its emphasis as a keyword. */
+.meridian-code__heading,
+.meridian-code__inline-code {
+  color: var(--meridian-code-name);
+}
+
+.meridian-code__emphasis {
+  color: var(--meridian-code-keyword);
 }
 
 /* The hairline frame on its quieter ground. `flow-root`, so it holds its floated corner. */
