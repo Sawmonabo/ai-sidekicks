@@ -1,5 +1,6 @@
-// A long body drawn as a window over its blocks: which blocks it parses, and what a drawn block
-// still resolves once the block defining its footnote is no longer drawn.
+// A long body drawn as a window over its blocks: which blocks it parses, when a scroll's blocks are
+// drawn, and what a drawn block still resolves once the block defining its footnote is no longer
+// drawn.
 
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -36,7 +37,8 @@ const SCROLLER_HEIGHT_PX = 600;
 /** A windowed body mounted in a scroller, and the way a case scrolls it. */
 interface MountedWindow {
   readonly body: HTMLElement;
-  readonly scrollTo: (scrollTop: number) => void;
+  /** Scrolls to `scrollTop`; `whileScrolling` reads the page right after the scroll event. */
+  readonly scrollTo: (scrollTop: number, whileScrolling?: () => void) => void;
 }
 
 const teardowns: (() => void)[] = [];
@@ -94,10 +96,11 @@ function mountWindow(text: string, footnotes: FootnoteRegistry): MountedWindow {
   }
   return {
     body,
-    scrollTo: (nextScrollTop) => {
+    scrollTo: (nextScrollTop, whileScrolling) => {
       act(() => {
         scrollTop = nextScrollTop;
         scroller.dispatchEvent(new Event("scroll"));
+        whileScrolling?.();
       });
     },
   };
@@ -128,6 +131,19 @@ describe("a long body drawn as a window over its blocks", () => {
       new Set(drawnSources),
     );
     expect(wholeParses).not.toHaveBeenCalled();
+  });
+
+  it("draws the blocks a scroll brings into its band before the frame that scrolled paints", () => {
+    const { body, scrollTo } = mountWindow(longReplyMarkdown(40_000), new FootnoteRegistry());
+    expect(drawnIndexes(body)).toContain(0);
+
+    let drawnAsScrolled: number[] = [];
+    scrollTo(20_000, () => {
+      drawnAsScrolled = drawnIndexes(body);
+    });
+
+    expect(drawnAsScrolled).not.toContain(0);
+    expect(drawnAsScrolled).toStrictEqual(drawnIndexes(body));
   });
 
   it("resolves a reference and keeps the definition registered once the defining block is not drawn", () => {

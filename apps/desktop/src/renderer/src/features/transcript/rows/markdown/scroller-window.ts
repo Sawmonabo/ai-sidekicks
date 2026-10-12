@@ -8,6 +8,7 @@
 // `ReaderPlaceHold`, and the conversation's own window holds it for every other change.
 
 import type { Range, Rect } from "@tanstack/virtual-core";
+import { flushSync } from "react-dom";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
@@ -39,7 +40,19 @@ export class ScrollerWindowMembers {
         sink(geometry.scrollTop - this.#topPx(), false);
       }
     };
-    const unsubscribe = this.#scrollController.subscribeToGeometry(sendOffset);
+    // The last sample is replayed as the library subscribes, inside its layout effect, where React
+    // cannot render.
+    let isSubscribing = true;
+    const unsubscribe = this.#scrollController.subscribeToGeometry((geometry) => {
+      if (isSubscribing || geometry.inputAt === undefined) {
+        sendOffset();
+        return;
+      }
+      // A scroll event's sample: the items it brings into the band are drawn in the frame that
+      // scrolled, before it paints, so no frame shows the room of items drawn for the one before.
+      flushSync(sendOffset);
+    });
+    isSubscribing = false;
     this.#resendOffset = sendOffset;
     return () => {
       unsubscribe();
