@@ -72,7 +72,8 @@ export class BlockCut {
 
   /**
    * Cuts the next window, answering whether the cut is done. A window holding too few children to
-   * keep one is parsed again twice as long.
+   * keep one is parsed again twice as long, and later windows keep that length, so a text of long
+   * blocks is not parsed twice over a window at a time.
    */
   public cutWindow(): boolean {
     const source = this.#source;
@@ -109,7 +110,6 @@ export class BlockCut {
         : from + lineStartOf(window, children.starts[keptCount] ?? 0);
     this.#blockEnds.push(end);
     this.#from = end;
-    this.#windowCharacters = CUT_WINDOW_CHARACTERS;
     this.#isDone = isLast;
     return isLast;
   }

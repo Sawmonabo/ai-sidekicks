@@ -122,7 +122,8 @@ async function compileTextCompression(): Promise<CompiledTextCompression> {
 /**
  * Where the blocks of the text `request` holds end, cut a window at a time. The parser frees what a
  * window's parse held from finalizers, which run only once the worker's event loop turns, so it
- * turns between windows.
+ * turns between windows, through the scheduler: a chain of zero-delay timers is held to 4 ms a
+ * turn once it nests five deep.
  */
 async function cutInTurns(
   request: MarkdownCutRequest,
@@ -135,9 +136,7 @@ async function cutInTurns(
     parser.children.readTopLevelChildren,
   );
   while (!cut.cutWindow()) {
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 0);
-    });
+    await scheduler.postTask(() => undefined, { priority: "user-visible" });
   }
   return cut.blockEnds;
 }
