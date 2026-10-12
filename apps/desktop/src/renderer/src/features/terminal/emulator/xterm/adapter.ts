@@ -20,7 +20,7 @@ import { TerminalAddonSuite, type TerminalRendererMode } from "./addons.js";
 import { XtermMountBinding } from "./mount-binding.js";
 import { ignoreTerminalQueries } from "./queries.js";
 import { buildTerminalLinkHandler, buildTerminalWebLinksAddon } from "./links.js";
-import { applyDeclaredMonospaceFamily } from "./typeface.js";
+import { applyDeclaredMonospaceTypeface } from "./typeface.js";
 
 /** What one adapter is built with: its terminal id, renderer pool, and callbacks. */
 export interface XtermTerminalAdapterOptions {
@@ -102,8 +102,8 @@ export class XtermTerminalAdapter {
       return;
     }
     const terminal = this.#terminal ?? this.#buildTerminal();
-    // So a remount onto an element whose declared face moved follows it.
-    applyDeclaredMonospaceFamily(terminal, mountElement);
+    // So a remount onto an element whose declared face or size moved follows it.
+    applyDeclaredMonospaceTypeface(terminal, mountElement);
     const builtElement = terminal.element;
     if (builtElement !== undefined) {
       mountElement.append(builtElement);
@@ -153,6 +153,19 @@ export class XtermTerminalAdapter {
       return;
     }
     this.#addons.fitGrid();
+  }
+
+  /**
+   * Re-read the face and size the mount element declares and re-fit the grid to them. A text size
+   * step calls it: the step changes the type, and the mount element's box may not move with it.
+   */
+  public followMountTypeface(): void {
+    const mountElement = this.#mountBinding.mountElement;
+    if (this.#terminal === undefined || mountElement === undefined) {
+      return;
+    }
+    applyDeclaredMonospaceTypeface(this.#terminal, mountElement);
+    this.fitToMountPoint();
   }
 
   /** The visible grid, as text, through the serialize addon. */
