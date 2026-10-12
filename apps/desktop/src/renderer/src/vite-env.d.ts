@@ -44,6 +44,13 @@ declare module "*?worker" {
   export default WorkerScript;
 }
 
+// A WebAssembly module the markdown worker compiles as it streams in, emitted and addressed the
+// same way.
+declare module "*.wasm?url" {
+  const assetUrl: string;
+  export default assetUrl;
+}
+
 // Side-effect stylesheet imports (`import "./Chip.css"`), which Vite bundles. TypeScript checks
 // that a side-effect import resolves, and a stylesheet has no declarations, so the wildcard says
 // every `.css` specifier is a module with no exports.

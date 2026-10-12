@@ -1,7 +1,9 @@
 // A jump to the conversation's first or last row: Home, End, the tail pill and the palette's jump.
 // Where the log does not reach that end, the page there is read in place of the log first, and
-// its edge row is landed on once the log holding the page is handed over. A jump whose read fails
-// lands nowhere, and a newer jump replaces one under way.
+// its edge row is landed on once the log holding the page is handed over and its rows join the
+// list. A jump whose read fails lands nowhere, a newer jump replaces one under way, and a landing
+// still owed when the reader moves (a key, the wheel, a touch) is dropped, so rows joining later
+// never pull the reader back.
 
 import { type WindowSide } from "#renderer/lib/scroll/window-side.js";
 
@@ -54,6 +56,11 @@ export class ConversationEdgeJump {
     const side = this.#owedLanding;
     this.#owedLanding = undefined;
     return side;
+  }
+
+  /** Drops the landing a read jump still owes: the reader moved before its rows joined. */
+  public dropOwedLanding(): void {
+    this.#owedLanding = undefined;
   }
 
   /** Terminal: no read jump lands after it. */

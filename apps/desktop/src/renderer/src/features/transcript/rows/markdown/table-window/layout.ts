@@ -5,12 +5,15 @@
 // the table's width changes or the markdown body is laid out anew. Drawn rows sit in flow inside
 // one table, at columns held at fixed widths; a spacer row holds the room of each run of undrawn
 // rows and names the text those rows were parsed from. Each row's height is kept in the table's
-// remembered geometry.
+// remembered geometry. A table read in pieces holds the pieces of the rows it draws, and of the
+// rows a piece past either end of those on screen; a row whose piece is still being parsed again
+// is left to its spacer and drawn once the piece lands.
 
 import type { Table } from "mdast";
 import type { Range, VirtualItem, Virtualizer } from "@tanstack/virtual-core";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
+import { passTableRows } from "#renderer/components/Markdown/parse/table-rows.js";
 import { type HeldTableColumns } from "#renderer/components/Markdown/table-offer.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { isSameBodyType, type MarkdownBodyType } from "../body-type.js";
@@ -18,6 +21,7 @@ import { type DrawnBandScreenHeights } from "#renderer/lib/scroll/window-side.js
 import { ReaderPlaceHold } from "#renderer/lib/scroll/reader-place-hold.js";
 import { ScrollerWindowMembers } from "#renderer/components/TranscriptBodyViewport/scroller-window.js";
 import { type ListedBodies, type TableWindowBody } from "./context.js";
+import { DrawnPieces } from "./drawn-pieces.js";
 import {
   forgetTableGeometries,
   recallTableGeometry,
@@ -99,6 +103,8 @@ export class TableWindowLayout {
   readonly #listedBodies: ListedBodies | undefined;
   /** The rows the table last committed to the page. */
   #committedRows: readonly TableWindowRow[] = [];
+  /** The pieces held for the rows drawn, of a table read in pieces. */
+  readonly #drawnPieces: DrawnPieces;
 
   /** The table's body element: what the window observes its rows from. Never scrolled. */
   public readonly getScrollElement = (): HTMLElement | null => this.#bodyElement ?? null;
@@ -119,12 +125,19 @@ export class TableWindowLayout {
     if (held > 0) {
       return held;
     }
-    const row = this.#table.children[index + 1];
     const cellMeasurer = this.#cellMeasurer;
-    if (geometry === undefined || row === undefined || cellMeasurer === undefined) {
+    if (geometry === undefined || cellMeasurer === undefined) {
       return 0;
     }
-    const estimatePx = estimatedRowHeightPx(row, geometry.columns, cellMeasurer);
+    let estimatePx: number | undefined;
+    passTableRows(this.#table, index, index, (row) => {
+      estimatePx = estimatedRowHeightPx(row, geometry.columns, cellMeasurer);
+      return true;
+    });
+    if (estimatePx === undefined) {
+      // A row whose piece is being parsed again takes a line until it is read.
+      return cellMeasurer.type.lineHeightsPx.plain + cellMeasurer.type.rowChromePx;
+    }
     if (index < geometry.rowHeightsPx.length) {
       geometry.rowHeightsPx[index] = estimatePx;
     }
@@ -190,9 +203,9 @@ export class TableWindowLayout {
   };
 
   /**
-   * `onMeasured` is told each time the hidden frame to draw changes or a geometry is ready; the
-   * table lays out at `listedBodies`' type until its own body is laid out, and a streaming table
-   * hands its geometry to its next mount through them.
+   * `onMeasured` is told each time the hidden frame to draw changes, a geometry is ready or a drawn
+   * row's piece lands; the table lays out at `listedBodies`' type until its own body is laid out,
+   * and a streaming table hands its geometry to its next mount through them.
    */
   public constructor(
     body: TableWindowBody,
@@ -206,6 +219,7 @@ export class TableWindowLayout {
     this.#table = table;
     this.#blockIndex = blockIndex;
     this.#onMeasured = onMeasured;
+    this.#drawnPieces = new DrawnPieces(onMeasured);
     const scroller = new ScrollerWindowMembers(body.viewport.scrollController, () =>
       this.#readTopPx(),
     );
@@ -220,6 +234,11 @@ export class TableWindowLayout {
   /** How many body rows the window lays out. */
   public get rowCount(): number {
     return Math.max(0, this.#table.children.length - 1);
+  }
+
+  /** Why a drawn row could not be read, once its piece failed to parse again. */
+  public get readFailure(): string | undefined {
+    return this.#drawnPieces.failure;
   }
 
   /** The columns the table is held at, or `undefined` until they are measured. */
@@ -298,6 +317,7 @@ export class TableWindowLayout {
    * streaming table's block settling into place draws its last rows.
    */
   public release(): void {
+    this.#drawnPieces.letGo();
     this.#measurement?.measurement.stop();
     this.#measurement = undefined;
     const geometry = this.#geometry;
@@ -316,6 +336,15 @@ export class TableWindowLayout {
       bandScreenHeights,
       (index) => this.#virtualizer?.measurementsCache[index]?.size ?? this.estimateSize(index),
     );
+  }
+
+  /**
+   * Holds the pieces of a table read in pieces that `indexes`, the rows to draw, read, and the
+   * pieces past either end of the rows on screen in `range`; a piece parsed again draws its rows
+   * once it lands.
+   */
+  public holdDrawnRows(indexes: readonly number[], range: Range): void {
+    this.#drawnPieces.hold(this.#table, indexes, range);
   }
 
   /** Takes the virtualizer this layout's members were given to, and how to keep a row drawn. */
@@ -408,6 +437,10 @@ export class TableWindowLayout {
     let previousEndPx = 0;
     let previousIndex = -1;
     for (const item of virtualItems) {
+      // A row whose piece is still being parsed again stays in its spacer.
+      if (!this.#drawnPieces.isRowRead(this.#table, item.index)) {
+        continue;
+      }
       if (item.index > previousIndex + 1) {
         this.#pushSpacer(rows, previousIndex + 1, item.index - 1, item.start - previousEndPx);
       }
@@ -558,8 +591,11 @@ export class TableWindowLayout {
       this.#measure(bodyType, known);
       return;
     }
-    const sample = known.widestCells.sampleRowIndexes(this.#table);
-    if (isSameSample(sample, geometry.sampleRowIndexes)) {
+    // Rows not read yet are ranked by a measurement, a piece at a time.
+    const sample = known.widestCells.rankReadRows(this.#table)
+      ? known.widestCells.sampleRowIndexes()
+      : undefined;
+    if (sample !== undefined && isSameSample(sample, geometry.sampleRowIndexes)) {
       this.#checkedRowCount = this.rowCount;
       return;
     }
@@ -655,7 +691,11 @@ export class TableWindowLayout {
     } else {
       rememberTableGeometry(
         {
-          tableKey: settledTableKeyOf(blockFingerprint, placement.definitionPreamble, this.#table),
+          tableKey: settledTableKeyOf(
+            blockFingerprint,
+            placement.definitionPreamble(this.#blockIndex),
+            this.#table,
+          ),
           bodyType,
         },
         geometry,
@@ -681,7 +721,7 @@ export class TableWindowLayout {
         : recallTableGeometry({
             tableKey: settledTableKeyOf(
               blockFingerprint,
-              placement.definitionPreamble,
+              placement.definitionPreamble(this.#blockIndex),
               this.#table,
             ),
             bodyType,
@@ -712,7 +752,7 @@ export class TableWindowLayout {
     const placement = this.#body.placement;
     return (
       placement.blockSourceStart(this.#blockIndex) -
-      placement.definitionPreamble.length +
+      placement.definitionPreamble(this.#blockIndex).length +
       parseOffset
     );
   }

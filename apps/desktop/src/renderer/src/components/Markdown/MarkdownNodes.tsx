@@ -28,6 +28,7 @@ import {
   type TableLineKind,
 } from "./table-offer.js";
 import { DiagramBlock } from "./diagram/DiagramBlock.js";
+import { useHeldTableRows } from "./hooks/useHeldTableRows.js";
 import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { CodeBlock } from "./highlight/CodeBlock.js";
 import { FootnoteReference } from "./footnotes/FootnoteReference.js";
@@ -183,9 +184,11 @@ function renderNode(
       // alt text is the author's words and is kept.
       return <span className="meridian-markdown__image-alt">{node.alt ?? ""}</span>;
     case "table":
-      return context.renderTable === undefined
-        ? renderWholeTable(node, context)
-        : context.renderTable(tableOfferOf(node, context));
+      return context.renderTable === undefined ? (
+        <WholeTable table={node} context={context} />
+      ) : (
+        context.renderTable(tableOfferOf(node, context))
+      );
     case "footnoteDefinition":
       // Drawn from the footnote registry, not inline, which would show the text twice.
       return null;
@@ -220,13 +223,25 @@ function childrenOf(node: Nodes): readonly (RootContent | PhrasingContent)[] {
 }
 
 /**
+ * A table drawn whole once every row can be read: a table read in pieces holds every piece while
+ * it is drawn, and draws once each is kept or parsed again.
+ */
+function WholeTable(props: {
+  readonly table: Table;
+  readonly context: MarkdownRenderContext;
+}): React.JSX.Element | null {
+  return useHeldTableRows(props.table) ? renderWholeTable(props.table, props.context) : null;
+}
+
+/**
  * A GFM table drawn whole: its head, then its body. The first row is the header row, as the
  * delimiter line under it declares. The table arm owns its whole subtree, so `tableRow` and
  * `tableCell` have no arm above: whether a cell is a header depends on its row, its alignment on
  * the table. No box of its own: the cells wrap to the column, so the table never scrolls sideways.
  */
 function renderWholeTable(node: Table, context: MarkdownRenderContext): React.JSX.Element {
-  const [headerRow, ...bodyRows] = node.children;
+  const headerRow = node.children[0];
+  const bodyRows = node.children.slice(1);
   return renderTableFrame({
     columns: undefined,
     isShrunkToRoom: false,
@@ -288,13 +303,15 @@ function heldColumnWidthOf(
     : `${String(widthPx)}px`;
 }
 
-/** The parts of one table, offered to a body that chooses which of its rows to draw. */
+/**
+ * The parts of one table, offered to a body that chooses which of its rows to draw. Each row is
+ * read as it is drawn and none is kept, since a long table's rows are read from its pieces.
+ */
 function tableOfferOf(node: Table, context: MarkdownRenderContext): MarkdownTableOffer {
-  const [headerRow, ...bodyRows] = node.children;
   return {
     table: node,
-    bodyRowCount: bodyRows.length,
-    drawWhole: () => renderWholeTable(node, context),
+    bodyRowCount: Math.max(0, node.children.length - 1),
+    drawWhole: () => <WholeTable table={node} context={context} />,
     drawFrame: renderTableFrame,
     drawTypeSampleRows: () => (
       <>
@@ -304,12 +321,14 @@ function tableOfferOf(node: Table, context: MarkdownRenderContext): MarkdownTabl
         )}
       </>
     ),
-    drawHeadRow: (attributes) =>
-      headerRow === undefined
+    drawHeadRow: (attributes) => {
+      const headerRow = node.children[0];
+      return headerRow === undefined
         ? null
-        : renderTableRow(headerRow, 0, node.align, "column-header", context, attributes),
+        : renderTableRow(headerRow, 0, node.align, "column-header", context, attributes);
+    },
     drawBodyRow: (index, attributes) => {
-      const bodyRow = bodyRows[index];
+      const bodyRow = node.children[index + 1];
       return bodyRow === undefined
         ? null
         : renderTableRow(bodyRow, index, node.align, "data", context, attributes);

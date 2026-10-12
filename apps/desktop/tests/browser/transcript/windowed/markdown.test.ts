@@ -1,24 +1,32 @@
 // A long reply drawn as a window over its blocks, against the same reply drawn whole, in the
 // engine that lays them out. The claims are about where text lands, how many elements stay
-// mounted, what a selection keeps and where the reader's block stays when the text size changes,
-// none of which a DOM shim can answer.
+// mounted, what a selection keeps, where the reader's block stays when the text size changes and
+// what each painted frame shows while the parser answers late, none of which a DOM shim can
+// answer. Every frame a case lets pass is checked for a block drawn before its tree: an empty box
+// where a block belongs, or markdown's own syntax as text.
 
 import { act } from "@testing-library/react";
 import { fromDom } from "hast-util-from-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { drawnTreeText } from "#renderer/components/Markdown/drawn-text.js";
+import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
+import type { MarkdownParseAnswer } from "#renderer/components/Markdown/worker/messages.js";
 import { longReplyMarkdown } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
+import { collectGarbage } from "#test/helpers/garbage-collection.js";
 import {
   drawnBlocks,
   flingShowingSpacers,
+  letFramePaint,
   mountBodies,
   SCROLLER_HEIGHT_PX,
   scrollTo,
   scrollToEnd,
   settleFrames,
   textEnds,
+  unformattedDraw,
 } from "./reply.js";
 
 /** How far apart two renderings of one line may land and still be the same pixel. */
@@ -68,12 +76,70 @@ function blockAtMiddleOf(scroller: HTMLElement, windowedBody: HTMLElement): Elem
   return block;
 }
 
+/** How long a late parser holds each answer, in milliseconds: several frames at any rate. */
+const LATE_ANSWER_MS = 60;
+
+/**
+ * Checks every frame painted from now until `stop` with `find`, and answers what each frame that
+ * `find` faulted showed.
+ */
+function recordFrames(find: () => string | undefined): { readonly stop: () => readonly string[] } {
+  const found: string[] = [];
+  let isRecording = true;
+  const onFrame = (): void => {
+    if (!isRecording) {
+      return;
+    }
+    const fault = find();
+    if (fault !== undefined) {
+      found.push(fault);
+    }
+    requestAnimationFrame(onFrame);
+  };
+  requestAnimationFrame(onFrame);
+  return {
+    stop: () => {
+      isRecording = false;
+      return found;
+    },
+  };
+}
+
+/**
+ * Fills the shared tree cache past its cap with other replies' blocks, each led by `label`: about
+ * 4,900 blocks, each charged its text and its tree's buffer, some 660 bytes, which pass 2 MiB.
+ */
+async function fillTreeCache(label: string): Promise<void> {
+  const blocks = longReplyMarkdown(400_000)
+    .split("\n\n")
+    .map((block, index) => `${label} ${String(index)}: ${block}`);
+  await act(async () => {
+    await Promise.all(
+      blocks.map(
+        (block) =>
+          new Promise<void>((resolve) => {
+            appMarkdownTrees.requestSettledBlock(block, "", () => {
+              resolve();
+            });
+          }),
+      ),
+    );
+  });
+}
+
 /** An element's first line, as its top below the body's top. */
 function firstLineOffsetPx(element: Element | null | undefined, body: HTMLElement): number {
   if (element === null || element === undefined) {
     throw new Error("the whole reply drew no element there");
   }
   return element.getBoundingClientRect().top - body.getBoundingClientRect().top;
+}
+
+/** The drawn blocks that hold no element: drawn before their trees, as a blank box or none. */
+function blocksDrawnEmpty(windowedBody: HTMLElement): string[] {
+  return [...drawnBlocks(windowedBody)]
+    .filter(([, wrapper]) => wrapper.firstElementChild === null)
+    .map(([index]) => `block ${String(index)}`);
 }
 
 /** The windowed body's spacers: its children that hold the room of blocks it does not draw. */
@@ -317,5 +383,115 @@ describe("browser — a long reply drawn as a window over its blocks", () => {
     // The control: blocks above the reader did draw at other heights than estimated, and the
     // scroller moved by what they changed.
     expect(Math.abs(heldPx)).toBeGreaterThan(SAME_LINE_TOLERANCE_PX);
+  });
+
+  it("draws a far jump's blocks from their trees on the frame they mount, after a collection too", async () => {
+    // No footnote definition, which draws nothing where it stands, so every drawn block holds an
+    // element.
+    const { scroller, windowedBody } = await mountBodies(longReplyMarkdown(200_000), {
+      isComplete: true,
+      drawsFlowBody: false,
+    });
+    const firstDrawn = new Set(drawnBlocks(windowedBody).keys());
+    const lastIndex = Math.max(...firstDrawn);
+
+    // Jumps far past the drawn band, as a scrollbar drag makes, each after a collection, so the
+    // blocks drawn again at the top read their trees anew; every frame is checked as it paints.
+    for (const share of [0.5, 0.9, 0.25, 0]) {
+      collectGarbage();
+      scroller.scrollTop = Math.round(scroller.scrollHeight * share);
+      for (let frame = 0; frame < 4; frame += 1) {
+        await letFramePaint();
+        expect(
+          blocksDrawnEmpty(windowedBody),
+          `frame ${String(frame)} at ${String(share)}`,
+        ).toEqual([]);
+      }
+      // The control: past the first screen, the window drew blocks the first frame had not.
+      const drawn = [...drawnBlocks(windowedBody).keys()];
+      expect(drawn.length).toBeGreaterThan(0);
+      if (share > 0) {
+        expect(Math.min(...drawn)).toBeGreaterThan(lastIndex);
+      }
+    }
+  });
+
+  it("draws every block and the tail formatted on their first frame while the parser answers late", async () => {
+    const parse = markdownWorker.parse.bind(markdownWorker);
+    const lateParse = vi
+      .spyOn(markdownWorker, "parse")
+      .mockImplementation((source, settle: (answer: MarkdownParseAnswer) => void) => {
+        parse(source, (answer) => {
+          setTimeout(() => {
+            settle(answer);
+          }, LATE_ANSWER_MS);
+        });
+      });
+    try {
+      // Still streaming, so its first draw holds settled blocks and a tail. A footnote defined in
+      // a settled block and one defined in the tail make every block wait on both reads.
+      const reply = [
+        "It opens on a note[^1].",
+        "[^1]: The note's text.",
+        longReplyMarkdown(24_000),
+        "It closes on another[^2].",
+        "[^2]: The other note's text.",
+      ].join("\n\n");
+      const { scroller, windowedBody, flowBody, handle } = await mountBodies(reply, {
+        isComplete: false,
+        drawsFlowBody: true,
+      });
+      if (flowBody === undefined) {
+        throw new Error("the whole reply did not mount");
+      }
+      const blockCount = flowBody.children.length;
+      expect(drawnBlocks(windowedBody).size).toBeGreaterThan(0);
+
+      // Other replies' trees fill the shared cache past its cap, so none of these blocks is kept
+      // there when the window draws it again.
+      await fillTreeCache("Evicting");
+
+      // A jump to the middle, a fling to the end, back to the top and down to the tail again, each
+      // a frame apart: every block and the tail the window draws again is drawn from its tree on
+      // the frame it mounts.
+      const middle = Math.round(scroller.scrollHeight / 2);
+      const end = scroller.scrollHeight;
+      for (const scrollTop of [middle, middle + 2_400, middle + 4_800, end, 0, end]) {
+        scroller.scrollTop = scrollTop;
+        await letFramePaint();
+        await letFramePaint();
+        expect(drawnBlocks(windowedBody).size, `drawn at ${String(scrollTop)}`).toBeGreaterThan(0);
+      }
+      await settleFrames();
+      expect(flowBody.children.length).toBe(blockCount);
+
+      // The reply is replaced from an early block on: what it drew stays until the new trees land.
+      const { setText } = handle;
+      const rewrittenReply = reply.replace("Section 1 ", "Rewritten section 1 ");
+      act(() => {
+        setText?.(rewrittenReply);
+      });
+      for (let frame = 0; frame < 8; frame += 1) {
+        await letFramePaint();
+        expect(flowBody.textContent, `frame ${String(frame)} after the replacement`).not.toBe("");
+        expect(drawnBlocks(windowedBody).size).toBeGreaterThan(0);
+      }
+      await settleFrames();
+      expect(flowBody.textContent).toContain("Rewritten section 1");
+
+      // The same reply mounted again while the first copy holds its trees, as a row drawn again
+      // as it scrolls back in, draws every block and the tail on its first frame, though other
+      // replies' trees passed through the cache since.
+      await fillTreeCache("Passing");
+      const frames = recordFrames(() => {
+        const emptyBody = document.querySelector(".meridian-markdown:empty");
+        return emptyBody === null ? unformattedDraw() : "an empty body";
+      });
+      const again = await mountBodies(rewrittenReply, { isComplete: false, drawsFlowBody: true });
+      expect(frames.stop()).toEqual([]);
+      expect(again.flowBody?.children.length).toBe(flowBody.children.length);
+    } finally {
+      lateParse.mockRestore();
+    }
   });
 });

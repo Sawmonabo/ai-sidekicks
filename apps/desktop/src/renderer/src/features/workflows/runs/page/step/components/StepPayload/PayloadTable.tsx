@@ -5,30 +5,32 @@ import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/d
 import { MarkdownDocumentRow } from "./MarkdownDocumentRow.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
-import { useDrawnStringRead } from "./hooks/useDrawnStringRead.js";
+import { useLastRowReadAhead } from "./hooks/useLastRowReadAhead.js";
 import { usePayloadTableRows } from "./hooks/usePayloadTableRows.js";
 import type { PayloadTableRow, PayloadValuePlace } from "./rows.js";
-import { PAYLOAD_ROW_ESTIMATE_PX, PayloadRowWindow } from "./PayloadRowWindow.js";
+import { PayloadRowWindow } from "./PayloadRowWindow.js";
 
-/** A payload's items drawn by their type in the Table view, windowed to the rows in view. */
+/**
+ * A payload's items drawn by their type in the Table view, windowed to the rows in view. The list
+ * holds only rows whose strings are read and keeps the room of the rest below it; its last drawn
+ * row reads further, and so does a view that reaches into that room.
+ */
 export function PayloadTable(props: {
   readonly items: readonly WorkflowItem[];
   readonly label: string;
 }): React.JSX.Element {
-  const { rows, readString, rowKey } = usePayloadTableRows(props.items);
+  const { rows, waitingHeightPx, readAhead } = usePayloadTableRows(props.items);
   return (
     <PayloadRowWindow
       rowCount={rows.length}
+      roomBelow={{ heightPx: waitingHeightPx, onReached: readAhead }}
       label={props.label}
       className="meridian-workflow-payload__table"
-      rowKey={rowKey}
-      estimateRowHeightPx={(rowIndex) => {
-        const row = rows[rowIndex];
-        return row?.kind === "unread" ? unreadRowHeightPx(row.lineCount) : PAYLOAD_ROW_ESTIMATE_PX;
-      }}
       renderRow={(rowIndex) => {
         const row = rows[rowIndex];
-        return row === undefined ? null : <TableRow row={row} readString={readString} />;
+        return row === undefined ? null : (
+          <TableRow row={row} isLastRow={rowIndex === rows.length - 1} readAhead={readAhead} />
+        );
       }}
     />
   );
@@ -36,18 +38,12 @@ export function PayloadTable(props: {
 
 function TableRow(props: {
   readonly row: PayloadTableRow;
-  readonly readString: (stringIndex: number) => void;
+  readonly isLastRow: boolean;
+  readonly readAhead: (reachedPx?: number) => void;
 }): React.JSX.Element {
+  useLastRowReadAhead(props.isLastRow, props.readAhead);
   const { row } = props;
   switch (row.kind) {
-    case "unread":
-      return (
-        <UnreadRow
-          stringIndex={row.stringIndex}
-          lineCount={row.lineCount}
-          readString={props.readString}
-        />
-      );
     case "item":
       return (
         <p className="meridian-workflow-payload__item-head">
@@ -89,21 +85,4 @@ function ValuePlace(props: {
       <div className="meridian-workflow-payload__cell">{props.children}</div>
     </div>
   );
-}
-
-/**
- * A string's place before it is read, as tall as its lines would draw. It is read before the
- * frame paints, so this is never seen.
- */
-function UnreadRow(props: {
-  readonly stringIndex: number;
-  readonly lineCount: number;
-  readonly readString: (stringIndex: number) => void;
-}): React.JSX.Element {
-  useDrawnStringRead(props.stringIndex, props.readString);
-  return <div style={{ blockSize: unreadRowHeightPx(props.lineCount) }} />;
-}
-
-function unreadRowHeightPx(lineCount: number): number {
-  return lineCount * PAYLOAD_ROW_ESTIMATE_PX;
 }

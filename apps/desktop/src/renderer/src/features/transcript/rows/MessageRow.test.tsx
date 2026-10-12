@@ -41,6 +41,8 @@ import { DrawnReplyText } from "../copy/drawn-reply-text.js";
 import { REVEAL_TEXT_CHUNK_CHARACTERS } from "../reveal/caps.js";
 import { publishedTextOf } from "../reveal/published-text.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
+import { appMarkdownWorkers } from "#test/helpers/markdown-worker.js";
 
 /** A channel that draws `liveTextByRowId` and keeps its own record of what reply rows drew. */
 function channelDrawing(liveTextByRowId: ReadonlyMap<string, string>): RowRevealContextValue {
@@ -144,6 +146,12 @@ describe("which body a message renders", () => {
 describe("a message's Copy", () => {
   /** Presses the row's Copy and answers what main was asked to write. */
   async function pressCopy(overrides: Parameters<typeof renderMessageCard>[0]) {
+    // happy-dom schedules no tasks; a reply's copy, written once the worker made its formatted
+    // flavor, is sent to main in slices.
+    vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
     const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const copied: ClipboardContent[] = [];
     vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
@@ -152,7 +160,10 @@ describe("a message's Copy", () => {
     renderMessageCard({ ...overrides, fixture });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Copy" }));
-      await Promise.resolve();
+      // A reply's formatted flavor is made by the markdown worker, some turns after the press.
+      await vi.waitFor(() => {
+        expect(copied).toHaveLength(1);
+      });
     });
     return copied;
   }
@@ -284,6 +295,28 @@ describe("a message's Copy", () => {
 });
 
 describe("a reply's foot", () => {
+  it("waits for the reply's first tree, so it never stands over an empty body", () => {
+    markdownWorker.wake();
+    const worker = appMarkdownWorkers.latest();
+    worker.hold();
+    const replying = renderMessageCard({
+      id: "reply-waiting",
+      liveText: "First *words* in.",
+      replyRowIds: replyRowIdsByFootRowId([
+        sampleRunRow({ id: "reply-waiting", type: "assistant.message" }),
+      ]).get("reply-waiting"),
+    });
+    expect(replying.querySelector(".meridian-markdown")?.textContent).toBe("");
+    expect(replying.querySelector(".meridian-transcript-row-layout__footer")).toBeNull();
+
+    act(() => {
+      worker.release([0]);
+    });
+
+    expect(replying.querySelector("em")?.textContent).toBe("words");
+    expect(replying.querySelector(".meridian-transcript-row-layout__footer")).not.toBeNull();
+  });
+
   it("stands on the reply's last row alone once it has text, and keeps it when dropped", async () => {
     const replyRows = replyRowIdsByFootRowId([
       sampleRunRow({ id: "reply-opening", type: "assistant.message" }),
@@ -366,6 +399,11 @@ describe("a reply's foot", () => {
       );
     });
     expect(reveal.result.current.channel.publishedTextFor("reply-closing")).toBeUndefined();
+    // happy-dom schedules no tasks; the reply's copy is sent to main in slices.
+    vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
     const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const copied: ClipboardContent[] = [];
     vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
@@ -384,7 +422,9 @@ describe("a reply's foot", () => {
     expect(copyAfterDrop?.textContent).toBe("Copy");
     await act(async () => {
       fireEvent.click(copyAfterDrop ?? closingAfterDrop);
-      await Promise.resolve();
+      await vi.waitFor(() => {
+        expect(copied).toHaveLength(1);
+      });
     });
     expect(copied).toStrictEqual([{ text: droppedReply, html: `<p>${droppedReply}</p>` }]);
   });

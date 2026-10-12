@@ -16,7 +16,7 @@ import { TablePlacementReports } from "./placement-reports.js";
 /** The blocks a body drawn whole counts its tables' text in. */
 export type FlowBodyBlocks = Pick<
   MarkdownBodyBlocksSnapshot,
-  "settledBlocks" | "volatileTail" | "definitionPreamble"
+  "settledBlocks" | "volatileTail" | "readDefinitionPreamble"
 >;
 
 /** The placement a body drawn whole gives its tables, observing the body's size. */
@@ -72,8 +72,8 @@ export class FlowBodyPlacement implements TableBodyPlacement {
     return this.#rowKey;
   }
 
-  public get definitionPreamble(): string {
-    return this.#blocks.definitionPreamble;
+  public definitionPreamble(index: number): string {
+    return this.#blocks.readDefinitionPreamble(index);
   }
 
   /** Takes the body's blocks and its text's length for this frame. */

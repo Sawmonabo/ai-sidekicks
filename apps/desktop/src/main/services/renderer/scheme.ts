@@ -24,11 +24,12 @@ export const RENDERER_INDEX_URL: string = `${RENDERER_ORIGIN}/index.html`;
 // directive the dev transport widens, so it is a constant of its own.
 const RENDERER_CONNECT_SRC = "connect-src 'self'";
 
-// A dedicated worker takes its policy from its own script's response, so only the diagram worker's
-// script admits `'wasm-unsafe-eval'`, which lets merman's WebAssembly compile and still refuses
-// every JavaScript evaluation.
+// A dedicated worker takes its policy from its own script's response, so only the scripts of the
+// workers that run WebAssembly, the diagram worker (merman) and the markdown worker (Sätteri),
+// admit `'wasm-unsafe-eval'`, which lets their WebAssembly compile and still refuses every
+// JavaScript evaluation.
 const RENDERER_SCRIPT_SRC = "script-src 'self'";
-const DIAGRAM_WORKER_SCRIPT_SRC = "script-src 'self' 'wasm-unsafe-eval'";
+const WEBASSEMBLY_WORKER_SCRIPT_SRC = "script-src 'self' 'wasm-unsafe-eval'";
 
 /** Every directive except `connect-src` and `script-src`. Both transports share it verbatim. */
 const RENDERER_POLICY_DIRECTIVES: readonly string[] = [
@@ -43,35 +44,41 @@ const RENDERER_POLICY_DIRECTIVES: readonly string[] = [
 
 /**
  * Composes a policy from the shared directives, one `connect-src` and one `script-src`, so the
- * page's and the diagram worker's policies, and each transport's, differ only in those tokens.
+ * page's and the WebAssembly workers' policies, and each transport's, differ only in those tokens.
  */
 function composePolicy(connectSrc: string, scriptSrc: string): string {
   return ["default-src 'self'", connectSrc, scriptSrc, ...RENDERER_POLICY_DIRECTIVES].join("; ");
 }
 
-/** The exact `Content-Security-Policy` header of every scheme response but the diagram worker's. */
+/**
+ * The exact `Content-Security-Policy` header of every scheme response but the script of a worker
+ * that runs WebAssembly.
+ */
 export const RENDERER_CONTENT_SECURITY_POLICY: string = composePolicy(
   RENDERER_CONNECT_SRC,
   RENDERER_SCRIPT_SRC,
 );
 
-/** The exact `Content-Security-Policy` header the diagram worker's script carries. */
-export const DIAGRAM_WORKER_CONTENT_SECURITY_POLICY: string = composePolicy(
+/** The exact `Content-Security-Policy` header a WebAssembly worker's script carries. */
+export const WEBASSEMBLY_WORKER_CONTENT_SECURITY_POLICY: string = composePolicy(
   RENDERER_CONNECT_SRC,
-  DIAGRAM_WORKER_SCRIPT_SRC,
+  WEBASSEMBLY_WORKER_SCRIPT_SRC,
 );
 
 /** The diagram worker's bundle name; the build writes its script as `<name>-<hash>.js`. */
 export const DIAGRAM_WORKER_BUNDLE_NAME = "diagram-worker";
 
-const DIAGRAM_WORKER_SCRIPT_PATTERN = new RegExp(
-  `^${DIAGRAM_WORKER_BUNDLE_NAME}-[\\w-]+\\.js$`,
+/** The markdown worker's bundle name; the build writes its script as `<name>-<hash>.js`. */
+export const MARKDOWN_WORKER_BUNDLE_NAME = "markdown-worker";
+
+const WEBASSEMBLY_WORKER_SCRIPT_PATTERN = new RegExp(
+  `^(?:${DIAGRAM_WORKER_BUNDLE_NAME}|${MARKDOWN_WORKER_BUNDLE_NAME})-[\\w-]+\\.js$`,
   "u",
 );
 
-/** Is this served file, by its base name, the diagram worker's built script? */
-export function isDiagramWorkerScript(fileName: string): boolean {
-  return DIAGRAM_WORKER_SCRIPT_PATTERN.test(fileName);
+/** Is this served file, by its base name, the built script of a worker that runs WebAssembly? */
+export function isWebAssemblyWorkerScript(fileName: string): boolean {
+  return WEBASSEMBLY_WORKER_SCRIPT_PATTERN.test(fileName);
 }
 
 /**
@@ -87,7 +94,7 @@ const RENDERER_DEV_CONNECT_SRC =
   `ws://127.0.0.1:${String(RENDERER_DEV_SERVER_PORT)}`;
 
 /**
- * The policy the Vite dev server emits on every response but the diagram worker's: the production
+ * The policy the Vite dev server emits on every response but a WebAssembly worker's: the production
  * policy with a `connect-src` that also names the HMR WebSocket origins. CSP Level 3 already lets
  * `'self'` match `ws:` from an `http:` document, so the additions are redundant on a conforming
  * engine, but they prevent an HMR socket refused by our own header. Both loopback spellings are
@@ -100,8 +107,8 @@ export const RENDERER_DEV_CONTENT_SECURITY_POLICY: string = composePolicy(
   RENDERER_SCRIPT_SRC,
 );
 
-/** The policy the Vite dev server emits on the diagram worker's script. */
-export const DIAGRAM_WORKER_DEV_CONTENT_SECURITY_POLICY: string = composePolicy(
+/** The policy the Vite dev server emits on a WebAssembly worker's script. */
+export const WEBASSEMBLY_WORKER_DEV_CONTENT_SECURITY_POLICY: string = composePolicy(
   RENDERER_DEV_CONNECT_SRC,
-  DIAGRAM_WORKER_SCRIPT_SRC,
+  WEBASSEMBLY_WORKER_SCRIPT_SRC,
 );

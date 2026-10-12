@@ -1,22 +1,23 @@
-// The unfinished end of a body: everything after its settled blocks, parsed again each frame the
-// reveal releases text, extending the last parse where the new text only appends to it.
+// The unfinished end of a body: everything after its drawn settled blocks, drawn from the newest
+// tree its body's tail parser has landed. Nothing is drawn before the first one lands.
+
+import type { RootContent } from "mdast";
 
 import {
   MarkdownNodes,
   type MarkdownRenderContext,
 } from "#renderer/components/Markdown/MarkdownNodes.js";
-import { useVolatileTailNodes } from "./hooks/useVolatileTailNodes.js";
 
 /** What the unfinished end of a body is drawn from. */
 export interface VolatileBlockProps {
-  readonly source: string;
-  /** The definitions the whole body declares, which the tail is parsed after. */
-  readonly definitionPreamble: string;
+  /** The tail's nodes, or `undefined` before its first tree lands. */
+  readonly nodes: readonly RootContent[] | undefined;
   readonly context: MarkdownRenderContext;
 }
 
-/** The body's volatile tail, every character the reveal released drawn on the frame it arrived. */
+/** The body's volatile tail, drawn from its newest tree; nothing before the first one lands. */
 export function VolatileBlock(props: VolatileBlockProps): React.JSX.Element | null {
-  const nodes = useVolatileTailNodes(props.source, props.definitionPreamble);
-  return nodes.length === 0 ? null : <MarkdownNodes nodes={nodes} context={props.context} />;
+  return props.nodes === undefined || props.nodes.length === 0 ? null : (
+    <MarkdownNodes nodes={props.nodes} context={props.context} />
+  );
 }

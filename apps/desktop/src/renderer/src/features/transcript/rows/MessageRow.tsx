@@ -7,7 +7,7 @@
 
 import "./MessageRow.css";
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
 
@@ -24,6 +24,7 @@ import type { TranscriptCardProps } from "./card-props.js";
 import { InlineCards } from "./InlineCards.js";
 import { CopyButton } from "#renderer/components/CopyButton/CopyButton.js";
 import { useClipboardCopy } from "#renderer/services/platform/hooks/useClipboardCopy.js";
+import { MarkdownFirstDrawContext } from "./bodies/markdown-first-draw.js";
 import { MessageContent } from "./bodies/MessageContent.js";
 import { RecordedBodyLine } from "./RecordedBodyLine.js";
 import { UserBody } from "./bodies/UserBody.js";
@@ -87,12 +88,20 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
     isReply && copyText !== undefined ? replyCopyFlavorOf(copyText, assistantMediaType) : "text";
   // A reply's time and Copy sit in its foot, on its last row, and Copy takes every row of the
   // reply, as markdown when any row is drawn as prose. The foot is drawn once the reply has drawn
-  // text, so a time never stands over an empty answer, and both stay for the rest of the turn.
-  // The time stands at rest and only the Copy waits for a hover or focus.
+  // text, so a time never stands over an empty answer, and both stay for the rest of the turn:
+  // prose counts once its body has drawn its first tree. The time stands at rest and only the
+  // Copy waits for a hover or focus.
+  const [hasDrawnMarkdown, setHasDrawnMarkdown] = useState(false);
+  const reportMarkdownDrawn = useCallback(() => {
+    setHasDrawnMarkdown(true);
+  }, []);
+  const hasDrawnText = copyFlavor !== "markdown" || hasDrawnMarkdown;
   const replyText = useReplyText(
     props.replyRowIds ?? NO_REPLY_ROWS,
     props.row.id,
-    isReply && copyText !== undefined ? { text: copyText, flavor: copyFlavor } : undefined,
+    isReply && copyText !== undefined && hasDrawnText
+      ? { text: copyText, flavor: copyFlavor }
+      : undefined,
   );
   const clipboardCopy = useClipboardCopy(() => {
     if (!isReply) {
@@ -144,17 +153,19 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
           ) : rowKind.kind === "thinking" ? (
             props.thinkingRow
           ) : (
-            <MessageContent
-              content={props.row.content}
-              {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
-              // The media type is the producer-set `contentType` on the payload, and the same
-              // reading feeds the receipt below, so the renderer and the printed type agree.
-              {...(assistantMediaType === undefined ? {} : { contentType: assistantMediaType })}
-              sourceId={props.row.id}
-              footnotes={props.footnotes}
-              label={rowKind.label}
-              holdRowInPlace={props.holdRowInPlace}
-            />
+            <MarkdownFirstDrawContext.Provider value={reportMarkdownDrawn}>
+              <MessageContent
+                content={props.row.content}
+                {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
+                // The media type is the producer-set `contentType` on the payload, and the same
+                // reading feeds the receipt below, so the renderer and the printed type agree.
+                {...(assistantMediaType === undefined ? {} : { contentType: assistantMediaType })}
+                sourceId={props.row.id}
+                footnotes={props.footnotes}
+                label={rowKind.label}
+                holdRowInPlace={props.holdRowInPlace}
+              />
+            </MarkdownFirstDrawContext.Provider>
           )}
         </div>
         <InlineCards cards={props.inlineCards ?? []} rowKey={props.row.id} />

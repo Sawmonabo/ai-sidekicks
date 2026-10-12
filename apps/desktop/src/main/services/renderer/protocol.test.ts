@@ -31,7 +31,7 @@ import { buildLoadFailureUrl, LOAD_FAILURE_PATH } from "../../windows/load-failu
 import type { MainDiagnosticEntry } from "../diagnostic-log.js";
 import { handleRendererRequest } from "./protocol.js";
 import {
-  DIAGRAM_WORKER_CONTENT_SECURITY_POLICY,
+  WEBASSEMBLY_WORKER_CONTENT_SECURITY_POLICY,
   RENDERER_CONTENT_SECURITY_POLICY,
 } from "./scheme.js";
 
@@ -77,6 +77,8 @@ beforeAll(async () => {
   await writeFile(path.join(rendererRoot, "about.html"), CONSOLE_DOCUMENT, "utf8");
   await mkdir(path.join(rendererRoot, "assets"));
   await writeFile(path.join(rendererRoot, "assets", "diagram-worker-Ab_1-x.js"), "", "utf8");
+  await writeFile(path.join(rendererRoot, "assets", "markdown-worker-Cd_2-y.js"), "", "utf8");
+  await writeFile(path.join(rendererRoot, "assets", "png-worker-Ab_1-x.js"), "", "utf8");
   await writeFile(path.join(rendererRoot, "assets", "entry-Ab_1-x.js"), "", "utf8");
 });
 
@@ -114,7 +116,7 @@ describe("the locked response policy", () => {
     expect(response.headers.get("content-security-policy")).toBe(RENDERER_CONTENT_SECURITY_POLICY);
   });
 
-  it("lets only the diagram worker's script compile WebAssembly", async () => {
+  it("lets only the diagram and markdown workers' scripts compile WebAssembly", async () => {
     const policyOf = async (url: string): Promise<string | null> => {
       electronMock.netFetch.mockResolvedValueOnce(new Response(CONSOLE_DOCUMENT));
       const response = await handleRendererRequest(rendererRoot, url, RECORD_KEPT, LOG);
@@ -123,12 +125,18 @@ describe("the locked response policy", () => {
     };
 
     expect(await policyOf("sidekicks-renderer://app/assets/diagram-worker-Ab_1-x.js")).toBe(
-      DIAGRAM_WORKER_CONTENT_SECURITY_POLICY,
+      WEBASSEMBLY_WORKER_CONTENT_SECURITY_POLICY,
     );
-    expect(DIAGRAM_WORKER_CONTENT_SECURITY_POLICY).toContain(
+    expect(await policyOf("sidekicks-renderer://app/assets/markdown-worker-Cd_2-y.js")).toBe(
+      WEBASSEMBLY_WORKER_CONTENT_SECURITY_POLICY,
+    );
+    expect(WEBASSEMBLY_WORKER_CONTENT_SECURITY_POLICY).toContain(
       "script-src 'self' 'wasm-unsafe-eval';",
     );
     expect(await policyOf("sidekicks-renderer://app/assets/entry-Ab_1-x.js")).toBe(
+      RENDERER_CONTENT_SECURITY_POLICY,
+    );
+    expect(await policyOf("sidekicks-renderer://app/assets/png-worker-Ab_1-x.js")).toBe(
       RENDERER_CONTENT_SECURITY_POLICY,
     );
     expect(await policyOf("sidekicks-renderer://app/index.html")).toBe(

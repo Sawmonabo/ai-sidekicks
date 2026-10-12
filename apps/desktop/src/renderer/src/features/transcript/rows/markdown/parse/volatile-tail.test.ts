@@ -1,21 +1,83 @@
 // The tail parser against the parse it stands in for: every prefix a stream can publish, at
-// several chunk sizes, must parse to the same tree a whole parse gives, positions included.
+// several chunk sizes, must show the same tree a whole parse gives, positions included, and read
+// as micromark, the reference GFM reader, reads it. Positions are left out of that second
+// comparison because micromark starts a task item's paragraph at its checkbox and the parser
+// after it, which nothing drawn reads. While a whole parse is on its way, or a parser ended for
+// idleness loads again, the tree on screen stays.
 
+import type { Root } from "mdast";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import { gfm } from "micromark-extension-gfm";
 import { describe, expect, it, vi } from "vitest";
 
-import * as markdownParse from "#renderer/components/Markdown/parse.js";
-import { VolatileTailParser } from "./volatile-tail.js";
+import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
+import {
+  footnoteDefinitionPreamble,
+  MarkdownTrees,
+} from "#renderer/components/Markdown/parse/trees.js";
+import { InThreadMarkdownWorkers } from "#renderer/components/Markdown/worker/connection.test-support.js";
+import {
+  MARKDOWN_WORKER_IDLE_STOP_MS,
+  MarkdownWorkerConnection,
+} from "#renderer/components/Markdown/worker/connection.js";
+import { mendVolatileTail, VolatileTailParser } from "./volatile-tail.js";
 
-vi.mock("#renderer/components/Markdown/parse.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof markdownParse>();
-  return { ...actual, parseAgainstDefinitions: vi.fn(actual.parseAgainstDefinitions) };
-});
+/** A tail parser on its own trees, and the stand-in workers those trees parse with. */
+function tailParser(): {
+  readonly parser: VolatileTailParser;
+  readonly workers: InThreadMarkdownWorkers;
+} {
+  const { trees, workers } = standInTrees();
+  return { parser: new VolatileTailParser(trees), workers };
+}
 
-const { footnoteDefinitionPreamble, mendVolatileTail } = markdownParse;
-const wholeParses = vi.mocked(markdownParse.parseAgainstDefinitions);
-const { parseAgainstDefinitions: parseWhole } = await vi.importActual<typeof markdownParse>(
-  "#renderer/components/Markdown/parse.js",
-);
+/** Trees of their own, parsed by stand-in workers. */
+function standInTrees(): {
+  readonly trees: MarkdownTrees;
+  readonly workers: InThreadMarkdownWorkers;
+} {
+  const workers = new InThreadMarkdownWorkers();
+  return { trees: new MarkdownTrees(new MarkdownWorkerConnection(workers.start, window)), workers };
+}
+
+/** The tree the tail shows after `prefix` arrives, and the tail it says that tree answers. */
+function shownAfter(
+  parser: VolatileTailParser,
+  prefix: string,
+  preamble: string,
+):
+  | { readonly root: Root; readonly tailSource: string; readonly definitionPreamble: string }
+  | undefined {
+  parser.update(prefix, preamble);
+  const view = parser.read();
+  return view?.status === "parsed"
+    ? { root: view.root, tailSource: view.tailSource, definitionPreamble: view.definitionPreamble }
+    : undefined;
+}
+
+/**
+ * `mended` as micromark reads it against `preamble`, with GFM as the app had it (a single tilde
+ * never strikes through), less the preamble's nodes; positions are dropped.
+ */
+function micromarkTreeOf(mended: string, preamble: string): unknown {
+  const root = fromMarkdown(preamble + mended, {
+    extensions: [gfm({ singleTilde: false })],
+    mdastExtensions: [gfmFromMarkdown()],
+  });
+  return withoutPositions({
+    ...root,
+    children: root.children.filter(
+      (child) => (child.position?.start.offset ?? 0) >= preamble.length,
+    ),
+  });
+}
+
+function withoutPositions(tree: Root): unknown {
+  return JSON.parse(
+    JSON.stringify(tree, (key, value: unknown) => (key === "position" ? undefined : value)),
+  );
+}
 
 /** Tails that reach back into earlier characters when a later one arrives. */
 const TRICKY_TAILS: readonly string[] = [
@@ -27,6 +89,10 @@ const TRICKY_TAILS: readonly string[] = [
     "```\nwindows line endings\r\nin a fence\rand an old mac one",
   "- first item with text\n- second **bold** item\n  continued line here\n1. ordered one\n" +
     "2) other delimiter\n\n- [ ] task item\n- [x] done item\n\nStep 1 then 2. Not a list 3",
+  // A task item whose text opens on emphasis, code or a link starts its paragraph after the
+  // checkbox, where a link definition's bracket would sit.
+  "- [x] *done* item and its words\n- [ ] `code` first then words\n- [ ] [a link](u) then " +
+    "words\n- [x]\n  next line words\n- [ ] [ref]: /not-a-definition words",
   "| Name | Value |\n| --- | :-: |\n| alpha | 1 |\n| beta | two words here |\n\nAfter table",
   "See [the docs](https://example.com/path) and www.example.com. Also <https://x.y> plus " +
     "foo@bar.com and [ref][1] and [lone] text.\n\n[1]: https://example.com\n\n[foo]: /url text\n\n" +
@@ -68,51 +134,165 @@ const TAIL_CASES = TRICKY_TAILS.flatMap((tail) =>
 
 describe("a streaming tail parsed frame after frame", () => {
   it.each(TAIL_CASES)(
-    "parses every published prefix of $opening as a whole parse would, against $against",
-    ({ preamble, tail }) => {
+    "shows every published prefix of $opening as a whole parse and micromark would, against $against",
+    async ({ preamble, tail }) => {
       // Each prefix's whole parse once: the chunk sizes publish many of the same prefixes.
-      const wholeParseByPrefix = new Map<string, ReturnType<typeof parseWhole>>();
+      const wholeParseByPrefix = new Map<string, Root>();
       for (const chunkSize of CHUNK_SIZES) {
-        const parser = new VolatileTailParser();
+        const { parser } = tailParser();
         for (const prefix of streamedPrefixes(tail, chunkSize)) {
-          const wholeParse =
-            wholeParseByPrefix.get(prefix) ?? parseWhole(mendVolatileTail(prefix), preamble);
-          wholeParseByPrefix.set(prefix, wholeParse);
-          expect(
-            parser.parse(prefix, preamble),
-            `${JSON.stringify(prefix)} in chunks of ${String(chunkSize)}`,
-          ).toStrictEqual(wholeParse);
+          const label = `${JSON.stringify(prefix)} in chunks of ${String(chunkSize)}`;
+          const mended = mendVolatileTail(prefix);
+          let wholeParse = wholeParseByPrefix.get(prefix);
+          if (wholeParse === undefined) {
+            wholeParse = await parseTree(mended, preamble);
+            wholeParseByPrefix.set(prefix, wholeParse);
+            // Formulas are read as no micromark extension reads them; their trees are checked
+            // against the trees they must make where the parse is.
+            if (!mended.includes("$")) {
+              expect(withoutPositions(wholeParse), label).toStrictEqual(
+                micromarkTreeOf(mended, preamble),
+              );
+            }
+          }
+          expect(shownAfter(parser, prefix, preamble), label).toStrictEqual({
+            root: wholeParse,
+            tailSource: prefix,
+            definitionPreamble: preamble,
+          });
         }
       }
     },
   );
 
-  it("parses against the body's definitions as they change, never extending an older parse", () => {
+  it("parses against the body's definitions as they change, never extending an older parse", async () => {
     // A definition settling elsewhere in the body changes what the tail's reference means.
-    const parser = new VolatileTailParser();
-    parser.parse("The tail cites[^1] a note and", "");
+    const { parser } = tailParser();
+    parser.update("The tail cites[^1] a note and", "");
     const preamble = footnoteDefinitionPreamble(new Set(["1"]));
     const prefix = "The tail cites[^1] a note and more";
-    expect(parser.parse(prefix, preamble)).toStrictEqual(
-      parseWhole(mendVolatileTail(prefix), preamble),
+    expect(shownAfter(parser, prefix, preamble)?.root).toStrictEqual(
+      await parseTree(mendVolatileTail(prefix), preamble),
     );
   });
 
-  it("parses most frames of prose, open emphasis and an open fence without a whole parse", () => {
+  it("keeps the newest tail's tree when an older ask lands after it", async () => {
+    // The definitions change and change back: the ask for the middle ones lands last.
+    const { parser, workers } = tailParser();
+    const text = "The tail cites[^1] a note";
+    const preamble = footnoteDefinitionPreamble(new Set(["1"]));
+    parser.update(text, preamble);
+    workers.latest().hold();
+    parser.update(text, "");
+    parser.update(text, preamble);
+    workers.latest().release([0]);
+    expect(parser.read()).toStrictEqual({
+      status: "parsed",
+      root: await parseTree(mendVolatileTail(text), preamble),
+      tailSource: text,
+      definitionPreamble: preamble,
+    });
+  });
+
+  it("shows at once the tree another parser of the same tail shows, grown by an append", () => {
+    // A row mounted again starts a parser of a tail its preparation already shows.
+    const { trees, workers } = standInTrees();
+    const shown = new VolatileTailParser(trees);
+    shown.update("Some words", "");
+    shown.update("Some words and more", "");
+    workers.latest().hold();
+
+    const mounted = new VolatileTailParser(trees);
+    mounted.update("Some words and more", "");
+    expect(mounted.read()).toStrictEqual(shown.read());
+    expect(workers.latest().requests).toHaveLength(1);
+
+    // A parser still waiting on an older tail's parse takes the newer tree the other one shows.
+    mounted.update("Other words", "");
+    shown.update("Some **bold** words", "");
+    workers.latest().release([1]);
+    mounted.update("Some **bold** words", "");
+    expect(mounted.read()).toStrictEqual(shown.read());
+    expect(workers.latest().requests).toHaveLength(3);
+  });
+
+  it("names the newest tail as the one shown when two tails mend to the same text", () => {
+    const { parser } = tailParser();
+    parser.update("Some **bold", "");
+    parser.update("Some **bold**", "");
+    expect(parser.read()).toMatchObject({ status: "parsed", tailSource: "Some **bold**" });
+  });
+
+  it("parses most frames of prose, open emphasis, an open fence and a task item without a whole parse", () => {
     // The point of the parser: a frame that appends words or code lines costs its append.
     const prose =
       "The daemon holds one control lease per shell, so a second client sees the lease and " +
       "waits for it; retry is bounded by the cap, and the reader keeps their place as it grows.";
     const fence = "```ts\n" + "const value = compute(input, { cap: 4096 });\n".repeat(12);
     const openStrong = `Note: **${prose}`;
-    for (const tail of [prose, fence, openStrong]) {
-      const parser = new VolatileTailParser();
+    // The task item's paragraph starts after its checkbox, on the emphasis, not on a bracket.
+    const taskItem = `- [x] *Done:* ${prose}`;
+    for (const tail of [prose, fence, openStrong, taskItem]) {
+      const { parser, workers } = tailParser();
       const frames = streamedPrefixes(tail, 7);
-      wholeParses.mockClear();
       for (const prefix of frames) {
-        parser.parse(prefix, "");
+        parser.update(prefix, "");
       }
-      expect(wholeParses.mock.calls.length).toBeLessThan(frames.length / 4);
+      expect(workers.latest().requests.length).toBeLessThan(frames.length / 4);
     }
+  });
+
+  it("keeps the tree on screen until the whole parse lands, and drops one a newer frame passed", async () => {
+    const { parser, workers } = tailParser();
+    const first = shownAfter(parser, "Some words", "");
+    workers.latest().hold();
+    // A closing star could pair with an earlier one, so this frame needs a whole parse.
+    parser.update("Some words *with emphasis", "");
+    expect(parser.read()).toStrictEqual({ status: "parsed", ...first });
+
+    // One parse in flight at a time: the newest tail waits for it, never a second request.
+    parser.update("Some words *with emphasis* done", "");
+    expect(workers.latest().requests).toHaveLength(2);
+    workers.latest().release([0]);
+    expect(parser.read()).toStrictEqual({
+      status: "parsed",
+      root: await parseTree(mendVolatileTail("Some words *with emphasis* done")),
+      tailSource: "Some words *with emphasis* done",
+      definitionPreamble: "",
+    });
+  });
+});
+
+describe("a tail parsed after the parser's idle stop", () => {
+  it("keeps the tree on screen while a new worker loads, then shows the tail's parse", async () => {
+    vi.useFakeTimers();
+    try {
+      const { parser, workers } = tailParser();
+      const first = shownAfter(parser, "Some words", "");
+      vi.advanceTimersByTime(MARKDOWN_WORKER_IDLE_STOP_MS);
+      expect(workers.latest().isTerminated).toBe(true);
+
+      // The next worker keeps the text in its queue until it has loaded the parser.
+      workers.loadSlowly();
+      parser.update("Some words *with emphasis", "");
+      expect(parser.read()).toStrictEqual({ status: "parsed", ...first });
+      expect(workers.started).toHaveLength(2);
+      workers.latest().release([0]);
+      expect(parser.read()).toStrictEqual({
+        status: "parsed",
+        root: await parseTree(mendVolatileTail("Some words *with emphasis")),
+        tailSource: "Some words *with emphasis",
+        definitionPreamble: "",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("mending the volatile tail", () => {
+  it("leaves a lone dollar sign unclosed", () => {
+    // "it cost $5" is prose, not the start of a formula, so no closing `$` is written after it.
+    expect(mendVolatileTail("it cost $5 and then")).toBe("it cost $5 and then");
   });
 });

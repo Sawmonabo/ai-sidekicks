@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { changeLayout } from "../../helpers/animation-frame.js";
 import { readerScrollsTo } from "../../helpers/transcript/reader-scroll.js";
+import { settleFrames } from "./windowed/reply.js";
 import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../helpers/app/harness.js";
 
@@ -150,9 +151,13 @@ describe("browser — a press on a run group header holds the header where it st
         readerScrollsTo(scrollContainer, Math.max(0, headerTopInContentPx - boxBottomPx));
       });
       expect(headerButtonOf(mounted.pane, runState).getAttribute("aria-expanded")).toBe("true");
+      // Every row's tree has landed, so no row is still being listed when the reader presses.
+      await settleFrames();
       const offsetBeforePx = headerOffsetPx(mounted, runState);
 
       await pressHeader(mounted, runState);
+      // And the rows the fold brings into the window have landed theirs too.
+      await settleFrames();
 
       expect(headerButtonOf(mounted.pane, runState).getAttribute("aria-expanded")).toBe("false");
       expect(Math.abs(headerOffsetPx(mounted, runState) - offsetBeforePx)).toBeLessThanOrEqual(

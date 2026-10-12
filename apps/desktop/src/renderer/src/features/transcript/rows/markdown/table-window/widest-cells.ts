@@ -6,8 +6,9 @@
 // the browser lays out only the rows holding each column's widest cells and gives every column the
 // width the whole table would. Ranking a table that grows ranks only its new rows.
 
-import type { Table, TableCell } from "mdast";
+import type { Table, TableCell, TableRow } from "mdast";
 
+import { passTableRows } from "#renderer/components/Markdown/parse/table-rows.js";
 import { type TableCellMeasure } from "./cell-measure.js";
 
 /** One table's body rows ranked by how wide their cells lay out, column by column. */
@@ -23,16 +24,18 @@ export class WidestCells {
   }
 
   /**
-   * Ranks the rows of `table` not yet ranked while `hasTime` answers true, and answers whether
-   * every row is. A table given anew, as a streaming one grows, ranks its new rows and its last row
-   * again, which the stream may have grown; all of them when that row held a column's widest cell.
+   * Takes `table` to rank and answers the first of its body rows not yet ranked. A table given
+   * anew, as a streaming one grows, ranks its new rows and its last row again, which the stream may
+   * have grown; all of them when that row held a column's widest cell.
    */
-  public rank(table: Table, hasTime: () => boolean): boolean {
-    const rowCount = Math.max(0, table.children.length - 1);
+  public resume(table: Table): number {
     if (table !== this.#table) {
       this.#table = table;
       const lastRanked = this.#nextIndex - 1;
-      if (rowCount < this.#nextIndex || this.#columns.some((column) => column.holds(lastRanked))) {
+      if (
+        bodyRowCountOf(table) < this.#nextIndex ||
+        this.#columns.some((column) => column.holds(lastRanked))
+      ) {
         // The row a column's widest cell stood in changed: the ranking starts over.
         this.#columns = [];
         this.#nextIndex = 0;
@@ -40,27 +43,43 @@ export class WidestCells {
         this.#nextIndex = Math.max(0, lastRanked);
       }
     }
-    while (this.#nextIndex < rowCount && hasTime()) {
-      const index = this.#nextIndex;
-      // Counted by hand: `entries()` would make a pair for every cell of every row.
-      let columnIndex = 0;
-      for (const cell of table.children[index + 1]?.children ?? []) {
-        const column = (this.#columns[columnIndex] ??= new ColumnRanking());
-        column.offer(index, cell, this.#measure);
-        columnIndex += 1;
-      }
-      this.#nextIndex = index + 1;
+    return this.#nextIndex;
+  }
+
+  /** Ranks body row `index` of the table last taken: the row after the last one ranked. */
+  public rank(index: number, row: TableRow): void {
+    // Counted by hand: `entries()` would make a pair for every cell of every row.
+    let columnIndex = 0;
+    for (const cell of row.children) {
+      const column = (this.#columns[columnIndex] ??= new ColumnRanking());
+      column.offer(index, cell, this.#measure);
+      columnIndex += 1;
     }
+    this.#nextIndex = index + 1;
+  }
+
+  /**
+   * Ranks every body row of `table` not yet ranked that can be read now, and answers whether every
+   * one is ranked.
+   */
+  public rankReadRows(table: Table): boolean {
+    const rowCount = bodyRowCountOf(table);
+    passTableRows(table, this.resume(table), rowCount - 1, (row, index) => {
+      this.rank(index, row);
+      return true;
+    });
     return this.#nextIndex >= rowCount;
   }
 
   /**
-   * The body rows the browser must lay out to size `table`'s columns as the whole table: per
-   * column, the rows holding its widest one-line cell and its widest character, ascending. Ranks
-   * first whatever rows of it are not yet ranked.
+   * The body rows the browser must lay out to size the table's columns as the whole table: per
+   * column, the rows holding its widest one-line cell and its widest character, ascending;
+   * `undefined` while a row of the table last taken is not ranked.
    */
-  public sampleRowIndexes(table: Table): readonly number[] {
-    this.rank(table, () => true);
+  public sampleRowIndexes(): readonly number[] | undefined {
+    if (this.#table === undefined || this.#nextIndex < bodyRowCountOf(this.#table)) {
+      return undefined;
+    }
     const indexes = new Set<number>();
     for (const column of this.#columns) {
       for (const cell of [...column.widestLines(this.#measure), ...column.widestCharacters]) {
@@ -202,4 +221,8 @@ function keepCellAt<Cell extends RankedCell>(
     keptCount += 1;
   }
   cells.length = keptCount;
+}
+
+function bodyRowCountOf(table: Table): number {
+  return Math.max(0, table.children.length - 1);
 }

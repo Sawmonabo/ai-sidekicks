@@ -150,12 +150,15 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
   // drawn too; the rows between are copied from the text.
   const bandScreenHeights = useDrawnBandScreenHeights();
   const rangeExtractor = useCallback(
-    (range: Range) =>
-      withPinnedIndexes(
+    (range: Range) => {
+      const indexes = withPinnedIndexes(
         layout.drawnIndexesOf(range, bandScreenHeights),
         revealedRowIndex === undefined ? rangeEnds(pins) : [...rangeEnds(pins), revealedRowIndex],
         range.count,
-      ),
+      );
+      layout.holdDrawnRows(indexes, range);
+      return indexes;
+    },
     [layout, bandScreenHeights, pins, revealedRowIndex],
   );
   // The virtualizer renders again only when the rows it draws change; a row that moves a
@@ -201,6 +204,10 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
     }
   });
 
+  const readFailure = layout.readFailure;
+  if (readFailure !== undefined) {
+    throw new Error(readFailure);
+  }
   const rows =
     heldColumns === undefined
       ? []

@@ -46,7 +46,7 @@ import { COLOR_SCHEMES } from "#renderer/styles/tokens.js";
 import { SessionScreenContainer } from "#renderer/features/transcript/SessionScreenContainer.js";
 import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
 import { MarkdownNodes } from "#renderer/components/Markdown/MarkdownNodes.js";
-import { parseSettledBlock } from "#renderer/components/Markdown/parse.js";
+import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
 import { installOverlayScrollbarLibrary } from "#renderer/lib/overlay-scrollbar-library.js";
 
 /** A column narrower than the table below, as a narrow conversation is. */
@@ -151,12 +151,13 @@ describe("accessibility — the transcript", () => {
 describe("accessibility — the regions inside a transcript row", () => {
   it("fits a table to the column, so Tab passes over it", async () => {
     installOverlayScrollbarLibrary(document);
+    const wideTable = await parseTree(WIDE_TABLE);
     const { container } = await renderSettled(
       <LiveAnnouncerProvider clock={new ManualClock()}>
         <div className="row-column" style={{ inlineSize: ROW_COLUMN_WIDTH }}>
           <button type="button">Before the rows</button>
           <MarkdownNodes
-            nodes={parseSettledBlock(WIDE_TABLE).children}
+            nodes={wideTable.children}
             context={{
               isSettled: true,
               definedFootnoteIdentifiers: new Set(),

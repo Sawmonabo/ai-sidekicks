@@ -6,9 +6,11 @@
 // block's place this layout answers as its table placement, and hears each change that may move it.
 
 import type { Range, VirtualItem, Virtualizer } from "@tanstack/virtual-core";
+import type { RootContent } from "mdast";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { blockSourceStartOf, type SettledMarkdownBlock } from "../body-blocks.js";
+import { blockSourceStartOf } from "../body-blocks.js";
+import { type SettledMarkdownBlock } from "../settled-block.js";
 import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
 import { type DrawnBandScreenHeights } from "#renderer/lib/scroll/window-side.js";
 import { ReaderPlaceHold } from "#renderer/lib/scroll/reader-place-hold.js";
@@ -41,14 +43,19 @@ import { warmIdeographFallback } from "../table-window/ideograph-fallback-warm.j
 /** The virtualizer a windowed body runs, over the body's element and its block wrappers. */
 export type BlockVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
 
-/** The body's blocks as the window counts them: its settled blocks, then its tail if it has one. */
+/**
+ * The body's blocks as the window counts them: its drawn settled blocks, then its tail once it has
+ * nodes to draw.
+ */
 export interface WindowedBlocks {
   readonly settledBlocks: readonly SettledMarkdownBlock[];
   readonly volatileTail: string;
-  /** The definitions every block is parsed after, whose length every parsed offset counts. */
-  readonly definitionPreamble: string;
+  /** The tail's nodes, or `undefined` before its first tree lands. */
+  readonly tailNodes: readonly RootContent[] | undefined;
   /** Cuts a settled block's text from its body's, for an estimate that lets it go. */
   readonly readBlockSource: (block: SettledMarkdownBlock) => string;
+  /** The definitions every offset in a drawn block's tree counts before the block's own text. */
+  readonly readDefinitionPreamble: (index: number) => string;
 }
 
 /** What one body's window is laid out against. */
@@ -201,9 +208,13 @@ export class BlockWindowLayout implements TableBodyPlacement {
     this.initialOffset = scroller.initialOffset;
   }
 
-  /** How many blocks the window lays out: the settled ones and the tail. */
+  /** How many blocks the window lays out: the drawn settled ones, and the tail once it draws. */
   public get blockCount(): number {
-    return this.#blocks.settledBlocks.length + (this.#blocks.volatileTail === "" ? 0 : 1);
+    const tailNodes = this.#blocks.tailNodes;
+    return (
+      this.#blocks.settledBlocks.length +
+      (tailNodes === undefined || tailNodes.length === 0 ? 0 : 1)
+    );
   }
 
   /** The key a block is measured and drawn under. */
@@ -229,9 +240,9 @@ export class BlockWindowLayout implements TableBodyPlacement {
     return this.#rowKey;
   }
 
-  /** The definitions every block of this body is parsed after. */
-  public get definitionPreamble(): string {
-    return this.#blocks.definitionPreamble;
+  /** The definitions every offset in block `index`'s drawn tree counts before its own text. */
+  public definitionPreamble(index: number): string {
+    return this.#blocks.readDefinitionPreamble(index);
   }
 
   /** Takes the body's blocks and its text's length for this frame. */

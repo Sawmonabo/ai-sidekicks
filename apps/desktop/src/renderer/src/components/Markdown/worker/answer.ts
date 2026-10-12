@@ -1,40 +1,52 @@
 // What the markdown worker makes for each request, on whichever thread runs it: the worker's own in
-// the app, the test's where no worker runs. Requests are answered as they come, a drawn part's
-// waiting on the page for each answer to its asks for undrawn rows while the next request starts.
+// the app, the test's where no worker runs. Requests are answered as they come, once the parser is
+// loaded, a drawn part's waiting on the page for each answer to its asks for undrawn rows while the
+// next request starts.
 
-import type { TableRow } from "mdast";
+import type { Root, TableRow } from "mdast";
 
 import { decodeTextPieces, encodeTextPieces } from "#renderer/lib/text-pieces.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { drawnTreeMarkdown, drawnTreeText } from "../drawn-text.js";
-import { markdownToHtml } from "../html.js";
+import { markdownTreeToHtml } from "../html.js";
 import type {
   MarkdownWorkerMade,
-  MarkdownWorkerMessage,
   MarkdownWorkerReply,
   MarkdownWorkerRequest,
+  UndrawnRowsAnswer,
 } from "./messages.js";
 
-/** The worker's side of its talk with the page, sending each reply through `send`. */
+/** Parses a markdown text into the tree the screen draws, on the thread that calls it. */
+export type MarkdownTreeParser = (source: string) => Root;
+
+/** The worker's side of its talk with the page about what it makes, sending each reply by `send`. */
 export class MarkdownWorkerAnswers {
   readonly #send: (reply: MarkdownWorkerReply, transfer: readonly Transferable[]) => void;
+  readonly #parser: Promise<MarkdownTreeParser | undefined>;
   /** Takes the page's answer to each request's unanswered ask for rows, by the request's id. */
   readonly #asks = new Map<number, (rows: readonly string[]) => void>();
 
-  /** `send` posts a reply to the page, moving the buffers in `transfer`. */
+  /**
+   * `send` posts a reply to the page, moving the buffers in `transfer`; `parser` resolves once the
+   * parser is loaded, or to `undefined` when it failed to load, after which nothing is answered.
+   */
   public constructor(
     send: (reply: MarkdownWorkerReply, transfer: readonly Transferable[]) => void,
+    parser: Promise<MarkdownTreeParser | undefined>,
   ) {
     this.#send = send;
+    this.#parser = parser;
   }
 
   /**
    * Starts answering a request, or hands rows to the ask waiting on them. Throws for rows no ask
    * waits on, which only a page out of step with the worker sends.
    */
-  public hear(message: MarkdownWorkerMessage): void {
+  public hear(message: MarkdownWorkerRequest | UndrawnRowsAnswer): void {
     if (message.kind !== "undrawn-rows") {
-      void this.#answer(message);
+      void this.#parser.then((parseMarkdown) =>
+        parseMarkdown === undefined ? undefined : this.#answer(message, parseMarkdown),
+      );
       return;
     }
     const take = this.#asks.get(message.requestId);
@@ -46,9 +58,9 @@ export class MarkdownWorkerAnswers {
   }
 
   /** Sends what `request` comes to: what was made, or why nothing was. */
-  async #answer(request: MarkdownWorkerRequest): Promise<void> {
+  async #answer(request: MarkdownWorkerRequest, parseMarkdown: MarkdownTreeParser): Promise<void> {
     try {
-      const made = await this.#make(request);
+      const made = await this.#make(request, parseMarkdown);
       this.#send({ status: "made", requestId: request.requestId, ...made }, [
         ...made.text,
         ...(made.html ?? []),
@@ -62,26 +74,34 @@ export class MarkdownWorkerAnswers {
   }
 
   /** What `request` asks for: its HTML, or a drawn part's text, with its HTML as markdown. */
-  async #make(request: MarkdownWorkerRequest): Promise<MarkdownWorkerMade> {
+  async #make(
+    request: MarkdownWorkerRequest,
+    parseMarkdown: MarkdownTreeParser,
+  ): Promise<MarkdownWorkerMade> {
     if (request.kind === "html") {
-      return { text: encodeTextPieces([markdownToHtml(decodeTextPieces(request.markdown))]) };
+      const html = markdownTreeToHtml(parseMarkdown(decodeTextPieces(request.markdown)));
+      return { text: encodeTextPieces([html]) };
     }
     if (request.flavor === "text") {
       return { text: encodeTextPieces([drawnTreeText(request.tree, "text")]) };
     }
-    const made = await drawnTreeMarkdown(request.tree, {
-      alignments: request.tableAlignments,
-      pull: (tableKey, firstIndex, lastIndex) =>
-        new Promise((resolve) => {
-          this.#asks.set(request.requestId, (rows) => {
-            resolve(rows.map((row) => JSON.parse(row) as TableRow));
-          });
-          this.#send(
-            { status: "pull", requestId: request.requestId, tableKey, firstIndex, lastIndex },
-            [],
-          );
-        }),
-    });
+    const made = await drawnTreeMarkdown(
+      request.tree,
+      {
+        alignments: request.tableAlignments,
+        pull: (tableKey, firstIndex, lastIndex) =>
+          new Promise((resolve) => {
+            this.#asks.set(request.requestId, (rows) => {
+              resolve(rows.map((row) => JSON.parse(row) as TableRow));
+            });
+            this.#send(
+              { status: "pull", requestId: request.requestId, tableKey, firstIndex, lastIndex },
+              [],
+            );
+          }),
+      },
+      parseMarkdown,
+    );
     return { text: encodeTextPieces(made.markdown), html: encodeTextPieces(made.html) };
   }
 }

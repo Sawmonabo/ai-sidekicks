@@ -267,6 +267,15 @@ interface ScannedText {
  */
 const COMPARISON_WINDOW_CHARACTERS = 4_096;
 
+/**
+ * `tail` without the blank separator lines ahead of its first content line, and nothing more.
+ * Trimming all leading whitespace would take that line's indentation, which is syntax: four spaces
+ * open an indented code block. `[ \t]` rather than `\s`, which would match the newline itself.
+ */
+export function withoutLeadingBlankLines(tail: string): string {
+  return tail.replace(/^(?:[ \t]*\n)+/u, "");
+}
+
 /** Whether two texts agree on their first `length` characters, read a window at a time. */
 function readsTheSame(first: PublishedText, second: PublishedText, length: number): boolean {
   for (let start = 0; start < length; start += COMPARISON_WINDOW_CHARACTERS) {
@@ -276,15 +285,6 @@ function readsTheSame(first: PublishedText, second: PublishedText, length: numbe
     }
   }
   return true;
-}
-
-/**
- * Blank separator lines ahead of the tail's first content line, and nothing more. Trimming all
- * leading whitespace would take that line's indentation, which is syntax: four spaces open an
- * indented code block. `[ \t]` rather than `\s`, which would match the newline itself.
- */
-function withoutLeadingBlankLines(tail: string): string {
-  return tail.replace(/^(?:[ \t]*\n)+/u, "");
 }
 
 /**

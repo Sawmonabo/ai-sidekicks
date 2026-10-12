@@ -3,18 +3,17 @@
 // formatted flavor a part at a time, joined by a blank line into the content of one clipboard
 // write. A large body is read in full just before its row and let go once the row's part is read,
 // so a copy holds one at a time; an end row's large output is stripped of its escape sequences in
-// slices before its part is read. A reply part too long to make into HTML within a slice is made by
-// the markdown worker, off the page's thread, and so is a long end row's part read into its text,
-// which, copied as markdown, comes with its HTML.
+// slices before its part is read. Each reply part's formatted flavor is made by the markdown worker,
+// which parses it off the page's thread, and so is a long end row's part read into its text, which,
+// copied as markdown, comes with its HTML. A copy holding a large body or a long part hands its
+// plain text over first, so a paste right after it never waits on the formatting; any other copy
+// is handed over once, both flavors together.
 // A copy built in slices is the same bytes as one built at once.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 import { toHtml } from "hast-util-to-html";
 
-import {
-  makeMarkdownHtml,
-  type MarkdownWorkerConnection,
-} from "#renderer/components/Markdown/worker/connection.js";
+import { type MarkdownWorkerConnection } from "#renderer/components/Markdown/worker/connection.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import { joinIntoPieces, piecesOf, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
@@ -76,9 +75,9 @@ export type ConversationCopyStep =
 /**
  * One copy of the conversation's rows, built a slice at a time: `buildWhile` builds what one slice
  * has time for, and `finish` builds the rest in slices, reading each large body as its row comes
- * and waiting on the markdown worker for each long reply part's formatted flavor. The plain text
- * is whole once every row's part is read, before any formatted flavor is made, so `finish` hands
- * it over first and `finishText` builds no further.
+ * and waiting on the markdown worker for each reply part's formatted flavor. The plain text is
+ * whole once every row's part is read, before any formatted flavor is made, so `finish` hands it
+ * over first when the copy holds a large body or a long part, and `finishText` builds no further.
  */
 export class ConversationCopyBuild {
   readonly #rows: ConversationCopyRows;
@@ -101,6 +100,11 @@ export class ConversationCopyBuild {
   #awaited: AwaitedWork | undefined;
   /** Whether every row's part is read, so the copy's plain text is whole. */
   #isTextRead = false;
+  /**
+   * Whether the copy holds a large body read in full, a part read in slices or by the worker, or a
+   * reply part of at least `LONG_REPLY_PART_CHARACTERS`: its plain text is handed over first.
+   */
+  #isLong = false;
   /** The copy's plain text once every row's part is read; `undefined` when no part holds text. */
   #text: PiecedText | undefined;
   #step: ConversationCopyStep = NOT_BUILT;
@@ -135,9 +139,10 @@ export class ConversationCopyBuild {
 
   /**
    * Builds the rest of the copy in slices in `view`, reading each large body in full, one at a
-   * time, as its row comes, and each long end row's part and long reply part's formatted flavor
-   * through the markdown worker. Once every row's part is read, a copy whose formatted
-   * flavor is still to be made hands its plain text to `onText`, then makes the rest. Resolves
+   * time, as its row comes, and each long end row's part and each reply part's formatted flavor
+   * through the markdown worker. Once every row's part is read, a copy holding a large body or a
+   * long part whose formatted flavor is still to be made hands its plain text to `onText`, then
+   * makes the rest; any other copy resolves with both flavors and calls `onText` never. Resolves
    * `undefined` once `isCurrent` answers false, as when a newer copy took over; throws a
    * `RefusalError` when a body's read is refused, or the worker's `Error` when it fails.
    */
@@ -149,7 +154,7 @@ export class ConversationCopyBuild {
     if (!(await this.#buildUntil(view, isCurrent, () => this.#isTextRead))) {
       return undefined;
     }
-    if (!this.#step.isBuilt && this.#text !== undefined) {
+    if (this.#isLong && !this.#step.isBuilt && this.#text !== undefined) {
       onText(this.#text);
     }
     return (await this.#buildUntil(view, isCurrent, () => this.#step.isBuilt))
@@ -226,8 +231,7 @@ export class ConversationCopyBuild {
     while (this.#partHtml.length < parts.length) {
       const part = parts[this.#partHtml.length] ?? throwLostPlace("a part follows the last made");
       if (part.flavor === "markdown") {
-        const html =
-          part.html ?? makeMarkdownHtml(part.text, this.#rows.markdownWorker, part.pieces);
+        const html = part.html ?? this.#rows.markdownWorker.html(part.text, part.pieces);
         if (html instanceof Promise) {
           this.#awaited = { kind: "worker-html", html };
           return NOT_BUILT;
@@ -304,6 +308,7 @@ export class ConversationCopyBuild {
     this.#bodyText = undefined;
     this.#rowIndex += 1;
     if (part instanceof Promise) {
+      this.#isLong = true;
       this.#awaited = { kind: "row-part", part };
       return false;
     }
@@ -323,6 +328,7 @@ export class ConversationCopyBuild {
   #keep(part: SelectedPart | undefined): void {
     if (part !== undefined && (part.pieces ?? [part.text]).some((piece) => piece.trim() !== "")) {
       this.#parts.push(part);
+      this.#isLong ||= part.flavor === "markdown" && part.text.length >= LONG_REPLY_PART_CHARACTERS;
     }
   }
 
@@ -354,6 +360,7 @@ export class ConversationCopyBuild {
         return false;
       }
       this.#bodyText = { rowKey: awaited.rowKey, text };
+      this.#isLong = true;
     } else {
       const fullBodyReads = this.#rows.fullBodyReads ?? throwLostPlace("a large body has a reader");
       const reply = await fullBodyReads.readFullBody(awaited.rowId);
@@ -364,6 +371,7 @@ export class ConversationCopyBuild {
         throw new RefusalError(reply.refusal);
       }
       this.#fullBody = { rowId: awaited.rowId, content: reply.value };
+      this.#isLong = true;
     }
     this.#awaited = undefined;
     return true;
@@ -382,6 +390,15 @@ type AwaitedWork =
   | { readonly kind: "worker-html"; readonly html: Promise<PiecedText> };
 
 const NOT_BUILT: ConversationCopyStep = { isBuilt: false };
+
+/**
+ * The length, in UTF-16 code units, from which a reply part is long: its copy writes the plain text
+ * first and adds the formatting once the worker has made it, so a paste right after ⌘C never waits
+ * on a long reply's formatting. Measured on a loaded machine, a warm worker handed back a 4 KiB
+ * part's formatting in 8.9 ms, within a frame; a shorter part's copy waits for its formatting and
+ * writes both flavors at once.
+ */
+const LONG_REPLY_PART_CHARACTERS = 4096;
 
 /** A long plain part's formatted flavor as it is made: its pieces, and the HTML of each made. */
 interface PlainHtmlMaking {

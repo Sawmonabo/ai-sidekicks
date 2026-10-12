@@ -1,0 +1,26 @@
+diff --git a/satteri_napi.wasi-browser.js b/satteri_napi.wasi-browser.js
+index 9610aa4d0404bed84a5661566f1e3beb31f5e63f..034be3b4de438a2525364fdc7920d70d80fed610 100644
+--- a/satteri_napi.wasi-browser.js
++++ b/satteri_napi.wasi-browser.js
+@@ -11,7 +11,6 @@ const __wasi = new __WASI({
+   version: 'preview1',
+ })
+ 
+-const __wasmUrl = new URL('./satteri_napi.wasm32-wasi.wasm', import.meta.url).href
+ const __emnapiContext = __emnapiGetDefaultContext()
+ 
+ 
+@@ -21,7 +20,12 @@ const __sharedMemory = new WebAssembly.Memory({
+   shared: true,
+ })
+ 
+-const __wasmFile = await fetch(__wasmUrl).then((res) => res.arrayBuffer())
++// The compiled parser, set by the worker that loads this file before it imports it: the first
++// worker compiles it, and the page keeps it and hands it to every later worker to instantiate.
++const __wasmFile = await globalThis.satteriWasmModule
++if (!(__wasmFile instanceof WebAssembly.Module)) {
++  throw new TypeError('globalThis.satteriWasmModule holds no compiled parser')
++}
+ 
+ const {
+   instance: __napiInstance,

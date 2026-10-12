@@ -45,6 +45,12 @@ const LINE_COUNT = 4_000;
 /** The short files after the long one in the reader's case. */
 const SHORT_FILE_COUNT = 8;
 
+/**
+ * The long file's lines in the reader's case: enough steps that measuring them, one slice of a few
+ * dozen steps a frame at most, is still under way after the frames before the watch starts.
+ */
+const READER_LINE_COUNT = 12_000;
+
 /** How far a row may land from where the reader saw it and still be the same place. */
 const HELD_TOLERANCE_PX = 1;
 
@@ -218,7 +224,7 @@ describe("browser — a long diff opened whole drawn as a window over its steps"
     const shortFiles = Array.from({ length: SHORT_FILE_COUNT }, (_unused, ordinal) =>
       filePatch(`short-${String(ordinal)}.ts`, "@@ -1,3 +1,3 @@", [" a", "-b", "+B", " c"]),
     );
-    const windowed = drawInViewport([wrappingPatch(1_200), ...shortFiles]);
+    const windowed = drawInViewport([wrappingPatch(READER_LINE_COUNT), ...shortFiles]);
     const { flow, card, block } = windowed;
     fireEvent.click(showAllOf(block));
     // One frame each, so most steps are still unmeasured when the watch below starts.
@@ -242,8 +248,7 @@ describe("browser — a long diff opened whole drawn as a window over its steps"
     await settleMeasuring();
     growth.disconnect();
     expect(resizeLoopErrors.stop()).toStrictEqual([]);
-    // A fast runner measures every remaining step in one frame, so one resize is enough to judge.
-    expect(movesPx.length).toBeGreaterThan(0);
+    expect(movesPx.length).toBeGreaterThan(1);
     for (const [frame, movedPx] of movesPx.entries()) {
       expect(Math.abs(movedPx), `moved ${String(movedPx)} at change ${String(frame)}`).toBeLessThan(
         HELD_TOLERANCE_PX,

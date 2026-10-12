@@ -4,7 +4,7 @@
 
 import { act, render } from "@testing-library/react";
 import { useState } from "react";
-import { onTestFinished } from "vitest";
+import { onTestFinished, vi } from "vitest";
 
 import { liveBridgeWrapper } from "../../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../../helpers/app/harness.js";
@@ -13,6 +13,8 @@ import { PaintedFrameReader } from "../painted-frames.js";
 import { FASTEST_FLICK_SPEED, touchFling } from "../touch-fling.js";
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
+import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
 import { COPY_FLAVOR_ATTRIBUTE } from "#renderer/features/transcript/copy/conversation-selection.js";
 import { publishedTextOf } from "#renderer/features/transcript/reveal/published-text.js";
 import { StreamingMarkdown } from "#renderer/features/transcript/rows/bodies/StreamingMarkdown.js";
@@ -38,10 +40,55 @@ const BODY_WIDTH_PX = 600;
 /** A fling's travel before the hand lets go, in screens. */
 const FLING_TRAVEL_SCREENS = 3;
 
+/** How many rounds of trees landing and asking for more `settleFrames` waits through. */
+const SETTLE_ROUND_CAP = 8;
+
 /** The key the scroller's one row, the reply, is known to the selection tracker by. */
 const REPLY_ROW_KEY = "reply";
 
-/** One frame painted: the window hears what changed, re-renders, mounts and measures its items. */
+/**
+ * A block drawn before its tree: in the window, a block's wrapper holding nothing or an empty box,
+ * beside the window's own spacers; in the whole reply, any empty box among the body's elements. A
+ * wrapper that holds nothing and takes no room, as a footnote's definition draws in place, is no
+ * blank.
+ */
+const BLANK_BLOCK_SELECTOR = [
+  `[${MARKDOWN_BLOCK_INDEX_ATTRIBUTE}]:empty`,
+  `[${MARKDOWN_BLOCK_INDEX_ATTRIBUTE}] > div[aria-hidden="true"]`,
+  `[data-testid="flow"] .meridian-markdown > div[aria-hidden="true"]`,
+].join(", ");
+
+/** Markdown's own syntax in the replies' text, which a formatted block never shows. */
+const UNFORMATTED_RUNS = ["**", "```", "| ---", "## ", "[^"] as const;
+
+/**
+ * What one painted frame shows that a block drawn before its tree would, in the page or a frame on
+ * it: a blank box, or a body's text with markdown's syntax still in it. `undefined` for a frame
+ * that shows neither.
+ */
+export function unformattedDraw(): string | undefined {
+  for (const drawn of drawnDocuments()) {
+    const blank = [...drawn.querySelectorAll(BLANK_BLOCK_SELECTOR)].find(
+      (element) => element.getBoundingClientRect().height > 0,
+    );
+    if (blank !== undefined) {
+      return `a blank block: ${blank.outerHTML.slice(0, 160)}`;
+    }
+    for (const body of drawn.querySelectorAll(".meridian-markdown")) {
+      const text = body.textContent;
+      const run = UNFORMATTED_RUNS.find((syntax) => text.includes(syntax));
+      if (run !== undefined) {
+        return `unformatted text: ${JSON.stringify(run)} in ${JSON.stringify(text.slice(0, 160))}`;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * One frame painted: the window hears what changed, re-renders, mounts and measures its items.
+ * Throws when the frame draws a block before its tree.
+ */
 export async function letFramePaint(): Promise<void> {
   await act(async () => {
     await new Promise<void>((resolve) => {
@@ -50,13 +97,54 @@ export async function letFramePaint(): Promise<void> {
       });
     });
   });
+  const unformatted = unformattedDraw();
+  if (unformatted !== undefined) {
+    throw new Error(`a frame drew a block before its tree: ${unformatted}`);
+  }
 }
 
-/** Lets a window hear the scroll, re-render, mount and measure its items, and paint. */
+/**
+ * Lets frames paint until every tree the bodies ask for has landed and drawn, a tree that lands
+ * asking for the next included, failing on the first frame that draws a block before its tree.
+ * The parse worker answers in the order it is asked, so the answer to one more text means every
+ * text asked before it has its tree; a round in which the bodies asked for none is the last.
+ */
 export async function settleFrames(): Promise<void> {
-  for (let frame = 0; frame < 4; frame += 1) {
-    await letFramePaint();
+  // A case that already stands in for the parser keeps its own stand-in, which this one reuses.
+  const wasStoodIn = vi.isMockFunction(markdownWorker.parse);
+  const asks = vi.spyOn(markdownWorker, "parse");
+  try {
+    for (let round = 0; round < SETTLE_ROUND_CAP; round += 1) {
+      const asksBefore = asks.mock.calls.length;
+      for (let frame = 0; frame < 4; frame += 1) {
+        await letFramePaint();
+      }
+      await act(async () => {
+        await parseTree("");
+      });
+      for (let frame = 0; frame < 4; frame += 1) {
+        await letFramePaint();
+      }
+      if (asks.mock.calls.length === asksBefore + 1) {
+        return;
+      }
+    }
+    throw new Error(`the bodies still asked for trees after ${String(SETTLE_ROUND_CAP)} rounds`);
+  } finally {
+    if (!wasStoodIn) {
+      asks.mockRestore();
+    }
   }
+}
+
+/** The page's document and each frame's on it, where a case draws its bodies. */
+function drawnDocuments(): Document[] {
+  return [
+    document,
+    ...[...document.querySelectorAll("iframe")].flatMap((frame) =>
+      frame.contentDocument === null ? [] : [frame.contentDocument],
+    ),
+  ];
 }
 
 /** Where a case reaches into the mounted bodies. */
