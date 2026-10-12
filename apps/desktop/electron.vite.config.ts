@@ -132,6 +132,13 @@ const DIAGRAM_WORKER_ENTRY = "components/Markdown/diagram/worker/entry.ts";
 const MARKDOWN_WORKER_ENTRY = "components/Markdown/worker/entry.ts";
 
 /**
+ * The worker Sätteri's browser build names for work it runs off its caller's thread. The markdown
+ * worker runs every parse on its own thread and never starts one, so it is built as one line that
+ * throws (`parserThreadWorkerPlugin`) rather than the 202 kB the parser's thread runtime takes.
+ */
+const PARSER_THREAD_WORKER_ENTRY = "@bruits/satteri-wasm32-wasi/wasi-worker-browser.mjs";
+
+/**
  * Each worker's bundle name, by its entry under the renderer's source root, or under
  * `node_modules/` for a library's own worker. A worker is built as `assets/<name>-<hash>.js` and
  * writes its notices to `<name>.txt`; the protocol handler knows the scripts of the workers that
@@ -142,9 +149,7 @@ const WORKER_BUNDLE_NAMES: Readonly<Record<string, string>> = {
   [DIAGRAM_WORKER_ENTRY]: DIAGRAM_WORKER_BUNDLE_NAME,
   "components/Markdown/diagram/png/entry.ts": "png-worker",
   "features/repos/diff/intraline/worker/script.ts": "alignment-worker",
-  // Sätteri's browser build bundles a worker it starts only for work run off its caller's thread,
-  // which the markdown worker never asks for.
-  "@bruits/satteri-wasm32-wasi/wasi-worker-browser.mjs": "markdown-parser-thread-worker",
+  [PARSER_THREAD_WORKER_ENTRY]: "markdown-parser-thread-worker",
 };
 
 /** A worker's bundle name, by its entry module. Throws for a worker the table does not name. */
@@ -197,6 +202,23 @@ function workerPackageBuildsPlugin(): Plugin {
         throw new Error(`${source} publishes no worker build beside ${browserBuild.id}`);
       }
       return path.join(packageDirectory, workerBuild);
+    },
+  };
+}
+
+/**
+ * Builds Sätteri's thread worker as a module that throws as it loads, so a parse that ever started
+ * a thread fails the parse and reaches the markdown worker's error path instead of waiting on a
+ * worker that never answers.
+ */
+function parserThreadWorkerPlugin(): Plugin {
+  return {
+    name: "markdown-parser-thread-worker",
+    enforce: "pre",
+    load(id) {
+      return id.endsWith(`/node_modules/${PARSER_THREAD_WORKER_ENTRY}`)
+        ? 'throw new Error("The markdown parser started a thread, which the app never asks for");'
+        : null;
     },
   };
 }
@@ -321,6 +343,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ command, 
         format: "es",
         plugins: () => [
           workerPackageBuildsPlugin(),
+          parserThreadWorkerPlugin(),
           ...thirdPartyNoticesPlugins(workerBundleNameOf),
         ],
         rolldownOptions: {
