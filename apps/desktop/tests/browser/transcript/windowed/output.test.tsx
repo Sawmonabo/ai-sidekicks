@@ -35,6 +35,7 @@ import { ViewportSelectionTracker } from "#renderer/features/transcript/viewport
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
+import { collectGarbage } from "#test/helpers/garbage-collection.js";
 import { sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
 import { SCROLLER_HEIGHT_PX, settleFrames } from "./reply.js";
 
@@ -190,12 +191,11 @@ async function scrollToLine(
  * exposed and `performance.memory` precise, so the reading is exact and taken now.
  */
 function collectedHeapBytes(): number {
-  const { gc } = globalThis as { gc?: () => void };
   const { memory } = performance as { memory?: { readonly usedJSHeapSize: number } };
-  if (gc === undefined || memory === undefined) {
-    return expect.fail("the page cannot collect its garbage and read its heap");
+  if (memory === undefined) {
+    return expect.fail("the page cannot read its heap");
   }
-  gc();
+  collectGarbage();
   return memory.usedJSHeapSize;
 }
 

@@ -15,6 +15,7 @@ import { markdownWorker } from "#renderer/components/Markdown/worker/connection.
 import type { MarkdownParseAnswer } from "#renderer/components/Markdown/worker/messages.js";
 import { longReplyMarkdown } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
+import { collectGarbage } from "#test/helpers/garbage-collection.js";
 import {
   drawnBlocks,
   flingShowingSpacers,
@@ -104,9 +105,12 @@ function recordFrames(find: () => string | undefined): { readonly stop: () => re
   };
 }
 
-/** Fills the shared tree cache past its cap with other replies' blocks, each led by `label`. */
+/**
+ * Fills the shared tree cache past its cap with other replies' blocks, each led by `label`: about
+ * 4,900 blocks, each charged its text and its tree's buffer, some 660 bytes, which pass 2 MiB.
+ */
 async function fillTreeCache(label: string): Promise<void> {
-  const blocks = longReplyMarkdown(120_000)
+  const blocks = longReplyMarkdown(400_000)
     .split("\n\n")
     .map((block, index) => `${label} ${String(index)}: ${block}`);
   await act(async () => {
@@ -129,6 +133,13 @@ function firstLineOffsetPx(element: Element | null | undefined, body: HTMLElemen
     throw new Error("the whole reply drew no element there");
   }
   return element.getBoundingClientRect().top - body.getBoundingClientRect().top;
+}
+
+/** The drawn blocks that hold no element: drawn before their trees, as a blank box or none. */
+function blocksDrawnEmpty(windowedBody: HTMLElement): string[] {
+  return [...drawnBlocks(windowedBody)]
+    .filter(([, wrapper]) => wrapper.firstElementChild === null)
+    .map(([index]) => `block ${String(index)}`);
 }
 
 /** The windowed body's spacers: its children that hold the room of blocks it does not draw. */
@@ -372,6 +383,37 @@ describe("browser — a long reply drawn as a window over its blocks", () => {
     // The control: blocks above the reader did draw at other heights than estimated, and the
     // scroller moved by what they changed.
     expect(Math.abs(heldPx)).toBeGreaterThan(SAME_LINE_TOLERANCE_PX);
+  });
+
+  it("draws a far jump's blocks from their trees on the frame they mount, after a collection too", async () => {
+    // No footnote definition, which draws nothing where it stands, so every drawn block holds an
+    // element.
+    const { scroller, windowedBody } = await mountBodies(longReplyMarkdown(200_000), {
+      isComplete: true,
+      drawsFlowBody: false,
+    });
+    const firstDrawn = new Set(drawnBlocks(windowedBody).keys());
+    const lastIndex = Math.max(...firstDrawn);
+
+    // Jumps far past the drawn band, as a scrollbar drag makes, each after a collection, so the
+    // blocks drawn again at the top read their trees anew; every frame is checked as it paints.
+    for (const share of [0.5, 0.9, 0.25, 0]) {
+      collectGarbage();
+      scroller.scrollTop = Math.round(scroller.scrollHeight * share);
+      for (let frame = 0; frame < 4; frame += 1) {
+        await letFramePaint();
+        expect(
+          blocksDrawnEmpty(windowedBody),
+          `frame ${String(frame)} at ${String(share)}`,
+        ).toEqual([]);
+      }
+      // The control: past the first screen, the window drew blocks the first frame had not.
+      const drawn = [...drawnBlocks(windowedBody).keys()];
+      expect(drawn.length).toBeGreaterThan(0);
+      if (share > 0) {
+        expect(Math.min(...drawn)).toBeGreaterThan(lastIndex);
+      }
+    }
   });
 
   it("draws every block and the tail formatted on their first frame while the parser answers late", async () => {
