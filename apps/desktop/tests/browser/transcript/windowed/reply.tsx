@@ -16,6 +16,7 @@ import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { appPageParser } from "#renderer/components/Markdown/parse/page-parser.js";
 import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
+import { bodyBlocksForTest } from "#renderer/features/transcript/rows/markdown/body-blocks/reader.test-support.js";
 import { COPY_FLAVOR_ATTRIBUTE } from "#renderer/features/transcript/copy/conversation-selection.js";
 import { publishedTextOf } from "#renderer/features/transcript/reveal/published-text.js";
 import { StreamingMarkdown } from "#renderer/features/transcript/rows/bodies/StreamingMarkdown.js";
@@ -208,6 +209,9 @@ export async function mountBodies(
   const drawnSources = new DrawnWindowSources();
   const Wrapper = liveBridgeWrapper();
 
+  // One reader for each body, as each row's preparation holds its own.
+  const windowedBlocks = bodyBlocksForTest();
+  const flowBlocks = bodyBlocksForTest();
   function Bodies(): React.JSX.Element {
     const [text, setText] = useState(initialText);
     handle.setText = setText;
@@ -251,6 +255,7 @@ export async function mountBodies(
                       footnotes={new FootnoteRegistry()}
                       isComplete={options.isComplete}
                       offersBlockCopy
+                      bodyBlocks={windowedBlocks}
                     />
                   </DrawnWindowSourcesContext>
                 </SuiteWindowViewportProvider>
@@ -266,6 +271,7 @@ export async function mountBodies(
                   footnotes={new FootnoteRegistry()}
                   isComplete={options.isComplete}
                   offersBlockCopy
+                  bodyBlocks={flowBlocks}
                 />
               </div>
             </div>

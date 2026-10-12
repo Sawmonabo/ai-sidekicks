@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { appPageParser, PageParser } from "#renderer/components/Markdown/parse/page-parser.js";
 import { startPageParser } from "#renderer/components/Markdown/parse/page-parser.test-support.js";
+import { loadMarkdownParserCalls } from "#renderer/components/Markdown/parse/parser-calls.js";
 import { appMarkdownTrees, MarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
 import { MarkdownWorkerConnection } from "#renderer/components/Markdown/worker/connection.js";
 import {
@@ -19,7 +20,8 @@ import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "../markdown/block-window/markers.js";
 import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
-import { MarkdownBodyBlocks } from "../markdown/body-blocks/reader.js";
+import { type MarkdownBodyBlocks } from "../markdown/body-blocks/reader.js";
+import { bodyBlocksForTest } from "../markdown/body-blocks/reader.test-support.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import {
   longReplyMarkdown,
@@ -52,13 +54,12 @@ afterEach(() => {
 
 /**
  * Mounts a finished reply inside a scroller the window reads, as the transcript draws it, read by
- * `bodyBlocks` where given. The scroller's height and offset are given, since this DOM lays
- * nothing out.
+ * `bodyBlocks`. The scroller's height and offset are given, since this DOM lays nothing out.
  */
 function mountWindow(
   text: string,
   footnotes: FootnoteRegistry,
-  bodyBlocks?: MarkdownBodyBlocks,
+  bodyBlocks: MarkdownBodyBlocks = bodyBlocksForTest(),
 ): MountedWindow {
   // happy-dom has no idle callback; one that never fires stands in, as on a page granting no idle.
   vi.stubGlobal("requestIdleCallback", () => 0);
@@ -192,13 +193,11 @@ describe("a long body whose page parser is not ready", () => {
     const trees = new MarkdownTrees(
       new MarkdownWorkerConnection(workers.start, window, pageParser),
     );
-    return { bodyBlocks: new MarkdownBodyBlocks(trees), trees };
+    return { bodyBlocks: bodyBlocksForTest(trees), trees };
   }
 
   it("draws formatted from the worker's trees once the page parser failed", () => {
-    const pageParser = new PageParser(
-      async () => await import("#renderer/components/Markdown/parse/serialized-tree.js"),
-    );
+    const pageParser = new PageParser(loadMarkdownParserCalls);
     pageParser.fail();
     const { bodyBlocks, trees } = bodyBlocksOn(pageParser);
     const workerHolds = vi.spyOn(trees, "holdSettledBlock");
@@ -211,9 +210,7 @@ describe("a long body whose page parser is not ready", () => {
   });
 
   it("draws nothing until the page parser starts, then draws formatted asking the worker for no block", async () => {
-    const pageParser = new PageParser(
-      async () => await import("#renderer/components/Markdown/parse/serialized-tree.js"),
-    );
+    const pageParser = new PageParser(loadMarkdownParserCalls);
     const { bodyBlocks, trees } = bodyBlocksOn(pageParser);
     const workerHolds = vi.spyOn(trees, "holdSettledBlock");
     const workerReads = vi.spyOn(trees, "requestSettledBlock");

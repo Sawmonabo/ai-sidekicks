@@ -40,6 +40,7 @@ import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.js";
 import { useTypefacesSettled } from "../../hooks/useTypefacesSettled.js";
+import { useListCommits } from "../hooks/useListCommits.js";
 import { useConversationCopy } from "../../copy/hooks/useConversationCopy.js";
 import {
   readLargeBodyRowId,
@@ -94,16 +95,14 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     prepareRow: props.rowRenderer.prepareRow,
   });
   const { folds, transcriptWindow, viewport, history } = windows;
-  // The first rows are in the document once the virtualizer holds some, or there are none to hold
-  // and none held out until they draw whole, and no row whose output is still parsing waits to
-  // join between the rows in view.
+  // The first rows are in the document once the virtualizer holds some, or there are none to hold,
+  // and no row still held out, or listed and not yet laid out, would join the rows drawn.
   const areRowsCommitted =
     windows.firstReadSettled &&
-    (transcriptWindow.viewportRows.length === 0
-      ? windows.preparingRows.length === 0
-      : viewport.virtualItems.length > 0) &&
-    !windows.holdsUnparsedRowInView();
+    (transcriptWindow.viewportRows.length === 0 || viewport.virtualItems.length > 0) &&
+    !windows.holdsRowJoiningView();
   const isDrawable = useTypefacesSettled(areRowsCommitted);
+  useListCommits(windows.noteListCommitted, isDrawable);
   // The line under the session header stands whenever either holds, and nothing repeats it.
   const isWindowDegraded = useSessionDegraded(props.sessionStore);
   const isDependentReadFailed = useDependentReadFailed(props.sessionStore);

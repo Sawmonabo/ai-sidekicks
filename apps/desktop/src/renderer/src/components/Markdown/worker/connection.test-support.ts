@@ -57,13 +57,9 @@ export class InThreadMarkdownWorker implements MarkdownWorkerPort {
         readTopLevelChildren,
       );
       // Every window on this turn, so a suite reads the blocks before the ask returns.
-      let isCut = false;
-      while (!isCut) {
-        isCut = cut.cutWindow();
-      }
       this.#say({
         status: "cut",
-        cuts: [{ requestId: message.requestId, blockEnds: cut.blockEnds }],
+        cuts: [{ requestId: message.requestId, blockEnds: cut.cutWhole() }],
       });
       return;
     }

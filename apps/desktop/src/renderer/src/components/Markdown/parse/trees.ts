@@ -1,7 +1,8 @@
 // The markdown trees every window shares. A settled block a body mounts is parsed on the page, at
-// once, by the page's parser, and kept by the body only while it is mounted. The app's one markdown
-// worker cuts a body's text into blocks and parses the rest: a streaming tail, a block too long for
-// the page, and every block while the page's parser could not start. A worker's tree is kept in a
+// once, by the page's parser, and kept by the body only while it is mounted; that parser also cuts
+// a body's text into blocks when the text is no longer than such a block. The app's one markdown
+// worker cuts every longer text and parses the rest: a streaming tail, a block too long for the
+// page, and every text while the page's parser could not start. A worker's tree is kept in a
 // cache bounded in bytes and shared by every body that asks for the same text, and a tree a body
 // holds stays kept while it is held, so a body mounted next draws it at once. A kept tree is the
 // worker's binary tree, read into the mdast the screen draws when it is drawn, and that mdast is
@@ -17,6 +18,7 @@
 import type { Root, RootContent } from "mdast";
 
 import { ByteBoundedCache } from "#renderer/lib/byte-bounded-cache.js";
+import { describeFailure } from "#shared/failure-message.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { markdownWorker, type MarkdownWorkerConnection } from "../worker/connection.js";
 import type { MarkdownCutAnswer, MarkdownParseAnswer } from "../worker/messages.js";
@@ -224,14 +226,29 @@ export class MarkdownTrees {
   }
 
   /**
-   * Ask the worker where the blocks of a body's text `source` end, its last ones too when
-   * `isFinal`. Nothing is kept: a body keeps where its blocks end itself.
+   * Ask where the blocks of a body's text `source` end, its last ones too when `isFinal`. A text of
+   * at most `PAGE_PARSE_MAX_CHARACTERS` is cut on the page while its parser is ready, answered
+   * before this returns; any other is cut by the worker. Nothing is kept: a body keeps where its
+   * blocks end itself.
    */
   public requestCut(
     source: string,
     isFinal: boolean,
     listener: (answer: MarkdownCutAnswer) => void,
   ): Unsubscribe {
+    if (this.pageParser.state === "ready" && source.length <= PAGE_PARSE_MAX_CHARACTERS) {
+      let answer: MarkdownCutAnswer;
+      try {
+        answer = { status: "cut", blockEnds: this.pageParser.cut(source, isFinal) };
+      } catch (error: unknown) {
+        answer = {
+          status: "failed",
+          reason: `The markdown parser failed: ${describeFailure(error)}`,
+        };
+      }
+      listener(answer);
+      return () => {};
+    }
     let isListening = true;
     this.#worker.cut(source, isFinal, (answer) => {
       if (isListening) {

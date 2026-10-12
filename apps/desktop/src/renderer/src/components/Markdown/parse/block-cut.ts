@@ -59,6 +59,18 @@ export class BlockCut {
   }
 
   /**
+   * Cuts every window left on this turn and answers where the blocks end, for a caller whose text
+   * is short enough that letting its thread turn between windows frees nothing worth the wait.
+   */
+  public cutWhole(): Uint32Array {
+    let isDone = false;
+    while (!isDone) {
+      isDone = this.cutWindow();
+    }
+    return this.blockEnds;
+  }
+
+  /**
    * Cuts the next window, answering whether the cut is done. A window holding too few children to
    * keep one is parsed again twice as long.
    */

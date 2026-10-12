@@ -10,7 +10,8 @@
 // runs the module the worker compiled into the same tree the worker makes. The worker cuts a body
 // into exactly the top-level blocks one parse of the whole body reads, whole and as it streams in,
 // on the constructs a scan for blank lines cuts wrongly; holding back one block instead of two
-// splits a loose ordered list.
+// splits a loose ordered list. A body no longer than a block the page parses is cut on the page,
+// whole and as it streams in, at the ends the worker cuts, with no cut sent to the worker.
 
 import { fromDom } from "hast-util-from-dom";
 import type { Root } from "mdast";
@@ -33,14 +34,23 @@ import {
 } from "#renderer/components/Markdown/parse/block-cut.js";
 import { definitionPreambleOf } from "#renderer/components/Markdown/parse/definition-preamble.js";
 import { PageParser } from "#renderer/components/Markdown/parse/page-parser.js";
-import { MarkdownTrees, type ParsedMarkdown } from "#renderer/components/Markdown/parse/trees.js";
+import { loadMarkdownParserCalls } from "#renderer/components/Markdown/parse/parser-calls.js";
+import {
+  MarkdownTrees,
+  PAGE_PARSE_MAX_CHARACTERS,
+  type ParsedMarkdown,
+} from "#renderer/components/Markdown/parse/trees.js";
 import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
 import {
   MarkdownWorkerConnection,
   startMarkdownWorker,
   type MarkdownWorkerPort,
 } from "#renderer/components/Markdown/worker/connection.js";
-import type { MarkdownWorkerReply } from "#renderer/components/Markdown/worker/messages.js";
+import type {
+  MarkdownCutAnswer,
+  MarkdownWorkerMessage,
+  MarkdownWorkerReply,
+} from "#renderer/components/Markdown/worker/messages.js";
 import { longReplyMarkdown } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import { TEXT_PIECE_LENGTH } from "#renderer/lib/text-pieces.js";
 import { endWorkersWithTest } from "../helpers/worker-start.js";
@@ -197,6 +207,44 @@ it("cuts a streaming body into the same blocks as it grows, holding back two blo
   ).toStrictEqual(wholeParseBlockEndsOf(pageParser, looseList));
 });
 
+it("cuts a body no longer than a page-parsed block on the page, where the worker cuts it", async () => {
+  const { connection, trees, sentKinds } = await pageAndWorker();
+  const texts: Record<string, string> = {
+    ...cutCases,
+    "a long reply under the cap": longReplyMarkdown(PAGE_PARSE_MAX_CHARACTERS - 4_000),
+  };
+  const pageCuts: { name: string; source: string; isFinal: boolean; blockEnds: number[] }[] = [];
+  const cutOnPage = async (name: string, source: string, isFinal: boolean): Promise<number[]> => {
+    expect(source.length, name).toBeLessThanOrEqual(PAGE_PARSE_MAX_CHARACTERS);
+    const blockEnds = await blockEndsOf(trees.requestCut.bind(trees), source, isFinal);
+    pageCuts.push({ name, source, isFinal, blockEnds });
+    return blockEnds;
+  };
+  for (const [name, text] of Object.entries(texts)) {
+    await cutOnPage(name, text, true);
+    // Streamed: the text past the blocks cut so far, cut again after each append.
+    const appendLength = seededAppendLengths(name.length);
+    let cutEnd = 0;
+    let received = 0;
+    while (received < text.length) {
+      received = Math.min(text.length, received + appendLength());
+      const blockEnds = await cutOnPage(
+        name,
+        text.slice(cutEnd, received),
+        received === text.length,
+      );
+      cutEnd += blockEnds.at(-1) ?? 0;
+    }
+  }
+
+  expect(sentKinds).not.toContain("cut");
+  for (const { name, source, isFinal, blockEnds } of pageCuts) {
+    expect(blockEnds, name).toStrictEqual(
+      await blockEndsOf(connection.cut.bind(connection), source, isFinal),
+    );
+  }
+});
+
 /** The hand cases a scan for blank lines cuts wrongly, and a long reply of every kind of block. */
 const CUT_TEXTS: Readonly<Record<string, string>> = {
   ...cutCases,
@@ -209,27 +257,35 @@ function workerOnly(): { readonly connection: MarkdownWorkerConnection } {
     connection: new MarkdownWorkerConnection(
       endWorkersWithTest(startMarkdownWorker),
       window,
-      new PageParser(
-        async () => await import("#renderer/components/Markdown/parse/serialized-tree.js"),
-      ),
+      new PageParser(loadMarkdownParserCalls),
     ),
   };
 }
 
 /**
  * A markdown worker and a page parser of the test's own, started as the app starts it: the
- * connection hands the module the worker compiled to the page in an idle moment.
+ * connection hands the module the worker compiled to the page in an idle moment. `sentKinds` lists
+ * the kind of each message the page sends a worker.
  */
 async function pageAndWorker(): Promise<{
   readonly connection: MarkdownWorkerConnection;
   readonly pageParser: PageParser;
   readonly trees: MarkdownTrees;
+  readonly sentKinds: readonly MarkdownWorkerMessage["kind"][];
 }> {
-  const pageParser = new PageParser(
-    async () => await import("#renderer/components/Markdown/parse/serialized-tree.js"),
-  );
+  const sentKinds: MarkdownWorkerMessage["kind"][] = [];
+  const start = endWorkersWithTest(startMarkdownWorker);
+  const pageParser = new PageParser(loadMarkdownParserCalls);
   const connection = new MarkdownWorkerConnection(
-    endWorkersWithTest(startMarkdownWorker),
+    () => {
+      const port = start();
+      const post = port.postMessage.bind(port);
+      port.postMessage = (message, transfer = []) => {
+        sentKinds.push(message.kind);
+        post(message, transfer);
+      };
+      return port;
+    },
     window,
     pageParser,
   );
@@ -241,7 +297,24 @@ async function pageAndWorker(): Promise<{
     },
     { timeout: 10_000 },
   );
-  return { connection, pageParser, trees };
+  return { connection, pageParser, trees, sentKinds };
+}
+
+/** Where `cut` says the blocks of `source` end, its last ones too when `isFinal`. */
+async function blockEndsOf(
+  cut: (source: string, isFinal: boolean, listener: (answer: MarkdownCutAnswer) => void) => unknown,
+  source: string,
+  isFinal: boolean,
+): Promise<number[]> {
+  return await new Promise((resolve, reject) => {
+    cut(source, isFinal, (answer) => {
+      if (answer.status === "failed") {
+        reject(new Error(answer.reason));
+        return;
+      }
+      resolve([...answer.blockEnds]);
+    });
+  });
 }
 
 /** The top-level children reader, loaded on the page once a started page parser set its module. */
@@ -311,11 +384,7 @@ function streamedBlockEndsOf(
       lagBlocks,
       readChildren,
     );
-    let isCut = false;
-    while (!isCut) {
-      isCut = cut.cutWindow();
-    }
-    for (const end of cut.blockEnds) {
+    for (const end of cut.cutWhole()) {
       blockEnds.push(from + end);
     }
   }

@@ -13,6 +13,7 @@ import parserModuleUrl from "@bruits/satteri-wasm32-wasi/satteri_napi.wasm32-was
 
 import { describeFailure } from "#shared/failure-message.js";
 import { BlockCut, MARKDOWN_SETTLE_LAG_BLOCKS } from "../parse/block-cut.js";
+import { loadMarkdownParserCalls, type MarkdownParserCalls } from "../parse/parser-calls.js";
 import { MarkdownWorkerAnswers, type MarkdownTreeParser } from "./answer.js";
 import type {
   MarkdownBlockEnds,
@@ -35,12 +36,6 @@ interface MarkdownWorkerScope {
    * and compiling the parser itself; set before the loader is imported.
    */
   satteriWasmModule?: WebAssembly.Module;
-}
-
-/** The parser's calls, once the parser they run on is loaded. */
-interface LoadedParser {
-  readonly serializer: typeof import("../parse/serialized-tree.js");
-  readonly children: typeof import("../parse/top-level-children.js");
 }
 
 // The script runs only as a dedicated worker, whose global scope is this shape.
@@ -92,19 +87,14 @@ class AnswerOutbox<Answer> {
 }
 
 /** Loads the parser the page hands over, or compiles it, and warms it on a short reply. */
-async function loadParser(load: MarkdownParserLoad): Promise<LoadedParser> {
+async function loadParser(load: MarkdownParserLoad): Promise<MarkdownParserCalls> {
   let parser = load.parser;
   if (parser === undefined) {
     parser = await WebAssembly.compileStreaming(fetch(parserModuleUrl));
     workerScope.postMessage({ status: "compiled", parser }, []);
   }
   workerScope.satteriWasmModule = parser;
-  const [serializer, children] = await Promise.all([
-    import("../parse/serialized-tree.js"),
-    import("../parse/top-level-children.js"),
-  ]);
-  serializer.warmUpMarkdownParser();
-  return { serializer, children };
+  return await loadMarkdownParserCalls();
 }
 
 /**
@@ -112,7 +102,10 @@ async function loadParser(load: MarkdownParserLoad): Promise<LoadedParser> {
  * window's parse held from finalizers, which run only once the worker's event loop turns, so it
  * turns between windows.
  */
-async function cutInTurns(request: MarkdownCutRequest, parser: LoadedParser): Promise<Uint32Array> {
+async function cutInTurns(
+  request: MarkdownCutRequest,
+  parser: MarkdownParserCalls,
+): Promise<Uint32Array> {
   const cut = new BlockCut(
     request.source,
     request.isFinal,
@@ -129,7 +122,7 @@ async function cutInTurns(request: MarkdownCutRequest, parser: LoadedParser): Pr
 
 // Listening from the start, so a text sent before the parser arrives waits for it here. A failed
 // load is said once, here; the page then ends this worker, so nothing waiting is answered.
-const parserLoad = new Promise<LoadedParser | undefined>((resolve) => {
+const parserLoad = new Promise<MarkdownParserCalls | undefined>((resolve) => {
   workerScope.addEventListener("message", (event) => {
     if (event.data.kind !== "load") {
       return;

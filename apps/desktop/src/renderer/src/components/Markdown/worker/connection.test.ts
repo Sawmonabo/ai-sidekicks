@@ -13,6 +13,7 @@ import { SLICE_MS } from "#renderer/lib/work-slices.js";
 import { SteppedTasks } from "#test/helpers/stepped-tasks.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { PageParser } from "../parse/page-parser.js";
+import { loadMarkdownParserCalls } from "../parse/parser-calls.js";
 import type {
   MarkdownWorkerMessage,
   MarkdownWorkerReply,
@@ -71,7 +72,7 @@ function pageParserFor(failure?: Error): PageParser {
     if (failure !== undefined) {
       throw failure;
     }
-    return await import("../parse/serialized-tree.js");
+    return await loadMarkdownParserCalls();
   });
 }
 

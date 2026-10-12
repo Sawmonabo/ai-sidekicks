@@ -10,7 +10,8 @@ import { duplicateKeyReports, reportsWhileReactRan } from "#test/helpers/react-r
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { windowedBlockKeyOf } from "../markdown/block-window/layout.js";
-import { MarkdownBodyBlocks } from "../markdown/body-blocks/reader.js";
+import { type MarkdownBodyBlocks } from "../markdown/body-blocks/reader.js";
+import { bodyBlocksForTest } from "../markdown/body-blocks/reader.test-support.js";
 import { type MarkdownBodyBlocksSnapshot } from "../markdown/body-blocks/snapshot.js";
 import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
@@ -34,6 +35,7 @@ afterEach(() => {
 
 describe("a streaming body", () => {
   it("renders what has arrived so far", () => {
+    const bodyBlocks = bodyBlocksForTest();
     const { container } = renderInWindow(
       <StreamingMarkdown
         publishedText={publishedTextOf("the first sentence")}
@@ -41,12 +43,14 @@ describe("a streaming body", () => {
         footnotes={new FootnoteRegistry()}
         isComplete={false}
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocks}
       />,
     );
     expect(container.textContent).toContain("the first sentence");
   });
 
   it("gives two identical settled blocks two identities", async () => {
+    const bodyBlocks = bodyBlocksForTest();
     // React reports a duplicate key on `console.error`; keying by text alone fails here when a
     // message repeats a line.
     const {
@@ -60,6 +64,7 @@ describe("a streaming body", () => {
           footnotes={new FootnoteRegistry()}
           isComplete={false}
           offersBlockCopy={false}
+          bodyBlocks={bodyBlocks}
         />,
       ),
     );
@@ -72,6 +77,7 @@ describe("a streaming body", () => {
   });
 
   it("keeps a settled block's element as later blocks settle behind it", () => {
+    const bodyBlocks = bodyBlocksForTest();
     // The last line is unterminated and two blocks lag behind it, so only the first two settle.
     const { container, rerender } = renderInWindow(
       <StreamingMarkdown
@@ -80,6 +86,7 @@ describe("a streaming body", () => {
         footnotes={new FootnoteRegistry()}
         isComplete={false}
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocks}
       />,
     );
     const firstSettled = container.querySelector(PARAGRAPH_SELECTOR);
@@ -94,6 +101,7 @@ describe("a streaming body", () => {
         footnotes={new FootnoteRegistry()}
         isComplete={false}
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocks}
       />,
     );
 
@@ -101,6 +109,7 @@ describe("a streaming body", () => {
   });
 
   it("a rebase remounts rather than reusing the old message's element", () => {
+    const bodyBlocks = bodyBlocksForTest();
     // Position alone would make every key unique; the text's fingerprint in the key remounts.
     const footnotes = new FootnoteRegistry();
     const { container, rerender } = renderInWindow(
@@ -110,6 +119,7 @@ describe("a streaming body", () => {
         footnotes={footnotes}
         isComplete={false}
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocks}
       />,
     );
     const firstSettled = container.querySelector(PARAGRAPH_SELECTOR);
@@ -121,6 +131,7 @@ describe("a streaming body", () => {
         footnotes={footnotes}
         isComplete={false}
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocks}
       />,
     );
 
@@ -159,6 +170,7 @@ function readDrawnFrame(container: HTMLElement): {
 
 describe("a streaming body whose parses are still out", () => {
   it("moves settling and finished blocks out of the tail in one step, never blank or twice", () => {
+    const bodyBlocks = bodyBlocksForTest();
     const streamed = (frame: number, isComplete: boolean): React.JSX.Element => (
       <StreamingMarkdown
         publishedText={publishedTextOf(STREAMED_FRAMES[frame] ?? "")}
@@ -166,6 +178,7 @@ describe("a streaming body whose parses are still out", () => {
         footnotes={new FootnoteRegistry()}
         isComplete={isComplete}
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocks}
       />
     );
     const { container, rerender } = renderInWindow(streamed(0, false));
@@ -231,6 +244,7 @@ function isReadAlone(request: { readonly source: string }): boolean {
 
 describe("a streaming body still reading its tail for its definitions", () => {
   it("keeps growing its tail", () => {
+    const bodyBlocks = bodyBlocksForTest();
     markdownWorker.wake();
     const worker = appMarkdownWorkers.latest();
     worker.hold();
@@ -241,6 +255,7 @@ describe("a streaming body still reading its tail for its definitions", () => {
         footnotes={new FootnoteRegistry()}
         isComplete={false}
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocks}
       />
     );
     // Each parse that lands may ask for the next, against the definitions it found.
@@ -274,6 +289,7 @@ const UNCLOSED_EMPHASIS = "a settled paragraph\n\nthis is **bold";
 
 describe("a body the sender has finished", () => {
   it("keeps every block settled, so nothing complete is rewritten by the mender", () => {
+    const bodyBlocks = bodyBlocksForTest();
     // `remend` is for a prefix; on a finished body it would close emphasis the author left open.
     const { container } = renderInWindow(
       <StreamingMarkdown
@@ -282,6 +298,7 @@ describe("a body the sender has finished", () => {
         footnotes={new FootnoteRegistry()}
         isComplete
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocks}
       />,
     );
     expect(container.querySelector("strong")).toBeNull();
@@ -300,6 +317,7 @@ const CROSS_BLOCK_FOOTNOTE =
 // pipeline hands the parser the committed prefix and the volatile tail as two documents.
 describe("a footnote whose definition settles in another block", () => {
   it("is a real reference marker", () => {
+    const bodyBlocks = bodyBlocksForTest();
     renderInWindow(
       <StreamingMarkdown
         publishedText={publishedTextOf(CROSS_BLOCK_FOOTNOTE)}
@@ -307,6 +325,7 @@ describe("a footnote whose definition settles in another block", () => {
         footnotes={new FootnoteRegistry()}
         isComplete
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocks}
       />,
     );
 
@@ -317,6 +336,7 @@ describe("a footnote whose definition settles in another block", () => {
   });
 
   it("parses each settled block once on the page, against the definitions its tail holds", () => {
+    const bodyBlocks = bodyBlocksForTest();
     const asked = (): string[] =>
       appMarkdownWorkers.started.flatMap((worker) =>
         worker.requests.map((request) => request.source),
@@ -332,6 +352,7 @@ describe("a footnote whose definition settles in another block", () => {
         footnotes={new FootnoteRegistry()}
         isComplete={false}
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocks}
       />,
     );
 
@@ -362,7 +383,7 @@ describe("a body handed the reader its row's preparation read", () => {
       return <div ref={ref}>{props.children}</div>;
     }
     const text = publishedTextOf(`held ${CROSS_BLOCK_FOOTNOTE}`);
-    const bodyBlocks = new MarkdownBodyBlocks(appMarkdownTrees);
+    const bodyBlocks = bodyBlocksForTest();
     drawnSnapshotOf(bodyBlocks, text, false);
 
     const { container } = renderInWindow(
@@ -403,7 +424,7 @@ function drawnSnapshotOf(
 
 describe("a body whose text is replaced", () => {
   it("keeps drawing the old blocks' own text and trees under keys no new block takes", () => {
-    const bodyBlocks = new MarkdownBodyBlocks(appMarkdownTrees);
+    const bodyBlocks = bodyBlocksForTest();
     const old = drawnSnapshotOf(bodyBlocks, publishedTextOf(REPEATED_BLOCKS_SETTLED), false);
     expect(windowedBlockKeyOf(old, 0)).toBe(0);
 
@@ -436,7 +457,6 @@ describe("a body whose text is replaced", () => {
     expect(replaced.records).not.toBe(old.records);
     expect(windowedBlockKeyOf(replaced, 0)).toBe(0);
     expect(replaced.readBlockSource(0)).toBe("other\n\n");
-    bodyBlocks.close();
   });
 });
 
@@ -464,8 +484,9 @@ function drawnLinkTexts(container: HTMLElement): (string | null)[] {
 
 describe("a reference link whose definition is in another block", () => {
   it("draws as a link, the first definition of a label winning", () => {
+    const bodyBlocks = bodyBlocksForTest();
     const text = publishedTextOf(LINKED_BODY);
-    const blocks = drawnSnapshotOf(new MarkdownBodyBlocks(appMarkdownTrees), text, true);
+    const blocks = drawnSnapshotOf(bodyBlocksForTest(), text, true);
     // The citing block is parsed after each label's first definition, restated from its node.
     expect(blocks.readDefinitionPreamble(0)).toContain("<https://example.com/first>");
     expect(blocks.readDefinitionPreamble(0)).not.toContain("second");
@@ -477,6 +498,7 @@ describe("a reference link whose definition is in another block", () => {
         footnotes={new FootnoteRegistry()}
         isComplete
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocks}
       />,
     );
 
@@ -485,6 +507,7 @@ describe("a reference link whose definition is in another block", () => {
   });
 
   it("is parsed again as a link once its definition arrives in the tail", () => {
+    const bodyBlocks = bodyBlocksForTest();
     const head = "Use [late][late] now.\n\nfiller one\n\nfiller two\n\nthe tail";
     const streamed = (text: string): React.JSX.Element => (
       <StreamingMarkdown
@@ -493,6 +516,7 @@ describe("a reference link whose definition is in another block", () => {
         footnotes={new FootnoteRegistry()}
         isComplete={false}
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocks}
       />
     );
     const { container, rerender } = renderInWindow(streamed(head));
@@ -517,6 +541,7 @@ const ACROSS_BLANK_LINES =
 
 describe("a body whose blocks run across blank lines", () => {
   it("draws them as one parse of the whole body does, live and saved, under the same keys", () => {
+    const bodyBlocks = bodyBlocksForTest();
     const footnotes = new FootnoteRegistry();
     const streamed = (text: string, isComplete: boolean): React.JSX.Element => (
       <StreamingMarkdown
@@ -525,6 +550,7 @@ describe("a body whose blocks run across blank lines", () => {
         footnotes={footnotes}
         isComplete={isComplete}
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocks}
       />
     );
     const { container, rerender } = renderInWindow(streamed(ACROSS_BLANK_LINES.slice(0, 1), false));
@@ -557,6 +583,7 @@ describe("a body whose blocks run across blank lines", () => {
         footnotes={new FootnoteRegistry()}
         isComplete
         offersBlockCopy={false}
+        bodyBlocks={bodyBlocksForTest()}
       />,
     );
     expect(saved.container.innerHTML).toBe(container.innerHTML);

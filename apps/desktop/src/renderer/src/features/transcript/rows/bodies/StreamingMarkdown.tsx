@@ -60,11 +60,8 @@ export interface StreamingMarkdownProps {
    * not.
    */
   readonly offersBlockCopy: boolean;
-  /**
-   * The body's blocks as its row's preparation reads them, read here with the same text; a body
-   * handed none reads its own.
-   */
-  readonly bodyBlocks?: MarkdownBodyBlocks | undefined;
+  /** The body's blocks as its row's preparation reads them, read here with the same text. */
+  readonly bodyBlocks: MarkdownBodyBlocks;
 }
 
 /**

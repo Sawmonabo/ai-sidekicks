@@ -17,8 +17,8 @@
 // only once its output is parsed whole again. A row that has never been listed is within reach as
 // the listed row it joins after is; one outside is listed at once, unparsed. A folded call opens
 // once its output is parsed whole, so it draws formatted on the frame it opens. The feed is first
-// shown only once no row held until its output parses would join beside a row in view, so a
-// session opens with each output it shows formatted where it stays.
+// shown only once no held row would join the rows drawn, so a session opens with each row it shows
+// formatted where it stays.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -67,10 +67,17 @@ export class PreparedRowGate {
    * row held out before the first listed one.
    */
   #listedKeysBeforeHeldRows: ReadonlySet<string | undefined> = new Set<string | undefined>();
-  /** The listed rows the last pass held a row out next to until its output parses, either side. */
-  #listedKeysBesideUnparsedRows: ReadonlySet<string> = new Set<string>();
-  /** The rows in view as the viewport last walked the band, by key. */
-  #viewRowKeys: ReadonlySet<string> = new Set<string>();
+  /** The listed rows the last pass held a row out next to, either side. */
+  #listedKeysBesideHeldRows: ReadonlySet<string> = new Set<string>();
+  /** The rows within the drawn band's reach as the viewport last walked it, by key. */
+  #bandRowKeys: ReadonlySet<string> = new Set<string>();
+  /** Every row and header the last pass listed, by key. */
+  #listedKeys: ReadonlySet<string> = new Set<string>();
+  /**
+   * What the pass listed when a frame last committed, as `noteListCommitted` read it: a list newer
+   * than that has not been laid out and drawn over yet.
+   */
+  #listedKeysAtCommit: ReadonlySet<string> = new Set<string>();
   /** Every row's preparation the window holds, listed or held, by row id. */
   readonly #preparations = new Map<string, HeldPreparation>();
   /**
@@ -125,16 +132,36 @@ export class PreparedRowGate {
     this.#listedKeysBeforeHeldRows.has(rowKey);
 
   /**
-   * Whether the last pass held a row out beside a row in view until its output parses, so it would
-   * join between rows on screen: what the feed's first frame waits on.
+   * Whether a row would still join the rows drawn: one the last pass held out beside a row within
+   * the drawn band's reach, or any while it lists no row at all; or a row the last pass listed that
+   * no committed frame has laid out yet, since the viewport draws the rows a new list puts in view
+   * a frame after. A row joining the band moves the rows on screen whenever the rows above them
+   * cannot take its height, as while they do not fill the view. What the feed's first frame waits
+   * on.
    */
-  public readonly holdsUnparsedRowInView = (): boolean => {
-    for (const rowKey of this.#listedKeysBesideUnparsedRows) {
-      if (this.#viewRowKeys.has(rowKey)) {
+  public readonly holdsRowJoiningView = (): boolean => {
+    if (this.#heldOutRowIds.size > 0 && this.#listedRowIds.size === 0) {
+      return true;
+    }
+    if (this.#listedKeys !== this.#listedKeysAtCommit) {
+      return true;
+    }
+    for (const rowKey of this.#listedKeysBesideHeldRows) {
+      if (this.#bandRowKeys.has(rowKey)) {
         return true;
       }
     }
     return false;
+  };
+
+  /**
+   * Notes that a frame committed the last pass's list; answers whether that list is newer than the
+   * one last noted, so a feed waiting on it renders again.
+   */
+  public readonly noteListCommitted = (): boolean => {
+    const isNewer = this.#listedKeys !== this.#listedKeysAtCommit;
+    this.#listedKeysAtCommit = this.#listedKeys;
+    return isNewer;
   };
 
   /** Hear each time any row's work lands, so a landing waiting on it can ask again. */
@@ -154,7 +181,7 @@ export class PreparedRowGate {
     rowKeys: ReadonlySet<string>,
     viewRowKeys: ReadonlySet<string>,
   ): void => {
-    this.#viewRowKeys = viewRowKeys;
+    this.#bandRowKeys = rowKeys;
     for (const rowId of this.#reachByRowId.keys()) {
       // A row still held out keeps what its pass decided.
       if (!rowKeys.has(rowId) && !this.#heldOutRowIds.has(rowId)) {
@@ -255,14 +282,14 @@ export class PreparedRowGate {
     const heldRowIds = new Set<string>();
     const heldOutRowIds = new Set<string>();
     const listedKeysBeforeHeldRows = new Set<string | undefined>();
-    const listedKeysBesideUnparsedRows = new Set<string>();
-    // Whether a row held out until its output parses waits for the next listed row as its neighbor.
-    let isAfterUnparsedRow = false;
+    const listedKeysBesideHeldRows = new Set<string>();
+    // Whether a row held out waits for the next listed row as its neighbor.
+    let isAfterHeldRow = false;
     const list = (identity: ViewportRow): void => {
       viewportRows.push(identity);
-      if (isAfterUnparsedRow) {
-        listedKeysBesideUnparsedRows.add(identity.key);
-        isAfterUnparsedRow = false;
+      if (isAfterHeldRow) {
+        listedKeysBesideHeldRows.add(identity.key);
+        isAfterHeldRow = false;
       }
     };
     // What each row is listed as, its last version while a change of it is prepared.
@@ -300,12 +327,10 @@ export class PreparedRowGate {
         heldOutRowIds.add(row.id);
         const listedKeyBefore = viewportRows.at(-1)?.key;
         listedKeysBeforeHeldRows.add(listedKeyBefore);
-        if (!this.isOutputParsed(row.id)) {
-          if (listedKeyBefore !== undefined) {
-            listedKeysBesideUnparsedRows.add(listedKeyBefore);
-          }
-          isAfterUnparsedRow = true;
+        if (listedKeyBefore !== undefined) {
+          listedKeysBesideHeldRows.add(listedKeyBefore);
         }
+        isAfterHeldRow = true;
       }
     }
     // A row the window let go is withdrawn: it is prepared again if it returns.
@@ -317,7 +342,8 @@ export class PreparedRowGate {
     this.#listedRowIds = listedRowIds;
     this.#heldOutRowIds = heldOutRowIds;
     this.#listedKeysBeforeHeldRows = listedKeysBeforeHeldRows;
-    this.#listedKeysBesideUnparsedRows = listedKeysBesideUnparsedRows;
+    this.#listedKeysBesideHeldRows = listedKeysBesideHeldRows;
+    this.#listedKeys = new Set(viewportRows.map((identity) => identity.key));
     const output: PreparedRows =
       preparingRows.length === 0 && lastVersionById.size === 0
         ? { window: model, preparingRows: NO_ROWS }
