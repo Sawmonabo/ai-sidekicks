@@ -158,3 +158,14 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - V1 Release Impact: none for macOS. On Linux such a tab shows `/bin/sh`'s error and ends instead of falling back; a missing file, a folder and a missing interpreter already fall back.
 - Named gate: a Node.js release whose `process.versions.uv` is 1.53.0 or later.
 - Exit Criteria: that release is taken; the Linux skip on the unrunnable-file case in `packages/runtime-daemon/src/pty/shell/__tests__/table.lifecycle.test.ts` is removed and the case passes on the ubuntu leg; this entry is deleted.
+
+## BL-168: A backup restored on a second computer
+
+- Status: `blocked` (external-world wait — a second computer to restore on)
+- Priority: `P2`
+- Owner: `unassigned`
+- References: [Spec-013 §Backup Policy](./specs/013-persistence-and-recovery.md#backup-policy) (a restore on another computer reads the backup directly), [Plan-005](./plans/005-local-ipc-and-daemon-control.md) T-005r-1-13 and T-005r-3-20
+- Summary: A backup holds no credential and no key, so it is meant to restore on any computer, after which the person signs in to providers and links devices again. That has been designed and not measured: no run has restored a backup taken on one machine onto another.
+- V1 Release Impact: none for a restore on the machine that wrote the backup; a restore on another computer ships designed but unmeasured until this closes.
+- Named gate: a second computer in the build loop.
+- Exit Criteria: a backup taken on one machine is restored on a second with `sidekicks db restore`, the sessions read back whole, the providers ask to sign in and the devices to link, and the figures are recorded in Plan-005; this entry is deleted.

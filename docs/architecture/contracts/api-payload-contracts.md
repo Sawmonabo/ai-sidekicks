@@ -188,7 +188,6 @@ type ApprovalCategory =
   | "file_write"
   | "network_access"
   | "destructive_git"
-  | "plan_approval"
   | "gate";
 type ApprovalDecision = "approved" | "rejected";
 type ApprovalState = "pending" | "approved" | "rejected" | "canceled";
@@ -213,7 +212,11 @@ type WorkspaceState = "preparing" | "ready" | "stale" | "archived";
 type WorktreeState = "creating" | "ready" | "dirty" | "merged" | "retired" | "failed";
 type RepoMountState = "attached" | "detached" | "archived"; // VcsType + RepoMountHealth: repo-payloads.md §Plan-006
 
-type ArtifactState = "pending" | "published" | "superseded";
+// Where a plan record stands: `waiting` while its card is up, `accepted` once built in its own session,
+// `handed_off` once built in a fresh one, and `open` after `Keep planning` or after a Claude Code plan's
+// held request ends unanswered. The artifact list reads it as a plan's state word (artifact-payloads.md).
+type PlanState = "waiting" | "accepted" | "handed_off" | "open";
+
 type DriverCapabilityFlag =
   | "resume"
   | "steer"
@@ -314,7 +317,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
 | `artifact.list` | The session's artifacts | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-011](../../plans/011-artifacts-files-and-attachments.md) T11.11 |
-| `artifact.read {artifactId, version?, includePayload?, range?}` | One artifact's content, whole or one byte window at a time | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-011](../../plans/011-artifacts-files-and-attachments.md) T11.1, T11.6 |
+| `artifact.read {artifactId, version?, includePayload?, range?}` | One artifact's content, whole or one byte window at a time; on a chat's file, the version picked among its versions | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-011](../../plans/011-artifacts-files-and-attachments.md) T11.11 |
 
 ### `attention.*`
 
@@ -390,8 +393,9 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `daemon.restart` | Restart the service | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-2, T-005r-1-4, T-005r-1-5 |
 | `daemon.retentionPurge` | `Delete old data` | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020](../../specs/020-data-retention-export-and-deletion.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase R1 T-005r-1-9 |
 | `daemon.retentionRead` | Read the two retention bounds, `Keep sessions for` and `Keep diagnostic logs for`, and the counts `Delete old data` would remove | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020 §Retention Policy](../../specs/020-data-retention-export-and-deletion.md#retention-policy) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase R1 T-005r-1-9 |
+| `daemon.retentionSubscribe` | The two retention bounds first, then each change; the main process's own log and an open Runtime page follow it | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase R1 T-005r-1-9 |
 | `daemon.retentionUpdate` | Change a retention bound | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020](../../specs/020-data-retention-export-and-deletion.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase R1 T-005r-1-9 |
-| `daemon.status.read` | The service's facts: its process as the system knows it (its id, the boot it runs in and the system's own record of its start), by which a client that found it running ends it and never a process that reused the id, version, start time, processor and memory with the time each was read, each `null` when its reading failed at that call, `recovery` (healthy, rebuilding, degraded or blocked), and `secretsFile`, the path of the file secrets are kept in, present only on Linux with no Secret Service and on a Mac while its secrets are in `secrets.json`, from the approved logged-out service's takeover until `sidekicks daemon uninstall` moves them back, including after that service is turned off in Login Items & Extensions, and never while the service waits for approval. `Check again` calls it again. | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-1, T-005r-1-3, T-005r-1-5 |
+| `daemon.status.read` | The service's facts: its process as the system knows it (its id, the boot it runs in and the system's own record of its start), by which a client that found it running ends it and never a process that reused the id, version, start time, processor and memory with the time each was read, each `null` when its reading failed at that call, `recovery` (healthy, rebuilding, degraded or blocked), and `secretsFile`, the path of the file secrets are kept in, present only on Linux with no Secret Service and on a Mac while its secrets are in `secrets.json`, from the logged-out service's takeover until `sidekicks daemon uninstall` moves them back, including after that service is turned off in Login Items & Extensions; and `wakeHelper`, the one `ProviderWakeHelperState` (`installed \| notInstalled {reason} \| turnedOff \| missing`) reading `installed`, `turnedOff` or `missing`, the machine's one wake helper, present on macOS and Linux while any account's `Wake this computer for it` is on, `turnedOff` macOS's alone, which the Providers page reads. `Check again` calls it again. | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-1, T-005r-1-3, T-005r-1-5; [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T3.4 (`wakeHelper`) |
 | `daemon.stop` | Stop the service (the confirm counts the Codex sessions typed in a terminal) | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-2, T-005r-1-4, T-005r-1-5 |
 | `daemon.machineSettingsSubscribe` | Each written change to the machine's settings file, the first delivery being the current file; `machineSettings.subscribe()` carries it | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-2-8, [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-11 |
 
@@ -550,6 +554,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `providerAccount.list` | List accounts, with usage windows and read times | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.3 |
 | `providerAccount.login` | Start a sign-in | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.5 |
 | `providerAccount.loginCancel` | Cancel a sign-in | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.5 |
+| `providerAccount.loginCodeSubmit` | Send the code a sign-in page shows to the sign-in waiting for it | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.5 |
 | `providerAccount.memoryImport` | Copy memories into an account's folder, once | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) Phase 4 T4.7 |
 | `providerAccount.probe` | `Check now` | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.3 |
 | `providerAccount.register` | Register an account | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.3 |
@@ -558,7 +563,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `providerAccount.setCurrent` | Move the Default mark (switch accounts) | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.3 |
 | `providerAccount.subscribe` | Follow the account list | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.5 |
 | `providerAccount.update` | Update billing mode, keep-fresh and window start | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.3 |
-| `providerAccount.update({wakeForWindowStartEnabled})`, whose reply carries `wakeHelper: installed \| notInstalled {reason}` | Wake this computer for an account's window start | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.3 |
+| `providerAccount.update({wakeForWindowStartEnabled})`, whose reply carries `wakeHelper`, the same `ProviderWakeHelperState`, reading `installed` or `notInstalled {reason}` | Wake this computer for an account's window start | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.3 |
 | `providerAccount.usageRead` | Tokens and spend by day and by model, plus provider totals | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T4.1 |
 
 ### `pty.*`
@@ -690,9 +695,9 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `transcript.bodyRead` {sessionId, rowId} | A row's large body or whole output, read only when its control is pressed | [Spec-011](../../specs/011-transcript-and-reasoning.md) | [Plan-010](../../plans/010-transcript-and-reasoning.md) T3.4 |
+| `transcript.bodyRead` {sessionId, rowId, offset?} | A row's large body or whole output, read only when its control is pressed; a reply larger than one transport message comes back in consecutive parts, each naming its `offset` and the `nextOffset` the next part starts at, null on the last | [Spec-011](../../specs/011-transcript-and-reasoning.md) | [Plan-010](../../plans/010-transcript-and-reasoning.md) T3.4 |
 | `transcript.childRunExpand` | A child's rows, fetched on demand, including a finished child's stored record | [Spec-011](../../specs/011-transcript-and-reasoning.md) | [Plan-010](../../plans/010-transcript-and-reasoning.md) T1.4, T3.1 |
-| `transcript.patchRead` {sessionId, toolCallId} | Every patch a call did not carry, in one read | [Spec-011](../../specs/011-transcript-and-reasoning.md) | [Plan-010](../../plans/010-transcript-and-reasoning.md) T3.5 |
+| `transcript.patchRead` {sessionId, toolCallId, cursor?} | Every patch a call did not carry, in one read; a reply larger than one transport message comes back in consecutive parts, the request's `cursor` `{fileIndex, offset}` naming where a part starts and the reply's `next` where the next one does, null on the last | [Spec-011](../../specs/011-transcript-and-reasoning.md) | [Plan-010](../../plans/010-transcript-and-reasoning.md) T3.5 |
 | `transcript.pathResolve` {sessionId, paths} | Which paths a reply's prose names are real files inside the session's workspace, each with the line and column the reply named, so only those draw as links; `{paths: [{path, file: {path, line?, column?} \| null}]}`, refusing an unknown session `session.not_found` | [Spec-011](../../specs/011-transcript-and-reasoning.md) | [Plan-010](../../plans/010-transcript-and-reasoning.md) T3.11 |
 | `transcript.read` | Read the transcript | [Spec-011](../../specs/011-transcript-and-reasoning.md) | [Plan-010](../../plans/010-transcript-and-reasoning.md) T1.4, T2.4 |
 | `transcript.reasoningSurfaceRead` | The reasoning surface | [Spec-011](../../specs/011-transcript-and-reasoning.md) | [Plan-010](../../plans/010-transcript-and-reasoning.md) T1.4, T1.3, T3.2 |

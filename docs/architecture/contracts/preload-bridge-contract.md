@@ -45,6 +45,9 @@ interface PlatformBridge {
     ): Unsubscribe;
     // start the service: the boot card's `Retry`
     requestStart(): Promise<void>;
+    // macOS only, absent elsewhere: open System Settings on the Login Items pane, the act
+    // `Open Login Items` beside `cannotStart {reason: turnedOffInLoginItems}`
+    openLoginItems?(): Promise<void>;
     // update the service; it waits for running work to finish and never stops it (Spec-006)
     requestUpdate(): Promise<void>;
     // cancel the service update, honored until main asks the old service to stop (Spec-006)

@@ -551,19 +551,19 @@ const DELETE_BY_SESSION_RUN_SQL: readonly string[] = [
 ];
 
 // Where the event delete sits in the write: after the range read, the linked sessions' read, the
-// run-keyed deletes and the snapshots.
-const EVENTS_DELETE_INDEX: number = 2 + DELETE_BY_SESSION_RUN_SQL.length + 1;
+// run-keyed deletes, the snapshots and the recovery checkpoints.
+const EVENTS_DELETE_INDEX: number = 2 + DELETE_BY_SESSION_RUN_SQL.length + 2;
 
 /**
  * The range read, the read of the sessions linked to it, and the deletes of one session. The range
  * read returns its row only while the stored sequences are safe integers, so a range the receipt
  * could not name refuses the write before anything is deleted. A run's interventions, bindings and
  * command receipts are found through the session's runs and log, so they go before the runs and
- * the events; a snapshot names the event it reflects, so snapshots go before the events too. The
- * run rows and the projection cursor are built from the events, so they go with them, and a
- * restart never settles a run of a purged session. A link or a related-list entry goes whichever
- * side names the session. An ask goes after its answer and the workflow gate answers that name it,
- * and an artifact after the reference to its stored payload.
+ * the events; a snapshot and a recovery checkpoint name the event they reflect, so they go before
+ * the events too. The run rows and the projection cursor are built from the events, so they go
+ * with them, and a restart never settles a run of a purged session. A link or a related-list entry
+ * goes whichever side names the session. An ask goes after its answer and the workflow gate
+ * answers that name it, and an artifact after the reference to its stored payload.
  * The group the session leaves empty goes after the session's row and before its workspaces,
  * through which its project is found; no other group is ever empty, because each group write
  * keeps at least one session in it. Every row naming a workspace goes before the workspace, and
@@ -596,6 +596,7 @@ function deleteSessionRowsStatements(
       bindings: { sessionId },
     })),
     { sql: "DELETE FROM session_snapshots WHERE session_id = ?", bindings: [sessionId] },
+    { sql: "DELETE FROM recovery_checkpoints WHERE session_id = ?", bindings: [sessionId] },
     { sql: `DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`, bindings: [sessionId] },
     { sql: "DELETE FROM session_drafts WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM session_review_notes WHERE session_id = ?", bindings: [sessionId] },

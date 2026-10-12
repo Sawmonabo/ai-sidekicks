@@ -128,7 +128,8 @@ type DirectoryTable =
   | "gateResolutions"
   | "reviewerDenials"
   | "artifactManifests"
-  | "artifactPayloadRefs";
+  | "artifactPayloadRefs"
+  | "recoveryCheckpoints";
 
 const DIRECTORY_ROW_QUERIES: Record<DirectoryTable, string> = {
   sessions: "SELECT id FROM sessions ORDER BY id",
@@ -162,6 +163,7 @@ const DIRECTORY_ROW_QUERIES: Record<DirectoryTable, string> = {
   artifactPayloadRefs: `SELECT manifest.session_id FROM artifact_payload_refs
     JOIN artifact_manifests AS manifest ON manifest.id = artifact_payload_refs.manifest_id
     ORDER BY 1`,
+  recoveryCheckpoints: "SELECT session_id FROM recovery_checkpoints ORDER BY 1",
 };
 
 /**
@@ -461,8 +463,8 @@ export class PurgeFixture {
   }
 
   // The rows that name the session or one of its runs: a queued message, the idempotency keys of
-  // its create and its conversion, a file the conversion dealt with, and each run's interrupt,
-  // provider binding and command receipt.
+  // its create and its conversion, a file the conversion dealt with, a recovery checkpoint, and
+  // each run's interrupt, provider binding and command receipt.
   async seedRowsNamingSession(sessionId: SessionId, runIds: readonly string[]): Promise<void> {
     await this.scratch.writer.write([
       {
@@ -491,6 +493,12 @@ export class PurgeFixture {
         sql: `INSERT INTO session_convert_files (session_id, path, outcome)
               VALUES (?, 'notes/plan.md', 'repository_has_file')`,
         bindings: [sessionId],
+      },
+      {
+        sql: `INSERT INTO recovery_checkpoints (id, session_id, checkpoint_type, as_of_sequence,
+                                                state_blob, created_at)
+              VALUES (?, ?, 'full', 0, ?, ?)`,
+        bindings: [`checkpoint-${sessionId}`, sessionId, Buffer.from("{}"), PURGE_INSTANT],
       },
       ...runIds.flatMap((runId) => [
         {

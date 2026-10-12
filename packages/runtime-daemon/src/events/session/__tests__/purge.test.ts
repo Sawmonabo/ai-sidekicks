@@ -230,6 +230,7 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
       reviewerDenials: [SECOND_SESSION],
       artifactManifests: [SECOND_SESSION],
       artifactPayloadRefs: [SECOND_SESSION],
+      recoveryCheckpoints: [SECOND_SESSION],
     });
     expect(existsSync(purgedWorkspace.path)).toBe(false);
     expect(existsSync(keptWorkspace.path)).toBe(true);

@@ -168,7 +168,7 @@ interface CompactContextRequest {
   runId: RunId;
 }
 
-interface ProviderCommandsSubscribeRequest {
+interface SessionAddressedRequest {
   sessionId: SessionId;
 }
 
@@ -279,11 +279,17 @@ interface ProviderCommandListResult {
 // One emission of `session.providerCommandsSubscribe` (running-command-payloads.md §Running-Command Method Registry): the
 // list of the session's live provider process, whole — on the first frame, on each change the
 // provider pushes (Claude Code's `commands_changed`, Codex's `skills/changed`), and again for each
-// new process — with each working tool server's prompts.
-interface ProviderCommandsUpdate {
+// new process — with each working tool server's prompts. It names no binding: the daemon follows
+// the session's live binding itself and never emits a list read under one the session has left.
+interface SessionProviderCommandList {
   sessionId: SessionId;
-  binding: ProviderCommandBinding;
-  entries: ProviderCommandEntry[];
+  commands: ProviderCommandEntry[];
+  serverPrompts: Array<{
+    serverName: string;
+    name: string;
+    title?: string;
+    description?: string;
+  }>;
 }
 
 // The canonical transcript (ADR-027) is a PROJECTION the daemon rebuilds per call and caches

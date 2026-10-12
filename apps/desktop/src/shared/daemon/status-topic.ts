@@ -94,15 +94,13 @@ export type DaemonConnection =
  * Whether the service keeps running while the person is signed out of Windows or logged out of
  * the Mac: `on`, `off`, `passwordOutOfDate` when the Windows task last failed on a changed
  * password, `notOffered` where the machine allows no such service, and on macOS alone
- * `waitingForApproval` before an administrator approves it and `turnedOffInLoginItems` after one
- * turns it off.
+ * `turnedOffInLoginItems` once an administrator turns it off in the system's login items.
  */
 export type WhileSignedOut =
   | "on"
   | "off"
   | "passwordOutOfDate"
   | "notOffered"
-  | "waitingForApproval"
   | "turnedOffInLoginItems";
 
 /**

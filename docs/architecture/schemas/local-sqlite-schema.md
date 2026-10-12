@@ -6,7 +6,7 @@ The database is one schema, created whole when the daemon first opens it. There 
 
 **Storage boundary:** Machine-scoped execution truth and recovery data. See [Data Architecture](../data-architecture.md).
 
-Six areas keep their tables in files of their own, beside this one:
+Seven areas keep their tables in files of their own, beside this one:
 
 - [Workspace and Git Tables (Plan-006, Plan-007, Plan-008)](local-sqlite-workspace-and-git-tables.md)
 - [Orchestration Tables (Plan-013)](local-sqlite-orchestration-tables.md)
@@ -14,6 +14,7 @@ Six areas keep their tables in files of their own, beside this one:
 - [MCP Governance Tables (Plan-022)](local-sqlite-mcp-governance-tables.md)
 - [Provider Account Tables (Plan-023)](local-sqlite-provider-account-tables.md)
 - [Agent Definition Tables (Plan-024)](local-sqlite-agent-definition-tables.md)
+- [Remote Control Tables (Plan-025)](local-sqlite-remote-control-tables.md)
 
 ## Pragmas
 
@@ -42,7 +43,7 @@ CREATE TABLE session_events (
   type                   TEXT NOT NULL,              -- specific event type within category
   actor                  TEXT,                       -- the payload's own actor: the device a connection sent the event from, the agent_id, or 'daemon' on an intervention the daemon made itself; NULL when the payload names none
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON event payload
-  content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-005 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, tool-call arguments / result / error bodies, and the provider's own denial an `approval.reviewer_denied` row keeps for `Allow once` (Claude Code's action as its `PermissionDenied` hook received it, Codex's review as Codex sent it). Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with raw deflate at level 6, and the encoding is recorded in the payload; a smaller body is stored as it is. NULL on every row whose event type carries no prose, event_maintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
+  content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-005 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, tool-call arguments / result / error bodies, and the provider's own denial an `approval.reviewer_denied` row keeps for `Allow once` (Claude Code's action as its `PermissionDenied` hook received it, Codex's review as Codex sent it). Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with raw deflate at level 6, and the encoding is recorded in the payload as `contentEncoding: "deflate-raw"`; a smaller body is stored as its UTF-8 bytes. NULL on every row whose event type carries no prose, event_maintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
   correlation_id         TEXT,                       -- links related events
   causation_id           TEXT,                       -- parent event that caused this one
   version                TEXT NOT NULL DEFAULT '1.0'
@@ -94,7 +95,7 @@ END;
 
 **Terminal-exactly-once backstop.** The `idx_session_events_run_terminal_once` partial unique index is the schema-level terminal-exactly-once backstop (Plan-004): a duplicate terminal `run_lifecycle` row for the same `(runId, runVersion)` epoch fails loud with a `UNIQUE` violation; NULL `runId`/`runVersion` rows bypass it (SQLite NULL-distinctness), so the Plan-002 terminal emitter enforces the non-null-key precondition this index backstops. The engine semantics this backstop relies on are load-bearing, and each is cited to the official SQLite documentation: [expression indexes](https://sqlite.org/expridx.html) (the index keys on `json_extract(payload, …)` expressions), [partial indexes](https://sqlite.org/partialindex.html) (the `WHERE category = 'run_lifecycle' AND type IN (…)` filter), [UNIQUE-index enforcement](https://sqlite.org/lang_createindex.html#unique_indexes), and [NULL-distinctness](https://sqlite.org/nulls.html) (two NULLs are distinct for UNIQUE purposes, so NULL-key rows bypass the constraint). Beside it the schema carries the `trg_run_terminal_key_insert` / `trg_run_terminal_key_update` / `trg_run_terminal_key_promote` trigger trio — the projection-level CHECK-equivalent Spec-005's at-most-once-terminal-emission rule assigns to this schema work — which aborts terminal `run_lifecycle` writes whose `runId` / `runVersion` key is NULL **or the wrong storage class** (`json_type` must be `'text'` for `runId` and `'integer'` for `runVersion`, per the `RunId` string / any-run-progression-counter payload contract in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) — a `"7"`-vs-`7` type-drifted key would otherwise bypass the storage-class-keyed UNIQUE index for exactly the malformed rows the backstop exists to catch). The INSERT leg closes the NULL-distinctness bypass the UNIQUE index cannot catch; the UPDATE leg (`BEFORE UPDATE OF payload, category, type`, keyed off `OLD` so a row that WAS terminal cannot escape by mutation) additionally aborts a **value-changing key rewrite** (`NEW` key `IS NOT` `OLD`, null-safe — an UPDATE rewriting `(R,7)` to another non-null pair would otherwise free the index entry for a duplicate terminal) and a **`category`/`type` de-scope** (flipping a terminal row out of the guarded set is the same escape). The promote leg closes the inverse escape: an UPDATE re-typing a non-terminal row INTO the guarded set is rejected outright — terminal rows are INSERT-only — so a null-keyed promotion cannot slip past the OLD-keyed update leg and the NULL-distinct UNIQUE index (Plan-004 schema work).
 
-**Content payload (machine-authored prose).** `content_payload` is the durable home for the prose the _machine_ side of a session produces — the assistant message body, the reasoning-update body, and tool-call arguments / result / error bodies. It exists because [ADR-027](../../decisions/027-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It holds machine-authored session work product ([Spec-020 §PII Data Map](../../specs/020-data-retention-export-and-deletion.md#pii-data-map)), stored plain like every other column. A body of 1 KiB or more is compressed with raw deflate at level 6 before it is written, and the encoding is recorded in the payload so a reader inflates it; a smaller body is stored as it is.
+**Content payload (machine-authored prose).** `content_payload` is the durable home for the prose the _machine_ side of a session produces — the assistant message body, the reasoning-update body, and tool-call arguments / result / error bodies. It exists because [ADR-027](../../decisions/027-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It holds machine-authored session work product ([Spec-020 §PII Data Map](../../specs/020-data-retention-export-and-deletion.md#pii-data-map)), stored plain like every other column. A body of 1 KiB or more is compressed with raw deflate at level 6 before it is written, and the encoding is recorded in the payload as `contentEncoding`, so every reader decodes it through the daemon's one codec (`events/content/codec.ts`); a smaller body is stored as its UTF-8 bytes.
 
 **Long bodies.** Unlike a person's message, `content_payload` admits machine-scale text: a tool result is routinely a file dump or a command's whole stdout. A body is kept whole, never truncated, refused or dropped, and a client fetches a long one on demand through the daemon's read rather than receiving it inside the event. Nothing removes a body in the background: a session's rows, bodies included, are kept until the person deletes the session with `Delete old data` ([Spec-005 §Event Compaction Policy](../../specs/005-session-event-taxonomy-and-audit-log.md#event-compaction-policy)).
 
@@ -130,7 +131,7 @@ The daemon keeps one row per session it hosts in `sessions`, the directory that 
 - `muted_at TEXT` — RFC 3339 UTC; NULL while the session is not muted. `session.muted` sets it and `session.unmuted` clears it, and a rebuild restores it from those events; it reaches clients as `muted` on `session.read` and `session.list`. While it is set, the session's `Finished` and `Failed` moments reach no channel and no device; `Waiting on you` and a workflow's Notify step are never silenced by it. The attention service reads it when it writes an entry.
 - `group_id TEXT REFERENCES session_groups(id)` — the one group of its project the session sits in; NULL for a session in no group and for every chat. Indexed (`idx_sessions_group`), because the sessions list and search read a group's sessions by it. An archived session keeps it.
 - `pending_working_folder TEXT` — the folder a `session.setWorkingFolder` move goes to, applied at the active run's next boundary; NULL while no move waits. Written by the session service with no event of its own, so a rebuild, which rewrites only the row's event-derived columns, keeps it; it reaches clients as `pendingWorkingFolder` on `session.read`, and a purge keeps every worktree a pending move names.
-- `permission_level TEXT NOT NULL DEFAULT 'yolo' CHECK (permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'))` — the session's permission level, which the run queue's admission reads: every process the session opens or resumes starts at it, and a new session starts at `yolo`. `session.permissionLevelUpdate` writes it once an open session's provider has taken the level, under the lock the session's opening takes, so the process never runs at another level than the stored one. Written with no event of its own, so a rebuild keeps it.
+- `permission_level TEXT NOT NULL DEFAULT 'yolo' CHECK (permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'))` — the session's permission level, which the run queue's admission reads: every process the session opens or resumes starts at it. `session.create` writes the level the provider's own settings give for the session's project ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)); the column's `yolo` is that read's answer when they set none. `session.permissionLevelUpdate` writes it once an open session's provider has taken the level, under the lock the session's opening takes, so the process never runs at another level than the stored one. Written with no event of its own, so a rebuild keeps it.
 
 A session's groups, links and tags are the three layers of [Spec-001 §Groups, Links And Tags](../../specs/001-session-core.md#groups-links-and-tags): one place in the list, any number of relationships, any number of categories. All three are row-canonical daemon state written by the session service and the session tools, not rebuilt from the event log, and removed with their session.
 
@@ -255,7 +256,7 @@ CREATE TABLE session_console_state (
                       CHECK (max_steps_per_turn IS NULL OR max_steps_per_turn >= 1),  -- this session's OWN bound on how many steps one turn may take. NULL = no session override, so the machine's own Runtime value applies, and where that is unset each provider does what it does on its own ([Spec-003 §The Step Bound On A Turn](../../specs/003-queue-steer-pause-resume.md#the-step-bound-on-a-turn)). The floor is 1 because a bound of zero would forbid the turn it bounds; the ceiling is the person's, since neither provider publishes one. The MACHINE-wide value is not here: it belongs to the Runtime settings page, so one number has one home on each side of the override
   advisor_model       TEXT,  -- a Claude Code session's own advisor: the model, or NULL when it is off. Copied at `session.create` from the machine settings file's `advisorModel` and changed only by `/advisor` in this session, each change appending `session.advisor_changed`; a later change to the default never reaches it
   session_mode        TEXT NOT NULL DEFAULT 'build'
-                      CHECK (session_mode IN ('build', 'plan')),  -- the composer's Build or Plan mode, written once the provider has taken a `session.modeUpdate`; a restart's resume opens in it
+                      CHECK (session_mode IN ('build', 'plan')),  -- the composer's Build or Plan mode, written `plan` at `session.create` where Claude Code's own `permissions.defaultMode` resolves to `plan`, and otherwise once the provider has taken a `session.modeUpdate`; a restart's resume opens in it
   updated_at          TEXT NOT NULL
 ) STRICT;
 ```
@@ -379,7 +380,7 @@ CREATE TABLE interventions (
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
 CREATE INDEX idx_interventions_state ON interventions(state) WHERE state IN ('requested', 'accepted');
 
--- Owner: Plan-002 | Extended by: Plan-012 (recovery + two-phase idempotency protocol); Plan-003 (nullable mcp_task_id — MCP Tasks durable recovery handle)
+-- Owner: Plan-002 | Extended by: Plan-012 (recovery + two-phase idempotency protocol); Plan-003 (nullable mcp_task_id and mcp_task_generation — MCP Tasks durable recovery handle — and delivered)
 CREATE TABLE command_receipts (
   id                TEXT PRIMARY KEY,
   command_id        TEXT NOT NULL UNIQUE,         -- idempotency key (client-supplied)
@@ -392,7 +393,7 @@ CREATE TABLE command_receipts (
   -- Plan-003's column: receiver-generated
   -- MCP Tasks taskId for a task-augmented MCP call (from the CreateTaskResult acceptance response).
   -- NULL until the receiver accepts — a crash before that leaves NULL and the call's run halts with
-  -- `recovery-needed`. Spec-013 recovery reads this handle and polls tasks/get + tasks/result
+  -- `recovery-needed`. Spec-013 recovery reads this handle and polls tasks/get to a terminal status, then reads the result (tasks/result on 2025-11-25, inline on 2026-07-28)
   -- instead of halting. Written by Plan-003 T5.1 through the T3.13 receipt-write seam. Bounded like every persisted
   -- provider-declared string (the runtime_bindings defense-in-depth convention): the taskId is untrusted
   -- remote-peer output, so the CHECK bounds the SQLite-expressible part and the T5.1 write seam mirrors
@@ -416,9 +417,13 @@ CREATE TABLE command_receipts (
   -- would store a handle the receiver never issued.
   mcp_task_id       TEXT                          -- NULL default; MCP Tasks durable recovery handle
                     CHECK (mcp_task_id IS NULL OR (length(mcp_task_id) > 0 AND length(mcp_task_id) <= 256 AND instr(mcp_task_id, char(0)) = 0)),
+  -- The task's generation, set exactly when mcp_task_id is and in the same statement, because ext-tasks
+  -- resumes a task from its generation.
+  mcp_task_generation TEXT CHECK (mcp_task_generation IN ('v1', 'v2')),
   delivered         INTEGER NOT NULL DEFAULT 0     -- 1 once a task-augmented call's result has reached the conversation, by steering a running turn or starting one, so a result that arrives after a daemon restart is delivered once
                     CHECK (delivered IN (0, 1)),
-  created_at        TEXT NOT NULL
+  created_at        TEXT NOT NULL,
+  CHECK ((mcp_task_generation IS NULL) = (mcp_task_id IS NULL))
 ) STRICT;
 
 CREATE INDEX idx_command_receipts_run ON command_receipts(run_id) WHERE run_id IS NOT NULL;
@@ -549,27 +554,30 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 
 ---
 
-## Runtime Node Local Tables (Plan-025)
+## Daemon Configuration (Plan-005)
+
+The service's machine-wide configuration and its two retention bounds, read by the daemon's own modules and changed over the wire only through `daemon.configRead`, `daemon.configUpdate`, `daemon.retentionRead` and `daemon.retentionUpdate` ([Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-9 and T-005r-1-10). A `NULL` is the setting's own unbounded state: `No limit`, `Never ask`, `Unlimited` or no cap. The row is written whole when the store is created: the listener port starts at the daemon's one default constant ([Workflow Graph Model §Entry node and the V1 trigger surface (SA-34)](../../domain/workflow-graph-model.md#entry-node-and-the-v1-trigger-surface-sa-34)), and every other column at its default or `NULL`.
 
 ```sql
--- Owner: Plan-025
--- This machine: its id and its owner's user id, both minted at the daemon's first start, and the
--- friendly name read then (Spec-002). One row, kept the same at every later start.
-CREATE TABLE local_machine (
-  singleton         INTEGER PRIMARY KEY CHECK (singleton = 1),
-  node_id           TEXT NOT NULL,
-  owner_user_id     TEXT NOT NULL,  -- a hosted account signed in to later attaches to it
-  name              TEXT NOT NULL,
-  minted_at         TEXT NOT NULL
-) STRICT;
-
--- Owner: Plan-025
-CREATE TABLE node_trust_state (
-  node_id           TEXT NOT NULL,
-  owner_user_id     TEXT NOT NULL,
-  established_at    TEXT NOT NULL,  -- first registration; a re-registration keeps it
-  updated_at        TEXT NOT NULL,
-  PRIMARY KEY (node_id, owner_user_id)
+-- Owner: Plan-005
+-- One row, written whole when the store is created; each update changes one value.
+CREATE TABLE daemon_configuration (
+  singleton                      INTEGER PRIMARY KEY CHECK (singleton = 1),
+  keep_diagnostic_logs_days      INTEGER NOT NULL DEFAULT 7 CHECK (keep_diagnostic_logs_days >= 1),
+  keep_sessions_days             INTEGER NOT NULL DEFAULT 90 CHECK (keep_sessions_days >= 1),
+  -- Created at the daemon's one default listener port, a constant chosen from a range no common
+  -- developer tool uses, never a free port picked when the row is written.
+  workflow_listener_port         INTEGER NOT NULL CHECK (workflow_listener_port BETWEEN 1 AND 65535),
+  run_time_limit_minutes         INTEGER CHECK (run_time_limit_minutes IN (30, 60, 240, 720, 1440)),
+  workflow_chain_ask_after_runs  INTEGER DEFAULT 100
+                                 CHECK (workflow_chain_ask_after_runs IN (25, 100, 500, 2000)),
+  max_steps_per_turn             INTEGER CHECK (max_steps_per_turn >= 1),
+  spend_limit_usd_micros         INTEGER CHECK (spend_limit_usd_micros >= 0),
+  tokens_per_run                 INTEGER CHECK (tokens_per_run >= 1),
+  tool_memory_cap_bytes          INTEGER CHECK (tool_memory_cap_bytes >= 1),
+  package_cache_limit_bytes      INTEGER CHECK (package_cache_limit_bytes >= 1),
+  record_traces                  INTEGER NOT NULL DEFAULT 0 CHECK (record_traces IN (0, 1)),
+  record_provider_messages       INTEGER NOT NULL DEFAULT 0 CHECK (record_provider_messages IN (0, 1))
 ) STRICT;
 ```
 
@@ -588,17 +596,23 @@ CREATE TABLE artifact_manifests (
   artifact_type      TEXT NOT NULL
                      CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design',
                                              'workflow_output')),
-  state              TEXT NOT NULL DEFAULT 'pending'
-                     CHECK(state IN ('pending', 'published', 'superseded')),
   content_hash       TEXT NOT NULL,                -- the payload's SHA-256, 'sha256:<hex>'
   size_bytes         INTEGER NOT NULL,             -- the payload's length, measured by the daemon
   metadata           TEXT NOT NULL DEFAULT '{}',   -- JSON: the file name and the media type
+  -- A chat's file or folder: its path in the managed workspace; NULL for every other artifact.
+  workspace_path     TEXT,
+  -- Counts from 1 within (session_id, workspace_path); 1 for every other artifact.
+  version_number     INTEGER NOT NULL DEFAULT 1 CHECK(version_number >= 1),
+  plan_id            TEXT,                         -- the plan record whose text this is; NULL otherwise
   created_at         TEXT NOT NULL                 -- RFC 3339 UTC, ms precision
 ) STRICT;
 
 CREATE INDEX idx_artifact_manifests_session ON artifact_manifests(session_id);
 CREATE INDEX idx_artifact_manifests_run ON artifact_manifests(run_id) WHERE run_id IS NOT NULL;
 CREATE INDEX idx_artifact_manifests_hash ON artifact_manifests(content_hash);
+CREATE UNIQUE INDEX idx_artifact_manifests_path_version
+  ON artifact_manifests(session_id, workspace_path, version_number) WHERE workspace_path IS NOT NULL;
+CREATE INDEX idx_artifact_manifests_plan ON artifact_manifests(plan_id) WHERE plan_id IS NOT NULL;
 
 -- Owner: Plan-011
 -- Where a manifest's payload is stored. Written in the manifest's own transaction, after it.
@@ -608,6 +622,8 @@ CREATE TABLE artifact_payload_refs (
   storage_path    TEXT NOT NULL,                  -- the content store's key
   media_type      TEXT NOT NULL,                  -- read from the payload's bytes
   size_bytes      INTEGER NOT NULL,
+  pixel_width     INTEGER,                        -- read from a picture's header at ingest, EXIF
+  pixel_height    INTEGER,                        -- orientation applied; NULL unless the bytes are a picture
   created_at      TEXT NOT NULL                   -- RFC 3339 UTC, ms precision
 ) STRICT;
 
@@ -616,13 +632,13 @@ CREATE INDEX idx_artifact_payload_refs_manifest ON artifact_payload_refs(manifes
 CREATE INDEX idx_artifact_payload_refs_storage_path ON artifact_payload_refs(storage_path);
 ```
 
-> **The OCI manifest envelope.** `artifact_manifests.size_bytes` (OCI manifest-descriptor `size`) realizes the OCI envelope per D-011-1. An artifact is never changed in place. **`content_hash`/`size_bytes` are `NOT NULL`:** a content-addressed manifest's `digest` is intrinsic to its identity (I-011-1), and each producer (Plan-011 Task 2 AttachmentIngest, Task 3 ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref — the two are independent producers, each writing its own manifest (so the `artifactId` AttachmentIngest returns resolves from the ingest-written manifest, not a later publish), so neither is ever NULL and no payload-less manifest is ever read — this is 1:1 with the **required** `digest`/`size` fields on the `ArtifactManifest` wire shape ([api-payload-contracts.md](../contracts/api-payload-contracts.md)). The file name lives in `metadata`, which the wire carries as `ArtifactManifest.metadata`.
+> **The OCI manifest envelope.** `artifact_manifests.size_bytes` (OCI manifest-descriptor `size`) realizes the OCI envelope per D-011-1. An artifact is never changed in place: no manifest or payload-ref row is ever updated. A chat's file or folder is the group of manifests sharing `(session_id, workspace_path)`, each write a new manifest with the group's next `version_number`; a folder is one manifest at its creation, of media type `inode/directory` over the empty payload, so it keeps both `NOT NULL` columns. A plan is one manifest per `plan.proposed`, `plan_id` set, and its word lives on the plan record (`plans`, §Approval Tables), which the list joins; a fresh session's seed plan is a second manifest in that session over the same bytes. **`content_hash`/`size_bytes` are `NOT NULL`:** a content-addressed manifest's `digest` is intrinsic to its identity (I-011-1), and each producer (Plan-011 Task 2 AttachmentIngest, Task 3 ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref — the two are independent producers, each writing its own manifest (so the `artifactId` AttachmentIngest returns resolves from the ingest-written manifest, not a later publish), so neither is ever NULL and no payload-less manifest is ever read — this is 1:1 with the **required** `digest`/`size` fields on the `ArtifactManifest` wire shape ([api-payload-contracts.md](../contracts/api-payload-contracts.md)). The file name lives in `metadata`, which the wire carries as `ArtifactManifest.metadata`.
 
 ---
 
 ## Approval Tables (Plan-009)
 
-The 6 canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `plan_approval`, `gate`. A question and a tool server's own MCP elicitation are not approvals: each is one `question.asked` record, answered outside the approval pipeline. Codex's own approval of a tool-server call, an elicitation marked `_meta.codex_approval_kind: "mcp_tool_call"`, is a `tool_execution` approval.
+The canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `gate`. A plan, a question and a tool server's own MCP elicitation are not approvals: a plan is one `plan.proposed` record answered by `plan.resolve`, and a question or elicitation is one `question.asked` record answered by `question.resolve`, outside the approval pipeline. Codex's own approval of a tool-server call, an elicitation marked `_meta.codex_approval_kind: "mcp_tool_call"`, is a `tool_execution` approval.
 
 ```sql
 -- Owner: Plan-009 (D-009-2)
@@ -635,7 +651,7 @@ CREATE TABLE approval_requests (
   category              TEXT NOT NULL
                         CHECK(category IN (
                           'tool_execution', 'file_write', 'network_access', 'destructive_git',
-                          'plan_approval', 'gate'                                 -- mirrors Spec-010 canonical enum
+                          'gate'                                                  -- mirrors Spec-010 canonical enum
                         )),
   scope                 TEXT NOT NULL,        -- requested scope descriptor
   resource_descriptor   TEXT NOT NULL DEFAULT '{}', -- target resource details (JSON; Spec-010 §Interfaces And Contracts, 'must include')
@@ -712,6 +728,28 @@ CREATE TABLE reviewer_denials (
 ) STRICT;
 
 CREATE INDEX idx_reviewer_denials_session ON reviewer_denials(session_id);
+
+-- Owner: Plan-009
+-- The plan record, rebuilt from plan.proposed, plan.accepted, plan.handed_off, plan.kept and
+-- plan.hold_ended. The plan's artifact is never changed; its state word is read here.
+CREATE TABLE plans (
+  id                TEXT PRIMARY KEY,  -- PlanId
+  session_id        TEXT NOT NULL,     -- the planning session
+  run_id            TEXT NOT NULL,
+  artifact_id       TEXT NOT NULL REFERENCES artifact_manifests(id),
+  title             TEXT NOT NULL,     -- the plan's first heading
+  holds_request     INTEGER NOT NULL CHECK(holds_request IN (0, 1)), -- a held provider request waits on the verdict
+  state             TEXT NOT NULL DEFAULT 'waiting'
+                    CHECK(state IN ('waiting', 'accepted', 'handed_off', 'open')),
+  fresh_session_id  TEXT,              -- set exactly when state = 'handed_off'
+  resolved_by       TEXT,              -- the device whose verdict landed; NULL while pending and after plan.hold_ended
+  resolved_at       TEXT,
+  created_at        TEXT NOT NULL,
+  CHECK((state = 'handed_off') = (fresh_session_id IS NOT NULL))
+) STRICT;
+
+CREATE INDEX idx_plans_session ON plans(session_id);
+CREATE INDEX idx_plans_fresh_session ON plans(fresh_session_id) WHERE fresh_session_id IS NOT NULL;
 ```
 
 The daemon keeps no table of approval rules: the providers keep them ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)), and a session's own answers are its `approval_resolutions` rows and its `approval.remembered` and `approval.rule_revoked` events, which the inspector's `Rules` reads beside the providers' own rules.
@@ -796,7 +834,7 @@ The attention service's entries carry the state its two deliveries beyond the ap
 - **Each attention entry** carries a nullable `digested_at`, the instant the entry went out in an email digest, so no entry is listed twice and the digest's one timer is restored from it at start; and a nullable `web_address_state` (`pending`, `delivered` or `undelivered`) with its attempt count, so a retry to the web address survives a restart. Both live as long as the entry.
 - **Each delivery channel** — the web address and the email digest — keeps one outcome row: when the last attempt ran, its result (`delivered`, `refused`, `unreachable`, `timedOut`, `signInRefused`, `notEncrypted` or `notAnAddress`), the HTTP status where there was one, and how many moments are undelivered. The row is overwritten on each attempt and removed with the channel's secret; `attention.deliveryRead` returns it.
 - **The session row's `muted_at`** (§Session Directory) keeps a muted session's `Finished` and `Failed` moments out of both channels.
-- **Each push to another device** keeps a `push_deliveries` row, its device one of `trusted_devices` (§Remote Control Tables).
+- **Each push to another device** keeps a `push_deliveries` row, its device one of `trusted_devices` ([Remote Control Tables §The Account's Devices](local-sqlite-remote-control-tables.md#the-accounts-devices)).
 
 ```sql
 -- Owner: Plan-016 (T3.6)
@@ -810,52 +848,6 @@ CREATE TABLE push_deliveries (
                CHECK(state IN ('sent', 'replaced')),  -- 'replaced' once a later push for the same moment took its place, which leaves nothing to withdraw
   sent_at      TEXT NOT NULL,
   PRIMARY KEY (entry_id, device_id)
-) STRICT;
-```
-
-## Remote Control Tables (Plan-025)
-
-Each machine keeps its own verified view of the account's devices, which the channel's handshake reads, and the ports it shares with them ([Spec-027](../../specs/027-remote-control.md)). Settings › Devices lists both. The account's trust is an append-only chain of signed statements, each naming the hash of the one before it. Every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked` and `passkey.added` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed` or `passkey.removed` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again.
-
-```sql
--- Owner: Plan-025
--- The verified chain, append-only. Kept until the account is gone; a forgotten device's
--- `device.revoked` stays in it.
-CREATE TABLE trust_statements (
-  statement_hash    TEXT PRIMARY KEY,             -- the statement's own hash, which the next statement names
-  previous_hash     TEXT,                         -- the hash of the statement before it; NULL for the chain's first
-  kind              TEXT NOT NULL
-                    CHECK(kind IN ('device.linked', 'device.renamed', 'device.revoked',
-                                   'passkey.added', 'passkey.removed',
-                                   'runtimenode.added', 'runtimenode.renamed', 'runtimenode.removed')),
-  statement         BLOB NOT NULL                 -- the signed statement as verified, signed by a machine key, a device key or a passkey
-) STRICT;
-
--- Owner: Plan-025
--- One row per device the chain trusts or has revoked. Kept until the account is gone; a
--- forgotten device's row goes.
-CREATE TABLE trusted_devices (
-  device_id               TEXT PRIMARY KEY,
-  public_key              BLOB NOT NULL,
-  key_algorithm           TEXT NOT NULL
-                          CHECK(key_algorithm IN ('p256', 'ed25519')),  -- every public key carries its algorithm, because the Secure Enclave has no Ed25519
-  name                    TEXT NOT NULL,
-  platform                TEXT NOT NULL,
-  trusted_by_statement    TEXT NOT NULL REFERENCES trust_statements(statement_hash),  -- the statement that trusts it
-  revoked_at              TEXT,                   -- NULL while trusted
-  notification_settings   TEXT,                   -- JSON: the device's switches {notifyOutsideTheApp, countOnAppIcon, kinds}, handed over by device.notificationSettingsSet; the device holds the source of truth
-  push_key                BLOB,                   -- the key a push notice to this device is sealed to
-  web_push_keys           TEXT,                   -- JSON: the web client's subscription keys {p256dh, auth}; NULL on every other device
-  CHECK(revoked_at IS NULL OR (notification_settings IS NULL AND push_key IS NULL AND web_push_keys IS NULL))  -- the switches and push keys are kept until the device is revoked
-) STRICT;
-
--- Owner: Plan-025
--- The ports this machine shares with the account's devices: only listed ports, and only loopback,
--- forwarded through the channel. A row stays until the port is removed from the list.
-CREATE TABLE shared_ports (
-  port      INTEGER PRIMARY KEY
-            CHECK(port BETWEEN 1 AND 65535),
-  added_at  TEXT NOT NULL
 ) STRICT;
 ```
 
