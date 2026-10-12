@@ -4,10 +4,9 @@
 import type { BlockPaneKind } from "#renderer/routing/panes/kinds.js";
 import {
   AGENTS_PANE_WIDTH_REM,
+  CONVERSATION_FLOOR_REM,
   INSPECTOR_WIDTH_REM,
-  PREVIEW_PANE_FLOOR_REM,
   PREVIEW_PANE_WIDTH_REM,
-  REVIEW_PANE_FLOOR_REM,
   REVIEW_PANE_WIDTH_REM,
   TERMINAL_PANE_FLOOR_REM,
   TERMINAL_PANE_WIDTH_REM,
@@ -25,14 +24,16 @@ export interface PaneWidthRule {
 
 const REVIEW_WIDTH_RULE: PaneWidthRule = {
   widthRem: REVIEW_PANE_WIDTH_REM,
-  floorRem: REVIEW_PANE_FLOOR_REM,
+  floorRem: CONVERSATION_FLOOR_REM,
   isResizable: true,
 };
 
 /**
  * Every block pane kind's width rule. The inspector and the agents pane are as wide as their
- * widest row reads and are not resizable, so their width is their floor. The workflow builder
- * reads a diff-wide canvas, so it takes Review's rule.
+ * widest row reads and are not resizable, so their width is their floor. Review and Preview keep
+ * the conversation's own floor, the narrowest one half of a diff or one column of a page still
+ * reads at, 420 px at the default text size. The workflow builder reads a diff-wide canvas, so it
+ * takes Review's rule.
  */
 export const PANE_WIDTH_RULE_BY_KIND: Readonly<Record<BlockPaneKind, PaneWidthRule>> = {
   inspector: { widthRem: INSPECTOR_WIDTH_REM, floorRem: INSPECTOR_WIDTH_REM, isResizable: false },
@@ -40,7 +41,7 @@ export const PANE_WIDTH_RULE_BY_KIND: Readonly<Record<BlockPaneKind, PaneWidthRu
   "workflow-builder": REVIEW_WIDTH_RULE,
   browser: {
     widthRem: PREVIEW_PANE_WIDTH_REM,
-    floorRem: PREVIEW_PANE_FLOOR_REM,
+    floorRem: CONVERSATION_FLOOR_REM,
     isResizable: true,
   },
   terminal: {

@@ -246,23 +246,10 @@ export const CONVERSATION_HEIGHT_FLOOR_REM: number =
   CONVERSATION_HEIGHT_FLOOR_LINES * scaleStep(TYPE_SCALE_REM, "text-sm") * READING_LINE_HEIGHT;
 
 /**
- * Review's floor, in rem: the narrowest one half of a side-by-side diff still reads at, the
- * conversation's own floor, 420 px at the default text size. Root-relative, so the same half
- * reads at every text size.
- */
-export const REVIEW_PANE_FLOOR_REM: number = CONVERSATION_FLOOR_REM;
-
-/**
  * Review's width until a person drags its edge, in rem: room for both halves of a diff beside
  * the conversation on a laptop, 720 px at the default text size.
  */
 export const REVIEW_PANE_WIDTH_REM = 45;
-
-/**
- * Preview's floor, in rem: the narrowest one column of a page still reads at, the conversation's
- * own floor, 420 px at the default text size.
- */
-export const PREVIEW_PANE_FLOOR_REM: number = CONVERSATION_FLOOR_REM;
 
 /** Preview's width until a person drags its edge, in rem: 720 px at the default text size. */
 export const PREVIEW_PANE_WIDTH_REM = 45;
@@ -295,8 +282,7 @@ export const TERMINAL_PANE_WIDTH_REM: number =
 export const PANE_FLOOR_WIDEST_REM: number = Math.max(
   INSPECTOR_WIDTH_REM,
   AGENTS_PANE_WIDTH_REM,
-  REVIEW_PANE_FLOOR_REM,
-  PREVIEW_PANE_FLOOR_REM,
+  CONVERSATION_FLOOR_REM,
   TERMINAL_PANE_FLOOR_REM,
 );
 
