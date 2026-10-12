@@ -4,8 +4,8 @@
 // Spans are kept packed. A source's spans are one `Uint32Array` of `[offset, length, class]`
 // triples, adjacent spans of one class merged and plain text left out, which holds a source's
 // colors in well under a byte per source byte where one object per token holds several. The
-// cache is bounded by those bytes (1/2048 of physical memory) and keyed by the language and a
-// digest of the source, so the same code asked for twice is colored once and the cache never
+// cache is bounded by what its entries hold (1/2048 of physical memory) and keyed by the language
+// and a digest of the source, so the same code asked for twice is colored once and the cache never
 // holds the source itself.
 //
 // The event loop is never held for a whole file. Tokenizing costs about 2 ms a kilobyte, so a
@@ -64,21 +64,22 @@ const TOKENIZE_MAX_LINE_LENGTH = 20_000;
 /** Numbers per packed span: offset, length, class. */
 const SPAN_WIDTH = 3;
 
-/** The span cache's default budget: 1/2048 of the machine's physical memory. */
-function defaultSpanCacheByteBudget(): number {
+/** The span cache's budget: 1/2048 of the machine's physical memory. */
+function spanCacheByteBudget(): number {
   return Math.floor(totalmem() / 2048);
 }
+
+/**
+ * Bytes a span cache entry costs beyond its key's characters and its spans' bytes: the key
+ * string's header, the cache's map entry and its per-entry list slots, and the typed array and
+ * buffer objects. Measured on Node 24 at 336 to 352 bytes for keys of the cache's shape.
+ */
+const SPAN_CACHE_ENTRY_OVERHEAD_BYTES = 352;
 
 /** What the span cache's fetch method tokenizes on a miss. */
 interface SpanCacheFetchContext {
   readonly source: string;
   readonly language: HighlightLanguage;
-}
-
-/** Construction options for `CodeHighlighter`. */
-export interface CodeHighlighterOptions {
-  /** Bytes of packed spans the cache may hold. Defaults to 1/2048 of physical memory. */
-  readonly spanCacheByteBudget?: number;
 }
 
 /** Colors code and keeps what it colored. One per daemon. */
@@ -87,12 +88,12 @@ export class CodeHighlighter {
   readonly #loadedLanguages = new Map<HighlightLanguage, Promise<void>>();
   readonly #spanCache: LRUCache<string, Uint32Array, SpanCacheFetchContext>;
 
-  constructor(options: CodeHighlighterOptions = {}) {
+  constructor() {
     this.#spanCache = new LRUCache<string, Uint32Array, SpanCacheFetchContext>({
-      maxSize: options.spanCacheByteBudget ?? defaultSpanCacheByteBudget(),
-      // A source with no colored text packs to no spans but still costs its entry, so an empty
-      // list is charged one byte.
-      sizeCalculation: (spans) => Math.max(spans.byteLength, 1),
+      maxSize: spanCacheByteBudget(),
+      // Keys are ASCII, so a key's length is its bytes.
+      sizeCalculation: (spans, cacheKey) =>
+        spans.byteLength + cacheKey.length + SPAN_CACHE_ENTRY_OVERHEAD_BYTES,
       fetchMethod: (_key, _stale, { context }) => this.#tokenize(context.source, context.language),
     });
   }

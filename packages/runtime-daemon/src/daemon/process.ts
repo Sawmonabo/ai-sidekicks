@@ -50,10 +50,6 @@ import {
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
 import { createGitRunner, findGitExecutable, type GitRunner } from "../git/process.js";
 import { CodeHighlighter } from "../highlight/code-highlighter.js";
-import {
-  createStreamedGitRunner,
-  type StreamedGitRunner,
-} from "../workspace/clone/streamed-git.js";
 import { createAgentCallerCheck } from "../ipc/caller-process/descent.js";
 import { ProviderServiceProcesses } from "../ipc/caller-process/provider-services.js";
 import { registerHighlightRead } from "../ipc/handlers/highlight-read.js";
@@ -85,6 +81,10 @@ import { RecoveryWriteGate } from "../recovery/write-gate.js";
 import { RunEngine } from "../session/run/engine.js";
 import { RunStateReader } from "../session/run/read.js";
 import { SearchThread } from "../session/search/thread/handle.js";
+import {
+  createStreamedGitRunner,
+  type StreamedGitRunner,
+} from "../workspace/clone/streamed-git.js";
 import type { FolderPlace } from "../workspace/folder/place.js";
 import { openDatabaseFile, type OpenedDatabaseFile } from "./database-file.js";
 import { takeDataFolderLock, type DataFolderLock } from "./data-folder-lock.js";

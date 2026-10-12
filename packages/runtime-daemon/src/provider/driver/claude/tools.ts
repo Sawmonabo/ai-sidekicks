@@ -116,11 +116,12 @@ export function getClaudeToolMetadata(): NormalizedProviderToolMetadata[] {
 }
 
 /**
- * Claude Code's server status words mapped to the unified enum, looked up trimmed, lower-cased and
- * with whitespace runs collapsed. The init census and `mcpServerStatus()` send `connected`,
- * `failed`, `needs-auth`, `pending` or `disabled`; `claude mcp list` prints the phrases below.
- * Its `Not configured`, `Pending approval`, `Rejected` and `Disabled for this project` say the
- * server was never connected to, so they fall to `unknown`, as does any other word.
+ * Claude Code's server status words mapped to the unified enum, looked up trimmed and lower-cased.
+ * The init census and `mcpServerStatus()` send the SDK's five `McpServerStatus` words; `claude mcp
+ * list` prints the phrases below. `Connected · tools fetch failed` is a failure: the server
+ * connected but its tool list never arrived, so the agent cannot call anything on it. The list's
+ * `Not configured`, `Pending approval` and `Disabled for this project` say the server was never
+ * connected to, so they fall to `unknown`, as does any other word.
  */
 const CLAUDE_STATUS_TOKEN_MAP: Readonly<Record<string, McpServerStatus>> = {
   connected: "connected",
@@ -128,7 +129,7 @@ const CLAUDE_STATUS_TOKEN_MAP: Readonly<Record<string, McpServerStatus>> = {
   "needs-auth": "needs-auth",
   pending: "starting",
   disabled: "unknown",
-  "connected · tools fetch failed": "connected",
+  "connected · tools fetch failed": "failed",
   "needs authentication": "needs-auth",
   "failed to connect": "failed",
   "connection error": "failed",
@@ -136,7 +137,7 @@ const CLAUDE_STATUS_TOKEN_MAP: Readonly<Record<string, McpServerStatus>> = {
 
 /** Canonicalizes a raw status token for map lookup, never for emission. */
 function canonicalizeClaudeStatusToken(rawToken: string): string {
-  return rawToken.trim().toLowerCase().replace(/\s+/g, " ");
+  return rawToken.trim().toLowerCase();
 }
 
 function mapClaudeStatusToken(rawToken: unknown): McpServerStatus {
@@ -183,34 +184,43 @@ export function normalizeClaudeMcpServerInitCensus(
 }
 
 /**
+ * The ` - ` that opens a `claude mcp list` status: a status glyph, a space, then the status's first
+ * letter. The command before it and the failure detail after it may hold ` - ` of their own.
+ */
+const CLAUDE_MCP_LIST_STATUS_SEPARATOR = / - (?=[^\p{L}\p{N}\s] \p{L})/u;
+
+/**
  * Normalizes `claude mcp list` output (`<name>: <command> - <glyph> <status text>`, a failure's
  * detail after ` — `; the CLI has no `--json`), the zero-billed-turn status refresh. Lines without
- * a `name: ` prefix and a ` - ` separator are skipped without a rejection.
+ * a `name: ` prefix and a status separator are skipped without a rejection.
  */
 export function normalizeClaudeMcpListProbeOutput(
   probeStdout: string,
 ): McpServerStatusIngestResult {
   const emissions: McpServerStatusEmission[] = [];
   const rejections: McpServerStatusIngestRejection[] = [];
-  for (const rawLine of probeStdout.split(/\r?\n/)) {
-    // A failure's detail follows the status after an em dash and may itself hold ` - `.
-    const detailIndex = rawLine.indexOf(" \u2014 ");
-    const line = detailIndex === -1 ? rawLine : rawLine.slice(0, detailIndex);
-    const separatorIndex = line.lastIndexOf(" - ");
+  for (const line of probeStdout.split(/\r?\n/)) {
     // The name ends at the first `: `, since a plugin server's name holds colons of its own.
     const colonIndex = line.indexOf(": ");
-    if (separatorIndex === -1 || colonIndex === -1 || colonIndex >= separatorIndex) {
+    if (colonIndex === -1) {
       continue;
     }
+    const separatorMatch = CLAUDE_MCP_LIST_STATUS_SEPARATOR.exec(line.slice(colonIndex));
+    if (separatorMatch === null) {
+      continue;
+    }
+    const statusStart = colonIndex + separatorMatch.index + separatorMatch[0].length;
+    // A failure's detail follows the status after an em dash; a command's own em dash comes
+    // before the separator and stays out of the status.
+    const detailIndex = line.indexOf(" \u2014 ", statusStart);
     const serverName = line.slice(0, colonIndex).trim();
     if (serverName.length === 0) {
       continue;
     }
     // Strip the leading status glyph so the token map reads words, not the symbol.
     const statusText = line
-      .slice(separatorIndex + " - ".length)
-      .replace(/^[^\p{L}\p{N}]+/u, "")
-      .trim();
+      .slice(statusStart, detailIndex === -1 ? line.length : detailIndex)
+      .replace(/^[^\p{L}\p{N}]+/u, "");
     const bounded = boundMcpServerStatusEmission(serverName, mapClaudeStatusToken(statusText));
     if (bounded.emission !== undefined) {
       emissions.push(bounded.emission);

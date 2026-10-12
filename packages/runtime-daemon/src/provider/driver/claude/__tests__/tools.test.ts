@@ -112,6 +112,7 @@ describe("Claude MCP server-status census normalization", () => {
       "lister: list-command - ! Connected · tools fetch failed — timed out",
       "thrower: https://mcp.example.com/sse (SSE) - ✘ Connection error",
       "blank:  (HTTP) - - Not configured",
+      "dashed: echo a — b - ✘ Failed to connect — spawn echo - ENOENT",
     ].join("\n");
     const result = normalizeClaudeMcpListProbeOutput(probeOutput);
     expect(result.rejections).toEqual([]);
@@ -120,14 +121,15 @@ describe("Claude MCP server-status census normalization", () => {
       { serverName: "broken", status: "failed" },
       { serverName: "authy", status: "needs-auth" },
       { serverName: "plugin:context7:context7", status: "connected" },
-      { serverName: "lister", status: "connected" },
+      { serverName: "lister", status: "failed" },
       { serverName: "thrower", status: "failed" },
       { serverName: "blank", status: "unknown" },
+      { serverName: "dashed", status: "failed" },
     ]);
   });
 
-  it("reads the LAST separator, so a command containing ' - ' still parses", () => {
-    const result = normalizeClaudeMcpListProbeOutput("srv: run --mode a - b - ✓ Connected");
+  it("finds the status separator, so a command containing ' - ' still parses", () => {
+    const result = normalizeClaudeMcpListProbeOutput("srv: run --mode a - b - ✔ Connected");
     expect(result.emissions).toEqual([{ serverName: "srv", status: "connected" }]);
   });
 
