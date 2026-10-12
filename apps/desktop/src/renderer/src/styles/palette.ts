@@ -307,13 +307,16 @@ export const PANE_ROW_HEIGHT_FLOOR_REM: number =
   PANE_ROW_HEIGHT_FLOOR_LINES * scaleStep(TYPE_SCALE_REM, "text-sm") * BODY_LINE_HEIGHT;
 
 /**
- * One arrow press on a pane edge, in rem: 24 px at the default text size, so a press moves the
- * edge as far at every text size.
+ * One arrow press on a pane edge, its nudge, in rem: a `space-5` step, 24 px at the default text
+ * size, so a press moves the edge as far at every text size.
  */
-export const PANE_EDGE_STEP_REM = 1.5;
+export const PANE_EDGE_STEP_REM: number = scaleStep(SPACE_SCALE_REM, "space-5");
 
-/** One arrow press with Shift on a pane edge, in rem: 80 px at the default text size. */
-export const PANE_EDGE_LARGE_STEP_REM = 5;
+// How many nudges one arrow press with Shift moves a pane edge.
+const PANE_EDGE_LARGE_STEP_NUDGES = 5;
+
+/** One arrow press with Shift on a pane edge, in rem: five nudges, 120 px at the default size. */
+export const PANE_EDGE_LARGE_STEP_REM: number = PANE_EDGE_LARGE_STEP_NUDGES * PANE_EDGE_STEP_REM;
 
 /**
  * A pane edge's grab zone, in rem: wider than the hairline it draws, so the pointer finds it

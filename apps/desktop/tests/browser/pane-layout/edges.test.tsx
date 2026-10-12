@@ -1,10 +1,10 @@
 // The pane edges through the real pane layout in Chromium, pressed with a real keyboard and the
 // browser's own mouse. An arrow moves a width edge its own way by one nudge of the text size and
-// by the large step with Shift, the arrows reversed with the block on the left; Home and a
-// double-click give the opening width back; and after each the edge reports the width drawn and
-// its two limits. The stack divider stops at the terminal's floor and the row's. A larger text
-// size moves every limit and the edge reports its size inside them. An edge taken out of its
-// document mid-drag ends the drag: the layout is resizing nothing and no width is kept.
+// by five with Shift, the arrows reversed with the block on the left; Home and a double-click
+// give the opening width back; and after each the edge reports the width drawn and its two
+// limits. The stack divider stops at the terminal's floor and the row's. A larger text size moves
+// every limit and the edge reports its size inside them. An edge taken out of its document
+// mid-drag ends the drag: the layout is resizing nothing and no width is kept.
 
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -63,7 +63,7 @@ afterEach(async () => {
 });
 
 describe("browser — a pane's width edge", () => {
-  it("steps by a nudge and by the large step with Shift, each its own way, and resets", async () => {
+  it("steps by a nudge and by five with Shift, each its own way, and resets", async () => {
     const layout = new PaneLayoutStore();
     const previewId = layout.open({ kind: "browser" });
     await mountLayout(layout);
@@ -74,6 +74,7 @@ describe("browser — a pane's width edge", () => {
     };
     const nudge = PANE_EDGE_STEP_REM * ROOT_PX;
     const largeStep = PANE_EDGE_LARGE_STEP_REM * ROOT_PX;
+    expect(largeStep).toBe(5 * nudge);
     const edge = widthEdgeOf("browser");
     expect(readingOf(edge)).toStrictEqual({ now: opening, ...limits });
 
