@@ -62,7 +62,7 @@ describe("Claude MCP server-status census normalization", () => {
     const expectations: readonly (readonly [string, string])[] = [
       ["connected", "connected"],
       ["failed", "failed"],
-      ["needs_auth", "needs-auth"],
+      ["needs-auth", "needs-auth"],
       ["pending", "starting"],
       ["disabled", "unknown"],
     ];
@@ -103,11 +103,15 @@ describe("Claude MCP server-status census normalization", () => {
 
   it("parses claude mcp list glyph lines into bounded emissions", () => {
     const probeOutput = [
-      "Checking MCP server health...",
+      "Checking MCP server health…",
       "",
-      "filesystem: npx -y @modelcontextprotocol/server-filesystem - ✓ Connected",
-      "broken: some-command --flag - ✗ Failed to connect",
-      "authy: another-command - ⚠ Needs authentication",
+      "filesystem: npx -y @modelcontextprotocol/server-filesystem - ✔ Connected",
+      "broken: some-command --flag - ✘ Failed to connect — spawn some-command - ENOENT",
+      "authy: https://mcp.example.com/mcp (HTTP) - ! Needs authentication",
+      "plugin:context7:context7: https://mcp.context7.com/mcp (HTTP) - ✔ Connected",
+      "lister: list-command - ! Connected · tools fetch failed — timed out",
+      "thrower: https://mcp.example.com/sse (SSE) - ✘ Connection error",
+      "blank:  (HTTP) - - Not configured",
     ].join("\n");
     const result = normalizeClaudeMcpListProbeOutput(probeOutput);
     expect(result.rejections).toEqual([]);
@@ -115,6 +119,10 @@ describe("Claude MCP server-status census normalization", () => {
       { serverName: "filesystem", status: "connected" },
       { serverName: "broken", status: "failed" },
       { serverName: "authy", status: "needs-auth" },
+      { serverName: "plugin:context7:context7", status: "connected" },
+      { serverName: "lister", status: "connected" },
+      { serverName: "thrower", status: "failed" },
+      { serverName: "blank", status: "unknown" },
     ]);
   });
 

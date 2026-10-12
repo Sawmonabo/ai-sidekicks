@@ -49,12 +49,14 @@ import {
 } from "../database/connection/lifecycle.js";
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
 import { createGitRunner, findGitExecutable, type GitRunner } from "../git/process.js";
+import { CodeHighlighter } from "../highlight/code-highlighter.js";
 import {
   createStreamedGitRunner,
   type StreamedGitRunner,
 } from "../workspace/clone/streamed-git.js";
 import { createAgentCallerCheck } from "../ipc/caller-process/descent.js";
 import { ProviderServiceProcesses } from "../ipc/caller-process/provider-services.js";
+import { registerHighlightRead } from "../ipc/handlers/highlight-read.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
@@ -218,6 +220,7 @@ export class DaemonProcess {
       acceptStop: () => this.#acceptStop(),
     });
     registerAppDiagnosticMethods(registry, options.writeServiceLog);
+    registerHighlightRead(registry, { highlighter: new CodeHighlighter() });
     registerStatusMethods(registry, {
       processIdentity: options.processIdentity,
       readProcessState: () => this.#processState,

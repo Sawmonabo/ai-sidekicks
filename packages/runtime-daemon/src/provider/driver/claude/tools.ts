@@ -116,27 +116,27 @@ export function getClaudeToolMetadata(): NormalizedProviderToolMetadata[] {
 }
 
 /**
- * Recognized Claude status tokens mapped to the unified enum, looked up lower-cased with `-` and
- * whitespace collapsed (`needs_auth` is the init census spelling). `disabled` and any unrecognized
- * token map to `unknown`, never a healthy state, because the wire census does not pin the set.
+ * Claude Code's server status words mapped to the unified enum, looked up trimmed, lower-cased and
+ * with whitespace runs collapsed. The init census and `mcpServerStatus()` send `connected`,
+ * `failed`, `needs-auth`, `pending` or `disabled`; `claude mcp list` prints the phrases below.
+ * Its `Not configured`, `Pending approval`, `Rejected` and `Disabled for this project` say the
+ * server was never connected to, so they fall to `unknown`, as does any other word.
  */
 const CLAUDE_STATUS_TOKEN_MAP: Readonly<Record<string, McpServerStatus>> = {
   connected: "connected",
   failed: "failed",
-  "failed to connect": "failed",
-  "needs authentication": "needs-auth",
-  needs_auth: "needs-auth",
+  "needs-auth": "needs-auth",
   pending: "starting",
-  starting: "starting",
   disabled: "unknown",
+  "connected · tools fetch failed": "connected",
+  "needs authentication": "needs-auth",
+  "failed to connect": "failed",
+  "connection error": "failed",
 };
 
 /** Canonicalizes a raw status token for map lookup, never for emission. */
 function canonicalizeClaudeStatusToken(rawToken: string): string {
-  return rawToken
-    .trim()
-    .toLowerCase()
-    .replace(/[-\s]+/g, " ");
+  return rawToken.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function mapClaudeStatusToken(rawToken: unknown): McpServerStatus {
@@ -183,18 +183,22 @@ export function normalizeClaudeMcpServerInitCensus(
 }
 
 /**
- * Normalizes `claude mcp list` output (`<name>: <command> - <glyph> <status text>`; the CLI has no
- * `--json`), the zero-billed-turn status refresh. Lines without a `name:` prefix and a ` - `
- * separator are skipped without a rejection.
+ * Normalizes `claude mcp list` output (`<name>: <command> - <glyph> <status text>`, a failure's
+ * detail after ` — `; the CLI has no `--json`), the zero-billed-turn status refresh. Lines without
+ * a `name: ` prefix and a ` - ` separator are skipped without a rejection.
  */
 export function normalizeClaudeMcpListProbeOutput(
   probeStdout: string,
 ): McpServerStatusIngestResult {
   const emissions: McpServerStatusEmission[] = [];
   const rejections: McpServerStatusIngestRejection[] = [];
-  for (const line of probeStdout.split(/\r?\n/)) {
+  for (const rawLine of probeStdout.split(/\r?\n/)) {
+    // A failure's detail follows the status after an em dash and may itself hold ` - `.
+    const detailIndex = rawLine.indexOf(" \u2014 ");
+    const line = detailIndex === -1 ? rawLine : rawLine.slice(0, detailIndex);
     const separatorIndex = line.lastIndexOf(" - ");
-    const colonIndex = line.indexOf(":");
+    // The name ends at the first `: `, since a plugin server's name holds colons of its own.
+    const colonIndex = line.indexOf(": ");
     if (separatorIndex === -1 || colonIndex === -1 || colonIndex >= separatorIndex) {
       continue;
     }
