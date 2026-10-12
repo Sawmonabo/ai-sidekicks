@@ -1,31 +1,25 @@
-// The colorer's two promises: a file colored in slices is colored as if in one piece, and code
-// asked for twice is colored once.
+// The colorer's two promises: a file colored line by line on its thread is colored as if in one
+// piece, and code asked for twice is colored once.
 
-import { describe, expect, it } from "vitest";
-
-import { HIGHLIGHT_SPAN_CLASSES } from "@ai-sidekicks/contracts/highlight";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { CodeHighlighter } from "../code-highlighter.js";
+import { decodeSpans } from "./spans.test-support.js";
 
-/** Each span as the text it covers and the class it paints as. */
-function decodeSpans(source: string, spans: Uint32Array): [string, string][] {
-  const decoded: [string, string][] = [];
-  for (let index = 0; index < spans.length; index += 3) {
-    const offset = spans[index] ?? 0;
-    const length = spans[index + 1] ?? 0;
-    decoded.push([
-      source.slice(offset, offset + length),
-      HIGHLIGHT_SPAN_CLASSES[spans[index + 2] ?? 0] ?? "?",
-    ]);
-  }
-  return decoded;
-}
+let highlighter: CodeHighlighter | undefined;
+
+afterEach(async () => {
+  await highlighter?.stop();
+  highlighter = undefined;
+});
 
 describe("CodeHighlighter", () => {
   it("colors a comment that runs past a slice boundary, and the code after it", async () => {
     const commentBody = "inside the comment\n".repeat(400);
     const source = `/*\n${commentBody}*/\nconst after = 1;\n`;
-    const spans = await new CodeHighlighter().readSpans(source, "typescript");
+    const commentHighlighter = new CodeHighlighter();
+    highlighter = commentHighlighter;
+    const spans = await commentHighlighter.readSpans(source, "typescript");
     const decoded = decodeSpans(source, spans);
     const commentText = decoded
       .filter(([, spanClass]) => spanClass === "comment")
@@ -39,14 +33,15 @@ describe("CodeHighlighter", () => {
   });
 
   it("answers a second read of the same code from the first", async () => {
-    const highlighter = new CodeHighlighter();
+    const sqlHighlighter = new CodeHighlighter();
+    highlighter = sqlHighlighter;
     const source = "SELECT id FROM sessions WHERE id = 7;";
     const [first, concurrent] = await Promise.all([
-      highlighter.readSpans(source, "sql"),
-      highlighter.readSpans(source, "sql"),
+      sqlHighlighter.readSpans(source, "sql"),
+      sqlHighlighter.readSpans(source, "sql"),
     ]);
     expect(concurrent).toBe(first);
-    expect(await highlighter.readSpans(source, "sql")).toBe(first);
-    expect(await highlighter.readSpans(source, "typescript")).not.toBe(first);
+    expect(await sqlHighlighter.readSpans(source, "sql")).toBe(first);
+    expect(await sqlHighlighter.readSpans(source, "typescript")).not.toBe(first);
   });
 });

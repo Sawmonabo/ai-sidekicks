@@ -141,6 +141,7 @@ export class DaemonProcess {
   readonly #database: DatabaseConnections;
   readonly #databaseFile: OpenedDatabaseFile;
   readonly #searchThread: SearchThread;
+  readonly #highlighter = new CodeHighlighter();
   readonly #gateway: LocalIpcGateway;
   readonly #inFlightMutations: InFlightMutations;
   readonly #recoveryStatus = new RecoveryStatusTracker();
@@ -220,7 +221,7 @@ export class DaemonProcess {
       acceptStop: () => this.#acceptStop(),
     });
     registerAppDiagnosticMethods(registry, options.writeServiceLog);
-    registerHighlightRead(registry, { highlighter: new CodeHighlighter() });
+    registerHighlightRead(registry, { highlighter: this.#highlighter });
     registerStatusMethods(registry, {
       processIdentity: options.processIdentity,
       readProcessState: () => this.#processState,
@@ -744,10 +745,10 @@ export class DaemonProcess {
       failures.push(error);
     }
     // The calls under way, the recovery pass, the session services' background work, the provider
-    // processes, the searches and the terminals are independent, so all finish inside one drain
-    // bound, before the database closes, since a provider's last frames are written. A call, a pass
-    // or a background write still running at the bound fails once the database closes under it,
-    // and its batch rolls back.
+    // processes, the searches, the colorer's thread and the terminals are independent, so all
+    // finish inside one drain bound, before the database closes, since a provider's last frames are
+    // written. A call, a pass or a background write still running at the bound fails once the
+    // database closes under it, and its batch rolls back.
     const [
       stillWriting,
       hasPassEnded,
@@ -755,6 +756,7 @@ export class DaemonProcess {
       haveSessionServicesEnded,
       haveProvidersEnded,
       haveSearchesEnded,
+      hasColorerEnded,
     ] = await Promise.allSettled([
       this.#inFlightMutations.waitForPendingWithin(DAEMON_STOP_DRAIN_BOUND_MS),
       waitWithin(this.#recoveryPass, DAEMON_STOP_DRAIN_BOUND_MS),
@@ -765,6 +767,7 @@ export class DaemonProcess {
       endWithinDrainBound(this.#sessionServices.stop(), failures),
       endWithinDrainBound(this.#providers.stop(), failures),
       endWithinDrainBound(this.#searchThread.close(), failures),
+      endWithinDrainBound(this.#highlighter.stop(), failures),
     ]);
     if (haveSessionServicesEnded.status === "fulfilled" && !haveSessionServicesEnded.value) {
       this.#writeServiceLog(
@@ -776,6 +779,9 @@ export class DaemonProcess {
     }
     if (haveSearchesEnded.status === "fulfilled" && !haveSearchesEnded.value) {
       this.#writeServiceLog("The stop's drain bound passed; a search is still running.");
+    }
+    if (hasColorerEnded.status === "fulfilled" && !hasColorerEnded.value) {
+      this.#writeServiceLog("The stop's drain bound passed; the colorer's thread is still ending.");
     }
     if (stillWriting.status === "fulfilled" && stillWriting.value > 0) {
       this.#writeServiceLog(

@@ -34,7 +34,22 @@ The console design shows the same file in the flow, in Review and in the file vi
 - Changing the theme or the color scheme repaints the same spans in place. No block is colored twice, and none flashes plain first.
 - A diff takes a first pass from its own lines the moment it opens, so it is colored before the whole file's spans arrive, and corrects itself when they do. A string that opens above the hunk is the case that changes.
 - A file whose language is not recognized stays plain and asks the daemon for nothing.
-- The renderer holds no `shiki` instance and no Worker colors anything. `shiki` belongs to the daemon package, at the pin the desktop package uses, and not to the desktop package.
+- The renderer holds no `shiki` instance and no Worker in the renderer colors anything. `shiki` belongs to the daemon package, at the pin the desktop package uses, and not to the desktop package.
+- **The daemon tokenizes on a worker thread of its own and keeps the spans on its main thread.** The thread starts on the first read the span cache does not hold and ends after five minutes with nothing asked, so the memory its grammars and regex engine take goes back to the system. Code already colored is answered from the cache at once; the first read in a language after a quiet spell takes up to about 0.3 s to color.
+- **A line the thread cannot finish within 3 s stays plain while the rest of the file is colored**, as an over-long line does. The thread is ended and a fresh one colors the file again with that line plain. The slowest legitimate line measured, 19,999 characters of Go on a fresh thread, took 300 ms.
+- **The engine is `shiki`'s Oniguruma WebAssembly engine.** Its JavaScript engine was the other candidate: over one real or hand-written file in each of the 15 languages, colored with the daemon's own span theme, both engines gave the same colors in 14 languages, and in SQL the JavaScript engine left 50 characters plain or in the wrong class where Oniguruma colors them (a `CREATE TABLE` name, matched by a pattern with a backreference). Correctness decides it; `shiki`'s own compatibility report lists SQL as matching, which this file disproves. Oniguruma is also the engine TextMate grammars are written for and resists runaway backtracking, which reports against the JavaScript engine show freezing a thread. It costs more memory while the thread is up (WebAssembly memory grows with each grammar's compiled patterns, about 21 to 53 MB for each of the JavaScript-family grammars, and never shrinks while the thread lives) and the same once the thread ends; warm calls cost about the same (about 1 ms for 1.7 KB of TypeScript on either engine).
+
+### Budget
+
+The workload: one read in each of the 15 languages, a real or hand-written file of 1 to 37 KB each, then nothing asked. Measured on macOS with Node 24.21, against the same process before its first read; resident memory is the whole process's, so the thread's own heap and its WebAssembly memory are counted:
+
+| State | Resident memory the colorer adds | Measured |
+| --- | --- | --- |
+| Once the thread has ended after five quiet minutes | 30 MB at most | 16.5 MB under the process's reading before its first read in the shipped build's run, and 25 to 29 MB over it in earlier runs of a thread ended the same way; the main thread's live heap 0.4 MB over |
+| While the thread is up with all 15 grammars loaded | 250 MB at most | 248 MB |
+| The span cache | 1/2048 of physical memory at most, 8 MB on a 16 GB machine | bounded by its byte size |
+
+A change that raises a figure past its budget fails. While all 15 grammars are loaded, the colorer alone passes the whole daemon's 256 MB operating target ([deployment-topology §Local Daemon Memory Instrumentation And Budget Triggers](../architecture/deployment-topology.md#local-daemon-memory-instrumentation-and-budget-triggers)), and that document's trigger decides what follows; colors are never cut to meet it.
 
 ### Thesis — Why This Option
 
@@ -89,9 +104,10 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| Coloring a very large file stalls the daemon | Med | Med | The daemon's event-loop delay under the large-file workload | Color off the main thread and bound the cache by the written memory budget |
+| Coloring a very large file stalls the daemon | Med | Med | The daemon's event-loop delay under the large-file workload | Tokenize on the daemon's own worker thread, so the main thread only waits; a line past the time limit stays plain and the thread is started again |
 | Spans arrive after the text and the block repaints visibly | Med | Low | A visible change of color on open | The diff's own first pass; plain text is a legitimate first frame for a whole file |
-| The span cache grows without bound | Low | Med | Resident memory over budget | The cache is keyed on content and evicted under the daemon's memory budget |
+| The span cache grows without bound | Low | Med | Resident memory over budget | The cache is keyed on content and bounded by bytes, each entry charged its spans, its key and its own overhead |
+| The grammars' memory stays taken after coloring ends | Med | Med | Resident memory over the idle budget | The tokenizing thread ends after five quiet minutes, and its memory goes back with it |
 
 ## Reversibility Assessment
 
@@ -110,10 +126,7 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 ### Negative (accepted trade-offs)
 
 - The daemon does rendering-adjacent work. Accepted because it already owns the read and the result is shared.
-
-### Unknowns
-
-- The daemon's cost on a repository-sized diff. Measured against a budget set before the colorer is built.
+- The first read in a language after the thread has ended pays the grammar's load again, up to about 0.3 s. Accepted because the thread's memory goes back in return.
 
 ---
 
@@ -136,6 +149,10 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 | --- | --- | --- | --- |
 | Feature census of reference app B, a Rust desktop console | Primary research | Its transcript colors a recognized language off the main thread, time-sliced, from a cache keyed on the document and bounded in both entries and bytes, and paints the result as colored runs rather than as styled markup | Read for the console design; the reading is summarized here |
 | Feature census of reference app B, its editor and file preview | Primary research | Those two surfaces are served from a shared cache rather than each coloring the file again, and they recompute on a short delay after an edit instead of per keystroke; a file whose language is not recognized falls back to plain text | Read for the console design; the reading is summarized here |
+| `shiki` regex engines | Documentation | The JavaScript engine needs no WebAssembly file and is faster for some languages; the Oniguruma engine loads its WebAssembly with `createOnigurumaEngine(import('shiki/wasm'))` | https://shiki.style/guide/regex-engines |
+| `shiki` JavaScript engine compatibility report (4.4.3) | Documentation | Lists every one of the 15 languages, SQL among them, as giving the same result as the WebAssembly engine, which the daemon's own comparison disproves for SQL | https://shiki.style/references/engine-js-compat |
+| `shiki` issue 1026 | Issue | Oniguruma has built-in protections against runaway backtracking that V8's regex engine lacks | https://github.com/shikijs/shiki/issues/1026 |
+| Node.js worker threads | Documentation | Each worker has its own heap and `resourceLimits`; `terminate()` stops its JavaScript as soon as possible | https://nodejs.org/api/worker_threads.html |
 
 ### Related ADRs
 
