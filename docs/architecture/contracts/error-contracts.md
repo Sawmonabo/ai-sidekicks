@@ -203,12 +203,12 @@ Agent-surface codes (Plan-013 D-013-11; the provider axis, D-013-17).
 
 ### User
 
-WebAuthn-ceremony refusals (Plan-015 Phase 6). Both codes are served on **control-plane routes** rather than a daemon `account.*` method — the web client and the phone apps call them over their authenticated control-plane channel, the device-code page's approval route answers them too, and the desktop app carries no WebAuthn — so they carry no §JSON-RPC pin.
+WebAuthn-ceremony refusals (Plan-015 Phase 6). Both codes are served on **control-plane routes** rather than a daemon `account.*` method — the web client and the phone apps call them, the authentication pair and account creation's registration with no sign-in and the rest signed in, the device-code page's approval route answers them too, and the desktop app carries no WebAuthn — so they carry no §JSON-RPC pin.
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `user.webauthn_challenge_invalid` | The WebAuthn ceremony challenge presented at verification is unknown, already consumed, or expired — challenges are single-use and short-lived, consumed atomically by the fence's `DELETE ... RETURNING` (Plan-015 T6.4 / I-015-6). Domain validation code. | 400 |
-| `user.webauthn_verification_failed` | A WebAuthn registration or assertion response failed verification. Deliberately **one** code for every arm — bad signature, wrong origin, wrong `rpId`, unknown credential, regressed signature counter, and a user-verification bit disagreeing with the mode stored at registration — so the reply is no oracle for which check failed (Plan-015 T6.2 / T6.3 / I-015-7). Domain validation code. | 400 |
+| `user.webauthn_verification_failed` | A WebAuthn registration or assertion response failed verification. Deliberately **one** code for every arm — bad signature, wrong origin, wrong `rpId`, unknown credential, a missing or foreign user handle, regressed signature counter, and a response whose user-verified flag is absent — so the reply is no oracle for which check failed (Plan-015 T6.2 / T6.3 / I-015-7). Domain validation code. | 400 |
 
 ### Runtime Node
 
@@ -430,6 +430,7 @@ The review and ship surface's refusals ([Spec-009](../../specs/009-gitflow-pr-an
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `preview.address_refused` | An address Preview will not open; the page stays where it was, and nothing is ever searched on the web. `data.fields.reason` is `scheme` (a scheme the pane cannot open) or `not_an_address` (the text is not an address at all). The details never echo the address. An address carrying a username or a password opens | 422 |
+| `preview.edit_refused` | A device's paste, select all or cut for a menu that is no longer the page's current one; nothing changes and the pane reads `The page changed before that could run.` | 409 |
 | `preview.port_already_shared` | `preview.portShareAdd` named a port already on the shared list; nothing changes. `data.fields.port` is the port the request named | 409 |
 | `preview.port_not_shared` | A forward or a `preview.portTicketIssue` named a port that is not on the shared list. The machine forwards only listed ports, and only to its own loopback. `data.fields.port` is the port the request named | 403 |
 

@@ -9,7 +9,7 @@ Governed by [Spec-024](../../specs/024-mcp-server-configuration-and-governance.m
 ```ts
 // ---- Primitives (Spec-024) ----
 type McpProvider = "claude" | "codex";
-type McpBindingScope = "user" | "project" | "local" | "plugin"; // scope axis of the binding identity; the first three are writable on both providers, and `plugin` names a server an installed plugin carries: user = the provider's own user configuration, read on the page as `All projects`; project = the project's own file in the repository (Claude Code's `<project>/.mcp.json`, Codex's `<project>/.codex/config.toml`), `This project · in the repo`; local = one project, declared outside the repository (Claude Code's per-project entry in its user configuration; on Codex, which has no such layer, a user entry kept switched off and switched on per conversation in that project's sessions), `This project · not in the repo`. Scope-applicability is PER OPERATION (see the operations block)
+type McpBindingScope = "user" | "project" | "local" | "plugin" | "connector" | "managed"; // scope axis of the binding identity; the first three are writable on both providers, `plugin` names a server an installed plugin carries, and `connector` and `managed` (Claude Code only, read-only) name a claude.ai connector and an organization's server: user = the provider's own user configuration, read on the page as `All projects`; project = the project's own file in the repository (Claude Code's `<project>/.mcp.json`, Codex's `<project>/.codex/config.toml`), `This project · in the repo`; local = one project, declared outside the repository (Claude Code's per-project entry in its user configuration; on Codex, which has no such layer, a user entry kept switched off and switched on per conversation in that project's sessions), `This project · not in the repo`. Scope-applicability is PER OPERATION (see the operations block)
 type McpApplicationGrade = "live_reconcile" | "user_config_write" | "next_run" | "daemon_enforced"; // when/where a mutation takes effect — honest, typed, never silent (parity-triad degrade-honestly): live session set / provider config store (subsequent runs) / next-run composed config / daemon decision layer (immediate)
 type McpApprovalMode = "auto" | "prompt" | "writes" | "approve"; // Codex-native vocabulary adopted as the normalized set; Claude-side enforcement is daemon-owned (Spec-024 §Tool-Level Overrides)
 
@@ -31,9 +31,20 @@ type McpWritableBindingRef =
   | { provider: McpProvider; scope: "user"; serverName: string }
   | { provider: McpProvider; scope: "project"; scopeRef: string; serverName: string }
   | { provider: McpProvider; scope: "local"; scopeRef: string; serverName: string };
+// Two read-only arms name the servers Claude Code brings itself, listed in the page's
+// `claude.ai · <account name>` group of each account and its `Organization` group: a claude.ai connector, its scopeRef the provider account's id (connectors
+// are that claude.ai account's own) and its serverName the display name Claude Code reports
+// (`claude.ai Slack`); and an organization's server, from `managedMcpServers` or `managed-mcp.json`,
+// with no scopeRef and its address served as the host only. upsertServer and removeServer refuse both,
+// and the tool overrides apply to both; setEnabled takes them with a projectRoot, the daemon's own
+// per-project switch.
+type McpReadOnlyBindingRef =
+  | { provider: "claude"; scope: "connector"; scopeRef: string; serverName: string }
+  | { provider: "claude"; scope: "managed"; serverName: string };
 type McpServerBindingRef =
   | McpWritableBindingRef
-  | { provider: McpProvider; scope: "plugin"; scopeRef: string; serverName: string };
+  | { provider: McpProvider; scope: "plugin"; scopeRef: string; serverName: string }
+  | McpReadOnlyBindingRef;
 
 // Event-side binding identity (Spec-024 §Status Observation and Events): path-free. scopeRef
 // (canonical project root / keying directory) is a user-specific filesystem path — a Spec-020
@@ -156,8 +167,8 @@ type McpServerInventoryEntry = McpServerBindingRef & {
   failedReason?: "commandNotRunnable"; // present only on an entry reading "failed" because, after the background service moved between Windows and a WSL distribution, its command or arguments name a program on the side it left; a bare command name such as npx is looked up on the new side and is not marked. One member on the entry, not a status of its own
   legs?: McpServerLegStatus[]; // per-leg session-feed observations; absent when no live leg exists. Legs are LIVE-session observations with a bounded lifecycle: when a leg's backing runtime binding closes (session end / driver exit), the daemon retires it and recomputes the aggregate — a terminated session's last status never pins `status`
   observedAt?: string; // ISO-8601 of the newest status observation backing `status`
-  requiredServer?: boolean; // Codex `required = true` — thread start/resume fails if the server cannot initialize
-  supersededIn?: string[]; // the project roots where another binding of this provider and serverName is the effective one, by the provider's order (a project's `local` binding over its `project` one, either over the `user` one); the daemon already resolves this to send each session its effective set (Spec-024 §Status Observation and Events), so it serves the answer rather than the page working it out. The page reads each one as `Not used in <project>: its own <name> takes its place.` Absent where the binding is used wherever it applies; never empty
+  supersededIn?: string[]; // the project roots where another binding of this provider is the effective one, by the provider's order (a project's `local` binding over its `project` one, either over the `user` one, matched by serverName; on Claude Code a plugin's server or a connector also matched when it points at the same address or command); the daemon already resolves this to send each session its effective set (Spec-024 §Status Observation and Events), so it serves the answer rather than the page working it out. The page reads each one as `Not used in <project>: its own <name> takes its place.` Absent where the binding is used wherever it applies; never empty
+  disabledIn?: string[]; // Claude Code: the project roots where this server is switched off — by `disabledMcpServers` in the person's own `~/.claude.json`, which Claude Code's own `/mcp` writes, or, on a `connector` or `managed` binding, by the daemon's per-project switch; the server stays out of those projects' sessions and the page reads `Off in <project>` beside its state, dimmed, once per project. Absent where no project switched it off; never empty
 } & (
     | {
         bindingStoreUnavailable?: never; // the normal (binding-store-available) arm
@@ -246,7 +257,7 @@ interface McpLiveApplicationResult {
 // and reconnect show through the status notices they induce; reconnect is unreceipted:
 //   mcp.upsertServer      McpWritableBindingRef & {clientIdempotencyKey: string, config: McpServerConfigInput} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
 //   mcp.removeServer      McpWritableBindingRef & {clientIdempotencyKey: string} → {applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // removing an emulated Codex local server also removes the daemon's row for it; removing any server removes every approval rule over its tools from the provider's file that holds it, in the same transaction
-//   mcp.setEnabled        McpServerBindingRef & {clientIdempotencyKey: string, enabled: boolean} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
+//   mcp.setEnabled        McpServerBindingRef & {clientIdempotencyKey: string, enabled: boolean, projectRoot?: string} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // projectRoot required on a `connector` or `managed` binding and refused on every other: the daemon's own switch for that one project, never Claude Code's `disabledMcpServers`
 //   mcp.setToolOverride   McpServerBindingRef & {clientIdempotencyKey: string, override: McpToolOverride} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication}
 //   mcp.clearToolOverride McpServerBindingRef & {clientIdempotencyKey: string, toolName: string, facet: McpToolOverrideFacet} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication} // clears that one facet back to the server's own value (a Codex facet restored from the binding's baseline) and leaves the tool's other facets set; clearing a tool's last set facet drops its override row; `applied` carries the cleared facet's grade alone
 //   mcp.oauthLogin        McpServerBindingRef & {clientIdempotencyKey: string} → {authorizationUrl?: string} // starts the daemon's own sign-in for that server, whatever kind of server it is, and returns the address of the sign-in page for the client to open; a new mcp.oauthLogin on a server whose sign-in is still waiting ends that wait and starts the next attempt; mcp.oauth_flow_failed is LAUNCH-phase only — a failure to start the sign-in (discovery, registration, or the provider's own flow in its throwaway home) — and an async completion failure arrives as mcp.server_oauth_completed outcome: 'failure' on the mcp.subscribe stream, never a late JSON-RPC error (Spec-024 §OAuth Orchestration). Its idempotency receipt persists the acknowledgment with authorizationUrl STRUCTURALLY OMITTED (single-use PKCE-bearing launch material is never durable — Plan-022 I-022-1), so an identical-key retry returns a saved acknowledgment with no URL: the sign-in already started, completion arrives as the event, and a caller that never received the URL starts a new sign-in under a fresh key
@@ -259,9 +270,10 @@ interface McpLiveApplicationResult {
 //   session.mcpResourceList {sessionId, serverName} → {serverName, resources, complete} // what a working server offers, for the composer's attachment row; refused for a server that is off or not working
 // Scope applicability is per operation (Spec-024 §Configuration Mutation), never a blanket rule.
 // upsertServer and removeServer take an McpWritableBindingRef, the three writable scopes, so a
-// `plugin` binding is a schema-level rejection; setEnabled takes any McpServerBindingRef, and on a
-// `plugin` binding it is the daemon's own switch and writes no provider configuration. On the three
-// writable scopes, upsertServer, removeServer and setEnabled write the provider's own configuration
+// `plugin`, `connector` or `managed` binding is a schema-level rejection; setEnabled takes any
+// McpServerBindingRef, and on a `plugin` binding it is the daemon's own switch and on a `connector`
+// or `managed` one the daemon's own switch for its projectRoot, neither writing provider
+// configuration. On the three writable scopes, upsertServer, removeServer and setEnabled write the provider's own configuration
 // on both providers:
 // Claude Code writes through `claude mcp add-json <name> <json> --scope <scope>` (a `project` write run from the
 // project root, landing in `<project>/.mcp.json`; `local` in Claude Code's per-project entry of its
