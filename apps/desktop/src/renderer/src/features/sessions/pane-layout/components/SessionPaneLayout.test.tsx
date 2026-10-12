@@ -93,19 +93,18 @@ function paneFrameOf(block: HTMLElement, paneId: string): HTMLElement {
 }
 
 describe("the block's own keys", () => {
-  it("focuses the next pane on Alt+Arrow and closes the focused one on Alt+Backspace", () => {
+  it("moves the window's focus to the next pane on Alt+Arrow and closes it on Alt+Backspace", () => {
     const { layout, sidekicks, preview } = threePaneLayout();
     const block = renderPaneLayout(layout);
 
     pressFrom(paneFrameOf(block, sidekicks), { key: "ArrowRight", altKey: true });
+    // The window's focus lands in the pane, and the layout follows it there.
+    expect(document.activeElement).toBe(paneFrameOf(block, preview));
     expect(layout.snapshot().focusedPaneId).toBe(preview);
 
     // Preview opened from Sidekicks' focus, so closing it hands the window's focus back there
     // rather than leaving it on the document's body.
-    act(() => {
-      paneFrameOf(block, preview).focus();
-    });
-    pressFrom(paneFrameOf(block, preview), { key: "Backspace", altKey: true });
+    pressFrom(document.activeElement, { key: "Backspace", altKey: true });
     expect(layout.snapshot().panes.map((pane) => pane.paneId)).not.toContain(preview);
     expect(document.activeElement).toBe(paneFrameOf(block, sidekicks));
   });

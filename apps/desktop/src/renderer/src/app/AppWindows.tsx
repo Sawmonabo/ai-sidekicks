@@ -94,7 +94,7 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
 
   // Main keeps the appearance; every window applies what main kept and asks main for a change.
   const appearance = useAppearance(bridge, openWindows);
-  useSendPaneWindowWidths(bridge, appearance);
+  useSendPaneWindowWidths(bridge);
 
   // A window opened again comes forward through main, which keeps test windows unobtrusive.
   useEffect(

@@ -1,6 +1,6 @@
 // What a saved pane layout carries and the ways a saved one can be wrong. An unknown version,
-// unknown kind or invalid entity is dropped and reported as a value a view can render, never
-// thrown; a second pane of one kind is dropped during decoding because `open()` cannot repair
+// unknown kind, unminted id, invalid entity, side or terminal place is dropped and reported as a
+// value a view can render, never thrown; a second pane of one kind is dropped during decoding because `open()` cannot repair
 // it. Live movement is in `store.test.ts`.
 
 import { describe, expect, it } from "vitest";
@@ -85,17 +85,31 @@ describe("what a restore refuses", () => {
       entityKind: "worktree",
       entityId: "worktree-02",
     };
+    // An id this build never mints, which the view would put in a selector.
+    snapshot["pane-0"] = { position: 9, kind: "agents" };
+    const header = snapshot[PANE_LAYOUT_SNAPSHOT_HEADER_KEY];
+    if (header === undefined) {
+      throw new Error("the snapshot carried no header");
+    }
+    header["side"] = "up";
+    header["terminalPlace"] = "beside";
 
     const restored = new PaneLayoutStore();
     const report = restored.restore(snapshot);
 
     expect(report.restoredPaneCount).toBe(4);
     expect(restored.snapshot().panes.map((pane) => pane.paneId)).not.toContain("pane-94");
+    expect(restored.snapshot().panes.map((pane) => pane.kind)).not.toContain("agents");
+    expect(restored.snapshot().side).toBe("right");
+    expect(restored.snapshot().terminalPlace).toBe("below");
     expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual([
+      "pane-id-invalid",
       "pane-kind-unknown",
       "pane-kind-unknown",
       "pane-entity-invalid",
       "pane-kind-duplicate",
+      "side-unknown",
+      "terminal-place-unknown",
     ]);
   });
 

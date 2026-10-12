@@ -13,13 +13,14 @@ import "./SessionPaneLayout.css";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { PaneEdgeDragContext } from "#renderer/components/PaneFrame/edge-drag.js";
+import { PaneEdgeDragContext } from "#renderer/components/PaneEdge/drag-context.js";
+import { type PaneEdgeReading } from "#renderer/components/PaneEdge/PaneEdge.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { isEditableTarget, isUnclaimedEscape } from "#renderer/lib/editable-target.js";
-import { rootFontSizePx } from "#renderer/lib/root-font-size.js";
 import { revealInRow } from "#renderer/lib/scroll/chokepoint.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
+import { useRootFontSizePx } from "#renderer/hooks/useRootFontSizePx.js";
 import { useReorderDrag, type ReorderDragSettings } from "#renderer/hooks/useReorderDrag.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type PaneContext } from "#renderer/registries/panes/context.js";
@@ -39,7 +40,6 @@ import { rowPanes, terminalPane, type SessionPane } from "../state.js";
 import { commitPaneDrop } from "../drag.js";
 import { PANE_WIDTH_RULE_BY_KIND } from "../widths.js";
 import { SessionPaneSlot, paneSlotSelector, type PaneSlotPlacement } from "./SessionPaneSlot.js";
-import { type PaneEdgeReading } from "./PaneEdge.js";
 
 /** What the pane layout needs: its store, its registry, each pane's context, the conversation. */
 export interface SessionPaneLayoutProps {
@@ -88,10 +88,30 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
     }
   }, [sizes.lastRefusal, onPaneSizesRefused]);
 
+  // Focusing a pane moves DOM focus into its frame, and the slot's `focusin` moves the layout's
+  // focus with it; the pane is brought into view along the row by the chokepoint, never by the
+  // focus itself. A pane hidden behind another's full width takes no DOM focus, so the layout is
+  // moved to it directly too.
+  const focusPaneFrame = useCallback(
+    (paneId: string) => {
+      const block = blockRef.current;
+      const slot = block?.querySelector<HTMLElement>(paneSlotSelector(paneId));
+      if (block !== null && slot !== null && slot !== undefined) {
+        slot.querySelector<HTMLElement>(".meridian-pane")?.focus({ preventScroll: true });
+        revealInRow(block, slot, "pane-reveal");
+      }
+      layout.focus(paneId);
+    },
+    [layout],
+  );
+
   // Built once per (layout, announcer) pair and shared by this component's keys, the window's
   // chords and the palette rows in `contributions/commands.ts`, so a chord and a row cannot mean
   // two moves.
-  const acts = useMemo(() => paneLayoutActsOn(layout, announce), [layout, announce]);
+  const acts = useMemo(
+    () => paneLayoutActsOn(layout, announce, focusPaneFrame),
+    [layout, announce, focusPaneFrame],
+  );
   useMountedPaneLayout(acts);
 
   // A pane holding the full width does not move; the order it sits in stays as it was.
@@ -161,7 +181,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
     }
     const slot = block.querySelector(paneSlotSelector(lastOpened.paneId));
     if (slot !== null) {
-      revealInRow(block, slot);
+      revealInRow(block, slot, "pane-reveal");
     }
   }, [lastOpened]);
 
@@ -181,10 +201,8 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
       return;
     }
     focusHolderPaneIdRef.current = undefined;
-    blockRef.current
-      ?.querySelector<HTMLElement>(`${paneSlotSelector(focusedPaneId)} .meridian-pane`)
-      ?.focus();
-  }, [state.panes, focusedPaneId]);
+    focusPaneFrame(focusedPaneId);
+  }, [state.panes, focusedPaneId, focusPaneFrame]);
 
   const onBlockFocus = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
     focusHolderPaneIdRef.current =
@@ -264,15 +282,17 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
     },
     [layout],
   );
+  // Every limit is root-relative, so each measure is a new function at a new text size and the
+  // edges read their limits again.
+  const rootPx = useRootFontSizePx();
   // A pane may be dragged as wide as leaves the conversation its floor.
   const measureWidthCeilingPx = useCallback((): number => {
     const element = layoutRef.current;
     if (element === null) {
       return 0;
     }
-    const width = element.getBoundingClientRect().width;
-    return width - CONVERSATION_FLOOR_REM * rootFontSizePx(element.ownerDocument);
-  }, []);
+    return element.getBoundingClientRect().width - CONVERSATION_FLOOR_REM * rootPx;
+  }, [rootPx]);
   const { terminalHeightPx, setPaneWidth, setTerminalHeight } = sizes;
   // The terminal and the row each keep the height they stop being readable under.
   const measureTerminalHeight = useCallback((): PaneEdgeReading => {
@@ -281,13 +301,12 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
     if (block === null || stacked === null || stacked === undefined) {
       throw new Error("The terminal's height was measured with no terminal stacked in the block.");
     }
-    const rootPx = rootFontSizePx(block.ownerDocument);
     return {
       sizePx: terminalHeightPx ?? stacked.getBoundingClientRect().height,
       minimumPx: TERMINAL_PANE_HEIGHT_FLOOR_REM * rootPx,
       maximumPx: block.clientHeight - PANE_ROW_HEIGHT_FLOOR_REM * rootPx,
     };
-  }, [terminalHeightPx]);
+  }, [terminalHeightPx, rootPx]);
   const previewTerminalHeight = useCallback((heightPx: number | undefined) => {
     if (heightPx === undefined) {
       blockRef.current?.style.removeProperty(LIVE_TERMINAL_HEIGHT_PROPERTY);

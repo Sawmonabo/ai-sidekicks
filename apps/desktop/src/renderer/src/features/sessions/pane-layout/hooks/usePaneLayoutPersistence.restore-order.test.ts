@@ -110,6 +110,27 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     expect(layout.snapshot().terminalPlace).toBe("above");
   });
 
+  it("keeps a side and place the person set during the read, even set back where they began", async () => {
+    const store = memoryStore();
+    await savePaneLayout(store, ["agents", "browser", "terminal"], blockLeftTerminalAbove);
+    const layout = new PaneLayoutStore();
+
+    mountPersistence(layout, store);
+    act(() => {
+      const browser = layout.open({ kind: "browser" });
+      layout.open({ kind: "terminal" });
+      // Across the conversation and back, and above the row and back.
+      layout.movePane(browser, -1);
+      layout.movePane(browser, 1);
+      layout.placeTerminal("above");
+      layout.placeTerminal("below");
+    });
+    await drain();
+
+    expect(layout.snapshot().side).toBe("right");
+    expect(layout.snapshot().terminalPlace).toBe("below");
+  });
+
   it("focuses an adopted pane only when the person left the layout focusing nothing", async () => {
     // An open-then-close during the read reaches the merge focusing nothing; the composer then
     // had nowhere to send until a click. A live focus stays where the person put it.

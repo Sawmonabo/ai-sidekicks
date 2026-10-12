@@ -1,5 +1,6 @@
 // The app's appearance: main's record, the one copy there is, applied to every open window's
-// document root as each one arrives, and to each window opened after it before it draws. Main
+// document root as each one arrives, to each window opened after it before it draws, and to the
+// console document's own root, so a size measured there is the one the windows draw at. Main
 // applies a scheme change only once its record is written, so a refused change leaves every window
 // as it was (`unkept-scheme.ts` says so on the banner of the window that asked). The client is held
 // per bridge and closed with it, as the UI-state store is.
@@ -14,7 +15,7 @@ import type { OpenWindows } from "#renderer/services/window/open-windows.js";
 import type { AppearanceRecord } from "#shared/appearance.js";
 import { applyAppearance, DARK_SCHEME_QUERY } from "../token-installation.js";
 
-/** Main's appearance record kept on every open window's document root; the client for the acts. */
+/** Main's appearance record kept on every document root the app draws; the client for the acts. */
 export function useAppearance(bridge: PlatformBridge, openWindows: OpenWindows): AppearanceClient {
   const { value: client } = useSubjectScopedResource<AppearanceClient>(
     bridge,
@@ -35,6 +36,7 @@ export function useAppearance(bridge: PlatformBridge, openWindows: OpenWindows):
         return;
       }
       stopApplying();
+      applyAppearance(document, record);
       stopApplying = openWindows.prepareEveryDocument((windowDocument) => {
         applyAppearance(windowDocument, record);
       });

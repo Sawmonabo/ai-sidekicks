@@ -1,4 +1,4 @@
-/* The pane layout: the conversation, the block of panes beside it, its edges and its side mark. */
+/* The pane layout: the conversation, the block of panes beside it and its side mark. */
 
 /*
  * The conversation keeps its floor and takes what the block leaves. The block takes as much of
@@ -162,8 +162,7 @@
 }
 
 .meridian-pane-layout[data-full-width] .meridian-pane-layout__pane:not([data-full-width]),
-.meridian-pane-layout[data-full-width] .meridian-pane-layout__row:not(:has(> [data-full-width])),
-.meridian-pane-layout[data-full-width] .meridian-pane-edge {
+.meridian-pane-layout[data-full-width] .meridian-pane-layout__row:not(:has(> [data-full-width])) {
   display: none;
 }
 
@@ -181,64 +180,6 @@
 /* While an edge is dragged nothing under the pointer is selected. */
 .meridian-pane-layout[data-resizing] {
   user-select: none;
-}
-
-/*
- * A pane edge: a grab zone laid over the pane's side that faces the conversation, drawing its
- * line only while it is reached for. The divider between the row and the terminal lies along
- * the terminal's side that faces the row.
- */
-.meridian-pane-edge {
-  position: absolute;
-  z-index: 1;
-  outline: none;
-}
-
-.meridian-pane-edge[data-orientation="vertical"] {
-  inset-block: 0;
-  inset-inline-start: 0;
-  inline-size: var(--meridian-pane-edge-width);
-  cursor: col-resize;
-}
-
-.meridian-pane-layout[data-side="left"] .meridian-pane-edge[data-orientation="vertical"] {
-  inset-inline: auto 0;
-}
-
-.meridian-pane-edge[data-orientation="horizontal"] {
-  inset-inline: 0;
-  inset-block-start: 0;
-  block-size: var(--meridian-pane-edge-width);
-  cursor: row-resize;
-}
-
-.meridian-pane-layout__block[data-terminal-place="above"]
-  .meridian-pane-edge[data-orientation="horizontal"] {
-  inset-block: auto 0;
-}
-
-.meridian-pane-edge:hover,
-.meridian-pane-edge:focus-visible,
-.meridian-pane-layout[data-resizing] .meridian-pane-edge:active {
-  background: linear-gradient(
-    to var(--meridian-pane-edge-line-direction, right),
-    var(--meridian-accent) 0 var(--meridian-leading-edge),
-    transparent var(--meridian-leading-edge)
-  );
-}
-
-/* The line runs along the edge's outer side: the gradient starts there. */
-.meridian-pane-layout[data-side="left"] .meridian-pane-edge[data-orientation="vertical"] {
-  --meridian-pane-edge-line-direction: left;
-}
-
-.meridian-pane-edge[data-orientation="horizontal"] {
-  --meridian-pane-edge-line-direction: bottom;
-}
-
-.meridian-pane-layout__block[data-terminal-place="above"]
-  .meridian-pane-edge[data-orientation="horizontal"] {
-  --meridian-pane-edge-line-direction: top;
 }
 
 /* Dragged past the conversation, its far side marks where the block would land. */

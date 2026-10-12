@@ -5,13 +5,13 @@
 import { memo, useCallback, useId, useMemo, useRef } from "react";
 
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
-import { rootFontSizePx } from "#renderer/lib/root-font-size.js";
+import { PaneEdge, type PaneEdgeReading } from "#renderer/components/PaneEdge/PaneEdge.js";
 import { PaneControlsContext, type PaneControls } from "#renderer/components/PaneFrame/controls.js";
+import { useRootFontSizePx } from "#renderer/hooks/useRootFontSizePx.js";
 import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
 import type { BlockPaneKind } from "#renderer/routing/panes/kinds.js";
 import { PaneBody } from "./PaneBody.js";
-import { PaneEdge, type PaneEdgeReading } from "./PaneEdge.js";
 import { type PaneBlockSide, type SessionPane, type TerminalPlace } from "../state.js";
 import { PANE_WIDTH_RULE_BY_KIND } from "../widths.js";
 
@@ -74,6 +74,7 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
     const descriptor = props.registry.descriptorFor(pane.kind);
     const rule = PANE_WIDTH_RULE_BY_KIND[pane.kind];
     const slotRef = useRef<HTMLDivElement | null>(null);
+    const rootPx = useRootFontSizePx();
 
     const registerSlot = useCallback(
       (element: HTMLDivElement | null) => {
@@ -84,6 +85,7 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
     );
 
     const titleId = useId();
+    const slotId = useId();
     const controls = useMemo<PaneControls>(
       () => ({
         titleId,
@@ -119,21 +121,17 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
       onFocus(pane.paneId);
     }, [onFocus, pane.paneId]);
 
-    // A new reading whenever the kept width changes, so the edge reports it again. The pane's
-    // own width, not what a narrow view draws it at: a press grows what the person set.
-    const measureWidth = useCallback((): PaneEdgeReading => {
-      const slot = slotRef.current;
-      if (slot === null) {
-        throw new Error("A pane edge was measured before its pane was drawn.");
-      }
-      const rootPx = rootFontSizePx(slot.ownerDocument);
-      const minimumPx = rule.floorRem * rootPx;
-      return {
+    // A new reading whenever the kept width or the text size changes, so the edge reports it
+    // again. The pane's own width, not what a narrow view draws it at: a press grows what the
+    // person set, from where the edge draws it.
+    const measureWidth = useCallback(
+      (): PaneEdgeReading => ({
         sizePx: widthPx ?? rule.widthRem * rootPx,
-        minimumPx,
-        maximumPx: Math.max(minimumPx, measureWidthCeilingPx()),
-      };
-    }, [rule, widthPx, measureWidthCeilingPx]);
+        minimumPx: rule.floorRem * rootPx,
+        maximumPx: measureWidthCeilingPx(),
+      }),
+      [rule, widthPx, rootPx, measureWidthCeilingPx],
+    );
     const previewWidth = useCallback((previewPx: number | undefined) => {
       if (previewPx === undefined) {
         slotRef.current?.style.removeProperty(LIVE_WIDTH_PROPERTY);
@@ -152,7 +150,9 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
     if (descriptor === undefined) {
       throw new Error(`no body is registered for the ${pane.kind} pane kind`);
     }
-    const hasWidthEdge = rule.isResizable && props.placement !== "terminal-stacked";
+    // A pane holding the full width has no edge to drag; the others are not drawn.
+    const hasWidthEdge = rule.isResizable && props.placement !== "terminal-stacked" && !isFullWidth;
+    const hasHeightEdge = props.placement === "terminal-stacked" && !isFullWidth;
     const style: PaneSlotStyle =
       props.placement === "terminal-stacked"
         ? {}
@@ -163,6 +163,7 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
           };
     return (
       <div
+        id={slotId}
         className="meridian-pane-layout__pane"
         data-pane-id={pane.paneId}
         data-placement={props.placement}
@@ -182,6 +183,7 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
         {hasWidthEdge ? (
           <PaneEdge
             labelledBy={titleId}
+            controls={slotId}
             growKey={props.side === "right" ? "ArrowLeft" : "ArrowRight"}
             measure={measureWidth}
             onPreview={previewWidth}
@@ -189,9 +191,10 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
             onResizingChange={props.onResizingChange}
           />
         ) : null}
-        {props.placement === "terminal-stacked" ? (
+        {hasHeightEdge ? (
           <PaneEdge
             labelledBy={titleId}
+            controls={slotId}
             growKey={props.terminalPlace === "below" ? "ArrowUp" : "ArrowDown"}
             measure={props.measureTerminalHeight}
             onPreview={props.previewTerminalHeight}

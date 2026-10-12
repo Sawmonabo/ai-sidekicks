@@ -5,6 +5,10 @@
 // an edge makes on pointer-up. A read that failed opens every pane at its opening width and
 // keeps the refusal, so the session screen says so in one line.
 
+import {
+  recordRefusedMemberPaths,
+  type RefusedMemberIssues,
+} from "#renderer/lib/diagnostic-capture/refused-member-record.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { isWireRecord } from "#renderer/lib/wire/record.js";
 import { isPaneKind, type BlockPaneKind } from "#renderer/routing/panes/kinds.js";
@@ -124,29 +128,47 @@ function sizesOf(record: KeptPaneSizesRecord): PaneSizes {
 }
 
 /**
- * A kept record narrowed to what this build draws: a block pane kind's positive sizes under the
- * members it keeps. A record holding anything else was not written by this build and is set
- * aside whole.
+ * A kept record narrowed to what this build draws: a block pane kind's positive, finite sizes
+ * under the members it keeps. A member past that is set aside alone, the sizes beside it kept,
+ * and each one set aside is recorded in the window's diagnostics by its path.
  */
 function narrowKeptPaneSizes(raw: unknown): KeptPaneSizesRecord | undefined {
   if (!isWireRecord(raw)) {
+    recordSetAsideSizes([{ path: [] }]);
     return undefined;
   }
   const record: Record<string, Readonly<Record<string, number>>> = {};
+  const setAside: { readonly path: readonly string[] }[] = [];
   for (const [kind, kindSizes] of Object.entries(raw)) {
     if (!isPaneKind(kind) || kind === "transcript" || !isWireRecord(kindSizes)) {
-      return undefined;
+      setAside.push({ path: [kind] });
+      continue;
     }
     const sizes: Record<string, number> = {};
     for (const [member, sizePx] of Object.entries(kindSizes)) {
       const isKeptMember =
         member === WIDTH_MEMBER || (kind === "terminal" && member === STACKED_HEIGHT_MEMBER);
-      if (!isKeptMember || typeof sizePx !== "number" || !(sizePx > 0)) {
-        return undefined;
+      if (!isKeptMember || typeof sizePx !== "number" || !Number.isFinite(sizePx) || sizePx <= 0) {
+        setAside.push({ path: [kind, member] });
+        continue;
       }
       sizes[member] = sizePx;
     }
-    record[kind] = sizes;
+    if (Object.keys(sizes).length > 0) {
+      record[kind] = sizes;
+    }
+  }
+  if (setAside.length > 0) {
+    recordSetAsideSizes(setAside);
   }
   return record;
+}
+
+function recordSetAsideSizes(issues: RefusedMemberIssues): void {
+  recordRefusedMemberPaths({
+    source: "features/sessions/pane-layout",
+    kind: "kept-pane-size-set-aside",
+    subject: "A kept pane size this build cannot draw was set aside",
+    issues,
+  });
 }

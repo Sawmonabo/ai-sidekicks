@@ -35,6 +35,14 @@ import {
   type PaneLayoutSnapshotRecord,
 } from "./snapshot.js";
 
+/** What the person did to a layout while its saved arrangement was being read. */
+export interface PaneLayoutActsDuringRead {
+  /** The kinds opened and closed again during the read, which the record must not reopen. */
+  readonly retiredKinds: ReadonlySet<BlockPaneKind>;
+  readonly isSideSet: boolean;
+  readonly isTerminalPlaceSet: boolean;
+}
+
 /** The live pane block of one session view; every mutation publishes one new state. */
 export class PaneLayoutStore {
   readonly #changes = new Emitter<PaneLayoutState>("pane layout change");
@@ -147,21 +155,6 @@ export class PaneLayoutStore {
     this.#commit({ focusedPaneId: paneId });
   }
 
-  /** Focuses the next or previous pane, the row first and the terminal after it, wrapping. */
-  public focusAdjacent(step: 1 | -1): void {
-    const { panes, focusedPaneId } = this.#state;
-    if (panes.length === 0) {
-      return;
-    }
-    const current = panes.findIndex((pane) => pane.paneId === focusedPaneId);
-    const next =
-      (((current < 0 ? 0 : current + step) % panes.length) + panes.length) % panes.length;
-    const target = panes[next];
-    if (target !== undefined) {
-      this.focus(target.paneId);
-    }
-  }
-
   /**
    * Moves a main pane one place along the row, the keyboard's move. Past the row's end that faces
    * the conversation the whole block moves to the conversation's other side, its order kept; past
@@ -268,27 +261,27 @@ export class PaneLayoutStore {
    * Adopts a snapshot beneath an arrangement the person already made while a slow read ran.
    *
    * The layout on screen wins for every kind it holds (ids, order). The record adds only the
-   * kinds the layout lacks, minus `retiredKinds`, the kinds closed during the read, since a close
+   * kinds the layout lacks, minus the retired kinds, those closed during the read, since a close
    * leaves nothing in a snapshot; they get fresh ids, since the record's collide with the live
    * ones, and land in front, since they were open first. A side or terminal place the person set
-   * during the read stands; otherwise the record's is taken. A layout focusing nothing takes the
-   * first adopted pane.
+   * during the read stands, wherever they left it; otherwise the record's is taken. A layout
+   * focusing nothing takes the first adopted pane.
    */
   public adoptBeneath(
     snapshot: unknown,
-    retiredKinds: ReadonlySet<BlockPaneKind>,
+    during: PaneLayoutActsDuringRead,
   ): PaneLayoutRestoreReport {
     const decoded = decodePaneLayoutSnapshot(snapshot);
     const live = this.#state;
     const adopted = decoded.panes
       .filter(
         (pane) =>
-          !retiredKinds.has(pane.kind) && !live.panes.some((each) => each.kind === pane.kind),
+          !during.retiredKinds.has(pane.kind) &&
+          !live.panes.some((each) => each.kind === pane.kind),
       )
       .map((pane) => ({ ...pane, paneId: this.#mintPaneId() }));
-    const side = live.side === DEFAULT_PANE_BLOCK_SIDE ? decoded.side : live.side;
-    const terminalPlace =
-      live.terminalPlace === DEFAULT_TERMINAL_PLACE ? decoded.terminalPlace : live.terminalPlace;
+    const side = during.isSideSet ? live.side : decoded.side;
+    const terminalPlace = during.isTerminalPlaceSet ? live.terminalPlace : decoded.terminalPlace;
     if (adopted.length > 0 || side !== live.side || terminalPlace !== live.terminalPlace) {
       this.#commit({
         panes: terminalLast([...adopted, ...live.panes]),

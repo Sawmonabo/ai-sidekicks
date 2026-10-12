@@ -31,6 +31,14 @@ export interface ScrollWrite {
   readonly wasSkipped: boolean;
 }
 
+/** What one write to a container no `ScrollController` drives did: its caller and its offsets. */
+export interface ScrollOffsetWrite {
+  readonly caller: ScrollCaller;
+  readonly axis: "horizontal" | "vertical";
+  readonly requestedOffset: number;
+  readonly appliedOffset: number;
+}
+
 /** Called once per batched overflow pass, with the geometry it was measured at. */
 export type OverflowMeasurementSink = (geometry: ScrollGeometry) => void;
 
@@ -382,32 +390,39 @@ export class ScrollController {
 }
 
 /**
- * Scrolls `container` along `axis` to `offset` CSS pixels, clamped to its content, and answers
- * the offset it reached. The reorder drag's edge scroll is its one caller: a drag carries the
- * list it moves in near an edge and holds no `ScrollController` for that list.
+ * Scrolls `container` along `axis` to `offset` CSS pixels, clamped to its content, for `caller`,
+ * and answers what it wrote. A reorder drag's edge scroll calls it: a drag carries the list it
+ * moves in near an edge and holds no `ScrollController` for that list.
  */
 export function scrollForReorderDrag(
   container: Element,
   axis: "horizontal" | "vertical",
   offset: number,
-): number {
+  caller: ScrollCaller,
+): ScrollOffsetWrite {
   if (axis === "horizontal") {
     const maximum = Math.max(0, container.scrollWidth - container.clientWidth);
-    container.scrollLeft = Math.min(Math.max(0, offset), maximum);
-    return container.scrollLeft;
+    const requestedOffset = Math.min(Math.max(0, offset), maximum);
+    container.scrollLeft = requestedOffset;
+    return { caller, axis, requestedOffset, appliedOffset: container.scrollLeft };
   }
   const maximum = Math.max(0, container.scrollHeight - container.clientHeight);
-  container.scrollTop = Math.min(Math.max(0, offset), maximum);
-  return container.scrollTop;
+  const requestedOffset = Math.min(Math.max(0, offset), maximum);
+  container.scrollTop = requestedOffset;
+  return { caller, axis, requestedOffset, appliedOffset: container.scrollTop };
 }
 
 /**
- * Scrolls `container` sideways the least distance that brings `item` wholly into view, gliding
- * unless its window asks for reduced motion. The pane block is its one caller: a pane just opened
- * past the block's visible width is brought into view, and the block holds no `ScrollController`.
- * Throws for a container whose document has no window.
+ * Scrolls `container` sideways the least distance that brings `item` wholly into view, for
+ * `caller`, gliding unless its window asks for reduced motion, and answers what it asked for;
+ * `undefined` when the item is already in view. The pane block calls it, and holds no
+ * `ScrollController`. Throws for a container whose document has no window.
  */
-export function revealInRow(container: Element, item: Element): void {
+export function revealInRow(
+  container: Element,
+  item: Element,
+  caller: ScrollCaller,
+): ScrollOffsetWrite | undefined {
   const view = container.ownerDocument.defaultView;
   if (view === null) {
     throw new Error("A row was scrolled in a document with no window.");
@@ -422,12 +437,15 @@ export function revealInRow(container: Element, item: Element): void {
       ? leftOverflow
       : Math.max(0, rightOverflow);
   if (shift === 0) {
-    return;
+    return undefined;
   }
+  const requestedOffset = container.scrollLeft + shift;
   container.scrollTo({
-    left: container.scrollLeft + shift,
+    left: requestedOffset,
     behavior: prefersReducedMotion(view) ? "instant" : "smooth",
   });
+  // A glide reaches its offset over later frames; the write answers where it began.
+  return { caller, axis: "horizontal", requestedOffset, appliedOffset: container.scrollLeft };
 }
 
 /**
@@ -443,12 +461,14 @@ function isAskedOnce(caller: ScrollCaller): boolean {
     case "window-opening":
     case "row-reveal":
     case "settings-control-landing":
+    case "pane-reveal":
       return true;
     case "follow-tail":
     case "follow-arriving-text":
     case "hold-reading-position":
     case "prune-compensation":
     case "measurement-compensation":
+    case "reorder-edge-scroll":
       return false;
   }
 }
@@ -469,6 +489,8 @@ function isFollowWrite(caller: ScrollCaller): boolean {
     case "window-opening":
     case "row-reveal":
     case "settings-control-landing":
+    case "pane-reveal":
+    case "reorder-edge-scroll":
       return false;
   }
 }

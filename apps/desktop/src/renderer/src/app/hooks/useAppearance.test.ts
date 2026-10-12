@@ -103,8 +103,8 @@ describe("the app's appearance", () => {
       expect(root.getAttribute(THEME_ATTRIBUTE)).toBe("graphite");
       expect(root.style.fontSize).toBe("18px");
     }
-    // The console document is never shown, so nothing is applied to it.
-    expect(document.documentElement.hasAttribute(THEME_ATTRIBUTE)).toBe(false);
+    // The console document carries it too, so a size measured there is the one windows draw at.
+    expect(document.documentElement.style.fontSize).toBe("18px");
     const root = first;
     await vi.waitFor(() => {
       expect(setAppearance).toHaveBeenCalledWith(

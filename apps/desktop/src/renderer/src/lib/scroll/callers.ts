@@ -25,6 +25,10 @@
  * that a shift-arrow moves a selection's end into.
  * `settings-control-landing` is Settings putting the control a link or a search hit names in the
  * middle of the view, once, when the person arrives on it.
+ * `pane-reveal` is the pane block scrolling sideways the least distance that brings a pane into
+ * view: one just opened or brought forward, and one the keyboard moves focus to.
+ * `reorder-edge-scroll` is a pointer reorder carrying the list it moves in along, frame by frame,
+ * while the dragged item is held near one of its ends.
  */
 export const SCROLL_CALLERS = [
   "follow-tail",
@@ -39,6 +43,8 @@ export const SCROLL_CALLERS = [
   "window-opening",
   "row-reveal",
   "settings-control-landing",
+  "pane-reveal",
+  "reorder-edge-scroll",
 ] as const;
 
 /** One scroll caller. Derived from the enumeration, never restated. */

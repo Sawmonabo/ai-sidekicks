@@ -430,7 +430,7 @@ export class ReorderDrag<Key extends string> {
       Math.max(0, current + this.#edgeSpeed(gesture) * elapsedMs),
       scroller.maximumOffset,
     );
-    scrollForReorderDrag(scroller.element, this.#options.axis, target);
+    scrollForReorderDrag(scroller.element, this.#options.axis, target, "reorder-edge-scroll");
     // Re-places the item over the scrolled list and arms the next frame while still at the edge.
     this.#follow(gesture, gesture.pointerX, gesture.pointerY);
   }

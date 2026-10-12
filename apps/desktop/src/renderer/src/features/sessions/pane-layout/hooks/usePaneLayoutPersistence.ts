@@ -110,12 +110,19 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
       // nothing in the snapshot, so comparing before with after would let the record put the
       // closed pane back.
       const openedDuringRead = new Set<BlockPaneKind>();
+      // A side or terminal place the person set during the read stands, even one set back to
+      // where it began.
+      const placedDuringRead = { side: false, terminalPlace: false };
+      let placedBefore = layout.snapshot();
       const watchActsDuringRead = layout.subscribe((state) => {
         for (const pane of state.panes) {
           if (!paneIdsBeforeRead.has(pane.paneId)) {
             openedDuringRead.add(pane.kind);
           }
         }
+        placedDuringRead.side ||= state.side !== placedBefore.side;
+        placedDuringRead.terminalPlace ||= state.terminalPlace !== placedBefore.terminalPlace;
+        placedBefore = state;
       });
       const readOutcome = await uiStateStore.readOutcome(sessionId, PANE_LAYOUT_RECORD_KEY);
       watchActsDuringRead();
@@ -144,7 +151,13 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
           [...openedDuringRead].filter((kind) => !liveKinds.has(kind)),
         );
         report =
-          record === undefined ? undefined : layout.adoptBeneath(record.value, closedDuringRead);
+          record === undefined
+            ? undefined
+            : layout.adoptBeneath(record.value, {
+                retiredKinds: closedDuringRead,
+                isSideSet: placedDuringRead.side,
+                isTerminalPlaceSet: placedDuringRead.terminalPlace,
+              });
       }
       for (const refusal of report?.refusals ?? []) {
         restoreRefusedRef.current(refusal, sessionId);

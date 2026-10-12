@@ -4,7 +4,7 @@
 
 import { useContext, useEffect } from "react";
 
-import { PaneEdgeDragContext } from "#renderer/components/PaneFrame/edge-drag.js";
+import { PaneEdgeDragContext } from "#renderer/components/PaneEdge/drag-context.js";
 import type { ViewportController } from "../controller.js";
 
 /** Holds `controller`'s follow for as long as a pane edge around it is dragged. */

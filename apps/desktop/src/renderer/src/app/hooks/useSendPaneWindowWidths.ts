@@ -4,38 +4,22 @@
 import { useLayoutEffect } from "react";
 
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
-import { rootFontSizePx } from "#renderer/lib/root-font-size.js";
+import { useRootFontSizePx } from "#renderer/hooks/useRootFontSizePx.js";
 import { paneWindowWidthsPx } from "#renderer/features/sessions/index.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
-import type { AppearanceClient } from "#renderer/services/window/appearance-client.js";
 
 /**
- * Send main each pane kind's opening width at the current text size, once before any window opens
- * and again on every text size the appearance record carries after it. A layout effect, so it runs
- * ahead of the passive effects that open the windows.
+ * Send main each pane kind's opening width at the text size of the document this is drawn in,
+ * once before any window opens and again on each new size. A layout effect, so it runs ahead of
+ * the passive effects that open the windows.
  */
-export function useSendPaneWindowWidths(
-  bridge: PlatformBridge,
-  appearance: AppearanceClient,
-): void {
+export function useSendPaneWindowWidths(bridge: PlatformBridge): void {
+  const rootPx = useRootFontSizePx();
   useLayoutEffect(() => {
-    let sentAtRootPx: number | undefined;
-    const send = (rootPx: number): void => {
-      if (rootPx === sentAtRootPx) {
-        return;
-      }
-      sentAtRootPx = rootPx;
-      bridge.window
-        .setDefaultSizes({ paneWidths: paneWindowWidthsPx(rootPx) })
-        .catch((failure: unknown) => {
-          recordRejectedRequest("app/useSendPaneWindowWidths", "default-sizes-not-set", failure);
-        });
-    };
-    // Main writes the kept text size onto the console document's root as it serves it, so the
-    // first figures are right before main's record arrives.
-    send(rootFontSizePx(document));
-    return appearance.subscribe((record) => {
-      send(record.textSize);
-    });
-  }, [bridge, appearance]);
+    bridge.window
+      .setDefaultSizes({ paneWidths: paneWindowWidthsPx(rootPx) })
+      .catch((failure: unknown) => {
+        recordRejectedRequest("app/useSendPaneWindowWidths", "default-sizes-not-set", failure);
+      });
+  }, [bridge, rootPx]);
 }

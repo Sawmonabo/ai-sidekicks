@@ -1,0 +1,72 @@
+/*
+ * A pane edge: a grab zone wider than its line, laid over the side of its pane it sizes from.
+ * Its hairline lies along that side, brightest in the middle and fading toward both ends; it
+ * brightens as the edge is reached for and is strongest while it is held.
+ */
+.meridian-pane-edge {
+  position: absolute;
+  z-index: 1;
+  outline: none;
+  touch-action: none;
+}
+
+.meridian-pane-edge::after {
+  position: absolute;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-pane-edge[data-orientation="vertical"] {
+  inset-block: 0;
+  inline-size: var(--meridian-pane-edge-width);
+  cursor: col-resize;
+}
+
+.meridian-pane-edge[data-orientation="vertical"]::after {
+  inset-block: 0;
+  inline-size: var(--meridian-leading-edge);
+  background: linear-gradient(to bottom, transparent, var(--meridian-edge-strong) 50%, transparent);
+}
+
+.meridian-pane-edge[data-orientation="horizontal"] {
+  inset-inline: 0;
+  block-size: var(--meridian-pane-edge-width);
+  cursor: row-resize;
+}
+
+.meridian-pane-edge[data-orientation="horizontal"]::after {
+  inset-inline: 0;
+  block-size: var(--meridian-leading-edge);
+  background: linear-gradient(to right, transparent, var(--meridian-edge-strong) 50%, transparent);
+}
+
+.meridian-pane-edge[data-orientation="vertical"][data-place="start"],
+.meridian-pane-edge[data-orientation="vertical"][data-place="start"]::after {
+  inset-inline-start: 0;
+}
+
+.meridian-pane-edge[data-orientation="vertical"][data-place="end"],
+.meridian-pane-edge[data-orientation="vertical"][data-place="end"]::after {
+  inset-inline-end: 0;
+}
+
+.meridian-pane-edge[data-orientation="horizontal"][data-place="start"],
+.meridian-pane-edge[data-orientation="horizontal"][data-place="start"]::after {
+  inset-block-start: 0;
+}
+
+.meridian-pane-edge[data-orientation="horizontal"][data-place="end"],
+.meridian-pane-edge[data-orientation="horizontal"][data-place="end"]::after {
+  inset-block-end: 0;
+}
+
+.meridian-pane-edge:hover::after,
+.meridian-pane-edge:focus-visible::after {
+  opacity: 0.65;
+}
+
+.meridian-pane-edge[data-held]::after {
+  opacity: 1;
+}

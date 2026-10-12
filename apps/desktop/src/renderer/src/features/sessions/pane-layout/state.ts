@@ -4,11 +4,17 @@
 import type { EntityRef } from "#renderer/lib/entity-kinds.js";
 import type { BlockPaneKind } from "#renderer/routing/panes/kinds.js";
 
+/** The sides of the conversation the pane block can stand on. */
+export const PANE_BLOCK_SIDES = ["right", "left"] as const;
+
 /** Which side of the conversation the pane block stands on. */
-export type PaneBlockSide = "right" | "left";
+export type PaneBlockSide = (typeof PANE_BLOCK_SIDES)[number];
+
+/** The places the terminal can sit against the row of main panes. */
+export const TERMINAL_PLACES = ["below", "above"] as const;
 
 /** Where the terminal sits against the row of main panes. */
-export type TerminalPlace = "below" | "above";
+export type TerminalPlace = (typeof TERMINAL_PLACES)[number];
 
 /** The side a session's block opens on until a person moves it. */
 export const DEFAULT_PANE_BLOCK_SIDE: PaneBlockSide = "right";
@@ -59,6 +65,23 @@ export function rowPanes(panes: readonly SessionPane[]): readonly SessionPane[] 
 /** The open terminal, or `undefined` when none is open. */
 export function terminalPane(panes: readonly SessionPane[]): SessionPane | undefined {
   return panes.find((pane) => pane.kind === "terminal");
+}
+
+/**
+ * The pane `step` places from the focused one, the row first and the terminal after it, wrapping;
+ * the first pane when none is focused, and `undefined` with no pane open.
+ */
+export function adjacentPane(
+  panes: readonly SessionPane[],
+  focusedPaneId: string | undefined,
+  step: 1 | -1,
+): SessionPane | undefined {
+  if (panes.length === 0) {
+    return undefined;
+  }
+  const current = panes.findIndex((pane) => pane.paneId === focusedPaneId);
+  const next = (((current < 0 ? 0 : current + step) % panes.length) + panes.length) % panes.length;
+  return panes[next];
 }
 
 /**

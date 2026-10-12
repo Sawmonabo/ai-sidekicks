@@ -15,7 +15,12 @@ import { type AppearanceTheme } from "#shared/theme/registry.js";
 import { TERMINAL_ROLE_ALIASES } from "#shared/theme/terminal-colors.js";
 // The enumeration row height and the transcript's row gap are products of the type scale and line
 // heights from `typography.ts`, a leaf that imports nothing local, and the spacing scale here.
-import { BODY_LINE_HEIGHT, READING_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
+import {
+  BODY_LINE_HEIGHT,
+  MONO_ADVANCE_EM,
+  READING_LINE_HEIGHT,
+  TYPE_SCALE_REM,
+} from "./typography.js";
 
 /** A color token's values: every theme's light and dark. */
 export type ThemedColor = Readonly<Record<AppearanceTheme, SchemePair>>;
@@ -228,10 +233,11 @@ export const CONVERSATION_HEIGHT_FLOOR_REM: number =
   CONVERSATION_HEIGHT_FLOOR_LINES * scaleStep(TYPE_SCALE_REM, "text-sm") * READING_LINE_HEIGHT;
 
 /**
- * Review's floor, in rem: the narrowest one half of a side-by-side diff still reads at, 420 px at
- * the default text size. Root-relative, so the same half reads at every text size.
+ * Review's floor, in rem: the narrowest one half of a side-by-side diff still reads at, the
+ * conversation's own floor, 420 px at the default text size. Root-relative, so the same half
+ * reads at every text size.
  */
-export const REVIEW_PANE_FLOOR_REM = 26.25;
+export const REVIEW_PANE_FLOOR_REM: number = CONVERSATION_FLOOR_REM;
 
 /**
  * Review's width until a person drags its edge, in rem: room for both halves of a diff beside
@@ -240,10 +246,10 @@ export const REVIEW_PANE_FLOOR_REM = 26.25;
 export const REVIEW_PANE_WIDTH_REM = 45;
 
 /**
- * Preview's floor, in rem: the narrowest one column of a page still reads at, 420 px at the
- * default text size.
+ * Preview's floor, in rem: the narrowest one column of a page still reads at, the conversation's
+ * own floor, 420 px at the default text size.
  */
-export const PREVIEW_PANE_FLOOR_REM = 26.25;
+export const PREVIEW_PANE_FLOOR_REM: number = CONVERSATION_FLOOR_REM;
 
 /** Preview's width until a person drags its edge, in rem: 720 px at the default text size. */
 export const PREVIEW_PANE_WIDTH_REM = 45;
@@ -254,11 +260,19 @@ export const PREVIEW_PANE_WIDTH_REM = 45;
  */
 export const TERMINAL_PANE_FLOOR_REM = 22.5;
 
+// The type step the terminal's shell text is set at, 12 px at the default text size.
+const TERMINAL_TEXT_REM = scaleStep(TYPE_SCALE_REM, "text-12");
+
+// The columns command-line programs lay their output out in.
+const TERMINAL_LINE_COLUMNS = 80;
+
 /**
  * The terminal's width while it is alone in the pane block, until a person drags its edge, in
- * rem: room for a command line and its output to wrap rarely, 560 px at the default text size.
+ * rem: one line of eighty mono columns at the terminal's step, so a command's output wraps
+ * rarely, 576 px at the default text size.
  */
-export const TERMINAL_PANE_WIDTH_REM = 35;
+export const TERMINAL_PANE_WIDTH_REM: number =
+  TERMINAL_LINE_COLUMNS * MONO_ADVANCE_EM * TERMINAL_TEXT_REM;
 
 /**
  * The widest floor one pane holds, in rem: the window's floor keeps room for any one pane beside
@@ -273,17 +287,25 @@ export const PANE_FLOOR_WIDEST_REM: number = Math.max(
   TERMINAL_PANE_FLOOR_REM,
 );
 
-/**
- * The shortest the terminal gets beside the row of panes, in rem: about ten lines of the shell,
- * 160 px at the default text size.
- */
-export const TERMINAL_PANE_HEIGHT_FLOOR_REM = 10;
+// How many lines of the shell the stacked terminal keeps beside the row of panes.
+const TERMINAL_HEIGHT_FLOOR_LINES = 10;
 
 /**
- * The shortest the row of panes gets beside the terminal, in rem: about fifteen lines of a pane's
- * body, 240 px at the default text size.
+ * The shortest the terminal gets beside the row of panes, in rem: ten lines of the shell at the
+ * terminal's step and the body line height, 180 px at the default text size.
  */
-export const PANE_ROW_HEIGHT_FLOOR_REM = 15;
+export const TERMINAL_PANE_HEIGHT_FLOOR_REM: number =
+  TERMINAL_HEIGHT_FLOOR_LINES * TERMINAL_TEXT_REM * BODY_LINE_HEIGHT;
+
+// How many lines of a pane's body the row of panes keeps beside the terminal.
+const PANE_ROW_HEIGHT_FLOOR_LINES = 15;
+
+/**
+ * The shortest the row of panes gets beside the terminal, in rem: fifteen lines of a pane's
+ * `text-sm` body at the body line height, about 293 px at the default text size.
+ */
+export const PANE_ROW_HEIGHT_FLOOR_REM: number =
+  PANE_ROW_HEIGHT_FLOOR_LINES * scaleStep(TYPE_SCALE_REM, "text-sm") * BODY_LINE_HEIGHT;
 
 /**
  * One arrow press on a pane edge, in rem: 24 px at the default text size, so a press moves the

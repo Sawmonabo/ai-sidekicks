@@ -52,13 +52,20 @@ export const PANE_WIDTH_RULE_BY_KIND: Readonly<Record<BlockPaneKind, PaneWidthRu
 };
 
 /**
- * Each pane kind's opening width in CSS px at a root font size of `rootFontSizePx`, keyed by the
- * kind: the widths a pane's own window opens at.
+ * Each block pane kind's opening width in CSS px at a root font size of `rootFontSizePx`: the
+ * widths a pane's own window opens at.
  */
-export function paneWindowWidthsPx(rootFontSizePx: number): Readonly<Record<string, number>> {
-  const widths: Record<string, number> = {};
-  for (const [kind, rule] of Object.entries(PANE_WIDTH_RULE_BY_KIND)) {
-    widths[kind] = rule.widthRem * rootFontSizePx;
-  }
-  return widths;
+export function paneWindowWidthsPx(
+  rootFontSizePx: number,
+): Readonly<Record<BlockPaneKind, number>> {
+  const widthOf = (kind: BlockPaneKind): number =>
+    PANE_WIDTH_RULE_BY_KIND[kind].widthRem * rootFontSizePx;
+  return {
+    inspector: widthOf("inspector"),
+    diff: widthOf("diff"),
+    "workflow-builder": widthOf("workflow-builder"),
+    browser: widthOf("browser"),
+    terminal: widthOf("terminal"),
+    agents: widthOf("agents"),
+  };
 }

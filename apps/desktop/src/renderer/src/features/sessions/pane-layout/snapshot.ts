@@ -5,7 +5,9 @@
 // Restore rules:
 //   - A snapshot of an unknown version is discarded whole; a half-restored layout hides which
 //     half is missing.
-//   - An unknown pane kind is dropped and reported as a typed refusal.
+//   - An unknown pane kind, or a pane id this build would not mint, is dropped and reported as a
+//     typed refusal.
+//   - A side or terminal place this build does not know takes its default and is reported.
 //   - One pane per kind: a second pane of a kind is dropped during decoding, first in position
 //     order winning, and reported; it would otherwise be written back on every save.
 //
@@ -24,6 +26,8 @@ import {
 import {
   DEFAULT_PANE_BLOCK_SIDE,
   DEFAULT_TERMINAL_PLACE,
+  PANE_BLOCK_SIDES,
+  TERMINAL_PLACES,
   type PaneBlockSide,
   type PaneLayoutState,
   type SessionPane,
@@ -54,9 +58,12 @@ export const PANE_LAYOUT_RESTORE_REFUSAL_CODES = [
   "snapshot-shape-invalid",
   "snapshot-version-unknown",
   "pane-shape-invalid",
+  "pane-id-invalid",
   "pane-kind-unknown",
   "pane-entity-invalid",
   "pane-kind-duplicate",
+  "side-unknown",
+  "terminal-place-unknown",
 ] as const;
 
 /** One restore refusal code. */
@@ -136,6 +143,16 @@ export function decodePaneLayoutSnapshot(snapshot: unknown): DecodedPaneLayoutSn
     if (paneId === PANE_LAYOUT_SNAPSHOT_HEADER_KEY) {
       continue;
     }
+    if (!MINTED_PANE_ID.test(paneId)) {
+      refusals.push(
+        refusePaneLayoutRestore(
+          "pane-id-invalid",
+          "One saved pane had a name this version of the app never gives a pane, so it was " +
+            "left closed.",
+        ),
+      );
+      continue;
+    }
     if (!isWireRecord(entry)) {
       refusals.push(
         refusePaneLayoutRestore(
@@ -176,11 +193,54 @@ export function decodePaneLayoutSnapshot(snapshot: unknown): DecodedPaneLayoutSn
       typeof focusedCandidate === "string" && panes.some((pane) => pane.paneId === focusedCandidate)
         ? focusedCandidate
         : panes[0]?.paneId,
-    // A member this build does not know takes the default, as a record without it would.
-    side: header["side"] === "left" ? "left" : DEFAULT_PANE_BLOCK_SIDE,
-    terminalPlace: header["terminalPlace"] === "above" ? "above" : DEFAULT_TERMINAL_PLACE,
+    side: decodeHeaderChoice(header["side"], PANE_BLOCK_SIDES, DEFAULT_PANE_BLOCK_SIDE, () =>
+      refusals.push(
+        refusePaneLayoutRestore(
+          "side-unknown",
+          "The saved layout put the panes on a side this version of the app does not have, so " +
+            "they open on the right.",
+        ),
+      ),
+    ),
+    terminalPlace: decodeHeaderChoice(
+      header["terminalPlace"],
+      TERMINAL_PLACES,
+      DEFAULT_TERMINAL_PLACE,
+      () =>
+        refusals.push(
+          refusePaneLayoutRestore(
+            "terminal-place-unknown",
+            "The saved layout put the terminal somewhere this version of the app does not " +
+              "have, so it opens below the other panes.",
+          ),
+        ),
+    ),
     refusals,
   };
+}
+
+/** The shape every pane id this build mints has, and so the only one a restore admits. */
+const MINTED_PANE_ID = /^pane-[1-9][0-9]*$/;
+
+/**
+ * A header member read as one of `choices`: absent, as in a record written before it existed,
+ * it takes `fallback` quietly; present and unknown, it takes `fallback` and `onUnknown` is told.
+ */
+function decodeHeaderChoice<TChoice extends string>(
+  candidate: unknown,
+  choices: readonly TChoice[],
+  fallback: TChoice,
+  onUnknown: () => void,
+): TChoice {
+  if (candidate === undefined) {
+    return fallback;
+  }
+  const known = choices.find((choice) => choice === candidate);
+  if (known === undefined) {
+    onUnknown();
+    return fallback;
+  }
+  return known;
 }
 
 /** Raises a restore refusal from the closed code set. */

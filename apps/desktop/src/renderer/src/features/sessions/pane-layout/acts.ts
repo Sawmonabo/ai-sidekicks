@@ -3,16 +3,16 @@
 // The layout's own key handler (`SessionPaneLayout.tsx`), the window's chords and the palette
 // (through `mounted.ts`) dispatch the same acts.
 //
-// Focus is a ring rather than DOM focus, so every act announces its result in a live region.
-// The move acts say what the pointer's drop says (`move-announcement.ts`). A move that goes
-// nowhere is not a refusal; only an act with no subject is refused: no layout mounted, or no
-// pane focused.
+// Focusing a pane moves DOM focus into it, and the layout follows the focus that lands; each act
+// also says its result in a live region. The move acts say what the pointer's drop says
+// (`move-announcement.ts`). A move that goes nowhere is not a refusal; only an act with no subject
+// is refused: no layout mounted, or no pane focused.
 
 import { TITLE_BY_PANE_KIND } from "#renderer/components/PaneFrame/PaneFrame.js";
 import type { Announce } from "#renderer/components/LiveAnnouncer/announcer.js";
 import type { PaneLayoutStore } from "./store.js";
 import { paneMoveAnnouncement } from "./move-announcement.js";
-import { terminalPane, type TerminalPlace } from "./state.js";
+import { adjacentPane, terminalPane, type TerminalPlace } from "./state.js";
 
 /**
  * The acts a mounted pane layout offers. One niladic call per act, so the name is the whole
@@ -35,22 +35,25 @@ export type PaneLayoutActName = keyof PaneLayoutActs;
 export const NO_FOCUSED_PANE_SENTENCE = "No pane is focused.";
 
 /**
- * Binds the acts to one pane layout and an announcer.
+ * Binds the acts to one pane layout, an announcer and the view that moves DOM focus into a pane.
  *
- * Kept out of `PaneLayoutStore`, which holds no opinion about live regions.
+ * Kept out of `PaneLayoutStore`, which holds no opinion about live regions or the document.
  */
-export function paneLayoutActsOn(layout: PaneLayoutStore, announce: Announce): PaneLayoutActs {
+export function paneLayoutActsOn(
+  layout: PaneLayoutStore,
+  announce: Announce,
+  focusPane: (paneId: string) => void,
+): PaneLayoutActs {
   const focusStep = (step: 1 | -1): void => {
-    const before = layout.snapshot().focusedPaneId;
-    layout.focusAdjacent(step);
     const { panes, focusedPaneId } = layout.snapshot();
-    const position = panes.findIndex((pane) => pane.paneId === focusedPaneId);
-    const focused = panes[position];
+    const focused = adjacentPane(panes, focusedPaneId, step);
     if (focused === undefined) {
       // An empty block draws nothing to focus, so there is nothing to say.
       return;
     }
-    if (focusedPaneId === before) {
+    focusPane(focused.paneId);
+    const position = panes.indexOf(focused);
+    if (focused.paneId === focusedPaneId) {
       // One pane: cycling lands where it started. Assertive, like a move that did not happen.
       announce(`The ${TITLE_BY_PANE_KIND[focused.kind]} pane is the only pane open.`, "assertive");
       return;
