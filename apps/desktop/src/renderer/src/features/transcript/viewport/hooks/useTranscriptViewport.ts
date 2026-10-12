@@ -359,11 +359,11 @@ export function useTranscriptViewport(
       [controller],
     ),
     focusScrollContainer: useCallback(() => {
-      controller.focusLog();
+      controller.logFocus.focusLog();
     }, [controller]),
     noteShown: useCallback(
       (isShown: boolean) => {
-        controller.noteShown(isShown);
+        controller.logFocus.noteShown(isShown);
       },
       [controller],
     ),
