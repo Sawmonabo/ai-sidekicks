@@ -9,7 +9,6 @@ import type { ChildHandle } from "@ai-sidekicks/contracts/agent/tree";
 import type { QuestionId } from "@ai-sidekicks/contracts/question";
 import type { WorkspaceId } from "@ai-sidekicks/contracts/repo/mount";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type {
   QueueItemId,
   QueueItemNotDeliveredReason,
@@ -22,7 +21,7 @@ import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { sqlListOf } from "../database/sql-list.js";
 import type { WriteStatement } from "../database/statement.js";
-import { RUN_TERMINAL_STATES } from "../session/run/transitions.js";
+import { RUN_TERMINAL_STATES, type RunState } from "@ai-sidekicks/contracts/run/state";
 import type { PickedSkill } from "../provider/driver/run-control.js";
 
 /** What a queued message carries, as its payload stores it: the words and what rides with them. */

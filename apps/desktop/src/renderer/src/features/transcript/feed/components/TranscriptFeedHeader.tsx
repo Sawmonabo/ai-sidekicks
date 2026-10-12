@@ -22,6 +22,7 @@ export function TranscriptFeedHeader(props: TranscriptFeedHeaderProps): React.JS
         <FindBox
           query={find.query}
           result={find.result}
+          areRowsShown={props.findAndJump.areRowsShown}
           currentMatchIndex={find.currentMatchIndex}
           openRequestCount={find.openRequestCount}
           onQueryChange={find.setQuery}

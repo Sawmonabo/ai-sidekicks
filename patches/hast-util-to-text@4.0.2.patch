@@ -1,0 +1,180 @@
+diff --git a/lib/index.js b/lib/index.js
+index 4b3aab0215087f51fa1b795d0c10ff3f4c2e5f00..4a8a6562d94a84fe97784ffa71f72ff3e0991590 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -36,6 +36,8 @@
+  *   Whether there was a break after.
+  * @property {BreakBefore} breakBefore
+  *   Whether there was a break before.
++ * @property {boolean | undefined} [rowFollows]
++ *   Whether a table row comes after the node in its nearest ancestor table.
+  * @property {Whitespace} whitespace
+  *   Current whitespace setting.
+  *
+@@ -55,6 +57,8 @@ const br = convertElement('br')
+ const cell = convertElement(isCell)
+ const p = convertElement('p')
+ const row = convertElement('tr')
++const table = convertElement('table')
++const tableSection = convertElement(['thead', 'tbody', 'tfoot'])
+ 
+ // Note that we don’t need to include void elements here as they don’t have text.
+ // See: <https://github.com/wooorm/html-void-elements>
+@@ -204,8 +208,9 @@ export function toText(tree, options) {
+     //      Each item in results will either be a JavaScript string or a
+     //      positive integer (a required line break count).
+     // 3.2. For each item item in current, append item to results.
+-    results.push(
+-      ...renderedTextCollection(
++    appendAll(
++      results,
++      renderedTextCollection(
+         children[index],
+         // @ts-expect-error: `tree` is a parent if we’re here.
+         tree,
+@@ -213,8 +218,10 @@ export function toText(tree, options) {
+           whitespace,
+           breakBefore: index ? undefined : block,
+           breakAfter:
+-            index < children.length - 1 ? br(children[index + 1]) : block
+-        }
++            index < children.length - 1 ? br(children[index + 1]) : block,
++          rowFollows: rowFollows(tree, index, false)
++        },
++        index
+       )
+     )
+   }
+@@ -258,11 +265,13 @@ export function toText(tree, options) {
+  * @param {Nodes} node
+  * @param {Parents} parent
+  * @param {CollectionInfo} info
++ * @param {number} position
++ *   Index of `node` in `parent`.
+  * @returns {Array<BreakNumber | string>}
+  */
+-function renderedTextCollection(node, parent, info) {
++function renderedTextCollection(node, parent, info, position) {
+   if (node.type === 'element') {
+-    return collectElement(node, parent, info)
++    return collectElement(node, parent, info, position)
+   }
+ 
+   if (node.type === 'text') {
+@@ -282,9 +291,11 @@ function renderedTextCollection(node, parent, info) {
+  * @param {Parents} parent
+  * @param {CollectionInfo} info
+  *   Info on current collection.
++ * @param {number} position
++ *   Index of `node` in `parent`.
+  * @returns {Array<BreakNumber | string>}
+  */
+-function collectElement(node, parent, info) {
++function collectElement(node, parent, info, position) {
+   // First we infer the `white-space` property.
+   const whitespace = inferWhitespace(node, info)
+   const children = node.children || []
+@@ -330,10 +341,13 @@ function collectElement(node, parent, info) {
+   //     See: <https://html.spec.whatwg.org/multipage/rendering.html#tables-2>
+   //     Note: needs further investigation as this does not account for implicit
+   //     rows.
++  //     A row in a `thead`, `tbody`, or `tfoot` is followed by the rows of the
++  //     sections after it, too.
+   else if (
+     row(node) &&
+-    // @ts-expect-error: something up with types of parents.
+-    findAfter(parent, node, row)
++    (info.rowFollows ||
++      // @ts-expect-error: something up with types of parents.
++      findAfter(parent, position, row))
+   ) {
+     suffix = '\n'
+   }
+@@ -357,13 +371,15 @@ function collectElement(node, parent, info) {
+   //     each child node of node in tree order, and then concatenating the
+   //     results to a single list.
+   while (++index < children.length) {
+-    items = items.concat(
++    appendAll(
++      items,
+       renderedTextCollection(children[index], node, {
+         whitespace,
+         breakBefore: index ? undefined : prefix,
+         breakAfter:
+-          index < children.length - 1 ? br(children[index + 1]) : suffix
+-      })
++          index < children.length - 1 ? br(children[index + 1]) : suffix,
++        rowFollows: rowFollows(node, index, info.rowFollows)
++      }, index)
+     )
+   }
+ 
+@@ -376,7 +392,7 @@ function collectElement(node, parent, info) {
+   if (
+     cell(node) &&
+     // @ts-expect-error: something up with types of parents.
+-    findAfter(parent, node, cell)
++    findAfter(parent, position, cell)
+   ) {
+     items.push('\t')
+   }
+@@ -631,3 +647,59 @@ function isCell(node) {
+ function closedDialog(node) {
+   return node.tagName === 'dialog' && !(node.properties || {}).open
+ }
++
++/**
++ * Append every item of `items` to `list`, one at a time, so a long list neither overflows the
++ * stack as spread arguments nor is copied once per child.
++ *
++ * @param {Array<BreakNumber | string>} list
++ * @param {Array<BreakNumber | string>} items
++ * @returns {undefined}
++ */
++function appendAll(list, items) {
++  for (const item of items) list.push(item)
++}
++
++/**
++ * Whether a table row comes after the child at `index` of `parent` in the
++ * nearest ancestor table: a later row, or a later section holding one, when
++ * `parent` is a table; a later row, or any row after the section, when `parent`
++ * is a table section.
++ *
++ * @param {Nodes} parent
++ * @param {number} index
++ *   Index of the child in `parent`.
++ * @param {boolean | undefined} parentRowFollows
++ *   Whether a table row comes after `parent` in its nearest ancestor table.
++ * @returns {boolean}
++ */
++function rowFollows(parent, index, parentRowFollows) {
++  if (table(parent)) {
++    // @ts-expect-error: a table is a parent.
++    return Boolean(findAfter(parent, index, holdsRow))
++  }
++
++  if (tableSection(parent)) {
++    return Boolean(
++      // @ts-expect-error: a table section is a parent.
++      parentRowFollows || findAfter(parent, index, row)
++    )
++  }
++
++  return false
++}
++
++/**
++ * Whether `node` is a table row, or a table section holding one.
++ *
++ * @param {Nodes} node
++ * @returns {boolean}
++ */
++function holdsRow(node) {
++  return (
++    row(node) ||
++    (tableSection(node) &&
++      // @ts-expect-error: a table section is a parent.
++      node.children.some((child) => row(child)))
++  )
++}

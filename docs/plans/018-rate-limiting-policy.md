@@ -41,7 +41,7 @@ Ship Spec-019's count on the person's own relay — the Workers relay in their o
 
 The plan builds on:
 
-- The control plane's stable middleware-mount surface (PASETO middleware + router host) that `rateLimitProcedure` mounts onto (CP-018-1).
+- The control plane's stable middleware-mount surface (the router host, and [Plan-015](./015-hosted-account-and-identity.md) T6.6's signed-in procedure) that `rateLimitProcedure` mounts onto (CP-018-1).
 
 ## Target Areas
 

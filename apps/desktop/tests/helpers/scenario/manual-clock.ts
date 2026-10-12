@@ -2,6 +2,8 @@
 //
 // Every read an app view performs goes through the app's one `RefreshScheduler`, which arms
 // its debounce on the window's clock, and under the fixture that is the scenario's frozen one.
+// Each pass also runs the frames that clock armed, since a session store applies what the
+// scenario delivered on a frame.
 // Real time moves none of those views, so a case that polled it would poll a still picture until
 // its budget ran out. The helper is shared because the views that need moving are in every
 // feature. An advance outside `act` lands its state updates untracked, and an unbounded advance
@@ -31,7 +33,7 @@ const SCENARIO_SETTLE_PASSES = 24;
  * from the one the case is about.
  */
 export async function advanceScenarioUntil(
-  engine: Pick<ScenarioEngine, "advance">,
+  engine: Pick<ScenarioEngine, "advance" | "runFrame">,
   assert: () => void,
 ): Promise<void> {
   for (let pass = 0; pass < SCENARIO_SETTLE_PASSES; pass += 1) {
@@ -41,6 +43,7 @@ export async function advanceScenarioUntil(
     } catch {
       await settle(() => {
         engine.advance(REFRESH_DEBOUNCE_MS);
+        engine.runFrame();
       });
     }
   }

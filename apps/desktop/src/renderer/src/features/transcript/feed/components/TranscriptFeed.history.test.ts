@@ -1,8 +1,9 @@
 // Reading the session's history past the store's window: a stretch asked as the reader nears the
 // top, one per gesture, landing above the row being read without moving it; `Load earlier`, its
 // failure line and `Try again`; the forward read after a tail the store let go as the reader nears
-// the bottom; and a session off screen, which keeps only its newest rows and, when the reader
-// returns, reads the rest forward as the feed opens and rejoins the stream.
+// the bottom; a session off screen, which keeps only its newest rows and, when the reader returns,
+// reads the rest forward as the feed opens and rejoins the stream; and the store letting go of the
+// events outside the window in a task after the pass, never of a row that landed before it.
 
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TranscriptReadRequest } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { ManualClock } from "#renderer/lib/clock.js";
-import { transcriptPageReadThroughDaemon } from "#renderer/services/daemon/transcript-page.js";
+import { transcriptPageReadThroughDaemon } from "#renderer/services/daemon/transcript/page.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import {
@@ -21,6 +22,7 @@ import { type SessionStore } from "#renderer/store/session/store.js";
 import { withDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { openingPageLimit } from "#test/helpers/session/store/fixtures.js";
+import { SteppedTasks } from "#test/helpers/stepped-tasks.js";
 import {
   TRANSCRIPT_APPROACH_SCREEN_HEIGHTS,
   TRANSCRIPT_GESTURE_GAP_MS,
@@ -39,10 +41,10 @@ import {
   LONG_LOG_EVENT_COUNT,
   RowIdBody,
   boundController,
-  readerScrollsTo,
   renderFeed,
   scrollContainerOf,
 } from "./TranscriptFeed.test-support.js";
+import { readerScrollsTo } from "#test/helpers/transcript/reader-scroll.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -115,10 +117,6 @@ describe("the transcript feed — reading earlier history", () => {
   it("reads one stretch near the top per gesture, holding the row being read", async () => {
     withLaidOutViewport({ content: "laid-out" });
     const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
-    const clock = fixture.scenarioEngine.clock;
-    if (!(clock instanceof ManualClock)) {
-      throw new Error("the fixture bridge runs on no frozen clock");
-    }
     const log = scriptedTranscriptLog(DAEMON_LOG_ROWS);
     const headIndex = DAEMON_LOG_ROWS - WINDOW_ROWS - 1;
     const sessionStore = openPagedSessionStore(headIndex + 1, DAEMON_LOG_ROWS - 1, {
@@ -135,10 +133,14 @@ describe("the transcript feed — reading earlier history", () => {
     expectHeldRowsWithinBand(scrollContainer);
     const approachPx = TRANSCRIPT_APPROACH_SCREEN_HEIGHTS * scrollContainer.clientHeight;
 
+    // Every input stands on one timeline, so a slow run cannot stretch the gesture past its gap.
+    const gestureAtMs = 1_000;
+    const inGestureAtMs = gestureAtMs + 1;
+
     // Just outside the approach distance nothing is asked; just inside, one read before the head.
-    readerScrollsTo(scrollContainer, approachPx + 1);
+    readerScrollsTo(scrollContainer, approachPx + 1, gestureAtMs);
     expect(log.requests).toEqual([]);
-    readerScrollsTo(scrollContainer, approachPx - 1);
+    readerScrollsTo(scrollContainer, approachPx - 1, gestureAtMs);
     expect(log.requests).toEqual([
       {
         sessionId: PAGED_SESSION_ID,
@@ -162,17 +164,24 @@ describe("the transcript feed — reading earlier history", () => {
 
     // The rest of the fling reaches the top and a wheel pulls past it, still one gesture: nothing
     // more is read.
-    readerScrollsTo(scrollContainer, 0);
-    fireEvent.wheel(scrollContainer, { deltaY: -100 });
+    readerScrollsTo(scrollContainer, 0, inGestureAtMs);
+    const pullInGesture = new WheelEvent("wheel", { deltaY: -100, bubbles: true });
+    Object.defineProperty(pullInGesture, "timeStamp", { value: inGestureAtMs });
+    fireEvent(scrollContainer, pullInGesture);
     await act(async () => {
       await Promise.resolve();
     });
     expect(log.requests).toHaveLength(1);
 
-    // A pause ends the gesture, and the next pull at the top reads before the new head.
-    clock.advance(TRANSCRIPT_GESTURE_GAP_MS);
+    // The scroll ends and a pause after it ends the gesture, timed by the pulls' own event stamps,
+    // and the next pull at the top reads before the new head.
+    fireEvent(scrollContainer, new Event("scrollend"));
     const headCursor = sessionStore.snapshot().transcriptHead.cursor;
-    fireEvent.wheel(scrollContainer, { deltaY: -100 });
+    const pullAfterPause = new WheelEvent("wheel", { deltaY: -100, bubbles: true });
+    Object.defineProperty(pullAfterPause, "timeStamp", {
+      value: inGestureAtMs + TRANSCRIPT_GESTURE_GAP_MS,
+    });
+    fireEvent(scrollContainer, pullAfterPause);
     expect(log.requests).toHaveLength(2);
     expect(log.requests[1]?.beforeCursor).toBe(headCursor);
   });
@@ -287,7 +296,6 @@ describe("the transcript feed — a session off screen", () => {
       clock: registryClock,
       openingPageLimit,
       offScreenRowLimit: () => OFF_SCREEN_ROWS,
-      applyCoalesceMs: 0,
       refreshDebounceMs: REFRESH_DEBOUNCE_MS,
     });
     const deliver = (first: number, last: number): void => {
@@ -389,5 +397,46 @@ describe("the transcript feed — a session off screen", () => {
     stopWatchingStream();
     endReturn();
     registry.disposeAll();
+  });
+});
+
+describe("the transcript feed — letting go of events outside the window", () => {
+  it("lets the store go of them in a task after the pass, waiting for a row that lands first", () => {
+    withLaidOutViewport({ content: "laid-out" });
+    const tasks = new SteppedTasks();
+    const lastIndex = LONG_LOG_EVENT_COUNT - 1;
+    const sessionStore = openPagedSessionStore(0, lastIndex);
+    const heldSequences = (): number[] =>
+      sessionStore.snapshot().transcript.map((event) => event.sequence);
+    const releaseOutside = sessionStore.releaseOutside.bind(sessionStore);
+    const drawnRowIdsAtRelease: string[][] = [];
+    vi.spyOn(sessionStore, "releaseOutside").mockImplementation((firstKept, lastKept) => {
+      drawnRowIdsAtRelease.push(drawnRowIds());
+      releaseOutside(firstKept, lastKept);
+    });
+    renderFeed(sessionStore, undefined, RowIdBody, {
+      readTranscriptPage: scriptedTranscriptLog(DAEMON_LOG_ROWS).read,
+      scheduler: tasks.window.scheduler,
+    });
+
+    // The window let rows go far above the bottom it opened at; the store keeps every event until
+    // the task the release waits in runs.
+    expect(heldSequences()).toStrictEqual(logPositions(0, lastIndex));
+    // A row the stream delivers lands before that task: the release, read against the commit
+    // before the row, would let it go, so it waits for the commit that draws the row.
+    act(() => {
+      sessionStore.applyBatch([pagedSessionEventAt(lastIndex + 1)]);
+      tasks.runQueued();
+    });
+    expect(drawnRowIdsAtRelease).toStrictEqual([]);
+    act(() => {
+      tasks.runQueued();
+    });
+
+    expect(drawnRowIdsAtRelease).toHaveLength(1);
+    expect(heldSequences()[0]).toBeGreaterThan(0);
+    expect(heldSequences().at(-1)).toBe(lastIndex + 1);
+    const heldRowIds = new Set(sessionStore.snapshot().transcript.map((event) => event.id));
+    expect(drawnRowIdsAtRelease[0]?.filter((rowId) => !heldRowIds.has(rowId))).toStrictEqual([]);
   });
 });

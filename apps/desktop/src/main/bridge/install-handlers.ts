@@ -5,14 +5,7 @@
 
 import path from "node:path";
 
-import {
-  clipboard,
-  ClipboardItem,
-  dialog,
-  ipcMain,
-  shell,
-  type IpcMainInvokeEvent,
-} from "electron";
+import { clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
 import { getNotificationStatus } from "notify-status";
 
 import {
@@ -34,7 +27,8 @@ import type { AppDiagnosticRelay } from "../services/app-diagnostic/relay.js";
 import type { DaemonForwarding } from "./daemon.js";
 import type { FilePathRefs } from "./file-path/refs.js";
 import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";
-import { copyToClipboard } from "./native/clipboard.js";
+import { ClipboardCopies } from "./native/clipboard/copies.js";
+import { clipboardHostsOn } from "./native/clipboard/host.js";
 import { listEditors } from "./native/editors/installed.js";
 import { openInEditor, parseEditorOpenRequest, readChosenEditorId } from "./native/editors/open.js";
 import { runProgram } from "./native/editors/program-runner.js";
@@ -66,7 +60,11 @@ export interface BridgeHandlerServices {
   readonly windowContext: WindowHandlerContext;
   readonly operatingSystem: Pick<
     MainOperatingSystem,
-    "installedEditors" | "flushesFolderAfterRename" | "unobtrusiveWindows"
+    | "installedEditors"
+    | "flushesFolderAfterRename"
+    | "clipboardHost"
+    | "hasPrimarySelection"
+    | "unobtrusiveWindows"
   >;
 }
 
@@ -87,6 +85,7 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     windowContext,
     operatingSystem,
   } = services;
+  const clipboardCopies = new ClipboardCopies(clipboardHostsOn(operatingSystem, clipboard));
   const keyboardMapFile = new KeyboardMapFile({
     filePath: path.join(userData, KEYBOARD_MAP_FILE_NAME),
     now: () => new Date(),
@@ -173,11 +172,20 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     [BRIDGE_CHANNELS.listEditors]: () => listEditors(operatingSystem.installedEditors(runProgram)),
     [BRIDGE_CHANNELS.getNotificationPermission]: () =>
       readNotificationPermission(getNotificationStatus),
-    [BRIDGE_CHANNELS.copyToClipboard]: (_event, content) =>
-      copyToClipboard(
-        { write: (flavors) => clipboard.write([new ClipboardItem({ ...flavors })]) },
-        content,
-      ),
+    [BRIDGE_CHANNELS.copyToClipboard]: (_event, request) =>
+      clipboardCopies.copyToClipboard(request),
+    [BRIDGE_CHANNELS.takeClipboardSnapshot]: (_event, request) =>
+      clipboardCopies.takeClipboardSnapshot(request),
+    [BRIDGE_CHANNELS.sendClipboardPiece]: (event, request) => {
+      clipboardCopies.takeClipboardPiece(request, event.sender);
+    },
+    [BRIDGE_CHANNELS.dropClipboardPieces]: (_event, request) => {
+      clipboardCopies.dropClipboardPieces(request);
+    },
+    [BRIDGE_CHANNELS.copyToClipboardUnlessChanged]: (_event, request) =>
+      clipboardCopies.copyToClipboardUnlessChanged(request),
+    [BRIDGE_CHANNELS.addClipboardFormatting]: (_event, request) =>
+      clipboardCopies.addClipboardFormatting(request),
     [BRIDGE_CHANNELS.revealInFileExplorer]: (event, ref) => {
       shell.showItemInFolder(filePathRefs.requirePath(event.sender, ref, "open"));
     },

@@ -1,7 +1,8 @@
 // `transcript.read` windows over a scratch log: the cursors a page is read from and the one it
 // names next, the default row limit, the byte cut kept at the cursor's end with one row as its
 // floor, every row's body with it but a large one, and a session whose history is damaged before
-// its first event read as an empty log.
+// its first event read as an empty log, and the facts of each run a page names, folded from the
+// whole log and taking their bytes from the rows' budget.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -11,6 +12,8 @@ import {
   START_OF_LOG_POSITION,
 } from "@ai-sidekicks/contracts/session/event-cursor";
 import { CONTENT_PAYLOAD_PLAINTEXT_MAX } from "@ai-sidekicks/contracts/event/declared-variants";
+import { jsonUtf8ByteLength } from "@ai-sidekicks/contracts/jsonrpc/byte-length";
+import { PAGE_MAX_BYTES } from "@ai-sidekicks/contracts/jsonrpc/page";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   TRANSCRIPT_READ_LIMIT_MAX,
@@ -23,13 +26,17 @@ import {
 } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
-import type { DamagedFromSequenceReader } from "../../events/session/read.js";
+import {
+  prepareSessionEventReads,
+  type DamagedFromSequenceReader,
+} from "../../events/session/read.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { insertStoredEvent } from "../../session/__fixtures__/stored-event.js";
 import { TranscriptProjector } from "../projector.js";
 import { TranscriptWindowReader } from "../window.js";
 
 const SESSION_ID = "0190f9b0-1c2d-7e3f-8a4b-5c6d7e8f9a01" as SessionId;
+const RUN_ID = "0190f9b0-1c2d-7e3f-8a4b-5c6d7e8f9b01";
 const UNKNOWN_SESSION_ID = "0190f9b0-1c2d-7e3f-8a4b-5c6d7e8f9aff" as SessionId;
 
 // A name long enough that two rows fit the page byte budget and three do not.
@@ -68,6 +75,45 @@ async function seedRenames(names: readonly string[]): Promise<void> {
   );
 }
 
+/** One stored event of a seeded log, at the sequence its place in the log gives it. */
+interface SeededEvent {
+  readonly category: string;
+  readonly type: string;
+  readonly actor?: string;
+  readonly payload: Readonly<Record<string, unknown>>;
+}
+
+// Appends `events` at sequences from `firstSequence` on.
+async function seedLog(events: readonly SeededEvent[], firstSequence = 0): Promise<void> {
+  // Queued together, as `seedRenames` queues its rows.
+  await Promise.all(
+    events.map((event, position) => {
+      const sequence = firstSequence + position;
+      return insertStoredEvent(scratch.writer, {
+        id: `event-${String(sequence)}`,
+        sessionId: SESSION_ID,
+        sequence,
+        occurredAt: "2026-10-09T12:00:00.000Z",
+        monotonicNs: BigInt(sequence),
+        category: event.category,
+        type: event.type,
+        actor: event.actor ?? null,
+        payload: { sessionId: SESSION_ID, ...event.payload },
+        correlationId: null,
+        causationId: null,
+        version: "1.0",
+      });
+    }),
+  );
+}
+
+// One `run.<state>` beat of the seeded run, naming the state its type announces.
+const runStateBeat = (state: string, newState: string = state): SeededEvent => ({
+  category: "run_lifecycle",
+  type: `run.${state}`,
+  payload: { runId: RUN_ID, runVersion: 1, newState },
+});
+
 /** One stored event's body, `null` for none, and the payload members that describe it. */
 interface StoredBody {
   readonly body: string | null;
@@ -105,6 +151,7 @@ function windowReader(
 ): TranscriptWindowReader {
   return new TranscriptWindowReader(
     scratch.reader,
+    prepareSessionEventReads(scratch.reader, readDamagedFromSequence),
     new TranscriptProjector(scratch.reader, readDamagedFromSequence),
     readDamagedFromSequence,
   );
@@ -254,6 +301,145 @@ describe("TranscriptWindowReader — one transcript.read window", () => {
       { status: "large", contentLength: inlineMax - 2 },
       { status: "large", contentLength: inlineMax },
       { status: "unavailable", reason: "absent" },
+    ]);
+  });
+
+  it("serves the facts of each run a page names, folded from the whole log through its head", async () => {
+    await seedLog([
+      {
+        category: "run_lifecycle",
+        type: "run.queued",
+        payload: {
+          runId: RUN_ID,
+          runVersion: 1,
+          newState: "queued",
+          admittedProviderAccountId: "acct-1",
+        },
+      },
+      // A person's message steering the run does not name who acts for it.
+      {
+        category: "interactive_request",
+        type: "user.message",
+        actor: "user-1",
+        payload: { runId: RUN_ID, message: "go on" },
+      },
+      {
+        category: "approval_flow",
+        type: "approval.requested",
+        actor: "agent-1",
+        payload: { runId: RUN_ID },
+      },
+      runStateBeat("running"),
+      runStateBeat("completed"),
+      // Names another state than its type announces, so the run stays completed.
+      runStateBeat("running", "failed"),
+      {
+        category: "session_lifecycle",
+        type: "session.renamed",
+        payload: { name: "after the run", origin: "user" },
+      },
+      // Names the run it targets, and so the page names that run, but is not the run's own.
+      {
+        category: "interactive_request",
+        type: "intervention.requested",
+        actor: "device-1",
+        payload: { targetRunId: RUN_ID, interventionId: "intervention-1" },
+      },
+    ]);
+    const reply = windowReader().read({
+      sessionId: SESSION_ID,
+      beforeCursor: encodeEventCursor(7),
+      limit: 2,
+    });
+    expect(TranscriptReadResponseSchema.safeParse(reply).success).toBe(true);
+    expect(reply.entries.map((row) => row.sequence)).toStrictEqual([6, 7]);
+    expect(reply.runs).toStrictEqual([
+      {
+        runId: RUN_ID,
+        actor: "agent-1",
+        admittedProviderAccountId: "acct-1",
+        stateEventType: "run.completed",
+        isRewound: false,
+        foldedThroughSequence: 7,
+      },
+    ]);
+    // A page naming no run carries no facts.
+    expect(
+      windowReader().read({ sessionId: SESSION_ID, beforeCursor: encodeEventCursor(6), limit: 1 })
+        .runs,
+    ).toStrictEqual([]);
+  });
+
+  it("cuts the rows to the budget left beside the run facts, and serves a rewind", async () => {
+    const shortName = "short";
+    const rename = (name: string): SeededEvent => ({
+      category: "session_lifecycle",
+      type: "session.renamed",
+      payload: { name, origin: "user" },
+    });
+    const approval: SeededEvent = {
+      category: "approval_flow",
+      type: "approval.requested",
+      actor: "agent-1",
+      payload: { runId: RUN_ID },
+    };
+    const rewound: readonly SeededEvent[] = [
+      runStateBeat("queued"),
+      runStateBeat("running"),
+      {
+        category: "run_lifecycle",
+        type: "run.rolled_back",
+        payload: { runId: RUN_ID, runVersion: 2, targetPosition: 0 },
+      },
+      rename(shortName),
+      approval,
+    ];
+    await seedLog(rewound);
+    const reader = windowReader();
+    const measured = reader.read({
+      sessionId: SESSION_ID,
+      beforeCursor: encodeEventCursor(4),
+      limit: 2,
+    });
+    const [shortRow, approvalRow] = measured.entries;
+    const factsBytes = jsonUtf8ByteLength(measured.runs);
+    // A rename whose row brings the page's two rows to half the facts' bytes under the budget:
+    // they fit alone and do not fit beside the facts.
+    const paddedName = "p".repeat(
+      PAGE_MAX_BYTES -
+        3 -
+        jsonUtf8ByteLength(approvalRow) -
+        jsonUtf8ByteLength(shortRow) +
+        shortName.length -
+        Math.floor(factsBytes / 2),
+    );
+    await seedLog([rename(paddedName)], rewound.length);
+
+    const page = reader.read({
+      sessionId: SESSION_ID,
+      afterCursor: encodeEventCursor(3),
+      limit: 2,
+    });
+    const paddedRow = reader.read({
+      sessionId: SESSION_ID,
+      beforeCursor: encodeEventCursor(5),
+      limit: 1,
+    }).entries;
+    const bothRowsBytes = jsonUtf8ByteLength([approvalRow, ...paddedRow]);
+
+    expect(bothRowsBytes).toBeLessThanOrEqual(PAGE_MAX_BYTES);
+    expect(bothRowsBytes + factsBytes).toBeGreaterThan(PAGE_MAX_BYTES);
+    expect(page.entries.map((row) => row.sequence)).toStrictEqual([4]);
+    expect(page.hasMore).toBe(true);
+    // The rewind came after the run's newest state, which it keeps.
+    expect(page.runs).toStrictEqual([
+      {
+        runId: RUN_ID,
+        actor: "agent-1",
+        stateEventType: "run.running",
+        isRewound: true,
+        foldedThroughSequence: 5,
+      },
     ]);
   });
 });

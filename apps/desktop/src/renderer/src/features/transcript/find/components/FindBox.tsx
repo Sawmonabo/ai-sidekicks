@@ -16,6 +16,8 @@ import "./FindBox.css";
 export interface FindBoxProps {
   readonly query: string;
   readonly result: FindResult;
+  /** Whether the feed shows its rows; until it does the walk holds none, and the count is blank. */
+  readonly areRowsShown: boolean;
   /** Which match the walk is on, or `-1` before the first step. */
   readonly currentMatchIndex: number;
   /** How many times the caller has asked for this field; the caret moves in on each press. */
@@ -30,7 +32,7 @@ export function FindBox(props: FindBoxProps): React.JSX.Element {
   const { result } = props;
   const inputRef = useCaretOnOpen(props.openRequestCount);
   const hasMatches = result.matches.length > 0;
-  const countText = matchCountText(result, props.currentMatchIndex);
+  const countText = props.areRowsShown ? matchCountText(result, props.currentMatchIndex) : "";
 
   return (
     <div className="meridian-find" role="search">
@@ -61,7 +63,12 @@ export function FindBox(props: FindBoxProps): React.JSX.Element {
         />
       </label>
 
-      <AnnouncedLine element="span" words={countText} politeness="polite">
+      <AnnouncedLine
+        element="span"
+        className="meridian-find__count"
+        words={countText}
+        politeness="polite"
+      >
         <DerivedFigure text={countText} />
       </AnnouncedLine>
 

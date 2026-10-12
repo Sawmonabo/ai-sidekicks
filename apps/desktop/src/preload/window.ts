@@ -59,6 +59,9 @@ export function createWindowBridge(
     bringForward: async (windowId): Promise<void> => {
       await ipc.invoke(BRIDGE_CHANNELS.bringWindowForward, windowId);
     },
+    paste: async (windowId): Promise<void> => {
+      await ipc.invoke(BRIDGE_CHANNELS.pasteInWindow, windowId);
+    },
     setDefaultSizes: async (sizes): Promise<void> => {
       await ipc.invoke(BRIDGE_CHANNELS.setDefaultSizes, sizes);
     },

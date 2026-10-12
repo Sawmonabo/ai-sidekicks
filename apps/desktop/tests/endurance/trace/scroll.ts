@@ -17,7 +17,7 @@
 //
 // A frame the compositor presented without the main thread's update for it
 // (`STATE_PRESENTED_PARTIAL`) moved the content on its own: whatever the main thread places as the
-// content scrolls, such as an overlay bar's track, is drawn where it stood a frame before.
+// content scrolls is drawn where it stood a frame before.
 //
 // A trace may hold several gestures, as a series of flings does. Frame gaps are taken within each
 // gesture, from the frame that drew its first moving update to the frame that drew its last, so
@@ -43,6 +43,7 @@ export interface ScrollReading {
   readonly refreshIntervalMs: number;
   /**
    * The gaps between presented frames while each gesture moved the content, in whole refreshes.
+   * Empty when every gesture moved it in one presented frame, as a lone wheel notch does.
    */
   readonly presentedFrameGapsInRefreshes: readonly number[];
   /** The same gaps in milliseconds, as presented. */
@@ -129,6 +130,9 @@ const SCROLL_UPDATE_TYPES: ReadonlySet<string> = new Set([
 
 /** Chromium's state for a frame presented without the main thread's update for it. */
 const PRESENTED_WITHOUT_MAIN_THREAD_STATE = "STATE_PRESENTED_PARTIAL";
+
+/** Chromium's state for a frame it chose not to draw, which no submit follows. */
+const NO_UPDATE_DESIRED_STATE = "STATE_NO_UPDATE_DESIRED";
 
 const PRESENTED_FRAME_STATES: ReadonlySet<string> = new Set([
   "STATE_PRESENTED_ALL",
@@ -224,7 +228,11 @@ export function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
     const submittedUs = stageTimesByKey
       .get(spanKey(begin))
       ?.submittedUs.find((atUs) => atUs >= begin.ts && atUs <= end.ts);
-    if (begin.pid !== rendererPid || report["display_trace_id"] === undefined) {
+    if (
+      begin.pid !== rendererPid ||
+      report["display_trace_id"] === undefined ||
+      report["state"] === NO_UPDATE_DESIRED_STATE
+    ) {
       continue;
     }
     if (submittedUs === undefined) {
@@ -316,9 +324,6 @@ export function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
       firstMovedFrameLatenciesMs.push(drawing.firstMovedFrame.latencyMs);
     }
   }
-  if (presentedFrameGapsMs.length === 0) {
-    throw new Error("each gesture moved the content in a single presented frame");
-  }
   return {
     refreshIntervalMs,
     // Presentation stamps land a few microseconds either side of a vsync, so each gap is counted
@@ -341,6 +346,17 @@ export function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
     mainThreadHitTestCount,
     slowestInputToSubmit: slowestOf(inputToSubmits),
   };
+}
+
+/**
+ * Holds a reading whose gestures move the content across frames, as a fling does, to having gaps
+ * between its presented frames. Throws when every gesture moved it in a single presented frame,
+ * since a frame-gap figure would then be read off nothing.
+ */
+export function requirePresentedFrameGaps(reading: ScrollReading): void {
+  if (reading.presentedFrameGapsMs.length === 0) {
+    throw new Error("each gesture moved the content in a single presented frame");
+  }
 }
 
 /** The longest of several waits by refreshes; throws on none, since a reading always has one. */

@@ -7,10 +7,10 @@
 // it read reaches the session's first message. A reader past the line keeps their row; a reader at
 // the top sees the line grow in place, its head still in view.
 
-import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { changeLayout } from "../../helpers/animation-frame.js";
+import { readerScrollsTo } from "../../helpers/transcript/reader-scroll.js";
 import {
   EARLIER_HISTORY_BOX_HEIGHT_PX,
   EARLIER_HISTORY_ROW_HEIGHT_PX,
@@ -90,8 +90,7 @@ describe("browser — the history line holds the reader's row as its height chan
     const { container, scrollContainer, sessionStore, log, landRead } =
       await mountEarlierHistoryFeed();
     await changeLayout(() => {
-      scrollContainer.scrollTop = READING_AT_PX;
-      fireEvent.scroll(scrollContainer);
+      readerScrollsTo(scrollContainer, READING_AT_PX);
     });
     const underReader = rowUnderReader(scrollContainer);
     const expectRowHeld = (): void => {
@@ -141,8 +140,7 @@ describe("browser — the history line holds the reader's row as its height chan
     document.head.append(caseSheet);
     const { container, scrollContainer, log, landRead } = await mountEarlierHistoryFeed();
     await changeLayout(() => {
-      scrollContainer.scrollTop = READING_AT_PX;
-      fireEvent.scroll(scrollContainer);
+      readerScrollsTo(scrollContainer, READING_AT_PX);
     });
     const underReader = rowUnderReader(scrollContainer);
     const oneLineHeightPx = headHeightPx(scrollContainer);
@@ -168,8 +166,7 @@ describe("browser — the history line holds the reader's row as its height chan
   it("lets the rows flow below the line at the top of the log, its head in view", async () => {
     const { container, scrollContainer, log, landRead } = await mountEarlierHistoryFeed();
     await changeLayout(() => {
-      scrollContainer.scrollTop = 0;
-      fireEvent.scroll(scrollContainer);
+      readerScrollsTo(scrollContainer, 0);
     });
     // At the top the reader reads the stretch on its own; the line reads `Loading…`.
     expect(container.textContent).toContain("Loading…");

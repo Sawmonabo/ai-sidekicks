@@ -1,9 +1,14 @@
-import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, cleanup, render } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 
+import { DiagramPictures, DiagramPicturesContext } from "./diagram/pictures.js";
+import { FakeDiagramWorkers } from "./diagram/worker/connection.test-support.js";
 import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { MarkdownNodes } from "./MarkdownNodes.js";
 import { parseSettledBlock } from "./parse.js";
+
+/** Leaves the renderer's caches alone: no case here shows enough pictures to empty them for. */
+const keepUnusedMemory = (): void => undefined;
 
 /** These documents hold no code block, so nothing may ask for colors. */
 const NO_CODE_SPANS: CodeSpanReader = {
@@ -15,15 +20,16 @@ const NO_CODE_SPANS: CodeSpanReader = {
   },
 };
 
-function renderMarkdown(source: string, definedFootnotes: readonly string[] = []): HTMLElement {
+function renderMarkdown(source: string, isSettled = true): HTMLElement {
   const { container } = render(
     <MarkdownNodes
       nodes={parseSettledBlock(source).children}
       context={{
-        isSettled: true,
-        definedFootnoteIdentifiers: new Set(definedFootnotes),
+        isSettled,
+        definedFootnoteIdentifiers: new Set(),
         codeSpanReader: NO_CODE_SPANS,
-        renderCodeCopy: undefined,
+        renderCopy: undefined,
+        renderTable: undefined,
       }}
     />,
   );
@@ -76,5 +82,48 @@ describe("structure", () => {
   it("renders a footnote DEFINITION nowhere, so its text is not on screen twice", () => {
     const container = renderMarkdown("[^1]: the note body\n");
     expect(container.textContent).not.toContain("the note body");
+  });
+});
+
+describe("a mermaid fence", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("is a diagram block that asks for its picture once settled, and only then", async () => {
+    const workers = new FakeDiagramWorkers();
+    const pictures = new DiagramPictures(16 * 1024 * 1024, workers.start, keepUnusedMemory);
+    const source = "flowchart LR\n  streamed --> settled";
+    const fence = `\`\`\`mermaid\n${source}\n\`\`\`\n`;
+    const renderFence = (isSettled: boolean): HTMLElement =>
+      render(
+        <DiagramPicturesContext.Provider value={pictures}>
+          <MarkdownNodes
+            nodes={parseSettledBlock(fence).children}
+            context={{
+              isSettled,
+              definedFootnoteIdentifiers: new Set(),
+              codeSpanReader: NO_CODE_SPANS,
+              renderCopy: undefined,
+              renderTable: undefined,
+            }}
+          />
+        </DiagramPicturesContext.Provider>,
+      ).container;
+
+    const streaming = renderFence(false);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(streaming.querySelector(".meridian-diagram__source")?.textContent).toBe(source);
+    expect(workers.started).toHaveLength(0);
+
+    const settled = renderFence(true);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(settled.querySelector("figure.meridian-diagram")).not.toBeNull();
+    expect(settled.querySelector(".meridian-code-block")).toBeNull();
+    expect(workers.latest().requests.map((request) => request.source)).toStrictEqual([source]);
   });
 });

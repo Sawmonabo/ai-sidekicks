@@ -123,12 +123,60 @@ export interface EditorEntry {
 }
 
 /**
- * What one copy puts on the clipboard: the plain text, and a formatted flavor beside it that a
- * paste target which reads formatting takes instead.
+ * What a copy of text puts on the clipboard: the plain text, and a formatted flavor beside it that
+ * a paste target which reads formatting takes instead.
  */
-export interface ClipboardContent {
+export interface TextClipboardContent {
   readonly text: string;
   readonly html?: string;
+}
+
+/**
+ * A picture a copy puts on the clipboard, as PNG bytes. Its bytes reach main as `png` pieces, a
+ * piece a message, so no one message carries the whole picture.
+ */
+export interface PictureClipboardContent {
+  readonly png: Uint8Array<ArrayBuffer>;
+}
+
+/**
+ * What one copy puts on the clipboard: text with its formatted flavor, or a picture alone. A
+ * picture carries no text flavor, so a paste target that reads both never prefers text.
+ */
+export type ClipboardContent = TextClipboardContent | PictureClipboardContent;
+
+/**
+ * One piece of a late copy, sent to main ahead of the write that names the copy, so no one message
+ * carries a long text or a whole picture: a piece of its text or of its formatted flavor, or of a
+ * picture's PNG bytes. `index` counts the flavor's pieces from 0, and the first piece of the text
+ * or of the picture starts the copy, in place of any copy main holds for the same clipboard.
+ * `clipboard` names the selection clipboard; absent, the system one. Main holds one copy per
+ * clipboard.
+ */
+export type ClipboardPiece =
+  | {
+      readonly copyId: string;
+      readonly clipboard?: "selection" | undefined;
+      readonly flavor: "text" | "html";
+      readonly index: number;
+      readonly piece: string;
+    }
+  | {
+      readonly copyId: string;
+      readonly clipboard?: "selection" | undefined;
+      readonly flavor: "png";
+      readonly index: number;
+      readonly piece: Uint8Array<ArrayBuffer>;
+    };
+
+/**
+ * What a clipboard held when a copy was asked for, as a digest main reads: the copy's content,
+ * coming later, is written only while the clipboard still holds it.
+ */
+export interface ClipboardSnapshot {
+  /** The selection clipboard, or the system one when absent. */
+  readonly clipboard?: "selection";
+  readonly digest: string;
 }
 
 /**
@@ -408,9 +456,40 @@ export interface PreloadApi {
     /** The operating system's notification permission for this app. */
     getNotificationPermission(): Promise<NotificationPermission>;
     /**
-     * Put the text, with its formatted flavor where one is given, on the clipboard in one write.
+     * Put the text, with its formatted flavor where one is given, on the clipboard in one write:
+     * the system clipboard, or, named `"selection"`, the selection one a middle-click pastes,
+     * which Linux alone keeps and is refused elsewhere.
      */
-    copyToClipboard(content: ClipboardContent): Promise<void>;
+    copyToClipboard(content: TextClipboardContent, clipboard?: "selection"): Promise<void>;
+    /**
+     * What the system clipboard, or the selection one, holds now, for a copy whose content comes
+     * later to write against; refused as `copyToClipboard` refuses the clipboard.
+     */
+    takeClipboardSnapshot(clipboard?: "selection"): Promise<ClipboardSnapshot>;
+    /**
+     * Hand main one piece of a late copy's text, formatted flavor or picture. Refused for a piece
+     * naming a copy main does not hold, for one out of its flavor's order, and for a copy past
+     * main's bounds on its size or its count of pieces; the last two also let the copy go.
+     */
+    sendClipboardPiece(piece: ClipboardPiece): Promise<void>;
+    /** Let the pieces of the copy `copyId` names go, when main holds them. */
+    dropClipboardPieces(copyId: string): Promise<void>;
+    /**
+     * Put the copy whose pieces were sent under `copyId`, its text and formatted flavor or its
+     * picture, on the clipboard `since` names in one write, only while that clipboard still holds
+     * what it held when `since` was taken; resolves `false`, writing nothing, once a newer copy,
+     * from this app or another, holds it, or once main no longer holds its pieces. Refused for a
+     * picture that is not a PNG.
+     */
+    copyToClipboardUnlessChanged(copyId: string, since: ClipboardSnapshot): Promise<boolean>;
+    /**
+     * Put the formatted flavor whose pieces were sent under `copyId` beside the copy's text on the
+     * system clipboard, in one write, only while the clipboard still holds that text, then let the
+     * copy's pieces go; resolves `false`, writing nothing, once a newer copy, from this app or
+     * another, holds it or was asked for, or once main no longer holds the copy's pieces. Refused
+     * for a copy main holds no formatted flavor of.
+     */
+    addClipboardFormatting(copyId: string): Promise<boolean>;
     /** Show a file or folder selected in the platform's file manager. */
     revealInFileExplorer(ref: FilePathRef): Promise<void>;
   };
@@ -479,6 +558,11 @@ export interface PreloadApi {
      */
     bringForward(windowId: string): Promise<void>;
     /**
+     * Pastes the system clipboard into the focused field of an open window, as its Edit menu's
+     * Paste does; nothing for a window that closed while the ask crossed.
+     */
+    paste(windowId: string): Promise<void>;
+    /**
      * The widths a pane's own window with no kept place opens at, handed before the first window
      * opens and again when the text size changes.
      */
@@ -517,6 +601,11 @@ export interface PreloadApi {
      * main has taken it, whether or not the service is reachable.
      */
     reportWindowDiagnostics(reports: readonly WindowDiagnosticReport[]): Promise<void>;
+    /**
+     * Free the renderer's cached memory nothing draws any more, for every window, once a session's
+     * decoded pictures are released; what a page needs again is loaded again.
+     */
+    freeUnusedMemory(): void;
   };
 }
 
@@ -556,6 +645,11 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       listEditors: () => stubThrow("native.listEditors"),
       getNotificationPermission: () => stubThrow("native.getNotificationPermission"),
       copyToClipboard: () => stubThrow("native.copyToClipboard"),
+      takeClipboardSnapshot: () => stubThrow("native.takeClipboardSnapshot"),
+      sendClipboardPiece: () => stubThrow("native.sendClipboardPiece"),
+      dropClipboardPieces: () => stubThrow("native.dropClipboardPieces"),
+      copyToClipboardUnlessChanged: () => stubThrow("native.copyToClipboardUnlessChanged"),
+      addClipboardFormatting: () => stubThrow("native.addClipboardFormatting"),
       revealInFileExplorer: () => stubThrow("native.revealInFileExplorer"),
     },
     update: {
@@ -580,6 +674,7 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       subscribeAppearance: () => stubThrow("window.subscribeAppearance"),
       setMinimumSize: () => stubThrow("window.setMinimumSize"),
       bringForward: () => stubThrow("window.bringForward"),
+      paste: () => stubThrow("window.paste"),
       setDefaultSizes: () => stubThrow("window.setDefaultSizes"),
       endSafeStart: () => stubThrow("window.endSafeStart"),
       subscribeToReopenRequest: () => stubThrow("window.subscribeToReopenRequest"),
@@ -590,6 +685,7 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       ...app,
       subscribeMachineClock: () => () => undefined,
       reportWindowDiagnostics: () => stubThrow("app.reportWindowDiagnostics"),
+      freeUnusedMemory: () => stubThrow("app.freeUnusedMemory"),
     },
   };
 }

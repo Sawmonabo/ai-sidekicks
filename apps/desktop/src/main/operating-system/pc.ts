@@ -13,6 +13,8 @@ export type PcMainOperatingSystem = Omit<
   | "flushesFolderAfterRename"
   | "createProcessIdentityReader"
   | "resolveDaemonRunFolder"
+  | "clipboardHost"
+  | "hasPrimarySelection"
   | "unobtrusiveWindows"
 >;
 

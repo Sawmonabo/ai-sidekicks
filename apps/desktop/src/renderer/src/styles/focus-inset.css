@@ -29,7 +29,7 @@
   outline-style: none;
 }
 
-:has(> .meridian-focus-inset:focus-visible) {
+:focus-within:has(> .meridian-focus-inset:focus-visible) {
   scale: 1;
 }
 

@@ -32,7 +32,7 @@ function admitOneMoreEntry(sessionStore: SessionStore, sequence: number): void {
         cursor: transcriptFixtureStreamCursor(sequence),
         kind: "user.message",
         occurredAt: new Date(Date.UTC(2026, 0, 1, 11, 1, sequence)).toISOString(),
-        payload: {},
+        payload: { message: "user.message" },
       },
     ]);
   });

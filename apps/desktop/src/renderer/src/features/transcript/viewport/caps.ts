@@ -47,12 +47,52 @@ export const TRANSCRIPT_LET_GO_SCREEN_HEIGHTS: number =
 export const TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS = 1;
 
 /**
+ * The rows drawn beyond the edge the reader last moved toward, in screen heights, once the band is
+ * whole.
+ *
+ * A fling's fastest frame moves the box further than `TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS`
+ * before the next render draws, so the side it moves toward reaches further than the other.
+ */
+export const TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS = 1.5;
+
+/**
+ * The furthest the side a fling moves toward reaches, in screen heights.
+ *
+ * A fling's leading side reaches as far as the box travels at its speed over a frame drawn
+ * `TRANSCRIPT_GESTURE_GAP_MS` late and the frames either side of it, so a frame the main thread
+ * draws late still lands on rows already drawn. Twice the leading band keeps a flick's draw
+ * bounded; a reach past the rows the window holds is clamped to them.
+ */
+export const TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS = 3;
+
+/**
+ * The step a fling's reach grows and shrinks by, in screen heights.
+ *
+ * Each change to the band redraws the list, so the reach moves a step at a time: a fling redraws
+ * it a few times as it speeds and slows rather than on every frame.
+ */
+export const TRANSCRIPT_FLING_BAND_STEP_SCREEN_HEIGHTS = 0.5;
+
+/**
+ * How far the drawn band widens beyond each edge of the viewport per task after a land, in screen
+ * heights.
+ *
+ * A land (a page at the head, a landing on a row or the tail, the opening) draws only the rows on
+ * screen in its own task, then the band grows by this much a task until it reaches
+ * `TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS`, so no one task mounts a whole band beside the land.
+ */
+export const TRANSCRIPT_BAND_WIDENING_SCREEN_HEIGHTS = 0.5;
+
+/**
  * The pause between two of the reader's scroll samples, in milliseconds, that ends one gesture and
  * starts the next.
  *
- * Compared against the samples' own clock stamps, never armed. A wheel or a fling delivers a
- * sample every frame while it moves, so a pause of several frames is a hand that let go; one
- * gesture admits at most one stretch, so a fling brings a stretch and not the whole log.
+ * Compared against the samples' scroll-event time stamps, never armed. A wheel or a fling delivers
+ * a sample every frame while it moves, so a pause of several frames with the box still is a hand
+ * that let go; a gap before the box's `scrollend`, a busy machine's late frame among them, is not
+ * (`reader-gesture.ts`). One gesture admits at most one stretch, so a fling brings a stretch
+ * and not the whole log. A scroll sample this soon after the reader's wheel, key or touch, or one
+ * that carries their gesture on, is theirs, which is what lets it end following.
  */
 export const TRANSCRIPT_GESTURE_GAP_MS = 150;
 

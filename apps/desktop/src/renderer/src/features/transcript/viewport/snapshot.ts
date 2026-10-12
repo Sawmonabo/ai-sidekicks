@@ -2,6 +2,9 @@
 // them. Nothing here holds state, so views and the React binding import the row type from here
 // without holding the controller, and the rules are tested directly.
 
+import type { Range } from "@tanstack/virtual-core";
+
+import { type DrawnBandScreenHeights } from "./drawn-band.js";
 import { type ReadingAnchorState } from "./reading-anchor.js";
 import { type RowKeyProjection } from "./row-measurement-table.js";
 import { type WindowRow, type PruneOutcome } from "./window-cap.js";
@@ -28,16 +31,31 @@ export interface ViewportSnapshot {
   readonly lastPrune: PruneOutcome | undefined;
   /** The height of the history line above the first row, which the list starts below, in px. */
   readonly headHeightPx: number;
+  /**
+   * The rows the reader holds, which are drawn wherever the window keeps them, so a render that
+   * draws the rows re-runs when the held set changes. The anchor's own array, by identity.
+   */
+  readonly heldRowKeys: readonly string[];
+  /**
+   * The function the list's rows are drawn through, by identity: a new one each time the band
+   * must be walked again, as when it widens or a row's work lands.
+   */
+  readonly rangeExtractor: (range: Range) => number[];
+  /**
+   * How far beyond each edge of the box a window nested in a row draws its items, in screen
+   * heights, by identity.
+   */
+  readonly nestedBandScreenHeights: DrawnBandScreenHeights;
 }
 
 /** What the surrounding feed tells the frame each render. */
 export interface ViewportConditions {
   readonly rows: readonly ViewportRow[];
   /**
-   * Whether a row is still working: a reply still streaming, a tool call still running, an ask
-   * still open. The window never lets go of one; a new function when the working rows change.
+   * Whether a row's state still moves, so the window keeps it. Memoized by the caller: the
+   * reconcile keys on its identity.
    */
-  readonly isWorkingRow: (rowKey: string) => boolean;
+  readonly isChangingRow: (rowKey: string) => boolean;
 }
 
 /**
@@ -74,6 +92,27 @@ export function countInsertedBefore(
   return previousHeadIndex < 0 ? 0 : previousHeadIndex;
 }
 
+/** Whether two key lists differ in length or at either end, which lays the library out anew. */
+export function haveDifferentEnds(
+  previousKeys: readonly string[],
+  nextKeys: readonly string[],
+): boolean {
+  return (
+    previousKeys.length !== nextKeys.length ||
+    previousKeys[0] !== nextKeys[0] ||
+    previousKeys[previousKeys.length - 1] !== nextKeys[nextKeys.length - 1]
+  );
+}
+
+/** Whether `nextKeys` holds a row `previousKeys` did not. */
+export function haveRowsJoined(
+  previousKeys: readonly string[],
+  nextKeys: readonly string[],
+): boolean {
+  const previousKeySet = new Set(previousKeys);
+  return nextKeys.some((key) => !previousKeySet.has(key));
+}
+
 /**
  * Whether the virtualizer may subtract a measurement's delta from the offset: only when the
  * reader is not following (the library's end anchor already holds a follower on the tail) and the
@@ -87,4 +126,17 @@ export function shouldCompensateForInsertion(
   scrollOffsetPx: number,
 ): boolean {
   return readingMode !== "following" && rowEndOffsetPx <= scrollOffsetPx;
+}
+
+/**
+ * Whether a window nested in a row holds the reader's place for an item of its own that resized
+ * above the fold: only when the reader is not following and the row reaches below the fold, where
+ * `shouldCompensateForInsertion` holds nothing for the row. Holding both would move a reader twice.
+ */
+export function shouldHoldPlaceInsideRow(
+  readingMode: ReadingState["mode"],
+  rowEndOffsetPx: number,
+  scrollOffsetPx: number,
+): boolean {
+  return readingMode !== "following" && rowEndOffsetPx > scrollOffsetPx;
 }

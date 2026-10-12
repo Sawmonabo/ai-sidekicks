@@ -1,7 +1,8 @@
 // Opening a session at one message, as a link from a workflow run does: the feed finds the row by
 // its event cursor, keeps it however far back it sits, scrolls to it and puts focus on the log. A
-// message older than the window is reached by reading back. A cursor no read holds opens at the
-// bottom with nothing landed.
+// message older than the window is reached by reading back. A cursor no read holds leaves the page
+// where it is, with nothing landed and one line saying the message was not found. One newer than a
+// tail the store let go is reached by reading forward.
 
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,8 +14,11 @@ import {
 import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
+import { runFactsServedFor } from "#test/helpers/transcript/run-facts.js";
 import {
   LONG_LOG_EVENT_COUNT,
   RowIdBody,
@@ -25,6 +29,7 @@ import { withLaidOutViewport } from "../../viewport/controller.test-support.js";
 import {
   openPagedSessionStore,
   openSessionStoreWithGeneralLog,
+  scriptedTranscriptLog,
   transcriptFixtureEventId,
   transcriptFixtureStreamCursor,
   transcriptReadRowAt,
@@ -48,6 +53,13 @@ const BELOW_MID_LOG_INDEX = 140;
 /** Whether the window mounted the row for the event at one log position. */
 function isMounted(feed: HTMLElement, index: number): boolean {
   return feed.querySelector(`[data-row-id="${transcriptFixtureEventId(index)}"]`) !== null;
+}
+
+/** Where the window placed a row's box in the scrolled content, in pixels. */
+function rowOffsetPx(row: HTMLElement): number | undefined {
+  const transform = row.closest<HTMLElement>(".meridian-transcript-viewport__row")?.style.transform;
+  const offset = /translate3d\(0(?:px)?, (-?[\d.]+)px, 0(?:px)?\)/u.exec(transform ?? "")?.[1];
+  return offset === undefined ? undefined : Number(offset);
 }
 
 /**
@@ -77,15 +89,20 @@ function rowsFrom(firstIndex: number): TranscriptReadRow[] {
   );
 }
 
+/** The log behind the window, oldest first. */
+const LOG_BEHIND_WINDOW: readonly TranscriptReadRow[] = [...rowsFrom(0), ...rowsFrom(50)];
+
 /** The two pages behind the window, keyed by the position each is asked before. */
 const PAGES_BY_BEFORE_CURSOR: Readonly<Record<string, TranscriptReadResponse>> = {
   [WINDOW_HEAD_CURSOR]: TranscriptReadResponseSchema.parse({
     entries: rowsFrom(50),
+    runs: runFactsServedFor(rowsFrom(50), LOG_BEHIND_WINDOW),
     hasMore: true,
     nextCursor: "position-before-50",
   }),
   "position-before-50": TranscriptReadResponseSchema.parse({
     entries: rowsFrom(0),
+    runs: runFactsServedFor(rowsFrom(0), LOG_BEHIND_WINDOW),
     hasMore: false,
   }),
 };
@@ -164,15 +181,29 @@ describe("the transcript feed — opened at a message", () => {
         drawsBody: (row) => row.id !== transcriptFixtureEventId(FAR_BACK_INDEX),
       },
     );
-    // Reading starts at the next drawn row.
-    expect(isMounted(feed, FAR_BACK_INDEX + 1)).toBe(true);
-    expect(document.activeElement).toBe(scrollContainerOf(feed));
+    // Reading starts at the next drawn row, at the top of the box, and no line says the message
+    // is missing: the event is in the log, it draws nothing.
+    const box = scrollContainerOf(feed);
+    const rowAtTop = [...feed.querySelectorAll<HTMLElement>("[data-row-id]")].find(
+      (row) => rowOffsetPx(row) === box.scrollTop,
+    );
+    expect(rowAtTop?.getAttribute("data-row-id")).toBe(
+      transcriptFixtureEventId(FAR_BACK_INDEX + 1),
+    );
+    expect(feed.textContent).not.toContain("Message not found");
+    expect(document.activeElement).toBe(box);
   });
 
   it("lands once on a message inside a run group, so a reader who folds the group keeps it", () => {
     withLaidOutViewport();
+    const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
     const feed = renderFeed(openSessionStoreWithTerminalRunGroup(), undefined, RowIdBody, {
       messageAnchorCursor: transcriptFixtureStreamCursor(1),
+      fixture,
+    });
+    // The land draws the rows on screen; the group's header above them draws in a task after.
+    act(() => {
+      fixture.scenarioEngine.advance(0);
     });
     const disclosure = feed.querySelector<HTMLElement>(".meridian-run-group-header__disclosure");
     expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
@@ -214,10 +245,11 @@ describe("the transcript feed — opened at a message older than the window", ()
       messageAnchorCursor: transcriptFixtureEventId(BEFORE_FIRST_PAGE_INDEX),
       readTranscriptPage: earlierRead.read,
     });
-    // The page that ends history takes the `Load earlier` line away.
+    // The page that ends history puts the one line in place of `Load earlier`.
     await waitFor(() => {
-      expect(feed.querySelector(".meridian-transcript-viewport__load-earlier")).toBeNull();
+      expect(feed.textContent).toContain("Message not found");
     });
+    expect(feed.querySelector(".meridian-transcript-viewport__load-earlier")).toBeNull();
     expect(earlierRead.calls()).toBe(2);
     expect(document.activeElement).not.toBe(scrollContainerOf(feed));
   });
@@ -241,5 +273,35 @@ describe("the transcript feed — opened at a message older than the window", ()
       await Promise.resolve();
     });
     expect(earlierRead.calls()).toBe(1);
+    // The reading back is still owed, so the line offers `Try again` and says nothing is missing.
+    expect(feed.textContent).toContain("Try again");
+    expect(feed.textContent).not.toContain("Message not found");
+  });
+});
+
+describe("the transcript feed — opened at a message after a tail the store let go", () => {
+  it("reads forward to the message and lands on it, never announcing it missing", async () => {
+    withLaidOutViewport();
+    const lastIndex = 3 * PAGE_ROWS - 1;
+    const keptTailIndex = PAGE_ROWS - 1;
+    const linkedIndex = lastIndex - 10;
+    const log = scriptedTranscriptLog(lastIndex + 1);
+    // The store holds the conversation's start and let go of everything after its first page,
+    // as it does once a reader went far back; the message lies two pages past that tail.
+    const sessionStore = openPagedSessionStore(0, lastIndex);
+    sessionStore.releaseOutside(
+      transcriptFixtureStreamCursor(0),
+      transcriptFixtureStreamCursor(keptTailIndex),
+    );
+    const feed = renderFeed(sessionStore, undefined, RowIdBody, {
+      messageAnchorCursor: transcriptFixtureStreamCursor(linkedIndex),
+      readTranscriptPage: log.read,
+    });
+    await waitFor(() => {
+      expect(isMounted(feed, linkedIndex)).toBe(true);
+    });
+    expect(log.requests.every((request) => request.afterCursor !== undefined)).toBe(true);
+    expect(feed.textContent).not.toContain("Message not found");
+    expect(document.activeElement).toBe(scrollContainerOf(feed));
   });
 });

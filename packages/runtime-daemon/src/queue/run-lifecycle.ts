@@ -40,7 +40,7 @@ import {
   readStoredRunStateChange,
   type StoredRunStateChange,
 } from "../session/run/stored-state-change.js";
-import { isTerminalState } from "../session/run/transitions.js";
+import { isTerminalState } from "@ai-sidekicks/contracts/run/state";
 import { mintUuidV7 } from "../uuid-v7.js";
 import type { QueueAdmission } from "./admission.js";
 import type { QueueDelivery } from "./delivery.js";

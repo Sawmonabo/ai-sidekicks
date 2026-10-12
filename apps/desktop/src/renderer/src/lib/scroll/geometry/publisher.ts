@@ -5,7 +5,6 @@
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
-import { type Clock } from "#renderer/lib/clock.js";
 import {
   SCROLL_GEOMETRY_EPSILON_PX,
   sameSampledGeometry,
@@ -36,7 +35,6 @@ export interface ScrollGeometryReading {
 
 /** Construction inputs for a `ScrollGeometryPublisher`. */
 export interface ScrollGeometryPublisherOptions {
-  readonly clock: Clock;
   /**
    * Within this many pixels of the bottom counts as the tail.
    * Explicitly `| undefined` so the controller can forward its own optional under
@@ -50,14 +48,14 @@ export interface ScrollGeometryPublisherOptions {
  * One per scroll controller.
  */
 export class ScrollGeometryPublisher {
-  readonly #clock: Clock;
   readonly #tailTolerancePx: number;
   readonly #emitter = new Emitter<ScrollGeometry>("scroll geometry");
 
   #lastGeometry: ScrollGeometry | undefined;
+  /** The last sample emitted, which a sink publishing again during an emission replaces. */
+  #lastEmittedGeometry: ScrollGeometry | undefined;
 
   public constructor(options: ScrollGeometryPublisherOptions) {
-    this.#clock = options.clock;
     this.#tailTolerancePx = options.tailTolerancePx ?? SCROLL_TAIL_TOLERANCE_PX;
   }
 
@@ -68,10 +66,17 @@ export class ScrollGeometryPublisher {
 
   /**
    * Watch the geometry; the sink receives the last sample immediately, so a pane mounted
-   * mid-stream knows whether it is at the tail without polling.
+   * mid-stream knows whether it is at the tail without polling. A sink never receives a sample
+   * older than one it has already received.
    */
   public subscribe(sink: (geometry: ScrollGeometry) => void): Unsubscribe {
-    const unsubscribe = this.#emitter.subscribe(sink);
+    const unsubscribe = this.#emitter.subscribe((geometry) => {
+      // A sink earlier in this emission published a newer sample, which every sink has already
+      // received; this older one reaching the sinks after it would put them back where it was.
+      if (geometry === this.#lastEmittedGeometry) {
+        sink(geometry);
+      }
+    });
     const lastGeometry = this.#lastGeometry;
     if (lastGeometry !== undefined) {
       sink(lastGeometry);
@@ -81,11 +86,15 @@ export class ScrollGeometryPublisher {
 
   /**
    * Derive a sample from one reading, record it, and emit it if it says anything new.
-   * A sample equal to the held one (three numbers within the epsilon; `sampledAt` and cause
+   * A sample equal to the held one (three numbers within the epsilon; `inputAt` and cause
    * are provenance) must not wake the anchor and the virtualizer observers. Returns the
    * sample either way.
    */
-  public publish(reading: ScrollGeometryReading, cause: GeometryChangeCause): ScrollGeometry {
+  public publish(
+    reading: ScrollGeometryReading,
+    cause: GeometryChangeCause,
+    inputAt?: number,
+  ): ScrollGeometry {
     const distanceFromTailPx = Math.max(
       0,
       reading.contentHeight - reading.viewportHeight - reading.scrollTop,
@@ -96,7 +105,7 @@ export class ScrollGeometryPublisher {
       contentHeight: reading.contentHeight,
       distanceFromTailPx,
       isAtTail: distanceFromTailPx <= this.#tailTolerancePx + SCROLL_GEOMETRY_EPSILON_PX,
-      sampledAt: this.#clock.now(),
+      inputAt,
       cause,
     };
     const previous = this.#lastGeometry;
@@ -104,6 +113,7 @@ export class ScrollGeometryPublisher {
     if (previous !== undefined && sameSampledGeometry(previous, geometry)) {
       return geometry;
     }
+    this.#lastEmittedGeometry = geometry;
     this.#emitter.emit(geometry);
     return geometry;
   }

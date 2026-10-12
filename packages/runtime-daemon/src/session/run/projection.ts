@@ -12,6 +12,7 @@ import {
 } from "@ai-sidekicks/contracts/run/events";
 import type { RunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { isTerminalState, RUN_TERMINAL_STATES } from "@ai-sidekicks/contracts/run/state";
 
 import type { WriteStatement } from "../../database/statement.js";
 import { sqlListOf } from "../../database/sql-list.js";
@@ -21,7 +22,6 @@ import {
   type SessionProjection,
   type SessionProjectionFold,
 } from "../../recovery/projection-rebuild.js";
-import { isTerminalState, RUN_TERMINAL_STATES } from "./transitions.js";
 
 /**
  * One run state change as its stored event carries it: the state it leaves, the state it enters,

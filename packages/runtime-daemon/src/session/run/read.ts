@@ -5,11 +5,10 @@ import type { Database, Statement } from "better-sqlite3";
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { ChildRunProvenance } from "@ai-sidekicks/contracts/run/queued";
-import type { RunState } from "@ai-sidekicks/contracts/run/state";
+import { type RunState, RUN_TERMINAL_STATES } from "@ai-sidekicks/contracts/run/state";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { sqlListOf } from "../../database/sql-list.js";
-import { RUN_TERMINAL_STATES } from "./transitions.js";
 
 /**
  * A run as it stands now. `version` counts every progression of the run, state changes and

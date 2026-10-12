@@ -34,14 +34,14 @@ export interface VirtualRowProps {
 
 /**
  * One row's box. Memoized because a streaming row re-renders the viewport every frame; that
- * only holds if the caller's `renderRow` is stable. The row's offset is not written here:
- * under `directDomUpdates` the virtualizer owns the transform.
+ * only holds if the caller's `renderRow` is stable. The row's offset is not written here: the
+ * virtualizer writes the transform directly.
  */
 export const VirtualRow: React.MemoExoticComponent<(props: VirtualRowProps) => React.JSX.Element> =
   memo((props: VirtualRowProps): React.JSX.Element => {
     // The virtualizer measures the row and the viewport's selection tracker keeps a reader's
     // highlight inside it; `WindowedListRow` takes one ref, so both are composed here.
-    const attachPreservedSelection = usePreservedRowSelection();
+    const attachPreservedSelection = usePreservedRowSelection(props.row.key);
     const attachRow = props.attachRow;
     const attachRowElement = useCallback(
       (element: HTMLElement | null): void => {

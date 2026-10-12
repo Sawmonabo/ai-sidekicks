@@ -5,7 +5,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
+import { PreparedBodiesContext } from "./prepared-bodies.js";
 import { FootnoteRegistry } from "./markdown/footnotes/registry.js";
+import { prepareRowBodiesForTest } from "./preparation.test-support.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
 import { ToolRow } from "./ToolRow.js";
@@ -13,31 +15,32 @@ import { ToolRow } from "./ToolRow.js";
 function renderToolCard(
   overrides: {
     readonly type?: string;
-    readonly summary?: string;
     readonly payload?: Readonly<Record<string, unknown>>;
     readonly density?: "collapsed" | "expanded";
-    readonly onDensityToggle?: (control: HTMLElement) => void;
+    readonly onDensityToggle?: () => void;
     readonly body?: string;
   } = {},
 ): HTMLElement {
+  const row = sampleRunRow({
+    type: overrides.type ?? "tool.invoked",
+    ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
+    ...(overrides.body === undefined
+      ? {}
+      : { content: { status: "available", body: overrides.body } as const }),
+  });
   const { container } = render(
-    <ToolRow
-      row={sampleRunRow({
-        type: overrides.type ?? "tool.invoked",
-        ...(overrides.summary === undefined ? {} : { summary: overrides.summary }),
-        ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
-        ...(overrides.body === undefined
+    <PreparedBodiesContext value={prepareRowBodiesForTest([row]).bodies}>
+      <ToolRow
+        row={row}
+        agentHue={undefined}
+        isSuperseded={false}
+        density={overrides.density ?? "collapsed"}
+        footnotes={new FootnoteRegistry()}
+        {...(overrides.onDensityToggle === undefined
           ? {}
-          : { content: { status: "available", body: overrides.body } as const }),
-      })}
-      agentHue={undefined}
-      isSuperseded={false}
-      density={overrides.density ?? "collapsed"}
-      footnotes={new FootnoteRegistry()}
-      {...(overrides.onDensityToggle === undefined
-        ? {}
-        : { onDensityToggle: overrides.onDensityToggle })}
-    />,
+          : { onDensityToggle: overrides.onDensityToggle })}
+      />
+    </PreparedBodiesContext>,
     { wrapper: liveBridgeWrapper() },
   );
   return container;
@@ -68,34 +71,38 @@ describe("an opened tool row", () => {
     expect(container.querySelector(".meridian-machine-body__plain")?.textContent).toBe(body);
     expect(container.querySelector('[role="heading"]')).toBeNull();
     expect(container.querySelector("strong")).toBeNull();
-    expect(container.querySelector(".meridian-ansi")).toBeNull();
   });
 });
 
 /** A tool card whose fold the harness holds, as the list does, so a press repaints it. */
 function FoldingToolCard(props: { readonly body: string }): React.JSX.Element {
   const [density, setDensity] = useState<"collapsed" | "expanded">("expanded");
+  const [row] = useState(() =>
+    sampleRunRow({
+      type: "tool.result",
+      payload: { toolName: "bash", contentLength: props.body.length },
+      content: { status: "available", body: props.body },
+    }),
+  );
+  const [preparedBodies] = useState(() => prepareRowBodiesForTest([row]).bodies);
   return (
-    <ToolRow
-      row={sampleRunRow({
-        type: "tool.result",
-        summary: "ran the build",
-        payload: { toolName: "bash", contentLength: props.body.length },
-        content: { status: "available", body: props.body },
-      })}
-      agentHue={undefined}
-      isSuperseded={false}
-      density={density}
-      footnotes={new FootnoteRegistry()}
-      onDensityToggle={() => {
-        setDensity((current) => (current === "expanded" ? "collapsed" : "expanded"));
-      }}
-    />
+    <PreparedBodiesContext value={preparedBodies}>
+      <ToolRow
+        row={row}
+        agentHue={undefined}
+        isSuperseded={false}
+        density={density}
+        footnotes={new FootnoteRegistry()}
+        onDensityToggle={() => {
+          setDensity((current) => (current === "expanded" ? "collapsed" : "expanded"));
+        }}
+      />
+    </PreparedBodiesContext>
   );
 }
 
 describe("a call's chevron", () => {
-  it("folds a call with a multi-line body to its line, keeping the summary in view", () => {
+  it("folds a call with a multi-line body to its line, keeping the tool's name in view", () => {
     const body = "step one\nstep two\nstep three";
     const { container } = render(<FoldingToolCard body={body} />, {
       wrapper: liveBridgeWrapper(),
@@ -112,9 +119,7 @@ describe("a call's chevron", () => {
 
     expect(chevron.getAttribute("aria-expanded")).toBe("false");
     expect(container.querySelector(".meridian-machine-body__plain")).toBeNull();
-    expect(container.querySelector(".meridian-tool-card__summary")?.textContent).toBe(
-      "ran the build",
-    );
+    expect(container.querySelector(".meridian-tool-card__name")?.textContent).toBe("bash");
   });
 
   it("is absent from a call with no body, leaving no tab stop", () => {

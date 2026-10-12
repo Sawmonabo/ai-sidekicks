@@ -6,7 +6,10 @@ import {
   encodeEventCursor,
   START_OF_LOG_POSITION,
 } from "@ai-sidekicks/contracts/session/event-cursor";
-import type { SessionReadResponse } from "@ai-sidekicks/contracts/session/methods";
+import { AgentIdSchema } from "@ai-sidekicks/contracts/agent/definition";
+import { ProviderAccountIdSchema } from "@ai-sidekicks/contracts/provider/account/record";
+import { RunIdSchema } from "@ai-sidekicks/contracts/run/id";
+import type { SessionLiveRun, SessionReadResponse } from "@ai-sidekicks/contracts/session/methods";
 import { describe, expect, it } from "vitest";
 
 import { bridgeAnswering, lastScriptedBeatMs } from "#test/helpers/fixture/bridge.js";
@@ -165,6 +168,36 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
         read.standingSequences,
       );
     }
+  });
+
+  it("seeds a live run with the actor and account its record names", async () => {
+    const liveRun: SessionLiveRun = {
+      runId: RunIdSchema.parse("019b793b-7b60-740e-8110-d1a4c1150111"),
+      state: "running",
+      runVersion: 2,
+      agentId: AgentIdSchema.parse("019b793b-7b60-7a6e-8120-d1a4c1150102"),
+      actor: "device-lead",
+      admittedProviderAccountId: ProviderAccountIdSchema.parse("account-lead"),
+      touchedAt: "2026-01-01T10:05:00.000Z",
+    };
+    const { bridge, engine } = bridgeAnswering(async (call, passThrough) => {
+      const reply = await passThrough();
+      return call.method === "session.read"
+        ? { ...(reply as SessionReadResponse), liveRuns: [liveRun] }
+        : reply;
+    }, TRANSCRIPT_STATES_SCENARIO);
+    engine.advance(lastScriptedBeatMs(TRANSCRIPT_STATES_SCENARIO) + 1);
+
+    const baseState = await sessionReadThroughDaemon(bridge)(
+      TRANSCRIPT_STATES_SCENARIO.sessionId,
+      [],
+      RESUME,
+    );
+
+    // Named before any window names the run, so its header reads whole from the first frame.
+    expect(
+      baseState?.entities?.find((entity) => entity.id === liveRun.runId)?.runFacts,
+    ).toMatchObject({ actor: "device-lead", admittedProviderAccountId: "account-lead" });
   });
 
   it("raises the refusal instead of reading nothing", async () => {

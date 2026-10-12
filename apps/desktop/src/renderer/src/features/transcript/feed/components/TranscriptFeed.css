@@ -26,8 +26,8 @@
 /*
  * The window's own track. `minmax(0, 1fr)` rather than `1fr`, which floors at min-content
  * height and would grow the row instead of letting the viewport scroll. One shared cell: the
- * skeleton lies over the empty viewport before the first read, so the focusable scroll
- * container keeps the whole window.
+ * loading line lies over the hidden viewport until the rows are shown, so the scroll container
+ * keeps the whole window and its rows lay out at the width they will be seen at.
  */
 .meridian-transcript-feed__body {
   display: grid;
@@ -39,4 +39,10 @@
 
 .meridian-transcript-feed__body > * {
   grid-area: 1 / 1;
+}
+
+/* The loading line, where the empty sentence would stand. */
+.meridian-transcript-feed__loading {
+  align-self: start;
+  padding: var(--meridian-space-5) var(--meridian-space-4);
 }

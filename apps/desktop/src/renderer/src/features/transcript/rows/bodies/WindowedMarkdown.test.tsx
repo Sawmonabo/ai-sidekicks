@@ -1,5 +1,6 @@
-// A long body drawn as a window over its blocks: which blocks it parses, and what a drawn block
-// still resolves once the block defining its footnote is no longer drawn.
+// A long body drawn as a window over its blocks: which blocks it parses, when a scroll's blocks are
+// drawn, and what a drawn block still resolves once the block defining its footnote is no longer
+// drawn.
 
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,12 +9,15 @@ import * as markdownParse from "#renderer/components/Markdown/parse.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
-import { MarkdownWindowViewportContext } from "../markdown/block-window/context.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "../markdown/block-window/markers.js";
 import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { MarkdownBlockSegmenter } from "../markdown/parse/block-segmenter.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
-import { longReplyMarkdown, suiteWindowViewport } from "./WindowedMarkdown.test-support.js";
+import {
+  longReplyMarkdown,
+  SuiteWindowViewportProvider,
+  suiteWindowViewport,
+} from "./WindowedMarkdown.test-support.js";
 import { publishedTextOf } from "../../reveal/published-text.js";
 
 vi.mock("#renderer/components/Markdown/parse.js", async (importOriginal) => {
@@ -33,7 +37,8 @@ const SCROLLER_HEIGHT_PX = 600;
 /** A windowed body mounted in a scroller, and the way a case scrolls it. */
 interface MountedWindow {
   readonly body: HTMLElement;
-  readonly scrollTo: (scrollTop: number) => void;
+  /** Scrolls to `scrollTop`; `whileScrolling` reads the page right after the scroll event. */
+  readonly scrollTo: (scrollTop: number, whileScrolling?: () => void) => void;
 }
 
 const teardowns: (() => void)[] = [];
@@ -49,6 +54,11 @@ afterEach(() => {
  * scroller's height and offset are given, since this DOM lays nothing out.
  */
 function mountWindow(text: string, footnotes: FootnoteRegistry): MountedWindow {
+  // happy-dom has no idle callback; one that never fires stands in, as on a page granting no idle.
+  vi.stubGlobal("requestIdleCallback", () => 0);
+  teardowns.push(() => {
+    vi.unstubAllGlobals();
+  });
   const scroller = document.createElement("div");
   let scrollTop = 0;
   Object.defineProperty(scroller, "clientHeight", { get: () => SCROLLER_HEIGHT_PX });
@@ -61,15 +71,15 @@ function mountWindow(text: string, footnotes: FootnoteRegistry): MountedWindow {
     read: () => undefined,
   });
   const { container, unmount } = render(
-    <MarkdownWindowViewportContext value={viewport}>
+    <SuiteWindowViewportProvider viewport={viewport}>
       <StreamingMarkdown
         publishedText={publishedTextOf(text)}
         sourceId="reply"
         footnotes={footnotes}
         isComplete
-        offersCodeCopy
+        offersBlockCopy
       />
-    </MarkdownWindowViewportContext>,
+    </SuiteWindowViewportProvider>,
     {
       wrapper: liveBridgeWrapper(),
       container: scroller.appendChild(document.createElement("div")),
@@ -86,10 +96,11 @@ function mountWindow(text: string, footnotes: FootnoteRegistry): MountedWindow {
   }
   return {
     body,
-    scrollTo: (nextScrollTop) => {
+    scrollTo: (nextScrollTop, whileScrolling) => {
       act(() => {
         scrollTop = nextScrollTop;
         scroller.dispatchEvent(new Event("scroll"));
+        whileScrolling?.();
       });
     },
   };
@@ -120,6 +131,19 @@ describe("a long body drawn as a window over its blocks", () => {
       new Set(drawnSources),
     );
     expect(wholeParses).not.toHaveBeenCalled();
+  });
+
+  it("draws the blocks a scroll brings into its band before the frame that scrolled paints", () => {
+    const { body, scrollTo } = mountWindow(longReplyMarkdown(40_000), new FootnoteRegistry());
+    expect(drawnIndexes(body)).toContain(0);
+
+    let drawnAsScrolled: number[] = [];
+    scrollTo(20_000, () => {
+      drawnAsScrolled = drawnIndexes(body);
+    });
+
+    expect(drawnAsScrolled).not.toContain(0);
+    expect(drawnAsScrolled).toStrictEqual(drawnIndexes(body));
   });
 
   it("resolves a reference and keeps the definition registered once the defining block is not drawn", () => {

@@ -3,8 +3,11 @@ import { render, type RenderResult } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { publishedTextOf } from "../../reveal/published-text.js";
+import { PreparedBodiesContext } from "../prepared-bodies.js";
 import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
+import { prepareRowBodiesForTest } from "../preparation.test-support.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
 import { MessageContent } from "./MessageContent.js";
 
 /** A markdown body drawn inside a window, which supplies its code colors. */
@@ -18,17 +21,30 @@ function renderBody(
   content: HydratedSessionEventContent | undefined,
   overrides: { readonly liveText?: string; readonly contentType?: string } = {},
 ): HTMLElement {
+  const row = sampleRunRow({
+    ...(content === undefined ? {} : { content }),
+    ...(overrides.contentType === undefined
+      ? {}
+      : { payload: { contentType: overrides.contentType } }),
+  });
+  const liveText =
+    overrides.liveText === undefined ? undefined : publishedTextOf(overrides.liveText);
   const { container } = renderInWindow(
-    <MessageContent
-      content={content}
-      {...(overrides.liveText === undefined
-        ? {}
-        : { liveText: publishedTextOf(overrides.liveText) })}
-      {...(overrides.contentType === undefined ? {} : { contentType: overrides.contentType })}
-      sourceId="event-01"
-      footnotes={new FootnoteRegistry()}
-      label="The agent's reply"
-    />,
+    <PreparedBodiesContext
+      value={
+        prepareRowBodiesForTest([row], new Map(liveText === undefined ? [] : [[row.id, liveText]]))
+          .bodies
+      }
+    >
+      <MessageContent
+        content={content}
+        {...(liveText === undefined ? {} : { liveText })}
+        {...(overrides.contentType === undefined ? {} : { contentType: overrides.contentType })}
+        sourceId={row.id}
+        footnotes={new FootnoteRegistry()}
+        label="The agent's reply"
+      />
+    </PreparedBodiesContext>,
   );
   return container;
 }

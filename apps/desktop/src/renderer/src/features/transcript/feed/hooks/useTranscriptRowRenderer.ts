@@ -17,10 +17,13 @@ export function useTranscriptRowRenderer(
 ): ViewportRowRenderer {
   const {
     transcriptWindow,
-    foldedRunIds,
+    foldedRunGroupKeys,
     foldedCallRowIds,
+    openedOutputRowIds,
     hueForAgent,
     toggleRunGroup,
+    runCallWindows,
+    openRunStretch,
     renderTranscriptRow,
   } = options;
   return useCallback(
@@ -28,19 +31,25 @@ export function useTranscriptRowRenderer(
       createElement(TranscriptRowDispatch, {
         row,
         transcriptWindow,
-        foldedRunIds,
+        foldedRunGroupKeys,
         foldedCallRowIds,
+        openedOutputRowIds,
         hueForAgent,
         toggleRunGroup,
+        runCallWindows,
+        openRunStretch,
         renderTranscriptRow,
       }),
     [
       hueForAgent,
       transcriptWindow,
-      foldedRunIds,
+      foldedRunGroupKeys,
       foldedCallRowIds,
+      openedOutputRowIds,
       renderTranscriptRow,
       toggleRunGroup,
+      runCallWindows,
+      openRunStretch,
     ],
   );
 }

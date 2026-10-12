@@ -3,23 +3,22 @@
 // `features/transcript/viewport/controller.ts`'s snapshot into elements; the caller owns the one
 // binding, so the find walk and the rows read the same virtualizer. Markup invariants: one scroll
 // container (a nested scroller would rival the chokepoint's `scrollTop`); the sizer and each
-// row's transform are written by the virtualizer under `directDomUpdates`, so no style here sets
-// them; `role="feed"` is declared on the sizer and its article children by `VirtualRow`, so the
+// row's transform are written by the virtualizer directly, so no style here sets them;
+// `role="feed"` is declared on the sizer and its article children by `VirtualRow`, so the
 // relationship does not rest on whatever a registered row renderer draws, and the history line
 // above the sizer is no entry of it. Attention is steered by luminance, never motion: the only
-// transition is the pill's hover color. The viewport's one selection tracker lives with the
-// scroll container and reaches the rows through context, beside what a long markdown body reads
-// to draw only the blocks near the reader.
+// transition is the pill's hover color. The binding's one selection tracker reaches the rows
+// through context, beside what a long markdown body reads to draw only the blocks near the reader.
 
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo } from "react";
 
 import { EmptyTranscript } from "./EmptyTranscript.js";
 import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";
 import { JumpToLatest } from "./JumpToLatest.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
-import { useTrackViewportSelection } from "../hooks/selection/useTrackViewportSelection.js";
 import { ViewportSelectionTrackerContext } from "../selection/context.js";
 import {
+  DrawnBandContext,
   MarkdownWindowViewportContext,
   type MarkdownWindowViewport,
 } from "../../rows/markdown/block-window/context.js";
@@ -38,10 +37,16 @@ export interface TranscriptViewportProps {
   readonly feedLabel: string;
   /**
    * Whether this session's first read has settled. Required so a caller decides: the empty
-   * window is a claim about a session, and an inherited default would show "Nothing has
-   * happened" above the pane's skeleton rows while the read is still in flight.
+   * window is a claim about a session, and an inherited default would say it while the read is
+   * still in flight.
    */
   readonly firstReadSettled: boolean;
+  /**
+   * Whether the rows are shown. Until then the viewport is laid out but hidden, out of reach of
+   * the keyboard and the accessibility tree, so its rows ask for their faces and measure in them
+   * before they are seen.
+   */
+  readonly isShown: boolean;
   /** A run is still being written, which marks the log busy for a screen reader. */
   readonly hasActiveTurn?: boolean;
   /**
@@ -55,27 +60,38 @@ export interface TranscriptViewportProps {
 export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.Element {
   const { binding } = props;
   const { snapshot } = binding;
-  const selection = useTrackViewportSelection(binding.attachScrollContainer);
-  const { tracker } = selection;
-  const { scrollController, rowStartPx } = binding;
+  const { scrollController, rowStartPx, rowEndPx, holdsPlaceInsideRow, noteShown } = binding;
+  const tracker = binding.selectionTracker;
+  // A layout effect, so a landing the same commit asks for knows the viewport is hidden.
+  useLayoutEffect(() => {
+    noteShown(props.isShown);
+  }, [noteShown, props.isShown]);
   // One value for the viewport's life: each windowed body holds it while it is mounted.
   const markdownWindowViewport = useMemo<MarkdownWindowViewport>(
     () => ({
       scrollController,
       rowStartPx,
+      rowEndPx,
+      holdsPlaceInsideRow,
       subscribeToSelection: (listener) => tracker.subscribe(listener),
       readSelectionRange: () => tracker.selectionRange,
     }),
-    [scrollController, rowStartPx, tracker],
+    [scrollController, rowStartPx, rowEndPx, holdsPlaceInsideRow, tracker],
   );
 
   return (
     <ViewportSelectionTrackerContext value={tracker}>
       <MarkdownWindowViewportContext value={markdownWindowViewport}>
-        <div className="meridian-transcript-viewport">
+        <div
+          className={
+            props.isShown
+              ? "meridian-transcript-viewport"
+              : "meridian-transcript-viewport meridian-transcript-viewport--hidden"
+          }
+        >
           <div
             className="meridian-transcript-viewport__scroll-container meridian-focus-inset"
-            ref={selection.attachScrollContainer}
+            ref={binding.attachScrollContainer}
             // Focusable so the log is reachable and scrollable from the keyboard, and so a region
             // with a name, which is what a screen reader announces when the focus lands on it.
             tabIndex={0}
@@ -106,23 +122,26 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
                     "aria-busy": props.hasActiveTurn ?? false,
                   })}
             >
-              {binding.virtualItems.map((virtualItem) => {
-                const row = snapshot.rows[virtualItem.index];
-                return row === undefined ? null : (
-                  <VirtualRow
-                    key={virtualItem.key}
-                    rowIndex={virtualItem.index}
-                    row={row}
-                    totalRowCount={snapshot.rows.length}
-                    renderRow={props.renderRow}
-                    attachRow={binding.attachRow}
-                  />
-                );
-              })}
+              {/* Its own value, so a moving band draws again only the windows that read it. */}
+              <DrawnBandContext value={snapshot.nestedBandScreenHeights}>
+                {binding.virtualItems.map((virtualItem) => {
+                  const row = snapshot.rows[virtualItem.index];
+                  return row === undefined ? null : (
+                    <VirtualRow
+                      key={virtualItem.key}
+                      rowIndex={virtualItem.index}
+                      row={row}
+                      totalRowCount={snapshot.rows.length}
+                      renderRow={props.renderRow}
+                      attachRow={binding.attachRow}
+                    />
+                  );
+                })}
+              </DrawnBandContext>
             </div>
             {/*
-             * Empty only once the first read has landed: while it is in flight the pane already
-             * draws skeleton rows, and a second element would talk over the loading state.
+             * Empty only once the first read has landed: while it is in flight the feed draws its
+             * loading line, and a second element would talk over it.
              */}
             {snapshot.rows.length === 0 && props.firstReadSettled ? <EmptyTranscript /> : null}
           </div>

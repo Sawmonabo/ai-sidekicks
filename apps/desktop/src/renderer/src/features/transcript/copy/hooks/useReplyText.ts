@@ -1,17 +1,20 @@
 import { useCallback, useContext, useEffect, useSyncExternalStore } from "react";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
+import { joinIntoPieces, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { RowRevealContext } from "../../reveal/components/RowRevealProvider.js";
-import { PART_SEPARATOR, type CopyFlavor } from "../conversation-selection.js";
-import { replyCopyFlavorOf, type DrawnRowText } from "../drawn-reply-text.js";
+import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
+import { PART_SEPARATOR } from "../conversation-selection.js";
+import { type DrawnRowText } from "../drawn-reply-text.js";
+import { replyRowTextOf } from "../row-text.js";
 
 /** What a reply's foot reads of the whole reply's text. */
 export interface ReplyText {
   /**
    * The whole reply's text, for its Copy: each of the reply's rows that has drawn text, in log
-   * order, joined by a blank line. Built when called, for the copy alone.
+   * order, a blank line between each, held in pieces. Built when called, for the copy alone.
    */
-  readonly read: () => string;
+  readonly read: () => PiecedText;
   /**
    * Whether any of the reply's rows has drawn text, even text since dropped from its row, so the
    * foot, its time and its Copy stay for the rest of the turn once drawn.
@@ -50,36 +53,43 @@ export function useReplyText(
         : drawnReplyText.subscribe(onChange),
     [drawnReplyText],
   );
-  // A row elsewhere in the reply gaining its first text re-renders this foot through the record.
-  useSyncExternalStore(subscribe, () => drawnReplyText?.revision ?? 0);
-
   const partOf = useCallback(
     (rowId: string): DrawnRowText | undefined => {
       if (rowId === ownRowId && ownText !== undefined && ownText.length > 0) {
         return own;
       }
-      const recorded = drawnReplyText?.drawnTextOf(rowId);
-      const live = revealChannel?.publishedTextFor(rowId);
-      if (live !== undefined) {
-        return { text: live, flavor: recorded?.flavor ?? replyCopyFlavorOf(live) };
-      }
-      return recorded;
+      return revealChannel === undefined ? undefined : replyRowTextOf(rowId, revealChannel);
     },
-    [drawnReplyText, own, ownRowId, ownText, revealChannel],
+    [own, ownRowId, ownText, revealChannel],
   );
-  const parts = drawnPartsOf(replyRowIds, partOf);
+  // A row elsewhere in the reply gaining its first text re-renders this foot through the record;
+  // a change to another reply's rows, which the record also announces, leaves it alone.
+  const drawnFlavor = useSyncExternalStore(
+    subscribe,
+    useCallback(() => drawnFlavorOf(drawnPartsOf(replyRowIds, partOf)), [replyRowIds, partOf]),
+  );
   const read = useCallback(
     () =>
-      drawnPartsOf(replyRowIds, partOf)
-        .map((part) => part.text.slice(0))
-        .join(PART_SEPARATOR),
+      joinIntoPieces(
+        drawnPartsOf(replyRowIds, partOf)
+          .flatMap((part) => [PART_SEPARATOR, ...part.text.chunks()])
+          .slice(1),
+      ),
     [replyRowIds, partOf],
   );
   return {
     read,
-    hasText: parts.length > 0,
-    flavor: parts.some((part) => part.flavor === "markdown") ? "markdown" : "text",
+    hasText: drawnFlavor !== undefined,
+    flavor: drawnFlavor ?? "text",
   };
+}
+
+/** How a reply with these drawn parts copies, or `undefined` when it has none. */
+function drawnFlavorOf(parts: readonly DrawnRowText[]): CopyFlavor | undefined {
+  if (parts.length === 0) {
+    return undefined;
+  }
+  return parts.some((part) => part.flavor === "markdown") ? "markdown" : "text";
 }
 
 function drawnPartsOf(

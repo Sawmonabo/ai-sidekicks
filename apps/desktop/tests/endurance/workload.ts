@@ -142,24 +142,35 @@ export async function openConcurrentStreamingSessionRoute(
 }
 
 /**
- * Move the scenario on, and report how many beats it has delivered. `null` means the handle is
- * not on the page, which this tier treats as a failure and never a reason to skip: a run that
- * could not drive the workload measured an idle app.
+ * Move the scenario on inside the window's next frame, then run the frame work armed on the frozen
+ * clock, and report how many beats it has delivered. One real frame per call, so the work a frame
+ * arms in turn runs on the next call's frame. `null` means the handle is not on the page,
+ * which this tier treats as a failure and never a reason to skip: a run that could not drive the
+ * workload measured an idle app.
  */
 export async function advanceScenario(
   appUnderTest: AppUnderTest,
   milliseconds: number,
 ): Promise<number | null> {
-  return appUnderTest.consolePage.evaluate(
-    ([globalName, deltaMs]: [string, number]) => {
-      const control = (globalThis as unknown as Record<string, ScenarioFixtureHandle | undefined>)[
-        globalName
-      ];
+  return appUnderTest.window.evaluate(
+    async ([globalName, deltaMs]: [string, number]) => {
+      // The scenario's handle is the console document's, which opened this window.
+      const control = (
+        (window.opener ?? globalThis) as unknown as Record<
+          string,
+          ScenarioFixtureHandle | undefined
+        >
+      )[globalName];
       if (control === undefined) {
         return null;
       }
-      control.advance(deltaMs);
-      return control.deliveredBeatCount();
+      return await new Promise<number>((resolve) => {
+        requestAnimationFrame(() => {
+          control.advance(deltaMs);
+          control.runFrame();
+          resolve(control.deliveredBeatCount());
+        });
+      });
     },
     [SCENARIO_FIXTURE_GLOBAL, milliseconds] as [string, number],
   );
@@ -318,7 +329,12 @@ export async function expectConcurrentStreamingSessionCarriesContent(
 
 /** How many beats the scenario has delivered; throws when the build exposes no scenario handle. */
 export async function readDeliveredBeatCount(appUnderTest: AppUnderTest): Promise<number> {
-  const beatCount = await advanceScenario(appUnderTest, 0);
+  const beatCount = await appUnderTest.consolePage.evaluate((globalName: string) => {
+    const control = (globalThis as unknown as Record<string, ScenarioFixtureHandle | undefined>)[
+      globalName
+    ];
+    return control === undefined ? null : control.deliveredBeatCount();
+  }, SCENARIO_FIXTURE_GLOBAL);
   if (beatCount === null) {
     throw new Error(`${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build`);
   }
@@ -335,7 +351,7 @@ export async function waitForDeliveredBeats(
       // The scenario's handle is the console document's, which opened this window.
       const consoleRealm = (window.opener ?? globalThis) as unknown as Record<
         string,
-        { deliveredBeatCount(): number } | undefined
+        Pick<ScenarioFixtureHandle, "deliveredBeatCount"> | undefined
       >;
       return (consoleRealm[scenarioGlobalName]?.deliveredBeatCount() ?? 0) >= targetBeatCount;
     },
@@ -368,16 +384,25 @@ export interface PacedDelivery {
   readonly durationMs: number;
 }
 
-/** How far a paced delivery got: the delivered beats when the pace started and when it stopped. */
+/**
+ * How far a paced delivery got: the delivered beats when the pace started and when it stopped, and
+ * the frame work it ran on the frozen clock.
+ */
 export interface PacedDeliveryReading {
   readonly beatsAtStart: number;
   readonly beatsAtStop: number;
+  /** The most frame callbacks armed on the frozen clock as one of the window's frames began. */
+  readonly peakPendingFrameCount: number;
+  /** Frame callbacks armed on the frozen clock and not yet run when the pace stopped. */
+  readonly pendingFrameCountAtStop: number;
 }
 
 /**
  * Moves the scenario's clock by the lead-in, then on every frame of the window by the share of the
  * stretch the elapsed wall-clock time has reached, so the stretch is delivered evenly however fast
- * the display refreshes. Returns the call that stops the pace and reads how far it got.
+ * the display refreshes. Each of those frames then runs the frame work armed on the frozen clock,
+ * after its beats are in, as a reader's frame does. Returns the call that stops the pace and reads
+ * how far it got.
  */
 export async function startPacedDelivery(
   appUnderTest: AppUnderTest,
@@ -388,7 +413,7 @@ export async function startPacedDelivery(
     ([scenarioGlobalName, leadInMs, stretchMs, durationMs]: [string, number, number, number]) => {
       const consoleRealm = (window.opener ?? globalThis) as unknown as Record<
         string,
-        { advance(milliseconds: number): void; deliveredBeatCount(): number } | undefined
+        ScenarioFixtureHandle | undefined
       >;
       const scenarioControl = consoleRealm[scenarioGlobalName];
       if (scenarioControl === undefined) {
@@ -398,6 +423,7 @@ export async function startPacedDelivery(
       const beatsAtStart = scenarioControl.deliveredBeatCount();
       const startedAtMs = performance.now();
       let deliveredMs = 0;
+      let peakPendingFrameCount = 0;
       let isPacing = true;
       const onFrame = (): void => {
         if (!isPacing) {
@@ -410,13 +436,24 @@ export async function startPacedDelivery(
           scenarioControl.advance(dueMs);
           deliveredMs += dueMs;
         }
+        // Every frame, moved or not: work an earlier frame armed is due in this one.
+        peakPendingFrameCount = Math.max(
+          peakPendingFrameCount,
+          scenarioControl.pendingFrameCount(),
+        );
+        scenarioControl.runFrame();
         requestAnimationFrame(onFrame);
       };
       requestAnimationFrame(onFrame);
       return {
         stop: () => {
           isPacing = false;
-          return { beatsAtStart, beatsAtStop: scenarioControl.deliveredBeatCount() };
+          return {
+            beatsAtStart,
+            beatsAtStop: scenarioControl.deliveredBeatCount(),
+            peakPendingFrameCount,
+            pendingFrameCountAtStop: scenarioControl.pendingFrameCount(),
+          };
         },
       };
     },

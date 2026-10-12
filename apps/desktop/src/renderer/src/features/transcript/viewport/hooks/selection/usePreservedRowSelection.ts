@@ -1,10 +1,9 @@
-// The React side of keeping a selection inside one row: the row's element goes to the viewport's
-// selection tracker through a ref, and the restore runs after the row's commits, since a commit is
-// the only moment a migration can have happened. One restore per row because a selection is kept
-// in the coordinates of something that did not move, and the remount to survive is a block
-// settling inside one row. A ref, not state: nothing renders from it. The layout effect has no
-// dependency list for the same reason; a commit that migrated nothing finds no snapshot for this
-// row, or the selection in place, and writes nothing.
+// The React side of keeping the reader's selection across a row's remounts: the row's element goes
+// to the viewport's selection tracker under its key through a ref, and the restore runs after the
+// row's commits, since a commit is the only moment a block can have settled inside the row or the
+// row come back into the window. A ref, not state: nothing renders from it. The layout effect has
+// no dependency list for the same reason; a commit that moved nothing finds the selection in place,
+// or none to keep, and writes nothing.
 
 import { useCallback, useLayoutEffect, useRef } from "react";
 
@@ -14,10 +13,10 @@ import { useViewportSelectionTracker } from "./useViewportSelectionTracker.js";
 export type RowSelectionAttach = (element: HTMLElement | null) => void;
 
 /**
- * Preserve this row's selection across its own remounts. Returns the ref callback the row hands
- * its element to; attaching reads no selection.
+ * Preserve the selection in the row under `rowKey` across its own remounts. Returns the ref
+ * callback the row hands its element to; attaching reads no selection.
  */
-export function usePreservedRowSelection(): RowSelectionAttach {
+export function usePreservedRowSelection(rowKey: string): RowSelectionAttach {
   const tracker = useViewportSelectionTracker();
   const rowElementRef = useRef<HTMLElement | undefined>(undefined);
 
@@ -33,7 +32,7 @@ export function usePreservedRowSelection(): RowSelectionAttach {
     (element: HTMLElement | null): void => {
       if (element !== null) {
         rowElementRef.current = element;
-        tracker.addRow(element);
+        tracker.addRow(element, rowKey);
         return;
       }
       const rowElement = rowElementRef.current;
@@ -42,6 +41,6 @@ export function usePreservedRowSelection(): RowSelectionAttach {
         tracker.removeRow(rowElement);
       }
     },
-    [tracker],
+    [tracker, rowKey],
   );
 }

@@ -35,7 +35,6 @@ export interface AccountRecord {
   userId: UserId;
   createdAt: string;
   displayName: string;
-  metadata: Record<string, unknown>;
 }
 
 /** The account record and its device list; reading them changes nothing. */
@@ -51,7 +50,6 @@ export const AccountExportResponseSchema: z.ZodType<AccountExportResponse> = z
         userId: UserIdSchema,
         createdAt: isoDateTimeSchema,
         displayName: wireUncappedFreeFormString("displayName"),
-        metadata: z.record(z.string(), z.unknown()),
       })
       .strict(),
     devices: z.array(DeviceEntrySchema),

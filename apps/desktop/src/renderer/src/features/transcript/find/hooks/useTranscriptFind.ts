@@ -1,15 +1,17 @@
 // The find field's state and the walk over the rows the feed draws. It searches every row the
 // store holds, whether or not the viewport's window holds it: a step to a row the window let go
 // lands on it, as a link does. Matches inside folded run groups are counted apart, since opening
-// the group is their exit.
+// the group is their exit. Both are held across the log's updates, which arrive per event.
 
 import { useCallback, useMemo, useState } from "react";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
+import { type TranscriptRowRenderer } from "../../rows/renderer.js";
+import { type SystemMessageReading } from "../../system-messages/classifier.js";
 import {
-  emptyFindResult,
-  findInTranscript,
+  FindMatchList,
+  FoldedMatchCount,
   stepFindMatch,
   type FindStepDirection,
   type FindResult,
@@ -54,10 +56,13 @@ export interface TranscriptFindInputs {
    */
   readonly foldedAwayRows: readonly TranscriptEventRow[];
   /**
-   * Whether the feed draws a row. A folded row it draws nothing for stays hidden when its group
-   * opens, so it is no match a person could reach.
+   * The system message behind each row of the unfurled window, folded rows included. With
+   * `drawsBody` it says whether the feed draws a row: a folded row it draws nothing for stays
+   * hidden when its group opens, so it is no match a person could reach.
    */
-  readonly drawsRow: (row: TranscriptEventRow) => boolean;
+  readonly systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>;
+  /** The registered renderer's answer to whether it draws a body for a row. */
+  readonly drawsBody: TranscriptRowRenderer["drawsBody"];
 }
 
 /**
@@ -68,21 +73,22 @@ export interface TranscriptFindInputs {
  * moves.
  */
 export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindState {
-  const { rows, foldedAwayRows, drawsRow } = inputs;
+  const { rows, foldedAwayRows, systemMessageByRowId, drawsBody } = inputs;
+  const [findMatchList] = useState(() => new FindMatchList());
+  const [foldedMatchCount] = useState(() => new FoldedMatchCount());
   const [isOpen, setIsOpen] = useState(false);
   const [openRequestCount, setOpenRequestCount] = useState(0);
   const [query, setQueryValue] = useState("");
   const [selectedMatchRowId, setSelectedMatchRowId] = useState<string | undefined>(undefined);
 
   const result = useMemo(
-    () =>
-      query.trim().length === 0 ? emptyFindResult(rows.length) : findInTranscript(rows, query),
-    [rows, query],
+    () => findMatchList.resultOf(rows, query, systemMessageByRowId),
+    [findMatchList, rows, query, systemMessageByRowId],
   );
 
   const foldedAwayMatchCount = useMemo(
-    () => matchesAmong(foldedAwayRows, query, drawsRow),
-    [foldedAwayRows, query, drawsRow],
+    () => foldedMatchCount.countOf(foldedAwayRows, query, systemMessageByRowId, drawsBody),
+    [foldedMatchCount, foldedAwayRows, query, systemMessageByRowId, drawsBody],
   );
 
   // Looked up, not remembered, so a recomputed result reports where the walk actually is.
@@ -138,19 +144,4 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
     close,
     step,
   };
-}
-
-/**
- * Matches among the folded rows the feed would draw once opened. A stage that removed nothing
- * hands back the shared empty set, which answers before any row is read.
- */
-function matchesAmong(
-  rows: readonly TranscriptEventRow[],
-  query: string,
-  drawsRow: (row: TranscriptEventRow) => boolean,
-): number {
-  if (rows.length === 0 || query.trim().length === 0) {
-    return 0;
-  }
-  return findInTranscript(rows.filter(drawsRow), query).totalMatchCount;
 }

@@ -8,6 +8,7 @@
 import { act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SCROLL_TAIL_TOLERANCE_PX } from "#renderer/lib/scroll/geometry/publisher.js";
 import { syntheticRows } from "../controller.test-support.js";
 import {
   MOUNTED_ROW_COUNT,
@@ -91,6 +92,33 @@ describe("the transcript viewport — a follower", () => {
   });
 });
 
+describe("the transcript viewport — a follower only the reader moves", () => {
+  it("stays on the tail when the stream's end re-keys the last row and the library writes short", async () => {
+    // The last row is replaced at an unchanged count, which the library answers by holding the
+    // row at the top of the viewport; that write can land short of the tail. Only the reader's
+    // own scroll leaves the tail, so the follower is landed back on it.
+    const subject = mountViewport("tail");
+    const rows = syntheticRows(MOUNTED_ROW_COUNT);
+    const lastRow = rows[MOUNTED_ROW_COUNT - 1];
+    if (lastRow === undefined) {
+      throw new Error("the mounted log has no last row");
+    }
+    act(() => {
+      subject.binding.rerender([...rows.slice(0, -1), { ...lastRow, key: "row-replaced" }]);
+    });
+    await act(async () => {
+      subject.virtualizer.scrollToOffset(subject.tailOffsetPx() - 85);
+      await Promise.resolve();
+    });
+    runFrames(SETTLING_FRAMES);
+
+    expect(subject.binding.result.current.snapshot.reading.mode).toBe("following");
+    expect(subject.tailOffsetPx() - subject.scrollContainer.scrollTop).toBeLessThanOrEqual(
+      SCROLL_TAIL_TOLERANCE_PX,
+    );
+  });
+});
+
 describe("the transcript viewport — a reader taking the scroll back", () => {
   it("is never pulled back toward the tail while the last row keeps growing", () => {
     // A landing on the last row keeps re-aiming for up to five seconds whenever its target moves,
@@ -120,6 +148,36 @@ describe("the transcript viewport — a reader taking the scroll back", () => {
     runFrames(SETTLING_FRAMES, growLastRow);
 
     expect(subject.scrollContainer.scrollTop).toBe(readerOffsetPx);
+  });
+});
+
+describe("the transcript viewport — a follower's wheel toward the head", () => {
+  it("lets go of the tail in the wheel's own event, and the follower writes nothing after", () => {
+    // The platform scrolls the box for a passive wheel before the page hears it, and stamps the
+    // scroll event that brings the box's move earlier than the wheel heard first. A follower still
+    // held when a row above measures, or when that scroll is read, is pulled back to the tail.
+    const subject = mountViewport("tail");
+    const { scrollContainer, controller } = subject;
+    const wheelAtMs = 1_000_000;
+    const followWritesBefore = controller.scroll.writeCount("follow-tail");
+    const wheel = new WheelEvent("wheel", { deltaY: -100 });
+    Object.defineProperty(wheel, "timeStamp", { value: wheelAtMs });
+    act(() => {
+      scrollContainer.dispatchEvent(wheel);
+    });
+    act(() => {
+      subject.virtualizer.resizeItem(0, MOUNTED_ROW_ESTIMATE_PX + 40);
+    });
+    const scroll = new Event("scroll");
+    Object.defineProperty(scroll, "timeStamp", { value: wheelAtMs - 20 });
+    act(() => {
+      scrollContainer.scrollTop -= SCROLL_TAIL_TOLERANCE_PX / 2;
+      scrollContainer.dispatchEvent(scroll);
+    });
+    runFrames(SETTLING_FRAMES);
+
+    expect(subject.binding.result.current.snapshot.reading.mode).not.toBe("following");
+    expect(controller.scroll.writeCount("follow-tail")).toBe(followWritesBefore);
   });
 });
 

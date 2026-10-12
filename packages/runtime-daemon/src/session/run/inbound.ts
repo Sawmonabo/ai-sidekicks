@@ -32,6 +32,7 @@ import type {
   SessionOutputStyleChangedPayload,
 } from "@ai-sidekicks/contracts/session/events";
 import type { EpochPosition } from "@ai-sidekicks/contracts/transcript/turn-attribution";
+import { isTerminalState } from "@ai-sidekicks/contracts/run/state";
 
 import {
   SessionEventAppender,
@@ -45,7 +46,6 @@ import type { RunEngine, RunMarker, RunTransitionRequest } from "./engine.js";
 import type { DeliveryAttribution, DeliveryOperation, ExecutionEpochs } from "./epochs.js";
 import type { RunRead } from "./read.js";
 import { RunAlreadyEndedError, RunInvalidTransitionError } from "./refusals.js";
-import { isTerminalState } from "./transitions.js";
 
 const INBOUND_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
 

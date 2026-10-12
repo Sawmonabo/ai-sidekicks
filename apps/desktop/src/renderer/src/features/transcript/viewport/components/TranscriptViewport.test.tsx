@@ -7,7 +7,7 @@
 // the shipped one.
 
 import { act, render, screen } from "@testing-library/react";
-import { useEffect } from "react";
+import { useContext, useEffect, useLayoutEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock, type Clock } from "#renderer/lib/clock.js";
@@ -21,6 +21,11 @@ import { CALM, syntheticRows, withLaidOutViewport } from "../controller.test-sup
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
+import {
+  DrawnBandContext,
+  MarkdownWindowViewportContext,
+} from "../../rows/markdown/block-window/context.js";
+import { type DrawnBandScreenHeights } from "../drawn-band.js";
 
 const LONG_LOG_ROW_COUNT = 500;
 
@@ -38,6 +43,8 @@ interface ComposedTranscriptViewportProps {
   readonly feedLabel: string;
   /** Filled on every commit, so a case can act on the binding the viewport got. */
   readonly holder?: BindingHolder;
+  /** Called in each commit once the rows' layout effects have run. */
+  readonly onCommit?: (binding: TranscriptViewportBinding) => void;
 }
 
 /**
@@ -50,7 +57,10 @@ function ComposedTranscriptViewport(props: ComposedTranscriptViewportProps): Rea
     rows: props.rows,
     ...CALM,
   });
-  const { holder } = props;
+  const { holder, onCommit } = props;
+  useLayoutEffect(() => {
+    onCommit?.(binding);
+  });
   useEffect(() => {
     if (holder !== undefined) {
       holder.binding = binding;
@@ -62,6 +72,7 @@ function ComposedTranscriptViewport(props: ComposedTranscriptViewportProps): Rea
       renderRow={props.renderRow}
       feedLabel={props.feedLabel}
       firstReadSettled
+      isShown
     />
   );
 }
@@ -130,9 +141,13 @@ describe("the transcript viewport — the feed", () => {
       />,
       { wrapper: LiveAnnouncerProvider },
     );
-    // Row measurements coalesce onto one frame; after that a quiet viewport holds nothing armed.
+    // Row measurements coalesce onto one frame and the drawn band widens over the tasks after it;
+    // after that a quiet viewport holds nothing armed.
     for (let pass = 0; pass < 4; pass += 1) {
       clock.runFrame();
+      act(() => {
+        clock.advance(0);
+      });
     }
     expect(clock.pendingCount).toBe(0);
   });
@@ -183,6 +198,73 @@ describe("the transcript viewport — the feed", () => {
   });
 });
 
+describe("the transcript viewport — the drawn band", () => {
+  it("draws a moved band in the windows that read it, in the same commit, and no other row", () => {
+    withLaidOutViewport();
+    const clock = new ManualClock();
+    // What each drawn row's band reader last drew, and how often each row's reader of the
+    // viewport, as a command output's cut or a reply reads it, rendered.
+    const drawnBandOf = new Map<string, DrawnBandScreenHeights>();
+    const viewportRenderCountOf = new Map<string, number>();
+    function BandReader(props: { readonly rowKey: string }): React.ReactNode {
+      const band = useContext(DrawnBandContext);
+      useLayoutEffect(() => {
+        if (band !== undefined) {
+          drawnBandOf.set(props.rowKey, band);
+        }
+        return () => {
+          drawnBandOf.delete(props.rowKey);
+        };
+      });
+      return null;
+    }
+    function ViewportReader(props: { readonly rowKey: string }): React.ReactNode {
+      useContext(MarkdownWindowViewportContext);
+      viewportRenderCountOf.set(props.rowKey, (viewportRenderCountOf.get(props.rowKey) ?? 0) + 1);
+      return null;
+    }
+    const bandsOutOfStep: string[] = [];
+    let commitBand: DrawnBandScreenHeights | undefined;
+    render(
+      <ComposedTranscriptViewport
+        clock={clock}
+        rows={syntheticRows(HELD_LOG_ROW_COUNT)}
+        renderRow={(row) => (
+          <>
+            <BandReader rowKey={row.key} />
+            <ViewportReader rowKey={row.key} />
+          </>
+        )}
+        feedLabel="Transcript"
+        onCommit={(binding) => {
+          commitBand = binding.snapshot.nestedBandScreenHeights;
+          for (const [rowKey, band] of drawnBandOf) {
+            if (band !== commitBand) {
+              bandsOutOfStep.push(rowKey);
+            }
+          }
+        }}
+      />,
+      { wrapper: LiveAnnouncerProvider },
+    );
+    const openingBand = commitBand;
+    const rendersBefore = new Map(viewportRenderCountOf);
+    // The band widens in the task after the opening land.
+    clock.runFrame();
+    act(() => {
+      clock.advance(0);
+    });
+
+    expect(commitBand).not.toBe(openingBand);
+    expect(bandsOutOfStep).toStrictEqual([]);
+    expect(new Set(drawnBandOf.values())).toStrictEqual(new Set([commitBand]));
+    const rowsRenderedAgain = [...rendersBefore].filter(
+      ([rowKey, count]) => viewportRenderCountOf.get(rowKey) !== count,
+    );
+    expect(rowsRenderedAgain).toStrictEqual([]);
+  });
+});
+
 describe("the transcript viewport — what a row's lines say", () => {
   /** Every row draws its key, and the first row draws a refusal under it. */
   function renderRowWithRefusal(refusalWords: string): (row: ViewportRow) => React.ReactNode {
@@ -211,6 +293,10 @@ describe("the transcript viewport — what a row's lines say", () => {
       </LiveAnnouncerProvider>
     );
     const { rerender } = render(viewportWith("The daemon refused this turn."));
+    // The transcript opens on its tail; the reader goes to the first row.
+    act(() => {
+      holder.binding?.jumpToRow("row-0");
+    });
     expect(screen.getByText("The daemon refused this turn.")).toBeDefined();
 
     // Scrolled out of sight and back: the window unmounts the row and mounts it again.

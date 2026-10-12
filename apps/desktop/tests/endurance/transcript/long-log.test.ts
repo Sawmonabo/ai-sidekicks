@@ -11,15 +11,18 @@
 // retained structures, which live in whatever process runs the fold. It states no renderer
 // ceiling.
 //
-// Three claims:
+// Four claims:
 //   - It folds the whole log. This is the control for the other two: a fold that dropped nine
 //     thousand rows would be fast, retain nothing, and pass everything else.
 //   - Its cost is about linear in the log. A quadratic fold is invisible at the two hundred rows
-//     other tiers use and fatal at ten thousand. Measured as a ratio between two sizes rather
-//     than a wall-clock ceiling, so a slower machine does not break it.
+//     other tiers use and fatal at ten thousand. Measured as a ratio between two sizes, in
+//     processor time rather than wall time, so neither a slower machine nor a busy one breaks it.
 //   - Repeating it retains nothing. A fold that held its own output (a cache keyed by a value
 //     never equal twice, a listener, a closure over the previous window) grows without bound in
 //     an app left open for a day.
+//   - A ten-thousand-call run's window walks from the newest calls to the first and back, a press
+//     at a time, at a bounded cost per press, holding no more than its let-go distance in the
+//     list and retaining nothing of the stretches it let go.
 //
 // The collection is forced through `heap/sampling.ts`, the tier's one sampler. A runtime that
 // gives no collector fails the case instead of falling back to a softer reading: a heap claim
@@ -30,11 +33,30 @@ import process from "node:process";
 import { describe, expect, it } from "vitest";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
-import { HeapSampler, retainedGrowthBytes } from "../heap/sampling.js";
+import { HeapSampler, retainedGrowthBytes, type HeapSample } from "../heap/sampling.js";
 import { createTranscriptEnduranceFixture } from "./long-log.test-support.js";
-import { deriveTranscriptWindow } from "#renderer/features/transcript/window/transcript-window.js";
+import { RunGroupFold } from "#renderer/features/transcript/feed/run-group-fold.js";
+import {
+  measuredRunWindowInputs,
+  wholeRunWindowInputs,
+} from "#renderer/features/transcript/feed/run-group-fold.test-support.js";
+import { type RunWindowEdge } from "#renderer/features/transcript/runs/call-window.js";
+import {
+  longRunEvents,
+  onlyRunGroupOf,
+} from "#renderer/features/transcript/runs/call-window.test-support.js";
+import { type RunGroup } from "#renderer/features/transcript/runs/groups.js";
+import {
+  TRANSCRIPT_LET_GO_SCREEN_HEIGHTS,
+  TRANSCRIPT_STRETCH_SCREEN_HEIGHTS,
+} from "#renderer/features/transcript/viewport/caps.js";
+import {
+  deriveTranscriptWindow,
+  type TranscriptPipelineStage,
+} from "#renderer/features/transcript/window/transcript-window.js";
 import { BudgetRegistry } from "../../helpers/budget/registry.js";
 import { evaluateBudget } from "../../helpers/budget/evaluation.js";
+import { runEntitiesOf } from "#test/helpers/transcript/run-facts.js";
 
 /**
  * The length of log this tier measures the transcript at.
@@ -58,8 +80,32 @@ const REPEATED_FOLD_COUNT = 20;
 /** What the repeated folds may add to the heap and still pass; its row says why that figure. */
 const foldRetentionBudget = registry.requireBudget("transcript-fold-retention");
 
-/** Timing passes per measurement. The fastest is taken; more only sharpens it. */
-const MEASUREMENT_SAMPLE_COUNT = 5;
+/** Rounds that each fold the short log and then the long one; the median round's ratio is read. */
+const RATIO_ROUND_COUNT = 15;
+
+/** Rounds folded first and not read, so the fold's code is compiled before any is timed. */
+const RATIO_WARM_UP_ROUND_COUNT = 3;
+
+/** Events in the long run: ten thousand and one calls, with a running row after every nine. */
+const LONG_RUN_EVENT_COUNT = 11_112;
+
+/** The screen the run's window is cut in: fifty calls high. */
+const RUN_WINDOW_MEASURE = { screenHeightPx: () => 1_000, rowHeightPx: () => 20 };
+
+/** Sweeps from the newest calls to the first and back, the first a warm-up nothing is read from. */
+const RUN_WINDOW_SWEEP_COUNT = 9;
+
+/** Sweeps of the planted control: the warm-up and one read, since each planted press is slow. */
+const PLANTED_SWEEP_COUNT = 2;
+
+/** How long the fold takes after one press, in processor time; its row says why that figure. */
+const pressMedianBudget = registry.requireBudget("run-window-press-cpu-median");
+
+/** The slowest press's fold, in processor time; its row says why that figure. */
+const pressWorstBudget = registry.requireBudget("run-window-press-cpu-worst");
+
+/** What the sweeps after the warm-up may add to the heap; its row says why that figure. */
+const runWindowRetentionBudget = registry.requireBudget("run-window-sweep-retention");
 
 /** One generated session's log, as the events a store would have admitted. */
 function enduranceTranscript(rowCount: number): readonly ProjectedSessionEvent[] {
@@ -67,24 +113,18 @@ function enduranceTranscript(rowCount: number): readonly ProjectedSessionEvent[]
 }
 
 /**
- * How long the transcript's fold takes over one log, best of several passes.
- *
- * The best rather than the mean, because the distribution is one-sided: a collection or the
- * scheduler can slow a sample and nothing can make one faster than the work takes. The result is
- * read so the compiler cannot eliminate the fold as dead code.
+ * The processor time of one fold over `transcript`. Processor time rather than wall time, so a
+ * busy machine taking the thread away mid-fold does not count. The result is read so the compiler
+ * cannot eliminate the fold as dead code.
  */
-function fastestFoldMilliseconds(transcript: readonly ProjectedSessionEvent[]): number {
-  let fastestPass = Number.POSITIVE_INFINITY;
-  for (let sampleIndex = 0; sampleIndex < MEASUREMENT_SAMPLE_COUNT; sampleIndex += 1) {
-    const startedAt = performance.now();
-    const transcriptWindow = deriveTranscriptWindow(transcript);
-    const elapsedMilliseconds = performance.now() - startedAt;
-    if (transcriptWindow.rows.length === 0) {
-      throw new Error("the fold produced no rows, so its timing describes nothing");
-    }
-    fastestPass = Math.min(fastestPass, elapsedMilliseconds);
+function foldCpuMilliseconds(transcript: readonly ProjectedSessionEvent[]): number {
+  const before = process.threadCpuUsage();
+  const transcriptWindow = deriveTranscriptWindow(transcript, runEntitiesOf(transcript));
+  const spent = process.threadCpuUsage(before);
+  if (transcriptWindow.rows.length === 0) {
+    throw new Error("the fold produced no rows, so its timing describes nothing");
   }
-  return fastestPass;
+  return (spent.user + spent.system) / 1000;
 }
 
 describe("endurance — the transcript's fold over a long session", () => {
@@ -94,7 +134,7 @@ describe("endurance — the transcript's fold over a long session", () => {
     const transcript = enduranceTranscript(ENDURANCE_ROW_COUNT);
     expect(transcript).toHaveLength(ENDURANCE_ROW_COUNT);
 
-    const transcriptWindow = deriveTranscriptWindow(transcript);
+    const transcriptWindow = deriveTranscriptWindow(transcript, runEntitiesOf(transcript));
 
     // Every event the generator scripts is a registered kind the projection places, so every one
     // becomes a row; a window that dropped an event category would otherwise still read complete.
@@ -104,25 +144,37 @@ describe("endurance — the transcript's fold over a long session", () => {
     // drawn.
     expect(transcriptWindow.viewportRows).toHaveLength(transcriptWindow.rows.length);
     expect(transcriptWindow.rowsByKey.size).toBe(transcriptWindow.rows.length);
-    // Every generated run group closes, so the window holds no live turn. Stated that way rather
-    // than as a count, so it still fails the day the run group index stops recognizing a run's
-    // terminal at scale.
-    expect(transcriptWindow.liveRunGroupKeys.size).toBe(0);
+    // Every generated run closes, so the window holds no live turn. Stated that way rather than as
+    // a count, so it still fails the day the run group index stops recognizing a run's terminal at
+    // scale.
+    expect(transcriptWindow.liveRunIds.size).toBe(0);
   });
 
   it("does not fold superlinearly as the log grows", () => {
-    const shortFoldMilliseconds = fastestFoldMilliseconds(
-      enduranceTranscript(LINEARITY_PROBE_ROW_COUNT),
-    );
-    const longFoldMilliseconds = fastestFoldMilliseconds(enduranceTranscript(ENDURANCE_ROW_COUNT));
-    const costRatio = longFoldMilliseconds / shortFoldMilliseconds;
+    const shortTranscript = enduranceTranscript(LINEARITY_PROBE_ROW_COUNT);
+    const longTranscript = enduranceTranscript(ENDURANCE_ROW_COUNT);
+    // Each round folds both sizes back to back, so a stretch of a busy machine slows both halves
+    // of one ratio rather than one size's every sample.
+    const shortFoldMs = new Float64Array(RATIO_ROUND_COUNT);
+    const longFoldMs = new Float64Array(RATIO_ROUND_COUNT);
+    const roundRatios = new Float64Array(RATIO_ROUND_COUNT);
+    for (let round = -RATIO_WARM_UP_ROUND_COUNT; round < RATIO_ROUND_COUNT; round += 1) {
+      const shortMs = foldCpuMilliseconds(shortTranscript);
+      const longMs = foldCpuMilliseconds(longTranscript);
+      if (round >= 0) {
+        shortFoldMs[round] = shortMs;
+        longFoldMs[round] = longMs;
+        roundRatios[round] = longMs / shortMs;
+      }
+    }
+    const costRatio = medianOf(roundRatios);
 
     // Reported before the assertion so a shrinking margin is visible.
     process.stdout.write(
-      `[endurance] transcript fold ${shortFoldMilliseconds.toFixed(2)} ms at ` +
-        `${String(LINEARITY_PROBE_ROW_COUNT)} rows, ${longFoldMilliseconds.toFixed(2)} ms at ` +
-        `${String(ENDURANCE_ROW_COUNT)} rows — ${costRatio.toFixed(2)}× over a 4× log ` +
-        `(ceiling ${String(foldCostRatioBudget.limit.canonicalValue)}×)\n`,
+      `[endurance] transcript fold ${medianOf(shortFoldMs).toFixed(2)} ms at ` +
+        `${String(LINEARITY_PROBE_ROW_COUNT)} rows, ${medianOf(longFoldMs).toFixed(2)} ms at ` +
+        `${String(ENDURANCE_ROW_COUNT)} rows — median round ${costRatio.toFixed(2)}× over a 4× ` +
+        `log (ceiling ${String(foldCostRatioBudget.limit.canonicalValue)}×)\n`,
     );
 
     expect(
@@ -163,7 +215,212 @@ describe("endurance — the transcript's fold over a long session", () => {
         `${String(foldRetentionBudget.limit.canonicalValue)} B ceiling`,
     ).toBe(true);
   });
+
+  it("walks a ten-thousand-call run's window end to end at a bounded cost per press", async () => {
+    const walk = await walkRunWindow(RUN_WINDOW_SWEEP_COUNT, undefined);
+    process.stdout.write(
+      `[endurance] run window over ${String(walk.callCount)} calls: ` +
+        `${String(walk.measuredPressCount)} presses, fold cpu median ` +
+        `${walk.medianMs.toFixed(2)} ms, worst ${walk.worstMs.toFixed(2)} ms; most list rows ` +
+        `${String(walk.mostListRows)} of ${String(walk.listRowBound)}; heap growth by sweep ` +
+        `${walk.growthKilobytesBySweep.join(", ")} kB\n`,
+    );
+
+    // Every sweep reached both ends of the run: a window that never reaches one stops the sweep
+    // at the presses' bound rather than spinning forever.
+    expect(walk.hasReachedEveryEnd, "a sweep never reached an end of the run").toBe(true);
+    // The sweeps walked the whole run a stretch at a time: a press that skipped ahead would be
+    // cheap and pass everything else.
+    expect(walk.measuredPressCount).toBeGreaterThanOrEqual(
+      (RUN_WINDOW_SWEEP_COUNT - 1) * 2 * walk.leastPressesPerWay,
+    );
+    expect(walk.mostListRows).toBeLessThanOrEqual(walk.listRowBound);
+    expect(
+      evaluateBudget(pressMedianBudget, walk.medianMs).withinBudget,
+      `${pressMedianBudget.label}: ${walk.medianMs.toFixed(2)} ms against a ` +
+        `${String(pressMedianBudget.limit.canonicalValue)} ms ceiling`,
+    ).toBe(true);
+    expect(
+      evaluateBudget(pressWorstBudget, walk.worstMs).withinBudget,
+      `${pressWorstBudget.label}: ${walk.worstMs.toFixed(2)} ms against a ` +
+        `${String(pressWorstBudget.limit.canonicalValue)} ms ceiling`,
+    ).toBe(true);
+    expect(
+      evaluateBudget(runWindowRetentionBudget, walk.peakGrowthBytes).withinBudget,
+      `${runWindowRetentionBudget.label}: ${String(walk.peakGrowthBytes)} B against a ` +
+        `${String(runWindowRetentionBudget.limit.canonicalValue)} B ceiling`,
+    ).toBe(true);
+  });
+
+  it("negative control: a run drawn whole crosses the walk's list-row bound", () => {
+    // Without this the walk above could pass over a fold that never cut the run: such a fold costs
+    // a press about as little as a cut one, so only the rows it lists tell the two apart.
+    const events = longRunEvents(LONG_RUN_EVENT_COUNT);
+    const model = deriveTranscriptWindow(events, runEntitiesOf(events));
+    const listRowBound = mostListRowsUnderLetGo(model.viewportRows.length, onlyRunGroupOf(model));
+
+    const stage = new RunGroupFold().fold(model, new Set(), wholeRunWindowInputs());
+
+    expect(stage.window.viewportRows.length).toBeGreaterThan(listRowBound);
+  });
+
+  it("negative control: a press that walks every admitted row and keeps its stage crosses the press and retention ceilings", async () => {
+    // Without this the walk's ceilings could pass over a reading that timed nothing of the press
+    // or a heap sample that saw nothing it kept. Each press resolves the window again for every
+    // row it admits, and keeps the stage it folded.
+    const keptStages: TranscriptPipelineStage[] = [];
+    const walk = await walkRunWindow(PLANTED_SWEEP_COUNT, (press) => {
+      for (let row = 0; row < press.stage.window.viewportRows.length; row += 1) {
+        press.inputs.windows.windowOf(press.runGroup, RUN_WINDOW_MEASURE);
+      }
+      keptStages.push(press.stage);
+    });
+    process.stdout.write(
+      `[endurance] run window under a planted press: fold cpu median ` +
+        `${walk.medianMs.toFixed(2)} ms, worst ${walk.worstMs.toFixed(2)} ms; heap growth ` +
+        `${String(Math.round(walk.peakGrowthBytes / 1024))} kB over ` +
+        `${String(keptStages.length)} kept stages\n`,
+    );
+
+    expect(evaluateBudget(pressMedianBudget, walk.medianMs).withinBudget).toBe(false);
+    expect(evaluateBudget(pressWorstBudget, walk.worstMs).withinBudget).toBe(false);
+    expect(evaluateBudget(runWindowRetentionBudget, walk.peakGrowthBytes).withinBudget).toBe(false);
+  });
 });
+
+/** One press of the walk, as a planted regression sees it inside the press's timing. */
+interface RunWindowPress {
+  readonly stage: TranscriptPipelineStage;
+  readonly inputs: ReturnType<typeof measuredRunWindowInputs>;
+  readonly runGroup: RunGroup;
+}
+
+/** What one walk of a long run's window read. */
+interface RunWindowWalk {
+  readonly callCount: number;
+  /** Whether every sweep reached both ends before the presses' bound. */
+  readonly hasReachedEveryEnd: boolean;
+  /** Presses after the warm-up sweep. */
+  readonly measuredPressCount: number;
+  /** The fewest presses one way of a sweep can take, a stretch at a time past the let-go span. */
+  readonly leastPressesPerWay: number;
+  readonly medianMs: number;
+  readonly worstMs: number;
+  readonly mostListRows: number;
+  readonly listRowBound: number;
+  readonly peakGrowthBytes: number;
+  readonly growthKilobytesBySweep: readonly number[];
+}
+
+/**
+ * Sweeps a ten-thousand-call run's window `sweepCount` times from its newest calls to its first and
+ * back, a press at a time, timing each press's fold with `plant` run inside the timing, and reads
+ * the heap behind a forced collection after each sweep. The first sweep is a warm-up nothing is
+ * read from.
+ */
+async function walkRunWindow(
+  sweepCount: number,
+  plant: ((press: RunWindowPress) => void) | undefined,
+): Promise<RunWindowWalk> {
+  const heapSampler = new HeapSampler();
+  expect(heapSampler.isCollectorAvailable, "this runtime gives no collector").toBe(true);
+  const events = longRunEvents(LONG_RUN_EVENT_COUNT);
+  const model = deriveTranscriptWindow(events, runEntitiesOf(events));
+  const runGroup = onlyRunGroupOf(model);
+  const inputs = measuredRunWindowInputs(RUN_WINDOW_MEASURE);
+  const fold = new RunGroupFold();
+  fold.fold(model, new Set(), inputs);
+
+  // Read into arrays sized before the first press, so the readings add nothing to the heap
+  // they measure. A press moves the window at least a stretch, which bounds the presses.
+  const stretchCalls =
+    (TRANSCRIPT_STRETCH_SCREEN_HEIGHTS * RUN_WINDOW_MEASURE.screenHeightPx()) /
+    RUN_WINDOW_MEASURE.rowHeightPx();
+  const pressCapacity =
+    sweepCount * 2 * (Math.ceil(runGroup.drawnRowPositions.length / stretchCalls) + 1);
+  const pressCpuMs = new Float64Array(pressCapacity);
+  const growthBytes = new Float64Array(sweepCount - 1);
+  let pressCount = 0;
+  let measuredFrom = 0;
+  let mostListRows = 0;
+  let baseline: HeapSample | undefined;
+  for (let sweep = 0; sweep < sweepCount; sweep += 1) {
+    for (const edge of ["earlier", "later"] as const) {
+      while (
+        callsBeyond(inputs.windows.resolvedWindowOf(runGroup.key), edge) > 0 &&
+        pressCount < pressCapacity
+      ) {
+        const before = process.threadCpuUsage();
+        inputs.windows.openStretch(runGroup, edge, RUN_WINDOW_MEASURE);
+        const stage = fold.fold(model, new Set(), { ...inputs, moveCount: pressCount + 1 });
+        plant?.({ stage, inputs, runGroup });
+        const spent = process.threadCpuUsage(before);
+        pressCpuMs[pressCount] = (spent.user + spent.system) / 1000;
+        pressCount += 1;
+        mostListRows = Math.max(mostListRows, stage.window.viewportRows.length);
+      }
+    }
+    // The warm-up sweep's presses compile the walk; they are timed but not read.
+    if (sweep === 0) {
+      measuredFrom = pressCount;
+      baseline = await heapSampler.sample();
+    } else if (baseline !== undefined) {
+      growthBytes[sweep - 1] = retainedGrowthBytes(baseline, await heapSampler.sample());
+    }
+  }
+
+  const measured = pressCpuMs.subarray(measuredFrom, pressCount);
+  const callsOutsideWindow =
+    runGroup.drawnRowPositions.length -
+    (TRANSCRIPT_LET_GO_SCREEN_HEIGHTS * RUN_WINDOW_MEASURE.screenHeightPx()) /
+      RUN_WINDOW_MEASURE.rowHeightPx();
+  return {
+    callCount: runGroup.drawnRowPositions.length,
+    hasReachedEveryEnd: pressCount < pressCapacity,
+    measuredPressCount: measured.length,
+    leastPressesPerWay: Math.floor(callsOutsideWindow / stretchCalls),
+    medianMs: medianOf(measured),
+    worstMs: Math.max(...measured),
+    mostListRows,
+    listRowBound: mostListRowsUnderLetGo(model.viewportRows.length, runGroup),
+    peakGrowthBytes: Math.max(...growthBytes),
+    growthKilobytesBySweep: [...growthBytes].map((bytes) => Math.round(bytes / 1024)),
+  };
+}
+
+/** The median of `values`, read from a sorted copy. */
+function medianOf(values: Float64Array): number {
+  return values.slice().sort()[Math.floor(values.length / 2)] ?? Number.NaN;
+}
+
+/** The calls a window leaves out beyond `edge`; none before the first fold resolves it. */
+function callsBeyond(
+  window: { readonly earlierCount: number; readonly laterCount: number } | undefined,
+  edge: RunWindowEdge,
+): number {
+  return (edge === "earlier" ? window?.earlierCount : window?.laterCount) ?? 0;
+}
+
+/**
+ * The most rows the list may hold while the run's window spans its let-go distance: every row
+ * outside the run, the run's header and two edge lines, and the most rows any let-go distance of
+ * calls covers, counting the rows before the first call and after the newest at the ends.
+ */
+function mostListRowsUnderLetGo(unfoldedRowCount: number, runGroup: RunGroup): number {
+  const positions = runGroup.drawnRowPositions;
+  const lastRowPosition = runGroup.rowIds.length - 1;
+  const windowCalls =
+    (TRANSCRIPT_LET_GO_SCREEN_HEIGHTS * RUN_WINDOW_MEASURE.screenHeightPx()) /
+    RUN_WINDOW_MEASURE.rowHeightPx();
+  let mostRunRows = 0;
+  for (let first = 0; first < positions.length; first += 1) {
+    const end = Math.min(first + windowCalls, positions.length);
+    const firstRow = first === 0 ? 0 : (positions[first] ?? 0);
+    const lastRow = end === positions.length ? lastRowPosition : (positions[end - 1] ?? 0);
+    mostRunRows = Math.max(mostRunRows, lastRow - firstRow + 1);
+  }
+  return unfoldedRowCount - runGroup.rowIds.length + 1 + 2 + mostRunRows;
+}
 
 /**
  * Folds once and keeps nothing.
@@ -173,7 +430,7 @@ describe("endurance — the transcript's fold over a long session", () => {
  * length is read so the fold cannot be eliminated as dead.
  */
 function dropFoldOf(transcript: readonly ProjectedSessionEvent[]): void {
-  const rowCount = deriveTranscriptWindow(transcript).rows.length;
+  const rowCount = deriveTranscriptWindow(transcript, runEntitiesOf(transcript)).rows.length;
   if (rowCount === 0) {
     throw new Error("the fold produced no rows, so nothing was measured");
   }

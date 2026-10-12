@@ -12,6 +12,11 @@
   min-height: 0;
 }
 
+/* Laid out but not seen, until the first read and the faces its rows draw in have settled. */
+.meridian-transcript-viewport--hidden {
+  visibility: hidden;
+}
+
 /*
  * The one scroll container in the transcript; a second scrolling box would give the chokepoint
  * a rival `scrollTop`. `overscroll-behavior: contain` stops a flick at the end of the log from
@@ -29,8 +34,8 @@
   min-height: 0;
 }
 
-/* Carries the whole log's height so the scrollbar is honest. The virtualizer writes the
-   height directly, so it is absent from this rule. */
+/* Carries the height of the rows the window holds, which the virtualizer writes directly, so it
+   is absent from this rule. */
 .meridian-transcript-viewport__sizer {
   position: relative;
   width: 100%;
@@ -39,8 +44,8 @@
 /*
  * Each mounted row is anchored at the top of the sizer and translated to its own offset. A
  * transform rather than `top` because it composites, keeping several simultaneous streams
- * inside the frame budget. The virtualizer writes it under `directDomUpdates`; a value here
- * would be overwritten on the first scroll tick.
+ * inside the frame budget. The virtualizer writes it directly; a value here would be overwritten
+ * on the first scroll tick.
  */
 .meridian-transcript-viewport__row {
   display: block;
@@ -77,8 +82,12 @@
   font-size: var(--meridian-text-xs);
 }
 
-/* The failed read's line, in the history line's look and pressable at its `Try again`. */
-.meridian-transcript-viewport__load-earlier-failed {
+/*
+ * The failed read's line, in the history line's look and pressable at its `Try again`, and the
+ * line saying a linked message is nowhere in the history, in the same look and place.
+ */
+.meridian-transcript-viewport__load-earlier-failed,
+.meridian-transcript-viewport__message-not-found {
   margin-block: var(--meridian-space-3);
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);

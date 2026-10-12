@@ -16,12 +16,13 @@ import type { MainOperatingSystem } from "../operating-system/contract.js";
  * launch never hands a page an unchecked value.
  */
 export function readAppFacts(
-  operatingSystem: Pick<MainOperatingSystem, "platform" | "machineClock">,
+  operatingSystem: Pick<MainOperatingSystem, "platform" | "hasPrimarySelection" | "machineClock">,
 ): AppFacts {
   return {
     version: app.getVersion(),
     platform: operatingSystem.platform,
     arch: supportedArch(process.arch),
+    hasPrimarySelection: operatingSystem.hasPrimarySelection,
     locale: app.getLocale(),
     physicalMemoryBytes: totalmem(),
     ...operatingSystem.machineClock.read(),

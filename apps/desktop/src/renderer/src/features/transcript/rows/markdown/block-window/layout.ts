@@ -1,17 +1,21 @@
 // The members a windowed body's virtualizer is built with, and the state behind them. The window
-// lays the body's blocks out against the conversation scroller: its offset is the scroller's less
-// the body's top in the scroller's content, taken from the scroll controller's published geometry,
-// so following a scroll reads no element. Drawn blocks sit in flow, so their margins collapse and
-// a growing block moves what follows it in the same layout; a spacer stands for each undrawn run.
-// The window never writes the scroller and never compensates a block that changed size: the
-// conversation's own window keeps the reader's place.
+// lays the body's blocks out against the conversation scroller through `ScrollerWindowMembers`,
+// from the body's top in the scroller's content. Drawn blocks sit in flow, so their margins
+// collapse and a growing block moves what follows it in the same layout; a spacer stands for each
+// undrawn run. A long table in a block windows its own rows against the same scroller, from the
+// block's place this layout answers as its table placement, and hears each change that may move it.
 
-import type { Rect, VirtualItem, Virtualizer } from "@tanstack/react-virtual";
+import type { Range, VirtualItem, Virtualizer } from "@tanstack/virtual-core";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { observeElementResize } from "#renderer/lib/element-resize.js";
-import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
-import { type SettledMarkdownBlock } from "../body-blocks.js";
+import { blockSourceStartOf, type SettledMarkdownBlock } from "../body-blocks.js";
+import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
+import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
+import { ReaderPlaceHold } from "../reader-place-hold.js";
+import { offsetInRowPx, ScrollerWindowMembers } from "../scroller-window.js";
+import { type TableBodyPlacement, type TablePlacementChange } from "../table-window/context.js";
+import { TablePlacementReports } from "../table-window/placement-reports.js";
+import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "./markers.js";
 import { type MarkdownWindowViewport } from "./context.js";
 import {
   DEFAULT_BLOCK_TYPOGRAPHY,
@@ -29,6 +33,7 @@ import {
   rememberBlockGeometry,
   type BlockGeometryAddress,
 } from "./geometry-memory.js";
+import { warmIdeographFallback } from "../table-window/ideograph-fallback-warm.js";
 
 /** The virtualizer a windowed body runs, over the body's element and its block wrappers. */
 export type BlockVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
@@ -37,6 +42,8 @@ export type BlockVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
 export interface WindowedBlocks {
   readonly settledBlocks: readonly SettledMarkdownBlock[];
   readonly volatileTail: string;
+  /** The definitions every block is parsed after, whose length every parsed offset counts. */
+  readonly definitionPreamble: string;
   /** Cuts a settled block's text from its body's, for an estimate that lets it go. */
   readonly readBlockSource: (block: SettledMarkdownBlock) => string;
 }
@@ -48,6 +55,8 @@ export interface BlockWindowLayoutOptions {
   /** The row the body belongs to, whose top the body's is measured from. */
   readonly rowKey: string;
   readonly blocks: WindowedBlocks;
+  /** The body's text length, in UTF-16 code units, which the tail ends at. */
+  readonly bodyTextLength: number;
 }
 
 /** One element of a windowed body, in document order. */
@@ -70,15 +79,20 @@ export type BlockWindowRow =
  * One windowed body's layout: the stable option members its virtualizer reads, the blocks'
  * measured geometry, and the body's place in the scroller.
  */
-export class BlockWindowLayout {
+export class BlockWindowLayout implements TableBodyPlacement {
   readonly #viewport: MarkdownWindowViewport;
   readonly #rowKey: string;
+  readonly #scroller: ScrollerWindowMembers;
+  readonly #placeHold: ReaderPlaceHold;
+  readonly #reports = new TablePlacementReports("block placement change", (element, entry) => {
+    this.#readBody(element, entry);
+  });
   #blocks: WindowedBlocks;
-  #bodyElement: HTMLElement | undefined;
-  #stopObservingBody: Unsubscribe | undefined;
+  #bodyTextLength: number;
   #virtualizer: BlockVirtualizer | undefined;
-  #typography: BlockTypography = DEFAULT_BLOCK_TYPOGRAPHY;
-  /** How far the body's top sits below its row's, measured when the body's width changes. */
+  /** The body's width and text size, read from its resize observations. */
+  #bodyType: MarkdownBodyType | undefined;
+  /** How far the body's top sits below its row's, measured when the body's type changes. */
   #bodyOffsetInRowPx = 0;
   /** The row's last known top, kept for a geometry sample taken while the viewport lets it go. */
   #rowStartPx = 0;
@@ -86,18 +100,17 @@ export class BlockWindowLayout {
   readonly #geometries = new Map<string, BlockGeometry>();
   /** This mount's estimates for blocks it has not measured, by key, at the current width. */
   readonly #estimates = new Map<string, number>();
-  /** Sends the window the offset again, for a body whose top moved under an unmoved scroller. */
-  #resendOffset: (() => void) | undefined;
   /** The rows the body last committed to the page. */
   #committedRows: readonly BlockWindowRow[] = [];
 
   /** The body's element: what the window observes its blocks from. Never scrolled. */
-  public readonly getScrollElement = (): HTMLElement | null => this.#bodyElement ?? null;
+  public readonly getScrollElement = (): HTMLElement | null => this.#reports.element ?? null;
 
-  /** The window's writes, made by no one: the body never moves the conversation's offset. */
-  public readonly scrollToFn = (): void => {
-    // The conversation's own window holds the reader's place; a body writing it would fight that.
-  };
+  /** The window's offset, viewport and refused writes, against the conversation scroller. */
+  public readonly scrollToFn: ScrollerWindowMembers["scrollToFn"];
+  public readonly observeElementOffset: ScrollerWindowMembers["observeElementOffset"];
+  public readonly observeElementRect: ScrollerWindowMembers["observeElementRect"];
+  public readonly initialOffset: ScrollerWindowMembers["initialOffset"];
 
   /** One block's estimated room in the window, from what it last measured or from its text. */
   public readonly estimateSize = (index: number): number => {
@@ -113,47 +126,16 @@ export class BlockWindowLayout {
     const block = this.#blocks.settledBlocks[index];
     if (block === undefined) {
       // The tail changes every frame, so its estimate is never held.
-      return estimateBlockHeightPx(this.#blocks.volatileTail, this.#typography);
+      return estimateBlockHeightPx(this.#blocks.volatileTail, this.#typography());
     }
     const recalled = this.#recall(index);
     const estimate =
       recalled === undefined
-        ? estimateBlockHeightPx(this.#blocks.readBlockSource(block), this.#typography)
+        ? estimateBlockHeightPx(this.#blocks.readBlockSource(block), this.#typography())
         : this.#sizeOf(index, recalled);
     this.#estimates.set(key, estimate);
     return estimate;
   };
-
-  /** The window's offset: the scroller's, less the body's top in the scroller's content. */
-  public readonly observeElementOffset = (
-    _instance: BlockVirtualizer,
-    sink: (offset: number, isScrolling: boolean) => void,
-  ): Unsubscribe => {
-    const scrollController = this.#viewport.scrollController;
-    const sendOffset = (): void => {
-      const geometry = scrollController.geometry;
-      if (geometry !== undefined) {
-        // Never `isScrolling`: it arms the library's scroll-end timers, which the body never needs.
-        sink(geometry.scrollTop - this.#bodyTopPx(), false);
-      }
-    };
-    const unsubscribe = scrollController.subscribeToGeometry(sendOffset);
-    this.#resendOffset = sendOffset;
-    return () => {
-      unsubscribe();
-      this.#resendOffset = undefined;
-    };
-  };
-
-  /** The window's viewport: the scroller's own height, from the same geometry. */
-  public readonly observeElementRect = (
-    _instance: BlockVirtualizer,
-    sink: (rect: Rect) => void,
-  ): Unsubscribe =>
-    this.#viewport.scrollController.subscribeToGeometry((geometry) => {
-      // A vertical list: the library reads `height` and never `width`, which is not sampled.
-      sink({ width: 0, height: geometry.viewportHeight });
-    });
 
   /**
    * A block's room in the window when its wrapper resizes. The height is the observer's border box;
@@ -175,28 +157,48 @@ export class BlockWindowLayout {
     return this.#sizeOf(index, geometry);
   };
 
-  /** The body's element, and its size observation: its width, type and place in its row. */
-  public readonly attachBody = (element: HTMLElement | null): void => {
-    this.#stopObservingBody?.();
-    this.#stopObservingBody = undefined;
-    this.#bodyElement = element ?? undefined;
-    if (element !== null) {
-      this.#stopObservingBody = observeElementResize(element, (entries) => {
-        this.#readBody(element, entries.at(-1));
-      });
+  /**
+   * The library's question whether to move the offset for a block that resized, always answered
+   * no: its write would land on the body, which never scrolls. A block wholly above the scroller's
+   * top, in a row the body holds the reader's place inside, moves the conversation by its change
+   * instead, so the text being read stays where it is.
+   */
+  public readonly holdPlaceThroughResizedBlock = (
+    item: VirtualItem,
+    deltaPx: number,
+    instance: BlockVirtualizer,
+  ): boolean => {
+    if (
+      item.end <= (instance.scrollOffset ?? 0) &&
+      this.#viewport.holdsPlaceInsideRow(this.#rowKey)
+    ) {
+      this.#placeHold.add(deltaPx);
     }
+    return false;
   };
 
-  /** Where the window opens before its first geometry sample: the scroller's offset now. */
-  public readonly initialOffset = (): number => {
-    const geometry = this.#viewport.scrollController.geometry;
-    return geometry === undefined ? 0 : geometry.scrollTop - this.#bodyTopPx();
+  /** The body's element, and its size observation: its width, type and place in its row. */
+  public readonly attachBody = (element: HTMLElement | null): void => {
+    if (element !== null) {
+      warmIdeographFallback(element);
+    }
+    this.#reports.attach(element);
   };
 
   public constructor(options: BlockWindowLayoutOptions) {
     this.#viewport = options.viewport;
     this.#rowKey = options.rowKey;
     this.#blocks = options.blocks;
+    this.#bodyTextLength = options.bodyTextLength;
+    const scroller = new ScrollerWindowMembers(options.viewport.scrollController, () =>
+      this.#bodyTopPx(),
+    );
+    this.#scroller = scroller;
+    this.#placeHold = new ReaderPlaceHold(options.viewport.scrollController);
+    this.scrollToFn = scroller.scrollToFn;
+    this.observeElementOffset = scroller.observeElementOffset;
+    this.observeElementRect = scroller.observeElementRect;
+    this.initialOffset = scroller.initialOffset;
   }
 
   /** How many blocks the window lays out: the settled ones and the tail. */
@@ -209,9 +211,82 @@ export class BlockWindowLayout {
     return windowedBlockKeyOf(this.#blocks.settledBlocks, index);
   }
 
-  /** Takes the body's blocks for this frame. */
-  public setBlocks(blocks: WindowedBlocks): void {
+  /** The body's width and text size, or `undefined` before it is laid out. */
+  public get bodyType(): MarkdownBodyType | undefined {
+    return this.#bodyType;
+  }
+
+  public get layoutCount(): number {
+    return this.#reports.layoutCount;
+  }
+
+  public get ownerDocument(): Document | undefined {
+    return this.#reports.element?.ownerDocument;
+  }
+
+  /** The key of the transcript row the body is drawn in. */
+  public get rowKey(): string {
+    return this.#rowKey;
+  }
+
+  /** The definitions every block of this body is parsed after. */
+  public get definitionPreamble(): string {
+    return this.#blocks.definitionPreamble;
+  }
+
+  /** Takes the body's blocks and its text's length for this frame. */
+  public setBlocks(blocks: WindowedBlocks, bodyTextLength: number): void {
     this.#blocks = blocks;
+    this.#bodyTextLength = bodyTextLength;
+  }
+
+  public blockSourceStart(index: number): number {
+    return blockSourceStartOf(this.#blocks, this.#bodyTextLength, index);
+  }
+
+  /** A settled block's fingerprint; `undefined` for the streaming tail. */
+  public blockFingerprint(index: number): string | undefined {
+    return this.#blocks.settledBlocks[index]?.fingerprint;
+  }
+
+  /** A table's anchor here is the wrapper of the block it is drawn in. */
+  public anchorOf(element: Element): Element | null {
+    return element.closest(`[${MARKDOWN_BLOCK_INDEX_ATTRIBUTE}]`);
+  }
+
+  /**
+   * A block wrapper's top edge in the scroller's content, from the window's own layout of the
+   * body, so it reads no element; `undefined` for an index the window does not hold.
+   */
+  public anchorTopPx(blockIndex: number): number | undefined {
+    const item = this.#virtualizer?.measurementsCache[blockIndex];
+    return item === undefined ? undefined : this.#bodyTopPx() + this.#edgesOf(item).borderTopPx;
+  }
+
+  /**
+   * Hears each change that may move a block: `"moved"` when a block measured or the drawn blocks
+   * changed, `"laid-out"` when the body was laid out at a new width, or when a table that read the
+   * body at `seenLayoutCount` starts to listen having missed such a layout.
+   */
+  public subscribeToPlacement(
+    listener: (change: TablePlacementChange) => void,
+    seenLayoutCount: number,
+  ): Unsubscribe {
+    return this.#reports.subscribe(listener, seenLayoutCount);
+  }
+
+  /** Tells the tables inside the body's blocks that a block may have moved. */
+  public announcePlacementChange(change: TablePlacementChange): void {
+    this.#reports.announce(change);
+  }
+
+  /** The blocks drawn for the library's `range`: on screen, and `bandScreenHeights` past them. */
+  public drawnIndexesOf(range: Range, bandScreenHeights: DrawnBandScreenHeights): number[] {
+    return this.#scroller.drawnIndexesOf(
+      range,
+      bandScreenHeights,
+      (index) => this.#virtualizer?.measurementsCache[index]?.size ?? this.estimateSize(index),
+    );
   }
 
   /** Takes the virtualizer this layout's members were given to, which a new width re-measures. */
@@ -220,8 +295,8 @@ export class BlockWindowLayout {
   }
 
   /** The viewport the window opens against before its first geometry sample. */
-  public initialRect(): Rect {
-    return { width: 0, height: this.#viewport.scrollController.geometry?.viewportHeight ?? 0 };
+  public initialRect(): ReturnType<ScrollerWindowMembers["initialRect"]> {
+    return this.#scroller.initialRect();
   }
 
   /**
@@ -313,40 +388,36 @@ export class BlockWindowLayout {
   }
 
   /**
-   * Reads the body when its width changes, the first observation included: its type for the
-   * estimates, and its place in its row. A height change moves neither, and is read for nothing.
+   * Reads the body when its width or text size changes, the first observation included: its type
+   * for the estimates, and its place in its row. A height change alone moves neither, and is read
+   * for nothing.
    */
   #readBody(element: HTMLElement, entry: ResizeObserverEntry | undefined): void {
-    const widthPx = Math.round(entry?.contentBoxSize[0]?.inlineSize ?? 0);
-    const previousWidthPx = this.#typography.widthPx;
-    if (widthPx === previousWidthPx) {
+    const bodyType = readMarkdownBodyType(element, entry?.contentBoxSize[0]?.inlineSize ?? 0);
+    const previousType = this.#bodyType;
+    if (isSameBodyType(bodyType, previousType)) {
       return;
     }
-    const style = element.ownerDocument.defaultView?.getComputedStyle(element);
-    const fontSizePx = Number.parseFloat(style?.fontSize ?? "");
-    const lineHeightPx = Number.parseFloat(style?.lineHeight ?? "");
-    this.#typography = {
-      fontSizePx: Number.isFinite(fontSizePx) ? fontSizePx : DEFAULT_BLOCK_TYPOGRAPHY.fontSizePx,
-      lineHeightPx: Number.isFinite(lineHeightPx)
-        ? lineHeightPx
-        : DEFAULT_BLOCK_TYPOGRAPHY.lineHeightPx,
-      widthPx,
-    };
-    const row = element.closest(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`);
-    this.#bodyOffsetInRowPx =
-      row === null ? 0 : element.getBoundingClientRect().top - row.getBoundingClientRect().top;
+    this.#bodyType = bodyType;
+    this.#bodyOffsetInRowPx = offsetInRowPx(element);
     this.#estimates.clear();
-    if (previousWidthPx !== undefined) {
-      this.#remeasureAtNewWidth();
+    if (previousType !== undefined) {
+      this.#remeasureAtNewType();
     }
-    this.#resendOffset?.();
+    this.#scroller.resendOffset();
+    this.announcePlacementChange("laid-out");
+  }
+
+  /** The type the estimates read: the body's, or a reply's default before it is laid out. */
+  #typography(): BlockTypography {
+    return this.#bodyType ?? DEFAULT_BLOCK_TYPOGRAPHY;
   }
 
   /**
-   * Drops every height measured at the old width, since text wraps anew, and measures the drawn
-   * blocks again at once, so the window never lays them out at an estimate.
+   * Drops every height measured at the old width or text size, since text wraps anew, and measures
+   * the drawn blocks again at once, so the window never lays them out at an estimate.
    */
-  #remeasureAtNewWidth(): void {
+  #remeasureAtNewType(): void {
     const virtualizer = this.#virtualizer;
     if (virtualizer === undefined) {
       return;
@@ -406,10 +477,10 @@ export class BlockWindowLayout {
   /** Where a settled block's geometry is filed; the tail and an unmeasured body have none. */
   #addressOf(index: number): BlockGeometryAddress | undefined {
     const block = this.#blocks.settledBlocks[index];
-    const widthPx = this.#typography.widthPx;
-    return block === undefined || widthPx === undefined
+    const bodyType = this.#bodyType;
+    return block === undefined || bodyType === undefined
       ? undefined
-      : { fingerprint: block.fingerprint, widthPx, isFinal: index === this.blockCount - 1 };
+      : { fingerprint: block.fingerprint, bodyType, isFinal: index === this.blockCount - 1 };
   }
 }
 

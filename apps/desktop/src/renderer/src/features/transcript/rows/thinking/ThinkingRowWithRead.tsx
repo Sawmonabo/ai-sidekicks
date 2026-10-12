@@ -16,8 +16,8 @@ export interface ThinkingRowWithReadProps {
   readonly liveText: PublishedText | undefined;
   /** The reasoning entry the row a read returned carries, or `undefined` on a streamed row. */
   readonly storedBody: string | undefined;
-  /** Keep the pressed control where it stands while the read's answer grows above it. */
-  readonly holdControlInPlace: (control: HTMLElement) => void;
+  /** Hold the row where it stands while the read's answer grows it. */
+  readonly holdRowInPlace: () => void;
 }
 
 /** One reasoning row, fed by its own on-demand read. */
@@ -28,15 +28,12 @@ export function ThinkingRowWithRead(props: ThinkingRowWithReadProps): React.JSX.
     () => (props.storedBody === undefined ? undefined : publishedTextOf(props.storedBody)),
     [props.storedBody],
   );
-  const { holdControlInPlace } = props;
+  const { holdRowInPlace } = props;
   const expand = reasoningRead.expand;
-  const expandHeld = useCallback(
-    (control: HTMLElement) => {
-      holdControlInPlace(control);
-      expand();
-    },
-    [holdControlInPlace, expand],
-  );
+  const expandHeld = useCallback(() => {
+    holdRowInPlace();
+    expand();
+  }, [holdRowInPlace, expand]);
   return (
     <ThinkingRow
       runId={props.runId}

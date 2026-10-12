@@ -33,6 +33,11 @@ export class Emitter<Event> {
     };
   }
 
+  /** Whether any sink is subscribed, so a producer can skip work only a sink would read. */
+  public get hasSinks(): boolean {
+    return this.#sinks.size > 0;
+  }
+
   /** Deliver to every sink subscribed when this call began. */
   public emit(event: Event): void {
     const failures: unknown[] = [];

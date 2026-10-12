@@ -19,6 +19,11 @@ export const BRIDGE_CHANNELS = {
   listEditors: "native.listEditors",
   getNotificationPermission: "native.getNotificationPermission",
   copyToClipboard: "native.copyToClipboard",
+  takeClipboardSnapshot: "native.takeClipboardSnapshot",
+  sendClipboardPiece: "native.sendClipboardPiece",
+  dropClipboardPieces: "native.dropClipboardPieces",
+  copyToClipboardUnlessChanged: "native.copyToClipboardUnlessChanged",
+  addClipboardFormatting: "native.addClipboardFormatting",
   revealInFileExplorer: "native.revealInFileExplorer",
   readKeyboardMap: "keyboardMap.read",
   writeKeyboardMap: "keyboardMap.write",
@@ -27,6 +32,7 @@ export const BRIDGE_CHANNELS = {
   readNavigationRequest: "window.readNavigationRequest",
   setMinimumSize: "window.setMinimumSize",
   bringWindowForward: "window.bringForward",
+  pasteInWindow: "window.paste",
   setDefaultSizes: "window.setDefaultSizes",
   endSafeStart: "window.endSafeStart",
   reportWindowDiagnostics: "app.reportWindowDiagnostics",
@@ -117,6 +123,11 @@ export const BRIDGE_MEMBER_CHANNELS: Readonly<
   "native.listEditors": [BRIDGE_CHANNELS.listEditors],
   "native.getNotificationPermission": [BRIDGE_CHANNELS.getNotificationPermission],
   "native.copyToClipboard": [BRIDGE_CHANNELS.copyToClipboard],
+  "native.takeClipboardSnapshot": [BRIDGE_CHANNELS.takeClipboardSnapshot],
+  "native.sendClipboardPiece": [BRIDGE_CHANNELS.sendClipboardPiece],
+  "native.dropClipboardPieces": [BRIDGE_CHANNELS.dropClipboardPieces],
+  "native.copyToClipboardUnlessChanged": [BRIDGE_CHANNELS.copyToClipboardUnlessChanged],
+  "native.addClipboardFormatting": [BRIDGE_CHANNELS.addClipboardFormatting],
   "native.revealInFileExplorer": [BRIDGE_CHANNELS.revealInFileExplorer],
   "machineSettings.read": [BRIDGE_CHANNELS.readMachineSettings],
   "machineSettings.write": [BRIDGE_CHANNELS.writeMachineSettings],
@@ -130,6 +141,7 @@ export const BRIDGE_MEMBER_CHANNELS: Readonly<
   "window.subscribeAppearance": [BRIDGE_CHANNELS.readAppearance],
   "window.setMinimumSize": [BRIDGE_CHANNELS.setMinimumSize],
   "window.bringForward": [BRIDGE_CHANNELS.bringWindowForward],
+  "window.paste": [BRIDGE_CHANNELS.pasteInWindow],
   "window.setDefaultSizes": [BRIDGE_CHANNELS.setDefaultSizes],
   "window.endSafeStart": [BRIDGE_CHANNELS.endSafeStart],
   // Pushed by main alone, on `REOPEN_WINDOW_CHANNEL`: the page asks nothing.
@@ -141,4 +153,6 @@ export const BRIDGE_MEMBER_CHANNELS: Readonly<
   // Pushed by main alone, on `MACHINE_CLOCK_CHANNEL`: the first delivery is the preload's newest.
   "app.subscribeMachineClock": [],
   "app.reportWindowDiagnostics": [BRIDGE_CHANNELS.reportWindowDiagnostics],
+  // Done in the preload itself, which empties the renderer's caches: nothing crosses to main.
+  "app.freeUnusedMemory": [],
 };

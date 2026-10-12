@@ -32,7 +32,13 @@ import { describeFailure } from "#shared/failure-message.js";
 import { isMissingPath } from "../missing-path.js";
 import { resolveRendererAsset } from "./assets.js";
 import { stampRootElement, type RootStamp } from "./root-stamp.js";
-import { RENDERER_CONTENT_SECURITY_POLICY, RENDERER_INDEX_URL, RENDERER_SCHEME } from "./scheme.js";
+import {
+  DIAGRAM_WORKER_CONTENT_SECURITY_POLICY,
+  isDiagramWorkerScript,
+  RENDERER_CONTENT_SECURITY_POLICY,
+  RENDERER_INDEX_URL,
+  RENDERER_SCHEME,
+} from "./scheme.js";
 
 /** The console document's file, at the built tree's root. */
 const CONSOLE_DOCUMENT_FILE = new URL(RENDERER_INDEX_URL).pathname.slice(1);
@@ -56,10 +62,15 @@ export function registerRendererScheme(): void {
   ]);
 }
 
-/** Headers every response carries, refusals included. */
-function baseResponseHeaders(): Record<string, string> {
+/**
+ * Headers every response carries, refusals included. Only the diagram worker's script carries its
+ * own policy, which a dedicated worker takes from its script's response.
+ */
+function baseResponseHeaders(
+  contentSecurityPolicy: string = RENDERER_CONTENT_SECURITY_POLICY,
+): Record<string, string> {
   return {
-    "Content-Security-Policy": RENDERER_CONTENT_SECURITY_POLICY,
+    "Content-Security-Policy": contentSecurityPolicy,
     // Paired with the closed content-type map in `./assets.ts`: an unmapped asset is
     // served as `application/octet-stream`, which needs sniffing forbidden.
     "X-Content-Type-Options": "nosniff",
@@ -161,9 +172,15 @@ export async function handleRendererRequest(
     });
   }
 
+  const contentSecurityPolicy = isDiagramWorkerScript(path.basename(resolution.absolutePath))
+    ? DIAGRAM_WORKER_CONTENT_SECURITY_POLICY
+    : RENDERER_CONTENT_SECURITY_POLICY;
   return new Response(fileResponse.body, {
     status: 200,
-    headers: { ...baseResponseHeaders(), "Content-Type": resolution.contentType },
+    headers: {
+      ...baseResponseHeaders(contentSecurityPolicy),
+      "Content-Type": resolution.contentType,
+    },
   });
 }
 

@@ -8,6 +8,7 @@ import { appFactsSwitches, readAppFactsSwitches, type AppFacts } from "./app-fac
 const FACTS: AppFacts = {
   version: "1.4.0-beta.2+build=7",
   platform: "linux",
+  hasPrimarySelection: true,
   arch: "x64",
   locale: "sr-Latn-RS",
   physicalMemoryBytes: 17_179_869_184,

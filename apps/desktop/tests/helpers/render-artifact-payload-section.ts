@@ -13,7 +13,7 @@ import { ManualClock } from "#renderer/lib/clock.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import { bridgeOnClock } from "./fixture/bridge.js";
 import type { ArtifactOperations } from "#renderer/features/inspector/artifacts/services/reads.js";
-import { ArtifactPayloadSection } from "#renderer/features/repos/artifacts/components/ArtifactPayloadSection.js";
+import { ArtifactPayloadSection } from "#renderer/features/inspector/artifacts/components/ArtifactPayloadSection.js";
 import { SESSION_ID } from "./artifact-list-readers.js";
 import { useArtifactList } from "#renderer/features/inspector/artifacts/hooks/useArtifactList.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";

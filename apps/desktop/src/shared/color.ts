@@ -28,6 +28,13 @@ export interface SrgbColor {
   readonly blue: number;
 }
 
+/** A color in OKLab: lightness and two opponent axes, where distance tracks visible difference. */
+export interface OklabColor {
+  readonly lightness: number;
+  readonly greenRed: number;
+  readonly blueYellow: number;
+}
+
 const SRGB_GAMMA_THRESHOLD = 0.0031308;
 const SRGB_INVERSE_GAMMA_THRESHOLD = 0.04045;
 
@@ -115,13 +122,30 @@ function fitChromaIntoSrgbGamut(color: OklchColor): OklchColor {
 }
 
 /** Convert to gamma-encoded sRGB, clamping each channel into 0-1. */
-function oklchToSrgb(color: OklchColor): SrgbColor {
+export function oklchToSrgb(color: OklchColor): SrgbColor {
   const linear = oklchToLinearSrgb(color);
   const clamp = (channel: number): number => Math.min(1, Math.max(0, encodeSrgbChannel(channel)));
   return {
     red: clamp(linear.red),
     green: clamp(linear.green),
     blue: clamp(linear.blue),
+  };
+}
+
+/** Gamma-encoded sRGB in OKLab, where Euclidean distance is how far apart two colors look. */
+export function srgbToOklab(color: SrgbColor): OklabColor {
+  const red = decodeSrgbChannel(color.red);
+  const green = decodeSrgbChannel(color.green);
+  const blue = decodeSrgbChannel(color.blue);
+
+  const longRoot = Math.cbrt(0.4122214708 * red + 0.5363325363 * green + 0.0514459929 * blue);
+  const mediumRoot = Math.cbrt(0.2119034982 * red + 0.6806995451 * green + 0.1073969566 * blue);
+  const shortRoot = Math.cbrt(0.0883024619 * red + 0.2817188376 * green + 0.6299787005 * blue);
+
+  return {
+    lightness: 0.2104542553 * longRoot + 0.793617785 * mediumRoot - 0.0040720468 * shortRoot,
+    greenRed: 1.9779984951 * longRoot - 2.428592205 * mediumRoot + 0.4505937099 * shortRoot,
+    blueYellow: 0.0259040371 * longRoot + 0.7827717662 * mediumRoot - 0.808675766 * shortRoot,
   };
 }
 
@@ -137,7 +161,9 @@ function formatSrgbHex(color: SrgbColor): string {
     .join("")}`;
 }
 
-/** A color as the stylesheet paints it, in `#rrggbb`: resolved as a token carries it, then in sRGB. */
+/**
+ * A color as the stylesheet paints it, in `#rrggbb`: resolved as a token carries it, then in sRGB.
+ */
 export function formatPaintedHex(color: OklchColor): string {
   return formatSrgbHex(oklchToSrgb(resolveEmittedColor(color)));
 }

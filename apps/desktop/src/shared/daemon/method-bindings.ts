@@ -45,6 +45,7 @@ export const REGISTERED_DAEMON_METHODS = [
   "driver.listCapabilities",
   "driver.listModels",
   "transcript.read",
+  "transcript.bodyRead",
   "transcript.reasoningSurfaceRead",
   "transcript.childRunExpand",
   "session.create",

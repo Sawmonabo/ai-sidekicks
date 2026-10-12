@@ -1,4 +1,5 @@
-// A drain that throws loses no event and takes no other session's callback down with it. It runs
+// A batch drains on its frame, or once the fallback runs out in a window that draws none, and a
+// drain that throws loses no event and takes no other session's callback down with it. It runs
 // on `ManualClock`, whose frames run only when a case says so.
 
 import { describe, expect, it } from "vitest";
@@ -6,7 +7,34 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "#renderer/lib/clock.js";
 import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
-import { ApplyQueue } from "./queue.js";
+import { APPLY_FRAME_FALLBACK_MS, ApplyQueue } from "./queue.js";
+
+describe("ApplyQueue — when a batch drains", () => {
+  it("drains on its frame, or without one once the fallback runs out, once either way", () => {
+    const clock = new ManualClock(0);
+    const drained: (readonly ProjectedSessionEvent[])[] = [];
+    const queue = new ApplyQueue({
+      clock,
+      drain: (events) => {
+        drained.push(events);
+      },
+    });
+
+    // A window that draws frames drains on the first, and leaves no timer behind.
+    queue.enqueue(eventOfKind("session-1", "run.starting", 1));
+    clock.runFrame();
+    expect(drained).toHaveLength(1);
+    expect(clock.pendingCount).toBe(0);
+
+    // One that draws none, as a hidden window may, drains when the fallback runs out.
+    queue.enqueue(eventOfKind("session-1", "run.starting", 2));
+    clock.advance(APPLY_FRAME_FALLBACK_MS - 1);
+    expect(drained).toHaveLength(1);
+    clock.advance(1);
+    expect(drained).toHaveLength(2);
+    expect(clock.pendingCount).toBe(0);
+  });
+});
 
 describe("ApplyQueue — a drain that throws", () => {
   /** A drain that fails its first N calls and then succeeds. */
@@ -39,7 +67,6 @@ describe("ApplyQueue — a drain that throws", () => {
       clock,
       drain: recorder.drain,
       onDrainError: recorder.recordError,
-      coalesceMs: 0,
     });
     let laterFrameRan = false;
     clock.scheduleFrame(() => {

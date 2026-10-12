@@ -2,22 +2,15 @@
 // time. Only `ansiToJson` is used: an HTML string built from tool output would have to be
 // injected, which the transcript never does.
 // Colors are names (`use_classes: true` reports `ansi-red`), not the tool's RGB values. Blink and
-// conceal are not reproduced; 256-color and true-color runs render in the inherited foreground.
-// Extended colors carry the tool's own palette and the app has no honest mapping onto its
-// twelve-step wheel, so those spans inherit the foreground rather than take a nearest guess.
+// conceal are not reproduced. A 256-color or true-color run takes the name whose color in the
+// program's own palette sits nearest it in OKLab, so each scheme's token for that name draws it.
 
 import Anser from "anser";
 
+import { srgbToOklab, type OklabColor } from "#shared/color.js";
 import { type PublishedText } from "../../reveal/published-text.js";
-import { withoutResidualEscapes } from "./escape-sequences.js";
-
-/**
- * ANSI chunks one command-output body renders before the rest is folded away. `anser` yields
- * one entry per style run, so the cap is on the mapped spans, which become DOM nodes. It is
- * the first render's cap, not a ceiling: `AnsiOutput` offers a control that re-parses the
- * text under a cap admitting every run, because reopening re-parses the same capped sequence.
- */
-export const ANSI_SPAN_RENDER_CAP = 4096;
+import { joinPieces } from "#renderer/lib/text-pieces.js";
+import { EscapeSequenceStripper, withoutResidualEscapes } from "./escape-sequences.js";
 
 /**
  * One parsed run, derived from `ansiToJson`'s return type: `anser` publishes `export = Anser`,
@@ -88,88 +81,145 @@ export interface AnsiSpan {
   readonly decorations: readonly AnsiDecoration[];
 }
 
-/** What one parse produced, and what it had to leave out. */
-export interface AnsiSpanSequence {
-  readonly spans: readonly AnsiSpan[];
-  /**
-   * How many further spans the source held past the cap, so a truncated render is not mistaken
-   * for a tool that stopped printing. It counts only runs that would have become spans: the
-   * empty entries anser emits around a bare escape are skipped, not counted.
-   */
-  readonly elidedSpanCount: number;
+/** What one read of a growing output parsed: the spans no later read changes, and the rest. */
+export interface AnsiSpanRead {
+  /** Whether the read parsed from the start, so the spans earlier reads settled are gone. */
+  readonly restarted: boolean;
+  /** The spans this read settled, in order, after those earlier reads settled. */
+  readonly settledSpans: readonly AnsiSpan[];
+  /** The spans past the settled ones, which the next read parses again. */
+  readonly tailSpans: readonly AnsiSpan[];
 }
 
 /**
  * Parses one command output into styled spans as it grows, reading only the text past what it
- * already parsed. The result is the same as one parse of the whole text: the same spans, classes,
- * text and counts. Up to `spanCap` spans are built; the rest are counted, not built.
+ * already parsed. Joined, the spans hold the same text in the same styles as one parse of the
+ * whole text, a run that crosses a line split into one span per read at the line ends between.
  *
- * The parsed part always ends where an `ESC [` begins. `anser` splits its input there, and every
- * run between two of them is one entry, so a cut anywhere else would split one run into two
- * spans, or end inside a sequence. Everything before the last `ESC [` is parsed once, on one
- * `anser` instance that carries the style (colors, decorations) from one part to the next exactly
- * as one whole-text parse carries it. The run from the last `ESC [` to the end can still grow, so
- * it is parsed again on each revision, from a copy of that instance's state.
+ * `anser` splits its input where each `ESC [` begins, and every run between two of them is one
+ * entry; a part of the text it parses alone begins unstyled. So everything before the last
+ * `ESC [` is parsed once, on one `anser` instance that carries the style from one part to the
+ * next as one whole-text parse carries it, and the last run's lines up to its last line end are
+ * settled too, in that run's style, the escapes left inside it stripped on from where the run's
+ * earlier lines left off. Only the last run's last line can still change, so it alone is parsed
+ * again on each revision.
  */
 export class AnsiSpanParser {
-  /** The spans of the parsed part, up to the cap. */
-  readonly #parsedSpans: AnsiSpan[] = [];
-  /** The `anser` instance standing where the parsed part ends, its style state carried. */
+  /** The `anser` instance standing where the parsed runs end, its style state carried. */
   #anser = new Anser();
-  #parsedElidedSpanCount = 0;
+  /** The run the parsed part ends inside, or `undefined` where it ends before an `ESC [`. */
+  #run: OpenRun | undefined = unstyledRun();
   #parsed: ParsedText | undefined;
-  #spanCap = ANSI_SPAN_RENDER_CAP;
 
   /**
-   * The spans of `text` as it stands. The parsed part is kept while `text` is the handle last read
-   * and still begins with it and the `ESC [` after it; a different handle, a rewrite below that or
-   * a different cap parses from the start.
+   * The spans `text` settles up to `end` past what earlier reads settled, and its tail there; `end`
+   * is the text's length or a line end, so a long text is read a piece at a time. The parsed part
+   * is kept while `text` is the handle last read and still begins with it (and with the `ESC [` it
+   * ends before); a different handle or a rewrite below that parses from the start.
    */
-  public read(text: PublishedText, spanCap: number = ANSI_SPAN_RENDER_CAP): AnsiSpanSequence {
-    if (!this.#continues(text, spanCap)) {
-      this.#reset(spanCap);
+  public read(text: PublishedText, end: number): AnsiSpanRead {
+    const restarted = !this.#continues(text);
+    if (restarted) {
+      this.#reset();
     }
     const parsedLength = this.#parsed?.length ?? 0;
-    const unparsed = text.slice(parsedLength);
-    // With no `ESC [` past its first character, the unparsed text is one run and none of it final.
-    const runStart = Math.max(0, unparsed.lastIndexOf(CONTROL_SEQUENCE_INTRODUCER));
-    if (runStart > 0) {
-      this.#parsedElidedSpanCount += appendSpans(
-        this.#anser.ansiToJson(unparsed.slice(0, runStart), anserOptions()),
-        this.#parsedSpans,
-        this.#spanCap,
-      );
+    const unparsed = text.slice(parsedLength, end);
+    const settledSpans: AnsiSpan[] = [];
+    const firstRunStart = unparsed.indexOf(CONTROL_SEQUENCE_INTRODUCER);
+    let parsedThrough: number;
+    let tailSpans: AnsiSpan[];
+    if (firstRunStart === -1) {
+      // The text continues the run the parsed part ends inside, up to its last line end.
+      const run = this.#run;
+      parsedThrough = unparsed.lastIndexOf("\n") + 1;
+      tailSpans = [];
+      if (run !== undefined) {
+        pushRunSpan(settledSpans, run, run.stripper.strip(unparsed.slice(0, parsedThrough)));
+        pushRunSpan(tailSpans, run, run.stripper.copy().strip(unparsed.slice(parsedThrough)));
+      }
+    } else {
+      const run = this.#run;
+      if (run !== undefined) {
+        pushRunSpan(settledSpans, run, run.stripper.strip(unparsed.slice(0, firstRunStart)));
+      }
+      const lastRunStart = unparsed.lastIndexOf(CONTROL_SEQUENCE_INTRODUCER);
+      if (lastRunStart > firstRunStart) {
+        appendSpans(
+          this.#anser.ansiToJson(unparsed.slice(firstRunStart, lastRunStart), anserOptions()),
+          settledSpans,
+        );
+      }
+      const lastRun = unparsed.slice(lastRunStart);
+      const lineEnd = lastRun.lastIndexOf("\n") + 1;
+      if (lineEnd === 0 || !opensWithWholeSequence(lastRun)) {
+        this.#run = undefined;
+        parsedThrough = lastRunStart;
+        tailSpans = [];
+        appendSpans(copyOf(this.#anser).ansiToJson(lastRun, anserOptions()), tailSpans);
+      } else {
+        const lastRunHead = this.#settleRunHead(lastRun.slice(0, lineEnd), settledSpans);
+        this.#run = lastRunHead;
+        parsedThrough = lastRunStart + lineEnd;
+        tailSpans = [];
+        pushRunSpan(
+          tailSpans,
+          lastRunHead,
+          lastRunHead.stripper.copy().strip(lastRun.slice(lineEnd)),
+        );
+      }
     }
-    this.#parsed = { text, revision: text.revision, length: parsedLength + runStart };
-
-    const spans = [...this.#parsedSpans];
-    const lastRunElidedSpanCount = appendSpans(
-      copyOf(this.#anser).ansiToJson(unparsed.slice(runStart), anserOptions()),
-      spans,
-      this.#spanCap,
-    );
-    return { spans, elidedSpanCount: this.#parsedElidedSpanCount + lastRunElidedSpanCount };
+    this.#parsed = { text, revision: text.revision, length: parsedLength + parsedThrough };
+    return { restarted, settledSpans, tailSpans };
   }
 
-  /** Whether the parsed part still stands for `text` under `spanCap`. */
-  #continues(text: PublishedText, spanCap: number): boolean {
+  /** Where a read of `text` starts: past the parsed part while it still stands, else at 0. */
+  public parsedLengthOf(text: PublishedText): number {
+    return this.#continues(text) ? (this.#parsed?.length ?? 0) : 0;
+  }
+
+  /**
+   * Settles `head`, a run's opening up to a line end, as one span, and answers the run it opens:
+   * its style, and its escapes stripped as far as the head reaches.
+   */
+  #settleRunHead(head: string, settledSpans: AnsiSpan[]): OpenRun {
+    const entries = this.#anser.ansiToJson(head, anserOptions());
+    const entry = entries[0];
+    // The head holds one `ESC [`, at its start, and a line feed after it: one entry, never empty.
+    if (entry === undefined || entries.length !== 1) {
+      throw new Error("anser read one run of command output as other than one entry.");
+    }
+    const span = toSpan(entry);
+    // The style alone, so the run holds none of the head's text.
+    const style = {
+      foreground: span.foreground,
+      background: span.background,
+      reversed: span.reversed,
+      decorations: span.decorations,
+    };
+    const run: OpenRun = { style, stripper: new EscapeSequenceStripper() };
+    pushRunSpan(settledSpans, run, run.stripper.strip(span.text));
+    return run;
+  }
+
+  /** Whether the parsed part still stands for `text`. */
+  #continues(text: PublishedText): boolean {
     const parsed = this.#parsed;
     return (
       parsed !== undefined &&
       parsed.text === text &&
-      spanCap === this.#spanCap &&
-      // The `ESC [` the parsed part ends before must stand too: the next part is parsed as
-      // starting with it, so a rewrite of those two characters alone still parses from the start.
-      text.keepsPrefix(parsed.revision, parsed.length + CONTROL_SEQUENCE_INTRODUCER.length)
+      // A part ending before an `ESC [` needs those two characters to stand too: the next part is
+      // parsed as starting with them, so a rewrite of them alone still parses from the start.
+      text.keepsPrefix(
+        parsed.revision,
+        parsed.length + (this.#run === undefined ? CONTROL_SEQUENCE_INTRODUCER.length : 0),
+      )
     );
   }
 
-  #reset(spanCap: number): void {
+  #reset(): void {
     this.#anser = new Anser();
-    this.#parsedSpans.length = 0;
-    this.#parsedElidedSpanCount = 0;
+    this.#run = unstyledRun();
     this.#parsed = undefined;
-    this.#spanCap = spanCap;
   }
 }
 
@@ -219,16 +269,17 @@ function isReproducedAnsiDecoration(decoration: string): decoration is AnsiDecor
 }
 
 /**
- * The colors anser substitutes for an unset channel just before its own reverse swap: white
+ * The classes anser substitutes for an unset channel just before its own reverse swap: white
  * foreground, black background. They are undone, because the app maps `black` and `white`
- * to muted grays, so a substituted pair would paint gray on gray.
+ * to muted grays, so a substituted pair would paint gray on gray. A palette or true color near
+ * either keeps its own class, so it is never taken for one.
  *
  * An explicit `ESC[40m` or `ESC[37m` under reverse is indistinguishable from the substitution
  * and also collapses to the app default; telling them apart would need a second SGR state
  * machine beside the library's.
  */
-const ANSER_SUBSTITUTED_FOREGROUND: AnsiColorName = "white";
-const ANSER_SUBSTITUTED_BACKGROUND: AnsiColorName = "black";
+const ANSER_SUBSTITUTED_FOREGROUND_CLASS = "ansi-white";
+const ANSER_SUBSTITUTED_BACKGROUND_CLASS = "ansi-black";
 
 function toSpan(entry: AnserJsonEntry): AnsiSpan {
   // Anser strips `reverse` from `decorations` and publishes `isInverted`, which its shipped
@@ -237,8 +288,8 @@ function toSpan(entry: AnserJsonEntry): AnsiSpan {
   if (!isReversed) {
     return {
       text: entry.content,
-      foreground: resolveColor(entry.fg),
-      background: resolveColor(entry.bg),
+      foreground: resolveColor(entry.fg, entry.fg_truecolor),
+      background: resolveColor(entry.bg, entry.bg_truecolor),
       reversed: false,
       decorations: entry.decorations.filter(isReproducedAnsiDecoration),
     };
@@ -246,27 +297,99 @@ function toSpan(entry: AnserJsonEntry): AnsiSpan {
 
   // Anser already swapped: its `fg` holds the stream's background and its `bg` the stream's
   // foreground. Undo that so the span reports what the stream said.
-  const streamBackground = resolveColor(entry.fg);
-  const streamForeground = resolveColor(entry.bg);
-
   return {
     text: entry.content,
-    foreground: streamForeground === ANSER_SUBSTITUTED_FOREGROUND ? undefined : streamForeground,
-    background: streamBackground === ANSER_SUBSTITUTED_BACKGROUND ? undefined : streamBackground,
+    foreground:
+      entry.bg === ANSER_SUBSTITUTED_FOREGROUND_CLASS
+        ? undefined
+        : resolveColor(entry.bg, entry.bg_truecolor),
+    background:
+      entry.fg === ANSER_SUBSTITUTED_BACKGROUND_CLASS
+        ? undefined
+        : resolveColor(entry.fg, entry.fg_truecolor),
     reversed: true,
     decorations: entry.decorations.filter(isReproducedAnsiDecoration),
   };
 }
 
 /**
- * A color name, or `undefined` for one the app does not reproduce. Anser types the class
- * as `string` but sets `null` when no color applies.
+ * The color name a channel draws in: its own for one of the sixteen, the nearest one for a palette
+ * index past them or a true color (`trueColor`, anser's `r, g, b`), and `undefined` for none.
+ * Anser types both as `string` but sets `null` when no color applies.
  */
-function resolveColor(anserClass: string | null | undefined): AnsiColorName | undefined {
+function resolveColor(
+  anserClass: string | null | undefined,
+  trueColor: string | null | undefined,
+): AnsiColorName | undefined {
   if (anserClass === null || anserClass === undefined) {
     return undefined;
   }
+  if (anserClass === ANSER_TRUE_COLOR_CLASS) {
+    return trueColor === null || trueColor === undefined
+      ? undefined
+      : nearestColorName(oklabOf(trueColor));
+  }
+  if (anserClass.startsWith(ANSER_PALETTE_CLASS_PREFIX)) {
+    const paletteColor = XTERM_PALETTE[Number(anserClass.slice(ANSER_PALETTE_CLASS_PREFIX.length))];
+    return paletteColor === undefined ? undefined : nearestColorName(oklabOf(paletteColor));
+  }
   return COLOR_NAMES_BY_ANSER_CLASS.get(anserClass);
+}
+
+/** The class anser reports for a true color, whose value it carries beside the class. */
+const ANSER_TRUE_COLOR_CLASS = "ansi-truecolor";
+
+/** The class prefix anser reports for a 256-color index from 16 on, before the index. */
+const ANSER_PALETTE_CLASS_PREFIX = "ansi-palette-";
+
+/**
+ * The 256-color palette as anser defines it, one `r, g, b` per index: the sixteen names' own
+ * colors first, then the 6x6x6 cube and the gray ramp.
+ */
+const XTERM_PALETTE: readonly string[] = readXtermPalette();
+
+/** Each of the sixteen names with its palette color in OKLab, in palette order. */
+const COLOR_NAME_POINTS: readonly { readonly name: AnsiColorName; readonly color: OklabColor }[] =
+  ANSI_COLOR_NAMES.map((name, index) => ({ name, color: oklabOf(XTERM_PALETTE[index] ?? "") }));
+
+function readXtermPalette(): readonly string[] {
+  const anser = new Anser();
+  anser.setupPalette();
+  // `setupPalette` fills `PALETTE_COLORS`, which anser's shipped declaration omits.
+  const palette: unknown = "PALETTE_COLORS" in anser ? anser.PALETTE_COLORS : undefined;
+  if (!Array.isArray(palette) || palette.length !== 256) {
+    throw new Error("anser no longer builds its 256-color palette in PALETTE_COLORS");
+  }
+  return palette.map(String);
+}
+
+/** Anser's `r, g, b` (each 0-255) in OKLab. */
+function oklabOf(channels: string): OklabColor {
+  const [red = 0, green = 0, blue = 0] = channels
+    .split(",")
+    .map((channel) => Number(channel) / 255);
+  return srgbToOklab({ red, green, blue });
+}
+
+/**
+ * The name whose palette color sits nearest `color`. Anser gives white and bright white the same
+ * value, and the later name wins a tie, so pure white draws as bright white.
+ */
+function nearestColorName(color: OklabColor): AnsiColorName {
+  let nearest: AnsiColorName = "white";
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const point of COLOR_NAME_POINTS) {
+    const distance = Math.hypot(
+      point.color.lightness - color.lightness,
+      point.color.greenRed - color.greenRed,
+      point.color.blueYellow - color.blueYellow,
+    );
+    if (distance <= nearestDistance) {
+      nearest = point.name;
+      nearestDistance = distance;
+    }
+  }
+  return nearest;
 }
 
 /** The handle last read, at the revision it was read at, and how much of it is parsed. */
@@ -280,6 +403,19 @@ interface ParsedText {
 const CONTROL_SEQUENCE_INTRODUCER = "\u001b[";
 
 /**
+ * Whether `run`, which opens with an `ESC [`, opens with a whole control sequence as `anser` reads
+ * one. `anser` matches a run's sequence at any line's start, so a run whose own opening is no
+ * whole sequence can be read from a later line, and its head is never settled alone.
+ */
+function opensWithWholeSequence(run: string): boolean {
+  SEQUENCE_AFTER_INTRODUCER.lastIndex = CONTROL_SEQUENCE_INTRODUCER.length;
+  return SEQUENCE_AFTER_INTRODUCER.test(run);
+}
+
+/** A control sequence's bytes after its `ESC [`, as `anser` matches them, read where it stands. */
+const SEQUENCE_AFTER_INTRODUCER = /[!\x3c-\x3f]*[\d;]*[\x20-\x2c]*[\x40-\x7e]/uy;
+
+/**
  * The options every `anser` call takes, as a new object each time: `anser` writes into the
  * object it is given. `remove_empty` drops the zero-length runs anser emits around a bare escape.
  */
@@ -287,29 +423,38 @@ function anserOptions(): { json: true; use_classes: true; remove_empty: true } {
   return { json: true, use_classes: true, remove_empty: true };
 }
 
-/**
- * Appends the spans of `entries` to `spans` until it holds `spanCap`, and returns how many more
- * there were. Only runs that would become spans are counted: an empty entry is skipped.
- */
-function appendSpans(
-  entries: readonly AnserJsonEntry[],
-  spans: AnsiSpan[],
-  spanCap: number,
-): number {
-  let elidedSpanCount = 0;
+/** Appends the spans of `entries` to `spans`, skipping those that hold no text. */
+function appendSpans(entries: readonly AnserJsonEntry[], spans: AnsiSpan[]): void {
   for (const entry of entries) {
-    if (entry.content === "") {
-      continue;
-    }
-    if (spans.length >= spanCap) {
-      elidedSpanCount += 1;
-      continue;
-    }
     const span = toSpan(entry);
     // Anser leaves OSC and two-byte escapes inside a chunk; strip them before they become text.
-    spans.push({ ...span, text: withoutResidualEscapes(span.text) });
+    const text = withoutResidualEscapes(span.text);
+    if (text !== "") {
+      spans.push({ ...span, text });
+    }
   }
-  return elidedSpanCount;
+}
+
+/** A run's text the parse has reached the end of a line in: its style and its escape scan. */
+interface OpenRun {
+  readonly style: Omit<AnsiSpan, "text">;
+  readonly stripper: EscapeSequenceStripper;
+}
+
+/** The run a text opens with before its first `ESC [`, which `anser` reads unstyled. */
+function unstyledRun(): OpenRun {
+  return {
+    style: { foreground: undefined, background: undefined, reversed: false, decorations: [] },
+    stripper: new EscapeSequenceStripper(),
+  };
+}
+
+/** Appends `keptRuns`, a part of `run` stripped of its escapes, as one span, if it holds text. */
+function pushRunSpan(spans: AnsiSpan[], run: OpenRun, keptRuns: readonly string[]): void {
+  const text = joinPieces(keptRuns);
+  if (text !== "") {
+    spans.push({ ...run.style, text });
+  }
 }
 
 /**

@@ -4,6 +4,8 @@
 // string (a stored body, a user's summary) is read through the same handle, so one pipeline draws
 // both.
 
+import { joinIntoPieces, type PiecedText } from "#renderer/lib/text-pieces.js";
+
 /**
  * A read-only text a body is drawn from. A streaming one grows under the same handle, so a reader
  * memoizes on `revision`, never on the handle alone. Offsets are UTF-16 code units from the
@@ -49,6 +51,14 @@ export function publishedTextOf(text: string): PublishedText {
     chunks: () => (text === "" ? NO_CHUNKS : [text]),
     keepsPrefix: (_revision, length) => length <= text.length,
   };
+}
+
+/**
+ * `text` in pieces, cut and packed from the strings it is held in, so a long text is never copied
+ * whole on the page's thread.
+ */
+export function piecedTextOfPublished(text: PublishedText): PiecedText {
+  return joinIntoPieces(text.chunks());
 }
 
 /** The revision of a text that never changes. */

@@ -1,0 +1,19 @@
+/* The line at an edge of a long run's window: quiet text on a button the width of the row. */
+
+.meridian-run-window-edge {
+  display: flex;
+  gap: var(--meridian-space-2);
+  width: 100%;
+  padding: var(--meridian-space-1);
+  border: 0;
+  background: none;
+  color: var(--meridian-text-faint);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  text-align: start;
+  cursor: pointer;
+}
+
+.meridian-run-window-edge:hover {
+  color: var(--meridian-text-muted);
+}

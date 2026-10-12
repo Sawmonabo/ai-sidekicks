@@ -22,7 +22,9 @@ const ITEMS: readonly WorkflowItem[] = [
 ];
 
 function rowsOf(order: readonly number[]): PayloadTableRows {
-  const model = new PayloadTableRows(ITEMS, (text) => parseMarkdownDocument(text, NO_SPANS));
+  const model = new PayloadTableRows(ITEMS, (text) =>
+    parseMarkdownDocument(text, NO_SPANS, undefined),
+  );
   for (const stringIndex of order) {
     model.readString(stringIndex);
   }

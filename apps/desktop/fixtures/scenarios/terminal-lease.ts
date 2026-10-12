@@ -25,10 +25,12 @@ import {
   composeScenarioInstant,
   composeScriptBeats,
   createRunEntryBuilders,
+  newestBeatInstant,
   type ScriptEntry,
 } from "../data/script-entries.js";
 import { FIXTURE_DEVICE_ID } from "../data/this-device.js";
 import { defineScenario, type Scenario } from "../scenario.js";
+import { sessionReadReply } from "../data/session-record.js";
 
 // Who and what the scenario is about: the session, the owner, a second device and the agent's
 // run. Ids are UUIDs because the contract check presents each beat to the strict layer as a
@@ -290,13 +292,25 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = defineScenario(
     sessionId: TERMINAL_SCENARIO_SESSION_ID,
     startedAtIso: TERMINAL_SCENARIO_STARTED_AT_ISO,
   },
-  () => ({
-    beats: composeScriptBeats({
+  () => {
+    const beats = composeScriptBeats({
       sessionId: TERMINAL_SCENARIO_SESSION_ID,
       eventIdStem: TERMINAL_EVENT_ID_STEM,
       startedAtMs: TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS,
       entries: TERMINAL_LEASE_SCRIPT,
-    }),
-    replies: [],
-  }),
+    });
+    return {
+      beats,
+      replies: [
+        sessionReadReply({
+          sessionId: TERMINAL_SCENARIO_SESSION_ID,
+          state: "active",
+          shape: "project",
+          createdAt: TERMINAL_SCENARIO_STARTED_AT_ISO,
+          updatedAt: newestBeatInstant(beats),
+          beats,
+        }),
+      ],
+    };
+  },
 );

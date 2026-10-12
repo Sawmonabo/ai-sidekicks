@@ -8,7 +8,7 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { generalRow, runRow } from "../event-rows.test-support.js";
-import { deriveChildRunEntries, deriveHandoffEntries } from "./child-run-entries.js";
+import { ChildRunIndex, type ChildRunEntry, type HandoffEntry } from "./child-run-entries.js";
 
 /** When a later observation saw the child's transcript lose entries. */
 const OBSERVED_AT = "2026-09-02T10:04:00.000Z";
@@ -35,9 +35,28 @@ function rowCarryingChildRun(
   } as TranscriptEventRow;
 }
 
+/** The index over `rows`, admitted in log order as the window admits them. */
+function indexOver(rows: readonly TranscriptEventRow[]): ChildRunIndex {
+  const index = new ChildRunIndex();
+  for (const row of rows) {
+    index.admit(row);
+  }
+  return index;
+}
+
+/** Every child-run entry over `rows`, in log order. */
+function childRunEntriesOf(rows: readonly TranscriptEventRow[]): readonly ChildRunEntry[] {
+  return [...indexOver(rows).childRunEntryByRowId().values()];
+}
+
+/** Every handoff entry over `rows`, in log order. */
+function handoffEntriesOf(rows: readonly TranscriptEventRow[]): readonly HandoffEntry[] {
+  return [...indexOver(rows).handoffEntryByRowId().values()];
+}
+
 describe("child-run entries — one card per child, at the row that first named it", () => {
   it("anchors a re-summarized child at its first row and records the later ones", () => {
-    const entries = deriveChildRunEntries([
+    const entries = childRunEntriesOf([
       rowCarryingChildRun("r1", 1, completeSummary("run-child", 1)),
       rowCarryingChildRun("r2", 2, completeSummary("run-child", 7)),
       rowCarryingChildRun("r3", 3, completeSummary("run-child", 9)),
@@ -48,7 +67,7 @@ describe("child-run entries — one card per child, at the row that first named 
   });
 
   it("shows the LATEST observation of a child, still anchored at its first row", () => {
-    const entries = deriveChildRunEntries([
+    const entries = childRunEntriesOf([
       rowCarryingChildRun("r1", 1, completeSummary("run-child", 1)),
       rowCarryingChildRun("r2", 2, {
         ...completeSummary("run-child", 9),
@@ -75,7 +94,7 @@ describe("child-run entries — one card per child, at the row that first named 
   it("a child summarized once keeps the only summary it has", () => {
     // A fold that took the last row's summary unconditionally would pass the case above while
     // dropping a child nothing re-summarized.
-    const entries = deriveChildRunEntries([
+    const entries = childRunEntriesOf([
       rowCarryingChildRun("r1", 1, completeSummary("run-child", 4)),
       rowCarryingChildRun("r2", 2, completeSummary("run-other", 2)),
     ]);
@@ -84,7 +103,7 @@ describe("child-run entries — one card per child, at the row that first named 
   });
 
   it("admits a child summarized onto a non-run row, which carries no attribution", () => {
-    const entries = deriveChildRunEntries([
+    const entries = childRunEntriesOf([
       {
         ...generalRow({ id: "g1", sequence: 1, type: "session.note" }),
         childRunSummary: completeSummary("run-child", 2),
@@ -96,7 +115,7 @@ describe("child-run entries — one card per child, at the row that first named 
 
 describe("handoff entries — the three members, each read as itself", () => {
   it("reads every member the projection carried", () => {
-    const entries = deriveHandoffEntries([
+    const entries = handoffEntriesOf([
       runRow({
         id: "h1",
         sequence: 1,
@@ -119,7 +138,7 @@ describe("handoff entries — the three members, each read as itself", () => {
   });
 
   it("leaves an absent reason absent rather than filling one in", () => {
-    const entries = deriveHandoffEntries([
+    const entries = handoffEntriesOf([
       runRow({
         id: "h1",
         sequence: 1,
@@ -136,7 +155,7 @@ describe("handoff entries — the three members, each read as itself", () => {
 
   it("does not admit a row that carries handoff members under another type", () => {
     expect(
-      deriveHandoffEntries([
+      handoffEntriesOf([
         runRow({
           id: "r1",
           sequence: 1,
@@ -151,7 +170,7 @@ describe("handoff entries — the three members, each read as itself", () => {
 
   it("draws one handoff per subagent, at the row that started it", () => {
     const identity = { provider: "claude", subagentId: "sub-1" };
-    const entries = deriveHandoffEntries([
+    const entries = handoffEntriesOf([
       runRow({
         id: "start",
         sequence: 1,
@@ -184,6 +203,6 @@ describe("handoff entries — the three members, each read as itself", () => {
       }),
       childRunSummary: completeSummary("run-from-summary", 1),
     } as TranscriptEventRow;
-    expect(deriveHandoffEntries([row])[0]?.childRunId).toBe("run-from-summary");
+    expect(handoffEntriesOf([row])[0]?.childRunId).toBe("run-from-summary");
   });
 });

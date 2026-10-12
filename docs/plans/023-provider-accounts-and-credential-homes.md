@@ -205,9 +205,9 @@ Plan-013 owns the committed-spend fold and the session cost receipt. This plan p
 
 **Resolution.** The producer side is registered here; the renderer task is Plan-010-owned work and is deliberately not authored here.
 
-### CP-023-6 — Plan-022's config-home observation is account-relative
+### CP-023-6 — Plan-022 reads tool servers from the person's own provider files, never an account home
 
-Plan-022 observes provider configuration files inside a provider home and derives a per-binding governance digest from them. Once a binding's home is account-selected, the configuration Plan-022 observes is account-relative: two accounts of one provider may present different MCP inventories, and a governance digest is meaningful only within its account's home.
+Plan-022 reads tool servers from the person's own provider files (`~/.claude.json` and the projects' `.mcp.json` with no `CLAUDE_CONFIG_DIR`; the person's own Codex home) and sends them to every account's sessions, through `--strict-mcp-config` with `mcp_set_servers` on Claude Code and the conversation's whole `mcp_servers` table on Codex, so an account home holds no inventory of its own and two accounts of one provider see the same servers.
 
 **Resolution.** Not a code dependency in either direction — the two plans share a substrate rather than an interface, and this plan writes nothing into a provider config file ([Spec-025 §Non-Goals](../specs/025-provider-accounts-and-credential-homes.md#non-goals), inheriting [Spec-024 §Non-Goals](../specs/024-mcp-server-configuration-and-governance.md#non-goals)). Registered so the interaction is visible.
 
