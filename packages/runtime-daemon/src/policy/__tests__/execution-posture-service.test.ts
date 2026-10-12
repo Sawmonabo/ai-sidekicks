@@ -194,15 +194,16 @@ describe("execution posture service — the curated credential list", () => {
     const { denyPaths } = await service.resolveCredentialPolicy(CURATED_CREDENTIAL_POLICY_REF);
 
     const canonicalTokenPath = await realpath(sessionTokenPath);
-    // A file's rule names the file: a folder's `/**` would never match it.
+    // A file's rule names the file: a folder's `/**` would never match it. Composed at Sandboxed,
+    // where the sandbox enforces the deny on every command.
     const claudeRules = composeClaudePermissions(
       { credentialDenyPaths: denyPaths, memoryFolders: [] },
       [],
-      "yolo",
+      "sandboxed",
       [],
     );
     expect(claudeRules.deny).toContain(`Read(/${canonicalTokenPath})`);
-    const codexConfig = composeCodexPermissionConfig("yolo", {
+    const codexConfig = composeCodexPermissionConfig("sandboxed", {
       workingDirectory: scratch,
       gitCommonFolder: undefined,
       denyPaths: denyPaths.map((denied) => denied.path),

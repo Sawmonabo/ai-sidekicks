@@ -79,8 +79,10 @@ export function composeClaudeCallbackMcpServer(
 }
 
 /**
- * The Bash sandbox at Sandboxed. `allowUnsandboxedCommands` is never written, so the person's own
- * setting holds; `excludedCommands` is pinned empty, and a host whose sandbox cannot start refuses.
+ * The Bash sandbox at Sandboxed; a host whose sandbox cannot start refuses. The daemon never writes
+ * `allowUnsandboxedCommands`, so the person's own setting holds and the sandbox is not
+ * admin-required; Claude Code then also takes `excludedCommands` from a repository's settings, so
+ * the empty list written here adds no exclusion of the daemon's own but keeps none of those out.
  */
 export interface ClaudeSandboxSettings {
   readonly enabled: true;
@@ -111,9 +113,10 @@ export function claudeAdvisorSetting(advisorModel: string | null): string {
   return advisorModel ?? "";
 }
 
-// A permission rule's absolute path is written with a leading `//`, which roots it at `/`.
-function absolutePathRule(tool: "Read" | "Edit", absolutePath: string, glob: string): string {
-  return `${tool}(/${path.join(absolutePath, glob)})`;
+// A permission rule's absolute path is written with a leading `//`, which roots it at `/`; with no
+// glob the rule names the path itself.
+function absolutePathRule(tool: "Read" | "Edit", absolutePath: string, glob?: string): string {
+  return `${tool}(/${glob === undefined ? absolutePath : path.join(absolutePath, glob)})`;
 }
 
 /**
@@ -136,7 +139,7 @@ export function composeClaudePermissions(
     ...legs.credentialDenyPaths.map((denied) =>
       denied.kind === "folder"
         ? absolutePathRule("Read", denied.path, "**")
-        : `Read(/${denied.path})`,
+        : absolutePathRule("Read", denied.path),
     ),
     ...own.deny,
     // The levels that never ask never reach the daemon's answer to an ask, so a background Claude
