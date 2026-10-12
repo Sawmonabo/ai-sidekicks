@@ -30,7 +30,7 @@ import { PreparedBodiesContext } from "../../rows/prepared-bodies.js";
 import { classifyTranscriptRow } from "../../rows/kind.js";
 import { prepareRowBodiesForTest } from "../../rows/preparation.test-support.js";
 import { FootnoteRegistry } from "../../rows/markdown/footnotes/registry.js";
-import { DrawnWindowSources } from "../../rows/drawn-window-sources.js";
+import { DrawnWindowSources } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import { ViewportSelectionTracker } from "../../viewport/selection/tracker.js";
 import { deriveTranscriptWindow } from "../../window/transcript-window.js";
 import { type SelectedPart } from "../conversation-selection.js";
@@ -337,6 +337,8 @@ describe("⌘C in a session", () => {
 
   it("writes a long part's text at once, and adds its formatting unless a newer copy took over", async () => {
     const { copied, formatted, sessionDocument } = renderSession(LONG_ROWS);
+    // Every slice has time, so the short copy is built within the slice ⌘C starts it in.
+    vi.spyOn(performance, "now").mockReturnValue(0);
     const workerAnswers: ((html: PiecedText) => void)[] = [];
     vi.spyOn(markdownWorker, "html").mockImplementation(
       () => new Promise((resolve) => workerAnswers.push(resolve)),

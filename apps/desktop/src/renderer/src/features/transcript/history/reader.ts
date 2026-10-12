@@ -37,7 +37,7 @@ import {
 import { type ReleasedStretchReadDirection } from "#renderer/store/session/transcript-window.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { TRANSCRIPT_STRETCH_SCREEN_HEIGHTS } from "../viewport/caps.js";
-import { type WindowSide } from "../viewport/window-side.js";
+import { type WindowSide } from "#renderer/lib/scroll/window-side.js";
 import { pageLimitFor } from "./page-limit.js";
 
 /** What the transcript shows about the history past one edge of the store's window. */

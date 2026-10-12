@@ -1,17 +1,16 @@
 // A window's items it has not drawn, read back into a copy from the source the screen drew them
-// from: a long table's rows from its parse, and a command output's lines from its chunks. Each
-// spacer standing for undrawn items names its source, which the feed holds while it is drawn, and
-// the first and last item it stands for. Copied as markdown, a table's spacer row names its table
-// and rows, and the drawn part's reading, off the page's thread, asks the page for the table's rows
-// a slice at a time, its columns padded as the whole table's are. Copied as text, a spacer becomes
-// a marker, a marker row in a table, and the items' text is read from the held source on the page
-// a few items at a time, then put in the marker's place, the text kept in pieces. A command output
-// copies only as text.
+// from: a long table's rows from its parse, and a text window's items, a command output's chunks
+// of lines or a diff's steps of rows, from their text. Each spacer standing for undrawn items names
+// its source, which the feed holds while it is drawn, and the first and last item it stands for.
+// Copied as markdown, a table's spacer row names its table and rows, and the drawn part's reading,
+// off the page's thread, asks the page for the table's rows a slice at a time, its columns padded
+// as the whole table's are. Copied as text, a spacer becomes a marker, a marker row in a table, and
+// the items' text is read from the held source on the page a few items at a time, then put in the
+// marker's place, the text kept in pieces. A text window copies only as text.
 
 import type { Table } from "mdast";
 
-import { chunkTextOf, type AnsiLineChunkList } from "../rows/ansi/lines/chunks.js";
-import { type DrawnWindowSource } from "../rows/drawn-window-sources.js";
+import { type DrawnWindowSource } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import {
   drawnRowsText,
   escapeMarkers,
@@ -34,7 +33,7 @@ export interface UndrawnItemsReading {
   readonly textRuns: readonly UndrawnTextRun[];
 }
 
-/** A run of undrawn items copied as text: a table's rows, or an output's chunks of lines. */
+/** A run of undrawn items copied as text: a table's rows, or a text window's items. */
 export type UndrawnTextRun =
   | {
       readonly kind: "table";
@@ -43,18 +42,19 @@ export type UndrawnTextRun =
       readonly lastIndex: number;
     }
   | {
-      readonly kind: "output";
-      readonly chunks: AnsiLineChunkList;
+      readonly kind: "text";
+      readonly itemText: (index: number) => string;
+      readonly itemSeparator: string;
       readonly firstIndex: number;
       readonly lastIndex: number;
     };
 
 /**
  * `tree` with each spacer ready to read in `flavor`: a table's spacer row, copied as markdown,
- * naming its table and rows, its table listed; as text, a marker row, its rows listed; an output's
- * spacer a marker, its chunks listed. `drawnSourceOf` answers the source a spacer's key names.
- * Throws for a spacer whose source is not held, since a copy missing items would look whole, and
- * for an output's spacer copied as markdown, which no output draws in.
+ * naming its table and rows, its table listed; as text, a marker row, its rows listed; a text
+ * window's spacer a marker, its items listed. `drawnSourceOf` answers the source a spacer's key
+ * names. Throws for a spacer whose source is not held, since a copy missing items would look whole,
+ * and for a text window's spacer copied as markdown, which no text window draws in.
  */
 export function withUndrawnItems(
   tree: DrawnTree,
@@ -72,11 +72,11 @@ export function withUndrawnItems(
         isEscaped = true;
       }
       const source = drawnSourceOf(sourceKey);
-      if (source?.kind === "output" && kind === "output") {
+      if (source?.kind === "text" && kind === "text") {
         if (flavor === "markdown") {
-          throw new Error("A command output's undrawn lines were copied as markdown.");
+          throw new Error("A text window's undrawn items were copied as markdown.");
         }
-        textRuns.push({ kind: "output", chunks: source.chunks, firstIndex, lastIndex });
+        textRuns.push({ ...source, firstIndex, lastIndex });
         return { type: "text", value: UNDRAWN_ROWS_MARKER };
       }
       if (source?.kind !== "table" || kind !== "table") {
@@ -143,10 +143,10 @@ export async function withUndrawnItemsText(
 const ROWS_PER_READ = 20;
 
 /**
- * How many of an output's chunks one read takes: each holds at most a few thousand characters, so
- * a read joins tens of thousands, a small share of a slice.
+ * How many of a text window's items one read takes: an output's chunk or a diff's step holds at
+ * most a few thousand characters, so a read joins tens of thousands, a small share of a slice.
  */
-const CHUNKS_PER_READ = 16;
+const TEXT_ITEMS_PER_READ = 16;
 
 /** The text of `run`'s items in pieces, read a few items at a time in `view`. */
 async function undrawnPieces(run: UndrawnTextRun, view: Window): Promise<string[]> {
@@ -168,12 +168,13 @@ async function undrawnPieces(run: UndrawnTextRun, view: Window): Promise<string[
 }
 
 function itemsPerRead(run: UndrawnTextRun): number {
-  return run.kind === "table" ? ROWS_PER_READ : CHUNKS_PER_READ;
+  return run.kind === "table" ? ROWS_PER_READ : TEXT_ITEMS_PER_READ;
 }
 
 /**
- * The text of `run`'s items `firstIndex` to `lastIndex`: a table's rows a line each, a line feed
- * after all but the run's last, and an output's chunks as they are, each ending its own lines.
+ * The text of `run`'s items `firstIndex` to `lastIndex`: a table's rows a line each, and a text
+ * window's items each followed by its separator, a line feed or a separator after all but the
+ * run's last.
  */
 function itemsText(run: UndrawnTextRun, firstIndex: number, lastIndex: number): string {
   if (run.kind === "table") {
@@ -182,9 +183,10 @@ function itemsText(run: UndrawnTextRun, firstIndex: number, lastIndex: number): 
   }
   const texts: string[] = [];
   for (let index = firstIndex; index <= lastIndex; index += 1) {
-    texts.push(chunkTextOf(run.chunks.chunkAt(index)));
+    texts.push(run.itemText(index));
   }
-  return texts.join("");
+  const itemsText = texts.join(run.itemSeparator);
+  return lastIndex < run.lastIndex ? `${itemsText}${run.itemSeparator}` : itemsText;
 }
 
 /** A node of a drawn tree that holds children, and one of its children. */
@@ -233,7 +235,7 @@ function spacerOf(element: DrawnElement):
     const firstIndex = numberOf(element.properties[spacer.firstIndex]);
     const lastIndex = numberOf(element.properties[spacer.lastIndex]);
     if (
-      element.tagName === spacer.tagName &&
+      (spacer.tagName === undefined || element.tagName === spacer.tagName) &&
       typeof sourceKey === "string" &&
       firstIndex !== undefined &&
       lastIndex !== undefined
@@ -257,11 +259,11 @@ const SPACER_PROPERTIES = [
     lastIndex: "dataMarkdownLastUndrawnRow",
   },
   {
-    kind: "output",
-    tagName: "span",
-    sourceKey: "dataAnsiOutput",
-    firstIndex: "dataAnsiFirstUndrawnChunk",
-    lastIndex: "dataAnsiLastUndrawnChunk",
+    kind: "text",
+    tagName: undefined,
+    sourceKey: "dataUndrawnTextSource",
+    firstIndex: "dataFirstUndrawnItem",
+    lastIndex: "dataLastUndrawnItem",
   },
 ] as const;
 

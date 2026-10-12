@@ -10,13 +10,16 @@ import type { Range, VirtualItem, Virtualizer } from "@tanstack/virtual-core";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { blockSourceStartOf, type SettledMarkdownBlock } from "../body-blocks.js";
 import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
-import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
-import { ReaderPlaceHold } from "../reader-place-hold.js";
-import { offsetInRowPx, ScrollerWindowMembers } from "../scroller-window.js";
+import { type DrawnBandScreenHeights } from "#renderer/lib/scroll/window-side.js";
+import { ReaderPlaceHold } from "#renderer/lib/scroll/reader-place-hold.js";
+import {
+  offsetInRowPx,
+  ScrollerWindowMembers,
+} from "#renderer/components/TranscriptBodyViewport/scroller-window.js";
 import { type TableBodyPlacement, type TablePlacementChange } from "../table-window/context.js";
 import { TablePlacementReports } from "../table-window/placement-reports.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "./markers.js";
-import { type MarkdownWindowViewport } from "./context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import {
   DEFAULT_BLOCK_TYPOGRAPHY,
   estimateBlockHeightPx,
@@ -51,7 +54,7 @@ export interface WindowedBlocks {
 /** What one body's window is laid out against. */
 export interface BlockWindowLayoutOptions {
   /** The viewport the body is drawn in; held for the layout's life. */
-  readonly viewport: MarkdownWindowViewport;
+  readonly viewport: TranscriptBodyViewport;
   /** The row the body belongs to, whose top the body's is measured from. */
   readonly rowKey: string;
   readonly blocks: WindowedBlocks;
@@ -80,7 +83,7 @@ export type BlockWindowRow =
  * measured geometry, and the body's place in the scroller.
  */
 export class BlockWindowLayout implements TableBodyPlacement {
-  readonly #viewport: MarkdownWindowViewport;
+  readonly #viewport: TranscriptBodyViewport;
   readonly #rowKey: string;
   readonly #scroller: ScrollerWindowMembers;
   readonly #placeHold: ReaderPlaceHold;
@@ -168,11 +171,8 @@ export class BlockWindowLayout implements TableBodyPlacement {
     deltaPx: number,
     instance: BlockVirtualizer,
   ): boolean => {
-    if (
-      item.end <= (instance.scrollOffset ?? 0) &&
-      this.#viewport.holdsPlaceInsideRow(this.#rowKey)
-    ) {
-      this.#placeHold.add(deltaPx);
+    if (this.#viewport.holdsPlaceInsideRow(this.#rowKey)) {
+      this.#placeHold.holdThroughResizedItem(item.end, deltaPx, instance.scrollOffset ?? 0);
     }
     return false;
   };

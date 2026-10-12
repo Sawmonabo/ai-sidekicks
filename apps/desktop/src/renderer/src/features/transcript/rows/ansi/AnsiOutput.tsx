@@ -10,22 +10,22 @@
 
 import { memo, useContext, useSyncExternalStore } from "react";
 
-import { MeasuringFrames } from "../bodies/MeasuringFrames.js";
+import { MeasuringFrames } from "#renderer/components/MeasuringFrames/MeasuringFrames.js";
+import {
+  FIRST_UNDRAWN_ITEM_ATTRIBUTE,
+  LAST_UNDRAWN_ITEM_ATTRIBUTE,
+  UNDRAWN_TEXT_SOURCE_ATTRIBUTE,
+} from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import { OutputHeightCut, type OutputOpening } from "../bodies/OutputHeightCut.js";
 import {
-  MarkdownWindowViewportContext,
-  type MarkdownWindowViewport,
-} from "../markdown/block-window/context.js";
+  TranscriptBodyViewportContext,
+  type TranscriptBodyViewport,
+} from "#renderer/components/TranscriptBodyViewport/context.js";
 import { useAnsiLineWindow } from "./hooks/useAnsiLineWindow.js";
 import { type AnsiLineChunk, type AnsiLineChunkList } from "./lines/chunks.js";
-import {
-  ANSI_FIRST_UNDRAWN_CHUNK_ATTRIBUTE,
-  ANSI_LAST_UNDRAWN_CHUNK_ATTRIBUTE,
-  ANSI_LINE_CHUNK_INDEX_ATTRIBUTE,
-  ANSI_OUTPUT_KEY_ATTRIBUTE,
-} from "./lines/markers.js";
-import { type AnsiChunkMeasurement } from "./lines/measurement.js";
+import { ANSI_LINE_CHUNK_INDEX_ATTRIBUTE } from "./lines/markers.js";
 import { PreparedBodiesContext } from "../prepared-bodies.js";
+import { type OffScreenMeasurement } from "#renderer/lib/off-screen-measurement.js";
 import { ansiSpanClassNames } from "./spans.js";
 
 import "./AnsiOutput.css";
@@ -60,7 +60,7 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
   const chunks = useSyncExternalStore(preparedBodies.subscribe, () =>
     preparedBodies.chunksOf(rowKey),
   );
-  const viewport = useContext(MarkdownWindowViewportContext);
+  const viewport = useContext(TranscriptBodyViewportContext);
 
   return (
     <OutputHeightCut
@@ -109,7 +109,7 @@ const WINDOWED_OUTPUT_MIN_CHUNKS = 3;
 interface WindowedAnsiLinesProps {
   readonly chunks: AnsiLineChunkList;
   /** The viewport the output is drawn in; held for the window's life. */
-  readonly viewport: MarkdownWindowViewport;
+  readonly viewport: TranscriptBodyViewport;
   /** The row the output belongs to; held for the window's life. */
   readonly rowKey: string;
   /** The output box's class, which the measuring frame's box takes too. */
@@ -122,7 +122,7 @@ function WindowedAnsiLines(props: WindowedAnsiLinesProps): React.JSX.Element {
   const lineWindow = useAnsiLineWindow(chunks, props.viewport, props.rowKey);
   return (
     <>
-      <span className="meridian-ansi__lines" ref={lineWindow.attachLines}>
+      <span className="meridian-ansi__lines" ref={lineWindow.layout.attachLines}>
         {lineWindow.rows.map((row) =>
           row.kind === "spacer" ? (
             <span
@@ -131,9 +131,9 @@ function WindowedAnsiLines(props: WindowedAnsiLinesProps): React.JSX.Element {
               aria-hidden="true"
               style={{ height: `${String(row.heightPx)}px` }}
               {...{
-                [ANSI_OUTPUT_KEY_ATTRIBUTE]: lineWindow.outputKey,
-                [ANSI_FIRST_UNDRAWN_CHUNK_ATTRIBUTE]: row.firstIndex,
-                [ANSI_LAST_UNDRAWN_CHUNK_ATTRIBUTE]: row.lastIndex,
+                [UNDRAWN_TEXT_SOURCE_ATTRIBUTE]: lineWindow.sourceKey,
+                [FIRST_UNDRAWN_ITEM_ATTRIBUTE]: row.firstIndex,
+                [LAST_UNDRAWN_ITEM_ATTRIBUTE]: row.lastIndex,
               }}
             />
           ) : (
@@ -141,12 +141,15 @@ function WindowedAnsiLines(props: WindowedAnsiLinesProps): React.JSX.Element {
               key={row.key}
               chunk={chunks.chunkAt(row.index)}
               index={row.index}
-              attach={lineWindow.attachChunk}
+              attach={lineWindow.attachItem}
             />
           ),
         )}
       </span>
-      <AnsiMeasuringFrame measurement={lineWindow.measurement} className={props.className} />
+      <AnsiMeasuringFrame
+        measurement={lineWindow.layout.window.measurement}
+        className={props.className}
+      />
     </>
   );
 }
@@ -157,7 +160,7 @@ function WindowedAnsiLines(props: WindowedAnsiLinesProps): React.JSX.Element {
  * lines inherit in their row set on it, as the frames stand outside the row.
  */
 function AnsiMeasuringFrame(props: {
-  readonly measurement: AnsiChunkMeasurement;
+  readonly measurement: OffScreenMeasurement<AnsiLineChunk>;
   readonly className: string;
 }): React.JSX.Element | null {
   const { measurement } = props;
@@ -166,22 +169,22 @@ function AnsiMeasuringFrame(props: {
     return null;
   }
   return (
-    <MeasuringFrames ownerDocument={frame.ownerDocument}>
+    <MeasuringFrames ownerDocument={frame.box.ownerDocument}>
       <pre
         className={props.className}
         ref={(box) => {
           if (box !== null) {
-            box.style.cssText = frame.textStyle;
+            box.style.cssText = frame.box.textStyle;
           }
         }}
       >
-        <span className="meridian-ansi__lines" style={{ width: `${String(frame.widthPx)}px` }}>
-          {frame.chunks.map(({ index, chunk }) => (
+        <span className="meridian-ansi__lines" style={{ width: `${String(frame.box.widthPx)}px` }}>
+          {frame.items.map(({ index, item: chunk }) => (
             <AnsiChunk
               key={`${String(frame.slice)}:${String(index)}`}
               chunk={chunk}
               index={index}
-              attach={measurement.attachChunk}
+              attach={measurement.attachItem}
             />
           ))}
         </span>

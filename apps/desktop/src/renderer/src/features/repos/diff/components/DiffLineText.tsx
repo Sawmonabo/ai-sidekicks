@@ -1,52 +1,55 @@
 import { type DiffLine, type DiffLineKind } from "../model.js";
-import type { IntralineReading } from "../intraline-segment-cache.js";
+import {
+  DIFF_FLOW_SIGNS,
+  DIFF_LINE_KIND_LABELS,
+  DIFF_NO_NEWLINE_AT_END_LABEL,
+} from "../rows/row-text.js";
+import type { IntralineReading } from "../intraline/segment-cache.js";
 
-/** The marker, then the line's segments. One implementation for both layouts. */
+/**
+ * The sign, then the line's segments. One implementation for both looks: Review's marker column,
+ * or the flow's one-character sign cell with its typographic minus, drawn straight into the row's
+ * cell so a long diff mounts fewer elements per line.
+ */
 export function DiffLineText(props: {
   readonly line: DiffLine;
   readonly reading: IntralineReading;
+  readonly look: "review" | "flow";
 }): React.JSX.Element {
-  return (
-    <span className="meridian-diff__text">
-      <span className="meridian-diff__marker" aria-hidden="true">
-        {LINE_KIND_MARKERS[props.line.kind]}
+  const { line } = props;
+  const parts = (
+    <>
+      <span
+        className={props.look === "flow" ? "meridian-diff__sign" : "meridian-diff__marker"}
+        aria-hidden="true"
+      >
+        {(props.look === "flow" ? DIFF_FLOW_SIGNS : REVIEW_MARKERS)[line.kind]}
       </span>
-      <span className="meridian-visually-hidden">{LINE_KIND_LABELS[props.line.kind]}</span>
+      <span className="meridian-visually-hidden">{DIFF_LINE_KIND_LABELS[line.kind]}</span>
       <code className="meridian-diff__code">
-        {props.reading.segments.map((segment, segmentIndex) => (
-          <span
-            // Segments have no identity and never reorder (the list is rebuilt whole), so the
-            // position is the key.
-            key={segmentIndex}
-            className={segment.changed ? "meridian-diff__segment--changed" : undefined}
-          >
-            {segment.text}
-          </span>
-        ))}
+        {props.reading.segments.map((segment, segmentIndex) =>
+          // An unchanged run is the code's own text; only a changed run needs an element of its
+          // own. Segments have no identity and never reorder (the list is rebuilt whole), so the
+          // position is the key.
+          segment.changed ? (
+            <span key={segmentIndex} className="meridian-diff__segment--changed">
+              {segment.text}
+            </span>
+          ) : (
+            segment.text
+          ),
+        )}
       </code>
-      {props.line.noNewlineAtEnd === true ? (
-        <span className="meridian-diff__no-newline">{NO_NEWLINE_AT_END_LABEL}</span>
+      {line.noNewlineAtEnd === true ? (
+        <span className="meridian-diff__no-newline">{DIFF_NO_NEWLINE_AT_END_LABEL}</span>
       ) : null}
-    </span>
+    </>
   );
+  return props.look === "flow" ? parts : <span className="meridian-diff__text">{parts}</span>;
 }
 
-const LINE_KIND_MARKERS: Readonly<Record<DiffLineKind, string>> = {
+const REVIEW_MARKERS: Readonly<Record<DiffLineKind, string>> = {
   context: " ",
   insert: "+",
   delete: "-",
 };
-
-/** Announced text per line kind, so the marker is not the only carrier. */
-const LINE_KIND_LABELS: Readonly<Record<DiffLineKind, string>> = {
-  context: "unchanged",
-  insert: "added",
-  delete: "removed",
-};
-
-/**
- * The patch's `\ No newline at end of file` without the leading `\`, which the row already
- * conveys by drawing it inside the line. On a newline-only change it is the only thing that
- * tells the two rows apart.
- */
-const NO_NEWLINE_AT_END_LABEL = "No newline at end of file";

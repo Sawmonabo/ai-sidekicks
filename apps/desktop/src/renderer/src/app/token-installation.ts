@@ -38,18 +38,26 @@ export function installMeridianTokens(targetDocument: Document): boolean {
 }
 
 /**
- * Starts every face's load as the sheet installs, not when a run first matches it: a row drawn in
- * the fallback while its face is on the way would be measured again when the face lands. A face
- * that fails to load is recorded with its reason, and the text it would have set draws in the
- * fallback.
+ * Starts each family and style's load as the sheet installs, not when a run first matches it: a
+ * row drawn in the fallback while its face is on the way would be measured again when the face
+ * lands. A load names no text, so it fetches the one split holding a space, Latin-1; every other
+ * split loads when a run first draws one of its characters. A face that fails to load is recorded
+ * with its reason, and the text it would have set draws in the fallback.
  */
 function loadTypefaces(targetDocument: FontLoadingDocument): void {
   const fonts = targetDocument.fonts;
   if (fonts === undefined) {
     return;
   }
+  // The table holds one face per split, so each family and style is asked for once.
+  const askedFonts = new Set<string>();
   for (const face of TYPEFACE_FACES) {
-    fonts.load(`${face.style} 1em "${face.family}"`).catch((failure: unknown) => {
+    const font = `${face.style} 1em "${face.family}"`;
+    if (askedFonts.has(font)) {
+      continue;
+    }
+    askedFonts.add(font);
+    fonts.load(font).catch((failure: unknown) => {
       recordRejectedRequest(
         "app/token-installation",
         "typeface-not-loaded",

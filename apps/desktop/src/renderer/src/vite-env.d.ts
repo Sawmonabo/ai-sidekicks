@@ -24,10 +24,24 @@ declare module "*.woff2?url" {
   export default assetUrl;
 }
 
+// Vite's `?raw` import: a file's text, verbatim. The font packages' own stylesheets are read this
+// way for the character ranges they give each split.
+declare module "*.css?raw" {
+  const fileText: string;
+  export default fileText;
+}
+
 // A script a window document loads into its own realm, emitted and addressed the same way.
 declare module "*.js?url" {
   const assetUrl: string;
   export default assetUrl;
+}
+
+// Vite's `?worker` import: the module is bundled as its own script and the default export
+// constructs a dedicated worker running it.
+declare module "*?worker" {
+  const WorkerScript: new () => Worker;
+  export default WorkerScript;
 }
 
 // Side-effect stylesheet imports (`import "./Chip.css"`), which Vite bundles. TypeScript checks

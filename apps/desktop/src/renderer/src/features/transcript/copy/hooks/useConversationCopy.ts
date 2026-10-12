@@ -18,11 +18,11 @@ import { primarySelectionFor } from "#renderer/services/platform/primary-selecti
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type FullBodyReads } from "../../rows/full-body-reads.js";
-import { ANSI_OUTPUT_KEY_ATTRIBUTE } from "../../rows/ansi/lines/markers.js";
 import {
   type DrawnWindowSource,
   type DrawnWindowSources,
-} from "../../rows/drawn-window-sources.js";
+  UNDRAWN_TEXT_SOURCE_ATTRIBUTE,
+} from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import { MARKDOWN_TABLE_KEY_ATTRIBUTE } from "../../rows/markdown/block-window/markers.js";
 import { readRunWindowEdgeKey } from "../../runs/call-window.js";
 import { rowKeyOf, type RowSelection } from "../../viewport/selection/record.js";
@@ -254,7 +254,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
         for (const spacer of endRow.querySelectorAll(SPACER_SELECTOR)) {
           const sourceKey =
             spacer.getAttribute(MARKDOWN_TABLE_KEY_ATTRIBUTE) ??
-            spacer.getAttribute(ANSI_OUTPUT_KEY_ATTRIBUTE) ??
+            spacer.getAttribute(UNDRAWN_TEXT_SOURCE_ATTRIBUTE) ??
             "";
           const drawnSource = drawnWindowSources.sourceOf(sourceKey);
           if (drawnSource !== undefined) {
@@ -498,4 +498,4 @@ type TextWriteOutcome =
   | { readonly outcome: "failed"; readonly failure: unknown };
 
 /** Every spacer a window draws in place of items a copy reads from their source. */
-const SPACER_SELECTOR = `[${MARKDOWN_TABLE_KEY_ATTRIBUTE}], [${ANSI_OUTPUT_KEY_ATTRIBUTE}]`;
+const SPACER_SELECTOR = `[${MARKDOWN_TABLE_KEY_ATTRIBUTE}], [${UNDRAWN_TEXT_SOURCE_ATTRIBUTE}]`;

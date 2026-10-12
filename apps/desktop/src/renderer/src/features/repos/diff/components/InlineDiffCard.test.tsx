@@ -16,7 +16,7 @@ const CARD: DiffInlineCardProps = {
 
 describe("inline diff card — the empty state", () => {
   it("says the diff has not been read, and never that there is nothing in it", () => {
-    const { container } = render(<InlineDiffCard card={CARD} />, {
+    const { container } = render(<InlineDiffCard card={CARD} rowKey="row-1" />, {
       wrapper: LiveAnnouncerProvider,
     });
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();

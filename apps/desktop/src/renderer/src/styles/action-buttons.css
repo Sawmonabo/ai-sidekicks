@@ -1,5 +1,5 @@
 /*
- * Three button treatments several features share, each a class a control wears beside its own.
+ * Four button treatments several features share, each a class a control wears beside its own.
  *
  * `meridian-action-button` is a button that does something. The base holds only what every such
  * button shares: the inherited font, a one-pixel solid edge, the small corner and the pointer,
@@ -19,6 +19,10 @@
  * underlined under the pointer while it can be pressed: every try-again, and the transcript's
  * `Load earlier`. A line whose words carry a state's ink, such as a failed delivery's red, sets
  * `--meridian-clickable-word-color` so its word reads in that ink too.
+ *
+ * `meridian-link-button` is a button drawn as a link: the accent's text color in the line's own
+ * type, with no box, underlined under the pointer. A diff footer's `Show all` and `Copy patch`, and
+ * a workflow run's link to its run.
  *
  * The action button's base and modifiers and the clickable word sit inside `:where()` so they
  * carry no specificity: a control's own class, state and variant win whichever sheet loads first.
@@ -128,5 +132,20 @@
 }
 
 :where(.meridian-clickable-word:hover:not(:disabled, [aria-disabled="true"])) {
+  text-decoration: underline;
+}
+
+/* --- the link button --------------------------------------------------------- */
+
+.meridian-link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-link-button:hover {
   text-decoration: underline;
 }

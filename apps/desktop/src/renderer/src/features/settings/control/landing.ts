@@ -16,7 +16,11 @@
 import { getWindow } from "@floating-ui/utils/dom";
 
 import { type Clock } from "#renderer/lib/clock.js";
-import { clippingAncestorsOf, overflowAxesOf } from "#renderer/lib/clipping-ancestors.js";
+import {
+  SCROLLING_OVERFLOW_VALUES,
+  clippingAncestorsOf,
+  overflowAxesOf,
+} from "#renderer/lib/clipping-ancestors.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { SETTINGS_CONTROL_ATTRIBUTE } from "./anchor.js";
 
@@ -101,9 +105,6 @@ const PERSON_INPUT_EVENTS = ["pointerdown", "keydown", "wheel"] as const;
 
 /** The `hidden` value a closed fold's panel carries until it is found. */
 const CLOSED_FOLD_HIDDEN_VALUE = "until-found";
-
-/** The overflow values of a box the person scrolls. */
-const SCROLLING_OVERFLOW_VALUES = ["auto", "scroll", "overlay"] as const;
 
 /**
  * Ask every closed fold between the control and the page body to open, as find-in-page does;

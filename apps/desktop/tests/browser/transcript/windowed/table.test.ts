@@ -52,6 +52,7 @@ import {
 } from "./reply.js";
 import { readerScrollsTo } from "#test/helpers/transcript/reader-scroll.js";
 import { mountTranscriptFeed } from "../long-tool-feed.js";
+import { hearResizeLoopErrors } from "../resize-loop-errors.js";
 
 /** The height of what a row draws above its body, in CSS pixels. */
 const LEAD_HEIGHT_PX = 48;
@@ -516,18 +517,8 @@ describe("browser — a long table drawn as a window over its rows", () => {
   it("reads a reply's long table in the conversation at its middle and its head with no resize loop", async () => {
     const reply = replyWith(benchTable(LISTED_TABLE_ROW_COUNT));
     // A row the window lets go of, or a table that changes height, inside the conversation's
-    // resize report leaves a report undelivered, which the browser raises as an error the run
-    // would only log.
-    const resizeLoopErrors: string[] = [];
-    const hearResizeLoopError = (event: ErrorEvent): void => {
-      if (event.message.includes("ResizeObserver loop")) {
-        resizeLoopErrors.push(event.message);
-      }
-    };
-    window.addEventListener("error", hearResizeLoopError);
-    onTestFinished(() => {
-      window.removeEventListener("error", hearResizeLoopError);
-    });
+    // resize report raises a resize loop error.
+    const resizeLoopErrors = hearResizeLoopErrors();
     const { scroller } = await mountTranscriptFeed(
       openPagedSessionStore(0, 0, undefined, (index) => ({
         ...pagedSessionEventAt(index),
@@ -547,7 +538,7 @@ describe("browser — a long table drawn as a window over its rows", () => {
       });
       await settleConversation(scroller);
     }
-    expect(resizeLoopErrors).toStrictEqual([]);
+    expect(resizeLoopErrors.stop()).toStrictEqual([]);
   });
 });
 

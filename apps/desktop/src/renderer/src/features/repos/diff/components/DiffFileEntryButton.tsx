@@ -64,10 +64,12 @@ function renderEntryFace(entry: DiffFileListEntry): React.JSX.Element {
           <span className="meridian-diff-files__change">{entry.changeNotes.join(", ")}</span>
         </HoverLabel>
       )}
-      <span className="meridian-diff-files__counts">
-        <DerivedFigure text={`+${formatCount(entry.counts.insertions)}`} />
-        <DerivedFigure text={`−${formatCount(entry.counts.deletions)}`} />
-      </span>
+      {entry.counts === undefined ? null : (
+        <span className="meridian-diff-files__counts">
+          <DerivedFigure text={`+${formatCount(entry.counts.insertions)}`} />
+          <DerivedFigure text={`−${formatCount(entry.counts.deletions)}`} />
+        </span>
+      )}
     </>
   );
 }

@@ -15,9 +15,9 @@ import { type PublishedText } from "../../reveal/published-text.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { type MarkdownBodyBlocksSnapshot } from "../markdown/body-blocks.js";
 import {
-  MarkdownWindowViewportContext,
-  type MarkdownWindowViewport,
-} from "../markdown/block-window/context.js";
+  TranscriptBodyViewportContext,
+  type TranscriptBodyViewport,
+} from "#renderer/components/TranscriptBodyViewport/context.js";
 import {
   MarkdownBlockIndexContext,
   TableWindowBodyContext,
@@ -72,7 +72,7 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
   const blocks = useMarkdownBodyBlocks(props.publishedText, props.isComplete);
   // An effect, not a render, so no render mutates a registry that two cards share.
   useFootnoteDefinitionRegistration(blocks, props.footnotes, props.sourceId);
-  const viewport = useContext(MarkdownWindowViewportContext);
+  const viewport = useContext(TranscriptBodyViewportContext);
   const isWindowed =
     viewport !== undefined && props.publishedText.length >= WINDOWED_BODY_MIN_CHARACTERS;
   const contexts = useMarkdownRenderContexts(
@@ -114,7 +114,7 @@ function WholeMarkdown(props: {
   readonly blocks: MarkdownBodyBlocksSnapshot;
   readonly bodyTextLength: number;
   readonly contexts: MarkdownRenderContexts;
-  readonly viewport: MarkdownWindowViewport | undefined;
+  readonly viewport: TranscriptBodyViewport | undefined;
   readonly rowKey: string;
 }): React.JSX.Element {
   const { blocks, contexts } = props;

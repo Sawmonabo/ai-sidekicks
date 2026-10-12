@@ -23,7 +23,7 @@ import {
   TRANSCRIPT_STRETCH_SCREEN_HEIGHTS,
 } from "./caps.js";
 import { type ReadingAnchorPoint } from "./reading-anchor.js";
-import { type WindowSide } from "./window-side.js";
+import { type WindowSide } from "#renderer/lib/scroll/window-side.js";
 
 /** One row as the window sees it. The body is nobody's business here. */
 export interface WindowRow {

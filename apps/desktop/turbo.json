@@ -194,7 +194,8 @@
         "src/renderer/src/styles/glyphs.ts",
         "tsconfig*.json",
         "package.json",
-        "tests/budget/document.json"
+        "tests/budget/document.json",
+        "tests/budget/built-renderer-tree.ts"
       ],
       "outputs": [],
       "cache": false

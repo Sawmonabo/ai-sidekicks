@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { type TableWindowBody } from "../../markdown/table-window/context.js";
 import {
   FlowBodyPlacement,
@@ -21,7 +21,7 @@ export interface FlowTableBody {
  * body's life.
  */
 export function useFlowBodyPlacement(
-  viewport: MarkdownWindowViewport | undefined,
+  viewport: TranscriptBodyViewport | undefined,
   rowKey: string,
   blocks: FlowBodyBlocks,
   bodyTextLength: number,

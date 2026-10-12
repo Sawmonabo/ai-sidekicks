@@ -23,7 +23,7 @@ import {
 import {
   DrawnWindowSources,
   DrawnWindowSourcesContext,
-} from "#renderer/features/transcript/rows/drawn-window-sources.js";
+} from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
 import { FootnoteRegistry } from "#renderer/features/transcript/rows/markdown/footnotes/registry.js";
 import { ViewportSelectionTracker } from "#renderer/features/transcript/viewport/selection/tracker.js";

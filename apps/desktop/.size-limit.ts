@@ -2,11 +2,28 @@
 // files are the renderer's initial graph: no path pattern can tell a chunk the entry imports from a
 // lazy one, so they are read off the bundler's chunk manifest; size-limit does the measuring.
 
+import { basename } from "node:path";
+
 import type { SizeLimitConfig } from "size-limit";
 
 import { readInitialGraphOrFailLoudly } from "#test/budget/built-renderer-tree.ts";
 
 const initialGraph = readInitialGraphOrFailLoudly();
+
+/**
+ * The Latin-1 splits of the app's faces, by the name each package gives the file. Every other split
+ * carries a `unicode-range` and is fetched only when a page draws one of its characters, so these
+ * are what a Latin-1 page can load at startup, whatever the build declares.
+ */
+const latin1FontFiles = initialGraph.fonts.filter((path) =>
+  /-Latin1-[^/]*\.woff2$/u.test(basename(path)),
+);
+if (latin1FontFiles.length === 0) {
+  throw new Error(
+    "No Latin-1 font split is on the renderer's initial graph, so the startup fonts budget would " +
+      "measure nothing. Check the split names `styles/typeface.ts` imports.",
+  );
+}
 
 /** Every size budget, each a ceiling in SI kilobytes (1 kB is 1000 B). */
 const sizeLimitConfig: SizeLimitConfig = [
@@ -25,12 +42,13 @@ const sizeLimitConfig: SizeLimitConfig = [
     limit: "390 kB",
   },
   {
-    // Raw, since a `woff2` face is brotli-compressed already and compressing it again buys nothing.
-    // The four faces measure 220,440 B. The ceiling leaves 5.2 % for a re-subset or a version bump
-    // yet refuses a fifth face: the smallest either font package publishes is 13,300 B, which
-    // brings the sum to 233,740 B. Re-derive it when the faces change, never to pass a failure.
-    name: "Renderer initial fonts, raw",
-    path: initialGraph.fonts,
+    // What a Latin-1 page loads, raw, since a `woff2` face is brotli-compressed already and
+    // compressing it again buys nothing: the Latin-1 split of each family and style, 220,440 B,
+    // italics included because a page that sets an italic run loads them. The ceiling leaves 5.2 %
+    // for a re-subset or a version bump. Re-derive it when the faces change, never to pass a
+    // failure.
+    name: "Renderer startup fonts on a Latin-1 page, raw",
+    path: latin1FontFiles,
     brotli: false,
     limit: "232 kB",
   },

@@ -2,8 +2,8 @@
 // `features/repos/diff/rows/flat-index.ts` and read many times. The unified arm holds a count, not
 // an array: the identity mapping would otherwise cost one object per line. The split arm holds
 // rows, since positional pairing of delete and insert runs is irregular. The pairing rule lives
-// here (`runEndFrom`) for both the row flattening and a single line's counterpart, so the two
-// cannot disagree.
+// here (`walkHunkRuns`) for both the row flattening and each line's partner, so the two cannot
+// disagree.
 
 import type { DiffLine, DiffLineKind, DiffViewMode } from "../model.js";
 
@@ -39,32 +39,25 @@ export function buildHunkBodyLayout(
     return { kind: "identity", rowCount: lines.length };
   }
   const rows: HunkBodyRow[] = [];
-  let cursor = 0;
-  while (cursor < lines.length) {
-    if (lines[cursor]?.kind !== "delete") {
-      rows.push({ lineIndex: cursor });
-      cursor += 1;
-      continue;
-    }
-    const firstDeleteIndex = cursor;
-    cursor = runEndFrom(lines, cursor, "delete");
-    const deleteCount = cursor - firstDeleteIndex;
-    const firstInsertIndex = cursor;
-    cursor = runEndFrom(lines, cursor, "insert");
-    const insertCount = cursor - firstInsertIndex;
-    for (let offset = 0; offset < Math.max(deleteCount, insertCount); offset += 1) {
-      if (offset >= deleteCount) {
-        rows.push({ lineIndex: firstInsertIndex + offset });
-      } else if (offset >= insertCount) {
-        rows.push({ lineIndex: firstDeleteIndex + offset });
-      } else {
-        rows.push({
-          lineIndex: firstDeleteIndex + offset,
-          pairedLineIndex: firstInsertIndex + offset,
-        });
+  walkHunkRuns(lines, {
+    onLoneLine: (lineIndex) => {
+      rows.push({ lineIndex });
+    },
+    onReplacedRun: (run) => {
+      for (let offset = 0; offset < Math.max(run.deleteCount, run.insertCount); offset += 1) {
+        if (offset >= run.deleteCount) {
+          rows.push({ lineIndex: run.firstInsertIndex + offset });
+        } else if (offset >= run.insertCount) {
+          rows.push({ lineIndex: run.firstDeleteIndex + offset });
+        } else {
+          rows.push({
+            lineIndex: run.firstDeleteIndex + offset,
+            pairedLineIndex: run.firstInsertIndex + offset,
+          });
+        }
       }
-    }
-  }
+    },
+  });
   return { kind: "paired", rows };
 }
 
@@ -85,34 +78,62 @@ export function hunkBodyRowAt(layout: HunkBodyLayout, offset: number): HunkBodyR
 }
 
 /**
- * The line one changed line is paired with, or `undefined` where it has no partner. The
- * same positional rule the split flattening applies, asked about a single line: it finds the
- * run the line sits in and counts from its start, costing the run rather than the hunk. The
+ * Each line's partner in one hunk body, by index: the line it is paired with, or `-1` where it
+ * has none. One walk over the hunk, by the positional rule the split flattening applies. The
  * pairing belongs to the hunk body, not the view mode: unified view draws the two rows
  * separately without making them a different pair.
  */
-export function pairedLineIndexFor(
+export function hunkLinePartners(lines: readonly DiffLine[]): Int32Array {
+  const partners = new Int32Array(lines.length).fill(-1);
+  walkHunkRuns(lines, {
+    onLoneLine: () => undefined,
+    onReplacedRun: (run) => {
+      for (let offset = 0; offset < Math.min(run.deleteCount, run.insertCount); offset += 1) {
+        partners[run.firstDeleteIndex + offset] = run.firstInsertIndex + offset;
+        partners[run.firstInsertIndex + offset] = run.firstDeleteIndex + offset;
+      }
+    },
+  });
+  return partners;
+}
+
+/** A run of deletions and the run of insertions right after it, which may be empty. */
+interface ReplacedRun {
+  readonly firstDeleteIndex: number;
+  readonly deleteCount: number;
+  readonly firstInsertIndex: number;
+  readonly insertCount: number;
+}
+
+/**
+ * Walk a hunk body once, in order: each deletion run with the insertion run that follows it, and
+ * every other line on its own. The one home of the pairing rule.
+ */
+function walkHunkRuns(
   lines: readonly DiffLine[],
-  lineIndex: number,
-): number | undefined {
-  const kind = lines[lineIndex]?.kind;
-  if (kind === "delete") {
-    const deleteRunStart = runStartFrom(lines, lineIndex, "delete");
-    const insertRunStart = runEndFrom(lines, deleteRunStart, "delete");
-    const insertLineIndex = insertRunStart + (lineIndex - deleteRunStart);
-    return insertLineIndex < runEndFrom(lines, insertRunStart, "insert")
-      ? insertLineIndex
-      : undefined;
+  visit: {
+    readonly onLoneLine: (lineIndex: number) => void;
+    readonly onReplacedRun: (run: ReplacedRun) => void;
+  },
+): void {
+  let cursor = 0;
+  while (cursor < lines.length) {
+    if (lines[cursor]?.kind !== "delete") {
+      visit.onLoneLine(cursor);
+      cursor += 1;
+      continue;
+    }
+    const firstDeleteIndex = cursor;
+    cursor = runEndFrom(lines, cursor, "delete");
+    const firstInsertIndex = cursor;
+    cursor = runEndFrom(lines, cursor, "insert");
+    visit.onReplacedRun({
+      firstDeleteIndex,
+      deleteCount: firstInsertIndex - firstDeleteIndex,
+      firstInsertIndex,
+      insertCount: cursor - firstInsertIndex,
+    });
   }
-  if (kind !== "insert") {
-    // A context line is nobody's counterpart, and a gap's revealed lines are context.
-    return undefined;
-  }
-  const insertRunStart = runStartFrom(lines, lineIndex, "insert");
-  const deleteRunStart = runStartFrom(lines, insertRunStart - 1, "delete");
-  const deleteCount = insertRunStart - deleteRunStart;
-  const offset = lineIndex - insertRunStart;
-  return offset < deleteCount ? deleteRunStart + offset : undefined;
 }
 
 /** The index one past the last line of the run of `kind` starting at `start`. */
@@ -122,16 +143,4 @@ function runEndFrom(lines: readonly DiffLine[], start: number, kind: DiffLineKin
     cursor += 1;
   }
   return cursor;
-}
-
-/**
- * The first line of the run of `kind` that ends at `end` (inclusive); `end + 1` when the line
- * at `end` is not of that kind.
- */
-function runStartFrom(lines: readonly DiffLine[], end: number, kind: DiffLineKind): number {
-  let cursor = end;
-  while (cursor >= 0 && lines[cursor]?.kind === kind) {
-    cursor -= 1;
-  }
-  return cursor + 1;
 }

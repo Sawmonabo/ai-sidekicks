@@ -28,7 +28,7 @@ import {
 import type { PiecedText } from "#renderer/lib/text-pieces.js";
 import { resolveRowTextPosition } from "../viewport/selection/preservation.js";
 import { type RowSelection } from "../viewport/selection/record.js";
-import { type DrawnWindowSource } from "../rows/drawn-window-sources.js";
+import { type DrawnWindowSource } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import { withUndrawnItems, withUndrawnItemsText } from "./undrawn-items.js";
 
 /** One row's share of a copy: its text, and the flavor it copies as. */

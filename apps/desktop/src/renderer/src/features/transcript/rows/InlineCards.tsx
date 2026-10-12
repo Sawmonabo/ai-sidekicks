@@ -10,6 +10,8 @@ import {
 /** The cards one message carries. */
 export interface InlineCardsProps {
   readonly cards: readonly InlineCardProps[];
+  /** The row the message is drawn in, which a card body that windows its content lays out from. */
+  readonly rowKey: string;
 }
 
 /**
@@ -26,7 +28,7 @@ export function InlineCards(props: InlineCardsProps): React.JSX.Element | null {
       {props.cards.map((card) => (
         <div className="meridian-message-card__card" key={inlineCardKey(card)}>
           <Chip label={codeWords(card.kind)} />
-          {inlineCardRegistry.render(card)}
+          {inlineCardRegistry.render(card, props.rowKey)}
         </div>
       ))}
     </div>

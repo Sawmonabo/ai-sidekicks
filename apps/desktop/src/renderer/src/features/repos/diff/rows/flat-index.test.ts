@@ -114,6 +114,7 @@ describe("hunk virtualization — pairing a modified line in split view", () => 
       files: [
         {
           path: "packages/contracts/src/budget.ts",
+          change: { kind: "modified" },
           hunks: [
             {
               header: `@@ -1,${String(kinds.length)} +1,${String(kinds.length)} @@`,

@@ -5,10 +5,10 @@
 // is laid out, only when asked, so a reply without a long table costs no layout read.
 
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { type MarkdownWindowViewport } from "../block-window/context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
 import { blockSourceStartOf, type MarkdownBodyBlocksSnapshot } from "../body-blocks.js";
-import { offsetInRowPx } from "../scroller-window.js";
+import { offsetInRowPx } from "#renderer/components/TranscriptBodyViewport/scroller-window.js";
 import { type TableBodyPlacement, type TablePlacementChange } from "./context.js";
 import { warmIdeographFallback } from "./ideograph-fallback-warm.js";
 import { TablePlacementReports } from "./placement-reports.js";
@@ -21,7 +21,7 @@ export type FlowBodyBlocks = Pick<
 
 /** The placement a body drawn whole gives its tables, observing the body's size. */
 export class FlowBodyPlacement implements TableBodyPlacement {
-  readonly #viewport: MarkdownWindowViewport;
+  readonly #viewport: TranscriptBodyViewport;
   readonly #rowKey: string;
   readonly #reports = new TablePlacementReports("flow body placement change", (_element, entry) => {
     this.#noteBodyLaidOut(entry);
@@ -48,7 +48,7 @@ export class FlowBodyPlacement implements TableBodyPlacement {
 
   /** `viewport` and `rowKey` are held for the body's life. */
   public constructor(
-    viewport: MarkdownWindowViewport,
+    viewport: TranscriptBodyViewport,
     rowKey: string,
     blocks: FlowBodyBlocks,
     bodyTextLength: number,

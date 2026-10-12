@@ -19,7 +19,7 @@ import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import { joinIntoPieces, piecesOf, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
 import type { PiecedTextClipboardContent } from "#renderer/services/platform/clipboard/late-copy.js";
-import { type DrawnWindowSource } from "../rows/drawn-window-sources.js";
+import { type DrawnWindowSource } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import { type FullBodyReads } from "../rows/full-body-reads.js";
 import { type RowSelection } from "../viewport/selection/record.js";
 import {

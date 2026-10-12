@@ -20,7 +20,7 @@ import {
 } from "#renderer/lib/scroll/geometry/sample.js";
 import { TRANSCRIPT_GESTURE_GAP_MS } from "./caps.js";
 import { ReaderGesture } from "./reader-gesture.js";
-import { type WindowSide } from "./window-side.js";
+import { type WindowSide } from "#renderer/lib/scroll/window-side.js";
 
 /**
  * The three reading states. Closed.

@@ -2,7 +2,7 @@
 // one out of it.
 //
 // Shared by `patch-parse.test.ts` (hunk header, line kinds, intraline segments) and
-// `intraline-segment-cache.test.ts` (what the intraline register costs), which parse through the
+// `intraline/segment-cache.test.ts` (what the intraline register costs), which parse through the
 // same fixed compared-states pair.
 
 import { parseUnifiedPatch } from "#renderer/features/repos/diff/patch-parse.js";

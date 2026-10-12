@@ -29,7 +29,7 @@ import { FullBodyReadsContext } from "../../rows/full-body-reads.js";
 import { OffListTableFrames } from "../../rows/bodies/OffListTableFrames.js";
 import { ListedBodiesContext } from "../../rows/markdown/table-window/context.js";
 import { PreparedBodiesContext } from "../../rows/prepared-bodies.js";
-import { DrawnWindowSourcesContext } from "../../rows/drawn-window-sources.js";
+import { DrawnWindowSourcesContext } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import {
   useDependentReadFailed,
   useSessionDegraded,

@@ -3,24 +3,18 @@
 // lines of the output's own type, so a text size step moves it.
 
 import { getWindow } from "@floating-ui/utils/dom";
-import {
-  useCallback,
-  useContext,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useContext, useLayoutEffect, useRef, useState } from "react";
 
 import { flushSync } from "react-dom";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { watchElementsResize } from "#renderer/lib/element-resize.js";
-import { requestLayoutRead } from "../../layout-reads.js";
+import { useVisibleFlowHeight } from "#renderer/components/TranscriptBodyViewport/hooks/useVisibleFlowHeight.js";
+import { requestLayoutRead } from "#renderer/components/TranscriptBodyViewport/layout-reads.js";
 import {
-  MarkdownWindowViewportContext,
-  type MarkdownWindowViewport,
-} from "../../markdown/block-window/context.js";
+  TranscriptBodyViewportContext,
+  type TranscriptBodyViewport,
+} from "#renderer/components/TranscriptBodyViewport/context.js";
 
 /**
  * The share of the visible flow a call's output is drawn to before the rest is one press away: a
@@ -49,8 +43,9 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
   const bodyRef = useRef<HTMLPreElement>(null);
   const contentRef = useRef<HTMLSpanElement>(null);
   const [runsPastCut, setRunsPastCut] = useState(false);
-  const viewport = useContext(MarkdownWindowViewportContext);
-  const flowHeightPx = useVisibleFlowHeight(viewport);
+  const viewport = useContext(TranscriptBodyViewportContext);
+  // Outside a viewport there is no flow to cut at, so the output is drawn whole.
+  const flowHeightPx = useVisibleFlowHeight(null);
   const cutHeightPx =
     isCutAtFlowHeight && flowHeightPx !== undefined
       ? flowHeightPx * OUTPUT_CUT_FLOW_SHARE
@@ -164,7 +159,7 @@ const CUT_TOLERANCE_PX = 0.5;
  * it and the box move it as they are measured. Reads no element.
  */
 function isRowScreensAboveBox(
-  viewport: MarkdownWindowViewport,
+  viewport: TranscriptBodyViewport,
   rowKey: string,
   screenCount: number,
 ): boolean {
@@ -177,25 +172,4 @@ function isRowScreensAboveBox(
     rowEndPx !== undefined &&
     rowEndPx <= scrollTop - screenCount * viewportHeight
   );
-}
-
-/**
- * The visible flow's height in CSS pixels, from the scroll controller's published geometry;
- * `undefined` outside a transcript viewport or before its first sample. A scroll publishes
- * geometry too, but only a changed height draws again.
- */
-function useVisibleFlowHeight(viewport: MarkdownWindowViewport | undefined): number | undefined {
-  const scrollController = viewport?.scrollController;
-  const subscribe = useCallback(
-    (onChange: () => void): Unsubscribe =>
-      scrollController === undefined
-        ? () => undefined
-        : scrollController.subscribeToGeometry(onChange),
-    [scrollController],
-  );
-  const flowHeightPx = useSyncExternalStore(
-    subscribe,
-    () => scrollController?.geometry?.viewportHeight,
-  );
-  return flowHeightPx === 0 ? undefined : flowHeightPx;
 }

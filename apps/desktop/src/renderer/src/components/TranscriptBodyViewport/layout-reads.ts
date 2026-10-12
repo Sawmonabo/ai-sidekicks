@@ -1,5 +1,5 @@
-// The layout reads rows' bodies make as a commit mounts them: an output's cut and an output
-// window's lines. The conversation writes each inserted row's place as it measures it, between the
+// The layout reads rows' bodies make as a commit mounts them: an output's cut, and the width and
+// type of a window over an output's lines or a diff's steps of rows. The conversation writes each inserted row's place as it measures it, between the
 // rows' effects, so a read in each effect lays the rows out again; made together once the commit
 // is done, and before the frame paints, the inserted rows are laid out once, and the answers drawn
 // together in one render.

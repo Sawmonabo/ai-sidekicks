@@ -29,7 +29,7 @@ import { classifyTranscriptRow } from "../rows/kind.js";
 import { prepareRowBodiesForTest } from "../rows/preparation.test-support.js";
 import { MessageRow } from "../rows/MessageRow.js";
 import { ToolRow } from "../rows/ToolRow.js";
-import { DrawnWindowSources } from "../rows/drawn-window-sources.js";
+import { DrawnWindowSources } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import { FullBodyReads, FullBodyReadsContext } from "../rows/full-body-reads.js";
 import {
   MARKDOWN_FIRST_UNDRAWN_ROW_ATTRIBUTE,

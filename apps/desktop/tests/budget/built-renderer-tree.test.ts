@@ -1,6 +1,7 @@
 // Which files the size check is handed. size-limit does the measuring, so the claim here is the
-// selection: an entry's static imports are in, a lazy chunk is out, and a missing manifest or a
-// missing listed file fails rather than shrinking the sum.
+// selection: an entry's static imports and the scripts it loads at startup are in, a lazy chunk and
+// the alignment worker's script are out, and a missing manifest or a missing listed file fails
+// rather than shrinking the sum.
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,7 +17,10 @@ afterEach(() => {
   trail.removeAll();
 });
 
-/** A chunk manifest with an entry, a chunk it imports statically, and a page it loads lazily. */
+/**
+ * A chunk manifest with an entry, a chunk it imports statically, a script it loads by address at
+ * startup, the worker it starts by address on demand, and a page it loads lazily.
+ */
 const MANIFEST = {
   "index.html": {
     file: "assets/index.js",
@@ -24,7 +28,7 @@ const MANIFEST = {
     imports: ["_vendor.js"],
     dynamicImports: ["src/page.tsx"],
     css: ["assets/index.css"],
-    assets: ["assets/face.woff2"],
+    assets: ["assets/face.woff2", "assets/library.js", "assets/worker.js"],
   },
   "_vendor.js": { file: "assets/vendor.js" },
   "src/page.tsx": {
@@ -35,17 +39,31 @@ const MANIFEST = {
   },
 };
 
-it("hands over the entry and its static imports, and fails on a missing manifest or file", () => {
+it("hands over the startup graph, not the worker, and fails on a missing manifest or file", () => {
   const buildDirectory = trail.create("built-renderer-tree-");
   mkdirSync(join(buildDirectory, ".vite"));
   writeFileSync(join(buildDirectory, ".vite", "manifest.json"), JSON.stringify(MANIFEST));
   mkdirSync(join(buildDirectory, "assets"));
-  for (const file of ["index.js", "index.css", "vendor.js", "face.woff2", "page.js", "page.css"]) {
+  for (const file of [
+    "index.js",
+    "index.css",
+    "vendor.js",
+    "face.woff2",
+    "library.js",
+    "worker.js",
+    "page.js",
+    "page.css",
+  ]) {
     writeFileSync(join(buildDirectory, "assets", file), "");
   }
+  // The worker's script is told apart by its source map, which lists the worker's own module.
+  writeFileSync(
+    join(buildDirectory, "assets", "worker.js.map"),
+    JSON.stringify({ sources: ["../src/features/repos/diff/intraline/worker/script.ts"] }),
+  );
 
   expect(readInitialGraphOrFailLoudly(buildDirectory)).toEqual({
-    code: ["index.css", "index.js", "vendor.js"].map((file) =>
+    code: ["index.css", "index.js", "library.js", "vendor.js"].map((file) =>
       join(buildDirectory, "assets", file),
     ),
     fonts: [join(buildDirectory, "assets", "face.woff2")],

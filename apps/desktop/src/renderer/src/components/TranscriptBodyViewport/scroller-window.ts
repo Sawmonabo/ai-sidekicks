@@ -1,5 +1,6 @@
 // The members a window nested in a conversation row is built with to lay its items out against the
-// conversation scroller: a long body's window over its blocks and a long table's over its rows.
+// conversation scroller: a long body's window over its blocks, a long table's over its rows, and a
+// measured window over an output's chunks of lines or a diff's steps of rows.
 // Its offset is the scroller's less the window's top in the scroller's content, taken from the
 // scroll controller's published geometry, so following a scroll reads no element. Its top is read
 // when the offset is sent, never handed to the library as a scroll margin: a changed margin makes
@@ -14,7 +15,7 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { widenRangeByPixels } from "#renderer/lib/scroll/item-band.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
-import { type DrawnBandScreenHeights } from "../../viewport/drawn-band.js";
+import { type DrawnBandScreenHeights } from "#renderer/lib/scroll/window-side.js";
 
 /** The scroller-facing members of one nested window, read through `topPx` for its place. */
 export class ScrollerWindowMembers {

@@ -80,7 +80,19 @@ describe("desktop main process boot", () => {
       // would pass every assertion above.
       expect(probe.probe.rootChildren).toBeGreaterThan(0);
 
-      // Invariant 9: the CSP header rides the response. It is the policy's only carrier
+      // Invariant 9: the renderer's worker script starts from the served bundle, under the
+      // policy, and answers. A scheme or policy that refused it would leave a long line's word
+      // marks undrawn with nothing else failing.
+      expect(probe.probe.alignmentWorker).toStrictEqual({
+        reply: {
+          requestId: 1,
+          pair: expect.objectContaining({
+            deleted: expect.arrayContaining([{ text: "previousBudget", changed: true }]),
+          }) as unknown,
+        },
+      });
+
+      // Invariant 10: the CSP header rides the response. It is the policy's only carrier
       // (`index.html` ships no meta tag), so nothing else would notice it disappearing. It is read
       // from the main process via `net.fetch`, since a renderer cannot read its own response
       // headers.

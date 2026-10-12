@@ -6,7 +6,11 @@ import { setTimeout as wait } from "node:timers/promises";
 
 import { app, net, type WebContents } from "electron";
 
-import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "#shared/probe-tags.js";
+import {
+  READINESS_BREADCRUMB_TAG,
+  SMOKE_PROBE_TAG,
+  SMOKE_WORKER_SCRIPT_ENV,
+} from "#shared/probe-tags.js";
 
 import { RENDERER_INDEX_URL } from "../services/renderer/scheme.js";
 
@@ -59,12 +63,14 @@ export function installReadinessBreadcrumbs(
 
 /**
  * Runs the smoke probe once the real renderer bundle has finished loading, then exits the
- * process. Three readings from the trusted side ride one stdout line: `executeJavaScript`
+ * process. Four readings from the trusted side ride one stdout line: `executeJavaScript`
  * against the console document (bridge present; `require`, `process`, `global` absent; the
  * privileged scheme's origin properties: protocol, host, `indexedDB`, a `localStorage`
  * round-trip), the same against the first window it opens (a mounted React tree, which the
- * console document draws there), and `net.fetch` of the served `index.html` to read back the
- * `Content-Security-Policy` header, which is the policy's only carrier.
+ * console document draws there), the console document starting the renderer's worker script from
+ * the served bundle under its policy and reading one reply, and `net.fetch` of the served
+ * `index.html` to read back the `Content-Security-Policy` header, which is the policy's only
+ * carrier.
  *
  * The window expression watches the root, for at most three seconds, because React's initial
  * render is not guaranteed to have flushed when the window opens. The probe runs on the
@@ -123,11 +129,53 @@ export async function runSmokeProbe(
     })
   `;
 
+  const workerScript = process.env[SMOKE_WORKER_SCRIPT_ENV];
+  if (workerScript === undefined) {
+    console.error(`${SMOKE_PROBE_TAG} ${SMOKE_WORKER_SCRIPT_ENV} names no worker script`);
+    app.exit(READING_FAILED_EXIT_CODE);
+    return;
+  }
+  // One replaced pair, posted as the window's alignment worker posts it; a script the policy or
+  // the scheme refuses fails with an error event instead.
+  const workerReading = `
+    new Promise((resolve) => {
+      const worker = new Worker(new URL(${JSON.stringify(workerScript)}, window.location.href));
+      const settle = (reading) => {
+        window.clearTimeout(deadline);
+        worker.terminate();
+        resolve(reading);
+      };
+      const deadline = window.setTimeout(() => {
+        settle({ failure: "the worker never answered" });
+      }, 3000);
+      worker.addEventListener("message", (event) => {
+        settle({ reply: event.data });
+      });
+      worker.addEventListener("error", (event) => {
+        settle({ failure: event.message || "the worker script did not load" });
+      });
+      worker.postMessage({
+        requestId: 1,
+        previousText: "const value = previousBudget;",
+        nextText: "const value = nextBudget;",
+      });
+    })
+  `;
+
   let serializedReadings: string;
   try {
     serializedReadings = (await webContents.executeJavaScript(rendererReadings)) as string;
   } catch (error: unknown) {
     console.error(`${SMOKE_PROBE_TAG} executeJavaScript failed:`, error);
+    app.exit(READING_FAILED_EXIT_CODE);
+    return;
+  }
+
+  let alignmentWorker: unknown;
+  try {
+    alignmentWorker = await webContents.executeJavaScript(workerReading);
+  } catch (error: unknown) {
+    console.error(`${SMOKE_PROBE_TAG} the worker reading failed:`, error);
     app.exit(READING_FAILED_EXIT_CODE);
     return;
   }
@@ -168,7 +216,11 @@ export async function runSmokeProbe(
     `${SMOKE_PROBE_TAG} ${JSON.stringify({
       ok: true,
       windowMs,
-      probe: { ...(JSON.parse(serializedReadings) as Record<string, unknown>), rootChildren },
+      probe: {
+        ...(JSON.parse(serializedReadings) as Record<string, unknown>),
+        rootChildren,
+        alignmentWorker,
+      },
       contentSecurityPolicy,
     })}`,
   );

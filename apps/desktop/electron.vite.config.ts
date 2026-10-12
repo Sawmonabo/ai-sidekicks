@@ -1,6 +1,6 @@
 // electron-vite configuration: three build targets (main, preload, renderer), and the renderer's
-// workers (markdown, diagram, PNG), which the renderer build bundles apart from the page, each by
-// the name `WORKER_BUNDLE_NAMES` gives it.
+// workers (markdown, diagram, PNG, diff word alignment), which the renderer build bundles apart
+// from the page, each by the name `WORKER_BUNDLE_NAMES` gives it.
 //
 // The renderer loads over a custom protocol, not file://. Source maps are "hidden": readable for a
 // crash report's stack but not referenced from the shipped bundle. The release fixture gate
@@ -137,6 +137,7 @@ const WORKER_BUNDLE_NAMES: Readonly<Record<string, string>> = {
   "components/Markdown/worker/entry.ts": "markdown-worker",
   [DIAGRAM_WORKER_ENTRY]: DIAGRAM_WORKER_BUNDLE_NAME,
   "components/Markdown/diagram/png/entry.ts": "png-worker",
+  "features/repos/diff/intraline/worker/script.ts": "alignment-worker",
 };
 
 /** A worker's bundle name, by its entry module. Throws for a worker the table does not name. */
@@ -301,12 +302,13 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ command, 
         // Vite inlines any asset under 4 KiB (one of KaTeX's faces is).
         assetsInlineLimit: (filePath) => (FONT_EXTENSIONS.test(filePath) ? false : undefined),
         // Minified, because electron-vite is not Vite here. Vite's production default is `minify:
-        // "esbuild"`; electron-vite overrides it to `false` for every target on the reasoning that
-        // a desktop bundle loads from disk. Unminified, the bundle carries the renderer's source
+        // "oxc"`; electron-vite overrides it to `false` for every target on the reasoning that a
+        // desktop bundle loads from disk. Unminified, the bundle carries the renderer's source
         // text and the initial-code budgets in `.size-limit.ts` measure bytes the app would not
-        // need (measured: 443 585 B gzip unminified, 244 546 B minified). Source maps stay
-        // `hidden` above, so a stack trace is still resolvable by anyone holding the map.
-        minify: "esbuild",
+        // need (measured: 443 585 B gzip unminified, 244 546 B minified). Vite's worker bundles
+        // read this value too, and minify only for `"oxc"`. Source maps stay `hidden` above, so a
+        // stack trace is still resolvable by anyone holding the map.
+        minify: "oxc",
         // `.vite/manifest.json`: the chunk graph Rollup already computed, written out on request.
         // It carries `isEntry`, the static `imports` of every chunk, its `dynamicImports`, `css`
         // and `assets`, which is the initial-versus-lazy split the bundle budgets bound (lazy

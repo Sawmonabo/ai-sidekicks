@@ -22,7 +22,8 @@ export interface ChangedFileEntry {
   readonly kind: "file";
   /** Wire-verbatim path, rendered as received and never re-rooted. */
   readonly path: string;
-  readonly counts: DiffFileChangeCounts;
+  /** Absent for a file with no lines to count, whose zero counts are left off. */
+  readonly counts?: DiffFileChangeCounts;
   /** What the patch's extended headers said, where they said anything. */
   readonly changeNotes: readonly string[];
   /** On a workflow run's comparison, the step that changed the file. */
@@ -65,8 +66,8 @@ export function diffFileListReading(diff: DiffModel, filterText: string): DiffFi
       ...matching.map((file) => ({
         kind: "file" as const,
         path: file.path,
-        counts: diffFileChangeCounts(file),
-        changeNotes: diffFileChangeNotes(file),
+        ...(file.hunks.length === 0 ? {} : { counts: diffFileChangeCounts(file) }),
+        changeNotes: diffFileChangeNotes(file, "row"),
         ...(file.stepName === undefined ? {} : { stepName: file.stepName }),
       })),
     ],

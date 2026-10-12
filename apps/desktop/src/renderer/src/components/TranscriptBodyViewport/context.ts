@@ -1,15 +1,20 @@
-// What a long markdown body reads from the transcript viewport it is drawn in, to draw only the
-// blocks near the reader. Outside a viewport there is none, and every body is drawn whole.
+// What a long body in a transcript row reads from the viewport it is drawn in, to draw only what is
+// near the reader: a markdown reply, a long table, a command output or a diff opened whole. Each is
+// a window nested in its row, drawing its items within the conversation's own drawn band. Outside a
+// viewport there is none.
 
 import { createContext, type Context } from "react";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
-import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
+import { type DrawnBandScreenHeights } from "#renderer/lib/scroll/window-side.js";
 
-/** The conversation scroller as a windowed body lays its blocks against it. */
-export interface MarkdownWindowViewport {
-  /** The scroller's one writer, whose geometry the body follows; the body never writes it. */
+/** The conversation scroller as a long body in one of its rows lays itself against it. */
+export interface TranscriptBodyViewport {
+  /**
+   * The scroller's one writer, whose geometry a body follows. A body writes it only to hold the
+   * reader's place through items it resized above them.
+   */
   readonly scrollController: ScrollController;
   /**
    * A row's top edge in the scroller's content, in pixels, read when called and reading no
@@ -37,11 +42,11 @@ export interface MarkdownWindowViewport {
 }
 
 /**
- * The viewport a markdown body is drawn in, provided by the transcript viewport. `undefined`
- * outside one, where a body is drawn whole.
+ * The viewport a long body is drawn in, provided by the transcript viewport. `undefined` outside
+ * one, where a body is drawn whole.
  */
-export const MarkdownWindowViewportContext: Context<MarkdownWindowViewport | undefined> =
-  createContext<MarkdownWindowViewport | undefined>(undefined);
+export const TranscriptBodyViewportContext: Context<TranscriptBodyViewport | undefined> =
+  createContext<TranscriptBodyViewport | undefined>(undefined);
 
 /**
  * How far beyond each edge of the scroller a windowed body draws its items, in screen heights, as

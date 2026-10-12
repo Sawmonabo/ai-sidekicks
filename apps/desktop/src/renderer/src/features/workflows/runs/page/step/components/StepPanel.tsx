@@ -155,7 +155,7 @@ function StepBody(props: StepPanelProps & { readonly step: WorkflowStep }): Reac
       {childRunId === undefined ? null : (
         <button
           type="button"
-          className="meridian-workflow-run__link"
+          className="meridian-workflow-run__link meridian-link-button"
           onClick={() => {
             props.onOpenRun(childRunId);
           }}

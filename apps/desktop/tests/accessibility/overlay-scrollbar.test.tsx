@@ -32,6 +32,7 @@ import { MAC_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/mac.js";
 import { scenarioBridgeAndStore } from "./feature-mounts/repos/fixtures.js";
 import { mountDiffPane } from "./feature-mounts/repos/views.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { withAlignmentWorker } from "#test/helpers/diff/alignment-worker.js";
 import { CommandPalette } from "#renderer/layout/CommandPalette/CommandPalette.js";
 import { CommandRegistry } from "#renderer/registries/commands/registry.js";
 import { PayloadRowWindow } from "#renderer/features/workflows/runs/page/step/components/StepPayload/PayloadRowWindow.js";
@@ -158,12 +159,16 @@ describe("accessibility — the overlay scrollbar", () => {
     installMeridianTokens(document);
     installOverlayScrollbarLibrary(document);
     const diffPane = await mountDiffPane();
-    const BridgeHost = liveBridgeWrapper();
+    const BridgeHost = withAlignmentWorker(liveBridgeWrapper());
     const { container: conversation } = render(
       <BridgeHost>
-        {/* Two cards over the same refs, each diff held to a height so its rows overflow. */}
-        <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL, heightCapPx: 120 })} />
-        <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL, heightCapPx: 120 })} />
+        {/* Two diffs over the same refs, each in a box held to a height so its rows overflow. */}
+        <div style={{ display: "flex", flexDirection: "column", blockSize: 120 }}>
+          <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL })} />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", blockSize: 120 }}>
+          <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL })} />
+        </div>
         <PayloadRowWindow
           rowCount={200}
           label={PAYLOAD_ROWS_LABEL}

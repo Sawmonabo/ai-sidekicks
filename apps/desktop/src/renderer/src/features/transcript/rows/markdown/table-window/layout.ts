@@ -14,9 +14,9 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { type HeldTableColumns } from "#renderer/components/Markdown/table-offer.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { isSameBodyType, type MarkdownBodyType } from "../body-type.js";
-import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
-import { ReaderPlaceHold } from "../reader-place-hold.js";
-import { ScrollerWindowMembers } from "../scroller-window.js";
+import { type DrawnBandScreenHeights } from "#renderer/lib/scroll/window-side.js";
+import { ReaderPlaceHold } from "#renderer/lib/scroll/reader-place-hold.js";
+import { ScrollerWindowMembers } from "#renderer/components/TranscriptBodyViewport/scroller-window.js";
 import { type ListedBodies, type TableWindowBody } from "./context.js";
 import {
   forgetTableGeometries,
@@ -164,10 +164,9 @@ export class TableWindowLayout {
   ): boolean => {
     if (
       !this.#isRelayingOut &&
-      item.end <= (instance.scrollOffset ?? 0) &&
       this.#body.viewport.holdsPlaceInsideRow(this.#body.placement.rowKey)
     ) {
-      this.#placeHold.add(deltaPx);
+      this.#placeHold.holdThroughResizedItem(item.end, deltaPx, instance.scrollOffset ?? 0);
     }
     return false;
   };

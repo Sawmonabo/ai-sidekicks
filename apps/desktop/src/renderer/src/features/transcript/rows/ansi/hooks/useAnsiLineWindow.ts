@@ -1,46 +1,18 @@
-import { type Range } from "@tanstack/virtual-core";
-import {
-  useCallback,
-  useContext,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useReducer,
-  useState,
-} from "react";
+import { useState } from "react";
 
-import { useDirectlyPlacedVirtualizer } from "#renderer/hooks/useDirectlyPlacedVirtualizer.js";
-import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
-import { useDrawnBandScreenHeights } from "../../bodies/hooks/useDrawnBandScreenHeights.js";
-import { useSelectionPins } from "../../bodies/hooks/useSelectionPins.js";
-import { DrawnWindowSourcesContext } from "../../drawn-window-sources.js";
-import { requestLayoutRead } from "../../layout-reads.js";
-import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
-import { rangeEnds, withPinnedIndexes } from "../../markdown/block-window/selection-pins.js";
-import { type AnsiLineChunkList } from "../lines/chunks.js";
-import { ANSI_LINE_CHUNK_INDEX_ATTRIBUTE } from "../lines/markers.js";
-import { type AnsiChunkMeasurement } from "../lines/measurement.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import {
-  AnsiLineWindowLayout,
-  type AnsiLineVirtualizer,
-  type AnsiLineWindowRow,
-} from "../lines/window-layout.js";
+  useMeasuredItemWindow,
+  type MeasuredItemWindowView,
+} from "#renderer/components/TranscriptBodyViewport/hooks/useMeasuredItemWindow.js";
+import { chunkTextOf, type AnsiLineChunkList } from "../lines/chunks.js";
+import { ANSI_LINE_CHUNK_INDEX_ATTRIBUTE } from "../lines/markers.js";
+import { AnsiLineWindowLayout } from "../lines/window-layout.js";
 
 /** A command output's window over its chunks of lines, as one render draws it. */
-export interface AnsiLineWindow {
-  /** The key the feed holds the output's chunks under, which its spacers carry for a copy. */
-  readonly outputKey: string;
-  /** The drawn chunks and the spacers between them, in document order. */
-  readonly rows: readonly AnsiLineWindowRow[];
-  /** The output's lines element, whose width, type and place in its row the window reads. */
-  readonly attachLines: (element: HTMLElement | null) => void;
-  /**
-   * One drawn chunk, measured as it mounts and each time it resizes; `undefined` for the chunks
-   * drawn before the window lays out, which nothing measures.
-   */
-  readonly attachChunk: ((element: HTMLElement | null) => void) | undefined;
-  /** The measurement of the chunks off screen, whose frame the output draws hidden. */
-  readonly measurement: AnsiChunkMeasurement;
+export interface AnsiLineWindow extends MeasuredItemWindowView {
+  /** The output's layout: its lines' element, and the measurement of its chunks off screen. */
+  readonly layout: AnsiLineWindowLayout;
 }
 
 /**
@@ -51,142 +23,30 @@ export interface AnsiLineWindow {
  */
 export function useAnsiLineWindow(
   chunks: AnsiLineChunkList,
-  viewport: MarkdownWindowViewport,
+  viewport: TranscriptBodyViewport,
   rowKey: string,
 ): AnsiLineWindow {
   const [layout] = useState(() => new AnsiLineWindowLayout(viewport, rowKey, chunks));
   layout.setChunks(chunks);
-  const [, redrawRows] = useReducer(countRedraws, 0);
-  // The first render draws the output's first chunks, as the whole output draws them, and the
-  // lines' type is read with them, with the other reads of the commit's mounted bodies; the window
-  // draws its own chunks before the frame paints.
-  useLayoutEffect(
-    () =>
-      requestLayoutRead(() => {
-        if (layout.readTypeOnMount()) {
-          redrawRows();
-        }
-      }),
-    [layout],
-  );
-
-  // The chunks a copy reads its undrawn lines from, held from the commit that draws its spacers,
-  // so a copy asked after any commit finds the chunks that frame drew from.
-  const drawnSources = useContext(DrawnWindowSourcesContext);
-  const outputKey = useId();
-  useLayoutEffect(() => {
-    drawnSources?.hold(outputKey, { kind: "output", chunks });
-  });
-  useLayoutEffect(
-    () => () => {
-      drawnSources?.release(outputKey);
-    },
-    [drawnSources, outputKey],
-  );
-
-  const readChunkCount = useCallback(() => layout.chunkCount, [layout]);
-  const pins = useSelectionPins(
+  const view = useMeasuredItemWindow({
+    window: layout.window,
     viewport,
-    layout.getScrollElement,
-    readChunkCount,
-    ANSI_LINE_CHUNK_INDEX_ATTRIBUTE,
-  );
-  // The chunks the scroller shows and the conversation's band past each edge, so a fling meets
-  // drawn lines rather than a spacer while the next ones mount. The chunks holding a selection's
-  // ends stay drawn too.
-  const bandScreenHeights = useDrawnBandScreenHeights();
-  const rangeExtractor = useCallback(
-    (range: Range) =>
-      withPinnedIndexes(
-        layout.drawnIndexesOf(range, bandScreenHeights),
-        rangeEnds(pins),
-        range.count,
-      ),
-    [layout, bandScreenHeights, pins],
-  );
-  // The virtualizer renders again only when the chunks it draws change; a chunk that moves a
-  // spacer redraws here.
-  const onChange = useCallback(
-    (instance: AnsiLineVirtualizer) => {
-      if (layout.isTakingHeights) {
-        return;
-      }
-      if (layout.differsFromCommittedRows(instance.getVirtualItems(), instance.getTotalSize())) {
-        redrawRows();
-      }
-    },
-    [layout],
-  );
-  const [initialRect] = useState(() => layout.initialRect());
-
-  const virtualizer = useDirectlyPlacedVirtualizer<HTMLElement, HTMLElement>({
-    count: chunks.count,
-    // Laid out only once the lines' type is read: every estimate wraps lines at their width.
-    enabled: layout.isLaidOut,
+    itemCount: chunks.count,
+    isLaidOut: layout.isLaidOut,
+    readTypeOnMount: layout.readTypeOnMount,
+    // Two chunks' lines run past a quarter of the flow, so a long output's cut reads it running
+    // past from the first frame.
+    firstDrawnCount: FIRST_DRAWN_CHUNK_COUNT,
     estimateSize: layout.estimateSize,
     getScrollElement: layout.getScrollElement,
-    observeElementOffset: layout.observeElementOffset,
-    observeElementRect: layout.observeElementRect,
-    measureElement: layout.measureElement,
-    scrollToFn: layout.scrollToFn,
-    initialOffset: layout.initialOffset,
-    initialRect,
-    rangeExtractor,
-    onChange,
     indexAttribute: ANSI_LINE_CHUNK_INDEX_ATTRIBUTE,
+    // Each chunk's text ends its own lines.
+    itemText: (index) => chunkTextOf(chunks.chunkAt(index)),
+    itemSeparator: "",
+    revision: chunks,
   });
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = layout.holdPlaceThroughResizedChunk;
-  useStopObservingRemovedItems(virtualizer);
-
-  useEffect(() => {
-    layout.bindVirtualizer(virtualizer);
-  }, [layout, virtualizer]);
-  // Each revision and the first layout measure off screen whatever chunks the window has not, so
-  // the output's whole height is laid out before the reader scrolls to it.
-  const isLaidOut = layout.isLaidOut;
-  useEffect(() => {
-    if (isLaidOut) {
-      layout.measurement.measure();
-    }
-  }, [layout, chunks, isLaidOut]);
-  useEffect(
-    () => () => {
-      layout.measurement.stop();
-    },
-    [layout],
-  );
-
-  const rows = isLaidOut
-    ? layout.windowRows(virtualizer.getVirtualItems(), virtualizer.getTotalSize())
-    : firstChunkRows(chunks.count);
-  useLayoutEffect(() => {
-    layout.commitRows(rows);
-  });
-
-  return {
-    outputKey,
-    rows,
-    attachLines: layout.attachLines,
-    attachChunk: isLaidOut ? virtualizer.measureElement : undefined,
-    measurement: layout.measurement,
-  };
+  return { ...view, layout };
 }
 
-/**
- * The rows drawn before the lines' type is read: the first chunks, enough of a long output that
- * its cut reads it running past from the first frame, each under the key the window draws it at,
- * so a chunk the window draws too stays mounted and is measured from then.
- */
-function firstChunkRows(chunkCount: number): AnsiLineWindowRow[] {
-  return Array.from(
-    { length: Math.min(chunkCount, FIRST_DRAWN_CHUNK_COUNT) },
-    (_unused, index) => ({ kind: "chunk", key: String(index), index }),
-  );
-}
-
-/** How many chunks the first render draws: two chunks' lines run past a quarter of the flow. */
+/** How many chunks the first render draws. */
 const FIRST_DRAWN_CHUNK_COUNT = 2;
-
-function countRedraws(count: number): number {
-  return count + 1;
-}

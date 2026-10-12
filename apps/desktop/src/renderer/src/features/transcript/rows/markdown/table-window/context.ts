@@ -6,7 +6,7 @@
 import { createContext, type Context } from "react";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { type MarkdownWindowViewport } from "../block-window/context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { type MarkdownBodyType } from "../body-type.js";
 import { type StreamingTableGeometries } from "./geometry-memory.js";
 
@@ -55,7 +55,7 @@ export interface TableBodyPlacement {
 
 /** The markdown body a long table is drawn in. */
 export interface TableWindowBody {
-  readonly viewport: MarkdownWindowViewport;
+  readonly viewport: TranscriptBodyViewport;
   readonly placement: TableBodyPlacement;
 }
 

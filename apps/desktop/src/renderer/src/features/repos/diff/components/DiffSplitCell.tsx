@@ -1,5 +1,5 @@
 import { type DiffLine } from "../model.js";
-import type { IntralineReading } from "../intraline-segment-cache.js";
+import type { IntralineReading } from "../intraline/segment-cache.js";
 import { DiffGutter } from "./DiffGutter.js";
 import { DiffLineText } from "./DiffLineText.js";
 
@@ -34,7 +34,7 @@ export function DiffSplitCell(props: {
   return (
     <span className={className} role="cell">
       <DiffGutter line={line} side={props.side} />
-      <DiffLineText line={line} reading={reading} />
+      <DiffLineText line={line} reading={reading} look="review" />
     </span>
   );
 }

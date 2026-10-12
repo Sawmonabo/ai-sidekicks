@@ -38,7 +38,7 @@ import {
 } from "../snapshot.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type JumpToLogEnd } from "../conversation-edge-jump.js";
-import { type WindowSide } from "../window-side.js";
+import { type WindowSide } from "#renderer/lib/scroll/window-side.js";
 import { useObserveDisplaySettings } from "./useObserveDisplaySettings.js";
 
 /** What the view gets back: a snapshot, the refs, and the acts it offers. */

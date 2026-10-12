@@ -44,7 +44,7 @@ import { ConversationEdgeJump, type JumpToLogEnd } from "./conversation-edge-jum
 import { ViewportTailFollow } from "./tail-follow.js";
 import { VirtualizerOptions, type TranscriptRowVirtualizer } from "./virtualizer-options.js";
 import { TranscriptWindow } from "./window-cap.js";
-import { type WindowSide } from "./window-side.js";
+import { type WindowSide } from "#renderer/lib/scroll/window-side.js";
 
 /**
  * The clock every timer and frame of the controller is minted through, where heights live, and

@@ -1,5 +1,6 @@
 // The hidden frames content is laid out in so it can be measured before a reader sees it: long
-// tables before their rows are listed, and a long output's undrawn lines. The frames sit in the
+// tables before their rows are listed, a long output's undrawn lines, and a long diff's undrawn
+// steps of rows. The frames sit in the
 // window's document, outside the conversation, where no reader, selection or Find reaches them.
 
 import { createPortal } from "react-dom";

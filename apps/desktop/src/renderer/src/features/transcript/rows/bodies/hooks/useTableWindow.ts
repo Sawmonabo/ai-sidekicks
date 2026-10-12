@@ -18,7 +18,10 @@ import {
 import { useDirectlyPlacedVirtualizer } from "#renderer/hooks/useDirectlyPlacedVirtualizer.js";
 import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
 import { MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE } from "../../markdown/block-window/markers.js";
-import { rangeEnds, withPinnedIndexes } from "../../markdown/block-window/selection-pins.js";
+import {
+  rangeEnds,
+  withPinnedIndexes,
+} from "#renderer/components/TranscriptBodyViewport/selection-pins.js";
 import {
   ListedBodiesContext,
   MarkdownBlockIndexContext,
@@ -30,9 +33,9 @@ import {
   type TableWindowRow,
 } from "../../markdown/table-window/layout.js";
 import { type TableMeasuringFrame } from "../../markdown/table-window/measurement.js";
-import { DrawnWindowSourcesContext } from "../../drawn-window-sources.js";
-import { useDrawnBandScreenHeights } from "./useDrawnBandScreenHeights.js";
-import { useSelectionPins } from "./useSelectionPins.js";
+import { DrawnWindowSourcesContext } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
+import { useDrawnBandScreenHeights } from "#renderer/components/TranscriptBodyViewport/hooks/useDrawnBandScreenHeights.js";
+import { useSelectionPins } from "#renderer/components/TranscriptBodyViewport/hooks/useSelectionPins.js";
 
 /** A long table's elements as one render draws them. */
 export interface TableWindow {

@@ -44,9 +44,9 @@ describe("inline card registry — a body is only ever handed its own arm", () =
       owner: "repos",
       render: (props) => props.artifact.id,
     });
-    expect(registry.render(DIFF_CARD)).toBe("diff-artifact-3");
-    expect(registry.render(ATTACHMENT_CARD)).toBe("attachment-1");
-    expect(registry.render(ARTIFACT_CARD)).toBe("artifact-9");
+    expect(registry.render(DIFF_CARD, "row-1")).toBe("diff-artifact-3");
+    expect(registry.render(ATTACHMENT_CARD, "row-1")).toBe("attachment-1");
+    expect(registry.render(ARTIFACT_CARD, "row-1")).toBe("artifact-9");
   });
 
   it("refuses a body handed another kind's props rather than running it", () => {
@@ -59,7 +59,7 @@ describe("inline card registry — a body is only ever handed its own arm", () =
     });
     const diffBody = registry.bodyFor("diff");
     expect(diffBody).toBeDefined();
-    expect(() => diffBody?.render(ATTACHMENT_CARD)).toThrow(RefusalError);
-    expect(() => diffBody?.render(ATTACHMENT_CARD)).toThrow(/"diff"[\s\S]*"attachment"/u);
+    expect(() => diffBody?.render(ATTACHMENT_CARD, "row-1")).toThrow(RefusalError);
+    expect(() => diffBody?.render(ATTACHMENT_CARD, "row-1")).toThrow(/"diff"[\s\S]*"attachment"/u);
   });
 });
