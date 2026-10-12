@@ -278,8 +278,9 @@
         "src/provider/driver/codex/hooks/program.ts"
       ],
       // `scutil` is the macOS utility the daemon runs to read the computer name it reports, and its
-      // test runs to check it; `mkfifo` makes the named pipe the stop tests hold a write on; both
-      // ship with the operating system, never as a package dependency.
+      // test runs to check it; `mkfifo` makes the named pipes tests put where a file belongs, which
+      // a read or an open waits on or skips; both ship with the operating system, never as a
+      // package dependency.
       "ignoreBinaries": ["scutil", "mkfifo"],
       "ignoreDependencies": [
         // Libraries installed ahead of the code that imports them, each with what will import it.

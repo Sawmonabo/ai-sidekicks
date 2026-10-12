@@ -4,6 +4,8 @@
 // failure, and the process exits as soon as the daemon is gone, so it never outlives it; a build
 // cut short leaves only its own folder, which the next build clears.
 
+import { setImmediate } from "node:timers/promises";
+
 import type { Database as DatabaseType } from "better-sqlite3";
 
 import { withCleanupFailures } from "../../../cleanup-failures.js";
@@ -27,6 +29,13 @@ const exitAsDaemonGone = (): void => {
   process.exit(1);
 };
 process.once("disconnect", exitAsDaemonGone);
+// The daemon can be gone before this process has run a line, and the channel's close is read only
+// on a turn of the event loop: one turn here hears it, or finds it read before the listener was
+// added, before the build opens or writes anything.
+await setImmediate();
+if (!process.connected) {
+  exitAsDaemonGone();
+}
 
 let reader: DatabaseType | undefined;
 try {

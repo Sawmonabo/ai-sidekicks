@@ -24,8 +24,16 @@ export function registerHighlightRead(
   registerDescribedMethod(
     registry,
     HIGHLIGHT_METHOD_DESCRIPTORS[HIGHLIGHT_READ_METHOD],
-    async (request) => {
-      const spans = await dependencies.highlighter.readSpans(request.source, request.language);
+    async (request, context) => {
+      const asker =
+        context.transportId === undefined
+          ? undefined
+          : { transportId: context.transportId, blockId: request.blockId };
+      const spans = await dependencies.highlighter.readSpans(
+        request.source,
+        request.language,
+        asker,
+      );
       return { spans: Array.from(spans) };
     },
   );

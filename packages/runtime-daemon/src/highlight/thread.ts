@@ -4,10 +4,18 @@
 // the system; the next read starts a fresh one.
 //
 // - One tokenization runs at a time and the rest wait their turn, since the thread runs one anyway.
-// - The worker reports progress after each slice, which restarts the time limit, and marks the
-//   line it is on in shared memory. When the limit passes and the line in progress has itself run
-//   past it, that line is stuck: the thread is ended, a fresh one started, and the same code
-//   tokenized again with that line left plain, as an over-long line is.
+//   A waiting one whose caller aborts is answered at once and lets go of its source, and its turn
+//   passes without work; one already running finishes.
+// - The thread's start and its grammar's load have no time limit: they are bounded work, and one
+//   that fails rejects the read. Once the grammar has loaded, the worker reports progress after
+//   each slice, which restarts the time limit, and marks the line it is on in shared memory. When
+//   the limit passes and the line in progress has itself run past it, that line is stuck: the
+//   thread is ended, a fresh one started, and the same code tokenized again with that line left
+//   plain, as an over-long line is.
+// - The regex engine's WebAssembly memory grows with each grammar's compiled patterns and never
+//   shrinks while the thread lives, so a thread whose heap and WebAssembly memory have passed
+//   `MEMORY_CEILING_BYTES` is ended once its read is answered; the next read starts a fresh one,
+//   which loads only the grammars asked for from then on.
 // - The heap's young generation is held small, as the search thread's is, which keeps the thread's
 //   resident memory down while it runs. The old generation is left unbounded, since a cap would
 //   leave a large file plain.
@@ -32,6 +40,13 @@ const IDLE_END_MS = 5 * 60_000;
  * clear of a busy machine.
  */
 const LINE_TIME_LIMIT_MS = 3_000;
+
+/**
+ * The thread's heap and WebAssembly memory past which it is ended once its read is answered:
+ * 128 MiB, which holds the TypeScript and TSX grammars together, the pair most reads alternate
+ * between, and keeps the thread's resident memory within the colorer's budget.
+ */
+const MEMORY_CEILING_BYTES = 128 * 1024 * 1024;
 
 // A young generation smaller than Node's default keeps the thread's resident memory down while it
 // tokenizes, the search thread's figure.
@@ -60,8 +75,14 @@ export interface TokenizeRequest {
 
 /** What the thread posts while and after it tokenizes a request. */
 export type TokenizerReply =
+  | { readonly type: "grammar-loaded" }
   | { readonly type: "slice-tokenized" }
-  | { readonly type: "tokenized"; readonly spans: Uint32Array }
+  | {
+      readonly type: "tokenized";
+      readonly spans: Uint32Array;
+      /** The thread's heap and WebAssembly memory once it tokenized, in bytes. */
+      readonly memoryBytes: number;
+    }
   | { readonly type: "failed"; readonly error: CarriedError };
 
 /** Construction options for `TokenizerThread`. */
@@ -70,6 +91,8 @@ export interface TokenizerThreadOptions {
   readonly idleEndMs?: number;
   /** A module whose `beforeLine` the worker runs before tokenizing each line. */
   readonly lineHookModuleUrl?: URL;
+  /** The thread's memory past which it is ended once its read is answered, in bytes; 128 MiB. */
+  readonly memoryCeilingBytes?: number;
 }
 
 /** A started worker and the line marks it writes. */
@@ -83,10 +106,22 @@ type RunOutcome =
   | { readonly type: "tokenized"; readonly spans: Uint32Array }
   | { readonly type: "stuck"; readonly offset: number };
 
+/** The refusal of a tokenization once the tokenizer has stopped. */
+function stoppedError(): Error {
+  return new Error("The colorer has stopped");
+}
+
+/** What one tokenization tokenizes. */
+interface TokenizeInput {
+  readonly source: string;
+  readonly language: HighlightLanguage;
+}
+
 /** Tokenizes code on a worker thread the daemon starts on demand and ends when it sits idle. */
 export class TokenizerThread {
   readonly #idleEndMs: number;
   readonly #lineHookModuleUrl: string | undefined;
+  readonly #memoryCeilingBytes: number;
   readonly #limitToOne = pLimit({ concurrency: 1, rejectOnClear: true });
   #running: RunningWorker | undefined;
   #idleEnd: NodeJS.Timeout | undefined;
@@ -96,25 +131,58 @@ export class TokenizerThread {
   constructor(options: TokenizerThreadOptions = {}) {
     this.#idleEndMs = options.idleEndMs ?? IDLE_END_MS;
     this.#lineHookModuleUrl = options.lineHookModuleUrl?.href;
+    this.#memoryCeilingBytes = options.memoryCeilingBytes ?? MEMORY_CEILING_BYTES;
   }
 
   /**
    * The packed `[offset, length, class]` spans of `source` as `language`. A line the thread cannot
-   * finish within the time limit has no spans. Rejects when the grammar fails to load, the thread
-   * fails, or the tokenizer is stopped.
+   * finish within the time limit has no spans. An abort of `signal` while the tokenization waits
+   * for its turn rejects with the abort's reason at once and keeps nothing of `source`; once it
+   * runs it finishes. Rejects when the grammar fails to load, the thread fails, or the tokenizer is
+   * stopped.
    */
-  async tokenize(source: string, language: HighlightLanguage): Promise<Uint32Array> {
+  tokenize(
+    source: string,
+    language: HighlightLanguage,
+    signal?: AbortSignal,
+  ): Promise<Uint32Array> {
     if (this.#isStopped) {
-      throw new Error("The colorer has stopped");
+      return Promise.reject(stoppedError());
+    }
+    if (signal?.aborted === true) {
+      return Promise.reject(signal.reason as Error);
     }
     clearTimeout(this.#idleEnd);
     this.#waitingCount += 1;
-    try {
-      return await this.#limitToOne(() => this.#tokenizeLeavingStuckLinesPlain(source, language));
-    } finally {
+    return this.#waitTurn({ source, language }, signal).finally(() => {
       this.#waitingCount -= 1;
       this.#armIdleEnd();
-    }
+    });
+  }
+
+  // The waiting tokenization holds its input only in `waiting`, which a drop empties, so a dropped
+  // one keeps nothing of its source while its turn comes up.
+  #waitTurn(input: TokenizeInput, signal: AbortSignal | undefined): Promise<Uint32Array> {
+    const waiting: { input: TokenizeInput | undefined } = { input };
+    const { promise, resolve, reject } = Promise.withResolvers<Uint32Array>();
+    const drop = (): void => {
+      waiting.input = undefined;
+      reject(signal?.reason as Error);
+    };
+    signal?.addEventListener("abort", drop, { once: true });
+    void this.#limitToOne(async () => {
+      signal?.removeEventListener("abort", drop);
+      const turnInput = waiting.input;
+      if (turnInput === undefined) {
+        return;
+      }
+      waiting.input = undefined;
+      resolve(await this.#tokenizeLeavingStuckLinesPlain(turnInput.source, turnInput.language));
+    }).catch((error: unknown) => {
+      signal?.removeEventListener("abort", drop);
+      reject(error as Error);
+    });
+    return promise;
   }
 
   /** Refuses the waiting calls and ends the thread; later calls are refused. */
@@ -135,7 +203,7 @@ export class TokenizerThread {
     // Each pass leaves one more line plain, so the passes end within the source's line count.
     for (;;) {
       if (this.#isStopped) {
-        throw new Error("The colorer has stopped");
+        throw stoppedError();
       }
       const outcome = await this.#runOnce({ source, language, plainLineOffsets });
       if (outcome.type === "tokenized") {
@@ -148,8 +216,8 @@ export class TokenizerThread {
   #runOnce(request: TokenizeRequest): Promise<RunOutcome> {
     const running = this.#running ?? this.#startWorker();
     const { worker, lineProgress } = running;
+    const memoryCeilingBytes = this.#memoryCeilingBytes;
     return new Promise<RunOutcome>((resolve, reject) => {
-      let linesStartedAtLastDeadline = lineProgress.readLinesStarted();
       let deadline: NodeJS.Timeout | undefined;
       const armDeadline = (delayMs: number): void => {
         clearTimeout(deadline);
@@ -169,19 +237,8 @@ export class TokenizerThread {
       };
       function onDeadline(): void {
         const line = lineProgress.readLineInProgress();
+        // Between lines the thread is moving: only a line that started and has not ended is cut.
         if (line === undefined) {
-          const linesStarted = lineProgress.readLinesStarted();
-          if (linesStarted === linesStartedAtLastDeadline) {
-            endThen(() => {
-              reject(
-                new Error(
-                  `The colorer's thread started no line in ${String(LINE_TIME_LIMIT_MS)} ms`,
-                ),
-              );
-            });
-            return;
-          }
-          linesStartedAtLastDeadline = linesStarted;
           armDeadline(LINE_TIME_LIMIT_MS);
           return;
         }
@@ -197,14 +254,22 @@ export class TokenizerThread {
       }
       function onMessage(reply: TokenizerReply): void {
         switch (reply.type) {
+          case "grammar-loaded":
           case "slice-tokenized":
             armDeadline(LINE_TIME_LIMIT_MS);
             return;
-          case "tokenized":
-            settle(() => {
+          case "tokenized": {
+            const finish = (): void => {
               resolve({ type: "tokenized", spans: reply.spans });
-            });
+            };
+            // Ended before the next read starts, so two threads' memory never adds up.
+            if (reply.memoryBytes > memoryCeilingBytes) {
+              endThen(finish);
+            } else {
+              settle(finish);
+            }
             return;
+          }
           case "failed":
             settle(() => {
               reject(rebuildError(reply.error));
@@ -224,7 +289,6 @@ export class TokenizerThread {
       worker.on("message", onMessage);
       worker.on("error", onError);
       worker.on("exit", onExit);
-      armDeadline(LINE_TIME_LIMIT_MS);
       worker.postMessage(request);
     });
   }

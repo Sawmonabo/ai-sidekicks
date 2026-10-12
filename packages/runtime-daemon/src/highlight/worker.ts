@@ -84,8 +84,14 @@ async function answer(request: TokenizeRequest): Promise<void> {
       await highlighter.loadLanguage((await GRAMMAR_LOADERS[request.language]()).default);
       loadedLanguages.add(request.language);
     }
+    port.postMessage({ type: "grammar-loaded" } satisfies TokenizerReply);
     const spans = tokenize(request);
-    port.postMessage({ type: "tokenized", spans } satisfies TokenizerReply, [spans.buffer]);
+    // This thread's own heap and the regex engine's WebAssembly memory, which `external` counts.
+    const { heapTotal, external } = process.memoryUsage();
+    port.postMessage(
+      { type: "tokenized", spans, memoryBytes: heapTotal + external } satisfies TokenizerReply,
+      [spans.buffer],
+    );
   } catch (error) {
     port.postMessage({ type: "failed", error: carryError(error) } satisfies TokenizerReply);
   }

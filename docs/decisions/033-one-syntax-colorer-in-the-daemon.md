@@ -36,20 +36,22 @@ The console design shows the same file in the flow, in Review and in the file vi
 - A file whose language is not recognized stays plain and asks the daemon for nothing.
 - The renderer holds no `shiki` instance and no Worker in the renderer colors anything. `shiki` belongs to the daemon package, at the pin the desktop package uses, and not to the desktop package.
 - **The daemon tokenizes on a worker thread of its own and keeps the spans on its main thread.** The thread starts on the first read the span cache does not hold and ends after five minutes with nothing asked, so the memory its grammars and regex engine take goes back to the system. Code already colored is answered from the cache at once; the first read in a language after a quiet spell takes up to about 0.3 s to color.
-- **A line the thread cannot finish within 3 s stays plain while the rest of the file is colored**, as an over-long line does. The thread is ended and a fresh one colors the file again with that line plain. The slowest legitimate line measured, 19,999 characters of Go on a fresh thread, took 300 ms.
+- **The thread is also ended once its heap and WebAssembly memory pass 128 MiB**, right after the read that took it past, and the next read starts a fresh one that loads only the grammars asked for from then on. The regex engine's memory never shrinks while its thread lives, so only an end gives it back. 128 MiB holds the TypeScript and TSX grammars together, the pair most reads in a TypeScript project alternate between, so those stay warm; the colors are the same, since a fresh thread runs the same engine and grammars.
+- **A line the thread cannot finish within 3 s stays plain while the rest of the file is colored**, as an over-long line does. The thread is ended and a fresh one colors the file again with that line plain. The slowest legitimate line measured, 19,999 characters of Go on a fresh thread, took 300 ms. The limit bounds a line that started and has not ended, never the thread's start or a grammar's load, which are bounded work: a slow machine waits for them, and one that fails rejects the read.
+- **A read nobody waits for any more is never colored.** Reads of the same code share one tokenization; a code block's read names the block, and the block's next read on the same connection replaces it while it waits, as a block whose code is still arriving asks again for each version; a connection's reads go when it closes. A tokenization no read waits for leaves the line before its turn, keeping nothing of its source, so at most one waits for each block on each connection.
 - **The engine is `shiki`'s Oniguruma WebAssembly engine.** Its JavaScript engine was the other candidate: over one real or hand-written file in each of the 15 languages, colored with the daemon's own span theme, both engines gave the same colors in 14 languages, and in SQL the JavaScript engine left 50 characters plain or in the wrong class where Oniguruma colors them (a `CREATE TABLE` name, matched by a pattern with a backreference). Correctness decides it; `shiki`'s own compatibility report lists SQL as matching, which this file disproves. Oniguruma is also the engine TextMate grammars are written for and resists runaway backtracking, which reports against the JavaScript engine show freezing a thread. It costs more memory while the thread is up (WebAssembly memory grows with each grammar's compiled patterns, about 21 to 53 MB for each of the JavaScript-family grammars, and never shrinks while the thread lives) and the same once the thread ends; warm calls cost about the same (about 1 ms for 1.7 KB of TypeScript on either engine).
 
 ### Budget
 
-The workload: one read in each of the 15 languages, a real or hand-written file of 1 to 37 KB each, then nothing asked. Measured on macOS with Node 24.21, against the same process before its first read; resident memory is the whole process's, so the thread's own heap and its WebAssembly memory are counted:
+The workload: one read in each of the 15 languages, a real or hand-written file of 1 to 37 KB each, then four TypeScript and four TSX files read alternately, then nothing asked. Measured on macOS with Node 24.21, against the same process before its first read; resident memory is the whole process's, so the thread's own heap and its WebAssembly memory are counted:
 
 | State | Resident memory the colorer adds | Measured |
 | --- | --- | --- |
 | Once the thread has ended after five quiet minutes | 30 MB at most | 16.5 MB under the process's reading before its first read in the shipped build's run, and 25 to 29 MB over it in earlier runs of a thread ended the same way; the main thread's live heap 0.4 MB over |
-| While the thread is up with all 15 grammars loaded | 250 MB at most | 248 MB |
+| While the thread is up | 160 MB at most | 154 MB at the peak, the process's own high-water mark; before the ceiling, a thread holding all 15 grammars took 248 MB |
 | The span cache | 1/2048 of physical memory at most, 8 MB on a 16 GB machine | bounded by its byte size |
 
-A change that raises a figure past its budget fails. While all 15 grammars are loaded, the colorer alone passes the whole daemon's 256 MB operating target ([deployment-topology §Local Daemon Memory Instrumentation And Budget Triggers](../architecture/deployment-topology.md#local-daemon-memory-instrumentation-and-budget-triggers)), and that document's trigger decides what follows; colors are never cut to meet it.
+A change that raises a figure past its budget fails. With the daemon at about 83 MB before its first read, the colorer's peak keeps the whole daemon inside its 256 MB operating target ([deployment-topology §Local Daemon Memory Instrumentation And Budget Triggers](../architecture/deployment-topology.md#local-daemon-memory-instrumentation-and-budget-triggers)); colors are never cut to meet it. In the measured run the thread was ended twice at the ceiling, after TSX and after Go, and the reads that followed, JavaScript and SQL, took 161 ms and 30 ms on their fresh threads; in the alternation every TypeScript and TSX read after the first two took 3 to 62 ms, the pair staying warm.
 
 ### Thesis — Why This Option
 
@@ -108,6 +110,8 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 | Spans arrive after the text and the block repaints visibly | Med | Low | A visible change of color on open | The diff's own first pass; plain text is a legitimate first frame for a whole file |
 | The span cache grows without bound | Low | Med | Resident memory over budget | The cache is keyed on content and bounded by bytes, each entry charged its spans, its key and its own overhead |
 | The grammars' memory stays taken after coloring ends | Med | Med | Resident memory over the idle budget | The tokenizing thread ends after five quiet minutes, and its memory goes back with it |
+| Reading many languages grows the thread past its budget | Med | Med | Resident memory over the running budget | The thread is ended once its heap and WebAssembly memory pass 128 MiB, and a fresh one loads only what is asked next |
+| Reads pile up faster than the thread colors them, as a block whose code is still arriving asks again for each version | Med | Med | Waiting reads and their sources held in memory | A block's newer read replaces its waiting one, a closed connection's reads are dropped, and a tokenization nobody waits for leaves the line holding nothing of its source |
 
 ## Reversibility Assessment
 
@@ -127,6 +131,8 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 
 - The daemon does rendering-adjacent work. Accepted because it already owns the read and the result is shared.
 - The first read in a language after the thread has ended pays the grammar's load again, up to about 0.3 s. Accepted because the thread's memory goes back in return.
+- A thread ended at its memory ceiling drops every grammar, so a read in a language it held pays that load again too. Accepted because the ceiling holds the TypeScript and TSX pair, and only a spread of other languages reaches it.
+- A code block that leaves the screen while its read waits is still colored once, since nothing on the wire cancels one request; its spans land in the cache for when it is drawn again.
 
 ---
 
@@ -153,6 +159,8 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 | `shiki` JavaScript engine compatibility report (4.4.3) | Documentation | Lists every one of the 15 languages, SQL among them, as giving the same result as the WebAssembly engine, which the daemon's own comparison disproves for SQL | https://shiki.style/references/engine-js-compat |
 | `shiki` issue 1026 | Issue | Oniguruma has built-in protections against runaway backtracking that V8's regex engine lacks | https://github.com/shikijs/shiki/issues/1026 |
 | Node.js worker threads | Documentation | Each worker has its own heap and `resourceLimits`; `terminate()` stops its JavaScript as soon as possible | https://nodejs.org/api/worker_threads.html |
+| `shiki` 4.5.0 and its Oniguruma engine, source | Source | A highlighter's `dispose()` frees its grammars' compiled patterns, and a new highlighter reuses that WebAssembly memory, but the memory itself only grows (`wasmMemory.grow`), so only ending the thread returns it | `@shikijs/primitive` and `@shikijs/engine-oniguruma` in the installed package |
+| `p-limit` 7.3.3 | Source | Its queue has no way to take out one waiting job, so a dropped tokenization keeps its turn and does no work there; `p-queue` takes a waiting job out on an abort, but the daemon already queues with `p-limit`, and one queue library serves it | https://github.com/sindresorhus/p-limit |
 
 ### Related ADRs
 

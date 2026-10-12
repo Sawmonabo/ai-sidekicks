@@ -4,8 +4,7 @@
 
 const OFFSET_SLOT = 0;
 const STARTED_AT_SLOT = 1;
-const LINES_STARTED_SLOT = 2;
-const SLOT_COUNT = 3;
+const SLOT_COUNT = 2;
 
 /** The offset slot's value between lines. */
 const NO_LINE = -1n;
@@ -42,7 +41,6 @@ export class LineProgress {
   /** Marks the line at `offset` as started now. */
   markLineStarted(offset: number): void {
     Atomics.store(this.#slots, STARTED_AT_SLOT, BigInt(Math.round(readSharedClock())));
-    Atomics.add(this.#slots, LINES_STARTED_SLOT, 1n);
     Atomics.store(this.#slots, OFFSET_SLOT, BigInt(offset));
   }
 
@@ -61,10 +59,5 @@ export class LineProgress {
       offset: Number(offset),
       startedAt: Number(Atomics.load(this.#slots, STARTED_AT_SLOT)),
     };
-  }
-
-  /** How many lines the thread has started, so a deadline can tell whether it moved at all. */
-  readLinesStarted(): number {
-    return Number(Atomics.load(this.#slots, LINES_STARTED_SLOT));
   }
 }

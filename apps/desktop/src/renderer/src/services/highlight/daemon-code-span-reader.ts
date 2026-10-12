@@ -35,16 +35,18 @@ export class DaemonCodeSpanReader implements CodeSpanReader {
 
   public async readSpans(
     request: CodeSpanRequest,
+    blockId: string,
     signal: AbortSignal,
   ): Promise<Uint32Array | undefined> {
     const reply = await callDaemon(
       this.#bridge,
       "highlight.read",
-      { language: request.language, source: request.source },
+      { language: request.language, source: request.source, blockId },
       { signal },
     );
     if (reply.status === "refused") {
-      // A read abandoned by its block has nobody left to answer; any other refusal is kept.
+      // A read abandoned by its block, the block's own next read among the ways, has nobody left
+      // to answer; any other refusal is kept.
       if (!signal.aborted) {
         windowDiagnosticCapture.record({
           at: diagnosticStampAt(this.#clock),

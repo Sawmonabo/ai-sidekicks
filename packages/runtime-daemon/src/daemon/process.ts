@@ -392,6 +392,7 @@ export class DaemonProcess {
           // released as a disconnect rather than as its panes closing.
           this.#sessionServices.releaseConnection(transport.id);
           streamingPrimitive.cleanupTransport(transport.id);
+          this.#highlighter.dropReadsOf(transport.id);
         },
         onError: (transport, error) => {
           options.writeServiceLog(

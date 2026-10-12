@@ -1,5 +1,5 @@
-// The tokenizing thread gives its memory back: it ends once it has sat idle, and the next read
-// starts a fresh one. A line it cannot finish holds only the thread: the daemon goes on answering,
+// The tokenizing thread gives its memory back: it ends once it has sat idle or once its memory has
+// passed the ceiling, and the next read starts a fresh one. A line it cannot finish holds only the thread: the daemon goes on answering,
 // and at the time limit that line is left plain while the rest of the file is colored.
 
 import { setTimeout as delay } from "node:timers/promises";
@@ -47,6 +47,19 @@ describe("a tokenizing thread with nothing asked", () => {
 
     expect(await tokenizer.tokenize(source, "typescript")).toStrictEqual(first);
     expect(startedWorkers.length).toBe(startedBefore + 1);
+  }, 20_000);
+});
+
+describe("a tokenizing thread past its memory ceiling", () => {
+  it("is ended once its read is answered, and the next read starts a fresh one", async () => {
+    tokenizer = new TokenizerThread({ memoryCeilingBytes: 0 });
+    const source = "const answer = 42;\n";
+    const startedBefore = startedWorkers.length;
+
+    const first = await tokenizer.tokenize(source, "typescript");
+    expect(await tokenizer.tokenize(source, "typescript")).toStrictEqual(first);
+
+    expect(startedWorkers.length).toBe(startedBefore + 2);
   }, 20_000);
 });
 

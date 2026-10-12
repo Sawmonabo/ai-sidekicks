@@ -4,19 +4,21 @@
 // an FTS5 index's over the same rows, and the outbox empties once the index holds its rows. A build
 // cut short is started over from an empty folder, and a build that fails fails the start with what
 // it threw. A start aborted during a build ends the build's process and settles only once it has
-// exited.
+// exited, and a build's process whose daemon was gone before it ran ends before it opens anything.
 
-import type { ChildProcess } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFileSync, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { sessionIdOf } from "../../__fixtures__/index-rows.js";
 import { hitsByQuery, referenceHitsByQuery } from "../../__fixtures__/reference-ranking.js";
 import { SearchFixture } from "../../__fixtures__/services.js";
 import { SeededDirectory } from "../../__fixtures__/seeded-directory.js";
+import { buildSearchIndexInChild } from "../../index/rebuild.js";
 import { openSearchServices } from "../services.js";
 
 // Every process this file forks, so a test can watch the build's process end.
@@ -170,5 +172,29 @@ describe("the search thread's start", () => {
     } finally {
       await rm(folder, { recursive: true, force: true });
     }
+  });
+
+  it("ends the build's process before it opens anything when the daemon was gone first", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "search-build-"));
+    // A named pipe where the database belongs: a build that opens it waits for a writer forever.
+    const databasePath = join(folder, "daemon.db");
+    execFileSync("mkfifo", [databasePath]);
+    const building = buildSearchIndexInChild(
+      { databasePath, indexFolderPath: join(folder, "search-index"), lastOutboxId: 0 },
+      new AbortController().signal,
+    );
+    const build = forkedChildren.at(-1)!;
+    onTestFinished(async () => {
+      if (build.exitCode === null && build.signalCode === null) {
+        build.kill("SIGKILL");
+        await once(build, "exit");
+      }
+      await rm(folder, { recursive: true, force: true });
+    });
+    // The channel closes before the build's process has run a line, as when the daemon is killed.
+    build.disconnect();
+
+    await expect(building).rejects.toThrow("ended with code 1 without saying why");
+    await expect(readdir(folder)).resolves.toEqual(["daemon.db"]);
   });
 });
