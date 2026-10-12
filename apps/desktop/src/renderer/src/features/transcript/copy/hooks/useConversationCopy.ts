@@ -362,9 +362,10 @@ export function useConversationCopy(source: ConversationCopySource): void {
       recordRejectedRequest(CONVERSATION_COPY_SOURCE, "copy-failed", failure);
       announce(COPY_FAILED_ANNOUNCEMENT, "assertive");
     };
-    // The plain text first, once every row is read, then its formatted flavor beside it while the
-    // clipboard still holds that text; a copy whose text and flavor come together is one write.
-    // Each write lands only while no newer copy, from any app, took the clipboard.
+    // One write of both flavors once the worker has made the formatting; a copy holding a large
+    // body or a long part writes its plain text first, once every row is read, then adds the
+    // formatting beside it while the clipboard still holds that text. Each write lands only while
+    // no newer copy, from any app, took the clipboard.
     const writeOnceBuilt = (finish: CopyFinish, isCurrent: () => boolean): void => {
       copyOnceBuilt(bridge, ownerWindow, async (lateWrite, addFormatting) => {
         // How the plain text written first went.

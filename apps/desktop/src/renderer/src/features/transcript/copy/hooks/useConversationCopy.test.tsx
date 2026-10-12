@@ -1,10 +1,11 @@
 // `⌘C` in a session: a selection in the conversation goes onto the clipboard through main, each
 // message row's body joined in the order the rows are read, a reply's part as the markdown rebuilt
-// from what was selected with a formatted flavor beside it; a long part's text is written first
-// and its formatted flavor added once made, unless a newer copy took over; a selection in the
-// message box is left to the platform's own copy. The rows are the real message rows inside the
-// real windowed row, known to a real selection tracker on the conversation, drawn in a window of
-// its own as every window the app opens is: its document is not the one the code runs in.
+// from what was selected with a formatted flavor beside it, both in one write; a long part's text
+// is written first and its formatted flavor added once made, unless a newer copy took over; a
+// selection in the message box is left to the platform's own copy. The rows are the real message
+// rows inside the real windowed row, known to a real selection tracker on the conversation, drawn
+// in a window of its own as every window the app opens is: its document is not the one the code
+// runs in.
 
 import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
@@ -281,7 +282,7 @@ afterEach(() => {
 
 describe("⌘C in a session", () => {
   it("copies the selection in reading order while the message box holds none", async () => {
-    const { clipboard, copied, box, sessionDocument } = renderSession();
+    const { clipboard, copied, formatted, box, sessionDocument } = renderSession();
     box.focus();
     box.setSelectionRange(0, 0);
     const start = textNodeHolding(sessionDocument, USER_MESSAGE);
@@ -291,11 +292,11 @@ describe("⌘C in a session", () => {
     const event = fireEvent.copy(start);
 
     expect(event).toBe(false);
-    // A copy built within its first slice writes both flavors at once; one that outlasts it, as
-    // under load, writes its text, then adds the formatted flavor beside it.
+    // A copy of short parts waits for the worker's formatting and writes both flavors at once.
     await vi.waitFor(() => {
       expect(clipboard.html).toBeDefined();
     });
+    expect(formatted).toStrictEqual([]);
     // The author lines, stamps and Copy controls between the bodies are left out; the reply's
     // part is the markdown that drew it, cut where the selection ended.
     expect(copied.map((content) => content.text)).toStrictEqual([
@@ -356,19 +357,25 @@ describe("⌘C in a session", () => {
     expect(copied[0]).toStrictEqual({
       text: `${USER_MESSAGE}\n\n${LONG_REPLY}\n\n${CLOSING_MESSAGE}`,
     });
-    // A newer copy lands while the first's formatting is made.
+    // A newer copy, short enough to be written whole at once, lands while the first's formatting
+    // is made: it waits for its own formatting and writes both flavors in one write.
     const message = textNodeHolding(sessionDocument, USER_MESSAGE);
     selection.setBaseAndExtent(message, 0, textNodeHolding(sessionDocument, "Long start"), 2);
     fireEvent.copy(message);
     await vi.waitFor(() => {
-      expect([workerAnswers.length, copied.length]).toStrictEqual([2, 2]);
+      expect(workerAnswers).toHaveLength(2);
     });
+    expect(copied).toHaveLength(1);
+    workerAnswers[1]?.(piecedTextOf("<p>the second copy's formatting</p>"));
+    await vi.waitFor(() => {
+      expect(copied).toHaveLength(2);
+    });
+    expect(copied[1]?.html).toContain("<p>the second copy's formatting</p>");
     workerAnswers[0]?.(piecedTextOf("<p>the first copy's formatting</p>"));
     fireEvent.copy(selectLongReply());
     await vi.waitFor(() => {
       expect(workerAnswers).toHaveLength(3);
     });
-    workerAnswers[1]?.(piecedTextOf("<p>the second copy's formatting</p>"));
     workerAnswers[2]?.(piecedTextOf("<p>the third copy's formatting</p>"));
 
     await vi.waitFor(() => {
