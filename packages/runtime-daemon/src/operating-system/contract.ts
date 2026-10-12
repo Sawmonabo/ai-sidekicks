@@ -63,8 +63,8 @@ export interface DaemonOperatingSystem {
   /** A reader of this system's processes, through Node's calls in `system`. */
   createProcessIdentityReader(system: ProcessIdentitySystem): ProcessIdentityReader;
   /**
-   * Opens the reader of which process opened a connection on the daemon's socket and of each
-   * process's parent. Rejects when its system calls fail to load, or where the daemon has no
+   * Opens the reader of which process is at the client's end of a connection on the daemon's
+   * socket and of each process's parent. Rejects when its system calls fail to load, or where the daemon has no
    * socket of its own.
    */
   openCallerProcessReader(): Promise<CallerProcessReader>;

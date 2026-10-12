@@ -44,7 +44,7 @@ export interface DatabaseFileOpenOptions {
   readonly dataFolder: string;
   readonly indexFolderPath: string;
   readonly runFolder: DaemonRunFolder;
-  /** Reads which process opened each connection on the socket a repair answers on. */
+  /** Reads which process is at the client's end of each connection a repair answers on. */
   readonly callerProcessReader: CallerProcessReader;
   readonly operatingSystem: DatabaseFileOperatingSystem;
   /** How a written file and its folder are flushed to disk. */

@@ -43,7 +43,7 @@ export interface DaemonProcessOptions {
   ) => Promise<readonly SpawnEnvPair[]>;
   /** The operating system the daemon runs on, picked once at its start. */
   readonly operatingSystem: DaemonOperatingSystem;
-  /** Reads which process opened each connection on the socket, and each process's parent. */
+  /** Reads which process is at the client's end of each connection, and each process's parent. */
   readonly callerProcessReader: CallerProcessReader;
   /** The login shell a project's setup commands run in; `null` runs the system's default one. */
   readonly commandShell: string | null;
