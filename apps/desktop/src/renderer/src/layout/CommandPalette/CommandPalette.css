@@ -38,7 +38,7 @@
   color: var(--meridian-text);
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-lg);
-  box-shadow: 0 1.5rem 3rem oklch(0% 0 0 / 22%);
+  box-shadow: var(--meridian-shadow-float);
   font-family: var(--meridian-font-sans);
   font-size: var(--meridian-text-md);
   transition:

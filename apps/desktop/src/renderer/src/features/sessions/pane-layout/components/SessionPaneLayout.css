@@ -138,6 +138,19 @@
   box-shadow: inset -1px 0 0 var(--meridian-edge);
 }
 
+/* A pane held in a drag floats over the neighbors gliding apart under it. */
+.meridian-pane-layout__pane[data-reorder-lifted] {
+  box-shadow:
+    var(--meridian-shadow-float),
+    inset 1px 0 0 var(--meridian-edge);
+}
+
+.meridian-pane-layout[data-side="left"] .meridian-pane-layout__pane[data-reorder-lifted] {
+  box-shadow:
+    var(--meridian-shadow-float),
+    inset -1px 0 0 var(--meridian-edge);
+}
+
 /*
  * Full width: the one pane takes the whole width of the layout, the conversation and every other
  * pane collapse behind it, and nothing scrolls or resizes until the width is given back.

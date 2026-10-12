@@ -123,6 +123,19 @@ export const RADIUS_SCALE_PX: Readonly<Record<string, number>> = {
   "radius-lg": 10,
 };
 
+// How dark a lifted surface's shadow is, as a percent of black. A shadow carries no hue, so it is
+// one opacity in every theme and scheme.
+const FLOAT_SHADOW_OPACITY_PERCENT = 22;
+
+/**
+ * The shadow a surface lifted above the rest casts, a popup or a pane held in a drag: dropped one
+ * `space-5` step and blurred over a `space-8` step, so it grows with the text size.
+ */
+export const FLOAT_SHADOW: string =
+  `0 ${String(scaleStep(SPACE_SCALE_REM, "space-5"))}rem ` +
+  `${String(scaleStep(SPACE_SCALE_REM, "space-8"))}rem ` +
+  `oklch(0% 0 0 / ${String(FLOAT_SHADOW_OPACITY_PERCENT)}%)`;
+
 /**
  * The glass's blur, in px: what shows through a glass surface is blurred this far. Drawn, like a
  * radius, so it stays as drawn when `Text size` grows the chrome around it.

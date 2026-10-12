@@ -48,6 +48,7 @@ import {
   PANE_ROW_HEIGHT_FLOOR_REM,
   TERMINAL_PANE_HEIGHT_FLOOR_REM,
   SPACE_SCALE_REM,
+  FLOAT_SHADOW,
   GLASS_BLUR_PX,
   HOVER_WASH_EDGE_PERCENT,
   TOKEN_ALIASES,
@@ -280,6 +281,7 @@ function invariantBlock(): string {
     lines.push(declaration(tokenName, `${sizePx}px`));
   }
   lines.push(declaration("glass-blur", `${GLASS_BLUR_PX}px`));
+  lines.push(declaration("shadow-float", FLOAT_SHADOW));
   lines.push(declaration("leading-edge", `${LEADING_EDGE_WIDTH_PX}px`));
   lines.push(declaration("rail-button-size", `${RAIL_BUTTON_SIZE_REM}rem`));
   lines.push(declaration("rail-width", `${RAIL_WIDTH_REM}rem`));
