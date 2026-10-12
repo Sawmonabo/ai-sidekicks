@@ -1,12 +1,13 @@
 // A payload's scroll box: every row counted, only the rows in view plus the overscan drawn, so a
-// large payload costs the page what a small one does. Rows are measured once drawn, so a tall
+// large payload costs the page what a small one does. Room can be kept below the rows for rows
+// still to come, so the scrollbar spans them before they are drawn. Rows are measured once drawn, so a tall
 // markdown block or JSON item takes its own height; the window's compensation for a row measured
 // above the fold is its one scroll write past the opening, and both go through the scroll
 // chokepoint.
 
 import "./PayloadRowWindow.css";
 
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 import { CornerCaps, type CornerCapCorner } from "#renderer/components/CornerCaps/CornerCaps.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
@@ -21,11 +22,16 @@ export interface PayloadRowWindowProps {
   readonly label: string;
   /** The view's own row styling, beside the window's. */
   readonly className: string;
-  /** A row's height before it is measured, in CSS pixels; one line of small text when absent. */
-  readonly estimateRowHeightPx?: (rowIndex: number) => number;
-  /** A key that stays with its row when rows before it are added; the row's index when absent. */
-  readonly rowKey?: (rowIndex: number) => number;
   readonly renderRow: (rowIndex: number) => React.ReactNode;
+  /** Room below the rows for rows still to come; none when absent. */
+  readonly roomBelow?: PayloadRoomBelow;
+}
+
+/** Room a window keeps below its rows, and what hears the view reaching into it. */
+export interface PayloadRoomBelow {
+  readonly heightPx: number;
+  /** Hears, after a render, how far into the room the view reaches, in CSS pixels. */
+  readonly onReached: (reachedPx: number) => void;
 }
 
 /** A payload's rows in one scroll box, drawn only where the reader is. */
@@ -39,12 +45,24 @@ export function PayloadRowWindow(props: PayloadRowWindowProps): React.JSX.Elemen
     rowCount: props.rowCount,
     getScrollElement: () => scrollerRef.current,
     clock,
-    estimateRowHeightPx: props.estimateRowHeightPx ?? (() => PAYLOAD_ROW_ESTIMATE_PX),
+    estimateRowHeightPx: () => PAYLOAD_ROW_ESTIMATE_PX,
     overscanRows: PAYLOAD_WINDOW_OVERSCAN_ROWS,
     initialViewportHeightPx: PAYLOAD_VIEWPORT_FALLBACK_HEIGHT_PX,
-    ...(props.rowKey === undefined ? {} : { rowKey: props.rowKey }),
   });
   const virtualRows = virtualizer.getVirtualItems();
+  const rowsHeightPx = virtualizer.getTotalSize();
+  const { roomBelow } = props;
+  useLayoutEffect(() => {
+    if (roomBelow === undefined || roomBelow.heightPx === 0) {
+      return;
+    }
+    const viewEndPx =
+      (virtualizer.scrollOffset ?? 0) +
+      (virtualizer.scrollRect?.height ?? PAYLOAD_VIEWPORT_FALLBACK_HEIGHT_PX);
+    if (viewEndPx > rowsHeightPx) {
+      roomBelow.onReached(viewEndPx - rowsHeightPx);
+    }
+  });
   return (
     <div className="meridian-workflow-payload__frame">
       <div
@@ -58,7 +76,7 @@ export function PayloadRowWindow(props: PayloadRowWindowProps): React.JSX.Elemen
       >
         {/* Holds the whole height so the scrollbar spans every row; the window sits at its
           offset, and its rows stay in flow so a screen reader walks them in order. */}
-        <div style={{ blockSize: virtualizer.getTotalSize() }}>
+        <div style={{ blockSize: rowsHeightPx + (roomBelow?.heightPx ?? 0) }}>
           <div style={{ transform: `translateY(${String(virtualRows[0]?.start ?? 0)}px)` }}>
             {virtualRows.map((virtualRow) => (
               <div
@@ -96,4 +114,4 @@ const PAYLOAD_WINDOW_OVERSCAN_ROWS = 8;
  * The viewport height assumed before the scroll box is measured: the box's `60vh` cap in the
  * 720 px tall window the app opens at, so the first frame draws about what the measured one will.
  */
-const PAYLOAD_VIEWPORT_FALLBACK_HEIGHT_PX = 432;
+export const PAYLOAD_VIEWPORT_FALLBACK_HEIGHT_PX = 432;

@@ -3,12 +3,11 @@
 // then the document's own footnote definitions, so no definition's text is lost. The transcript
 // draws definitions from its footnote registry instead, so the node mapper never draws one.
 
-import type { FootnoteDefinition, List, RootContent } from "mdast";
+import type { FootnoteDefinition, List, Root, RootContent } from "mdast";
 
 import { collectFootnoteDefinitions } from "#renderer/components/Markdown/footnotes/collection.js";
 import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
 import type { MarkdownRenderContext } from "#renderer/components/Markdown/MarkdownNodes.js";
-import { parseSettledBlock } from "#renderer/components/Markdown/parse.js";
 
 /** One row of a document: blocks drawn through the node mapper, or one footnote definition. */
 export type MarkdownDocumentRow =
@@ -27,16 +26,16 @@ export interface ParsedMarkdownDocument {
 }
 
 /**
- * Parse a whole stored markdown string into its rows. It is finished, so it draws settled: its
- * code is colored and its math typeset, and its code and diagram blocks draw their own copies
- * through `renderCopy`.
+ * A whole stored markdown string's rows, from its parsed tree. It is finished, so it draws
+ * settled: its code is colored and its math typeset, and its code and diagram blocks draw their
+ * own copies through `renderCopy`.
  */
-export function parseMarkdownDocument(
-  text: string,
+export function markdownDocumentOf(
+  root: Root,
   codeSpanReader: CodeSpanReader,
   renderCopy: MarkdownRenderContext["renderCopy"],
 ): ParsedMarkdownDocument {
-  const nodes = parseSettledBlock(text).children;
+  const nodes = root.children;
   const footnotes = collectFootnoteDefinitions(nodes);
   return {
     rows: [

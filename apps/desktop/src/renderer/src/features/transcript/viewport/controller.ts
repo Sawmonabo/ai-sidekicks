@@ -464,9 +464,12 @@ export class ViewportController {
     this.landing.commitPendingLanding();
     if (this.#isNewLogOwedToLandings) {
       this.#isNewLogOwedToLandings = false;
-      // A new log may hold the rows a waiting landing's screen was missing, or a jump's page.
+      // A new log may hold the rows a waiting landing's screen was missing, or a jump's page. A
+      // page whose every row still waits to draw whole hands over an empty log, so its jump stays
+      // owed until the rows join.
       this.landing.retryWaiting();
-      const owedJump = this.#edgeJump.takeOwedLanding();
+      const owedJump =
+        this.rowWindow.logHeadRowKey === undefined ? undefined : this.#edgeJump.takeOwedLanding();
       if (owedJump !== undefined) {
         this.#landOnLogEdge(owedJump);
       }

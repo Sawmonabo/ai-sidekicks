@@ -14,7 +14,7 @@ import { liveBridgeWrapper } from "../../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../../helpers/app/harness.js";
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
-import { parseMarkdown } from "#renderer/components/Markdown/parse.js";
+import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
 import { OffListTableFrames } from "#renderer/features/transcript/rows/bodies/OffListTableFrames.js";
 import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import { type TableBodyPlacement } from "#renderer/features/transcript/rows/markdown/table-window/context.js";
@@ -48,8 +48,8 @@ function longTableBlockOf(name: string): string {
 }
 
 /** `block` parsed, as its body parses it each time it is drawn: a new table every time. */
-function longTableOf(block: string): Table {
-  return longTablesOf(parseMarkdown(block))[0] ?? expect.fail("a long table");
+async function longTableOf(block: string): Promise<Table> {
+  return longTablesOf(await parseTree(block))[0] ?? expect.fail("a long table");
 }
 
 /** The row the bodies here are drawn in. */
@@ -68,7 +68,7 @@ function bodyPlacementOf(
   return {
     bodyType: undefined,
     ownerDocument: undefined,
-    definitionPreamble: "",
+    definitionPreamble: () => "",
     rowKey,
     blockSourceStart,
     blockFingerprint,
@@ -116,7 +116,7 @@ async function landTable(
   block: string,
   blockFingerprint: string,
 ): Promise<TableGeometry> {
-  const table = longTableOf(block);
+  const table = await longTableOf(block);
   const tableKey = settledTableKeyOf(blockFingerprint, "", table);
   const landed = vi.fn();
   offList.measure(table, tableKey, new Set(), landed);
@@ -156,7 +156,7 @@ describe("a long table's geometry, kept for its next mount", () => {
     const offList = new OffListTables(document, () => 680);
     await drawFrames(offList);
     const runningTask = followPostedTasks();
-    const table = longTableOf(longTableBlockOf("own-task"));
+    const table = await longTableOf(longTableBlockOf("own-task"));
     let landedIn: number | undefined;
     const landed = vi.fn(() => {
       landedIn = runningTask();
@@ -172,7 +172,7 @@ describe("a long table's geometry, kept for its next mount", () => {
     const block = `${longTableBlockOf("settled")}\n\n${longTableBlockOf("settled-next")}`;
     const geometry = await landTable(offList, block, "settled");
 
-    const [parsedAnew, nextInBlock] = longTablesOf(parseMarkdown(block));
+    const [parsedAnew, nextInBlock] = longTablesOf(await parseTree(block));
     if (parsedAnew === undefined || nextInBlock === undefined) {
       expect.fail("two long tables");
     }
@@ -180,7 +180,7 @@ describe("a long table's geometry, kept for its next mount", () => {
       offList.measure(parsedAnew, settledTableKeyOf("settled", "", parsedAnew), new Set(), vi.fn()),
       "the block parsed anew, measured off the list",
     ).toBe(undefined);
-    const withFootnotes = longTablesOf(parseMarkdown(FOOTNOTE_PREAMBLE + block))[0];
+    const withFootnotes = longTablesOf(await parseTree(FOOTNOTE_PREAMBLE + block))[0];
     const unfiledKeys = {
       "the block parsed after other definitions": settledTableKeyOf(
         "settled",
@@ -219,13 +219,13 @@ describe("a long table's geometry, kept for its next mount", () => {
     const bodyType = offList.listedBodyType() ?? expect.fail("a listed body type");
     // What an earlier mount of the streaming table handed on.
     offList.streamingTables.hand(ROW_KEY, paragraph.length, { geometry, bodyType });
-    const first = listedTableOf(longTableOf(paragraph + block), placement, offList);
+    const first = listedTableOf(await longTableOf(paragraph + block), placement, offList);
     first.update();
     expect(first.heldColumns, "the columns handed to the first mount").toBe(geometry.columns);
     first.release();
 
     settledFingerprints.push("paragraph");
-    const remounted = listedTableOf(longTableOf(block), placement, offList, 1);
+    const remounted = listedTableOf(await longTableOf(block), placement, offList, 1);
     remounted.update();
     expect(remounted.heldColumns, "the columns it draws, a block ahead settled").toBe(
       geometry.columns,
@@ -234,7 +234,7 @@ describe("a long table's geometry, kept for its next mount", () => {
     remounted.update();
 
     settledFingerprints.push("table");
-    const settled = listedTableOf(longTableOf(block), placement, offList, 1);
+    const settled = listedTableOf(await longTableOf(block), placement, offList, 1);
     settled.update();
     expect(settled.heldColumns, "the columns its settled block draws").toBe(geometry.columns);
     remounted.release();
@@ -250,14 +250,14 @@ describe("a long table's geometry, kept for its next mount", () => {
     const isStreaming = (): undefined => undefined;
     // What an earlier mount of the streaming table handed on.
     offList.streamingTables.hand(ROW_KEY, 0, { geometry, bodyType });
-    const first = listedTableOf(longTableOf(block), bodyPlacementOf(isStreaming), offList);
+    const first = listedTableOf(await longTableOf(block), bodyPlacementOf(isStreaming), offList);
     first.update();
     // A frame of the stream, then the row leaves the list and its body unmounts.
     first.update();
     first.release();
 
     const otherRow = listedTableOf(
-      longTableOf(block),
+      await longTableOf(block),
       bodyPlacementOf(isStreaming, () => 0, "other-row"),
       offList,
     );
@@ -266,7 +266,11 @@ describe("a long table's geometry, kept for its next mount", () => {
     otherRow.release();
 
     // Listed again with no new rows: a new body, a new parse.
-    const listedAgain = listedTableOf(longTableOf(block), bodyPlacementOf(isStreaming), offList);
+    const listedAgain = listedTableOf(
+      await longTableOf(block),
+      bodyPlacementOf(isStreaming),
+      offList,
+    );
     listedAgain.update();
     expect(listedAgain.heldColumns, "the columns its row draws listed again").toBe(
       geometry.columns,
@@ -274,7 +278,11 @@ describe("a long table's geometry, kept for its next mount", () => {
     listedAgain.release();
 
     offList.streamingTables.retainRows(new Map());
-    const afterLetGo = listedTableOf(longTableOf(block), bodyPlacementOf(isStreaming), offList);
+    const afterLetGo = listedTableOf(
+      await longTableOf(block),
+      bodyPlacementOf(isStreaming),
+      offList,
+    );
     afterLetGo.update();
     expect(afterLetGo.heldColumns, "the columns after the log let its row go").toBe(undefined);
     afterLetGo.release();

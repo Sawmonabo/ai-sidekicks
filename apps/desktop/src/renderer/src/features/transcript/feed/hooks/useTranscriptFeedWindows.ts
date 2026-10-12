@@ -10,6 +10,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -336,6 +337,17 @@ export function useTranscriptFeedWindows(
     readRowWidthPxRef.current = readRowWidthPx;
     offListTables.readRowWidth();
   });
+  // A scroll brings rows whose text may need parsing, so each sample wakes the markdown worker.
+  const { scrollController } = viewport;
+  useEffect(
+    () =>
+      scrollController.subscribeToGeometry((geometry) => {
+        if (geometry.cause === "scroll") {
+          markdownWorker.wake();
+        }
+      }),
+    [scrollController],
+  );
   const stretchMeasure = useStretchMeasure({
     history,
     derivation,

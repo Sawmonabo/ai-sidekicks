@@ -18,7 +18,7 @@ import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAn
 import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
 import { MarkdownNodes } from "#renderer/components/Markdown/MarkdownNodes.js";
 import { MathBlock } from "#renderer/components/Markdown/MathBlock.js";
-import { parseSettledBlock } from "#renderer/components/Markdown/parse.js";
+import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
 import { changeLayout } from "#test/helpers/animation-frame.js";
 import { drawnText } from "#test/helpers/live-region.js";
 
@@ -178,9 +178,10 @@ describe("browser — a formula drawn by KaTeX", () => {
 
   it("draws a reply's formula inside its sentence at the sentence's size, and a display formula at KaTeX's larger size", async () => {
     const reply = `A row count of $${ROW_COUNT_FORMULA}$ fills the table.\n\n$$${ROW_COUNT_FORMULA}$$\n`;
+    const replyTree = await parseTree(reply);
     const { container } = render(
       <MarkdownNodes
-        nodes={parseSettledBlock(reply).children}
+        nodes={replyTree.children}
         context={{
           isSettled: true,
           definedFootnoteIdentifiers: new Set(),

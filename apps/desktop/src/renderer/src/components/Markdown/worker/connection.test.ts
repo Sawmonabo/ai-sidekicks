@@ -7,10 +7,14 @@ import { expect, it, vi } from "vitest";
 
 import { decodeTextPieces, encodeTextPieces } from "#renderer/lib/text-pieces.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
-import type { MarkdownWorkerReply, MarkdownWorkerRequest } from "./messages.js";
+import type {
+  MarkdownWorkerMessage,
+  MarkdownWorkerReply,
+  MarkdownWorkerRequest,
+} from "./messages.js";
 import { MarkdownWorkerConnection, type MarkdownWorkerPort } from "./connection.js";
 
-/** A stand-in worker that keeps what it is sent and answers only when told. */
+/** A stand-in worker that keeps the requests to make a copy it is sent and answers only when told. */
 class StandInWorker implements MarkdownWorkerPort {
   public onmessage: ((event: MessageEvent<MarkdownWorkerReply>) => void) | null = null;
   public onerror: ((event: ErrorEvent) => void) | null = null;
@@ -18,8 +22,10 @@ class StandInWorker implements MarkdownWorkerPort {
   public readonly requests: MarkdownWorkerRequest[] = [];
   public isEnded = false;
 
-  public postMessage(request: MarkdownWorkerRequest): void {
-    this.requests.push(request);
+  public postMessage(message: MarkdownWorkerMessage): void {
+    if (message.kind === "html" || message.kind === "drawn-text") {
+      this.requests.push(message);
+    }
   }
 
   public terminate(): void {

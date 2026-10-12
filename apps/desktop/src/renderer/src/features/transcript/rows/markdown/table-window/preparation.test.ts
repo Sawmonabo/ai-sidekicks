@@ -4,6 +4,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
 import { OffListTables } from "./off-list.js";
 import { prepareTableWindows } from "./preparation.js";
 
@@ -15,7 +16,7 @@ const LONG_TABLE_BLOCK = [
 ].join("\n");
 
 describe("a block's long tables, measured off the list", () => {
-  it("hold their row while the rows' width is unknown, and are drawn at it once it is read", () => {
+  it("hold their row while the rows' width is unknown, and are drawn at it once it is read", async () => {
     const rows: { widthPx: number | undefined } = { widthPx: undefined };
     const offList = new OffListTables(document, () => rows.widthPx);
     const preparation =
@@ -24,6 +25,7 @@ describe("a block's long tables, measured off the list", () => {
           source: LONG_TABLE_BLOCK,
           fingerprint: "block",
           definitionPreamble: "",
+          root: await parseTree(LONG_TABLE_BLOCK),
           definedFootnoteIdentifiers: new Set(),
         },
         offList,
@@ -39,7 +41,7 @@ describe("a block's long tables, measured off the list", () => {
     preparation.release();
   });
 
-  it("are withdrawn from the frames when the row's preparation is released", () => {
+  it("are withdrawn from the frames when the row's preparation is released", async () => {
     const offList = new OffListTables(document, () => 680);
     const onReady = vi.fn();
     const preparation =
@@ -48,6 +50,7 @@ describe("a block's long tables, measured off the list", () => {
           source: LONG_TABLE_BLOCK,
           fingerprint: "block",
           definitionPreamble: "",
+          root: await parseTree(LONG_TABLE_BLOCK),
           definedFootnoteIdentifiers: new Set(),
         },
         offList,

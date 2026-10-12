@@ -1,6 +1,6 @@
 // Which tables are long: past how many body rows a table draws as a window over its rows rather
 // than whole, which of a parsed block's tables are, and a cheap test of a block's text for whether
-// it can hold one before it is parsed.
+// it can hold one before its tree is walked.
 
 import type { Nodes, Table } from "mdast";
 
@@ -21,8 +21,8 @@ export function longTablesOf(node: Nodes): Table[] {
 
 /**
  * Whether `source` can hold a long table: more lines holding a cell divider than a table drawn
- * whole has rows, its head and delimiter lines counted. Read without parsing, so a block that
- * cannot hold one is never parsed for it; one that passes may still hold none.
+ * whole has rows, its head and delimiter lines counted. Read from the text, so a block that cannot
+ * hold one never has its tree walked for it; one that passes may still hold none.
  */
 export function mayHoldLongTable(source: string): boolean {
   let lineCount = 0;

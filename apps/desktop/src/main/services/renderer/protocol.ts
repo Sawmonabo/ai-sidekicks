@@ -33,8 +33,8 @@ import { isMissingPath } from "../missing-path.js";
 import { resolveRendererAsset } from "./assets.js";
 import { stampRootElement, type RootStamp } from "./root-stamp.js";
 import {
-  DIAGRAM_WORKER_CONTENT_SECURITY_POLICY,
-  isDiagramWorkerScript,
+  isWebAssemblyWorkerScript,
+  WEBASSEMBLY_WORKER_CONTENT_SECURITY_POLICY,
   RENDERER_CONTENT_SECURITY_POLICY,
   RENDERER_INDEX_URL,
   RENDERER_SCHEME,
@@ -63,8 +63,8 @@ export function registerRendererScheme(): void {
 }
 
 /**
- * Headers every response carries, refusals included. Only the diagram worker's script carries its
- * own policy, which a dedicated worker takes from its script's response.
+ * Headers every response carries, refusals included. Only the scripts of the diagram and markdown
+ * workers carry their own policy, which a dedicated worker takes from its script's response.
  */
 function baseResponseHeaders(
   contentSecurityPolicy: string = RENDERER_CONTENT_SECURITY_POLICY,
@@ -172,8 +172,8 @@ export async function handleRendererRequest(
     });
   }
 
-  const contentSecurityPolicy = isDiagramWorkerScript(path.basename(resolution.absolutePath))
-    ? DIAGRAM_WORKER_CONTENT_SECURITY_POLICY
+  const contentSecurityPolicy = isWebAssemblyWorkerScript(path.basename(resolution.absolutePath))
+    ? WEBASSEMBLY_WORKER_CONTENT_SECURITY_POLICY
     : RENDERER_CONTENT_SECURITY_POLICY;
   return new Response(fileResponse.body, {
     status: 200,

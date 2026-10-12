@@ -1,7 +1,8 @@
 // Mounts the markdown pipeline for one body: the block segmenter, two-pass footnote resolution and
 // footnote registration. Pass one reads each block alone, once, as it settles, for the footnotes
-// it defines; pass two parses a block against the whole body's definitions when it is drawn, so
-// `cite[^1]` in one block references `[^1]: ...` in another.
+// it defines; pass two parses each block against the whole body's definitions, so `cite[^1]` in
+// one block references `[^1]: ...` in another, and the settled blocks are drawn once those trees
+// have landed.
 // The published text arrives as a prop rather than a reveal-engine subscription, so a settled
 // message, which has no reveal stream, renders through the same path: a handle over a lane's text
 // or over a settled string, read in ranges and never held whole. A long body inside a
@@ -23,6 +24,7 @@ import {
   TableWindowBodyContext,
 } from "../markdown/table-window/context.js";
 import { useFlowBodyPlacement } from "./hooks/useFlowBodyPlacement.js";
+import { useFirstDrawReport } from "./hooks/useFirstDrawReport.js";
 import { useFootnoteDefinitionRegistration } from "./hooks/useFootnoteDefinitionRegistration.js";
 import { useMarkdownBodyBlocks } from "./hooks/useMarkdownBodyBlocks.js";
 import {
@@ -81,6 +83,7 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
     props.offersBlockCopy,
     viewport === undefined ? undefined : renderWindowedTable,
   );
+  useFirstDrawReport(blocks.settledBlocks.length > 0 || (blocks.tailNodes?.length ?? 0) > 0);
 
   if (isWindowed) {
     return (
@@ -128,21 +131,12 @@ function WholeMarkdown(props: {
     <div className="meridian-markdown" ref={flowTableBody?.attachBody}>
       {blocks.settledBlocks.map((block, index) => (
         <MarkdownBlockIndexContext key={block.key} value={index}>
-          <SettledBlock
-            block={block}
-            readBlockSource={blocks.readBlockSource}
-            definitionPreamble={blocks.definitionPreamble}
-            context={contexts.settled}
-          />
+          <SettledBlock nodes={blocks.readBlockNodes(block)} context={contexts.settled} />
         </MarkdownBlockIndexContext>
       ))}
       {blocks.volatileTail === "" ? null : (
         <MarkdownBlockIndexContext value={blocks.settledBlocks.length}>
-          <VolatileBlock
-            source={blocks.volatileTail}
-            definitionPreamble={blocks.definitionPreamble}
-            context={contexts.volatile}
-          />
+          <VolatileBlock nodes={blocks.tailNodes} context={contexts.volatile} />
         </MarkdownBlockIndexContext>
       )}
     </div>

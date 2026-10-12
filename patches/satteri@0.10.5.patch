@@ -1,0 +1,19 @@
+diff --git a/package.json b/package.json
+index 7f59389bc55c21eb3f5a589b25e04d5f3f55c4ad..ebdc2993dae55b707b7fa7187d0a11e61915a275 100644
+--- a/package.json
++++ b/package.json
+@@ -29,6 +29,14 @@
+       "browser": "./dist/index.js",
+       "import": "./dist/index.js",
+       "default": "./dist/index.js"
++    },
++    "./mdast-reader": {
++      "types": "./dist/mdast/mdast-reader.d.ts",
++      "default": "./dist/mdast/mdast-reader.js"
++    },
++    "./mdast-materializer": {
++      "types": "./dist/mdast/mdast-materializer.d.ts",
++      "default": "./dist/mdast/mdast-materializer.js"
+     }
+   },
+   "dependencies": {

@@ -26,8 +26,11 @@ export interface TableBodyPlacement {
    * before the body mounts.
    */
   readonly ownerDocument: Document | undefined;
-  /** The definitions every block of the body is parsed after, whose length each offset counts. */
-  readonly definitionPreamble: string;
+  /**
+   * The definitions every offset in block `index`'s drawn tree counts before the block's own text:
+   * the tree's own, which a block still drawn from its last tree keeps while a newer one lands.
+   */
+  definitionPreamble(index: number): string;
   /** The key of the transcript row the body is drawn in. */
   readonly rowKey: string;
   /** Where block `index` starts in the body's text, in UTF-16 code units. */

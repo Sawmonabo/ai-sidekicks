@@ -655,7 +655,11 @@ export class TableWindowLayout {
     } else {
       rememberTableGeometry(
         {
-          tableKey: settledTableKeyOf(blockFingerprint, placement.definitionPreamble, this.#table),
+          tableKey: settledTableKeyOf(
+            blockFingerprint,
+            placement.definitionPreamble(this.#blockIndex),
+            this.#table,
+          ),
           bodyType,
         },
         geometry,
@@ -681,7 +685,7 @@ export class TableWindowLayout {
         : recallTableGeometry({
             tableKey: settledTableKeyOf(
               blockFingerprint,
-              placement.definitionPreamble,
+              placement.definitionPreamble(this.#blockIndex),
               this.#table,
             ),
             bodyType,
@@ -712,7 +716,7 @@ export class TableWindowLayout {
     const placement = this.#body.placement;
     return (
       placement.blockSourceStart(this.#blockIndex) -
-      placement.definitionPreamble.length +
+      placement.definitionPreamble(this.#blockIndex).length +
       parseOffset
     );
   }

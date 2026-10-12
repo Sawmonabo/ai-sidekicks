@@ -475,8 +475,9 @@ describe("browser — a long table drawn as a window over its rows", () => {
       blocks: {
         settledBlocks: [],
         volatileTail: "",
-        definitionPreamble: "",
+        tailNodes: undefined,
         readBlockSource: () => "",
+        readDefinitionPreamble: () => "",
       },
       bodyTextLength: 0,
     });
@@ -567,7 +568,7 @@ function flowBodyOnPage(): { readonly body: HTMLElement; readonly placement: Flo
   const placement = new FlowBodyPlacement(
     viewport,
     "reply",
-    { settledBlocks: [], volatileTail: text, definitionPreamble: "" },
+    { settledBlocks: [], volatileTail: text, readDefinitionPreamble: () => "" },
     text.length,
   );
   return { body, placement };

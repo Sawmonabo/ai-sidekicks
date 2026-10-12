@@ -1,33 +1,26 @@
-// The HTML a markdown text makes under the screen's own policy: no anchor and no image, and a raw
+// The HTML a markdown tree makes under the screen's own policy: no anchor and no image, and a raw
 // HTML line is text, never markup. The page and the markdown worker both make it here, so a text
 // made into HTML off the page's thread is the same bytes as one made on it, and a table's body
 // rows the same tree.
 
 import { toHtml } from "hast-util-to-html";
-import type { Nodes, Parents, Table, TableRow } from "mdast";
+import type { Nodes, Parents, Root, Table, TableRow } from "mdast";
 import type { InlineMath } from "mdast-util-math";
 import { toHast, type Handlers } from "mdast-util-to-hast";
 
-import { parseMarkdown } from "./parse.js";
-
-/** One element of the tree `markdownToHast` makes, below its root. */
+/** One element of the tree `toHast` makes, below its root. */
 export type MarkdownHastElement = Extract<
-  Extract<ReturnType<typeof markdownToHast>, { children: unknown }>["children"][number],
+  Extract<ReturnType<typeof toHast>, { children: unknown }>["children"][number],
   { type: "element" }
 >;
 
-/** The HTML `markdown` makes, as the screen would draw it. */
-export function markdownToHtml(markdown: string): string {
-  return toHtml(markdownToHast(markdown));
-}
-
-/** The elements `markdown` makes under the screen's own policy, as a tree. */
-export function markdownToHast(markdown: string): ReturnType<typeof toHast> {
-  return toHast(parseMarkdown(markdown), { handlers: SCREEN_POLICY_HANDLERS });
+/** The HTML the markdown tree `tree` makes, as the screen would draw it. */
+export function markdownTreeToHtml(tree: Root): string {
+  return toHtml(toHast(tree, { handlers: SCREEN_POLICY_HANDLERS }));
 }
 
 /**
- * The HTML of the body rows of the first table in the markdown tree `tree`, as `markdownToHtml`
+ * The HTML of the body rows of the first table in the markdown tree `tree`, as `markdownTreeToHtml`
  * writes them for the same table: under the screen's policy, a line break between each.
  */
 export function tableBodyRowsHtml(tree: Nodes): string {
@@ -104,7 +97,7 @@ const SCREEN_TABLE_ROW_HANDLERS: Handlers = {
 };
 
 /** The body rows of the first table `tree` holds. */
-function bodyRowsOf(tree: ReturnType<typeof markdownToHast>): MarkdownHastElement[] {
+function bodyRowsOf(tree: ReturnType<typeof toHast>): MarkdownHastElement[] {
   if (!("children" in tree)) {
     return [];
   }

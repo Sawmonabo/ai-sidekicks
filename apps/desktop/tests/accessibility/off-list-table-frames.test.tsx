@@ -10,7 +10,7 @@ import { renderSettled } from "../helpers/app/harness.js";
 import { AXE_TAGS } from "./axe-run.js";
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
-import { parseMarkdown } from "#renderer/components/Markdown/parse.js";
+import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
 import { OffListTableFrames } from "#renderer/features/transcript/rows/bodies/OffListTableFrames.js";
 import { longTablesOf } from "#renderer/features/transcript/rows/markdown/table-window/long-tables.js";
 import { OffListTables } from "#renderer/features/transcript/rows/markdown/table-window/off-list.js";
@@ -28,7 +28,7 @@ describe("accessibility — the frames long tables are measured in off the list"
   it("leave no node for axe to find", async () => {
     installMeridianTokens(document);
     const offList = new OffListTables(document, () => 680);
-    const table = longTablesOf(parseMarkdown(LONG_TABLE))[0] ?? expect.fail("a long table");
+    const table = longTablesOf(await parseTree(LONG_TABLE))[0] ?? expect.fail("a long table");
     const withdraw = offList.measure(table, "table", new Set(), () => undefined);
     const Wrapper = liveBridgeWrapper();
     await renderSettled(

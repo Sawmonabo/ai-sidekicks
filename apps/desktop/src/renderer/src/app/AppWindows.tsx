@@ -32,6 +32,7 @@ import { useAppearance } from "./hooks/useAppearance.js";
 import { useDiagramFaceWarm } from "./hooks/useDiagramFaceWarm.js";
 import { useKeptWindowLayout } from "./hooks/useKeptWindowLayout.js";
 import { useLazyBodyIdleWarm } from "./hooks/useLazyBodyIdleWarm.js";
+import { useMarkdownWorkerWake } from "./hooks/useMarkdownWorkerWake.js";
 import { useSendPaneWindowWidths } from "./hooks/useSendPaneWindowWidths.js";
 import { useSessionStoreRegistry } from "./hooks/useSessionStoreRegistry.js";
 import { useLastSettingsPage } from "./hooks/useLastSettingsPage.js";
@@ -112,6 +113,7 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
   // Each window's frame store, kept here so the app's commands act on the window used last.
   const { windowStores, windows, hasServiceAnswered } = useWindowStores(openWindows, bridge);
   const windowStoreUsedLast = useCallback(() => windowStores.list()[0]?.store, [windowStores]);
+  useMarkdownWorkerWake(sessionStoreRegistry, windows);
   // A View-menu scheme main could not save is told on the window used last.
   useEffect(
     () => discloseUnkeptMenuSchemes(bridge.window, windowStoreUsedLast),

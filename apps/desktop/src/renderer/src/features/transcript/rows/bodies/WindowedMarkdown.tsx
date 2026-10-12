@@ -60,18 +60,9 @@ export function WindowedMarkdown(props: WindowedMarkdownProps): React.JSX.Elemen
             >
               <MarkdownBlockIndexContext value={row.index}>
                 {block === undefined ? (
-                  <VolatileBlock
-                    source={blocks.volatileTail}
-                    definitionPreamble={blocks.definitionPreamble}
-                    context={contexts.volatile}
-                  />
+                  <VolatileBlock nodes={blocks.tailNodes} context={contexts.volatile} />
                 ) : (
-                  <SettledBlock
-                    block={block}
-                    readBlockSource={blocks.readBlockSource}
-                    definitionPreamble={blocks.definitionPreamble}
-                    context={contexts.settled}
-                  />
+                  <SettledBlock nodes={blocks.readBlockNodes(block)} context={contexts.settled} />
                 )}
               </MarkdownBlockIndexContext>
             </div>

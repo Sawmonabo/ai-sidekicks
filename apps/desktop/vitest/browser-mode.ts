@@ -55,6 +55,11 @@ export const BROWSER_MODE_OPTIMIZE_DEPS: { include: string[] } = {
     "katex",
     // The diagram worker's library: found late, it would start the second pass described above.
     "@mermanjs/web-render",
+    // The markdown parse worker's parser and the page's tree readers: found late, they would start
+    // the second pass described above.
+    "satteri",
+    "satteri/mdast-reader",
+    "satteri/mdast-materializer",
     "@testing-library/react",
     "axe-core",
   ],

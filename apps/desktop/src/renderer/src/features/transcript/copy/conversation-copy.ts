@@ -3,18 +3,15 @@
 // formatted flavor a part at a time, joined by a blank line into the content of one clipboard
 // write. A large body is read in full just before its row and let go once the row's part is read,
 // so a copy holds one at a time; an end row's large output is stripped of its escape sequences in
-// slices before its part is read. A reply part too long to make into HTML within a slice is made by
-// the markdown worker, off the page's thread, and so is a long end row's part read into its text,
-// which, copied as markdown, comes with its HTML.
+// slices before its part is read. Each reply part's formatted flavor is made by the markdown worker,
+// which parses it off the page's thread, and so is a long end row's part read into its text, which,
+// copied as markdown, comes with its HTML.
 // A copy built in slices is the same bytes as one built at once.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 import { toHtml } from "hast-util-to-html";
 
-import {
-  makeMarkdownHtml,
-  type MarkdownWorkerConnection,
-} from "#renderer/components/Markdown/worker/connection.js";
+import { type MarkdownWorkerConnection } from "#renderer/components/Markdown/worker/connection.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import { joinIntoPieces, piecesOf, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
@@ -226,8 +223,7 @@ export class ConversationCopyBuild {
     while (this.#partHtml.length < parts.length) {
       const part = parts[this.#partHtml.length] ?? throwLostPlace("a part follows the last made");
       if (part.flavor === "markdown") {
-        const html =
-          part.html ?? makeMarkdownHtml(part.text, this.#rows.markdownWorker, part.pieces);
+        const html = part.html ?? this.#rows.markdownWorker.html(part.text, part.pieces);
         if (html instanceof Promise) {
           this.#awaited = { kind: "worker-html", html };
           return NOT_BUILT;

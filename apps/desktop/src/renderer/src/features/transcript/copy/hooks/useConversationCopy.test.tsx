@@ -14,10 +14,7 @@ import type { ClipboardContent, TextClipboardContent } from "#shared/preload-api
 import { piecedTextOf, TEXT_PIECE_LENGTH, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { inThreadMarkdownWorker } from "#renderer/components/Markdown/worker/connection.test-support.js";
-import {
-  markdownWorker,
-  PAGE_HTML_CHARACTER_LIMIT,
-} from "#renderer/components/Markdown/worker/connection.js";
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { OwnerWindowProvider } from "#renderer/components/OwnerWindow/OwnerWindowProvider.js";
 import { WindowedListRow } from "#renderer/components/WindowedListRow/WindowedListRow.js";
@@ -49,8 +46,8 @@ const ROWS = [
   }),
 ];
 
-/** A reply too long for its formatted flavor to be made on the page's thread. */
-const LONG_REPLY = `Long start ${"word ".repeat(PAGE_HTML_CHARACTER_LIMIT / 5)}long end`;
+/** A long reply, whose formatted flavor the markdown worker makes, as it makes every reply's. */
+const LONG_REPLY = `Long start ${"word ".repeat(820)}long end`;
 
 /** The person's closing message after the long reply. */
 const CLOSING_MESSAGE = "thanks";
@@ -359,20 +356,20 @@ describe("⌘C in a session", () => {
     expect(copied[0]).toStrictEqual({
       text: `${USER_MESSAGE}\n\n${LONG_REPLY}\n\n${CLOSING_MESSAGE}`,
     });
-    // A newer copy, short enough to be written whole at once, lands while the first's formatting
-    // is made.
+    // A newer copy lands while the first's formatting is made.
     const message = textNodeHolding(sessionDocument, USER_MESSAGE);
     selection.setBaseAndExtent(message, 0, textNodeHolding(sessionDocument, "Long start"), 2);
     fireEvent.copy(message);
     await vi.waitFor(() => {
-      expect(copied).toHaveLength(2);
+      expect([workerAnswers.length, copied.length]).toStrictEqual([2, 2]);
     });
     workerAnswers[0]?.(piecedTextOf("<p>the first copy's formatting</p>"));
     fireEvent.copy(selectLongReply());
     await vi.waitFor(() => {
-      expect(workerAnswers).toHaveLength(2);
+      expect(workerAnswers).toHaveLength(3);
     });
-    workerAnswers[1]?.(piecedTextOf("<p>the third copy's formatting</p>"));
+    workerAnswers[1]?.(piecedTextOf("<p>the second copy's formatting</p>"));
+    workerAnswers[2]?.(piecedTextOf("<p>the third copy's formatting</p>"));
 
     await vi.waitFor(() => {
       expect(formatted).toHaveLength(1);

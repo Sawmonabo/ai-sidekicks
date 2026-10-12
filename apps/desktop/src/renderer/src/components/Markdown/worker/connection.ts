@@ -1,27 +1,30 @@
-// The page's end of the markdown worker, one for the whole app. It starts the worker on the first
-// request, sends a reply's markdown as the UTF-8 bytes of its pieces, moved to the worker, or a
-// drawn part's tree as a copy, answers each of the worker's asks for a long table's undrawn rows
-// from the table the page drew, and pairs what the worker made with its request. The pieces are
-// encoded and decoded a few a slice, and each ask is answered with the rows one slice writes, so
-// no task on the page grows with a text or a table. When the worker stops, sends a reply that
-// cannot be read or an ask no copied table answers, or leaves a request unanswered past its
-// deadline, it ends that worker and fails every request still waiting; the next request starts a
-// new one. A worker left with nothing to do for a minute is ended to give its memory back.
+// The page's end of the markdown worker, one for the whole app. It starts the worker on a sign the
+// app will soon draw markdown or on the first request, and hands it the parser: the module the
+// first worker compiled and sent back, which every later worker only instantiates. It sends each
+// text to parse and hands back the parser's binary tree; a reply's markdown as the UTF-8 bytes of
+// its pieces, moved to the worker, or a drawn part's tree as a copy, to be made into what it copies
+// as; and it answers each of the worker's asks for a long table's undrawn rows from the table the
+// page drew, with the rows one slice writes, so no task on the page grows with a text or a table.
+// When the worker stops, fails to load or run the parser, sends what cannot be read or an ask no
+// copied table answers, or leaves a request unanswered past its deadline, it ends that worker and
+// fails every request still waiting; the next request starts a new one. A worker left unused for a
+// minute, with no turn holding it awake, is ended to give its memory back while the compiled module
+// stays; a request sent while a new worker loads waits in the worker's own queue.
 
 import type { Table } from "mdast";
 
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import type { WorkerPort, WorkerStart } from "#renderer/lib/worker-port.js";
 import { startSlice } from "#renderer/lib/work-slices.js";
 import { describeFailure } from "#shared/failure-message.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 import {
   decodePiecesInSlices,
   encodePiecesInSlices,
-  piecedTextOf,
   piecesOf,
   type PiecedText,
 } from "#renderer/lib/text-pieces.js";
 import { drawnTreeLength, drawnTreeText, type CopyFlavor, type DrawnTree } from "../drawn-text.js";
-import { markdownToHtml } from "../html.js";
 import type {
   MarkdownWorkerMade,
   MarkdownWorkerMessage,
@@ -35,20 +38,23 @@ export interface DrawnPartCopy {
   readonly html?: PiecedText;
 }
 
+/**
+ * What parsing one text came to: the parser's binary tree and the stand-in its dollars read as
+ * text took, or why the parser gave none.
+ */
+export type MarkdownParseAnswer =
+  | {
+      readonly status: "parsed";
+      readonly buffer: ArrayBuffer;
+      readonly dollarStandIn: string | undefined;
+    }
+  | { readonly status: "failed"; readonly reason: string };
+
 /** The markdown worker as the connection drives it, so a test can stand in for the worker. */
 export type MarkdownWorkerPort = WorkerPort<MarkdownWorkerMessage, MarkdownWorkerReply>;
 
 /** Starts one markdown worker. */
 export type MarkdownWorkerStart = WorkerStart<MarkdownWorkerMessage, MarkdownWorkerReply>;
-
-/**
- * The length, in UTF-16 code units, from which a text is made into HTML by the worker rather
- * than on the page's thread. Measured on a loaded machine, the page made HTML at about 0.75 ms a
- * KiB and a warm worker's round trip took 0.3 to 0.7 ms longer: a 4 KiB text took 3.2 ms on the
- * page, which still fits a 4 ms slice of copy work inside a frame, and 6 ms at 8 KiB, which does
- * not.
- */
-export const PAGE_HTML_CHARACTER_LIMIT = 4096;
 
 /**
  * The characters a drawn part holds, as `drawnTreeLength` counts them, from which the worker reads
@@ -58,15 +64,40 @@ export const PAGE_HTML_CHARACTER_LIMIT = 4096;
  */
 export const PAGE_DRAWN_TEXT_CHARACTER_LIMIT = 1024;
 
-/** One worker at a time: started on the first request, replaced after it fails, ended when idle. */
+/**
+ * How long the worker may go unused, in milliseconds, before it is ended to give back its memory:
+ * the parser's code and heap cost the renderer about 14 MB of physical footprint while it runs, of
+ * which the compiled module the connection keeps, about 6 MB, stays, so starting again costs about
+ * 15 ms, which the app hides by starting it on the first sign of use (a keystroke, a turn starting,
+ * the window coming forward, a session shown, a scroll). The clock does not run while a turn runs,
+ * and every request, keystroke and scroll restarts it, so a minute outlasts the pauses inside
+ * ordinary use and gives the memory back soon after the person steps away.
+ */
+export const MARKDOWN_WORKER_IDLE_STOP_MS = 60_000;
+
+/**
+ * One worker at a time: started on a sign of use or the first request, replaced after it fails,
+ * and ended after a minute unused; and one compiled parser that every worker after the first
+ * instantiates.
+ */
 export class MarkdownWorkerConnection {
   readonly #startWorker: MarkdownWorkerStart;
   readonly #view: Window;
-  /** Each request sent and not answered, by its id. */
+  /** Each request to make a copy sent and not answered, by its id. */
   readonly #waiting = new Map<number, WaitingText>();
+  /** Each text sent to parse and not answered, by its id. */
+  readonly #waitingParses = new Map<number, (answer: MarkdownParseAnswer) => void>();
   #port: MarkdownWorkerPort | undefined;
-  /** Ends the current worker once it has had nothing to do for the idle stop. */
-  #idleStop: ReturnType<typeof setTimeout> | undefined;
+  /** The parser's compiled module, kept for the app's life once a worker compiled it. */
+  #parser: WebAssembly.Module | undefined;
+  /** Ends the current worker when it leaves a text to parse unanswered too long. */
+  #parseWatchdog: ReturnType<typeof setTimeout> | undefined;
+  /** Ends the current worker once it has gone unused for the idle stop. */
+  #idleCheck: ReturnType<typeof setTimeout> | undefined;
+  /** When the worker was last used or asked to stay up, on `performance.now()`'s clock. */
+  #lastUseMs = 0;
+  /** How many holds keep the worker up whatever its idle time, such as a turn that is running. */
+  #holdCount = 0;
   #requestCount = 0;
 
   /** `view` is the window whose thread encodes and decodes the texts, a slice at a time. */
@@ -76,10 +107,34 @@ export class MarkdownWorkerConnection {
   }
 
   /**
+   * Parse `source` and hand `settle` what it came to. Never throws. `settle` is called once, after
+   * this call returns unless the worker answers on the same turn, as a stand-in does.
+   */
+  public parse(source: string, settle: (answer: MarkdownParseAnswer) => void): void {
+    this.#lastUseMs = performance.now();
+    let port: MarkdownWorkerPort;
+    try {
+      port = this.#port ?? this.#open();
+    } catch (error: unknown) {
+      settle({
+        status: "failed",
+        reason: `The markdown worker could not start: ${describeFailure(error)}`,
+      });
+      return;
+    }
+    this.#requestCount += 1;
+    const requestId = this.#requestCount;
+    this.#waitingParses.set(requestId, settle);
+    if (this.#waitingParses.size === 1) {
+      this.#armParseWatchdog(port);
+    }
+    port.postMessage({ kind: "parse", requestId, source });
+  }
+
+  /**
    * The HTML `markdown` makes under the screen's policy, made off the page's thread from `pieces`,
-   * the same text in pieces, and held in pieces: the same bytes `markdownToHtml` makes on it.
-   * Rejects with an `Error` when the worker cannot start, cannot make the HTML, stops, or does not
-   * answer in time.
+   * the same text in pieces, and held in pieces. Rejects with an `Error` when the worker cannot
+   * start, cannot make the HTML, stops, or does not answer in time.
    */
   public async html(
     markdown: string,
@@ -96,8 +151,8 @@ export class MarkdownWorkerConnection {
 
   /**
    * What the drawn part `tree` copies as in `flavor`, read off the page's thread: the same text
-   * `drawnTreeText` or `drawnTreeMarkdown` reads on it, with the HTML of a part copied as markdown,
-   * each of its long tables' undrawn rows read from the table `tables` holds under the key the rows
+   * `drawnTreeText` or `drawnTreeMarkdown` reads, with the HTML of a part copied as markdown, each
+   * of its long tables' undrawn rows read from the table `tables` holds under the key the rows
    * name. Rejects as `html` does, and when the worker asks for rows those tables do not hold.
    */
   public async drawnText(
@@ -121,6 +176,40 @@ export class MarkdownWorkerConnection {
   }
 
   /**
+   * Start the worker now if it is not running, so it has loaded the parser by the time a text
+   * comes, and count this as a use. Cheap when it runs, so a caller may call it on every keystroke
+   * or scroll sample. A worker that cannot start is recorded, and the next request reports it.
+   */
+  public wake(): void {
+    this.#lastUseMs = performance.now();
+    if (this.#port !== undefined) {
+      return;
+    }
+    try {
+      this.#open();
+    } catch (error: unknown) {
+      recordRejectedRequest("components/Markdown/worker", "worker-not-started", error);
+    }
+  }
+
+  /**
+   * Keep the worker from its idle stop until the returned call releases the hold; releasing counts
+   * as a use, so the idle minute starts then. It does not start a worker: pair it with `wake`.
+   */
+  public holdAwake(): Unsubscribe {
+    this.#holdCount += 1;
+    let isHeld = true;
+    return () => {
+      if (!isHeld) {
+        return;
+      }
+      isHeld = false;
+      this.#holdCount -= 1;
+      this.#lastUseMs = performance.now();
+    };
+  }
+
+  /**
    * Sends the request `requestOf` makes, moving `transfer` to the worker, and resolves what it
    * made, within the deadline of a request `size` characters long, counted again from each ask for
    * rows of `tables`.
@@ -131,6 +220,7 @@ export class MarkdownWorkerConnection {
     size: number,
     tables: ReadonlyMap<string, Table> = new Map(),
   ): Promise<MarkdownWorkerMade> {
+    this.#lastUseMs = performance.now();
     let port: MarkdownWorkerPort;
     try {
       port = this.#port ?? this.#open();
@@ -139,7 +229,6 @@ export class MarkdownWorkerConnection {
         new Error(`The markdown worker could not start: ${describeFailure(error)}`),
       );
     }
-    clearTimeout(this.#idleStop);
     this.#requestCount += 1;
     const requestId = this.#requestCount;
     return new Promise((resolve, reject) => {
@@ -169,12 +258,56 @@ export class MarkdownWorkerConnection {
       this.#fail(port, "The markdown worker sent a reply that could not be read");
     };
     this.#port = port;
+    this.#armIdleCheck(port, MARKDOWN_WORKER_IDLE_STOP_MS);
+    port.postMessage({ kind: "load", parser: this.#parser });
     return port;
   }
 
   #hear(port: MarkdownWorkerPort, reply: MarkdownWorkerReply): void {
+    if (port !== this.#port) {
+      return;
+    }
+    switch (reply.status) {
+      case "compiled":
+        this.#parser = reply.parser;
+        return;
+      case "load-failed":
+        // Compiled again by the next worker, since what failed may have been the module handed.
+        this.#parser = undefined;
+        this.#fail(port, `The markdown parser did not load: ${reply.reason}`);
+        return;
+      case "parser-failed":
+        this.#fail(port, `The markdown parser failed: ${reply.reason}`);
+        return;
+      case "parsed":
+        this.#landTrees(port, reply.trees);
+        return;
+      default:
+        this.#hearMade(port, reply);
+    }
+  }
+
+  #landTrees(
+    port: MarkdownWorkerPort,
+    trees: Extract<MarkdownWorkerReply, { status: "parsed" }>["trees"],
+  ): void {
+    for (const tree of trees) {
+      const settle = this.#waitingParses.get(tree.requestId);
+      this.#waitingParses.delete(tree.requestId);
+      settle?.({ status: "parsed", buffer: tree.buffer, dollarStandIn: tree.dollarStandIn });
+    }
+    clearTimeout(this.#parseWatchdog);
+    if (this.#waitingParses.size > 0 && port === this.#port) {
+      this.#armParseWatchdog(port);
+    }
+  }
+
+  #hearMade(
+    port: MarkdownWorkerPort,
+    reply: Extract<MarkdownWorkerReply, { status: "pull" | "made" | "failed" }>,
+  ): void {
     const waiting = this.#waiting.get(reply.requestId);
-    if (port !== this.#port || waiting === undefined) {
+    if (waiting === undefined) {
       return;
     }
     clearTimeout(waiting.watchdog);
@@ -184,17 +317,11 @@ export class MarkdownWorkerConnection {
       return;
     }
     this.#waiting.delete(reply.requestId);
+    this.#lastUseMs = performance.now();
     if (reply.status === "failed") {
       waiting.reject(new Error(`The markdown worker failed: ${reply.reason}`));
     } else {
       waiting.resolve(reply);
-    }
-    if (this.#waiting.size === 0) {
-      this.#idleStop = setTimeout(() => {
-        if (port === this.#port) {
-          this.#end(port);
-        }
-      }, MARKDOWN_WORKER_IDLE_STOP_MS);
     }
   }
 
@@ -237,6 +364,30 @@ export class MarkdownWorkerConnection {
       });
   }
 
+  #armParseWatchdog(port: MarkdownWorkerPort): void {
+    clearTimeout(this.#parseWatchdog);
+    this.#parseWatchdog = this.#watch(port, PARSE_ANSWER_DEADLINE_MS);
+  }
+
+  /**
+   * At the idle stop, end `port` if nothing used it, held it or waits on it, else look again when
+   * the idle stop would next run out. One timer per idle stop, never one per use.
+   */
+  #armIdleCheck(port: MarkdownWorkerPort, delayMs: number): void {
+    this.#idleCheck = setTimeout(() => {
+      if (this.#holdCount > 0 || this.#waiting.size > 0 || this.#waitingParses.size > 0) {
+        this.#armIdleCheck(port, MARKDOWN_WORKER_IDLE_STOP_MS);
+        return;
+      }
+      const idleMs = performance.now() - this.#lastUseMs;
+      if (idleMs < MARKDOWN_WORKER_IDLE_STOP_MS) {
+        this.#armIdleCheck(port, MARKDOWN_WORKER_IDLE_STOP_MS - idleMs);
+        return;
+      }
+      this.#end(port);
+    }, delayMs);
+  }
+
   /** End `port` and fail every request it holds; the next request starts a new worker. */
   #fail(port: MarkdownWorkerPort, reason: string): void {
     if (port !== this.#port) {
@@ -245,81 +396,24 @@ export class MarkdownWorkerConnection {
     this.#end(port);
     const waiting = [...this.#waiting.values()];
     this.#waiting.clear();
+    const waitingParses = [...this.#waitingParses.values()];
+    this.#waitingParses.clear();
     for (const request of waiting) {
       clearTimeout(request.watchdog);
       request.reject(new Error(reason));
     }
+    for (const settle of waitingParses) {
+      settle({ status: "failed", reason });
+    }
   }
 
+  /** End `port` and its timers; the next request or wake starts a new worker. */
   #end(port: MarkdownWorkerPort): void {
     port.terminate();
-    clearTimeout(this.#idleStop);
+    clearTimeout(this.#parseWatchdog);
+    clearTimeout(this.#idleCheck);
     this.#port = undefined;
   }
-}
-
-/**
- * One request sent and not answered: how to settle it, the deadline that fails its worker, and the
- * tables its asks for rows are answered from.
- */
-interface WaitingText {
-  readonly resolve: (made: MarkdownWorkerMade) => void;
-  readonly reject: (error: Error) => void;
-  watchdog: ReturnType<typeof setTimeout>;
-  readonly deadlineMs: number;
-  readonly tables: ReadonlyMap<string, Table>;
-}
-
-/**
- * Body rows of `table` from `firstIndex` toward `lastIndex`, each as its JSON, as many as one slice
- * writes and at least one: written a row at a time, so the slice ends by the clock, where the
- * structured clone of a message of rows would run to the last row however long it took. Each
- * node's place in the source is left out: the worker reads none of them, and measured, they made
- * a bench row's JSON 2,300 characters rather than 550, and its sending three times as long.
- */
-function undrawnRowsJson(table: Table, firstIndex: number, lastIndex: number): string[] {
-  const hasTime = startSlice();
-  const rows: string[] = [];
-  let index = firstIndex;
-  do {
-    rows.push(JSON.stringify(table.children[index + 1], withoutPosition));
-    index += 1;
-  } while (index <= lastIndex && hasTime());
-  return rows;
-}
-
-/** A JSON replacer leaving out each node's `position`. */
-function withoutPosition(key: string, value: unknown): unknown {
-  return key === "position" ? undefined : value;
-}
-
-/**
- * How long the worker may take over a request, in milliseconds, for each started mebibyte of it,
- * counted from when it is sent, including a worker's start, and again from each ask for rows. A
- * 2 MiB reply took about 1.1 s to make into HTML on the page's own thread, so this leaves a heavily
- * loaded machine room while a worker that never answers still fails it.
- */
-const ANSWER_DEADLINE_MS_PER_MEBIBYTE = 10_000;
-
-/**
- * How long the worker may sit with nothing to do, in milliseconds, before it is ended to give its
- * memory back; the next request starts a new one.
- */
-const MARKDOWN_WORKER_IDLE_STOP_MS = 60_000;
-
-/**
- * The HTML `markdown` makes under the screen's policy, in pieces: made at once on the page's thread
- * when it is shorter than `PAGE_HTML_CHARACTER_LIMIT`, otherwise by `worker` off it from `pieces`,
- * the same text in pieces when it is held so, rejecting as its `html` does.
- */
-export function makeMarkdownHtml(
-  markdown: string,
-  worker: Pick<MarkdownWorkerConnection, "html">,
-  pieces?: readonly string[],
-): PiecedText | Promise<PiecedText> {
-  return markdown.length < PAGE_HTML_CHARACTER_LIMIT
-    ? piecedTextOf(markdownToHtml(markdown))
-    : worker.html(markdown, pieces);
 }
 
 /**
@@ -346,6 +440,58 @@ export function startMarkdownWorker(): MarkdownWorkerPort {
   return new Worker(new URL("./entry.ts", import.meta.url), { type: "module", name: "markdown" });
 }
 
+/**
+ * One request to make a copy sent and not answered: how to settle it, the deadline that fails its
+ * worker, and the tables its asks for rows are answered from.
+ */
+interface WaitingText {
+  readonly resolve: (made: MarkdownWorkerMade) => void;
+  readonly reject: (error: Error) => void;
+  watchdog: ReturnType<typeof setTimeout>;
+  readonly deadlineMs: number;
+  readonly tables: ReadonlyMap<string, Table>;
+}
+
+/**
+ * How long the worker may leave a text to parse unanswered, in milliseconds, counted from the
+ * first text it holds and again from each answer. The app's first worker had the parser compiled
+ * and loaded about 170 ms after its fetch began on a launching machine, a later one loads it from
+ * the kept module in about 15 ms, and a 256 KB text parses in under 10 ms, so this leaves a heavily
+ * loaded machine plenty of room while a parser that never answers still fails its texts.
+ */
+const PARSE_ANSWER_DEADLINE_MS = 10_000;
+
+/**
+ * How long the worker may take over a request to make a copy, in milliseconds, for each started
+ * mebibyte of it, counted from when it is sent, including a worker's start, and again from each ask
+ * for rows. A 2 MiB reply took about 1.1 s to make into HTML on the page's own thread, so this
+ * leaves a heavily loaded machine room while a worker that never answers still fails it.
+ */
+const ANSWER_DEADLINE_MS_PER_MEBIBYTE = 10_000;
+
+/**
+ * Body rows of `table` from `firstIndex` toward `lastIndex`, each as its JSON, as many as one slice
+ * writes and at least one: written a row at a time, so the slice ends by the clock, where the
+ * structured clone of a message of rows would run to the last row however long it took. Each
+ * node's place in the source is left out: the worker reads none of them, and measured, they made
+ * a bench row's JSON 2,300 characters rather than 550, and its sending three times as long.
+ */
+function undrawnRowsJson(table: Table, firstIndex: number, lastIndex: number): string[] {
+  const hasTime = startSlice();
+  const rows: string[] = [];
+  let index = firstIndex;
+  do {
+    rows.push(JSON.stringify(table.children[index + 1], withoutPosition));
+    index += 1;
+  } while (index <= lastIndex && hasTime());
+  return rows;
+}
+
+/** A JSON replacer leaving out each node's `position`. */
+function withoutPosition(key: string, value: unknown): unknown {
+  return key === "position" ? undefined : value;
+}
+
 /** The deadline of a request `byteLength` bytes long. */
 function answerDeadlineMs(byteLength: number): number {
   return ANSWER_DEADLINE_MS_PER_MEBIBYTE * Math.max(1, Math.ceil(byteLength / 2 ** 20));
@@ -353,7 +499,7 @@ function answerDeadlineMs(byteLength: number): number {
 
 /**
  * The app's one connection to the markdown worker. Every window is drawn from the one console
- * document, so every window's requests reach the same worker; it starts on the first one.
+ * document, so every window's requests reach the same worker.
  */
 export const markdownWorker: MarkdownWorkerConnection = new MarkdownWorkerConnection(
   startMarkdownWorker,

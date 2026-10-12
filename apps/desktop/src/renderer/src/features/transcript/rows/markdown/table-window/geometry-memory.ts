@@ -11,7 +11,7 @@ import type { Table } from "mdast";
 
 import { ByteBoundedCache } from "#renderer/lib/byte-bounded-cache.js";
 import { type HeldTableColumns } from "#renderer/components/Markdown/table-offer.js";
-import { fingerprintOf } from "../body-blocks.js";
+import { fingerprintOf } from "../settled-block.js";
 import { bodyTypeKeyOf, type MarkdownBodyType } from "../body-type.js";
 import { type TableCellType } from "./cell-measure.js";
 

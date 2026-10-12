@@ -226,7 +226,8 @@ function childrenOf(node: Nodes): readonly (RootContent | PhrasingContent)[] {
  * the table. No box of its own: the cells wrap to the column, so the table never scrolls sideways.
  */
 function renderWholeTable(node: Table, context: MarkdownRenderContext): React.JSX.Element {
-  const [headerRow, ...bodyRows] = node.children;
+  const headerRow = node.children[0];
+  const bodyRows = node.children.slice(1);
   return renderTableFrame({
     columns: undefined,
     isShrunkToRoom: false,
@@ -288,12 +289,14 @@ function heldColumnWidthOf(
     : `${String(widthPx)}px`;
 }
 
-/** The parts of one table, offered to a body that chooses which of its rows to draw. */
+/**
+ * The parts of one table, offered to a body that chooses which of its rows to draw. Each row is
+ * read as it is drawn and none is kept, since a long table's rows are read from its pieces.
+ */
 function tableOfferOf(node: Table, context: MarkdownRenderContext): MarkdownTableOffer {
-  const [headerRow, ...bodyRows] = node.children;
   return {
     table: node,
-    bodyRowCount: bodyRows.length,
+    bodyRowCount: Math.max(0, node.children.length - 1),
     drawWhole: () => renderWholeTable(node, context),
     drawFrame: renderTableFrame,
     drawTypeSampleRows: () => (
@@ -304,12 +307,14 @@ function tableOfferOf(node: Table, context: MarkdownRenderContext): MarkdownTabl
         )}
       </>
     ),
-    drawHeadRow: (attributes) =>
-      headerRow === undefined
+    drawHeadRow: (attributes) => {
+      const headerRow = node.children[0];
+      return headerRow === undefined
         ? null
-        : renderTableRow(headerRow, 0, node.align, "column-header", context, attributes),
+        : renderTableRow(headerRow, 0, node.align, "column-header", context, attributes);
+    },
     drawBodyRow: (index, attributes) => {
-      const bodyRow = bodyRows[index];
+      const bodyRow = node.children[index + 1];
       return bodyRow === undefined
         ? null
         : renderTableRow(bodyRow, index, node.align, "data", context, attributes);

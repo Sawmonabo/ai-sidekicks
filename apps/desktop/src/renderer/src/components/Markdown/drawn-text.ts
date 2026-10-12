@@ -11,13 +11,13 @@
 import { type fromDom } from "hast-util-from-dom";
 import { defaultHandlers, toMdast, type Handle } from "hast-util-to-mdast";
 import { toText } from "hast-util-to-text";
-import type { Table, TableRow } from "mdast";
+import type { Root, Table, TableRow } from "mdast";
 import { gfmToMarkdown } from "mdast-util-gfm";
 import type { InlineMath } from "mdast-util-math";
 import { toMarkdown, type Handle as MarkdownHandle, type Options } from "mdast-util-to-markdown";
 
 import {
-  markdownToHtml,
+  markdownTreeToHtml,
   screenTableBodyRows,
   tableBodyRowsHtml,
   type MarkdownHastElement,
@@ -81,14 +81,15 @@ export function drawnTreeText(tree: DrawnTree, flavor: CopyFlavor): string {
 
 /**
  * The markdown the drawn part `tree` copies as, and the HTML that markdown makes under the screen's
- * policy, each stand-in's rows read in its place from `undrawnRows`, twice: once for the widths
- * their columns pad to, once to write them. Reads `tree` by changing it, so a tree is read once.
- * Rejects when a stand-in names a table `undrawnRows` holds no alignment for, or a pull is answered
- * with no rows.
+ * policy once `parseMarkdown` parses it, each stand-in's rows read in its place from `undrawnRows`,
+ * twice: once for the widths their columns pad to, once to write them. Reads `tree` by changing
+ * it, so a tree is read once. Rejects when a stand-in names a table `undrawnRows` holds no
+ * alignment for, or a pull is answered with no rows.
  */
 export async function drawnTreeMarkdown(
   tree: DrawnTree,
   undrawnRows: UndrawnRowsSource,
+  parseMarkdown: (markdown: string) => Root,
 ): Promise<DrawnMarkdown> {
   const standIns: UndrawnRowsStandIn[] = [];
   if ("children" in tree) {
@@ -102,7 +103,7 @@ export async function drawnTreeMarkdown(
     parent.children[index] = markerRow(run.align, await undrawnRowsWidths(run, undrawnRows.pull));
   }
   const markdown = rebuildMarkdown(tree, hasStandIns);
-  const html = markdownToHtml(markdown);
+  const html = markdownTreeToHtml(parseMarkdown(markdown));
   return !hasStandIns
     ? { markdown: [markdown], html: [html] }
     : withUndrawnRuns(

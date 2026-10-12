@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
 import { MarkdownNodes } from "#renderer/components/Markdown/MarkdownNodes.js";
-import { parseSettledBlock } from "#renderer/components/Markdown/parse.js";
+import { parseMarkdownTree } from "#renderer/components/Markdown/worker/serialized-tree.js";
 import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
 import { inThreadMarkdownWorker } from "#renderer/components/Markdown/worker/connection.test-support.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
@@ -72,27 +72,43 @@ const END_ROWS_ONLY: Pick<ConversationCopyRows, "rowText" | "rowBodyText" | "dra
   drawnSourceOf: () => expect.fail("no row here draws a window"),
 };
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 /**
  * What a selection copies from the first drawn row in `conversation`, at `startOffset` characters,
- * to the end of the last, each row an end row, its text read through `readers`.
+ * to the end of the last, each row an end row, its text read through `readers` and every reply
+ * part's HTML made by a stand-in markdown worker.
  */
-function copyOfDrawnRows(
+async function copyOfDrawnRows(
   conversation: Element,
   startOffset = 0,
   readers = END_ROWS_ONLY,
-): TextClipboardContent | undefined {
-  const copy = buildOfDrawnRows(conversation, startOffset, readers, {
-    html: () => expect.fail("no reply part is long enough for the worker"),
-    drawnText: () => expect.fail("no part is long enough for the worker"),
-  }).buildWhile(() => true);
-  return copy.isBuilt
-    ? piecesJoinedOf(copy.content)
-    : expect.fail("a copy reading no body in full builds at once");
+): Promise<TextClipboardContent | undefined> {
+  // Each slice of a part's text runs at once.
+  vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
+  const build = buildOfDrawnRows(
+    conversation,
+    startOffset,
+    readers,
+    inThreadMarkdownWorker(window),
+  );
+  const firstSlice = build.buildWhile(() => true);
+  return piecesJoinedOf(
+    firstSlice.isBuilt
+      ? firstSlice.content
+      : await build.finish(
+          windowCuttingEveryPart(),
+          () => true,
+          () => undefined,
+        ),
+  );
 }
 
 /**
- * The build of a copy as `copyOfDrawnRows` reads it, a long reply part's HTML made and a long part
- * read into its text by `worker`.
+ * The build of a copy as `copyOfDrawnRows` reads it, a reply part's HTML made and a long part read
+ * into its text by `worker`.
  */
 function buildOfDrawnRows(
   conversation: Element,
@@ -146,7 +162,7 @@ function conversationDrawing(markdown: string, flavor: CopyFlavor): HTMLElement 
     <div {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: "0" }}>
       <div {...{ [COPY_FLAVOR_ATTRIBUTE]: flavor }}>
         <MarkdownNodes
-          nodes={parseSettledBlock(markdown).children}
+          nodes={parseMarkdownTree(markdown).children}
           context={{
             isSettled: true,
             definedFootnoteIdentifiers: new Set(),
@@ -162,7 +178,7 @@ function conversationDrawing(markdown: string, flavor: CopyFlavor): HTMLElement 
 }
 
 describe("a selection across the conversation", () => {
-  it("copies each row's lines as drawn, and no control's label", () => {
+  it("copies each row's lines as drawn, and no control's label", async () => {
     const asked = sampleUserMessageRow({ id: "asks", message: "line one\n\nline two" });
     const askedKind = classifyTranscriptRow(asked);
     if (askedKind === undefined) {
@@ -207,7 +223,7 @@ describe("a selection across the conversation", () => {
       `[data-index="1"] ${SAMPLE_RUN_ROW_TIME_SELECTOR}`,
     )?.textContent;
 
-    expect(copyOfDrawnRows(container)).toStrictEqual({
+    expect(await copyOfDrawnRows(container)).toStrictEqual({
       text: [
         "line one\n\nline two",
         `Claude\n${toolTime ?? ""}\nbash\nfirst line\n  second line`,
@@ -215,7 +231,7 @@ describe("a selection across the conversation", () => {
     });
   });
 
-  it("copies a call's large output in its control's place, from where the selection begins", () => {
+  it("copies a call's large output in its control's place, from where the selection begins", async () => {
     const output = "first line\n  second line";
     const ran = sampleRunRow({
       id: "ran",
@@ -253,7 +269,7 @@ describe("a selection across the conversation", () => {
     expect(row.textContent).toContain("Show full output");
 
     // Begun inside the heading, past its first two letters.
-    const copied = copyOfDrawnRows(
+    const copied = await copyOfDrawnRows(
       container,
       characterOffsetWithin(row, heading ?? expect.fail("the heading is drawn"), 2),
       {
@@ -265,7 +281,7 @@ describe("a selection across the conversation", () => {
     expect(copied).toStrictEqual({ text: `sh\n${output}` });
   });
 
-  it("rebuilds a reply's code block as its fence, with no word from the block's corner", () => {
+  it("rebuilds a reply's code block as its fence, with no word from the block's corner", async () => {
     const reply = sampleRunRow({
       id: "replies",
       type: "assistant.message",
@@ -294,7 +310,7 @@ describe("a selection across the conversation", () => {
         </PreparedBodiesContext>
       </FixtureBridgeProvider>,
     );
-    const copied = copyOfDrawnRows(container);
+    const copied = await copyOfDrawnRows(container);
     expect(copied?.text).toBe("Run it:\n\n```ts\nconst a = 1;\n```");
     expect(copied?.html).not.toContain("Copy");
   });
@@ -379,7 +395,7 @@ function windowOverFirstTable(
     undrawn.remove();
   }
   const table =
-    tablesIn(parseSettledBlock(markdown))[0] ?? expect.fail("the markdown makes a table");
+    tablesIn(parseMarkdownTree(markdown))[0] ?? expect.fail("the markdown makes a table");
   drawnSources.hold(TABLE_KEY, { kind: "table", table });
   return windowed;
 }
@@ -393,40 +409,20 @@ function tablesIn(node: Nodes): Table[] {
 }
 
 describe("a long table's undrawn rows in a selection", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it.each(
     IDENTITY_TABLES.flatMap((markdown) => [
       { flavor: "markdown" as const, markdown },
       { flavor: "text" as const, markdown },
     ]),
   )("copy as $flavor exactly as the same rows drawn: $markdown", async ({ flavor, markdown }) => {
-    // Each slice of the undrawn rows' text runs at once.
-    vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
     const drawnSources = new DrawnWindowSources();
     const drawn = conversationDrawing(markdown, flavor);
     const windowed = windowOverFirstTable(drawn, markdown, drawnSources);
-    const worker = inThreadMarkdownWorker(window);
-    const copyOf = async (conversation: Element) => {
-      const build = buildOfDrawnRows(
-        conversation,
-        0,
-        { ...END_ROWS_ONLY, drawnSourceOf: (sourceKey) => drawnSources.sourceOf(sourceKey) },
-        worker,
-      );
-      const firstSlice = build.buildWhile(() => true);
-      return piecesJoinedOf(
-        firstSlice.isBuilt
-          ? firstSlice.content
-          : await build.finish(
-              windowCuttingEveryPart(),
-              () => true,
-              () => undefined,
-            ),
-      );
-    };
+    const copyOf = (conversation: Element) =>
+      copyOfDrawnRows(conversation, 0, {
+        ...END_ROWS_ONLY,
+        drawnSourceOf: (sourceKey) => drawnSources.sourceOf(sourceKey),
+      });
 
     const whole = await copyOf(drawn);
     const copied = await copyOf(windowed);
@@ -456,9 +452,9 @@ describe("a long table's undrawn rows in a selection", () => {
 });
 
 describe("a formula in a selection", () => {
-  it("copies as its TeX source once, as text and as a math block", () => {
+  it("copies as its TeX source once, as text and as a math block", async () => {
     const asText = conversationWithFormula("text", 'data-math=""');
-    expect(copyOfDrawnRows(asText)).toStrictEqual({
+    expect(await copyOfDrawnRows(asText)).toStrictEqual({
       text: FORMULA_SOURCE,
     });
 
@@ -471,24 +467,24 @@ describe("a formula in a selection", () => {
     }
     const glyphOffset = characterOffsetWithin(drawnRow, firstGlyph, 0);
     expect(glyphOffset).toBeGreaterThan(0);
-    expect(copyOfDrawnRows(asMarkdown, glyphOffset)?.text).toBe(
+    expect((await copyOfDrawnRows(asMarkdown, glyphOffset))?.text).toBe(
       ["```math", FORMULA_SOURCE, "```"].join("\n"),
     );
   });
 
-  it("copies an inline formula as inline math inside its sentence's markdown", () => {
+  it("copies an inline formula as inline math inside its sentence's markdown", async () => {
     const formulaMarkup = renderToString(FORMULA_SOURCE, { output: "htmlAndMathml" });
     const conversation = document.createElement("div");
     conversation.innerHTML =
       `<div ${WINDOWED_ROW_INDEX_ATTRIBUTE}="0"><div ${COPY_FLAVOR_ATTRIBUTE}="markdown">` +
       `<p>So <span data-math="inline">${formulaMarkup}</span> holds.</p></div></div>`;
 
-    expect(copyOfDrawnRows(conversation)?.text).toBe(`So $${FORMULA_SOURCE}$ holds.`);
+    expect((await copyOfDrawnRows(conversation))?.text).toBe(`So $${FORMULA_SOURCE}$ holds.`);
   });
 
-  it("negative control: an unmarked drawing copies more than its source", () => {
+  it("negative control: an unmarked drawing copies more than its source", async () => {
     const unmarked = conversationWithFormula("text", 'class="other"');
-    const copied = copyOfDrawnRows(unmarked)?.text;
+    const copied = (await copyOfDrawnRows(unmarked))?.text;
 
     expect(copied).toContain(FORMULA_SOURCE);
     expect(copied).not.toBe(FORMULA_SOURCE);
@@ -496,12 +492,12 @@ describe("a formula in a selection", () => {
 });
 
 describe("a frame drawn hidden inside a row", () => {
-  it("copies none of the rows it draws to measure", () => {
+  it("copies none of the rows it draws to measure", async () => {
     const conversation = document.createElement("div");
     conversation.innerHTML =
       `<div ${WINDOWED_ROW_INDEX_ATTRIBUTE}="0"><div ${COPY_FLAVOR_ATTRIBUTE}="text">` +
       `<p>drawn row</p><div aria-hidden="true" inert><p>sample row</p></div></div></div>`;
 
-    expect(copyOfDrawnRows(conversation)).toStrictEqual({ text: "drawn row" });
+    expect(await copyOfDrawnRows(conversation)).toStrictEqual({ text: "drawn row" });
   });
 });

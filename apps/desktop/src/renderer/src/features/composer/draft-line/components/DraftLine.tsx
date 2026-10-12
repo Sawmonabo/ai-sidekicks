@@ -4,6 +4,7 @@
 // newline, no send); sending is `SendButton.tsx`'s.
 
 import { useCallback, useEffect, useRef } from "react";
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import { subscribeToComposerFocus } from "../../focus-requests.js";
 import { type ComposerProps } from "#renderer/registries/composer/registry.js";
@@ -36,6 +37,8 @@ export function DraftLine(props: DraftLineProps): React.JSX.Element {
     [draftStore, draftKey],
   );
   const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // A message on its way: its text and the reply's are parsed soon, so the parser starts now.
+    markdownWorker.wake();
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
     }

@@ -143,7 +143,7 @@ base-uri 'none';
 form-action 'none';
 ```
 
-The diagram worker's script is served with the same policy and `script-src 'self' 'wasm-unsafe-eval'`, which lets it compile merman's WebAssembly ([ADR-042](../decisions/042-diagrams-drawn-by-merman.md)). A dedicated worker takes its policy from its own script's response, so no document and no other worker can compile WebAssembly. The keyword allows no JavaScript evaluation, so `eval`, `new Function` and `'unsafe-eval'` stay refused everywhere.
+The scripts of the diagram worker and the markdown worker are served with the same policy and `script-src 'self' 'wasm-unsafe-eval'`, which lets them compile merman's WebAssembly ([ADR-042](../decisions/042-diagrams-drawn-by-merman.md)) and the Sätteri markdown parser's. A dedicated worker takes its policy from its own script's response, so no document and no other worker can compile WebAssembly. The keyword allows no JavaScript evaluation, so `eval`, `new Function` and `'unsafe-eval'` stay refused everywhere.
 
 Electron Fuses — the app binary must be packaged with the following fuses (see [Desktop App Implementation Notes §Electron Fuses](../architecture/desktop-implementation-notes.md#electron-fuses) for rationale and primary-source citations):
 

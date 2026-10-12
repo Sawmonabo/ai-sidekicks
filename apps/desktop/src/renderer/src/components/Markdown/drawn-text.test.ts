@@ -11,7 +11,7 @@ import {
   type DrawnElement,
   type DrawnTree,
 } from "./drawn-text.js";
-import { parseMarkdown } from "./parse.js";
+import { parseMarkdownTree } from "./worker/serialized-tree.js";
 
 it("copies an inline formula as its source between dollars, and a price as written", () => {
   // As a copy of the drawing hands it over: the formula's place holds its source, marked as math.
@@ -39,7 +39,7 @@ it("copies an inline formula as its source between dollars, and a price as writt
   const markdown = drawnTreeText(drawn, "markdown");
 
   expect(markdown).toBe("The ratio $x^2 + 1$ costs $5.");
-  const [paragraph] = parseMarkdown(markdown).children;
+  const [paragraph] = parseMarkdownTree(markdown).children;
   expect(paragraph?.type === "paragraph" ? paragraph.children[1] : undefined).toMatchObject({
     type: "inlineMath",
     value: "x^2 + 1",
@@ -47,7 +47,7 @@ it("copies an inline formula as its source between dollars, and a price as writt
 });
 
 it("copies an inline formula in a table row the screen never drew between dollars", async () => {
-  const [table] = parseMarkdown("| n | formula |\n| - | - |\n| 1 | $x^2$ |").children;
+  const [table] = parseMarkdownTree("| n | formula |\n| - | - |\n| 1 | $x^2$ |").children;
   if (table?.type !== "table") {
     return expect.fail("the markdown makes a table");
   }
@@ -87,11 +87,15 @@ it("copies an inline formula in a table row the screen never drew between dollar
     ],
   };
 
-  const copied = await drawnTreeMarkdown(drawn, {
-    alignments: new Map([["table", table.align]]),
-    pull: (_tableKey, firstIndex, lastIndex) =>
-      Promise.resolve(table.children.slice(firstIndex + 1, lastIndex + 2)),
-  });
+  const copied = await drawnTreeMarkdown(
+    drawn,
+    {
+      alignments: new Map([["table", table.align]]),
+      pull: (_tableKey, firstIndex, lastIndex) =>
+        Promise.resolve(table.children.slice(firstIndex + 1, lastIndex + 2)),
+    },
+    parseMarkdownTree,
+  );
 
   expect(copied.markdown.join("")).toBe(
     ["| n | formula |", "| - | ------- |", "| 1 | $x^2$   |"].join("\n"),

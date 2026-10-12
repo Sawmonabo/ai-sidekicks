@@ -1,11 +1,11 @@
-// A long body drawn as a window over its blocks: which blocks it parses, when a scroll's blocks are
-// drawn, and what a drawn block still resolves once the block defining its footnote is no longer
-// drawn.
+// A long body drawn as a window over its blocks: how often it asks for each block's tree, when a
+// scroll's blocks are drawn, and what a drawn block still resolves once the block defining its
+// footnote is no longer drawn.
 
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import * as markdownParse from "#renderer/components/Markdown/parse.js";
+import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
@@ -20,17 +20,8 @@ import {
 } from "./WindowedMarkdown.test-support.js";
 import { publishedTextOf } from "../../reveal/published-text.js";
 
-vi.mock("#renderer/components/Markdown/parse.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof markdownParse>();
-  return {
-    ...actual,
-    parseMarkdown: vi.fn(actual.parseMarkdown),
-    parseSettledBlock: vi.fn(actual.parseSettledBlock),
-  };
-});
-
-const settledBlockParses = vi.mocked(markdownParse.parseSettledBlock);
-const wholeParses = vi.mocked(markdownParse.parseMarkdown);
+const settledBlockParses = vi.spyOn(appMarkdownTrees, "holdSettledBlock");
+const wholeParses = vi.spyOn(appMarkdownTrees, "requestTree");
 
 const SCROLLER_HEIGHT_PX = 600;
 
@@ -114,7 +105,7 @@ function drawnIndexes(body: HTMLElement): number[] {
 }
 
 describe("a long body drawn as a window over its blocks", () => {
-  it("parses only the blocks it draws, and none as they settle", () => {
+  it("asks for each block's tree once, and none again as blocks scroll into the window", () => {
     const text = longReplyMarkdown(40_000);
     const blockSources = new MarkdownBlockSegmenter()
       .segment(publishedTextOf(text), { isFinal: true })
@@ -122,13 +113,15 @@ describe("a long body drawn as a window over its blocks", () => {
     settledBlockParses.mockClear();
     wholeParses.mockClear();
 
-    const { body } = mountWindow(text, new FootnoteRegistry());
+    const { body, scrollTo } = mountWindow(text, new FootnoteRegistry());
+    const drawnAtTop = drawnIndexes(body);
+    scrollTo(1_000_000);
 
-    const drawnSources = drawnIndexes(body).map((index) => blockSources[index]);
-    expect(drawnSources.length).toBeGreaterThan(0);
-    expect(drawnSources.length).toBeLessThan(blockSources.length / 4);
-    expect(new Set(settledBlockParses.mock.calls.map(([source]) => source))).toStrictEqual(
-      new Set(drawnSources),
+    expect(drawnAtTop.length).toBeGreaterThan(0);
+    expect(drawnAtTop.length).toBeLessThan(blockSources.length / 4);
+    expect(drawnIndexes(body)).not.toContain(drawnAtTop[0]);
+    expect(settledBlockParses.mock.calls.map(([source]) => source).sort()).toStrictEqual(
+      blockSources.sort(),
     );
     expect(wholeParses).not.toHaveBeenCalled();
   });

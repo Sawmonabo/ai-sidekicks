@@ -48,6 +48,8 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
       name: "renderer",
       environment: "happy-dom",
       include: ["src/renderer/src/**/*.test.{ts,tsx}", ...RENDERER_TESTS_OUTSIDE_SOURCE],
+      // No worker runs under happy-dom, so the app's markdown worker answers in this process.
+      setupFiles: ["tests/helpers/markdown-worker.ts"],
       globals: true,
       // Vitest answers every stylesheet with nothing unless listed here, `?raw` reads included.
       // `styles/typeface.ts` reads each split's character range off the font packages' own

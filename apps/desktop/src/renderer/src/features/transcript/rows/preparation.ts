@@ -1,5 +1,8 @@
-// What a row's first frame waits on: in a message row, the formula typesetter, once the row holds a
-// finished formula, the picture of each finished diagram, and each long table's geometry; in a
+// What a row's first frame waits on: in a message row, its body's reading, drawn whole, which holds
+// the tree of each settled block, of the footnotes each defines and of the streaming tail in the
+// app's shared trees, so the body mounted next draws them formatted from its first frame, the
+// formula typesetter, once the row holds a finished formula, the picture of each finished diagram,
+// and each long table's geometry; in a
 // reply or a tool's result drawn as command output or plain text, its parse into lines, read in
 // slices while the row is within the drawn band's reach and, for a call, open. A reply's text is
 // stripped of escapes here, once, and handed to its body to draw. The feed lists a row that arrives
@@ -11,7 +14,7 @@
 // its error state. A formula or diagram fence still streaming starts the typesetter's load or the
 // diagram worker as soon as it names its language, without the row waiting on either.
 
-import type { Nodes } from "mdast";
+import type { Nodes, RootContent } from "mdast";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -25,7 +28,8 @@ import {
   watchDiagramPalette,
   type DiagramPalette,
 } from "#renderer/components/Markdown/diagram/palette.js";
-import { parseSettledBlock } from "#renderer/components/Markdown/parse.js";
+import { isReadInPieces } from "#renderer/components/Markdown/parse/pieced-table.js";
+import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
 import {
   DEFERRED_FENCE_KINDS,
   readDeferredFenceKind,
@@ -42,7 +46,8 @@ import { classifyTranscriptRow, isFoldableCall } from "./kind.js";
 import { userMessageTextOf } from "./user-message.js";
 import { MarkdownBodyBlocks, type MarkdownBodyBlocksSnapshot } from "./markdown/body-blocks.js";
 import { MarkdownBlockSegmenter } from "./markdown/parse/block-segmenter.js";
-import { prepareTableWindows } from "./markdown/table-window/preparation.js";
+import { type SettledMarkdownBlock } from "./markdown/settled-block.js";
+import { prepareTableWindows, type PreparedBlock } from "./markdown/table-window/preparation.js";
 import {
   type TranscriptRowPreparation,
   type TranscriptRowPreparer,
@@ -69,15 +74,16 @@ export const prepareTranscriptRow: TranscriptRowPreparer = (row, sources, onRead
 };
 
 /**
- * One message row's preparation. It keeps the row's own segmenter and block reading, so a refresh
- * reads only the blocks settled since the last one, and asks for each formula and diagram once.
+ * One message row's preparation. It keeps the row's own segmenter and block reading, which holds
+ * every tree the body draws while the row is held, so a refresh reads only what changed since the
+ * last one, and asks for each formula and diagram once.
  */
 class MessageRowPreparation implements TranscriptRowPreparation {
   readonly #row: TranscriptEventRow;
   readonly #sources: TranscriptRowSources;
   readonly #onReady: () => void;
   readonly #segmenter = new MarkdownBlockSegmenter();
-  readonly #blocks = new MarkdownBodyBlocks();
+  readonly #blocks = new MarkdownBodyBlocks(appMarkdownTrees);
   readonly #strippedText: StrippedText;
   /** The reply's body parsed into lines, while it is drawn as command output or plain text. */
   readonly #output: AnsiOutputPreparation;
@@ -87,9 +93,19 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   #readText: { readonly text: PublishedText; readonly revision: number } | undefined;
   /** The settled body last read and its source, so a refresh over the same string reads nothing. */
   #settledBody: { readonly source: string; readonly body: MarkdownBody | undefined } | undefined;
-  /** The settled blocks read so far, in the segmentation's generation. */
-  #readBlockCount = 0;
+  /** The block reading's revision when it was last read. */
+  #readBlocksRevision = -1;
+  /** The drawn blocks and the revision their trees were last read at. */
+  #readDrawnBlocks: readonly SettledMarkdownBlock[] = [];
+  #readTreesRevision = -1;
+  /** Each drawn block's tree read for its tables, formulas and diagrams, by the block's key. */
+  readonly #readTrees = new Map<string, ReadBlockTree>();
   #readGeneration = -1;
+  /** Lands the row's wait for its body to draw every settled block, while it waits. */
+  #bodyDrawn: (() => void) | undefined;
+  /** Whether the block reading changed while the row was read, so it is read once more. */
+  #isReading = false;
+  #hasChangedWhileReading = false;
   /** Where the streaming tail's lines have been read up to for a fence naming its language. */
   #openFenceScanEnd = 0;
   #hasStartedTypesetter = false;
@@ -102,7 +118,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   /** How far the row stands from the reading position, read each time the queue chooses. */
   readonly #readingDistance: ReadingDistance = () =>
     READING_DISTANCE_BY_REACH[this.#sources.reachOf(this.#row.id)];
-  /** The table preparations' releases. */
+  /** What stops the row hearing its block reading, and closes it. */
   readonly #withdrawals: (() => void)[] = [];
   /** The pictures loaded ahead of their blocks, each with the image that loaded it. */
   readonly #loadedPictures: {
@@ -127,6 +143,18 @@ class MessageRowPreparation implements TranscriptRowPreparation {
         }
       },
     );
+    this.#withdrawals.push(
+      this.#blocks.subscribe(() => {
+        if (this.#isReading) {
+          this.#hasChangedWhileReading = true;
+          return;
+        }
+        this.refresh();
+      }),
+      () => {
+        this.#blocks.close();
+      },
+    );
   }
 
   public get isReady(): boolean {
@@ -138,7 +166,16 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   }
 
   public refresh(): void {
-    this.#readNewBlocks();
+    // The parser can answer while it is asked, which reads the row again once this read is done.
+    this.#isReading = true;
+    try {
+      do {
+        this.#hasChangedWhileReading = false;
+        this.#readNewBlocks();
+      } while (this.#hasChangedWhileReading);
+    } finally {
+      this.#isReading = false;
+    }
     this.#output.read(this.#outputText, this.#sources.reachOf(this.#row.id));
     this.#askForDiagrams();
   }
@@ -153,47 +190,134 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     for (const ask of this.#diagramAsks.values()) {
       ask.withdraw();
     }
+    for (const read of this.#readTrees.values()) {
+      read.releaseTables?.();
+    }
     this.#letPicturesGo();
   }
 
-  /** Reads the blocks settled since the last read, for the formulas and diagrams they hold. */
+  /**
+   * Reads the row's body as the body reads it, with a block reading that holds each tree it draws
+   * in the app's shared trees, so a body mounted next draws them at once, and reads each drawn
+   * block's tree for what it waits on. The row waits until the body draws, every settled block on
+   * its own or a tail covering the rest. Then asks for the parses the body's reading waits on.
+   */
   #readNewBlocks(): void {
     const body = this.#readMarkdownBody();
     this.#publishReplyText(body?.text);
     if (
       body === undefined ||
-      (body.text === this.#readText?.text && body.text.revision === this.#readText.revision)
+      (body.text === this.#readText?.text &&
+        body.text.revision === this.#readText.revision &&
+        this.#blocks.readRevision() === this.#readBlocksRevision)
     ) {
       return;
     }
     this.#readText = { text: body.text, revision: body.text.revision };
-    const blocks = this.#blocks.read(
-      this.#segmenter.segment(body.text, { isFinal: body.isComplete }),
-    );
+    this.#readBlocksRevision = this.#blocks.readRevision();
+    const segmentation = this.#segmenter.segment(body.text, { isFinal: body.isComplete });
+    let blocks: MarkdownBodyBlocksSnapshot;
+    try {
+      blocks = this.#blocks.read(segmentation);
+    } catch {
+      // A parse the body needs failed: the body throws it for its row's error boundary, and the
+      // row waits on nothing more to draw that.
+      this.#landBodyDrawn();
+      return;
+    }
     if (blocks.generation !== this.#readGeneration) {
       this.#readGeneration = blocks.generation;
-      this.#readBlockCount = 0;
       this.#openFenceScanEnd = 0;
     }
     this.#startLoadsForOpenFences(body.text.length, blocks.volatileTail);
-    const settledBlocks = blocks.settledBlocks;
-    for (const block of settledBlocks.slice(this.#readBlockCount)) {
-      const blockSource = blocks.readBlockSource(block);
-      this.#prepareTableWindows(blockSource, block.fingerprint, blocks);
-      if (DEFERRED_FENCE_OPENER.test(blockSource) || blockSource.includes("$")) {
-        const fences: DeferredFence[] = [];
-        collectDeferredFences(parseSettledBlock(blockSource, blocks.definitionPreamble), fences);
-        for (const fence of fences) {
-          if (fence.kind === "math") {
-            this.#askForTypesetter();
-          } else {
-            this.#diagramSources.add(fence.source);
-          }
+    // A drawn tail covers every block still moving out of it.
+    const isBodyDrawn =
+      blocks.volatileTail === ""
+        ? blocks.settledBlocks.length === segmentation.settledBlocks.length
+        : blocks.tailNodes !== undefined;
+    if (!isBodyDrawn) {
+      this.#bodyDrawn ??= this.#startWaiting();
+    }
+    this.#readDrawnTrees(blocks);
+    if (isBodyDrawn) {
+      this.#landBodyDrawn();
+    }
+    this.#blocks.requestReads();
+  }
+
+  /**
+   * Reads each drawn block's tree not read before, a block's newer tree again, and lets go of
+   * what the blocks no longer drawn started. Costs nothing on a frame that drew nothing new.
+   */
+  #readDrawnTrees(blocks: MarkdownBodyBlocksSnapshot): void {
+    const drawnBlocks = blocks.settledBlocks;
+    if (
+      drawnBlocks === this.#readDrawnBlocks &&
+      this.#readBlocksRevision === this.#readTreesRevision
+    ) {
+      return;
+    }
+    this.#readDrawnBlocks = drawnBlocks;
+    this.#readTreesRevision = this.#readBlocksRevision;
+    for (const [index, block] of drawnBlocks.entries()) {
+      const nodes = blocks.readBlockNodes(block);
+      const read = this.#readTrees.get(block.key);
+      if (read?.nodes === nodes) {
+        continue;
+      }
+      read?.releaseTables?.();
+      this.#readTrees.set(block.key, {
+        nodes,
+        releaseTables: this.#readBlockTree({
+          source: blocks.readBlockSource(block),
+          fingerprint: block.fingerprint,
+          definitionPreamble: blocks.readDefinitionPreamble(index),
+          root: { type: "root", children: [...nodes] },
+          definedFootnoteIdentifiers: blocks.definedFootnoteIdentifiers,
+        }),
+      });
+    }
+    if (this.#readTrees.size > drawnBlocks.length) {
+      const drawnKeys = new Set(drawnBlocks.map((block) => block.key));
+      for (const [key, read] of this.#readTrees) {
+        if (!drawnKeys.has(key)) {
+          read.releaseTables?.();
+          this.#readTrees.delete(key);
         }
       }
     }
-    // A body marked finished and then streaming again holds its last blocks back once more.
-    this.#readBlockCount = settledBlocks.length;
+  }
+
+  #landBodyDrawn(): void {
+    const landed = this.#bodyDrawn;
+    this.#bodyDrawn = undefined;
+    landed?.();
+  }
+
+  /**
+   * Starts what a drawn block's tree waits on: its long tables, formulas and diagrams. Answers
+   * what releases the tables being measured, if the block holds a long one.
+   */
+  #readBlockTree(block: PreparedBlock): (() => void) | undefined {
+    const releaseTables = this.#prepareTableWindows(block);
+    if (!DEFERRED_FENCE_OPENER.test(block.source) && !block.source.includes("$")) {
+      return releaseTables;
+    }
+    const fences: DeferredFence[] = [];
+    collectDeferredFences(block.root, fences);
+    // A table read in pieces is left unwalked, which would read every row; a dollar in its text
+    // may open a formula in one of its cells.
+    if (block.source.includes("$") && block.root.children.some(isReadInPieces)) {
+      this.#askForTypesetter();
+    }
+    for (const fence of fences) {
+      if (fence.kind === "math") {
+        this.#askForTypesetter();
+      } else {
+        this.#diagramSources.add(fence.source);
+      }
+    }
+    return releaseTables;
   }
 
   /**
@@ -228,35 +352,26 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     }
   }
 
-  /** Measures the block's long tables off the list, so each draws its window on its first frame. */
-  #prepareTableWindows(
-    blockSource: string,
-    blockFingerprint: string,
-    blocks: MarkdownBodyBlocksSnapshot,
-  ): void {
+  /**
+   * Measures the block's long tables off the list, so each draws its window on its first frame.
+   * Answers what releases them, after which a table not yet measured is waited on no longer.
+   */
+  #prepareTableWindows(block: PreparedBlock): (() => void) | undefined {
     let landed: (() => void) | undefined;
-    const preparation = prepareTableWindows(
-      {
-        source: blockSource,
-        fingerprint: blockFingerprint,
-        definitionPreamble: blocks.definitionPreamble,
-        definedFootnoteIdentifiers: blocks.definedFootnoteIdentifiers,
-      },
-      this.#sources.offListTables,
-      () => {
-        landed?.();
-      },
-    );
-    if (preparation === undefined) {
-      return;
-    }
-    this.#withdrawals.push(() => {
-      preparation.release();
+    const preparation = prepareTableWindows(block, this.#sources.offListTables, () => {
+      landed?.();
     });
+    if (preparation === undefined) {
+      return undefined;
+    }
     // Its tables land in later observations and slices, never while it starts.
     if (!preparation.isReady) {
       landed = this.#startWaiting();
     }
+    return () => {
+      preparation.release();
+      landed?.();
+    };
   }
 
   /** The markdown the row's body draws now, or `undefined` while it draws none. */
@@ -483,6 +598,12 @@ class ToolRowPreparation implements TranscriptRowPreparation {
   }
 }
 
+/** One drawn block's tree as the row read it, and what releases the tables it started measuring. */
+interface ReadBlockTree {
+  readonly nodes: readonly RootContent[];
+  readonly releaseTables: (() => void) | undefined;
+}
+
 /** The markdown a row's body draws, and whether it is finished. */
 interface MarkdownBody {
   readonly text: PublishedText;
@@ -499,6 +620,9 @@ interface DeferredFence {
 }
 
 function collectDeferredFences(node: Nodes, into: DeferredFence[]): void {
+  if (isReadInPieces(node)) {
+    return;
+  }
   if (node.type === "math" || node.type === "inlineMath") {
     into.push({ kind: "math", source: node.value });
     return;

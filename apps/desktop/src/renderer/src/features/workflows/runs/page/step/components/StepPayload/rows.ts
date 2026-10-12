@@ -2,7 +2,8 @@
 // whatever the payload's size. Table rows: each item's number and pairing, each member of its
 // data, a markdown string one block at a time, and each file it names. JSON rows: the stored JSON
 // cut at its items, which joined back are exactly what was stored. Either is built only as far as
-// it is drawn: a string is parsed when its row is first drawn, an item stringified when its row is.
+// it is drawn: strings are parsed in order as the list nears its end, an item stringified when its
+// row is.
 
 import type {
   WorkflowBinaryRef,
@@ -23,21 +24,22 @@ export type PayloadValuePlace =
   | { readonly kind: "member"; readonly key: string | undefined }
   | { readonly kind: "whole" };
 
+/** What reading one string as a markdown document came to: its rows, or why it has none. */
+export type MarkdownDocumentOutcome =
+  | { readonly status: "read"; readonly document: ParsedMarkdownDocument }
+  | { readonly status: "failed"; readonly reason: string };
+
+/** Reads one string as a markdown document and hands `settle` what that came to, once. */
+export type MarkdownDocumentRead = (
+  text: string,
+  settle: (outcome: MarkdownDocumentOutcome) => void,
+) => void;
+
 /** One row of the Table view. */
 export type PayloadTableRow =
   | { readonly kind: "item"; readonly heading: readonly FigureSentencePart[] }
   /** A value drawn exactly as stored, its line breaks kept. */
   | { readonly kind: "value"; readonly place: PayloadValuePlace; readonly text: string }
-  /**
-   * A string not yet read as markdown or text, which is read once its row is drawn. `lineCount`
-   * sizes the row until then.
-   */
-  | {
-      readonly kind: "unread";
-      readonly place: PayloadValuePlace;
-      readonly stringIndex: number;
-      readonly lineCount: number;
-    }
   | {
       readonly kind: "markdown";
       readonly place: PayloadValuePlace;
@@ -47,93 +49,128 @@ export type PayloadTableRow =
   | { readonly kind: "file"; readonly line: readonly FigureSentencePart[] };
 
 /**
- * The Table view's rows, reading each string only once its row is drawn. A string with no
+ * The Table view's rows, drawn only as far as every string before them is read: a string's rows
+ * join the end of the list once its parse lands and every string before it has, so no row is ever
+ * drawn before what it shows is ready, and the list only grows at its end. The rows still waiting
+ * are counted in lines, a string by its own and any other row as one, so the list can keep their
+ * room below it. A string with no
  * whitespace is one token (a name, a path, an id) and draws exactly as stored, so a path like
  * `src/__init__.py` is never read as emphasis. Any other string goes to the markdown parser: it
  * draws as markdown when the parser finds any (a heading, a list, code, emphasis, a link), and
  * otherwise as the text it is, line breaks kept. Item numbers count from 0, as an expression
- * reads them (`$input.all()[0]`), so an item's number and its pairing agree. A read replaces only
- * its own string's row; every other row stays the object it was.
+ * reads them (`$input.all()[0]`), so an item's number and its pairing agree.
  */
 export class PayloadTableRows {
-  readonly #parseMarkdown: (text: string) => ParsedMarkdownDocument;
-  /** Each string to read as markdown or text, with its place, in the order the rows meet them. */
-  readonly #strings: { readonly text: string; readonly place: PayloadValuePlace }[] = [];
-  /** Where each string's rows begin, by its place among `#strings`. */
-  readonly #stringRowStarts: number[] = [];
-  /** The strings read so far, by their place among `#strings`. */
-  readonly #readStrings = new Set<number>();
+  readonly #readMarkdown: MarkdownDocumentRead;
+  /** The rows drawn, every string before the last of them read. */
   readonly #rows: PayloadTableRow[] = [];
-  /** Each row's key, given the first time it is asked for and kept while the row stands. */
-  readonly #rowKeys = new WeakMap<PayloadTableRow, number>();
-  #nextRowKey = 0;
+  /** Every row after them, oldest first: a row ready to draw, or a string still to read. */
+  readonly #waiting: WaitingRow[] = [];
+  /** The waiting strings asked to be read. */
+  readonly #asked = new Set<WaitingRow>();
+  /** How many lines the waiting rows stand for. */
+  #waitingLineCount = 0;
+  /** Why a string's parse failed, once one has. */
+  #failure: string | undefined;
 
-  public constructor(
-    items: readonly WorkflowItem[],
-    parseMarkdown: (text: string) => ParsedMarkdownDocument,
-  ) {
-    this.#parseMarkdown = parseMarkdown;
+  public constructor(items: readonly WorkflowItem[], readMarkdown: MarkdownDocumentRead) {
+    this.#readMarkdown = readMarkdown;
     items.forEach((item, index) => {
-      this.#rows.push({ kind: "item", heading: itemHeadWords(index, item) });
+      this.#wait({
+        kind: "ready",
+        row: { kind: "item", heading: itemHeadWords(index, item) },
+      });
       forEachValue(item.json, (value, place) => {
-        if (!isReadableString(value)) {
-          this.#rows.push({ kind: "value", place, text: valueText(value) });
-          return;
-        }
-        const stringIndex = this.#strings.length;
-        this.#strings.push({ text: value, place });
-        this.#stringRowStarts.push(this.#rows.length);
-        this.#rows.push({ kind: "unread", place, stringIndex, lineCount: lineCountOf(value) });
+        this.#wait(
+          isReadableString(value)
+            ? { kind: "string", text: value, place, lineCount: lineCountOf(value), rows: undefined }
+            : { kind: "ready", row: { kind: "value", place, text: valueText(value) } },
+        );
       });
       for (const file of Object.values(item.binary ?? {})) {
-        this.#rows.push({ kind: "file", line: fileLine(file) });
+        this.#wait({ kind: "ready", row: { kind: "file", line: fileLine(file) } });
       }
     });
+    this.#drawWhatIsReady();
   }
 
-  /** The rows as far as the payload has been read. */
+  /** The rows drawn so far, in order; the list only grows, at its end. */
   public get rows(): readonly PayloadTableRow[] {
     return this.#rows;
   }
 
-  /**
-   * A key for the row at `rowIndex` that stays with that row while reads before it move it down,
-   * so the list window keeps each drawn row's measured height. `-1` past the last row.
-   */
-  public rowKey(rowIndex: number): number {
-    const row = this.#rows[rowIndex];
-    if (row === undefined) {
-      return -1;
-    }
-    let key = this.#rowKeys.get(row);
-    if (key === undefined) {
-      key = this.#nextRowKey;
-      this.#nextRowKey += 1;
-      this.#rowKeys.set(row, key);
-    }
-    return key;
+  /** How many lines the rows not yet drawn stand for: a string's own, one for any other row. */
+  public get waitingLineCount(): number {
+    return this.#waitingLineCount;
   }
 
-  /** Read one drawn string as markdown or text. Answers whether the rows changed. */
-  public readString(stringIndex: number): boolean {
-    const string = this.#strings[stringIndex];
-    const start = this.#stringRowStarts[stringIndex];
-    if (string === undefined || start === undefined || this.#readStrings.has(stringIndex)) {
-      return false;
+  /** Why a string's parse failed, or `undefined` while none has. */
+  public get failure(): string | undefined {
+    return this.#failure;
+  }
+
+  /**
+   * Read, in order, every string among the waiting rows that stand for the next `lineCount` lines,
+   * those not asked for before. As each parse lands, the rows it lets draw join the list, and
+   * `onRead` hears that the rows changed, or that a parse failed.
+   */
+  public readAhead(lineCount: number, onRead: () => void): void {
+    const toRead: Extract<WaitingRow, { readonly kind: "string" }>[] = [];
+    let lines = 0;
+    for (const waiting of this.#waiting) {
+      if (lines >= lineCount) {
+        break;
+      }
+      lines += waiting.kind === "string" ? waiting.lineCount : 1;
+      if (waiting.kind === "string" && !this.#asked.has(waiting)) {
+        toRead.push(waiting);
+      }
     }
-    this.#readStrings.add(stringIndex);
-    const read = this.#readRows(string.text, string.place);
-    this.#rows.splice(start, 1, ...read);
-    // The strings after it begin as many rows later as this one grew.
-    for (let later = stringIndex + 1; later < this.#stringRowStarts.length; later += 1) {
-      this.#stringRowStarts[later] = (this.#stringRowStarts[later] ?? 0) + read.length - 1;
+    for (const string of toRead) {
+      // Marked before the read, which a kept tree answers at once by drawing the string.
+      this.#asked.add(string);
+      this.#readMarkdown(string.text, (outcome) => {
+        if (outcome.status === "failed") {
+          this.#failure = outcome.reason;
+        } else {
+          string.rows = this.#rowsOf(string.text, string.place, outcome.document);
+          this.#drawWhatIsReady();
+        }
+        onRead();
+      });
     }
-    return true;
+  }
+
+  /** Move the waiting rows that are ready, up to the first string still being read, to the list. */
+  #drawWhatIsReady(): void {
+    let drawnCount = 0;
+    for (const waiting of this.#waiting) {
+      if (waiting.kind === "ready") {
+        this.#rows.push(waiting.row);
+        this.#waitingLineCount -= 1;
+      } else if (waiting.rows === undefined) {
+        break;
+      } else {
+        this.#rows.push(...waiting.rows);
+        this.#asked.delete(waiting);
+        this.#waitingLineCount -= waiting.lineCount;
+      }
+      drawnCount += 1;
+    }
+    this.#waiting.splice(0, drawnCount);
+  }
+
+  #wait(waiting: WaitingRow): void {
+    this.#waiting.push(waiting);
+    this.#waitingLineCount += waiting.kind === "string" ? waiting.lineCount : 1;
   }
 
   /** A string's rows once read: one block of markdown to a row, or the text as one row. */
-  #readRows(text: string, place: PayloadValuePlace): PayloadTableRow[] {
-    const document = this.#parseMarkdown(text);
+  #rowsOf(
+    text: string,
+    place: PayloadValuePlace,
+    document: ParsedMarkdownDocument,
+  ): PayloadTableRow[] {
     if (!document.holdsMarkdown) {
       return [{ kind: "value", place, text }];
     }
@@ -170,6 +207,19 @@ export function payloadJsonRow(items: readonly WorkflowItem[], rowIndex: number)
   const itemJson = JSON.stringify(items[rowIndex - 1], null, 2).replaceAll("\n", "\n  ");
   return `  ${itemJson}${rowIndex < items.length ? "," : ""}\n`;
 }
+
+/** A Table view row not drawn yet: ready to draw, or a string whose read has not landed. */
+type WaitingRow =
+  | { readonly kind: "ready"; readonly row: PayloadTableRow }
+  | {
+      readonly kind: "string";
+      readonly text: string;
+      readonly place: PayloadValuePlace;
+      /** How many lines its text holds. */
+      readonly lineCount: number;
+      /** Its rows once its read lands. */
+      rows: readonly PayloadTableRow[] | undefined;
+    };
 
 /** Whether a value is a string to read as markdown or text: one holding whitespace. */
 function isReadableString(value: unknown): value is string {

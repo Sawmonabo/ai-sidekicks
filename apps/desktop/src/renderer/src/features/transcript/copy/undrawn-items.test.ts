@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { type DrawnWindowSource } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
+import { parseMarkdownTree } from "#renderer/components/Markdown/worker/serialized-tree.js";
 import { withUndrawnItems, withUndrawnItemsText } from "./undrawn-items.js";
 import {
   drawnTreeMarkdown,
@@ -124,11 +125,15 @@ describe("a copy of a part whose own text holds the undrawn items' marker", () =
     const reading = withUndrawnItems(tablePart(false), "markdown", (sourceKey) =>
       SOURCES.get(sourceKey),
     );
-    const made = await drawnTreeMarkdown(reading.tree, {
-      alignments: new Map([["table", TABLE.align]]),
-      pull: (_tableKey, firstIndex, lastIndex) =>
-        Promise.resolve(TABLE.children.slice(firstIndex + 1, lastIndex + 2)),
-    });
+    const made = await drawnTreeMarkdown(
+      reading.tree,
+      {
+        alignments: new Map([["table", TABLE.align]]),
+        pull: (_tableKey, firstIndex, lastIndex) =>
+          Promise.resolve(TABLE.children.slice(firstIndex + 1, lastIndex + 2)),
+      },
+      parseMarkdownTree,
+    );
     const whole = drawnTreeText(tablePart(true), "markdown");
     expect(made.markdown.join("")).toBe(whole);
     expect(whole).toContain(`| y ${MARKED} | 2    |`);

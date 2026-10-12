@@ -29,9 +29,10 @@
 // The dev server's Content-Security-Policy: `electron-vite dev` serves the renderer over HTTP,
 // which bypasses the protocol handler's response headers, so the dev server sends the same
 // policies, composed from the directive list in `src/main/services/renderer/scheme.ts` and widened
-// only to admit the HMR websocket: the diagram worker's on its script, the page's on every other
-// response. `strictPort` holds because the policy names that port.
+// only to admit the HMR websocket: each WebAssembly worker's on its script, the page's on every
+// other response. `strictPort` holds because the policy names that port.
 
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -41,9 +42,10 @@ import type { Plugin } from "vitest/config";
 import { clearThirdPartyNotices, thirdPartyNoticesPlugins } from "./build/third-party-notices.ts";
 import {
   DIAGRAM_WORKER_BUNDLE_NAME,
-  DIAGRAM_WORKER_DEV_CONTENT_SECURITY_POLICY,
+  MARKDOWN_WORKER_BUNDLE_NAME,
   RENDERER_DEV_CONTENT_SECURITY_POLICY,
   RENDERER_DEV_SERVER_PORT,
+  WEBASSEMBLY_WORKER_DEV_CONTENT_SECURITY_POLICY,
 } from "./src/main/services/renderer/scheme.js";
 import { FONT_EXTENSIONS } from "./tests/budget/built-renderer-tree.ts";
 import { iconCompilationPlugin } from "./vitest/icon-compilation.js";
@@ -125,24 +127,35 @@ export function isFixtureOnlyModule(moduleId: string): boolean {
 /** The renderer's source root, which the dev server serves under `/src/`. */
 const RENDERER_SOURCE_DIRECTORY = fileURLToPath(new URL("./src/renderer/src/", import.meta.url));
 
-/** The diagram worker's entry under the renderer's source root. */
+/** The entries under the renderer's source root of the workers that run WebAssembly. */
 const DIAGRAM_WORKER_ENTRY = "components/Markdown/diagram/worker/entry.ts";
+const MARKDOWN_WORKER_ENTRY = "components/Markdown/worker/entry.ts";
 
 /**
- * Each worker's bundle name, by its entry under the renderer's source root. A worker is built as
- * `assets/<name>-<hash>.js` and writes its notices to `<name>.txt`; the protocol handler knows the
- * diagram worker's script by its name.
+ * Each worker's bundle name, by its entry under the renderer's source root, or under
+ * `node_modules/` for a library's own worker. A worker is built as `assets/<name>-<hash>.js` and
+ * writes its notices to `<name>.txt`; the protocol handler knows the scripts of the workers that
+ * run WebAssembly by their names.
  */
 const WORKER_BUNDLE_NAMES: Readonly<Record<string, string>> = {
-  "components/Markdown/worker/entry.ts": "markdown-worker",
+  [MARKDOWN_WORKER_ENTRY]: MARKDOWN_WORKER_BUNDLE_NAME,
   [DIAGRAM_WORKER_ENTRY]: DIAGRAM_WORKER_BUNDLE_NAME,
   "components/Markdown/diagram/png/entry.ts": "png-worker",
   "features/repos/diff/intraline/worker/script.ts": "alignment-worker",
+  // Sätteri's browser build bundles a worker it starts only for work run off its caller's thread,
+  // which the markdown worker never asks for.
+  "@bruits/satteri-wasm32-wasi/wasi-worker-browser.mjs": "markdown-parser-thread-worker",
 };
 
 /** A worker's bundle name, by its entry module. Throws for a worker the table does not name. */
 function workerBundleNameOf(entryModuleId: string): string {
-  const entry = path.relative(RENDERER_SOURCE_DIRECTORY, entryModuleId).split(path.sep).join("/");
+  const sourceEntry = path
+    .relative(RENDERER_SOURCE_DIRECTORY, entryModuleId)
+    .split(path.sep)
+    .join("/");
+  const entry = sourceEntry.includes("/node_modules/")
+    ? sourceEntry.slice(sourceEntry.lastIndexOf("/node_modules/") + "/node_modules/".length)
+    : sourceEntry;
   const bundleName = WORKER_BUNDLE_NAMES[entry];
   if (bundleName === undefined) {
     throw new Error(`the worker ${entry} has no bundle name in electron.vite.config.ts`);
@@ -150,12 +163,54 @@ function workerBundleNameOf(entryModuleId: string): string {
   return bundleName;
 }
 
-/** The diagram worker's script as the dev server serves it, from source. */
-const DEV_DIAGRAM_WORKER_PATH = `/src/${DIAGRAM_WORKER_ENTRY}`;
+/**
+ * Packages whose `browser` build reaches for the document as it loads and which publish a `worker`
+ * build without it. A worker's bundle is resolved by the page's conditions, which pick the
+ * `browser` build, and a worker has no document: `decode-named-character-reference`, which the
+ * markdown worker's markdown writer imports, makes an element as it loads.
+ */
+const PACKAGES_WITH_WORKER_BUILDS: readonly string[] = ["decode-named-character-reference"];
 
 /**
- * Sends the dev transport's policy on every response the dev server answers: the diagram worker's
- * on its script, which a dedicated worker takes its policy from, and the page's on every other.
+ * Resolves each package `PACKAGES_WITH_WORKER_BUILDS` names to its `worker` export, for a worker's
+ * bundle. Throws for a package that publishes none.
+ */
+function workerPackageBuildsPlugin(): Plugin {
+  return {
+    name: "worker-package-builds",
+    enforce: "pre",
+    async resolveId(source, importer, options) {
+      if (!PACKAGES_WITH_WORKER_BUILDS.includes(source)) {
+        return null;
+      }
+      const browserBuild = await this.resolve(source, importer, { ...options, skipSelf: true });
+      if (browserBuild === null) {
+        return null;
+      }
+      // The package's builds sit beside its `package.json`, which its exports do not name.
+      const packageDirectory = path.dirname(browserBuild.id);
+      const manifest = JSON.parse(
+        await readFile(path.join(packageDirectory, "package.json"), "utf8"),
+      ) as { readonly exports?: { readonly worker?: string } };
+      const workerBuild = manifest.exports?.worker;
+      if (workerBuild === undefined) {
+        throw new Error(`${source} publishes no worker build beside ${browserBuild.id}`);
+      }
+      return path.join(packageDirectory, workerBuild);
+    },
+  };
+}
+
+/** The scripts of the workers that run WebAssembly as the dev server serves them, from source. */
+const DEV_WEBASSEMBLY_WORKER_PATHS: readonly string[] = [
+  `/src/${DIAGRAM_WORKER_ENTRY}`,
+  `/src/${MARKDOWN_WORKER_ENTRY}`,
+];
+
+/**
+ * Sends the dev transport's policy on every response the dev server answers: a WebAssembly
+ * worker's on its script, which a dedicated worker takes its policy from, and the page's on every
+ * other.
  */
 function devContentSecurityPolicyPlugin(): Plugin {
   return {
@@ -166,8 +221,8 @@ function devContentSecurityPolicyPlugin(): Plugin {
         const requestPath = new URL(request.url ?? "/", "http://localhost").pathname;
         response.setHeader(
           "Content-Security-Policy",
-          requestPath === DEV_DIAGRAM_WORKER_PATH
-            ? DIAGRAM_WORKER_DEV_CONTENT_SECURITY_POLICY
+          DEV_WEBASSEMBLY_WORKER_PATHS.includes(requestPath)
+            ? WEBASSEMBLY_WORKER_DEV_CONTENT_SECURITY_POLICY
             : RENDERER_DEV_CONTENT_SECURITY_POLICY,
         );
         next();
@@ -258,12 +313,16 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ command, 
         devContentSecurityPolicyPlugin(),
         ...thirdPartyNoticesPlugins(() => "renderer"),
       ],
-      // Workers are modules: merman loads its WebAssembly glue with a dynamic import, which a
-      // classic worker bundle cannot split out. Each worker's bundle is built apart from the
-      // page's, with plugins made afresh for it, so each writes notices of its own.
+      // Workers are modules: merman's WebAssembly glue and the markdown worker's parser load with
+      // a dynamic import, which a classic worker bundle cannot split out. Each worker's bundle is
+      // built apart from the page's, with plugins made afresh for it, so each writes notices of
+      // its own.
       worker: {
         format: "es",
-        plugins: () => thirdPartyNoticesPlugins(workerBundleNameOf),
+        plugins: () => [
+          workerPackageBuildsPlugin(),
+          ...thirdPartyNoticesPlugins(workerBundleNameOf),
+        ],
         rolldownOptions: {
           output: {
             entryFileNames: (chunk) => {
