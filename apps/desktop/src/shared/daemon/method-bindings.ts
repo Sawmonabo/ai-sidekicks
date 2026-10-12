@@ -15,6 +15,7 @@ import { HIGHLIGHT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/highlight"
 import { MCP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp/governance";
 import { PRESENCE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/presence";
 import { QUESTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/question";
+import { REPO_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/repo/methods";
 import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/account/methods";
 import { TERMINAL_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/pty";
 import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
@@ -57,6 +58,7 @@ export const REGISTERED_DAEMON_METHODS = [
   "highlight.read",
   "question.resolve",
   "gitflow.diffRead",
+  "repo.workspaceList",
   "artifact.read",
   "mcp.list",
   "mcp.get",
@@ -135,6 +137,7 @@ export const DAEMON_METHOD_BINDINGS: DaemonMethodBindings = bindRegisteredMethod
   ...HIGHLIGHT_METHOD_DESCRIPTORS,
   ...QUESTION_METHOD_DESCRIPTORS,
   ...GITFLOW_METHOD_DESCRIPTORS,
+  ...REPO_METHOD_DESCRIPTORS,
   ...ARTIFACT_METHOD_DESCRIPTORS,
   ...MCP_METHOD_DESCRIPTORS,
   ...PROVIDER_ACCOUNT_METHOD_DESCRIPTORS,

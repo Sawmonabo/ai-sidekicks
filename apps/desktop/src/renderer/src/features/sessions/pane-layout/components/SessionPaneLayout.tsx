@@ -23,6 +23,7 @@ import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar
 import { useRootFontSizePx } from "#renderer/hooks/useRootFontSizePx.js";
 import { useReorderDrag, type ReorderDragSettings } from "#renderer/hooks/useReorderDrag.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
 import type { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
@@ -39,6 +40,7 @@ import { useMountedPaneLayout } from "../hooks/useMountedPaneLayout.js";
 import { rowPanes, terminalPane, type SessionPane } from "../state.js";
 import { commitPaneDrop } from "../drag.js";
 import { PANE_WIDTH_RULE_BY_KIND } from "../widths.js";
+import { readSessionWorkspace } from "../../services/session-workspace.js";
 import { SessionPaneSlot, paneSlotSelector, type PaneSlotPlacement } from "./SessionPaneSlot.js";
 
 /** What the pane layout needs: its store, its registry, each pane's context, the conversation. */
@@ -105,12 +107,21 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
     [layout],
   );
 
-  // Built once per (layout, announcer) pair and shared by this component's keys, the window's
+  const bridge = usePlatformBridge();
+  const { sessionId } = props;
+  // Built once per (layout, announcer, session) and shared by this component's keys, the window's
   // chords and the palette rows in `contributions/commands.ts`, so a chord and a row cannot mean
   // two moves.
   const acts = useMemo(
-    () => paneLayoutActsOn(layout, announce, focusPaneFrame),
-    [layout, announce, focusPaneFrame],
+    () =>
+      paneLayoutActsOn(layout, announce, {
+        focusPane: focusPaneFrame,
+        readInspectedCheckout: async () =>
+          sessionId === undefined
+            ? { status: "served", value: undefined }
+            : readSessionWorkspace(bridge, sessionId),
+      }),
+    [layout, announce, focusPaneFrame, bridge, sessionId],
   );
   useMountedPaneLayout(acts);
 
@@ -172,18 +183,27 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
     },
   });
 
-  // A pane just opened, or brought forward again, is scrolled into view along the row.
+  // A pane just opened, or brought forward again, is scrolled into view along the row, and one
+  // opened while this view is drawn takes the window's focus: the pane focused before it takes
+  // the focus back when it closes. One opened before the view was drawn takes none, so drawing
+  // the view never moves the focus.
   const lastOpened = state.lastOpened;
+  const drawnSinceSerialRef = useRef(lastOpened?.serial ?? 0);
   useLayoutEffect(() => {
     const block = blockRef.current;
     if (lastOpened === undefined || block === null) {
+      return;
+    }
+    if (lastOpened.serial > drawnSinceSerialRef.current) {
+      drawnSinceSerialRef.current = lastOpened.serial;
+      focusPaneFrame(lastOpened.paneId);
       return;
     }
     const slot = block.querySelector(paneSlotSelector(lastOpened.paneId));
     if (slot !== null) {
       revealInRow(block, slot, "pane-reveal");
     }
-  }, [lastOpened]);
+  }, [lastOpened, focusPaneFrame]);
 
   // A pane closed while it held the window's focus hands it to the pane the layout now focuses,
   // rather than leaving it on the document's body.

@@ -6,10 +6,12 @@
 // Focusing a pane moves DOM focus into it, and the layout follows the focus that lands; each act
 // also says its result in a live region. The move acts say what the pointer's drop says
 // (`move-announcement.ts`). A move that goes nowhere is not a refusal; only an act with no subject
-// is refused: no layout mounted, or no pane focused.
+// is refused: no layout mounted, no pane focused, or no workspace for the inspector to open on.
 
 import { TITLE_BY_PANE_KIND } from "#renderer/components/PaneFrame/PaneFrame.js";
 import type { Announce } from "#renderer/components/LiveAnnouncer/announcer.js";
+import { type DaemonReply } from "#renderer/services/daemon/reply.js";
+import { type InspectedCheckout } from "../services/session-workspace.js";
 import type { PaneLayoutStore } from "./store.js";
 import { paneMoveAnnouncement } from "./move-announcement.js";
 import { adjacentPane, terminalPane, type TerminalPlace } from "./state.js";
@@ -26,6 +28,16 @@ export interface PaneLayoutActs {
   readonly moveFocusedPaneRight: () => void;
   readonly moveTerminalUp: () => void;
   readonly moveTerminalDown: () => void;
+  /** Opens the inspector on the session's workspace beside the focused pane. */
+  readonly openInspector: () => void;
+}
+
+/** What the acts reach beyond the layout: the view's focus and the session's workspace. */
+export interface PaneLayoutActReach {
+  /** Moves DOM focus into a pane and brings it into view; the layout follows the focus. */
+  readonly focusPane: (paneId: string) => void;
+  /** Reads the checkout the inspector opens on; `undefined` when the session has none. */
+  readonly readInspectedCheckout: () => Promise<DaemonReply<InspectedCheckout | undefined>>;
 }
 
 /** One act, by name. */
@@ -34,15 +46,18 @@ export type PaneLayoutActName = keyof PaneLayoutActs;
 /** What an act says when the pane layout it reached is focusing nothing. */
 export const NO_FOCUSED_PANE_SENTENCE = "No pane is focused.";
 
+/** What the inspector's act says when the session is bound to no workspace. */
+export const NO_INSPECTED_CHECKOUT_SENTENCE = "This session has no workspace to inspect.";
+
 /**
- * Binds the acts to one pane layout, an announcer and the view that moves DOM focus into a pane.
+ * Binds the acts to one pane layout, an announcer and what they reach beyond the layout.
  *
  * Kept out of `PaneLayoutStore`, which holds no opinion about live regions or the document.
  */
 export function paneLayoutActsOn(
   layout: PaneLayoutStore,
   announce: Announce,
-  focusPane: (paneId: string) => void,
+  reach: PaneLayoutActReach,
 ): PaneLayoutActs {
   const focusStep = (step: 1 | -1): void => {
     const { panes, focusedPaneId } = layout.snapshot();
@@ -51,7 +66,7 @@ export function paneLayoutActsOn(
       // An empty block draws nothing to focus, so there is nothing to say.
       return;
     }
-    focusPane(focused.paneId);
+    reach.focusPane(focused.paneId);
     const position = panes.indexOf(focused);
     if (focused.paneId === focusedPaneId) {
       // One pane: cycling lands where it started. Assertive, like a move that did not happen.
@@ -117,6 +132,20 @@ export function paneLayoutActsOn(
     },
     moveTerminalDown: () => {
       placeTerminal("below");
+    },
+    openInspector: () => {
+      void reach.readInspectedCheckout().then((read) => {
+        if (read.status === "refused") {
+          announce(read.refusal.detail, "assertive");
+          return;
+        }
+        if (read.value === undefined) {
+          announce(NO_INSPECTED_CHECKOUT_SENTENCE, "assertive");
+          return;
+        }
+        // Opened beside the focused pane, which takes the focus back when the inspector closes.
+        layout.open({ kind: "inspector", entity: read.value });
+      });
     },
   };
 }

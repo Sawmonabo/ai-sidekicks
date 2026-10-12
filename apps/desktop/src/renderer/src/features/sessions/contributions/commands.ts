@@ -1,10 +1,11 @@
-// The pane layout's palette rows and the four moves' chords. Each row is contributed once at
-// composition time and resolves the newest mounted pane layout (`MountedPaneLayouts`) when it is
-// pressed; with none mounted the press raises a refusal a person reads.
+// The pane layout's palette rows, the four moves' chords and the inspector's. Each row is
+// contributed once at composition time and resolves the newest mounted pane layout
+// (`MountedPaneLayouts`) when it is pressed; with none mounted the press raises a refusal a person
+// reads.
 //
-// The moves are chords in the window's table, live only with focus in a pane: the table skips a
-// press in a text field, the terminal's body among them, so there the keys reach the field or
-// the shell. Focusing and closing stay on the block's own element behind the wider
+// The moves are chords in the window's table, live only with focus in a pane, and the inspector's
+// is live anywhere in a session: the table skips a press in a text field, the terminal's body
+// among them, so there the keys reach the field or the shell. Focusing and closing stay on the block's own element behind the wider
 // `isEditableTarget` (`lib/editable-target.ts`), since a listbox in a pane takes bare arrows.
 
 import { raiseCommandRefusal } from "#renderer/registries/commands/refusal.js";
@@ -39,8 +40,11 @@ const PANE_MOVE_COMMAND_IDS = {
 /** The clause the four move chords are live under: focus in one of the session's panes. */
 const WHEN_PANE_FOCUSED = "sessionActive && paneFocused";
 
-/** The four move chords. */
-const PANE_MOVE_KEY_BINDINGS: readonly Keybinding[] = [
+/** The id of the command that opens the inspector, bound to `$mod+i`. */
+const OPEN_INSPECTOR_COMMAND_ID = "paneLayout.openInspector";
+
+/** The four move chords and the inspector's. */
+const PANE_LAYOUT_KEY_BINDINGS: readonly Keybinding[] = [
   {
     chord: "Alt+Shift+ArrowLeft",
     commandId: PANE_MOVE_COMMAND_IDS.movePaneLeft,
@@ -61,6 +65,7 @@ const PANE_MOVE_KEY_BINDINGS: readonly Keybinding[] = [
     commandId: PANE_MOVE_COMMAND_IDS.moveTerminalDown,
     when: WHEN_PANE_FOCUSED,
   },
+  { chord: "$mod+i", commandId: OPEN_INSPECTOR_COMMAND_ID, when: WHEN_SESSION_ACTIVE },
 ];
 
 /** Build the palette commands, given the acts each one performs. */
@@ -122,6 +127,14 @@ export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly Comman
       keywords: ["terminal", "shell", "below"],
       run: acts.moveTerminalDown,
     },
+    {
+      id: OPEN_INSPECTOR_COMMAND_ID,
+      title: "Inspector",
+      group: PANE_LAYOUT_COMMAND_GROUP,
+      when: WHEN_SESSION_ACTIVE,
+      keywords: ["pane", "workspace", "details", "facts"],
+      run: acts.openInspector,
+    },
   ];
 }
 
@@ -136,7 +149,7 @@ export function registerPaneLayoutCommands(
   registry.contribute({
     owner: PANE_LAYOUT_COMMAND_OWNER,
     commands: paneLayoutPaletteCommands(actsOnTheMountedPaneLayout(mountedLayouts)),
-    keyBindings: PANE_MOVE_KEY_BINDINGS,
+    keyBindings: PANE_LAYOUT_KEY_BINDINGS,
   });
 }
 
@@ -169,6 +182,9 @@ function actsOnTheMountedPaneLayout(mountedLayouts: MountedPaneLayouts): PaneLay
     },
     moveTerminalDown: () => {
       perform("moveTerminalDown");
+    },
+    openInspector: () => {
+      perform("openInspector");
     },
   };
 }

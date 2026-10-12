@@ -5,7 +5,15 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Announce } from "#renderer/components/LiveAnnouncer/announcer.js";
 import { PaneLayoutStore } from "./store.js";
-import { NO_FOCUSED_PANE_SENTENCE, paneLayoutActsOn, type PaneLayoutActs } from "./acts.js";
+import {
+  NO_FOCUSED_PANE_SENTENCE,
+  NO_INSPECTED_CHECKOUT_SENTENCE,
+  paneLayoutActsOn,
+  type PaneLayoutActs,
+} from "./acts.js";
+import { refuse } from "#renderer/lib/refusal/contract.js";
+import { type DaemonReply } from "#renderer/services/daemon/reply.js";
+import { type InspectedCheckout } from "../services/session-workspace.js";
 
 const WORKTREE = { kind: "worktree", id: "worktree-01" } as const;
 
@@ -26,10 +34,20 @@ function announcer(): Announce & { readonly said: string[][] } {
   return Object.assign(announce as unknown as Announce, { said });
 }
 
-/** The acts on `layout`, with DOM focus standing in as the layout following the focus that lands. */
-function actsOn(layout: PaneLayoutStore, announce: Announce): PaneLayoutActs {
-  return paneLayoutActsOn(layout, announce, (paneId) => {
-    layout.focus(paneId);
+/**
+ * The acts on `layout`, with DOM focus standing in as the layout following the focus that lands,
+ * and the session bound to `checkout`.
+ */
+function actsOn(
+  layout: PaneLayoutStore,
+  announce: Announce,
+  checkout: DaemonReply<InspectedCheckout | undefined> = { status: "served", value: undefined },
+): PaneLayoutActs {
+  return paneLayoutActsOn(layout, announce, {
+    focusPane: (paneId) => {
+      layout.focus(paneId);
+    },
+    readInspectedCheckout: () => Promise.resolve(checkout),
   });
 }
 
@@ -117,5 +135,52 @@ describe("moving the focused pane", () => {
     const announce = announcer();
     actsOn(new PaneLayoutStore(), announce).moveFocusedPaneLeft();
     expect(announce.said).toStrictEqual([[NO_FOCUSED_PANE_SENTENCE, "assertive"]]);
+  });
+});
+
+describe("opening the inspector", () => {
+  it("opens it on the session's workspace beside the focused pane, which takes focus back on close", async () => {
+    const layout = reviewSidekicksTerminal();
+    const announce = announcer();
+    focusKind(layout, "diff");
+    const review = layout.snapshot().focusedPaneId;
+    const workspace = { kind: "workspace", id: "workspace-01" } as const;
+
+    actsOn(layout, announce, { status: "served", value: workspace }).openInspector();
+    await vi.waitFor(() => {
+      expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
+        "diff",
+        "inspector",
+        "agents",
+        "terminal",
+      ]);
+    });
+    const inspector = layout.snapshot().panes[1];
+    expect(inspector?.entity).toStrictEqual(workspace);
+    expect(layout.snapshot().focusedPaneId).toBe(inspector?.paneId);
+    layout.close(inspector?.paneId ?? "");
+    expect(layout.snapshot().focusedPaneId).toBe(review);
+    expect(announce.said).toStrictEqual([]);
+  });
+
+  it("says why it opened nothing: no workspace, or the read refused", async () => {
+    const layout = reviewSidekicksTerminal();
+    const announce = announcer();
+    const refusal = refuse(
+      "daemon-call",
+      "daemon-unreachable",
+      "The background service is not answering.",
+    );
+
+    actsOn(layout, announce).openInspector();
+    actsOn(layout, announce, { status: "refused", refusal }).openInspector();
+
+    await vi.waitFor(() => {
+      expect(announce.said).toStrictEqual([
+        [NO_INSPECTED_CHECKOUT_SENTENCE, "assertive"],
+        ["The background service is not answering.", "assertive"],
+      ]);
+    });
+    expect(layout.snapshot().panes.map((pane) => pane.kind)).not.toContain("inspector");
   });
 });
