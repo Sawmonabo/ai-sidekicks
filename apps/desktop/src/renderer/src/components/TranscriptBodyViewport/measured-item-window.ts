@@ -325,6 +325,9 @@ export class MeasuredItemWindow<Item> {
         if (index < this.#source.itemCount() && this.#source.itemAt(index) === item) {
           this.#measuredItems[index] = item;
           virtualizer.resizeItem(index, heightPx);
+          // Lays the items out again, so the next one's place, which the reader's hold judges,
+          // carries this one's change, as an item drawn and resized does.
+          virtualizer.getTotalSize();
         }
       }
     } finally {
