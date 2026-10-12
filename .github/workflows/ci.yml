@@ -96,6 +96,11 @@ jobs:
               - '.nvmrc'
               - '.npmrc'
               - 'pnpm-workspace.yaml'
+              # The text-compression crate the desktop's build compiles to WebAssembly, the Cargo
+              # workspace files it builds under, and the toolchain that names its target.
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
               - '.github/workflows/ci.yml'
               - '.github/actions/setup-electron-display/**'
             # knip reads every workspace, its own config, the manifests and the files that name
@@ -123,12 +128,13 @@ jobs:
               # The daemon's SQLite shell, which every leg builds, and the repair that runs it.
               - 'packages/runtime-daemon/sqlite-shell/**'
               - 'packages/runtime-daemon/src/recovery/database-file/**'
-            # The session search's addon crate, the Cargo workspace files it builds under, and
-            # this workflow.
+            # The session search's addon crate, the Cargo workspace files and toolchain it builds
+            # under, and this workflow.
             search-index:
               - 'packages/search-index/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - 'rust-toolchain.toml'
               - '.github/workflows/ci.yml'
 
   # The Node floor as major.minor, read from `.nvmrc`, for the `test` matrix: its job name renders
