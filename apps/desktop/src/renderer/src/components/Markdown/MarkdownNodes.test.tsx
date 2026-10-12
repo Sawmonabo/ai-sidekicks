@@ -1,11 +1,17 @@
 import { act, cleanup, render } from "@testing-library/react";
+import type { Root, Table } from "mdast";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DiagramPictures, DiagramPicturesContext } from "./diagram/pictures.js";
 import { FakeDiagramWorkers } from "./diagram/worker/connection.test-support.js";
 import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { MarkdownNodes } from "./MarkdownNodes.js";
+import { piecedRowsOf } from "./parse/pieced-table.js";
+import { MarkdownTrees, type MarkdownParseOutcome } from "./parse/trees.js";
 import { parseTree } from "./parse/trees.test-support.js";
+import type { MarkdownTableOffer } from "./table-offer.js";
+import { MarkdownWorkerConnection } from "./worker/connection.js";
+import { InThreadMarkdownWorkers } from "./worker/connection.test-support.js";
 
 /** Leaves the renderer's caches alone: no case here shows enough pictures to empty them for. */
 const keepUnusedMemory = (): void => undefined;
@@ -129,3 +135,70 @@ describe("a mermaid fence", () => {
     expect(workers.latest().requests.map((request) => request.source)).toStrictEqual([source]);
   });
 });
+
+describe("a long table offered to a body that draws its rows", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("reads only the rows the body draws, so its pieces let go stay let go", () => {
+    const workers = new InThreadMarkdownWorkers();
+    // Room for about two pieces' trees, so the first pieces are let go as the last land.
+    const trees = new MarkdownTrees(new MarkdownWorkerConnection(workers.start, window), 1_000_000);
+    const rows = Array.from(
+      { length: 5_000 },
+      (_, index) => `| lane-${String(index)} | **${String(index)}** | \`code ${String(index)}\` |`,
+    );
+    let outcome: MarkdownParseOutcome | undefined;
+    trees.requestTree(
+      ["| Lane | State | Code |", "| --- | --- | --- |", ...rows].join("\n"),
+      "",
+      (landed) => {
+        outcome = landed;
+      },
+    );
+    const table = onlyTableOf(outcome?.status === "parsed" ? outcome.root : expect.fail("parsed"));
+    const pieced = piecedRowsOf(table) ?? expect.fail("the table is read in pieces");
+    const lastIndex = rows.length - 1;
+    expect(pieced.isRowRead(0)).toBe(false);
+    const parsedCount = workers.latest().requests.length;
+
+    let offered: MarkdownTableOffer | undefined;
+    const { container } = render(
+      <MarkdownNodes
+        nodes={[table]}
+        context={{
+          isSettled: true,
+          definedFootnoteIdentifiers: new Set(),
+          codeSpanReader: NO_CODE_SPANS,
+          renderCopy: undefined,
+          renderTable: (offer) => {
+            offered = offer;
+            return offer.drawFrame({
+              columns: undefined,
+              isShrunkToRoom: false,
+              rowCount: undefined,
+              headRow: offer.drawHeadRow({}),
+              bodyRows: offer.drawBodyRow(lastIndex, {}),
+            });
+          },
+        }}
+      />,
+    );
+
+    expect(offered?.bodyRowCount).toBe(rows.length);
+    expect(container.querySelectorAll("tr")).toHaveLength(2);
+    expect(container.textContent).toContain(`lane-${String(lastIndex)}`);
+    // No piece let go was read or parsed again to offer the table.
+    expect(pieced.isRowRead(0)).toBe(false);
+    expect(workers.latest().requests).toHaveLength(parsedCount);
+  });
+});
+
+/** The one table a tree holds. */
+function onlyTableOf(root: Root): Table {
+  const [table] = root.children;
+  return table?.type === "table" && root.children.length === 1
+    ? table
+    : expect.fail("the tree is one table");
+}
