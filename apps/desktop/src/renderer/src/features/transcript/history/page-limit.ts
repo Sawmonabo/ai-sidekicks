@@ -5,6 +5,7 @@
 
 import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
 
+import { rootFontSizePx } from "#renderer/lib/root-font-size.js";
 import { TRANSCRIPT_APPROACH_SCREEN_HEIGHTS } from "../viewport/caps.js";
 import { RowMeasurementTable } from "../viewport/row-measurement-table.js";
 
@@ -28,9 +29,7 @@ export function transcriptOpeningPageLimit(ownerWindow: Window): number {
   const measurements = new RowMeasurementTable();
   measurements.setDisplaySettings({
     devicePixelRatio: ownerWindow.devicePixelRatio,
-    rootFontSizePx: Number.parseFloat(
-      ownerWindow.getComputedStyle(ownerWindow.document.documentElement).fontSize,
-    ),
+    rootFontSizePx: rootFontSizePx(ownerWindow.document),
   });
   return pageLimitFor(ownerWindow.innerHeight, measurements.smallestEstimatePx);
 }

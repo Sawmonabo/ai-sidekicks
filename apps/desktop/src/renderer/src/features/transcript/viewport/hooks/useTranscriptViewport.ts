@@ -20,6 +20,7 @@ import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
 import { type Clock } from "#renderer/lib/clock.js";
+import { rootFontSizePx } from "#renderer/lib/root-font-size.js";
 import { type RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
@@ -27,7 +28,6 @@ import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers
 import { type AnimationFrameScheduler } from "../../animation-frame-scheduler.js";
 import { type RowHeightKind } from "../../rows/height-kind.js";
 import { ViewportController, type ViewportControllerOptions } from "../controller.js";
-import { declareDisplaySettings } from "../display-settings.js";
 import { type MessageReadBack } from "../landing.js";
 import { type RowOutputParses } from "../row-reach.js";
 import { type ViewportSelectionTracker } from "../selection/tracker.js";
@@ -524,7 +524,12 @@ function mintViewportController(
     },
     isRowRevealing: (rowKey) => latestOptions.current.isRowRevealing?.(rowKey) ?? false,
   });
-  declareDisplaySettings(controller, ownerWindow);
+  // The display a new controller's first pass lays rows out on; `useObserveDisplaySettings`
+  // tells it each later change.
+  controller.observeDisplaySettings(
+    ownerWindow.devicePixelRatio,
+    rootFontSizePx(ownerWindow.document),
+  );
   return controller;
 }
 
