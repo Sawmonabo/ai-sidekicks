@@ -182,20 +182,27 @@ export class MeasuredItemWindow<Item> {
   /**
    * Lays the items out anew at a new width or type: every height measured at the old one is
    * dropped, the drawn items measured again at once, so the window never lays them out at an
-   * estimate, and the rest measured off screen again. The first type drops nothing it had.
+   * estimate, and the rest measured off screen again; the item the reader reads in keeps its
+   * place. The first type drops nothing it had.
    */
   public retype(hadType: boolean): void {
     this.#measuredItems = [];
     const virtualizer = this.#virtualizer;
     if (hadType && virtualizer !== undefined) {
-      virtualizer.measure();
-      for (const element of virtualizer.elementsCache.values()) {
-        if (element.isConnected) {
-          const index = virtualizer.indexFromElement(element);
-          this.#markMeasured(index);
-          virtualizer.resizeItem(index, element.getBoundingClientRect().height);
-        }
-      }
+      this.#placeHold.holdThroughRelayout(
+        virtualizer,
+        this.#viewport.holdsPlaceInsideRow(this.#rowKey),
+        () => {
+          virtualizer.measure();
+          for (const element of virtualizer.elementsCache.values()) {
+            if (element.isConnected) {
+              const index = virtualizer.indexFromElement(element);
+              this.#markMeasured(index);
+              virtualizer.resizeItem(index, element.getBoundingClientRect().height);
+            }
+          }
+        },
+      );
     }
     this.measurement.stop();
     this.measurement.measure();

@@ -78,8 +78,6 @@ export class TableWindowLayout {
   #heldAtWidthPx: number | undefined;
   /** Whether the body stood narrower than that at the last update. */
   #isShrunkToRoom = false;
-  /** Whether every row is being laid out anew, whose change above the reader is held once. */
-  #isRelayingOut = false;
   /** The body type the geometry is kept at; `undefined` while the body had none to keep it at. */
   #keptBodyType: MarkdownBodyType | undefined;
   /** How many body rows the held columns were checked against: more arrive while it streams. */
@@ -162,10 +160,7 @@ export class TableWindowLayout {
     deltaPx: number,
     instance: TableRowVirtualizer,
   ): boolean => {
-    if (
-      !this.#isRelayingOut &&
-      this.#body.viewport.holdsPlaceInsideRow(this.#body.placement.rowKey)
-    ) {
+    if (this.#body.viewport.holdsPlaceInsideRow(this.#body.placement.rowKey)) {
       this.#placeHold.holdThroughResizedItem(item.end, deltaPx, instance.scrollOffset ?? 0);
     }
     return false;
@@ -335,30 +330,23 @@ export class TableWindowLayout {
    * inside, move the conversation by their change, so the rows being read stay where they are.
    */
   public relayOutRows(virtualizer: TableRowVirtualizer): void {
-    const readOffsetPx = virtualizer.scrollOffset ?? 0;
-    const readPlace = placeAt(virtualizer, readOffsetPx);
-    this.#isRelayingOut = true;
-    try {
-      virtualizer.measure();
-      // Every row laid out at its estimate first, so no drawn row is placed by the old heights.
-      virtualizer.getTotalSize();
-      for (const element of virtualizer.elementsCache.values()) {
-        if (element.isConnected) {
-          const index = virtualizer.indexFromElement(element);
-          const heightPx = element.getBoundingClientRect().height;
-          this.#keepRowHeight(index, heightPx);
-          virtualizer.resizeItem(index, heightPx);
+    this.#placeHold.holdThroughRelayout(
+      virtualizer,
+      this.#body.viewport.holdsPlaceInsideRow(this.#body.placement.rowKey),
+      () => {
+        virtualizer.measure();
+        // Every row laid out at its estimate first, so no drawn row is placed by the old heights.
+        virtualizer.getTotalSize();
+        for (const element of virtualizer.elementsCache.values()) {
+          if (element.isConnected) {
+            const index = virtualizer.indexFromElement(element);
+            const heightPx = element.getBoundingClientRect().height;
+            this.#keepRowHeight(index, heightPx);
+            virtualizer.resizeItem(index, heightPx);
+          }
         }
-      }
-    } finally {
-      this.#isRelayingOut = false;
-    }
-    if (
-      readPlace !== undefined &&
-      this.#body.viewport.holdsPlaceInsideRow(this.#body.placement.rowKey)
-    ) {
-      this.#placeHold.add(startOfPlace(virtualizer, readPlace) - readPlace.startPx);
-    }
+      },
+    );
   }
 
   /**
@@ -759,36 +747,6 @@ function isSameRow(row: TableWindowRow, held: TableWindowRow | undefined): boole
     held.firstIndex === row.firstIndex &&
     held.lastIndex === row.lastIndex
   );
-}
-
-/**
- * Where the reader stands in a table laid out at `offsetPx` from its body's top: the row the offset
- * falls in and its top, or past the last row and the rows' end; `undefined` above the table.
- */
-function placeAt(
-  virtualizer: TableRowVirtualizer,
-  offsetPx: number,
-): { readonly index: number | undefined; readonly startPx: number } | undefined {
-  const endPx = virtualizer.getTotalSize();
-  if (offsetPx <= 0 || endPx === 0) {
-    return undefined;
-  }
-  if (offsetPx >= endPx) {
-    return { index: undefined, startPx: endPx };
-  }
-  const item = virtualizer.getVirtualItemForOffset(offsetPx);
-  return item === undefined ? undefined : { index: item.index, startPx: item.start };
-}
-
-/** Where `place`'s row starts in the table as it is laid out now, or the rows' end past them. */
-function startOfPlace(
-  virtualizer: TableRowVirtualizer,
-  place: { readonly index: number | undefined },
-): number {
-  const endPx = virtualizer.getTotalSize();
-  return place.index === undefined
-    ? endPx
-    : (virtualizer.measurementsCache[place.index]?.start ?? endPx);
 }
 
 function isSameSample(sample: readonly number[], held: readonly number[]): boolean {

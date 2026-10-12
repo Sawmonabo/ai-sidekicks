@@ -415,7 +415,8 @@ export class BlockWindowLayout implements TableBodyPlacement {
 
   /**
    * Drops every height measured at the old width or text size, since text wraps anew, and measures
-   * the drawn blocks again at once, so the window never lays them out at an estimate.
+   * the drawn blocks again at once, so the window never lays them out at an estimate; the block the
+   * reader reads in keeps its place.
    */
   #remeasureAtNewType(): void {
     const virtualizer = this.#virtualizer;
@@ -423,15 +424,21 @@ export class BlockWindowLayout implements TableBodyPlacement {
       return;
     }
     this.#geometries.clear();
-    virtualizer.measure();
-    for (const element of virtualizer.elementsCache.values()) {
-      if (element.isConnected) {
-        const index = virtualizer.indexFromElement(element);
-        const geometry = readBlockGeometry(element, element.getBoundingClientRect().height);
-        this.#record(index, geometry, virtualizer);
-        virtualizer.resizeItem(index, this.#sizeOf(index, geometry));
-      }
-    }
+    this.#placeHold.holdThroughRelayout(
+      virtualizer,
+      this.#viewport.holdsPlaceInsideRow(this.#rowKey),
+      () => {
+        virtualizer.measure();
+        for (const element of virtualizer.elementsCache.values()) {
+          if (element.isConnected) {
+            const index = virtualizer.indexFromElement(element);
+            const geometry = readBlockGeometry(element, element.getBoundingClientRect().height);
+            this.#record(index, geometry, virtualizer);
+            virtualizer.resizeItem(index, this.#sizeOf(index, geometry));
+          }
+        }
+      },
+    );
   }
 
   /**
