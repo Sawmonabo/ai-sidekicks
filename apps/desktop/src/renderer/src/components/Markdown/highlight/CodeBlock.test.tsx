@@ -58,7 +58,10 @@ describe("a settled code block", () => {
     expect(container.textContent).toBe(source);
     expect(container.querySelector("[style]")).toBeNull();
     expect(highlightReads(calls)).toStrictEqual([
-      { method: "highlight.read", params: { language: "typescript", source } },
+      {
+        method: "highlight.read",
+        params: { language: "typescript", source, blockId: expect.any(String) as string },
+      },
     ]);
   });
 

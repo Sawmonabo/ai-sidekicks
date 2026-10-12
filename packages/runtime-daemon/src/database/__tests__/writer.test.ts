@@ -2,9 +2,9 @@
 // never split, a write that cannot reach the worker fails alone, a close commits what it took or
 // fails what its bound cut off, an ended writer's close leaves the log as it stands, a checkpoint
 // that skips the wait for readers holds the writer for none of the busy timeout, work the writer
-// is held for sees no commit or checkpoint while it runs, and at the queue's cap a canonical event
-// waits while an assistant's thinking update is dropped, with the depth warning and the drop count
-// on the log.
+// is held for sees no commit or checkpoint while it runs, a write someone is waiting on goes
+// without the batch's wait, and at the queue's cap a canonical event waits while an assistant's
+// thinking update is dropped, with the depth warning and the drop count on the log.
 
 import { statSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
@@ -206,6 +206,24 @@ describe("a write the worker cannot be sent", () => {
     await scratch.writer.flush();
     await expect(scratch.writer.close()).resolves.toBe(0);
     expect(storedEventCount()).toBe(1);
+  });
+});
+
+describe("a write someone is waiting on", () => {
+  it("commits without waiting out the batch's wait, with the writes queued before it", async () => {
+    // The batch's wait never ends on its own, so only the mark can send a batch.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const queued = scratch.writer.appendEvents([eventRow(SESSION)]);
+    await delay(50);
+    expect(await isSettled(queued)).toBe(false);
+
+    const waitedOn = scratch.writer.appendEvents([eventRow(OTHER_SESSION)], [], {
+      isWaitedOn: true,
+    });
+    expect(await Promise.race([waitedOn, delay(1_000, "still waiting")])).toStrictEqual([0]);
+    expect(await isSettled(queued)).toBe(true);
+    expect(storedEventCount()).toBe(2);
+    vi.useRealTimers();
   });
 });
 

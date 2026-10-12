@@ -17,8 +17,14 @@ export interface CodeSpanReader {
   /** The spans already held for this block, or `undefined` when none are. */
   heldSpans(request: CodeSpanRequest): Uint32Array | undefined;
   /**
-   * Read this block's spans and hold them. Answers `undefined` when the read was refused, which
-   * the reader has already recorded; the block stays plain, since its source is on screen.
+   * Read this block's spans and hold them. `blockId` names the block among every block the window
+   * draws, so the block's next read replaces this one while it waits. Answers `undefined` when the
+   * read was refused, which the reader has already recorded; the block stays plain, since its
+   * source is on screen.
    */
-  readSpans(request: CodeSpanRequest, signal: AbortSignal): Promise<Uint32Array | undefined>;
+  readSpans(
+    request: CodeSpanRequest,
+    blockId: string,
+    signal: AbortSignal,
+  ): Promise<Uint32Array | undefined>;
 }

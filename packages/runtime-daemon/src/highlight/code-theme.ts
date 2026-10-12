@@ -15,7 +15,9 @@ const PLAIN_FOREGROUND = "plain";
 
 /**
  * Which scopes each span class claims. Types and classes read as names. The quotes around a
- * string and the marks that open a comment paint with what they enclose.
+ * string and the marks that open a comment paint with what they enclose, as does a diff line's
+ * sign and the marks around a Markdown heading, emphasis and inline code. A diff's file header
+ * lines (`---`, `+++`) read as the removed and added lines they name.
  */
 const SCOPES_BY_SPAN_CLASS: Readonly<Record<HighlightSpanClass, readonly string[]>> = {
   keyword: ["keyword", "storage", "storage.type", "storage.modifier", "keyword.control"],
@@ -38,6 +40,27 @@ const SCOPES_BY_SPAN_CLASS: Readonly<Record<HighlightSpanClass, readonly string[
   ],
   number: ["constant.numeric", "constant.language", "constant.other"],
   comment: ["comment", "punctuation.definition.comment"],
+  inserted: [
+    "markup.inserted",
+    "punctuation.definition.inserted",
+    "meta.diff.header.to-file",
+    "punctuation.definition.to-file",
+  ],
+  deleted: [
+    "markup.deleted",
+    "punctuation.definition.deleted",
+    "meta.diff.header.from-file",
+    "punctuation.definition.from-file",
+  ],
+  hunk: ["meta.diff.range", "punctuation.definition.range"],
+  heading: ["markup.heading", "punctuation.definition.heading"],
+  emphasis: [
+    "markup.bold",
+    "markup.italic",
+    "punctuation.definition.bold",
+    "punctuation.definition.italic",
+  ],
+  "inline-code": ["markup.inline.raw", "punctuation.definition.raw"],
 };
 
 /**

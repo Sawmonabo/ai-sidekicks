@@ -258,17 +258,19 @@
       ]
     },
     "packages/runtime-daemon": {
-      // Files started by path, which knip cannot follow: the database writer's, the search's and
-      // the type detection's worker threads, the database file's copy process and the search
-      // index's build process, each by its file's URL, the askpass program git runs, the program
-      // Codex runs as the daemon's pre-tool and post-tool hooks, and the detectors tests hand the
-      // type detection thread by their URLs.
+      // Files started by path, which knip cannot follow: the database writer's, the search's, the
+      // type detection's and the colorer's worker threads, the database file's copy process and the
+      // search index's build process, each by its file's URL, the askpass program git runs, the
+      // program Codex runs as the daemon's pre-tool and post-tool hooks, the detectors tests hand
+      // the type detection thread and the line hook a test hands the colorer's thread, by their URLs.
       "entry": [
         "src/database/worker.ts",
         "src/artifacts/detection/worker.ts",
         "src/artifacts/__fixtures__/never-returning-detector.ts",
         "src/artifacts/__fixtures__/allocating-detector.ts",
         "src/artifacts/__fixtures__/sleeping-detector.ts",
+        "src/highlight/worker.ts",
+        "src/highlight/__fixtures__/stuck-line-hook.ts",
         "src/recovery/database-file/child.ts",
         "src/session/search/thread/worker.ts",
         "src/session/search/index/child.ts",
@@ -276,8 +278,9 @@
         "src/provider/driver/codex/hooks/program.ts"
       ],
       // `scutil` is the macOS utility the daemon runs to read the computer name it reports, and its
-      // test runs to check it; `mkfifo` makes the named pipe the stop tests hold a write on; both
-      // ship with the operating system, never as a package dependency.
+      // test runs to check it; `mkfifo` makes the named pipes tests put where a file belongs, which
+      // a read or an open waits on or skips; both ship with the operating system, never as a
+      // package dependency.
       "ignoreBinaries": ["scutil", "mkfifo"],
       "ignoreDependencies": [
         // Libraries installed ahead of the code that imports them, each with what will import it.

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   HIGHLIGHT_SOURCE_MAX_BYTES,
+  HIGHLIGHT_SPAN_CLASSES,
   HIGHLIGHT_SPANS_MAX_BYTES,
   HighlightReadRequestSchema,
   HighlightReadResponseSchema,
@@ -45,7 +46,10 @@ describe("highlight.read reply", () => {
 
   it("refuses a span list a surface could not paint", () => {
     expect(HighlightReadResponseSchema.safeParse({ spans: [0, 5] }).success).toBe(false);
-    expect(HighlightReadResponseSchema.safeParse({ spans: [0, 5, 5] }).success).toBe(false);
+    expect(
+      HighlightReadResponseSchema.safeParse({ spans: [0, 5, HIGHLIGHT_SPAN_CLASSES.length] })
+        .success,
+    ).toBe(false);
     expect(HighlightReadResponseSchema.safeParse({ spans: [0, 0, 1] }).success).toBe(false);
     expect(HighlightReadResponseSchema.safeParse({ spans: [0, 5, 0, 4, 2, 1] }).success).toBe(
       false,

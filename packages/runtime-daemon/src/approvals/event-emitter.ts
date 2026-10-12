@@ -31,6 +31,8 @@ import {
 interface ApprovalEventWrite {
   readonly occurredAt: string;
   readonly statements?: readonly WriteStatement[] | undefined;
+  /** Whether someone is waiting on the write, so it commits without the batch's wait. */
+  readonly isWaitedOn?: boolean;
 }
 
 const APPROVAL_EVENT_VERSION = EventEnvelopeVersionSchema.parse("1.0");
@@ -110,6 +112,7 @@ export class ApprovalEventEmitter {
     await this.#appender.append(type, payload, {
       occurredAt: write.occurredAt,
       transactionalPrelude: write.statements,
+      isWaitedOn: write.isWaitedOn,
     });
   }
 }

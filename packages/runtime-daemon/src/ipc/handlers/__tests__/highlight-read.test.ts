@@ -14,12 +14,15 @@ const dispatchContext = { transportId: 1 };
 describe("highlight.read", () => {
   it("answers with the colorer's spans as a flat list", async () => {
     const registry = new MethodRegistryImpl();
-    registerHighlightRead(registry, { highlighter: new CodeHighlighter() });
-    const result = await registry.dispatch(
-      HIGHLIGHT_READ_METHOD,
-      { language: "python", source: "def main():\n    return 7\n" },
-      dispatchContext,
-    );
+    const highlighter = new CodeHighlighter();
+    registerHighlightRead(registry, { highlighter });
+    const result = await registry
+      .dispatch(
+        HIGHLIGHT_READ_METHOD,
+        { language: "python", source: "def main():\n    return 7\n" },
+        dispatchContext,
+      )
+      .finally(() => highlighter.stop());
     // `def` and `return` are keywords, `main` a name, `7` a number.
     expect(result).toStrictEqual({ spans: [0, 3, 0, 4, 4, 1, 16, 6, 0, 23, 1, 3] });
   });

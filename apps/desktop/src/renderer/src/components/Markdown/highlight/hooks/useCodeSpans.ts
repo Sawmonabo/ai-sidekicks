@@ -1,5 +1,6 @@
 // The color spans one code block paints: what the reader already holds at once, else one read,
-// which a block that moves on or unmounts abandons.
+// which a block that moves on or unmounts abandons. The block keeps one id for its life, so each
+// read for its next version replaces the one before it while that one waits in the daemon.
 
 import { useEffect, useState } from "react";
 
@@ -19,6 +20,7 @@ export function useCodeSpans(
 ): Uint32Array | undefined {
   const blockKey = `${language}\u0000${source}`;
   const readScope = useReadScope(reader, blockKey);
+  const [blockId] = useState(() => crypto.randomUUID());
   // Seeded from what the reader holds at mount so a redrawn block paints on its first frame;
   // held in state so a block the reader later lets go of keeps the colors it is showing.
   const [painted, setPainted] = useState<PaintedSpans | undefined>(() => {
@@ -35,7 +37,7 @@ export function useCodeSpans(
       return;
     }
     const round = readScope.openRound();
-    void reader.readSpans({ language, source }, round.signal).then((spans) => {
+    void reader.readSpans({ language, source }, blockId, round.signal).then((spans) => {
       if (spans === undefined) {
         return;
       }
@@ -43,7 +45,7 @@ export function useCodeSpans(
         setPainted({ blockKey, spans });
       });
     });
-  }, [reader, readScope, blockKey, language, source]);
+  }, [reader, readScope, blockKey, blockId, language, source]);
 
   return painted?.blockKey === blockKey ? painted.spans : undefined;
 }

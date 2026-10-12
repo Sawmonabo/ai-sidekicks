@@ -28,10 +28,10 @@ export function holdReceiptOfAppend(writer: AppendWriter, heldAppend: number): H
   let appendCount = 0;
   return {
     writer: {
-      appendEvents: async (events, statements) => {
+      appendEvents: async (events, statements, options) => {
         appendCount += 1;
         const isHeld = appendCount === heldAppend;
-        const sequences = await writer.appendEvents(events, statements);
+        const sequences = await writer.appendEvents(events, statements, options);
         if (isHeld) {
           resolveCommitted(sequences);
           await released;

@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config";
 
-import { sharedCoverageOptions, sharedTestTimeouts } from "../../vitest.shared";
+import { sharedCoverageOptions, sharedTestTimeouts } from "../../vitest.shared.js";
 
 export default defineConfig({
   test: {

@@ -1,7 +1,8 @@
 // The database writer: every write the daemon makes goes through it to the one read-write
 // connection, which a worker thread of its own holds, so a commit's disk sync never stalls the
 // main thread. Writes wait in a bounded queue and go to the worker in batches of up to 50 entries,
-// or after 10 ms, whichever comes first. Each batch commits as one transaction and each write in
+// or after 10 ms, whichever comes first; a write someone is waiting on, such as raising an ask's
+// card, sends its batch at once. Each batch commits as one transaction and each write in
 // it runs under a savepoint of its own, so a refused write rolls back alone while a batch-level
 // failure fails every write in the batch. A write is never split across batches, so the events one
 // write carries, such as a workflow tick's, commit together. At the queue's cap a write waits for
@@ -69,6 +70,15 @@ export class WriteRefusedError extends Error {
 export type ThinkingUpdateOutcome =
   | { readonly isStored: true; readonly sequence: number }
   | { readonly isStored: false };
+
+/** How one write is sent. */
+export interface WriteOptions {
+  /**
+   * Whether someone is waiting on the write, such as a person on an ask's card: its batch goes to
+   * the worker at once, with what is queued before it, instead of after the batch's wait.
+   */
+  readonly isWaitedOn?: boolean;
+}
 
 /** What the writer needs from the daemon. */
 export interface DatabaseWriterOptions {
@@ -223,8 +233,11 @@ export class DatabaseWriter {
    * committed. Rejects with {@link WriteRefusedError} when a statement's row count is not the one
    * it expected, and with SQLite's error when a statement fails; either way none of it is kept.
    */
-  async write(statements: readonly WriteStatement[]): Promise<readonly StatementResult[]> {
-    const outcome = await this.#enqueue({ statements, events: [] }, false);
+  async write(
+    statements: readonly WriteStatement[],
+    options?: WriteOptions,
+  ): Promise<readonly StatementResult[]> {
+    const outcome = await this.#enqueue({ statements, events: [] }, false, options);
     return outcome.statementResults;
   }
 
@@ -237,13 +250,14 @@ export class DatabaseWriter {
   async appendEvents(
     events: readonly SessionEventRow[],
     statements: readonly WriteStatement[] = [],
+    options?: WriteOptions,
   ): Promise<readonly number[]> {
     if (events.some((event) => event.type === DROPPABLE_EVENT_TYPE)) {
       throw new Error(
         `An ${DROPPABLE_EVENT_TYPE} event goes through appendThinkingUpdate, which may drop it`,
       );
     }
-    const outcome = await this.#enqueue({ statements, events }, false);
+    const outcome = await this.#enqueue({ statements, events }, false, options);
     return outcome.sequences;
   }
 
@@ -423,8 +437,12 @@ export class DatabaseWriter {
 
   // Resolves with the write's outcome once committed, or `undefined` when it was dropped.
   #enqueue(job: WriteJob, isDroppable: true): Promise<CommittedOutcome | undefined>;
-  #enqueue(job: WriteJob, isDroppable: false): Promise<CommittedOutcome>;
-  async #enqueue(job: WriteJob, isDroppable: boolean): Promise<CommittedOutcome | undefined> {
+  #enqueue(job: WriteJob, isDroppable: false, options?: WriteOptions): Promise<CommittedOutcome>;
+  async #enqueue(
+    job: WriteJob,
+    isDroppable: boolean,
+    options?: WriteOptions,
+  ): Promise<CommittedOutcome | undefined> {
     if (this.#failure !== undefined) {
       throw this.#failure;
     }
@@ -444,6 +462,9 @@ export class DatabaseWriter {
       this.#queued.push(entry);
       this.#depth += size;
       this.#queuedSize += size;
+      if (options?.isWaitedOn === true) {
+        this.#isBatchDue = true;
+      }
     } else if (isDroppable) {
       const sessionId = job.events[0]?.session_id ?? "";
       this.#droppedBySession.set(sessionId, (this.#droppedBySession.get(sessionId) ?? 0) + 1);

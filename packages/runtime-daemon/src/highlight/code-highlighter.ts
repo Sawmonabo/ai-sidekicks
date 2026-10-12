@@ -1,216 +1,221 @@
-// The daemon's one colorer: shiki's core with its JavaScript regex engine, grammars loaded the
-// first time a language is asked for, and a span cache keyed on what the source holds.
+// The daemon's one colorer: a span cache keyed on what the source holds, on the daemon's main
+// thread, over a tokenizing thread that colors a source the cache does not hold yet. The cache
+// outlives the thread, which ends when it sits idle, so code already colored is answered at once.
 //
 // Spans are kept packed. A source's spans are one `Uint32Array` of `[offset, length, class]`
 // triples, adjacent spans of one class merged and plain text left out, which holds a source's
 // colors in well under a byte per source byte where one object per token holds several. The
-// cache is bounded by those bytes (1/2048 of physical memory) and keyed by the language and a
-// digest of the source, so the same code asked for twice is colored once and the cache never
-// holds the source itself.
+// cache is bounded by what its entries hold (1/2048 of physical memory) and keyed by the language
+// and a digest of the source, so the same code asked for twice is colored once and the cache never
+// holds the source itself. A source with a line left plain because it ran past the time limit is
+// kept too, since coloring it again would hold the thread on the same line.
 //
-// The event loop is never held for a whole file. Tokenizing costs about 2 ms a kilobyte, so a
-// large file colored in one call would stall every other request the daemon serves. The source
-// is tokenized in slices of `TOKENIZE_SLICE_LENGTH` characters cut at line ends, each slice
-// resuming the grammar state where the last stopped and yielding to the event loop before the
-// next.
-//
-// The grammar table is a closed map of loaders keyed by the contract's language set, so a
-// request can never make the daemon load a module it names.
+// The reads waiting to be colored are bounded by what still wants them: reads of the same code
+// share one tokenization; a read for a code block is replaced by the block's next read on the same
+// connection, as a block whose code is still arriving asks again for each version; and a
+// connection's reads go when it closes. A tokenization no read waits for any more leaves the line
+// before its turn, so at most one waits per block and connection.
 import { createHash } from "node:crypto";
 import { totalmem } from "node:os";
-import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 
-import type { HighlightLanguage } from "@ai-sidekicks/contracts/highlight";
+import {
+  HIGHLIGHT_READ_REPLACED_CODE,
+  type HighlightLanguage,
+} from "@ai-sidekicks/contracts/highlight";
 import { LRUCache } from "lru-cache";
-import type { GrammarState, HighlighterCore, LanguageRegistration, ThemedToken } from "shiki/types";
 
-import { buildCodeTheme, CODE_THEME_NAME, spanClassIndexOf } from "./code-theme.js";
+import { DaemonDomainError } from "../ipc/domain-error.js";
+import { TokenizerThread } from "./thread.js";
 
-type GrammarLoader = () => Promise<{ readonly default: LanguageRegistration[] }>;
-
-const GRAMMAR_LOADERS: Readonly<Record<HighlightLanguage, GrammarLoader>> = {
-  bash: () => import("shiki/langs/bash.mjs"),
-  css: () => import("shiki/langs/css.mjs"),
-  diff: () => import("shiki/langs/diff.mjs"),
-  go: () => import("shiki/langs/go.mjs"),
-  html: () => import("shiki/langs/html.mjs"),
-  javascript: () => import("shiki/langs/javascript.mjs"),
-  json: () => import("shiki/langs/json.mjs"),
-  jsx: () => import("shiki/langs/jsx.mjs"),
-  markdown: () => import("shiki/langs/markdown.mjs"),
-  python: () => import("shiki/langs/python.mjs"),
-  rust: () => import("shiki/langs/rust.mjs"),
-  sql: () => import("shiki/langs/sql.mjs"),
-  tsx: () => import("shiki/langs/tsx.mjs"),
-  typescript: () => import("shiki/langs/typescript.mjs"),
-  yaml: () => import("shiki/langs/yaml.mjs"),
-};
-
-/**
- * Characters tokenized between yields. Measured on TypeScript, a slice this long holds the
- * event loop at most about 20 ms once the grammar is warm; a slice four times longer held it
- * up to 45 ms.
- */
-const TOKENIZE_SLICE_LENGTH = 1024;
-
-/**
- * Lines longer than this are left plain rather than tokenized (VS Code's default for the same
- * limit); a minified line is the case it exists for. A length bounds a line's work instead of a
- * clock because shiki's default cuts a line off after 500 ms, so a busy machine would color the
- * same source differently and the cache would keep the half-colored copy.
- */
-const TOKENIZE_MAX_LINE_LENGTH = 20_000;
-
-/** Numbers per packed span: offset, length, class. */
-const SPAN_WIDTH = 3;
-
-/** The span cache's default budget: 1/2048 of the machine's physical memory. */
-function defaultSpanCacheByteBudget(): number {
+/** The span cache's budget: 1/2048 of the machine's physical memory. */
+function spanCacheByteBudget(): number {
   return Math.floor(totalmem() / 2048);
 }
 
-/** What the span cache's fetch method tokenizes on a miss. */
+/**
+ * Bytes a span cache entry costs beyond its key's characters and its spans' bytes: the key
+ * string's header, the cache's map entry and its per-entry list slots, and the typed array and
+ * buffer objects. Measured on Node 24 at 336 to 352 bytes for keys of the cache's shape.
+ */
+const SPAN_CACHE_ENTRY_OVERHEAD_BYTES = 352;
+
+/** What the span cache's fetch method tokenizes on a miss, and the signal that drops it. */
 interface SpanCacheFetchContext {
   readonly source: string;
   readonly language: HighlightLanguage;
+  readonly signal: AbortSignal;
 }
 
-/** Construction options for `CodeHighlighter`. */
-export interface CodeHighlighterOptions {
-  /** Bytes of packed spans the cache may hold. Defaults to 1/2048 of physical memory. */
-  readonly spanCacheByteBudget?: number;
+/** Who asks for a read: the connection, and the code block on it the read is for, if any. */
+export interface SpanReadAsker {
+  readonly transportId: number;
+  readonly blockId: string | undefined;
+}
+
+/** One tokenization in flight, shared by every read of the same code. */
+interface SpanFetch {
+  readonly spans: Promise<Uint32Array>;
+  // Aborted once no read waits for the spans, which drops a tokenization still waiting its turn.
+  readonly unwanted: AbortController;
+  readerCount: number;
+}
+
+/** One read waiting for a fetch, which leaves it once, answered or dropped. */
+interface WaitingRead {
+  readonly fetch: SpanFetch;
+  readonly asker: SpanReadAsker | undefined;
+  readonly reject: (reason: Error) => void;
+  hasLeft: boolean;
 }
 
 /** Colors code and keeps what it colored. One per daemon. */
 export class CodeHighlighter {
-  #highlighter: Promise<HighlighterCore> | undefined;
-  readonly #loadedLanguages = new Map<HighlightLanguage, Promise<void>>();
+  readonly #tokenizer = new TokenizerThread();
   readonly #spanCache: LRUCache<string, Uint32Array, SpanCacheFetchContext>;
+  readonly #fetches = new Map<string, SpanFetch>();
+  readonly #readsByBlock = new Map<string, WaitingRead>();
+  readonly #readsByTransport = new Map<number, Set<WaitingRead>>();
 
-  constructor(options: CodeHighlighterOptions = {}) {
+  constructor() {
     this.#spanCache = new LRUCache<string, Uint32Array, SpanCacheFetchContext>({
-      maxSize: options.spanCacheByteBudget ?? defaultSpanCacheByteBudget(),
-      // A source with no colored text packs to no spans but still costs its entry, so an empty
-      // list is charged one byte.
-      sizeCalculation: (spans) => Math.max(spans.byteLength, 1),
-      fetchMethod: (_key, _stale, { context }) => this.#tokenize(context.source, context.language),
+      maxSize: spanCacheByteBudget(),
+      // Keys are ASCII, so a key's length is its bytes.
+      sizeCalculation: (spans, cacheKey) =>
+        spans.byteLength + cacheKey.length + SPAN_CACHE_ENTRY_OVERHEAD_BYTES,
+      fetchMethod: (_key, _stale, { context }) =>
+        this.#tokenizer.tokenize(context.source, context.language, context.signal),
     });
   }
 
   /**
    * The packed spans of `source` as `language`: `[offset, length, class]` triples in source
    * order, offsets and lengths in UTF-16 code units. Two reads of the same code share one
-   * tokenization, whether the first has finished or is still running.
+   * tokenization, whether the first has finished or is still running. A read `asker` names is
+   * refused with `highlight.read_replaced` when the same block asks again before it is answered,
+   * and dropped when its connection closes.
    */
-  async readSpans(source: string, language: HighlightLanguage): Promise<Uint32Array> {
+  readSpans(
+    source: string,
+    language: HighlightLanguage,
+    asker?: SpanReadAsker,
+  ): Promise<Uint32Array> {
     const cacheKey = `${language}:${createHash("sha256").update(source).digest("base64url")}`;
-    return this.#spanCache.forceFetch(cacheKey, { context: { source, language } });
+    const held = this.#spanCache.get(cacheKey);
+    if (held !== undefined) {
+      return Promise.resolve(held);
+    }
+    const fetch = this.#fetches.get(cacheKey) ?? this.#startFetch(cacheKey, source, language);
+    fetch.readerCount += 1;
+    const { promise, resolve, reject } = Promise.withResolvers<Uint32Array>();
+    const read: WaitingRead = { fetch, asker, reject, hasLeft: false };
+    this.#holdRead(read);
+    fetch.spans.then(
+      (spans) => {
+        this.#leave(read);
+        resolve(spans);
+      },
+      (error: unknown) => {
+        this.#leave(read);
+        reject(error as Error);
+      },
+    );
+    return promise;
   }
 
-  async #tokenize(source: string, language: HighlightLanguage): Promise<Uint32Array> {
-    const highlighter = await this.#resolveHighlighter();
-    await this.#ensureLanguage(highlighter, language);
-    const packedSpans: number[] = [];
-    let grammarState: GrammarState | undefined;
-    let sliceStart = 0;
-    while (sliceStart < source.length) {
-      const sliceEnd = endOfSlice(source, sliceStart);
-      const sliceResult = highlighter.codeToTokens(source.slice(sliceStart, sliceEnd), {
-        lang: language,
-        theme: CODE_THEME_NAME,
-        tokenizeMaxLineLength: TOKENIZE_MAX_LINE_LENGTH,
-        tokenizeTimeLimit: 0,
-        ...(grammarState === undefined ? {} : { grammarState }),
-      });
-      appendPackedSpans(packedSpans, sliceResult.tokens, sliceStart);
-      grammarState = sliceResult.grammarState;
-      sliceStart = sliceEnd;
-      if (sliceStart < source.length) {
-        await yieldToEventLoop();
+  /** Drops every read the connection `transportId` is waiting for, since it has closed. */
+  dropReadsOf(transportId: number): void {
+    for (const read of this.#readsByTransport.get(transportId) ?? []) {
+      this.#drop(read, new Error("The connection that asked for the colors has closed"));
+    }
+  }
+
+  /** Ends the tokenizing thread and refuses the reads waiting for it and each later cache miss. */
+  stop(): Promise<void> {
+    return this.#tokenizer.stop();
+  }
+
+  #startFetch(cacheKey: string, source: string, language: HighlightLanguage): SpanFetch {
+    const unwanted = new AbortController();
+    const fetch: SpanFetch = {
+      spans: this.#spanCache.forceFetch(cacheKey, {
+        context: { source, language, signal: unwanted.signal },
+      }),
+      unwanted,
+      readerCount: 0,
+    };
+    this.#fetches.set(cacheKey, fetch);
+    const release = (): void => {
+      if (this.#fetches.get(cacheKey) === fetch) {
+        this.#fetches.delete(cacheKey);
       }
-    }
-    return Uint32Array.from(packedSpans);
+    };
+    fetch.spans.then(release, release);
+    return fetch;
   }
 
-  #resolveHighlighter(): Promise<HighlighterCore> {
-    if (this.#highlighter === undefined) {
-      const creating = createHighlighter();
-      // A core that failed to start is dropped so the next read retries; the failure still
-      // reaches the read waiting on it.
-      creating.catch(() => {
-        this.#highlighter = undefined;
-      });
-      this.#highlighter = creating;
+  // Joins the read to its connection's and block's, replacing the block's earlier read. The new
+  // read has already joined its fetch, so a block asking again for the same code keeps it.
+  #holdRead(read: WaitingRead): void {
+    if (read.asker === undefined) {
+      return;
     }
-    return this.#highlighter;
-  }
-
-  #ensureLanguage(highlighter: HighlighterCore, language: HighlightLanguage): Promise<void> {
-    let loading = this.#loadedLanguages.get(language);
-    if (loading === undefined) {
-      loading = GRAMMAR_LOADERS[language]().then((grammar) =>
-        highlighter.loadLanguage(grammar.default),
+    const { transportId, blockId } = read.asker;
+    const transportReads = this.#readsByTransport.get(transportId) ?? new Set<WaitingRead>();
+    transportReads.add(read);
+    this.#readsByTransport.set(transportId, transportReads);
+    if (blockId === undefined) {
+      return;
+    }
+    const blockKey = blockKeyOf(transportId, blockId);
+    const replaced = this.#readsByBlock.get(blockKey);
+    this.#readsByBlock.set(blockKey, read);
+    if (replaced !== undefined) {
+      this.#drop(
+        replaced,
+        new DaemonDomainError("A newer read for the same code block replaced this one", {
+          code: HIGHLIGHT_READ_REPLACED_CODE,
+        }),
       );
-      // A grammar that failed to load is dropped, so the next read tries again.
-      loading.catch(() => {
-        this.#loadedLanguages.delete(language);
-      });
-      this.#loadedLanguages.set(language, loading);
-    }
-    return loading;
-  }
-}
-
-async function createHighlighter(): Promise<HighlighterCore> {
-  const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] = await Promise.all([
-    import("shiki/core"),
-    import("shiki/engine/javascript"),
-  ]);
-  return createHighlighterCore({
-    themes: [buildCodeTheme()],
-    langs: [],
-    engine: createJavaScriptRegexEngine(),
-  });
-}
-
-/**
- * Where the slice starting at `sliceStart` ends: just past the first line end at or after
- * `TOKENIZE_SLICE_LENGTH` characters, or the end of the source.
- */
-function endOfSlice(source: string, sliceStart: number): number {
-  const lineEnd = source.indexOf("\n", sliceStart + TOKENIZE_SLICE_LENGTH);
-  return lineEnd === -1 ? source.length : lineEnd + 1;
-}
-
-/**
- * Appends a slice's colored tokens as packed spans, offsets moved from the slice to the whole
- * source. A span that starts where the last one ended, in the same class, extends it.
- */
-function appendPackedSpans(
-  packedSpans: number[],
-  tokenLines: readonly (readonly ThemedToken[])[],
-  sliceStart: number,
-): void {
-  for (const line of tokenLines) {
-    for (const token of line) {
-      const spanClass = spanClassIndexOf(token.color);
-      if (spanClass === undefined || token.content.length === 0) {
-        continue;
-      }
-      const offset = sliceStart + token.offset;
-      const lastLengthIndex = packedSpans.length - SPAN_WIDTH + 1;
-      const lastOffset = packedSpans[lastLengthIndex - 1];
-      const lastLength = packedSpans[lastLengthIndex];
-      if (
-        lastOffset !== undefined &&
-        lastLength !== undefined &&
-        packedSpans[lastLengthIndex + 1] === spanClass &&
-        lastOffset + lastLength === offset
-      ) {
-        packedSpans[lastLengthIndex] = lastLength + token.content.length;
-      } else {
-        packedSpans.push(offset, token.content.length, spanClass);
-      }
     }
   }
+
+  #drop(read: WaitingRead, reason: Error): void {
+    if (read.hasLeft) {
+      return;
+    }
+    this.#leave(read);
+    read.reject(reason);
+    if (read.fetch.readerCount === 0) {
+      read.fetch.unwanted.abort(reason);
+    }
+  }
+
+  #leave(read: WaitingRead): void {
+    if (read.hasLeft) {
+      return;
+    }
+    read.hasLeft = true;
+    read.fetch.readerCount -= 1;
+    if (read.asker === undefined) {
+      return;
+    }
+    const { transportId, blockId } = read.asker;
+    const transportReads = this.#readsByTransport.get(transportId);
+    transportReads?.delete(read);
+    if (transportReads?.size === 0) {
+      this.#readsByTransport.delete(transportId);
+    }
+    if (blockId === undefined) {
+      return;
+    }
+    const blockKey = blockKeyOf(transportId, blockId);
+    if (this.#readsByBlock.get(blockKey) === read) {
+      this.#readsByBlock.delete(blockKey);
+    }
+  }
+}
+
+/** A block's key among every connection's blocks. */
+function blockKeyOf(transportId: number, blockId: string): string {
+  return `${String(transportId)}:${blockId}`;
 }

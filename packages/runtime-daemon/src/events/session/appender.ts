@@ -69,6 +69,8 @@ export interface SessionEventLinkage {
   readonly content?: EventLogAppendOptions["content"] | undefined;
   /** Events committed just before this one in its write (see `EventLogAppendOptions`). */
   readonly precedingEvents?: readonly SessionEventDraft[] | undefined;
+  /** Whether someone is waiting on the write (`EventLogAppendOptions.isWaitedOn`). */
+  readonly isWaitedOn?: boolean | undefined;
 }
 
 /** What the envelope reads back from a payload: its session and, when one acted, its actor. */
@@ -149,6 +151,7 @@ export class SessionEventAppender {
         : {}),
       ...(linkage.content !== undefined ? { content: linkage.content } : {}),
       ...(precedingEvents.length > 0 ? { precedingEvents } : {}),
+      ...(linkage.isWaitedOn === true ? { isWaitedOn: true } : {}),
     });
   }
 

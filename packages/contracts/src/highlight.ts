@@ -35,8 +35,23 @@ export type HighlightLanguage = (typeof HIGHLIGHT_LANGUAGES)[number];
 export const HighlightLanguageSchema: z.ZodType<HighlightLanguage, HighlightLanguage> =
   z.enum(HIGHLIGHT_LANGUAGES);
 
-/** The classes a span paints as, in wire order; plain text has no span. */
-export const HIGHLIGHT_SPAN_CLASSES = ["keyword", "name", "string", "number", "comment"] as const;
+/**
+ * The classes a span paints as, in wire order; plain text has no span. The first five mark code;
+ * the rest mark a diff's lines and Markdown's own syntax.
+ */
+export const HIGHLIGHT_SPAN_CLASSES = [
+  "keyword",
+  "name",
+  "string",
+  "number",
+  "comment",
+  "inserted",
+  "deleted",
+  "hunk",
+  "heading",
+  "emphasis",
+  "inline-code",
+] as const;
 
 /** One class a span paints as. */
 export type HighlightSpanClass = (typeof HIGHLIGHT_SPAN_CLASSES)[number];
@@ -56,10 +71,24 @@ export const HIGHLIGHT_SOURCE_MAX_BYTES = 262_144;
  */
 export const HIGHLIGHT_SPANS_MAX_BYTES = 998_976;
 
+/** The longest block id a `highlight.read` carries. */
+export const HIGHLIGHT_BLOCK_ID_MAX_LENGTH = 128;
+
+/**
+ * The refusal of a `highlight.read` that a newer read for the same block, on the same connection,
+ * replaced while it waited to be colored.
+ */
+export const HIGHLIGHT_READ_REPLACED_CODE = "highlight.read_replaced" as const;
+
 /** The code a client wants colored. */
 export interface HighlightReadRequest {
   language: HighlightLanguage;
   source: string;
+  /**
+   * The code block on screen this read is for, unique among the client's blocks. A newer read
+   * with the same block id on the same connection replaces this one while it waits to be colored.
+   */
+  blockId?: string;
 }
 
 /** Parses a {@link HighlightReadRequest}; an empty or over-bound source is refused. */
@@ -72,6 +101,7 @@ export const HighlightReadRequestSchema: z.ZodType<HighlightReadRequest, Highlig
       .refine((source) => jsonUtf8ByteLength(source) <= HIGHLIGHT_SOURCE_MAX_BYTES, {
         message: `source is over the ${String(HIGHLIGHT_SOURCE_MAX_BYTES)}-byte bound`,
       }),
+    blockId: z.string().min(1).max(HIGHLIGHT_BLOCK_ID_MAX_LENGTH).exactOptional(),
   })
   .strict();
 

@@ -1,31 +1,41 @@
-// The colorer's two promises: a file colored in slices is colored as if in one piece, and code
-// asked for twice is colored once.
+// The colorer's promises: a file colored line by line on its thread is colored as if in one
+// piece, a diff's lines and Markdown's own syntax take their classes, code asked for twice is
+// colored once, and a read nobody waits for any more is never colored.
 
-import { describe, expect, it } from "vitest";
-
-import { HIGHLIGHT_SPAN_CLASSES } from "@ai-sidekicks/contracts/highlight";
+import { HIGHLIGHT_READ_REPLACED_CODE } from "@ai-sidekicks/contracts/highlight";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CodeHighlighter } from "../code-highlighter.js";
+import type { TokenizeRequest } from "../thread.js";
+import { decodeSpans } from "./spans.test-support.js";
 
-/** Each span as the text it covers and the class it paints as. */
-function decodeSpans(source: string, spans: Uint32Array): [string, string][] {
-  const decoded: [string, string][] = [];
-  for (let index = 0; index < spans.length; index += 3) {
-    const offset = spans[index] ?? 0;
-    const length = spans[index + 1] ?? 0;
-    decoded.push([
-      source.slice(offset, offset + length),
-      HIGHLIGHT_SPAN_CLASSES[spans[index + 2] ?? 0] ?? "?",
-    ]);
+// Every source this file's tokenizing threads are asked to color.
+const tokenizedSources = vi.hoisted((): string[] => []);
+vi.mock("node:worker_threads", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:worker_threads")>();
+  class RecordedWorker extends actual.Worker {
+    override postMessage(...args: Parameters<typeof actual.Worker.prototype.postMessage>): void {
+      tokenizedSources.push((args[0] as TokenizeRequest).source);
+      super.postMessage(...args);
+    }
   }
-  return decoded;
-}
+  return { ...actual, Worker: RecordedWorker };
+});
+
+let highlighter: CodeHighlighter | undefined;
+
+afterEach(async () => {
+  await highlighter?.stop();
+  highlighter = undefined;
+});
 
 describe("CodeHighlighter", () => {
   it("colors a comment that runs past a slice boundary, and the code after it", async () => {
     const commentBody = "inside the comment\n".repeat(400);
     const source = `/*\n${commentBody}*/\nconst after = 1;\n`;
-    const spans = await new CodeHighlighter().readSpans(source, "typescript");
+    const commentHighlighter = new CodeHighlighter();
+    highlighter = commentHighlighter;
+    const spans = await commentHighlighter.readSpans(source, "typescript");
     const decoded = decodeSpans(source, spans);
     const commentText = decoded
       .filter(([, spanClass]) => spanClass === "comment")
@@ -38,15 +48,99 @@ describe("CodeHighlighter", () => {
     ]);
   });
 
+  it("colors a diff's lines and Markdown's own syntax, signs and marks included", async () => {
+    const markupHighlighter = new CodeHighlighter();
+    highlighter = markupHighlighter;
+    const diff = "--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n same\n-old\n+new\n";
+    expect(decodeSpans(diff, await markupHighlighter.readSpans(diff, "diff"))).toStrictEqual([
+      ["--- a/x", "deleted"],
+      ["+++ b/x", "inserted"],
+      ["@@ -1,2 +1,2 @@", "hunk"],
+      ["-old", "deleted"],
+      ["+new", "inserted"],
+    ]);
+    const markdown =
+      "# Title\n\nSome *soft* and **firm** text, `code` and a [link](https://x.y).\n";
+    expect(
+      decodeSpans(markdown, await markupHighlighter.readSpans(markdown, "markdown")),
+    ).toStrictEqual([
+      ["# Title", "heading"],
+      ["*soft*", "emphasis"],
+      ["**firm**", "emphasis"],
+      ["`code`", "inline-code"],
+      ["link", "string"],
+    ]);
+  });
+
+  it("colors a Markdown file's fences and front matter on a thread that never loaded them", async () => {
+    // A fresh colorer: its thread has loaded no grammar, so the file alone must bring them in.
+    const fenceHighlighter = new CodeHighlighter();
+    highlighter = fenceHighlighter;
+    const markdown = "---\ndraft: true\n---\n\n```ts\nconst fenced = 1;\n```\n";
+    expect(
+      decodeSpans(markdown, await fenceHighlighter.readSpans(markdown, "markdown")),
+    ).toStrictEqual([
+      ["draft", "name"],
+      ["true", "number"],
+      ["const", "keyword"],
+      ["1", "number"],
+    ]);
+  });
+
   it("answers a second read of the same code from the first", async () => {
-    const highlighter = new CodeHighlighter();
+    const sqlHighlighter = new CodeHighlighter();
+    highlighter = sqlHighlighter;
     const source = "SELECT id FROM sessions WHERE id = 7;";
     const [first, concurrent] = await Promise.all([
-      highlighter.readSpans(source, "sql"),
-      highlighter.readSpans(source, "sql"),
+      sqlHighlighter.readSpans(source, "sql"),
+      sqlHighlighter.readSpans(source, "sql"),
     ]);
     expect(concurrent).toBe(first);
-    expect(await highlighter.readSpans(source, "sql")).toBe(first);
-    expect(await highlighter.readSpans(source, "typescript")).not.toBe(first);
+    expect(await sqlHighlighter.readSpans(source, "sql")).toBe(first);
+    expect(await sqlHighlighter.readSpans(source, "typescript")).not.toBe(first);
+  });
+
+  it("colors only what a read still waits for: once per code, the newest per block", async () => {
+    const boundHighlighter = new CodeHighlighter();
+    highlighter = boundHighlighter;
+    const read = (source: string, transportId: number, blockId: string): Promise<Uint32Array> =>
+      boundHighlighter.readSpans(source, "typescript", { transportId, blockId });
+    const settled = (reading: Promise<Uint32Array>): Promise<unknown> =>
+      reading.then(
+        () => "colored",
+        (error: unknown) => (error as { code?: string }).code ?? (error as Error).message,
+      );
+    tokenizedSources.length = 0;
+
+    // The first read holds the thread while the rest wait.
+    const running = read("const a = 1;", 1, "a");
+    const replaced = read("const b = 1;", 1, "b");
+    const sharing = read("const b = 1;", 1, "c");
+    const replacing = read("const b = 2;", 1, "b");
+    const unwanted = read("const d = 1;", 1, "d");
+    const newest = read("const d = 2;", 1, "d");
+    const closed = read("const e = 1;", 2, "e");
+    boundHighlighter.dropReadsOf(2);
+
+    expect(
+      await Promise.all(
+        [running, replaced, sharing, replacing, unwanted, newest, closed].map(settled),
+      ),
+    ).toStrictEqual([
+      "colored",
+      HIGHLIGHT_READ_REPLACED_CODE,
+      "colored",
+      "colored",
+      HIGHLIGHT_READ_REPLACED_CODE,
+      "colored",
+      "The connection that asked for the colors has closed",
+    ]);
+    // A replaced read another block shares is colored for that block; one nobody shares is not.
+    expect(tokenizedSources).toStrictEqual([
+      "const a = 1;",
+      "const b = 1;",
+      "const b = 2;",
+      "const d = 2;",
+    ]);
   });
 });

@@ -6,7 +6,7 @@ import {
   sharedCoverageOptions,
   sharedTestTimeouts,
   WORKSPACE_SOURCE_CONDITIONS,
-} from "../../vitest.shared";
+} from "../../vitest.shared.js";
 
 // The worker threads and the search index's build process run this package's TypeScript under
 // plain Node, outside the test runner's own loading, so each test process registers the source
