@@ -4,7 +4,7 @@
 
 import { describe, expect, it, onTestFinished } from "vitest";
 
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { installMeridianTokens } from "./token-installation.js";
 
 describe("installMeridianTokens", () => {
@@ -21,21 +21,16 @@ describe("installMeridianTokens", () => {
         },
       },
     });
-    const batches: string[] = [];
-    const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
-      batches.push(jsonLines);
-    });
-    onTestFinished(detachForwarder);
+    const diagnostics = await collectSentDiagnostics();
+    onTestFinished(diagnostics.stop);
 
     installMeridianTokens(targetDocument);
     await Promise.resolve();
     await Promise.resolve();
-    windowDiagnosticCapture.flush();
 
-    const records = batches
-      .flatMap((batch) => batch.split("\n"))
-      .map((line) => JSON.parse(line) as { severity: string; kind: string; detail: string })
-      .filter((record) => record.kind === "typeface-not-loaded");
+    const records = (await diagnostics.records()).filter(
+      (record) => record.kind === "typeface-not-loaded",
+    );
     expect(requestedFaces).toContain('italic 1em "IBM Plex Mono"');
     expect(records).toStrictEqual([
       expect.objectContaining({

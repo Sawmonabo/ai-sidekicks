@@ -8,7 +8,7 @@ import { act, cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { LOADING_NOTICE_DELAY_MS } from "#renderer/components/LoadingNotice/LoadingNotice.js";
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { publishCommandWindow } from "#renderer/registries/commands/command-window.js";
 import {
   createFixtureBridge,
@@ -151,15 +151,11 @@ describe("the transcript feed — its first draw", () => {
     expect(saysLoading(switchedBackFeed)).toBe(false);
   });
 
-  it("shows the rows in the fallback once the faces run past their wait, and records it", () => {
+  it("shows the rows in the fallback once the faces run past their wait, and records it", async () => {
     withLaidOutViewport();
     handDocumentFonts("loading");
-    const records: string[] = [];
-    onTestFinished(
-      windowDiagnosticCapture.installForwarder((jsonLines) => {
-        records.push(jsonLines);
-      }),
-    );
+    const diagnostics = await collectSentDiagnostics();
+    onTestFinished(diagnostics.stop);
     const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
     const feed = renderFeed(
       openSessionStoreWithGeneralLog(SHORT_LOG_EVENT_COUNT),
@@ -170,11 +166,10 @@ describe("the transcript feed — its first draw", () => {
     advance(fixture, TYPEFACE_WAIT_MS - 1);
     const rowsBeforeTheWait = shownRowCount(feed);
     advance(fixture, 1);
-    windowDiagnosticCapture.flush();
 
     expect(rowsBeforeTheWait).toBe(0);
     expect(shownRowCount(feed)).toBeGreaterThan(0);
-    expect(records.join("\n")).toContain("typefaces-still-loading");
+    expect(JSON.stringify(await diagnostics.records())).toContain("typefaces-still-loading");
   });
 
   it("claims no count over the hidden rows, and counts the shown ones, none included", async () => {

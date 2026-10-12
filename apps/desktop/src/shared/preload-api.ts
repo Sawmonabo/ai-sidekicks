@@ -601,6 +601,7 @@ export interface PreloadApi {
      * main has taken it, whether or not the service is reachable.
      */
     reportWindowDiagnostics(reports: readonly WindowDiagnosticReport[]): Promise<void>;
+    /**
      * Free the renderer's cached memory nothing draws any more, for every window, once a session's
      * decoded pictures are released; what a page needs again is loaded again.
      */

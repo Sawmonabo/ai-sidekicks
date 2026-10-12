@@ -7,7 +7,7 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { XtermMountPoint } from "#renderer/features/terminal/emulator/components/XtermMountPoint.js";
 import {
   COMPONENT_TERMINAL_IDS,
@@ -166,10 +166,7 @@ describe("a paste while a copy is being written", () => {
   it("pastes what the clipboard holds once the copy gives up, and nothing once it failed", async () => {
     const { bridge } = bridgeOverClipboard();
     const { field, pasted } = renderField(bridge);
-    const batches: string[] = [];
-    const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
-      batches.push(jsonLines);
-    });
+    const diagnostics = await collectSentDiagnostics();
     // A newer copy took over before this one wrote anything.
     const givenUp = copyOnceBuilt(bridge, TASKS_AT_ONCE, async () => undefined);
     pasteInto(field, OLDER_COPY);
@@ -193,11 +190,12 @@ describe("a paste while a copy is being written", () => {
     refuseBody();
     await expect(failed).rejects.toThrow("The body was refused.");
 
-    await vi.waitFor(() => {
-      windowDiagnosticCapture.flush();
-      expect(batches.join("\n")).toContain("the copy it waited for failed");
+    await vi.waitFor(async () => {
+      expect(JSON.stringify(await diagnostics.records())).toContain(
+        "the copy it waited for failed",
+      );
     });
-    detachForwarder();
+    diagnostics.stop();
     expect(pasted).toStrictEqual([OLDER_COPY]);
   });
 
@@ -222,10 +220,7 @@ describe("a paste while a copy is being written", () => {
   it("drops a held paste whose field is gone, pasting it nowhere, and records the drop", async () => {
     const { bridge, land } = bridgeOverClipboard();
     const { field, removeField } = renderField(bridge);
-    const batches: string[] = [];
-    const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
-      batches.push(jsonLines);
-    });
+    const diagnostics = await collectSentDiagnostics();
     const copied = copyOnceBuilt(bridge, TASKS_AT_ONCE, (write) =>
       write({ text: piecedTextOf(NEW_COPY) }),
     );
@@ -235,11 +230,10 @@ describe("a paste while a copy is being written", () => {
     await land();
     await copied;
 
-    await vi.waitFor(() => {
-      windowDiagnosticCapture.flush();
-      expect(batches.join("\n")).toContain('"kind":"held-paste-dropped"');
+    await vi.waitFor(async () => {
+      expect(JSON.stringify(await diagnostics.records())).toContain('"kind":"held-paste-dropped"');
     });
-    detachForwarder();
+    diagnostics.stop();
     expect(bridge.window.paste).not.toHaveBeenCalled();
   });
 

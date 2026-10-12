@@ -21,7 +21,7 @@ import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { RunState } from "@ai-sidekicks/contracts/run/state";
+import { isTerminalState, type RunState } from "@ai-sidekicks/contracts/run/state";
 
 import type { SessionEventLog } from "../events/session/appender.js";
 import { KeyedLock } from "../keyed-lock.js";
@@ -32,7 +32,7 @@ import type {
 } from "../provider/port/reviewer-denial.js";
 import { refuseUnchangeableSession } from "../session/changes.js";
 import { RunAgentReader } from "../session/run/agent.js";
-import { RUN_TERMINAL_EVENT_TYPES, isTerminalState } from "../session/run/transitions.js";
+import { RUN_TERMINAL_EVENT_TYPES } from "../session/run/transitions.js";
 import { mintUuidV7 } from "../uuid-v7.js";
 import { ApprovalEventEmitter } from "./event-emitter.js";
 import { ReviewerDenialNotFoundError, ReviewerDenialNotOverridableError } from "./refusals.js";
