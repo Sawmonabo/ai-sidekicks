@@ -30,6 +30,10 @@ class RecordingPtyHost implements PtyHost {
     });
   }
 
+  readTerminalProcessIds(): ReadonlySet<number> {
+    return new Set();
+  }
+
   async resize(_sessionId: string, _rows: number, _cols: number): Promise<void> {
     return await Promise.resolve();
   }

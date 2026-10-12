@@ -433,7 +433,8 @@ export class CodexSessionEstablishment {
       profileFolders: {
         workingDirectory: context.workingDirectory,
         gitCommonFolder: context.gitCommonFolder,
-        denyPaths: credentialPolicy.denyPaths,
+        // Codex denies a folder's whole tree and a file alike by its path.
+        denyPaths: credentialPolicy.denyPaths.map((denied) => denied.path),
       },
       shellEnvironment: composeCodexShellEnvironmentPolicy({
         baseEnv: this.#options.providerBaseEnvironment,

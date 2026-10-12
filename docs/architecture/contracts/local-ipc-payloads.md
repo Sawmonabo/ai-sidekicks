@@ -91,7 +91,8 @@ interface DaemonHello {
   clientId?: string;
   // The daemon session token, read from its file at this connect. Optional in the shape so the
   // daemon answers its absence with `auth.token_invalid`, as it does a wrong one; nothing more is
-  // served on a connection whose hello lacks the right token.
+  // served on a connection whose hello lacks the right token. A right token from a process the
+  // daemon itself started is answered `auth.caller_refused`, with the same latch.
   sessionToken?: string;
   capabilities?: string[];
 }

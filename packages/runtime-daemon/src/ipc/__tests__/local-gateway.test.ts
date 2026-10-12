@@ -1,5 +1,6 @@
 // `LocalIpcGateway` over a real local socket: a malformed envelope never reaches a handler, a
-// handler reads the connection's device and never one the request names, and error replies carry
+// handler reads the connection's device and calling process and never ones the request names,
+// and error replies carry
 // no paths or stack frames. Sockets live under `os.tmpdir()` with a random suffix so parallel
 // workers never collide.
 
@@ -20,6 +21,7 @@ import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { encodeFrame } from "@ai-sidekicks/contracts/content-length-framing";
 import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { bootstrap } from "../../bootstrap/index.js";
 import { LocalIpcGateway } from "../local-gateway.js";
 import { MethodRegistryImpl } from "../registry.js";
@@ -28,6 +30,11 @@ import { passthroughSchema } from "../__fixtures__/schema-doubles.js";
 import { connect } from "../__fixtures__/local-socket-client.js";
 
 const PROTOCOL_VERSION = "2026-05-01";
+
+// The system's own read of who opened each connection: here, this test's own process.
+const callerProcessReader = await HOST_OPERATING_SYSTEM.openCallerProcessReader();
+const readCallerProcessId = (socket: net.Socket): number =>
+  callerProcessReader.readConnectedProcessId(socket);
 
 // The service's own device id, which every connection on its socket comes from.
 const SERVICE_DEVICE_ID = DeviceIdSchema.parse("service-device");
@@ -72,7 +79,7 @@ describe("LocalIpcGateway", () => {
       passthroughSchema<unknown>(),
       failingHandler,
     );
-    gateway = new LocalIpcGateway({ registry, deviceId: SERVICE_DEVICE_ID });
+    gateway = new LocalIpcGateway({ registry, deviceId: SERVICE_DEVICE_ID, readCallerProcessId });
     await gateway.start();
   });
 
@@ -193,15 +200,17 @@ describe("LocalIpcGateway", () => {
     }
   });
 
-  it("hands the handler the connection's device, not one the request names", async () => {
+  it("hands the handler the connection's device and caller, not ones the request names", async () => {
     const client = await connect(socketPath);
     try {
-      client.send({ ...validRequest, params: { deviceId: "spoofed-device" } });
+      const spoofed = { deviceId: "spoofed-device", callerProcessId: 1 };
+      client.send({ ...validRequest, params: spoofed });
       expect(await client.replies(1)).toEqual([validReply]);
-      expect(handlerSpy).toHaveBeenCalledWith(
-        { deviceId: "spoofed-device" },
-        { transportId: expect.any(Number), deviceId: SERVICE_DEVICE_ID },
-      );
+      expect(handlerSpy).toHaveBeenCalledWith(spoofed, {
+        transportId: expect.any(Number),
+        deviceId: SERVICE_DEVICE_ID,
+        callerProcessId: process.pid,
+      });
     } finally {
       await client.close();
     }
@@ -262,7 +271,11 @@ describe("LocalIpcGateway stop", () => {
     bootstrap({ localIpcPath: socketPath });
     const registry = new MethodRegistryImpl();
     const largeText = "r".repeat(256 * 1024);
-    const gateway = new LocalIpcGateway({ registry, deviceId: SERVICE_DEVICE_ID });
+    const gateway = new LocalIpcGateway({
+      registry,
+      deviceId: SERVICE_DEVICE_ID,
+      readCallerProcessId,
+    });
     const stopping: Array<Promise<void>> = [];
     const replyThenStop: Handler<unknown, { text: string }> = async () => {
       setImmediate(() => {
@@ -316,7 +329,7 @@ describe("LocalIpcGateway stop", () => {
         writeHandler,
         { mutating: true },
       );
-      gateway = new LocalIpcGateway({ registry, deviceId: SERVICE_DEVICE_ID });
+      gateway = new LocalIpcGateway({ registry, deviceId: SERVICE_DEVICE_ID, readCallerProcessId });
       await gateway.start();
       // A client that keeps its own side open after the gateway ends the connection, so the stop
       // waits on it.
@@ -399,6 +412,7 @@ describe("LocalIpcGateway outbound queue", () => {
     const gateway = new LocalIpcGateway({
       registry: new MethodRegistryImpl(),
       deviceId: SERVICE_DEVICE_ID,
+      readCallerProcessId,
       hooks: {
         onConnect: (transport) => {
           transportIds.push(transport.id);
@@ -490,6 +504,7 @@ describe("LocalIpcGateway before SecureDefaults load", () => {
     const gateway = new UnloadedGateway({
       registry: new UnloadedRegistry(),
       deviceId: SERVICE_DEVICE_ID,
+      readCallerProcessId,
     });
     await expect(gateway.start()).rejects.toThrow(/must complete before any listener bind/);
   });

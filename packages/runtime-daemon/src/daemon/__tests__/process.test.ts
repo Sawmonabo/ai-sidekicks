@@ -340,7 +340,10 @@ describe("DaemonProcess.start", () => {
     const lastEngine = new RunEngine({
       reader: database.reader,
       sessionEvents,
-      executionPostures: new ExecutionPostureService({ homeDirectory }),
+      executionPostures: new ExecutionPostureService({
+        homeDirectory,
+        sessionTokenPath: path.join(homeDirectory, "daemon.token"),
+      }),
     });
     await lastEngine.transition({ runId, newState: "starting" });
     await lastEngine.transition({ runId, newState: "running" });

@@ -4,6 +4,9 @@
 //
 // * The token is checked in constant time; a hello without it or with a wrong one latches the
 //   connection refused, so nothing more is served on it, a second guess included.
+// * A hello with the token from a process the daemon itself started, outside the person's
+//   terminals, latches the connection refused too: reading the token file is not enough to be
+//   the machine's own client.
 // * After the handshake read-only methods are always allowed; an unregistered method
 //   (`isMutating` is `undefined`) falls through to the inner not-found error.
 // * The wire schemas live in `@ai-sidekicks/contracts` because this package has no `zod`
@@ -30,6 +33,7 @@ import {
   DaemonHelloSchema,
   NEGOTIATION_REASON_CEILING_EXCEEDED,
   NEGOTIATION_REASON_FLOOR_EXCEEDED,
+  NEGOTIATION_CALLER_REFUSED_CODE,
   NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED,
   NEGOTIATION_TOKEN_INVALID_CODE,
   NEGOTIATION_VERSION_MISMATCH_CODE,
@@ -48,13 +52,15 @@ import { callingDeviceOf, DelegatingRegistry } from "./registry.js";
 /**
  * Codes for gate refusals: any method but `daemon.hello` before a hello completed
  * (`handshake_required`), a mutating method after one that returned `compatible: false`
- * (`version_mismatch`), and anything on a connection whose hello lacked the right session token
- * (`auth.token_invalid`).
+ * (`version_mismatch`), anything on a connection whose hello lacked the right session token
+ * (`auth.token_invalid`), and anything on one a process the daemon started opened
+ * (`auth.caller_refused`).
  */
 export type NegotiationErrorCode =
   | "protocol.handshake_required"
   | typeof NEGOTIATION_VERSION_MISMATCH_CODE
-  | typeof NEGOTIATION_TOKEN_INVALID_CODE;
+  | typeof NEGOTIATION_TOKEN_INVALID_CODE
+  | typeof NEGOTIATION_CALLER_REFUSED_CODE;
 
 /**
  * Thrown by the wrapped registry's `dispatch` when the gate refuses a call, and by `daemon.hello`
@@ -81,12 +87,13 @@ export class NegotiationError extends Error {
 
 /**
  * The negotiation state of one connection: `pre` (no handshake yet), `refused` (a hello without
- * the right session token), `done-compatible` or `done-incompatible`. The first outcome is
- * latched, so a repeated or hostile `daemon.hello` cannot flip the gate mid-connection.
+ * the right session token, or from a caller the daemon refuses, named by `code`),
+ * `done-compatible` or `done-incompatible`. The first outcome is latched, so a repeated or
+ * hostile `daemon.hello` cannot flip the gate mid-connection.
  */
 export type NegotiationState =
   | { readonly kind: "pre" }
-  | { readonly kind: "refused" }
+  | { readonly kind: "refused"; readonly code: RefusalCode }
   | {
       readonly kind: "done-compatible";
       readonly negotiatedProtocolVersion: string;
@@ -130,6 +137,12 @@ function negotiateProtocol(
   return { kind: "ceiling", daemonPreferred: daemonMax };
 }
 
+// A handshake's latched outcome.
+type LatchedHandshake = Exclude<NegotiationState, { readonly kind: "pre" | "refused" }>;
+
+// Why a connection is latched refused.
+type RefusalCode = typeof NEGOTIATION_TOKEN_INVALID_CODE | typeof NEGOTIATION_CALLER_REFUSED_CODE;
+
 // Typed as `ZodType<...>` so `register` infers its parameter and result types.
 const DaemonHelloAckResultSchema: ZodType<DaemonHelloAck> = DaemonHelloAckSchema;
 
@@ -142,24 +155,34 @@ const DaemonHelloRequestSchema: ZodType<DaemonHello> = DaemonHelloSchema;
 export class ProtocolNegotiator {
   // Only latched outcomes are stored; an id in neither is in `pre`. A refusal is held apart from
   // the handshakes, since the gate answers it before the hello handler runs.
-  readonly #refusedTransports: Set<number>;
-  readonly #handshakes: Map<
-    number,
-    Exclude<NegotiationState, { readonly kind: "pre" | "refused" }>
-  >;
+  readonly #refusedTransports: Map<number, RefusalCode>;
+  readonly #handshakes: Map<number, LatchedHandshake>;
+  // Each connection's caller read, shared by every hello on it and dropped as it closes, so a
+  // read that ends after the close latches nothing.
+  readonly #callerReads: Map<number, Promise<boolean>>;
   readonly #sessionToken: Buffer;
+  readonly #isRefusedCaller: (callerProcessId: number) => Promise<boolean>;
 
-  /** `sessionToken` is the token this daemon start wrote to its token file. */
-  constructor(sessionToken: string) {
-    this.#refusedTransports = new Set();
+  /**
+   * `sessionToken` is the token this daemon start wrote to its token file; `isRefusedCaller`
+   * answers whether a hello carrying it from the process with the id is still refused.
+   */
+  constructor(
+    sessionToken: string,
+    isRefusedCaller: (callerProcessId: number) => Promise<boolean>,
+  ) {
+    this.#refusedTransports = new Map();
     this.#handshakes = new Map();
+    this.#callerReads = new Map();
     this.#sessionToken = Buffer.from(sessionToken, "utf8");
+    this.#isRefusedCaller = isRefusedCaller;
   }
 
   /** Returns the state for a transport, or `pre` when the id has no entry. */
   getState(transportId: number): NegotiationState {
-    if (this.#refusedTransports.has(transportId)) {
-      return { kind: "refused" };
+    const refusal = this.#refusedTransports.get(transportId);
+    if (refusal !== undefined) {
+      return { kind: "refused", code: refusal };
     }
     return this.#handshakes.get(transportId) ?? { kind: "pre" };
   }
@@ -180,7 +203,7 @@ export class ProtocolNegotiator {
     }
     const state = this.getState(transportId);
     if (state.kind === "refused") {
-      throw sessionTokenRefusal();
+      throw refusalFor(state.code);
     }
     if (state.kind === "pre" && method !== DAEMON_HELLO_METHOD) {
       throw new NegotiationError(
@@ -218,19 +241,21 @@ export class ProtocolNegotiator {
       // A repeated hello is refused and the first outcome stays latched. The ack repeats the first
       // handshake's version; the client already has the supported list.
       const existing = this.#handshakes.get(transportId);
-      if (existing !== undefined) {
+      const { state, isFirst } =
+        existing === undefined
+          ? await this.#latchHandshake(params, ctx, transportId)
+          : { state: existing, isFirst: false };
+      if (!isFirst) {
         return {
           compatible: false,
           protocolVersion:
-            existing.kind === "done-compatible"
-              ? existing.negotiatedProtocolVersion
-              : existing.preferredProtocolVersion,
+            state.kind === "done-compatible"
+              ? state.negotiatedProtocolVersion
+              : state.preferredProtocolVersion,
           deviceId,
           reason: NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED,
         };
       }
-
-      const state = this.#latchHandshake(params, transportId);
       if (state.kind === "done-compatible") {
         return {
           compatible: true,
@@ -274,7 +299,7 @@ export class ProtocolNegotiator {
         throw new Error(`${DAEMON_HELLO_METHOD}: handler requires ctx.transportId`);
       }
       if (!this.#handshakes.has(transportId)) {
-        this.#latchHandshake(params, transportId);
+        await this.#latchHandshake(params, ctx, transportId);
       } else if (!this.#isSessionToken(params.sessionToken)) {
         throw sessionTokenRefusal();
       }
@@ -298,18 +323,43 @@ export class ProtocolNegotiator {
     );
   }
 
-  // Refuses a hello without this start's session token, latching the refusal, and otherwise
-  // latches the protocol the hello negotiates.
-  #latchHandshake(
+  // Refuses a hello without this start's session token, and then one from a caller the daemon
+  // refuses or the system could not name, latching the refusal; otherwise latches the protocol the
+  // hello negotiates. A second hello that came while the first's caller was read finds the first
+  // latched, and `isFirst` says which this one was.
+  async #latchHandshake(
     hello: DaemonHello,
+    ctx: HandlerContext,
     transportId: number,
-  ): Exclude<NegotiationState, { readonly kind: "pre" | "refused" }> {
+  ): Promise<{ readonly state: LatchedHandshake; readonly isFirst: boolean }> {
     if (!this.#isSessionToken(hello.sessionToken)) {
-      this.#refusedTransports.add(transportId);
+      this.#refusedTransports.set(transportId, NEGOTIATION_TOKEN_INVALID_CODE);
       throw sessionTokenRefusal();
     }
+    const { callerProcessId } = ctx;
+    if (callerProcessId === undefined) {
+      this.#refusedTransports.set(transportId, NEGOTIATION_CALLER_REFUSED_CODE);
+      throw callerRefusal();
+    }
+    let callerRead = this.#callerReads.get(transportId);
+    if (callerRead === undefined) {
+      callerRead = this.#isRefusedCaller(callerProcessId);
+      this.#callerReads.set(transportId, callerRead);
+    }
+    const isRefusedCaller = await callerRead;
+    if (!this.#callerReads.has(transportId)) {
+      throw new Error(`${DAEMON_HELLO_METHOD}: the connection closed while its caller was read`);
+    }
+    if (isRefusedCaller) {
+      this.#refusedTransports.set(transportId, NEGOTIATION_CALLER_REFUSED_CODE);
+      throw callerRefusal();
+    }
+    const first = this.#handshakes.get(transportId);
+    if (first !== undefined) {
+      return { state: first, isFirst: false };
+    }
     const outcome = negotiateProtocol(hello, SUPPORTED_PROTOCOL_VERSIONS);
-    const state: Exclude<NegotiationState, { readonly kind: "pre" | "refused" }> =
+    const state: LatchedHandshake =
       outcome.kind === "compatible"
         ? { kind: "done-compatible", negotiatedProtocolVersion: outcome.negotiated }
         : {
@@ -321,7 +371,7 @@ export class ProtocolNegotiator {
                 : NEGOTIATION_REASON_CEILING_EXCEEDED,
           };
     this.#handshakes.set(transportId, state);
-    return state;
+    return { state, isFirst: true };
   }
 
   // Constant-time, after a length check, since `timingSafeEqual` throws on unequal lengths.
@@ -340,7 +390,20 @@ export class ProtocolNegotiator {
   cleanupTransport(transportId: number): void {
     this.#refusedTransports.delete(transportId);
     this.#handshakes.delete(transportId);
+    this.#callerReads.delete(transportId);
   }
+}
+
+function refusalFor(code: RefusalCode): NegotiationError {
+  return code === NEGOTIATION_TOKEN_INVALID_CODE ? sessionTokenRefusal() : callerRefusal();
+}
+
+function callerRefusal(): NegotiationError {
+  return new NegotiationError(
+    NEGOTIATION_CALLER_REFUSED_CODE,
+    "protocol-negotiation: the connection was opened by a process this daemon started, such as " +
+      "a command an agent ran, so nothing is served on it",
+  );
 }
 
 // One message for a missing and a wrong token, so a refusal says nothing about the token.

@@ -685,7 +685,7 @@ export function createHarness(options: HarnessOptions = {}): Harness {
     credentialPolicy: {
       resolveCredentialPolicy: async (credentialPolicyRef) => ({
         credentialPolicyRef,
-        denyPaths: ["/home/agent/.ssh"],
+        denyPaths: [{ path: "/home/agent/.ssh", kind: "folder" }],
         denyEnvVars: [],
       }),
     },

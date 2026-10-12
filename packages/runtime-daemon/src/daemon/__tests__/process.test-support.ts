@@ -58,6 +58,7 @@ function makeHostDrainingWith(drain: Pick<PtyHost, "shutdown">): PtyHost {
     shutdown: (options) => drain.shutdown(options),
     setOnData: () => {},
     setOnExit: () => {},
+    readTerminalProcessIds: () => new Set(),
   };
 }
 
@@ -137,6 +138,8 @@ export async function startDaemon(
     readMachineName: () => Promise.resolve("Test machine"),
     captureProviderBaseEnvironment: () => Promise.resolve([]),
     commandShell: null,
+    // The system's own read, so a test's client, this process, is accepted as it is in use.
+    callerProcessReader: await HOST_OPERATING_SYSTEM.openCallerProcessReader(),
     operatingSystem: {
       ...HOST_OPERATING_SYSTEM,
       provider: MAC_PROVIDER_OPERATING_SYSTEM,

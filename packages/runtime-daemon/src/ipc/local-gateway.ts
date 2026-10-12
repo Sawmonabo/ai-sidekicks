@@ -9,8 +9,8 @@
 //   contract.
 // * `MethodRegistry` is injected at construction. `DaemonHello` version negotiation lives in
 //   `protocol-negotiation.ts` and streaming in `streaming-primitive.ts`.
-// * Every dispatch carries the connection's id and the service's own device id, never one a
-//   request names.
+// * Every dispatch carries the connection's id, the service's own device id and the process the
+//   system says opened the connection, never one a request names.
 // * `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date string.
 
 import * as net from "node:net";
@@ -103,6 +103,11 @@ interface ConnectionState {
   readonly socket: net.Socket;
   /** The connection's received bytes not yet framed; no state is shared across sockets. */
   readonly frames: FrameAccumulator;
+  /**
+   * The process that opened the connection, read at the connect; `undefined` when the system could
+   * not say, which `onError` has reported.
+   */
+  readonly callerProcessId: number | undefined;
   /** Set once `onDisconnect` has fired, so a late socket event cannot fire it twice. */
   disposed: boolean;
   /**
@@ -136,6 +141,8 @@ export interface LocalIpcGatewayOptions {
    * Absent while the service repairs its database file, before it can read the id.
    */
   readonly deviceId?: DeviceId;
+  /** Reads which process opened an accepted connection; throws when the system cannot say. */
+  readonly readCallerProcessId: (socket: net.Socket) => number;
   readonly hooks?: SupervisionHooks;
 }
 
@@ -148,6 +155,7 @@ export interface LocalIpcGatewayOptions {
 export class LocalIpcGateway {
   readonly #registry: MethodRegistry;
   readonly #deviceId: DeviceId | undefined;
+  readonly #readCallerProcessId: (socket: net.Socket) => number;
   readonly #hooks: SupervisionHooks | null;
   #server: net.Server | null;
   #connections: Map<number, ConnectionState>;
@@ -156,6 +164,7 @@ export class LocalIpcGateway {
   constructor(options: LocalIpcGatewayOptions) {
     this.#registry = options.registry;
     this.#deviceId = options.deviceId;
+    this.#readCallerProcessId = options.readCallerProcessId;
     this.#hooks = options.hooks ?? null;
     this.#server = null;
     this.#connections = new Map();
@@ -296,9 +305,19 @@ export class LocalIpcGateway {
 
   #onSocketConnect(socket: net.Socket): void {
     const transport: SupervisionTransport = { id: allocTransportId() };
+    // Read at once, while the connection is surely open; a caller nobody can name is refused at
+    // its hello.
+    let callerProcessId: number | undefined;
+    let callerReadFailure: unknown;
+    try {
+      callerProcessId = this.#readCallerProcessId(socket);
+    } catch (error) {
+      callerReadFailure = error;
+    }
     const state: ConnectionState = {
       transport,
       socket,
+      callerProcessId,
       // The one inbound size check: a declared body over the cap ends the connection.
       frames: new FrameAccumulator(MAX_MESSAGE_BYTES),
       disposed: false,
@@ -308,6 +327,9 @@ export class LocalIpcGateway {
 
     if (this.#hooks !== null) {
       this.#hooks.onConnect?.(transport);
+      if (callerReadFailure !== undefined) {
+        this.#hooks.onError(transport, callerReadFailure);
+      }
     }
 
     socket.on("data", (chunk: Buffer) => {
@@ -511,10 +533,11 @@ export class LocalIpcGateway {
     // whatever the handler threw; both paths reply through `#sendEnvelope`. The read loop does not
     // wait, so several dispatches can be in flight per connection: JSON-RPC promises no order
     // beyond id correlation.
-    const ctx: HandlerContext =
-      this.#deviceId === undefined
-        ? { transportId: state.transport.id }
-        : { transportId: state.transport.id, deviceId: this.#deviceId };
+    const ctx: HandlerContext = {
+      transportId: state.transport.id,
+      ...(this.#deviceId === undefined ? {} : { deviceId: this.#deviceId }),
+      ...(state.callerProcessId === undefined ? {} : { callerProcessId: state.callerProcessId }),
+    };
     this.#registry.dispatch(methodCandidate, params, ctx).then(
       (result: unknown) => {
         if (isNotification) {

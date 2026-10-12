@@ -32,6 +32,7 @@ import {
   recordRunStart,
 } from "../recovery/database-file/last-run.js";
 import type { DiskFlush } from "../disk-flush/contract.js";
+import type { CallerProcessReader } from "../ipc/caller-process/contract.js";
 import type { DatabaseFileOperatingSystem } from "../recovery/database-file/operating-system.js";
 import { repairDatabaseFile } from "../recovery/database-file/repair.js";
 import { answerRepairingWhile } from "./repairing-socket.js";
@@ -43,6 +44,8 @@ export interface DatabaseFileOpenOptions {
   readonly dataFolder: string;
   readonly indexFolderPath: string;
   readonly runFolder: DaemonRunFolder;
+  /** Reads which process opened each connection on the socket a repair answers on. */
+  readonly callerProcessReader: CallerProcessReader;
   readonly operatingSystem: DatabaseFileOperatingSystem;
   /** How a written file and its folder are flushed to disk. */
   readonly diskFlush: DiskFlush;
@@ -98,7 +101,8 @@ export async function openDatabaseFile(
     operatingSystem: options.operatingSystem,
     diskFlush,
     readBackupFolder: options.readBackupFolder,
-    whileRepairing: (repair) => answerRepairingWhile(options.runFolder, repair, writeServiceLog),
+    whileRepairing: (repair) =>
+      answerRepairingWhile(options.runFolder, options.callerProcessReader, repair, writeServiceLog),
     stopSignal: options.stopSignal,
     now: options.now,
     writeServiceLog,

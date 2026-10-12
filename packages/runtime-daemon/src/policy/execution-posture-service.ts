@@ -36,8 +36,27 @@ export function composeExecutionPosture(
   };
 }
 
-// Relative to the person's home; resolved to canonical absolute paths on each read.
-const CURATED_CREDENTIAL_DENY_PATHS: readonly string[] = Object.freeze([".ssh", ".aws"]);
+// Whether a denied path is a folder, covering everything under it, or one file.
+type CredentialDenyPathKind = "folder" | "file";
+
+/** One path the curated list denies, canonical and absolute. */
+export interface CredentialDenyPath {
+  readonly path: string;
+  readonly kind: CredentialDenyPathKind;
+}
+
+// One entry of the curated list: a path relative to the person's home, or an absolute one.
+interface CuratedDenyEntry {
+  readonly path: string;
+  readonly isHomeRelative: boolean;
+  readonly kind: CredentialDenyPathKind;
+}
+
+// Resolved to canonical absolute paths on each read.
+const CURATED_HOME_DENY_ENTRIES: readonly CuratedDenyEntry[] = Object.freeze([
+  { path: ".ssh", isHomeRelative: true, kind: "folder" },
+  { path: ".aws", isHomeRelative: true, kind: "folder" },
+]);
 
 /**
  * The credential variables removed from every provider process's environment and from every
@@ -56,9 +75,9 @@ export interface ResolvedCredentialPolicy {
   readonly credentialPolicyRef: string;
   /**
    * Canonical absolute paths, symlinks resolved where the path exists; a path missing on this
-   * machine keeps its expanded absolute form. A folder's entry covers everything under it.
+   * machine keeps its expanded absolute form.
    */
-  readonly denyPaths: readonly string[];
+  readonly denyPaths: readonly CredentialDenyPath[];
   readonly denyEnvVars: readonly string[];
 }
 
@@ -83,8 +102,13 @@ export class ExecutionPostureRejectedError extends Error {
 
 /** What the service resolves paths against. */
 export interface ExecutionPostureServiceDeps {
-  /** The person's home folder, which the curated paths are relative to. */
+  /** The person's home folder, which the curated folders are relative to. */
   readonly homeDirectory: string;
+  /**
+   * The daemon's session token file, absolute: whoever reads it is admitted on the daemon's
+   * socket, so no agent's command may.
+   */
+  readonly sessionTokenPath: string;
 }
 
 /**
@@ -93,11 +117,16 @@ export interface ExecutionPostureServiceDeps {
  */
 export class ExecutionPostureService implements RunSetupGate {
   readonly #homeDirectory: string;
+  readonly #denyEntries: readonly CuratedDenyEntry[];
   // One entry per run past its gate and not yet ended.
   readonly #resolvedByRun = new Map<RunId, ExecutionPosture>();
 
   constructor(deps: ExecutionPostureServiceDeps) {
     this.#homeDirectory = deps.homeDirectory;
+    this.#denyEntries = [
+      ...CURATED_HOME_DENY_ENTRIES,
+      { path: deps.sessionTokenPath, isHomeRelative: false, kind: "file" },
+    ];
   }
 
   /**
@@ -134,7 +163,10 @@ export class ExecutionPostureService implements RunSetupGate {
   async resolveCredentialPolicy(credentialPolicyRef: string): Promise<ResolvedCredentialPolicy> {
     requireCuratedPolicyRef(credentialPolicyRef);
     const denyPaths = await Promise.all(
-      CURATED_CREDENTIAL_DENY_PATHS.map((entry) => this.#canonicalDenyPath(entry)),
+      this.#denyEntries.map(async (entry) => ({
+        path: await this.#canonicalDenyPath(entry),
+        kind: entry.kind,
+      })),
     );
     return { credentialPolicyRef, denyPaths, denyEnvVars: CURATED_CREDENTIAL_ENV_VARS };
   }
@@ -162,8 +194,8 @@ export class ExecutionPostureService implements RunSetupGate {
     return this.#resolvedByRun.get(runId);
   }
 
-  async #canonicalDenyPath(homeRelativePath: string): Promise<string> {
-    const expanded = path.join(this.#homeDirectory, homeRelativePath);
+  async #canonicalDenyPath(entry: CuratedDenyEntry): Promise<string> {
+    const expanded = entry.isHomeRelative ? path.join(this.#homeDirectory, entry.path) : entry.path;
     try {
       return await realpath(expanded);
     } catch (error) {

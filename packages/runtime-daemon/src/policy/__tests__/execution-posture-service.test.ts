@@ -1,9 +1,10 @@
 // A run's posture is refused by the gate every run engine registers, never rewritten, when it
 // breaks a rule; a refused posture never reaches the provider; the resolved posture a stamp reads
 // is complete and canonical, and gone for a run the gate never passed or that has ended; the
-// curated list resolves to canonical paths.
+// curated list resolves to canonical paths, and the session token file reaches each provider's
+// read deny as one file.
 
-import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -12,6 +13,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
+import { composeClaudePermissions } from "../../provider/driver/claude/spawn/settings.js";
+import { composeCodexPermissionConfig } from "../../provider/driver/codex/permission-level.js";
 import {
   makeQueueItem,
   makeRecordingDriver,
@@ -161,23 +164,59 @@ describe("execution posture service — the run setup gate", () => {
 });
 
 describe("execution posture service — the curated credential list", () => {
-  it("resolves each path against the home, following a link and keeping an absent path", async () => {
+  it("resolves each folder against the home, following a link and keeping an absent path", async () => {
     const keysFolder = path.join(scratch, "keys");
     await mkdir(keysFolder);
     await symlink(keysFolder, path.join(scratch, ".ssh"));
-    const service = new ExecutionPostureService({ homeDirectory: scratch });
+    const sessionTokenPath = path.join(scratch, "run", "daemon.token");
+    const service = new ExecutionPostureService({ homeDirectory: scratch, sessionTokenPath });
 
     const policy = await service.resolveCredentialPolicy(CURATED_CREDENTIAL_POLICY_REF);
 
     expect(policy).toStrictEqual({
       credentialPolicyRef: CURATED_CREDENTIAL_POLICY_REF,
-      denyPaths: [await realpath(keysFolder), path.join(scratch, ".aws")],
+      denyPaths: [
+        { path: await realpath(keysFolder), kind: "folder" },
+        { path: path.join(scratch, ".aws"), kind: "folder" },
+        { path: sessionTokenPath, kind: "file" },
+      ],
       denyEnvVars: CURATED_CREDENTIAL_ENV_VARS,
     });
   });
 
+  it("denies the session token file to an agent's reads on Claude Code and on Codex", async () => {
+    const runFolder = path.join(scratch, "run");
+    await mkdir(runFolder);
+    const sessionTokenPath = path.join(runFolder, "daemon.token");
+    await writeFile(sessionTokenPath, "token");
+    const service = new ExecutionPostureService({ homeDirectory: scratch, sessionTokenPath });
+
+    const { denyPaths } = await service.resolveCredentialPolicy(CURATED_CREDENTIAL_POLICY_REF);
+
+    const canonicalTokenPath = await realpath(sessionTokenPath);
+    // A file's rule names the file: a folder's `/**` would never match it.
+    const claudeRules = composeClaudePermissions(
+      { credentialDenyPaths: denyPaths, memoryFolders: [] },
+      [],
+      "yolo",
+      [],
+    );
+    expect(claudeRules.deny).toContain(`Read(/${canonicalTokenPath})`);
+    const codexConfig = composeCodexPermissionConfig("yolo", {
+      workingDirectory: scratch,
+      gitCommonFolder: undefined,
+      denyPaths: denyPaths.map((denied) => denied.path),
+    });
+    for (const profile of Object.values(codexConfig.permissions)) {
+      expect(profile.filesystem[canonicalTokenPath]).toBe("deny");
+    }
+  });
+
   it("refuses to resolve any list but the curated one", async () => {
-    const service = new ExecutionPostureService({ homeDirectory: scratch });
+    const service = new ExecutionPostureService({
+      homeDirectory: scratch,
+      sessionTokenPath: path.join(scratch, "daemon.token"),
+    });
 
     const error = await captureRejection(service.resolveCredentialPolicy("policy://default"));
 

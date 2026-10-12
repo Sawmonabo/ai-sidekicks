@@ -155,6 +155,12 @@ export class RustSidecarPtyHost implements PtyHost {
     return response;
   }
 
+  /** The sidecar while it runs, which every session's program descends from. */
+  public readTerminalProcessIds(): ReadonlySet<number> {
+    const processId = this.childProcess.currentChild?.pid;
+    return new Set(processId === undefined ? [] : [processId]);
+  }
+
   /** Resizes a session's terminal. Rejects for an unknown session id. */
   public async resize(sessionId: string, rows: number, cols: number): Promise<void> {
     // An unknown id rejects before any request is sent, as in NodePtyHost.

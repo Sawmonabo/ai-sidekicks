@@ -132,7 +132,12 @@ export function composeClaudePermissions(
 ): ClaudePermissionsDocument {
   const own = composeClaudeSessionRuleLists(sessionRules);
   const deny = [
-    ...legs.credentialDenyPaths.map((denied) => absolutePathRule("Read", denied, "**")),
+    // A folder's rule covers everything under it; a file's names the file itself.
+    ...legs.credentialDenyPaths.map((denied) =>
+      denied.kind === "folder"
+        ? absolutePathRule("Read", denied.path, "**")
+        : `Read(/${denied.path})`,
+    ),
     ...own.deny,
     // The levels that never ask never reach the daemon's answer to an ask, so a background Claude
     // Code command written plainly is denied here; the pre-tool hook reads every other spelling.

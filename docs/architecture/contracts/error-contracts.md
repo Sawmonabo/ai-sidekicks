@@ -84,6 +84,7 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 | `protocol.handshake_required` | `-32600` | NegotiationError | Any method but `daemon.hello` dispatched in `pre` state (I-005-1) |
 | `protocol.version_mismatch` | `-32600` | NegotiationError | Mutating dispatch attempted in `done-incompatible` state ([Spec-006 §Fallback Behavior](../../specs/006-local-ipc-and-daemon-control.md#fallback-behavior)) |
 | `auth.token_invalid` | `-32600` | NegotiationError | `daemon.hello` without the daemon's session token or with a wrong one; the connection is latched refused, so every later call on it, a second hello included, gets the same refusal |
+| `auth.caller_refused` | `-32600` | NegotiationError | `daemon.hello` with the right session token from a process the daemon itself started outside the person's terminals, such as a command an agent ran, or from one the system could not name; the connection is latched refused as for `auth.token_invalid` |
 
 ### Test-Side Discrimination
 

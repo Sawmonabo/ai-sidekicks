@@ -54,6 +54,8 @@ import {
   createStreamedGitRunner,
   type StreamedGitRunner,
 } from "../workspace/clone/streamed-git.js";
+import type { CallerProcessReader } from "../ipc/caller-process/contract.js";
+import { createStartedByDaemonCheck } from "../ipc/caller-process/descent.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
@@ -140,6 +142,8 @@ export interface DaemonProcessOptions {
   ) => Promise<readonly SpawnEnvPair[]>;
   /** The operating system the daemon runs on, picked once at its start. */
   readonly operatingSystem: DaemonOperatingSystem;
+  /** Reads which process opened each connection on the socket, and each process's parent. */
+  readonly callerProcessReader: CallerProcessReader;
   /** The login shell a project's setup commands run in; `null` runs the system's default one. */
   readonly commandShell: string | null;
   /**
@@ -255,7 +259,10 @@ export class DaemonProcess {
     // The negotiation gate wraps the recovery gate, which wraps the recording registry, so a
     // refused call is never recorded; under them every call's failure is told to the damage watch.
     this.#inFlightMutations = new InFlightMutations();
-    const negotiator = new ProtocolNegotiator(parts.sessionToken);
+    const negotiator = new ProtocolNegotiator(
+      parts.sessionToken,
+      createStartedByDaemonCheck(options.callerProcessReader, this.#ptyHost),
+    );
     const writeGate = new RecoveryWriteGate(this.#recoveryStatus);
     const registry = negotiator.wrap(
       writeGate.wrap(
@@ -341,7 +348,10 @@ export class DaemonProcess {
     // write reaches the sessions list like any other event, and read through its session reads,
     // which stop at a damaged session's last good point.
     const { reader, writer } = this.#database;
-    const executionPostures = new ExecutionPostureService({ homeDirectory: options.homeDirectory });
+    const executionPostures = new ExecutionPostureService({
+      homeDirectory: options.homeDirectory,
+      sessionTokenPath: options.runFolder.tokenPath,
+    });
     const runEngine = new RunEngine({
       reader,
       sessionEvents: sessionServices.eventLog,
@@ -429,6 +439,7 @@ export class DaemonProcess {
     this.#gateway = new LocalIpcGateway({
       registry,
       deviceId: machineDeviceId,
+      readCallerProcessId: (socket) => options.callerProcessReader.readConnectedProcessId(socket),
       hooks: {
         onDisconnect: (transport) => {
           negotiator.cleanupTransport(transport.id);
@@ -524,6 +535,7 @@ export class DaemonProcess {
         dataFolder,
         indexFolderPath,
         runFolder: options.runFolder,
+        callerProcessReader: options.callerProcessReader,
         operatingSystem: options.operatingSystem.databaseFile,
         diskFlush: options.operatingSystem.diskFlush,
         readBackupFolder: async () =>

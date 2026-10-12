@@ -10,6 +10,7 @@ import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 import type { RunRefusedCause } from "@ai-sidekicks/contracts/run/failure-cause";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { CredentialDenyPath } from "../../../../policy/execution-posture-service.js";
 import { type ThreadFrameRoute } from "../../../thread-frame-router.js";
 import { type CumulativeAxisReadings } from "../../../usage-delta-accountant.js";
 import type { SpawnEnvPair } from "../../../spawn-env.js";
@@ -419,7 +420,7 @@ export interface ClaudeSpawnBoundLegs {
   readonly callbackToolServer: ClaudeCallbackMcpServerDescriptor | undefined;
   readonly onMcpServerStatus: McpServerStatusProducer | undefined;
   /** The curated credential paths, canonical and absolute, denied to every file tool. */
-  readonly credentialDenyPaths: readonly string[];
+  readonly credentialDenyPaths: readonly CredentialDenyPath[];
   /** The agent's memory folder and its link, whose `.md` files it may change at Sandboxed. */
   readonly memoryFolders: readonly string[];
   /** The process's whole environment, built once by `composeClaudeSpawnEnvironment`. */

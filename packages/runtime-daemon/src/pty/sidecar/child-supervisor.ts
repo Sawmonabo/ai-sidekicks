@@ -16,7 +16,10 @@ import { MAX_FRAME_BODY_BYTES, SidecarFrameDecodeError } from "./frame-codec.js"
 
 /** The subset of `ChildProcess` the supervisor uses, so tests can build a fake. */
 export interface SidecarChildProcess {
-  /** OS pid; `undefined` if spawn failed first. Only the hard kill at a stuck drain reads it. */
+  /**
+   * OS pid; `undefined` if spawn failed first. The hard kill at a stuck drain reads it, and so does
+   * the host's read of its terminals' processes.
+   */
   readonly pid?: number | undefined;
   readonly stdin: NodeJS.WritableStream;
   readonly stdout: NodeJS.ReadableStream;

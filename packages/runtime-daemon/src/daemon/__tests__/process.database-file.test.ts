@@ -248,6 +248,7 @@ describe("damage met while the daemon runs", () => {
     let reportProgress: (progress: DaemonRepairProgress | undefined) => void = () => {};
     const repairing = answerRepairingWhile(
       runFolder,
+      await HOST_OPERATING_SYSTEM.openCallerProcessReader(),
       (reportRepairProgress, stopAsked) => {
         reportProgress = reportRepairProgress;
         stopAsked.addEventListener("abort", () => {
