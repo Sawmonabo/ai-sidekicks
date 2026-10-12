@@ -12,7 +12,10 @@ import { type AnsiLineChunkList } from "./ansi/lines/chunks.js";
 
 /** One output's parse waiting its turn, read a slice at a time. */
 export interface OutputParse {
-  /** Reads one slice of the parse, answering whether it is whole. */
+  /**
+   * Reads one slice of the parse, answering whether its turn is over; a parse that fails settles
+   * and reports its own failure, so this never throws.
+   */
   readInTurn(hasTime: () => boolean): boolean;
 }
 
@@ -127,8 +130,8 @@ export class PreparedBodies {
   }
 
   /**
-   * Parses the waiting outputs a slice per task, the next first, until none waits. An output whose
-   * parse throws leaves its turn and its error reaches the page, and the outputs behind it parse.
+   * Parses the waiting outputs a slice per task, the next first, until none waits. What a slice
+   * throws past its parse, such as a row's own callback, goes to `view`'s error report.
    */
   #parseInSlices(view: Window): void {
     this.#isParsing = true;
@@ -141,30 +144,24 @@ export class PreparedBodies {
           if (next === undefined) {
             return true;
           }
-          // A whole parse leaves its turn; one that is not has spent the slice.
-          if (!this.#readInTurn(next, hasTime) || !hasTime()) {
+          // A parse whose turn is over leaves it; one whose turn is not has spent the slice.
+          if (!next.readInTurn(hasTime) || !hasTime()) {
             return this.#parsesInTurn.length === 0;
           }
         }
       },
       () => false,
-    ).finally(() => {
-      this.#isParsing = false;
-      // An output its last slice's tell put back in turn, or one behind an output that threw.
-      if (this.#parsesInTurn.length > 0) {
-        this.#parseInSlices(view);
-      }
-    });
-  }
-
-  /** Reads a slice of `parse`; one that throws leaves its turn, so none reads it. */
-  #readInTurn(parse: OutputParse, hasTime: () => boolean): boolean {
-    try {
-      return parse.readInTurn(hasTime);
-    } catch (error) {
-      this.leaveTurn(parse);
-      throw error;
-    }
+    )
+      .catch((failure: unknown) => {
+        view.reportError(failure);
+      })
+      .finally(() => {
+        this.#isParsing = false;
+        // An output its last slice's tell put back in turn, or one behind a slice that threw.
+        if (this.#parsesInTurn.length > 0) {
+          this.#parseInSlices(view);
+        }
+      });
   }
 
   /**
