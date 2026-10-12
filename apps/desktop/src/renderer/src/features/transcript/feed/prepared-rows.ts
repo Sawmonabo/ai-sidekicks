@@ -71,13 +71,6 @@ export class PreparedRowGate {
   #listedKeysBesideHeldRows: ReadonlySet<string> = new Set<string>();
   /** The rows within the drawn band's reach as the viewport last walked it, by key. */
   #bandRowKeys: ReadonlySet<string> = new Set<string>();
-  /** Every row and header the last pass listed, by key. */
-  #listedKeys: ReadonlySet<string> = new Set<string>();
-  /**
-   * What the pass listed when a frame last committed, as `noteListCommitted` read it: a list newer
-   * than that has not been laid out and drawn over yet.
-   */
-  #listedKeysAtCommit: ReadonlySet<string> = new Set<string>();
   /** Every row's preparation the window holds, listed or held, by row id. */
   readonly #preparations = new Map<string, HeldPreparation>();
   /**
@@ -133,17 +126,12 @@ export class PreparedRowGate {
 
   /**
    * Whether a row would still join the rows drawn: one the last pass held out beside a row within
-   * the drawn band's reach, or any while it lists no row at all; or a row the last pass listed that
-   * no committed frame has laid out yet, since the viewport draws the rows a new list puts in view
-   * a frame after. A row joining the band moves the rows on screen whenever the rows above them
-   * cannot take its height, as while they do not fill the view. What the feed's first frame waits
-   * on.
+   * the drawn band's reach, or any while it lists no row at all. A row joining the band moves the
+   * rows on screen whenever the rows above them cannot take its height, as while they do not fill
+   * the view. What the feed's first frame waits on.
    */
   public readonly holdsRowJoiningView = (): boolean => {
     if (this.#heldOutRowIds.size > 0 && this.#listedRowIds.size === 0) {
-      return true;
-    }
-    if (this.#listedKeys !== this.#listedKeysAtCommit) {
       return true;
     }
     for (const rowKey of this.#listedKeysBesideHeldRows) {
@@ -152,16 +140,6 @@ export class PreparedRowGate {
       }
     }
     return false;
-  };
-
-  /**
-   * Notes that a frame committed the last pass's list; answers whether that list is newer than the
-   * one last noted, so a feed waiting on it renders again.
-   */
-  public readonly noteListCommitted = (): boolean => {
-    const isNewer = this.#listedKeys !== this.#listedKeysAtCommit;
-    this.#listedKeysAtCommit = this.#listedKeys;
-    return isNewer;
   };
 
   /** Hear each time any row's work lands, so a landing waiting on it can ask again. */
@@ -343,7 +321,6 @@ export class PreparedRowGate {
     this.#heldOutRowIds = heldOutRowIds;
     this.#listedKeysBeforeHeldRows = listedKeysBeforeHeldRows;
     this.#listedKeysBesideHeldRows = listedKeysBesideHeldRows;
-    this.#listedKeys = new Set(viewportRows.map((identity) => identity.key));
     const output: PreparedRows =
       preparingRows.length === 0 && lastVersionById.size === 0
         ? { window: model, preparingRows: NO_ROWS }

@@ -10,8 +10,11 @@ export interface MarkdownParserCalls {
 
 /** Imports the parser's calls and warms the parser up on a short reply. */
 export async function loadMarkdownParserCalls(): Promise<MarkdownParserCalls> {
+  const serializerLoad = import("./serialized-tree.js");
   const childrenLoad = import("./top-level-children.js");
-  const serializer = await import("./serialized-tree.js");
+  // Awaited together, so one chunk failing to load is the one failure the load reports.
+  await Promise.all([serializerLoad, childrenLoad]);
+  const serializer = await serializerLoad;
   serializer.warmUpMarkdownParser();
   return { serializer, children: await childrenLoad };
 }

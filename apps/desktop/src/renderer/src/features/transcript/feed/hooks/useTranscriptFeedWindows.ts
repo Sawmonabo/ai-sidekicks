@@ -124,11 +124,6 @@ export interface TranscriptFeedWindows {
    * feed's first frame waits until none would.
    */
   readonly holdsRowJoiningView: () => boolean;
-  /**
-   * Notes that a frame committed the rows' list; answers whether it was newer than the last noted,
-   * so a feed not shown yet renders again for its first frame to read it.
-   */
-  readonly noteListCommitted: () => boolean;
   /** The history past the store's window, or `undefined` for a composition with no read. */
   readonly history: TranscriptHistory | undefined;
   /** How reading back toward a linked message the log lacks stands, or `undefined` for none. */
@@ -484,7 +479,6 @@ export function useTranscriptFeedWindows(
     preparedBodies,
     toggleCall: preparedRows.toggleCall,
     holdsRowJoiningView: preparedRows.holdsRowJoiningView,
-    noteListCommitted: preparedRows.noteListCommitted,
     history,
     messageReadBack: readBack,
     openRunStretch,
