@@ -11,8 +11,8 @@
 // install that excludes the project (the daemon-only CI legs), and `allowBuilds` gates only
 // dependencies' scripts. The root `prepare` script was rejected because it runs on every install.
 //
-// The skip escape is ours: 41.6.1's `install.js` honored `ELECTRON_SKIP_BINARY_DOWNLOAD` and
-// 44.5.1's does not. Honoring it here restores the contract CI recipes and Dockerfiles assume.
+// The skip escape is ours: Electron's `install.js` stopped reading `ELECTRON_SKIP_BINARY_DOWNLOAD`
+// after 41.6.1. Honoring it here restores the contract CI recipes and Dockerfiles assume.
 //
 // The presence check mirrors upstream's `isInstalled()` (same three conditions, same order) as a
 // fast path only: `install.js` performs the same check itself and repairs a partial dist.
