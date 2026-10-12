@@ -164,7 +164,7 @@ describe("execution posture service — the run setup gate", () => {
 });
 
 describe("execution posture service — the curated credential list", () => {
-  it("resolves each folder against the home, following a link and keeping an absent path", async () => {
+  it("resolves each path, a folder against the home, following a link and keeping an absent one", async () => {
     const keysFolder = path.join(scratch, "keys");
     await mkdir(keysFolder);
     await symlink(keysFolder, path.join(scratch, ".ssh"));
