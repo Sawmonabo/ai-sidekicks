@@ -15,6 +15,7 @@ import type { Table } from "mdast";
 
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import type { WorkerPort, WorkerStart } from "#renderer/lib/worker-port.js";
+import { queueTaskIn } from "#renderer/lib/queued-task.js";
 import { startSlice } from "#renderer/lib/work-slices.js";
 import { describeFailure } from "#shared/failure-message.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -78,6 +79,14 @@ export class MarkdownWorkerConnection {
   readonly #waiting = new Map<number, WaitingText>();
   /** Each text sent to parse and not answered, by its id. */
   readonly #waitingParses = new Map<number, (answer: MarkdownParseAnswer) => void>();
+  /**
+   * The trees the worker answered and not yet handed over, in the order it answered them: handed
+   * over a slice at a time, so an answer of thousands of trees holds no task long.
+   */
+  #unhandedTrees: HandedTree[] = [];
+  #nextHandedIndex = 0;
+  /** Whether a task is queued to hand over the trees the last slice left. */
+  #isHandingQueued = false;
   #port: MarkdownWorkerPort | undefined;
   /** The parser's compiled module, kept for the app's life once a worker compiled it. */
   #parser: WebAssembly.Module | undefined;
@@ -285,12 +294,45 @@ export class MarkdownWorkerConnection {
     for (const tree of trees) {
       const settle = this.#waitingParses.get(tree.requestId);
       this.#waitingParses.delete(tree.requestId);
-      settle?.({ status: "parsed", buffer: tree.buffer, dollarStandIn: tree.dollarStandIn });
+      if (settle !== undefined) {
+        this.#unhandedTrees.push({
+          settle,
+          answer: { status: "parsed", buffer: tree.buffer, dollarStandIn: tree.dollarStandIn },
+        });
+      }
     }
     clearTimeout(this.#parseWatchdog);
     if (this.#waitingParses.size > 0 && port === this.#port) {
       this.#armParseWatchdog(port);
     }
+    // Trees left by the last slice are handed over first, keeping the order the texts were sent.
+    if (!this.#isHandingQueued) {
+      this.#handTrees();
+    }
+  }
+
+  /** Hands over answered trees until the slice runs out, and queues a task for the rest. */
+  #handTrees(): void {
+    const hasTime = startSlice();
+    while (this.#nextHandedIndex < this.#unhandedTrees.length && hasTime()) {
+      const handed = this.#unhandedTrees[this.#nextHandedIndex];
+      this.#nextHandedIndex += 1;
+      handed?.settle(handed.answer);
+    }
+    if (this.#nextHandedIndex < this.#unhandedTrees.length) {
+      // A parse asked while a tree was handed over may have queued the rest already.
+      if (this.#isHandingQueued) {
+        return;
+      }
+      this.#isHandingQueued = true;
+      queueTaskIn(this.#view, () => {
+        this.#isHandingQueued = false;
+        this.#handTrees();
+      });
+      return;
+    }
+    this.#unhandedTrees = [];
+    this.#nextHandedIndex = 0;
   }
 
   #hearMade(
@@ -461,6 +503,12 @@ export function makeDrawnText(
 /** The app's markdown worker, loaded from the renderer's own origin as a module. */
 export function startMarkdownWorker(): MarkdownWorkerPort {
   return new Worker(new URL("./entry.ts", import.meta.url), { type: "module", name: "markdown" });
+}
+
+/** A tree the worker answered, and the parse it answers. */
+interface HandedTree {
+  readonly settle: (answer: MarkdownParseAnswer) => void;
+  readonly answer: MarkdownParseAnswer;
 }
 
 /**

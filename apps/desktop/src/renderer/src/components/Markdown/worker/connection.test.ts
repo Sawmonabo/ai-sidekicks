@@ -1,4 +1,5 @@
-// The markdown worker's connection when its worker fails: a worker that stops fails every text it
+// The markdown worker's connection: the trees an answer holds handed over a slice at a time in the
+// order the texts were sent; and when its worker fails, a worker that stops fails every text it
 // holds with the reason, so a copy waiting on it says it could not copy, and the next text starts
 // a new worker that answers; a worker asking for rows the copy holds no table for fails the copy.
 
@@ -6,11 +7,14 @@ import type { Table, TableCell } from "mdast";
 import { expect, it, vi } from "vitest";
 
 import { decodeTextPieces, encodeTextPieces } from "#renderer/lib/text-pieces.js";
+import { SLICE_MS } from "#renderer/lib/work-slices.js";
+import { SteppedTasks } from "#test/helpers/stepped-tasks.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import type {
   MarkdownWorkerMessage,
   MarkdownWorkerReply,
   MarkdownWorkerRequest,
+  SerializedMarkdownTree,
 } from "./messages.js";
 import { MarkdownWorkerConnection, type MarkdownWorkerPort } from "./connection.js";
 
@@ -51,6 +55,35 @@ class StandInWorker implements MarkdownWorkerPort {
     );
   }
 }
+
+it("hands over an answer's trees a slice at a time, in the order the texts were sent", async () => {
+  const tasks = new SteppedTasks();
+  const worker = new StandInWorker();
+  const connection = new MarkdownWorkerConnection(() => worker, tasks.window);
+  const handed: string[] = [];
+  for (const source of ["first", "second", "third"]) {
+    connection.parse(source, () => {
+      handed.push(source);
+      // Handing the first tree over runs the slice out.
+      for (const start = performance.now(); performance.now() - start <= SLICE_MS; );
+    });
+  }
+  const treeOf = (requestId: number): SerializedMarkdownTree => ({
+    requestId,
+    buffer: new ArrayBuffer(8),
+    dollarStandIn: undefined,
+  });
+
+  worker.say({ status: "parsed", trees: [treeOf(1), treeOf(2)] });
+  expect(handed).toStrictEqual(["first"]);
+  // A later answer waits behind the trees an earlier one left.
+  worker.say({ status: "parsed", trees: [treeOf(3)] });
+  expect(handed).toStrictEqual(["first"]);
+  await tasks.runNext();
+  expect(handed).toStrictEqual(["first", "second"]);
+  await tasks.runNext();
+  expect(handed).toStrictEqual(["first", "second", "third"]);
+});
 
 it("fails every text when its worker stops, and starts a new one for the next", async () => {
   const workers: StandInWorker[] = [];

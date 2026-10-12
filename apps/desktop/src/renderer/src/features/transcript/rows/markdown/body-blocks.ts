@@ -26,6 +26,7 @@ import {
   type MarkdownTrees,
 } from "#renderer/components/Markdown/parse/trees.js";
 import { Emitter } from "#renderer/lib/emitter.js";
+import { startSlice } from "#renderer/lib/work-slices.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import {
   publishedTextOf,
@@ -297,13 +298,21 @@ export class MarkdownBodyBlocks {
       this.#treesAskedPreamble = preamble;
       this.#treesAskedCount = 0;
     }
-    // Asked from where the last ask stopped, so a frame costs the blocks settled since.
-    for (const block of this.#settledBlocks.slice(this.#treesAskedCount)) {
-      if (this.#blockTrees.get(block.key)?.askedPreamble !== preamble) {
-        this.#requestBlockTree(block, preamble);
+    // Asked from where the last ask stopped, so a frame costs the blocks settled since, and for a
+    // slice at most once one is waiting: the tree that lands asks for the next slice, so a long
+    // reply read back asks for its thousands of trees across tasks.
+    const hasTime = startSlice();
+    const blocks = this.#settledBlocks;
+    let isWaiting = false;
+    for (; this.#treesAskedCount < blocks.length; this.#treesAskedCount += 1) {
+      const block = blocks[this.#treesAskedCount];
+      if (isWaiting && !hasTime()) {
+        break;
+      }
+      if (block !== undefined && this.#blockTrees.get(block.key)?.askedPreamble !== preamble) {
+        isWaiting = this.#requestBlockTree(block, preamble) || isWaiting;
       }
     }
-    this.#treesAskedCount = this.#settledBlocks.length;
     if (!this.#isTailDrawn || this.#drawnCount === this.#settledBlocks.length) {
       return;
     }
@@ -468,7 +477,8 @@ export class MarkdownBodyBlocks {
     };
   }
 
-  #requestBlockTree(block: SettledMarkdownBlock, definitionPreamble: string): void {
+  /** Asks for `block`'s tree against `definitionPreamble`; answers whether the ask is waiting. */
+  #requestBlockTree(block: SettledMarkdownBlock, definitionPreamble: string): boolean {
     const held = this.#blockTrees.get(block.key) ?? {
       askedPreamble: definitionPreamble,
       landedPreamble: undefined,
@@ -497,9 +507,10 @@ export class MarkdownBodyBlocks {
     // A kept tree, or a stand-in parser's, is answered before the ask returns.
     if (answeredAtOnce === undefined) {
       held.stop = letGo;
-    } else {
-      this.#landBlockTree(held, definitionPreamble, answeredAtOnce, letGo);
+      return true;
     }
+    this.#landBlockTree(held, definitionPreamble, answeredAtOnce, letGo);
+    return false;
   }
 
   /**

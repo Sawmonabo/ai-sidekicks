@@ -106,6 +106,8 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   /** Whether the block reading changed while the row was read, so it is read once more. */
   #isReading = false;
   #hasChangedWhileReading = false;
+  /** Whether a read is queued for the block reading's changes since the last one. */
+  #isRefreshQueued = false;
   /** Where the streaming tail's lines have been read up to for a fence naming its language. */
   #openFenceScanEnd = 0;
   #hasStartedTypesetter = false;
@@ -149,7 +151,17 @@ class MessageRowPreparation implements TranscriptRowPreparation {
           this.#hasChangedWhileReading = true;
           return;
         }
-        this.refresh();
+        // Read once after every tree one answer of the parser lands, not once a tree: a reply of
+        // thousands of blocks lands its trees together, and each read walks every block.
+        if (!this.#isRefreshQueued) {
+          this.#isRefreshQueued = true;
+          queueMicrotask(() => {
+            this.#isRefreshQueued = false;
+            if (!this.#isReleased) {
+              this.refresh();
+            }
+          });
+        }
       }),
       () => {
         this.#blocks.close();
