@@ -477,6 +477,75 @@ jobs:
             serial: true
     steps: *desktop-tier-steps
 
+  # The end-to-end cases that need a window on screen, on macOS: the title bar's fullscreen case.
+  # macOS takes no window into fullscreen under the unobtrusive activation policy every other
+  # launch asks for, so this leg lets its windows show (`SIDEKICKS_SHOWN_WINDOWS=1`), which a
+  # person's Mac never sets; a hosted runner has no one to disturb. Only the cases named for shown
+  # windows run here, and the leg fails unless one of them passed, so a skip cannot read as green.
+  desktop-macos:
+    name: desktop (macOS shown windows)
+    needs: [changes]
+    if: needs.changes.outputs.desktop == 'true' || github.event_name == 'schedule'
+    runs-on: macos-26
+    permissions:
+      contents: read
+    env:
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
+
+      - name: Setup pnpm
+        # SHA-pinned; Renovate's pinGitHubActionDigests preset (renovate.json5) keeps it current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: "pnpm"
+
+      - name: Restore the daemon's SQLite shell
+        uses: ./.github/actions/restore-sqlite-shell
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The same cache backend and fork guard as the `desktop` job's.
+      - name: Turborepo remote cache (GitHub Actions cache backend)
+        uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
+
+      - name: Set up Electron on a display
+        uses: ./.github/actions/setup-electron-display
+
+      # The fixture bundle's edges build the daemon, whose session search addon compiles from Rust
+      # on a cache miss. The newest stable Rust; SHA-pinned.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+
+      - name: Build the fixture bundle
+        run: pnpm turbo run build:fixtures --filter=@ai-sidekicks/desktop ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
+
+      - name: Run the cases that need a shown window
+        working-directory: apps/desktop
+        env:
+          SIDEKICKS_SHOWN_WINDOWS: "1"
+        run: |
+          set -euo pipefail
+          report="${RUNNER_TEMP}/shown-windows.json"
+          pnpm exec vitest run --project=e2e tests/e2e/title-bar.test.ts -t "shown windows" \
+            --reporter=default --reporter=json --outputFile.json="$report"
+          passed=$(node -p 'require(process.argv[1]).numPassedTests' "$report")
+          if [ "$passed" -lt 1 ]; then
+            echo "::error::no case that needs a shown window passed; each was skipped"
+            exit 1
+          fi
+
   # Dead code across every workspace. It reads source only, so the job installs
   # without the Electron binary.
   structure:
@@ -742,6 +811,7 @@ jobs:
         test,
         desktop,
         desktop-slow,
+        desktop-macos,
         structure,
         native-prebuilds,
         search-index-intel-mac,
@@ -778,6 +848,7 @@ jobs:
           check test "${{ needs.test.result }}"
           check desktop "${{ needs.desktop.result }}"
           check desktop-slow "${{ needs.desktop-slow.result }}"
+          check desktop-macos "${{ needs.desktop-macos.result }}"
           check structure "${{ needs.structure.result }}"
           check native-prebuilds "${{ needs.native-prebuilds.result }}"
           check search-index-intel-mac "${{ needs.search-index-intel-mac.result }}"
