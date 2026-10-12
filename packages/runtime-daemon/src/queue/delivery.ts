@@ -597,9 +597,14 @@ export class QueueDelivery {
     return this.#deps.items.get(itemId)?.state === "superseded";
   }
 
+  // The message stays marked handed until its write lands: until then it still reads queued, and a
+  // hand in between would send it again.
   async #admit(item: QueueItemRecord, runId: RunId): Promise<void> {
-    this.#handed.delete(item.id);
-    await this.#deps.recorder.recordOutcome(item, { to: "admitted", runId }, this.#deps.now());
+    try {
+      await this.#deps.recorder.recordOutcome(item, { to: "admitted", runId }, this.#deps.now());
+    } finally {
+      this.#handed.delete(item.id);
+    }
   }
 
   // Settles a withdraw Claude Code answered after the deadline, unless the message's replay settled
@@ -636,23 +641,27 @@ export class QueueDelivery {
   }
 
   // A hand that failed: the message was not delivered, unless its turn or its run ended first,
-  // when it waits for the run's next turn or the next run with the run's other messages.
+  // when it waits for the run's next turn or the next run with the run's other messages. It stays
+  // marked handed until its write lands, as an admitted one does.
   async #settleFailedHand(item: QueueItemRecord, runId: RunId, error: unknown): Promise<void> {
-    this.#handed.delete(item.id);
-    if (error instanceof SteerTurnEndedError) {
-      return;
-    }
-    this.#deps.writeServiceLog(
-      `run queue: message ${item.id} could not be handed to run ${runId}: ` +
-        describeRejection(error),
-    );
-    const run = this.#deps.runs.getRun(runId);
-    if (run !== undefined && !isTerminalState(run.state)) {
-      await this.#deps.recorder.recordOutcome(
-        item,
-        { to: "not_delivered", reason: "failed" },
-        this.#deps.now(),
+    try {
+      if (error instanceof SteerTurnEndedError) {
+        return;
+      }
+      this.#deps.writeServiceLog(
+        `run queue: message ${item.id} could not be handed to run ${runId}: ` +
+          describeRejection(error),
       );
+      const run = this.#deps.runs.getRun(runId);
+      if (run !== undefined && !isTerminalState(run.state)) {
+        await this.#deps.recorder.recordOutcome(
+          item,
+          { to: "not_delivered", reason: "failed" },
+          this.#deps.now(),
+        );
+      }
+    } finally {
+      this.#handed.delete(item.id);
     }
   }
 }
