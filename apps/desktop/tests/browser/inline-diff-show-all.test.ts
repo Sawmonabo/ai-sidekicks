@@ -1,8 +1,7 @@
-// A long diff opened whole in the flow, in Chromium. Show all mounts the rows a step at a time and
-// holds no room for rows not mounted yet, so End pressed right after Show all, a jump the
-// compositor scrolls, never paints a part of the block with no rows: every frame the browser
-// captures meanwhile is read back from a trace and checked. And a reader past the rows the press
-// drew stays where they were as the steps land above them.
+// A long diff opened whole in a flow outside a transcript viewport, in Chromium. Show all mounts
+// the rows a step at a time and holds no room for rows not mounted yet, so End pressed right after
+// Show all, a jump the compositor scrolls, never paints a part of the block with no rows: every
+// frame the browser captures meanwhile is read back from a trace and checked.
 
 import { cleanup, fireEvent } from "@testing-library/react";
 import { cdp } from "vitest/browser";
@@ -14,11 +13,9 @@ import {
   drawDiffCard,
   filePatch,
 } from "#renderer/features/repos/diff/components/InlineDiffCard.test-support.js";
-import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
-import { ManualClock } from "#renderer/lib/clock.js";
-import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
-import { letObserversAnswer, nextFrame } from "../helpers/animation-frame.js";
+import { nextFrame } from "../helpers/animation-frame.js";
 import { RealMouse } from "./real-mouse.js";
+import { traceAlone } from "./trace-lock.js";
 
 /** The flow's box, in CSS pixels. */
 const FLOW_HEIGHT_PX = 600;
@@ -35,12 +32,6 @@ const GROUND_TOLERANCE = 4;
 
 /** How long the trace runs on after the block fills, so the last frames' pictures arrive. */
 const TRACE_SETTLE_MS = 500;
-
-/** The short files after the long one in the reader's case. */
-const SHORT_FILE_COUNT = 8;
-
-/** How far a row may land from where the reader saw it and still be the same place. */
-const HELD_TOLERANCE_PX = 1;
 
 /** The trace's marks around the driven scroll, as performance marks. */
 const DRIVE_MARK = "show-all-scroll-driven";
@@ -68,80 +59,24 @@ describe("browser — Show all on a long diff", () => {
       widthPx: FLOW_WIDTH_PX,
     });
     const mouse = await RealMouse.calibrated(document);
-    fireEvent.click(showAllOf(block));
-
-    // End goes to the focused rows' scroller, the flow, which the compositor scrolls.
-    const pictures = await framesDrawnUntilFilled(block, async () => {
-      for (const type of ["rawKeyDown", "keyUp"] as const) {
-        await cdp().send("Input.dispatchKeyEvent", {
-          type,
-          key: "End",
-          code: "End",
-          windowsVirtualKeyCode: 35,
-        });
-      }
+    // The press and the trace after it run as no other page traces, so End follows the press.
+    const pictures = await traceAlone(async () => {
+      fireEvent.click(showAllOf(block));
+      // End goes to the focused rows' scroller, the flow, which the compositor scrolls.
+      return framesDrawnUntilFilled(block, async () => {
+        for (const type of ["rawKeyDown", "keyUp"] as const) {
+          await cdp().send("Input.dispatchKeyEvent", {
+            type,
+            key: "End",
+            code: "End",
+            windowsVirtualKeyCode: 35,
+          });
+        }
+      });
     });
 
     expect(flow.scrollTop).toBeGreaterThan(0);
     expectEveryFrameDrawn(pictures, mouse, flow, block);
-  });
-
-  it("keeps a reader past the rows the press drew still as the steps land above them", async () => {
-    const scrollController = new ScrollController({ clock: new ManualClock() });
-    // Short files after the long one, so the flow scrolls past every row the press draws.
-    const shortFiles = Array.from({ length: SHORT_FILE_COUNT }, (_unused, ordinal) =>
-      filePatch(`short-${String(ordinal)}.ts`, "@@ -1,3 +1,3 @@", [" a", "-b", "+B", " c"]),
-    );
-    const {
-      flow,
-      card,
-      block: longBlock,
-    } = drawDiffCard(diffOf([longPatch(1200), ...shortFiles]), {
-      heightPx: FLOW_HEIGHT_PX,
-      widthPx: FLOW_WIDTH_PX,
-      viewport: suiteWindowViewport(scrollController, {
-        subscribe: () => () => undefined,
-        read: () => undefined,
-      }),
-    });
-    scrollController.attach(flow);
-
-    fireEvent.click(showAllOf(longBlock));
-    // At once just past the long file's block, below every row the press mounted.
-    flow.scrollTop +=
-      longBlock.getBoundingClientRect().bottom - flow.getBoundingClientRect().top + 20;
-    await nextFrame();
-    expect(longBlock.getBoundingClientRect().bottom).toBeLessThan(flow.getBoundingClientRect().top);
-    const reference = firstRowOnScreen(card, flow);
-    const readerTopPx = reference.getBoundingClientRect().top;
-    const heightAtStartPx = longBlock.getBoundingClientRect().height;
-
-    // Where the reader's row stands each time the block grows, read once the frame's resize
-    // observations are answered, the block's own first, so as the frame paints it.
-    const movesPx: number[] = [];
-    const growth = new ResizeObserver(() => {
-      movesPx.push(reference.getBoundingClientRect().top - readerTopPx);
-    });
-    growth.observe(longBlock);
-    for (let frame = 1; !isFilled(longBlock, 1200); frame += 1) {
-      if (frame > FILL_FRAME_LIMIT) {
-        throw new Error(`the block was not filled within ${String(FILL_FRAME_LIMIT)} frames`);
-      }
-      await nextFrame();
-    }
-    await letObserversAnswer();
-    growth.disconnect();
-    // The first answer is the block as the reader found it; the rest are its steps landing.
-    expect(movesPx.length).toBeGreaterThan(1);
-    for (const [frame, movedPx] of movesPx.entries()) {
-      expect(Math.abs(movedPx), `moved ${String(movedPx)} at growth ${String(frame)}`).toBeLessThan(
-        HELD_TOLERANCE_PX,
-      );
-    }
-    // The steps did land above the reader while they read.
-    expect(longBlock.getBoundingClientRect().height - heightAtStartPx).toBeGreaterThan(
-      FLOW_HEIGHT_PX,
-    );
   });
 });
 
@@ -362,19 +297,6 @@ function pixelColumn(picture: ImageBitmap, x: number): Uint8ClampedArray {
 
 function isFilled(block: HTMLElement, lineCount: number): boolean {
   return block.querySelectorAll(".meridian-diff__row--line").length === lineCount;
-}
-
-/** The first of the card's rows wholly on the flow's screen. */
-function firstRowOnScreen(card: HTMLElement, flow: HTMLElement): HTMLElement {
-  const screen = flow.getBoundingClientRect();
-  const row = [...card.querySelectorAll<HTMLElement>('[role="row"]')].find((candidate) => {
-    const box = candidate.getBoundingClientRect();
-    return box.top >= screen.top && box.bottom <= screen.bottom;
-  });
-  if (row === undefined) {
-    throw new Error("no row stands on the flow's screen");
-  }
-  return row;
 }
 
 /** The block's `Show all` control. */

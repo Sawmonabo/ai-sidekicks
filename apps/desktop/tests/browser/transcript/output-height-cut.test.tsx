@@ -38,6 +38,8 @@ import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { DEFAULT_APPEARANCE_RECORD, TEXT_SIZES } from "#shared/appearance.js";
 import { readerScrollsTo } from "../../helpers/transcript/reader-scroll.js";
+import { hearResizeLoopErrors } from "./resize-loop-errors.js";
+import { traceAlone } from "../trace-lock.js";
 import { sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
 import { letFramesPassUntilStill } from "../../helpers/animation-frame.js";
 import { toolOutputEventAt } from "./colored-output-event.js";
@@ -337,27 +339,6 @@ function outputsReadAtOnce(scroller: HTMLElement): Element[] {
   );
 }
 
-/**
- * The resize loop errors the window raises until `stop`, which answers them. A row that grows
- * inside a resize report leaves the conversation's report of it undelivered, which the browser
- * raises as an error the run would only log.
- */
-function hearResizeLoopErrors(): { readonly stop: () => readonly string[] } {
-  const messages: string[] = [];
-  const hear = (event: ErrorEvent): void => {
-    if (event.message.includes("ResizeObserver loop")) {
-      messages.push(event.message);
-    }
-  };
-  window.addEventListener("error", hear);
-  return {
-    stop: () => {
-      window.removeEventListener("error", hear);
-      return messages;
-    },
-  };
-}
-
 /** How far the end of `output`'s row sits below the top of `scroller`'s box, in pixels. */
 function rowEndBelowBoxTopPx(scroller: HTMLElement, output: Element): number {
   const row = output.closest(ROW_SELECTOR) ?? expect.fail("the output is drawn in a row");
@@ -443,36 +424,39 @@ async function forcedLayoutPassesByCommitOf(
   functionNames: readonly string[],
   run: () => Promise<void>,
 ): Promise<readonly ForcedLayoutPasses[]> {
-  const session = cdp();
-  // The runner opens its protocol session on the first call; a listener added before that can
-  // land on a second session the trace never reports to.
-  await session.send("Tracing.getCategories");
-  // The trace is read back as a stream, whose handle the end announces.
-  const stream = new Promise<string>((resolve) => {
-    session.on("Tracing.tracingComplete", (payload) => {
-      resolve(payload.stream ?? expect.fail("the trace is returned as a stream"));
+  const text = await traceAlone(async () => {
+    const session = cdp();
+    // The runner opens its protocol session on the first call; a listener added before that can
+    // land on a second session the trace never reports to.
+    await session.send("Tracing.getCategories");
+    // The trace is read back as a stream, whose handle the end announces.
+    const stream = new Promise<string>((resolve) => {
+      session.on("Tracing.tracingComplete", (payload) => {
+        resolve(payload.stream ?? expect.fail("the trace is returned as a stream"));
+      });
     });
+    await session.send("Tracing.start", {
+      traceConfig: {
+        includedCategories: [
+          "devtools.timeline",
+          "disabled-by-default-devtools.timeline",
+          "disabled-by-default-devtools.timeline.stack",
+        ],
+      },
+      transferMode: "ReturnAsStream",
+    });
+    await run();
+    await session.send("Tracing.end");
+    const handle = await stream;
+    let streamed = "";
+    for (let isAtEnd = false; !isAtEnd; ) {
+      const chunk = await session.send("IO.read", { handle });
+      streamed += chunk.data;
+      isAtEnd = chunk.eof;
+    }
+    await session.send("IO.close", { handle });
+    return streamed;
   });
-  await session.send("Tracing.start", {
-    traceConfig: {
-      includedCategories: [
-        "devtools.timeline",
-        "disabled-by-default-devtools.timeline",
-        "disabled-by-default-devtools.timeline.stack",
-      ],
-    },
-    transferMode: "ReturnAsStream",
-  });
-  await run();
-  await session.send("Tracing.end");
-  const handle = await stream;
-  let text = "";
-  for (let isAtEnd = false; !isAtEnd; ) {
-    const chunk = await session.send("IO.read", { handle });
-    text += chunk.data;
-    isAtEnd = chunk.eof;
-  }
-  await session.send("IO.close", { handle });
   const { traceEvents } = JSON.parse(text) as { readonly traceEvents: readonly TraceEvent[] };
   const stamps = traceEvents.filter(
     (event) => event.name === "TimeStamp" && event.args?.data?.message === OUTPUTS_COMMITTED_LABEL,
