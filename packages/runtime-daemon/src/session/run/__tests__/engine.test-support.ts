@@ -3,6 +3,7 @@
 
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { AgentIdSchema, type AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
@@ -172,7 +173,10 @@ export async function openRunEngineFixture(now?: () => string): Promise<RunEngin
   await queuedAppender.append("session.created", created, {});
   // The home only places the curated credential paths, which no engine test reads.
   const buildEngine = (
-    executionPostures = new ExecutionPostureService({ homeDirectory: tmpdir() }),
+    executionPostures = new ExecutionPostureService({
+      homeDirectory: tmpdir(),
+      sessionTokenPath: path.join(tmpdir(), "daemon.token"),
+    }),
   ) =>
     new RunEngine({
       reader: database.reader,
@@ -180,7 +184,10 @@ export async function openRunEngineFixture(now?: () => string): Promise<RunEngin
       executionPostures,
       ...(now === undefined ? {} : { now }),
     });
-  const executionPostures = new ExecutionPostureService({ homeDirectory: tmpdir() });
+  const executionPostures = new ExecutionPostureService({
+    homeDirectory: tmpdir(),
+    sessionTokenPath: path.join(tmpdir(), "daemon.token"),
+  });
   const engine = buildEngine(executionPostures);
 
   async function queueRun(child?: ChildLink): Promise<RunId> {

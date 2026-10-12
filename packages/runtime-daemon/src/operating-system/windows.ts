@@ -26,7 +26,8 @@ const executableFileName = (base: string): string => `${base}.exe`;
  * from its root by `taskkill`; a file is flushed through a read-write open and a folder not at all;
  * a rename is refused while a program holds a file open and never replaces a folder; git's question
  * program has no launcher, so no clone service starts; a terminal spawn is wrapped in `cmd.exe`;
- * the daemon has no run folder, so its start stops there, and its processes are not read;
+ * the daemon has no run folder, so its start stops there, and its processes and its socket's
+ * callers are not read;
  * providers start with the account's own environment; and the machine's name is its DNS host name.
  */
 export function windowsDaemonOperatingSystem(
@@ -53,6 +54,11 @@ export function windowsDaemonOperatingSystem(
     wrappingShell: "windows-cmd",
     executableFileName,
     createProcessIdentityReader: createWindowsProcessIdentityReader,
+    // The service's Windows half serves the named pipe and names each client itself.
+    openCallerProcessReader: () =>
+      Promise.reject(
+        new Error("On Windows the daemon has no socket of its own to read callers of"),
+      ),
     resolveRunFolder: refuseWindowsDaemonRunFolder,
     openOrphanOperatingSystem: () => Promise.resolve(NO_ORPHAN_SYSTEM_PARTS),
     captureProviderBaseEnvironment: (capture) =>

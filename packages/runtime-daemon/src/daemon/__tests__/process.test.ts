@@ -57,7 +57,8 @@ import {
 import { DaemonAlreadyRunningError } from "../already-running-error.js";
 import { DaemonProviders } from "../providers.js";
 import { captureLoginShellEnvironment } from "../login-shell-environment.js";
-import { DATABASE_FILE_NAME, DaemonProcess, type DaemonProcessOptions } from "../process.js";
+import { DATABASE_FILE_NAME, DaemonProcess } from "../process.js";
+import type { DaemonProcessOptions } from "../start-options.js";
 import {
   DRAIN_NOTHING,
   EMPTY_DRAIN,
@@ -340,7 +341,10 @@ describe("DaemonProcess.start", () => {
     const lastEngine = new RunEngine({
       reader: database.reader,
       sessionEvents,
-      executionPostures: new ExecutionPostureService({ homeDirectory }),
+      executionPostures: new ExecutionPostureService({
+        homeDirectory,
+        sessionTokenPath: path.join(homeDirectory, "daemon.token"),
+      }),
     });
     await lastEngine.transition({ runId, newState: "starting" });
     await lastEngine.transition({ runId, newState: "running" });

@@ -24,7 +24,8 @@ import { openOrphanGuard } from "../../pty/orphan/guard.js";
 import { NO_ORPHAN_SYSTEM_PARTS } from "../../pty/orphan/operating-system.js";
 import { MAC_PROVIDER_OPERATING_SYSTEM } from "../../provider/operating-system/mac.js";
 import { SearchThread, type SearchThreadOptions } from "../../session/search/thread/handle.js";
-import { DaemonProcess, type DaemonProcessOptions } from "../process.js";
+import { DaemonProcess } from "../process.js";
+import type { DaemonProcessOptions } from "../start-options.js";
 import { readProcessTreeUsage } from "../process-tree-usage.js";
 import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { readVolumeFreeBytes } from "../volume-free-space.js";
@@ -58,6 +59,7 @@ function makeHostDrainingWith(drain: Pick<PtyHost, "shutdown">): PtyHost {
     shutdown: (options) => drain.shutdown(options),
     setOnData: () => {},
     setOnExit: () => {},
+    readTerminalProcessIds: () => new Set(),
   };
 }
 
@@ -137,6 +139,8 @@ export async function startDaemon(
     readMachineName: () => Promise.resolve("Test machine"),
     captureProviderBaseEnvironment: () => Promise.resolve([]),
     commandShell: null,
+    // The system's own read, so a test's client, this process, is accepted as it is in use.
+    callerProcessReader: await HOST_OPERATING_SYSTEM.openCallerProcessReader(),
     operatingSystem: {
       ...HOST_OPERATING_SYSTEM,
       provider: MAC_PROVIDER_OPERATING_SYSTEM,

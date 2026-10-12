@@ -8,6 +8,7 @@ import { LINUX_PROCESS_PEAK_READER } from "../admission/process-peak/linux.js";
 import { captureLoginShellEnvironment } from "../daemon/login-shell-environment.js";
 import { readPrettyHostname, requireMachineName } from "../daemon/machine/name.js";
 import { readWindowsDriveMounts } from "../daemon/windows-drive-mounts.js";
+import { openLinuxCallerProcessReader } from "../ipc/caller-process/linux.js";
 import { NODE_SYSTEM_ACCESS } from "../node-system-access.js";
 import { LINUX_PROVIDER_OPERATING_SYSTEM } from "../provider/operating-system/linux.js";
 import { LINUX_TERMINAL_OPERATING_SYSTEM } from "../pty/operating-system/linux.js";
@@ -48,6 +49,7 @@ export const LINUX_DAEMON_OPERATING_SYSTEM: DaemonOperatingSystem = {
     readCeiling: async () => Number((await readFile(WATCH_CEILING_PATH, "utf8")).trim()),
   },
   createProcessIdentityReader: createLinuxProcessIdentityReader,
+  openCallerProcessReader: openLinuxCallerProcessReader,
   openOrphanOperatingSystem: () => Promise.resolve(NO_ORPHAN_SYSTEM_PARTS),
   captureProviderBaseEnvironment: (capture) =>
     captureLoginShellEnvironment({

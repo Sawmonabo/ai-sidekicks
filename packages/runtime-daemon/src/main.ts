@@ -64,10 +64,13 @@ if (processIdentity === undefined) {
   throw new Error("The system finds no process with the daemon's own id");
 }
 const account = os.userInfo();
+// Opened before the start, so the socket never takes a connection it cannot name the caller of.
+const callerProcessReader = await operatingSystem.openCallerProcessReader();
 const daemon = await DaemonProcess.start({
   stopSignal: stopRequest.signal,
   homeDirectory,
   operatingSystem,
+  callerProcessReader,
   runFolder: operatingSystem.resolveRunFolder({
     runtimeDirectory: process.env["XDG_RUNTIME_DIR"],
     temporaryDirectory: os.tmpdir(),

@@ -11,21 +11,30 @@ import type { DaemonRepairProgress } from "@ai-sidekicks/contracts/daemon/recove
 import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 
 import { withCleanupFailures } from "../cleanup-failures.js";
+import type { CallerProcessReader } from "../ipc/caller-process/contract.js";
+import { createAgentCallerCheck } from "../ipc/caller-process/descent.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
 import { MethodRegistryImpl } from "../ipc/registry.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
 import { bindSocket, mintSessionToken, prepareRunFolder } from "./run-folder.js";
 
+// No terminal runs and no provider service is dialed while the file is repaired, before the start
+// opens any.
+const NO_TERMINALS = { readTerminalProcessIds: (): ReadonlySet<number> => new Set() };
+const NO_PROVIDER_SERVICES = { has: (): boolean => false };
+
 /**
  * Runs `repair` while the run folder's socket answers that the service is repairing, with the
  * progress `repair` last reported, and returns what it returns; the signal `repair` is handed
- * aborts once a stop or a restart is asked for over the socket. A connection's or the listener's
- * failure goes to `writeServiceLog`. Throws `DaemonAlreadyRunningError` when a daemon answers
- * there already.
+ * aborts once a stop or a restart is asked for over the socket. A hello from a process the daemon
+ * started, which `callerProcessReader` reads, is refused as at any other start. A connection's or
+ * the listener's failure goes to `writeServiceLog`. Throws `DaemonAlreadyRunningError` when a
+ * daemon answers there already.
  */
 export async function answerRepairingWhile<T>(
   runFolder: DaemonRunFolder,
+  callerProcessReader: CallerProcessReader,
   repair: (
     reportProgress: (progress: DaemonRepairProgress | undefined) => void,
     stopAsked: AbortSignal,
@@ -33,7 +42,10 @@ export async function answerRepairingWhile<T>(
   writeServiceLog: (line: string) => void,
 ): Promise<T> {
   const sessionToken = mintSessionToken();
-  const negotiator = new ProtocolNegotiator(sessionToken);
+  const negotiator = new ProtocolNegotiator(
+    sessionToken,
+    createAgentCallerCheck(callerProcessReader, NO_TERMINALS, NO_PROVIDER_SERVICES),
+  );
   const registry = negotiator.wrap(new MethodRegistryImpl());
   let progress: DaemonRepairProgress | undefined;
   negotiator.registerRepairingHandshakeMethod(registry, () => progress);
@@ -51,6 +63,7 @@ export async function answerRepairingWhile<T>(
   });
   const gateway = new LocalIpcGateway({
     registry,
+    readCallerProcessId: (socket) => callerProcessReader.readPeerProcessId(socket),
     hooks: {
       onDisconnect: (transport) => {
         negotiator.cleanupTransport(transport.id);

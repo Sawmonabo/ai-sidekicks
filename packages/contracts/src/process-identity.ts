@@ -151,10 +151,14 @@ async function readMacProcessStartTime(
   }
 }
 
-async function readLinuxProcessStartTime(
-  system: ProcessIdentitySystem,
+/**
+ * The fields of `/proc/<id>/stat` from field 3, the state, on, `undefined` when no process has the
+ * id. Rejects when the read fails otherwise.
+ */
+export async function readLinuxProcessStatFields(
+  system: Pick<ProcessIdentitySystem, "readTextFile">,
   processId: number,
-): Promise<string | undefined> {
+): Promise<readonly string[] | undefined> {
   let stat: string;
   try {
     stat = await system.readTextFile(`/proc/${String(processId)}/stat`);
@@ -166,11 +170,20 @@ async function readLinuxProcessStartTime(
     throw failure;
   }
   // Field 2, the process's name, sits in parentheses and may hold spaces and parentheses itself,
-  // so the fields are counted from after the last `)`: field 3 first, the start (field 22) 20th.
-  const startTime = stat
-    .slice(stat.lastIndexOf(")") + 2)
-    .split(" ")
-    .at(22 - 3);
+  // so the fields are counted from after the last `)`.
+  return stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+}
+
+async function readLinuxProcessStartTime(
+  system: ProcessIdentitySystem,
+  processId: number,
+): Promise<string | undefined> {
+  const fields = await readLinuxProcessStatFields(system, processId);
+  if (fields === undefined) {
+    return undefined;
+  }
+  // The start is field 22.
+  const startTime = fields.at(22 - 3);
   if (startTime === undefined || startTime === "") {
     throw new Error(`/proc/${String(processId)}/stat has no start field`);
   }

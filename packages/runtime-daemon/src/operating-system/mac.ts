@@ -10,6 +10,7 @@ import {
   readMacUserTempDirectory,
 } from "../daemon/login-shell-environment.js";
 import { requireMachineName } from "../daemon/machine/name.js";
+import { openMacCallerProcessReader } from "../ipc/caller-process/mac.js";
 import { MAC_PROVIDER_OPERATING_SYSTEM } from "../provider/operating-system/mac.js";
 import { MAC_TERMINAL_OPERATING_SYSTEM } from "../pty/operating-system/mac.js";
 import { MacProcessExitWatch } from "../pty/orphan/mac/exit-watch.js";
@@ -44,6 +45,7 @@ export const MAC_DAEMON_OPERATING_SYSTEM: DaemonOperatingSystem = {
   processPeak: MAC_PROCESS_PEAK_READER,
   treeWatchCeiling: null,
   createProcessIdentityReader: createMacProcessIdentityReader,
+  openCallerProcessReader: openMacCallerProcessReader,
   openOrphanOperatingSystem: async (onWatchFailure) => {
     const library = await loadMacSystemLibrary();
     const userId = userInfo().uid;

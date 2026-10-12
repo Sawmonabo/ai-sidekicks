@@ -16,6 +16,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { PathRules } from "../path-rules/contract.js";
 import { createMemoryGate } from "../admission/memory-gate.js";
 import type { ProcessPeakReader } from "../admission/process-peak/contract.js";
+import type { ProviderServiceProcesses } from "../ipc/caller-process/provider-services.js";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { DiskFlush } from "../disk-flush/contract.js";
 import type { Authorizer } from "../policy/authorizer.js";
@@ -256,6 +257,8 @@ interface DaemonProvidersContext {
   readonly pathRules: PathRules;
   /** The memory gate's read of a provider process's peak. */
   readonly processPeakReader: ProcessPeakReader;
+  /** The processes serving the provider services the drivers dial, which the caller check reads. */
+  readonly providerServices: ProviderServiceProcesses;
   readonly writeServiceLog: (line: string) => void;
 }
 
@@ -459,6 +462,7 @@ export class DaemonProviders {
         onSessionRelaunched,
         providerBaseEnvironment,
         operatingSystem: context.operatingSystem,
+        providerServices: context.providerServices,
         diskFlush: context.diskFlush,
         credentialPolicy: executionPosture,
         runEngine,

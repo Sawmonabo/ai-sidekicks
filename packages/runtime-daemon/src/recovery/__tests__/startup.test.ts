@@ -13,6 +13,7 @@
 
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -221,7 +222,10 @@ describe("the recovery pass at a restart", () => {
     const runEngine = new RunEngine({
       reader,
       sessionEvents,
-      executionPostures: new ExecutionPostureService({ homeDirectory: tmpdir() }),
+      executionPostures: new ExecutionPostureService({
+        homeDirectory: tmpdir(),
+        sessionTokenPath: path.join(tmpdir(), "daemon.token"),
+      }),
     });
     const projectionRebuild = new ProjectionRebuildService({
       reader,

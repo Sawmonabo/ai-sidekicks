@@ -332,6 +332,17 @@ export class NodePtyHost implements PtyHost {
     return { kind: "spawn_response", session_id: sessionId };
   }
 
+  /** The program of each session whose child has not exited. */
+  public readTerminalProcessIds(): ReadonlySet<number> {
+    const processIds = new Set<number>();
+    for (const record of this.sessions.values()) {
+      if (!record.hasChildExited) {
+        processIds.add(record.child.pid);
+      }
+    }
+    return processIds;
+  }
+
   /** Resizes the PTY. Throws for an unknown session id. */
   public async resize(sessionId: string, rows: number, cols: number): Promise<void> {
     const record: PtySessionRecord | undefined = this.sessions.get(sessionId);

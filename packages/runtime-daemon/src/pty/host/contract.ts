@@ -14,6 +14,13 @@ export interface PtyHost {
    */
   spawn(spec: SpawnRequest): Promise<SpawnResponse>;
 
+  /**
+   * The ids of the processes this host started for the terminals, live now: each session's
+   * program in process, the sidecar out of process. Every program a terminal runs descends from
+   * one of them.
+   */
+  readTerminalProcessIds(): ReadonlySet<number>;
+
   /** Adjust the PTY window dimensions for an existing session. */
   resize(sessionId: string, rows: number, cols: number): Promise<void>;
 

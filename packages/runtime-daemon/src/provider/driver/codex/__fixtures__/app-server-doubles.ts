@@ -685,7 +685,7 @@ export function createHarness(options: HarnessOptions = {}): Harness {
     credentialPolicy: {
       resolveCredentialPolicy: async (credentialPolicyRef) => ({
         credentialPolicyRef,
-        denyPaths: ["/home/agent/.ssh"],
+        denyPaths: [{ path: "/home/agent/.ssh", kind: "folder" }],
         denyEnvVars: [],
       }),
     },
@@ -699,6 +699,8 @@ export function createHarness(options: HarnessOptions = {}): Harness {
     launchProcess: server.launchProcess,
     runCommand: server.runCommand,
     connectSocket: server.connectSocket,
+    // Never read: the double's own connector stands in for the one that holds the serving process.
+    providerServices: { holdServing: () => () => undefined },
     reportDiagnostic: (diagnostic) => {
       diagnostics.push(diagnostic);
     },

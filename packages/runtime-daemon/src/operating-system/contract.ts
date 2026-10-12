@@ -17,6 +17,7 @@ import type { ProviderBaseEnvironmentCapture } from "../daemon/login-shell-envir
 import type { MachineNameSources } from "../daemon/machine/name.js";
 import type { DiskFlush } from "../disk-flush/contract.js";
 import type { FolderRenames } from "../git/filesystem.js";
+import type { CallerProcessReader } from "../ipc/caller-process/contract.js";
 import type { TreeWatchCeiling } from "../git/worktree/watch.js";
 import type { PathRules } from "../path-rules/contract.js";
 import type { ProcessTreeEnding } from "../process-tree/contract.js";
@@ -61,6 +62,12 @@ export interface DaemonOperatingSystem {
   executableFileName(base: string): string;
   /** A reader of this system's processes, through Node's calls in `system`. */
   createProcessIdentityReader(system: ProcessIdentitySystem): ProcessIdentityReader;
+  /**
+   * Opens the reader of which process is at the client's end of a connection on the daemon's
+   * socket and of each process's parent. Rejects when its system calls fail to load, or where the daemon has no
+   * socket of its own.
+   */
+  openCallerProcessReader(): Promise<CallerProcessReader>;
   /** The daemon's run folder, from the facts its process reads. Throws where it has none. */
   resolveRunFolder(facts: DaemonRunFolderFacts): DaemonRunFolder;
   /**

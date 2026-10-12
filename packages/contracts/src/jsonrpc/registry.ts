@@ -19,12 +19,15 @@ export const METHOD_NAME_FORMAT: RegExp = /^[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-
 
 /**
  * Per-dispatch context passed to every handler. The gateway stamps `transportId`, its id for the
- * connection the call arrived on, and `deviceId`, the device that connection comes from, never read
- * from the request; both are absent when a caller dispatches without a transport, as tests do.
+ * connection the call arrived on, `deviceId`, the device that connection comes from, and
+ * `callerProcessId`, the process the system names at the client's end of that connection, never
+ * read from the request; all are absent when a caller dispatches without a transport, as tests
+ * do, and `callerProcessId` also where the system could not name the process.
  */
 export interface HandlerContext {
   readonly transportId?: number;
   readonly deviceId?: DeviceId;
+  readonly callerProcessId?: number;
 }
 
 /**
