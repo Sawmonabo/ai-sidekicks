@@ -9,8 +9,9 @@
 // band before the next render draws, so each side the box can still move toward reaches as far as
 // the leading side does. A fling's leading side reaches as far as its speed carries the box over a
 // late frame and the frames either side of it, a step at a time, and back once it slows or a press
-// stops it. A busy machine's own late frames read as the speed they carried the box at, and one
-// slow sample amid a fling, a frame that came in a burst, drops no reach.
+// stops it. A busy machine's own late frames read as the speed they carried the box at, the first
+// of a gesture timed from the reader's input that began it, and one slow sample amid a fling, a
+// frame that came in a burst, drops no reach.
 
 import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import {
@@ -124,6 +125,21 @@ export class ViewportDrawnBand {
       this.#redraw();
       this.#publish();
     }
+  }
+
+  /**
+   * The reader's wheel, key or touch at `inputAtMs`, on the timeline scroll events stamp their
+   * samples on, toward `towardSide` when it says which way: the whole band now, and a gesture
+   * that begins with it times its first sample's travel from it.
+   */
+  public noteReaderInput(inputAtMs: number, towardSide?: WindowSide): void {
+    this.#gesture.observe(inputAtMs, undefined);
+    this.widenFully(towardSide);
+  }
+
+  /** The box's `scrollend` arrived: the reader's next input begins a gesture. */
+  public noteScrollEnd(): void {
+    this.#gesture.noteScrollEnd();
   }
 
   /** A press on the box: it stops a fling, so the leading side's reach goes back to rest. */

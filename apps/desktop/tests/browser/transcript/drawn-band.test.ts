@@ -238,7 +238,10 @@ async function wheelToTakeBack(scroller: HTMLElement, minimumGestureCount: numbe
   expect.fail("no gesture took rows back from the head");
 }
 
-/** What the compositor had to show across a frame drawn late, in pixels off the box's top then. */
+/**
+ * What the compositor had to show across a frame drawn late, in pixels off the box's top when the
+ * last commit before the stall drew the rows: those rows had to hold the box from then on.
+ */
 interface LateFrame {
   /** The top of the first row drawn before the stall. */
   readonly drawnTopPx: number;
@@ -254,13 +257,35 @@ interface LateFrame {
   readonly boxHeightPx: number;
 }
 
+/** The rows a commit drew, in pixels off the box's top then, with each row's top by position. */
+type DrawnRows = Omit<LateFrame, "boxTopPx"> & { readonly rowTopsPx: ReadonlyMap<number, number> };
+
+/** The rows drawn in `scroller` now, off the box's top now. */
+function readDrawnRows(scroller: HTMLElement): DrawnRows {
+  const box = scroller.getBoundingClientRect();
+  const rows = drawnRows(scroller);
+  return {
+    drawnTopPx: (rows[0]?.rect.top ?? Number.NaN) - box.top,
+    drawnBottomPx: Math.max(...rows.map(({ rect }) => rect.bottom)) - box.top,
+    contentTopPx: -scroller.scrollTop,
+    contentBottomPx: scroller.scrollHeight - scroller.scrollTop,
+    boxHeightPx: box.height,
+    rowTopsPx: new Map(
+      rows.flatMap(({ position, rect }) =>
+        position === undefined ? [] : [[position, rect.top - box.top] as const],
+      ),
+    ),
+  };
+}
+
 /**
  * Holds the page's main thread for `LATE_FRAME_STALL_MS` on one frame of a touch fling's
  * momentum, as a busy machine draws a frame late while the compositor carries the fling on: the
- * first frame once the hand's touch has ended on the page. `lateFrame` answers the rows drawn
- * before the stall and where the box went during it, read on the next frame; `undefined` until
- * then. The box's travel is read off a row
- * drawn on both sides of the stall, since rows a gesture takes back above it move the offset too.
+ * first frame once the hand's touch has ended on the page.
+ * `lateFrame` answers the rows the last commit before the stall drew, and where the box went from
+ * that commit to the frame after the stall, both off the box's top at that commit; `undefined`
+ * until then. The box's travel is read off a row drawn on both sides of the stall, since rows a
+ * gesture takes back above it move the offset too.
  */
 function drawOneFrameLate(scroller: HTMLElement): {
   readonly lateFrame: () => LateFrame | undefined;
@@ -272,9 +297,12 @@ function drawOneFrameLate(scroller: HTMLElement): {
     hasHandLetGo = true;
   };
   scroller.addEventListener("touchend", onTouchEnd, { passive: true });
-  let beforeStall:
-    | (Omit<LateFrame, "boxTopPx"> & { readonly rowTopsPx: ReadonlyMap<number, number> })
-    | undefined;
+  let lastCommit = readDrawnRows(scroller);
+  const commits = new MutationObserver(() => {
+    lastCommit = readDrawnRows(scroller);
+  });
+  commits.observe(scroller, { subtree: true, childList: true });
+  let beforeStall: DrawnRows | undefined;
   let lateFrame: LateFrame | undefined;
   const onFrame = (): void => {
     if (!isWatching || lateFrame !== undefined) {
@@ -291,20 +319,8 @@ function drawOneFrameLate(scroller: HTMLElement): {
       return;
     }
     if (hasHandLetGo) {
-      const box = scroller.getBoundingClientRect();
-      const rows = drawnRows(scroller);
-      beforeStall = {
-        drawnTopPx: (rows[0]?.rect.top ?? Number.NaN) - box.top,
-        drawnBottomPx: Math.max(...rows.map(({ rect }) => rect.bottom)) - box.top,
-        contentTopPx: -scroller.scrollTop,
-        contentBottomPx: scroller.scrollHeight - scroller.scrollTop,
-        boxHeightPx: box.height,
-        rowTopsPx: new Map(
-          rows.flatMap(({ position, rect }) =>
-            position === undefined ? [] : [[position, rect.top - box.top] as const],
-          ),
-        ),
-      };
+      commits.disconnect();
+      beforeStall = lastCommit;
       const stallEndMs = performance.now() + LATE_FRAME_STALL_MS;
       while (performance.now() < stallEndMs) {
         // The main thread is busy; the compositor carries the fling on without it.
@@ -317,6 +333,7 @@ function drawOneFrameLate(scroller: HTMLElement): {
     lateFrame: () => lateFrame,
     stop: () => {
       isWatching = false;
+      commits.disconnect();
       scroller.removeEventListener("touchend", onTouchEnd);
     },
   };
@@ -473,15 +490,16 @@ describe("a land draws the rows the reader ends on first", () => {
       expect(boxTopPx + boxHeightPx, "the box reached the content's tail").toBeLessThan(
         lateFrame.contentBottomPx - GRAIN_PX,
       );
-      expect(Math.abs(boxTopPx), "the late frame carried past the band's cap").toBeLessThan(
+      expect(Math.abs(boxTopPx), "the box went past the band's cap").toBeLessThan(
         FEED_HEIGHT_PX * TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS,
       );
-      // The control: across the late frame the box moved further than the leading band reaches
-      // at rest, so a band sized from the window height alone leaves part of the box undrawn.
+      // The control: from the commit that drew the rows to the frame after the late one, the box
+      // moved further than the leading band reaches at rest, so a band sized from the window
+      // height alone, drawn by that commit, leaves part of the box undrawn.
       expect(Math.abs(boxTopPx)).toBeGreaterThan(
         FEED_HEIGHT_PX * TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS,
       );
-      // While the main thread was held, the compositor had only the rows drawn before it to show.
+      // Until the main thread came back, the compositor had only the rows that commit drew to show.
       expect(boxTopPx).toBeGreaterThanOrEqual(lateFrame.drawnTopPx - GRAIN_PX);
       expect(boxTopPx + boxHeightPx).toBeLessThanOrEqual(lateFrame.drawnBottomPx + GRAIN_PX);
     },

@@ -1,7 +1,8 @@
 // The band a window nested in a row draws its items within, against the rows' own band. A fling's
 // first frame can carry the box further than the band before a render draws, so before the reader
 // has moved one way the nested windows reach as far as a leading side on every side the box can
-// still move toward. A fling's reach holds through the samples a busy machine sends.
+// still move toward. A fling's reach holds through the samples a busy machine sends, and a drag the
+// page first meets late reads the speed it carried the box at.
 
 import { describe, expect, it } from "vitest";
 
@@ -103,5 +104,31 @@ describe("a fling's reach", () => {
     moveBy(1_400, 183);
     moveBy(1_000, 183);
     expect(band.screenHeights.tail).toBe(TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS);
+  });
+
+  it("times a gesture's first sample from the touch that began it, and no later input", () => {
+    // A drag at 10 px a millisecond that a busy page first meets 60 ms after the touch, in one
+    // burst: read from the last sample of the gesture before, it would carry no speed.
+    const { band } = wholeBand();
+    band.observeGeometry(sampleAt(1_000, 0));
+    band.observeGeometry(sampleAt(1_010, 16));
+    band.noteScrollEnd();
+    band.noteReaderInput(5_000);
+    band.observeGeometry(sampleAt(1_600, 5_060));
+    expect(band.screenHeights.tail).toBe(TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS);
+
+    // A slow drag whose touches each arrive just before the frame's sample: each sample's travel
+    // took the frame since the sample before, not the moment since its touch.
+    const slow = wholeBand().band;
+    let scrollTop = 1_000;
+    let inputAt = 0;
+    slow.observeGeometry(sampleAt(scrollTop, inputAt));
+    for (let frame = 0; frame < 4; frame += 1) {
+      inputAt += 16;
+      slow.noteReaderInput(inputAt - 2);
+      scrollTop += 16;
+      slow.observeGeometry(sampleAt(scrollTop, inputAt));
+    }
+    expect(slow.screenHeights.tail).toBe(LEADING);
   });
 });
