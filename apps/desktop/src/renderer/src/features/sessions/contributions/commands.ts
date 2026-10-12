@@ -5,8 +5,9 @@
 //
 // The moves are chords in the window's table, live only with focus in a pane, and the inspector's
 // is live anywhere in a session: the table skips a press in a text field, the terminal's body
-// among them, so there the keys reach the field or the shell. Focusing and closing stay on the block's own element behind the wider
-// `isEditableTarget` (`lib/editable-target.ts`), since a listbox in a pane takes bare arrows.
+// among them, so there the keys reach the field or the shell. Focusing and closing stay on the
+// block's own element behind the wider `isEditableTarget` (`lib/editable-target.ts`), since a
+// listbox in a pane takes bare arrows.
 
 import { raiseCommandRefusal } from "#renderer/registries/commands/refusal.js";
 import { readCommandWindow } from "#renderer/registries/commands/command-window.js";

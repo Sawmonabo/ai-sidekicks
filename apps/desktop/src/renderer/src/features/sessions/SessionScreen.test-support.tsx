@@ -187,6 +187,7 @@ export function workspaceFor(
   frameStore: WindowStore = new WindowStore({
     initialRoute: { kind: "session", sessionId: session.sessionId },
   }),
+  paneRegistry: PaneRegistry = testRegistry(),
 ): React.JSX.Element {
   return (
     <FixtureBridgeProvider fixture={fixture}>
@@ -198,7 +199,7 @@ export function workspaceFor(
           uiStateStore={uiStateStore}
           draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
           route={{ kind: "session", sessionId: session.sessionId }}
-          paneRegistry={testRegistry()}
+          paneRegistry={paneRegistry}
           rereadSession={() => undefined}
         />
       </LiveAnnouncerProvider>
@@ -210,7 +211,7 @@ export function workspaceFor(
 export async function saveLayout(
   store: UiStateStore,
   partition: string,
-  kinds: readonly ("terminal" | "browser")[],
+  kinds: readonly ("terminal" | "browser" | "agents")[],
 ): Promise<void> {
   const layout = new PaneLayoutStore();
   for (const kind of kinds) {

@@ -4,14 +4,15 @@
 // track and the real pane layout, the conversation at its own floor and the pane with the widest
 // floor beside it, with nothing scrolling sideways. More panes than fit, or a window one rem
 // narrower, scroll the block sideways rather than draw the conversation or a pane under its
-// floor. A closed track takes no width, where an open one does. At the floor the agent library
-// keeps its two columns and an entity record keeps each label beside its value on one line, a
-// long value truncated with its whole text as its hover label, with nothing overflowing or
-// overlapping; a box planted too wide, one planted over a row, a short value that is not cut, and
-// a record narrower than its label column are the negative controls. The whole app held at its
-// floor keeps the conversation in view above the composer with its command list open; on a
-// screen shorter than the floor the conversation keeps its own height floor, and the list gives
-// way and scrolls in what is left.
+// floor; a pane opened past the view is scrolled into it, and the terminal under the row or over
+// it is as wide as the row. A closed track takes no width, where an open one does. At the floor
+// the agent library keeps its two columns and an entity record keeps each label beside its value
+// on one line, a long value truncated with its whole text as its hover label, with nothing
+// overflowing or overlapping; a box planted too wide, one planted over a row, a short value that
+// is not cut, and a record narrower than its label column are the negative controls. The whole
+// app held at its floor keeps the conversation in view above the composer with its command list
+// open; on a screen shorter than the floor the conversation keeps its own height floor, and the
+// list gives way and scrolls in what is left.
 
 import { act, cleanup, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -196,7 +197,7 @@ async function untilDrawn(appWindow: Window, selector: string): Promise<HTMLElem
 /** A pane registry whose bodies are framed panes, as the app's are. */
 function framedPaneRegistry(): PaneRegistry {
   const registry = new PaneRegistry();
-  for (const kind of ["agents", "browser", "terminal"] as const) {
+  for (const kind of ["agents", "browser", "terminal", "inspector"] as const) {
     registry.register({
       kind,
       owner: "window-floor-test",
@@ -331,7 +332,7 @@ describe("the window floor", () => {
     expect(paneBoxOf("agents").width).toBeCloseTo(paneFloorPx("agents"), 0);
   });
 
-  it("scrolls more panes than fit rather than draw any of them under its floor", async () => {
+  it("scrolls more panes than fit, and one opened past the view into it, under no floor", async () => {
     const [floor] = await renderFrame(<p>sessions</p>);
     if (floor === undefined) {
       throw new Error("the frame reported no floor");
@@ -341,7 +342,7 @@ describe("the window floor", () => {
 
     const layout = new PaneLayoutStore();
     layout.open({ kind: "agents" });
-    layout.open({ kind: "browser" });
+    const previewId = layout.open({ kind: "browser" });
     layout.open({ kind: "terminal" });
     await renderPaneLayoutInFrame(layout);
 
@@ -358,6 +359,34 @@ describe("the window floor", () => {
       paneFloorPx("agents") + paneFloorPx("browser") - 0.5,
     );
     expect(document.documentElement.scrollWidth).toBe(document.documentElement.clientWidth);
+
+    // A pane opened past the view's width is scrolled into it, under none of the floors.
+    const block = elementOf<HTMLElement>(document, ".meridian-pane-layout__block");
+    expect(block.scrollLeft).toBe(0);
+    act(() => {
+      layout.focus(previewId);
+      layout.open({ kind: "inspector", entity: { kind: "workspace", id: "workspace-floor" } });
+    });
+    await waitFor(() => {
+      const inspector = paneBoxOf("inspector");
+      const view = block.getBoundingClientRect();
+      expect(inspector.left).toBeGreaterThanOrEqual(view.left - 0.5);
+      expect(inspector.right).toBeLessThanOrEqual(view.right + 0.5);
+    });
+    expect(boxOf(".meridian-pane-layout__conversation").width).toBeGreaterThanOrEqual(
+      conversationFloorPx() - 0.5,
+    );
+    for (const kind of [...kinds, "inspector"] as const) {
+      expect(paneBoxOf(kind).width).toBeGreaterThanOrEqual(paneFloorPx(kind) - 0.5);
+    }
+
+    // Moved over the row, the terminal is still as wide as it.
+    const row = elementOf<HTMLElement>(document, ".meridian-pane-layout__row");
+    act(() => {
+      layout.placeTerminal("above");
+    });
+    expect(paneBoxOf("terminal").bottom).toBeLessThanOrEqual(row.getBoundingClientRect().top + 0.5);
+    expect(paneBoxOf("terminal").width).toBeCloseTo(row.getBoundingClientRect().width, 0);
 
     // Negative control: a slot that lost its floor is squeezed under it, which the reading sees.
     const previewSlot = elementOf<HTMLElement>(
