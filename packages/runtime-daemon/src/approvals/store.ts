@@ -15,12 +15,12 @@ import {
 } from "@ai-sidekicks/contracts/approval";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { RUN_TERMINAL_STATES } from "@ai-sidekicks/contracts/run/state";
 import type { SessionState } from "@ai-sidekicks/contracts/session/methods";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { sqlListOf } from "../database/sql-list.js";
 import type { WriteStatement } from "../database/statement.js";
-import { RUN_TERMINAL_STATES } from "../session/run/transitions.js";
 import type { ApprovalResourceDescriptor } from "./request-create.js";
 
 /**

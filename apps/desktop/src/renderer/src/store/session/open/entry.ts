@@ -126,8 +126,6 @@ export interface OpenSessionEntryOptions {
   readonly openingPageLimit: () => number;
   /** The most rows a window keeps while no screen shows its session, read each time it applies. */
   readonly offScreenRowLimit: () => number;
-  /** Apply-queue coalescing window. `0` means one drain per paint. */
-  readonly applyCoalesceMs?: number;
   readonly refreshDebounceMs?: number;
   readonly refreshMaxWaitMs?: number;
 }
@@ -181,7 +179,6 @@ export class OpenSessionEntry {
           detail: `session ${sessionId}: ${describeFailure(error)}`,
         });
       },
-      ...(options.applyCoalesceMs === undefined ? {} : { coalesceMs: options.applyCoalesceMs }),
     });
     this.refreshScheduler = new RefreshScheduler({
       clock,

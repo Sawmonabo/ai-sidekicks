@@ -88,7 +88,7 @@ describe("desktop main process boot", () => {
       const contentSecurityPolicy = probe.contentSecurityPolicy ?? "";
       for (const directive of [
         "default-src 'self'",
-        "script-src 'self'",
+        "script-src 'self';",
         "connect-src 'self'",
         "frame-src 'none'",
         "object-src 'none'",
@@ -97,8 +97,9 @@ describe("desktop main process boot", () => {
       ]) {
         expect(contentSecurityPolicy).toContain(directive);
       }
-      // Nothing may admit remote script or a wildcard origin; the presence checks above would not
-      // catch a widened directive appended beside them.
+      // Nothing may admit remote script, evaluation or a wildcard origin; the presence checks
+      // above would not catch a widened directive appended beside them. Only the diagram worker's
+      // own script response admits WebAssembly.
       expect(contentSecurityPolicy).not.toContain("unsafe-eval");
       expect(contentSecurityPolicy).not.toContain("*");
       expect(contentSecurityPolicy).not.toContain("http://");

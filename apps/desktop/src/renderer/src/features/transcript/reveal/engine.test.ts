@@ -103,10 +103,8 @@ describe("the reveal engine — the visible text never regresses", () => {
     const clock = new ManualClock();
     const engine = engineOn(clock);
     const lengths: number[] = [];
-    engine.subscribe((frame) => {
-      for (const lane of frame.lanes) {
-        lengths.push(lane.publishedText.length);
-      }
+    engine.subscribe(() => {
+      lengths.push(engine.laneState("lane-1")?.publishedText.length ?? 0);
     });
     for (let chunk = 0; chunk < 12; chunk += 1) {
       engine.ingest({ laneId: "lane-1", mode: "direct", text: prose(200) });

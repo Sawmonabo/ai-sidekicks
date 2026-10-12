@@ -27,6 +27,11 @@ export interface AppFacts {
   readonly version: string;
   readonly platform: SupportedPlatform;
   readonly arch: SupportedArch;
+  /**
+   * Whether the system keeps a primary selection, the text a middle-click pastes, beside its
+   * clipboard; the renderer reads this, never the platform, to write and honor one.
+   */
+  readonly hasPrimarySelection: boolean;
   /** The app's UI language, which carries no hour cycle and never decides a clock or a date. */
   readonly locale: string;
   /** The machine's physical memory in bytes; the screen's cache budgets are a share of it. */
@@ -43,6 +48,7 @@ export type MachineClock = Pick<AppFacts, "regionLocale" | "hourCycle">;
 const VERSION_SWITCH = "--sidekicks-app-version=";
 const PLATFORM_SWITCH = "--sidekicks-app-platform=";
 const ARCH_SWITCH = "--sidekicks-app-arch=";
+const PRIMARY_SELECTION_SWITCH = "--sidekicks-app-primary-selection=";
 const LOCALE_SWITCH = "--sidekicks-app-locale=";
 const PHYSICAL_MEMORY_SWITCH = "--sidekicks-app-physical-memory=";
 const REGION_LOCALE_SWITCH = "--sidekicks-app-region-locale=";
@@ -66,6 +72,14 @@ function supportedHourCycle(hourCycle: string): HourCycle {
   return supported;
 }
 
+/** A switch's `true` or `false` as a boolean; throws for any other value. */
+function switchBoolean(value: string): boolean {
+  if (value !== "true" && value !== "false") {
+    throw new RangeError(`${value} is not true or false.`);
+  }
+  return value === "true";
+}
+
 /** `locale` as the canonical BCP 47 tag `Intl` spells it. Throws a `RangeError` for no tag. */
 export function canonicalLocale(locale: string): string {
   const [canonical] = Intl.getCanonicalLocales(locale);
@@ -81,6 +95,7 @@ export function appFactsSwitches(facts: AppFacts): string[] {
     `${VERSION_SWITCH}${encodeURIComponent(facts.version)}`,
     `${PLATFORM_SWITCH}${facts.platform}`,
     `${ARCH_SWITCH}${facts.arch}`,
+    `${PRIMARY_SELECTION_SWITCH}${String(facts.hasPrimarySelection)}`,
     `${LOCALE_SWITCH}${encodeURIComponent(facts.locale)}`,
     `${PHYSICAL_MEMORY_SWITCH}${String(facts.physicalMemoryBytes)}`,
     `${REGION_LOCALE_SWITCH}${encodeURIComponent(facts.regionLocale)}`,
@@ -90,7 +105,7 @@ export function appFactsSwitches(facts: AppFacts): string[] {
 
 /**
  * The facts a window's switches carry. Throws when one is missing or out of range: main always
- * passes all seven, and a made-up value would be a fact nobody read.
+ * passes all eight, and a made-up value would be a fact nobody read.
  */
 export function readAppFactsSwitches(argv: readonly string[]): AppFacts {
   const physicalMemoryBytes = Number(readRequiredSwitchValue(argv, PHYSICAL_MEMORY_SWITCH));
@@ -101,6 +116,7 @@ export function readAppFactsSwitches(argv: readonly string[]): AppFacts {
     version: readRequiredSwitchValue(argv, VERSION_SWITCH),
     platform: supportedPlatform(readRequiredSwitchValue(argv, PLATFORM_SWITCH)),
     arch: supportedArch(readRequiredSwitchValue(argv, ARCH_SWITCH)),
+    hasPrimarySelection: switchBoolean(readRequiredSwitchValue(argv, PRIMARY_SELECTION_SWITCH)),
     locale: readRequiredSwitchValue(argv, LOCALE_SWITCH),
     physicalMemoryBytes,
     regionLocale: canonicalLocale(readRequiredSwitchValue(argv, REGION_LOCALE_SWITCH)),

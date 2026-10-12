@@ -23,6 +23,7 @@ import {
 } from "./browser-mode.js";
 import { iconCompilationPlugin } from "./icon-compilation.js";
 import { overlayScrollbarBundlePlugin } from "./overlay-scrollbar-bundle.js";
+import { touchFling } from "./touch-fling.js";
 
 /**
  * The renderer unit tests that sit outside `src/renderer/src/`: the scenario contract check in
@@ -59,7 +60,8 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
       include: ["tests/browser/**/*.test.{ts,tsx}"],
       globals: true,
       setupFiles: BROWSER_MODE_SETUP_FILES,
-      browser: browserModeOptions(),
+      // The hand of a touch fling, played from outside the page.
+      browser: { ...browserModeOptions(), commands: { touchFling } },
     },
   },
   {

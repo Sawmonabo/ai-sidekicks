@@ -26,36 +26,45 @@ export interface SubagentAnchor {
 }
 
 /**
- * The subagent anchors over one loaded window, derived once and asked per row per frame.
+ * The subagent anchors over one log, asked per row per frame. Rows join one at a time, in log
+ * order, so a log read a stretch at a time costs each stretch its own rows. First-wins: the anchor
+ * is written when an identity is first seen, and later rows of that identity join `rowIds` and move
+ * nothing.
  */
 export class SubagentAnchorIndex {
-  readonly #rows: readonly TranscriptEventRow[];
-  #anchors: ReadonlyMap<string, SubagentAnchor> | undefined;
-  #anchorsByRowId: ReadonlyMap<string, SubagentAnchor> | undefined;
+  /**
+   * Each anchor and its growing row list, keyed by its identity's key, in first-appearance order.
+   */
+  readonly #heldByKey = new Map<string, { anchor: SubagentAnchor; rowIds: string[] }>();
+  readonly #anchorsByRowId = new Map<string, SubagentAnchor>();
 
-  public constructor(rows: readonly TranscriptEventRow[]) {
-    this.#rows = rows;
-  }
-
-  /** Every anchor, keyed by its identity's key, in first-appearance order. */
-  public anchors(): ReadonlyMap<string, SubagentAnchor> {
-    this.#anchors ??= deriveSubagentAnchors(this.#rows);
-    return this.#anchors;
+  /** Fold one row in, after every row admitted before it. */
+  public admit(row: TranscriptEventRow): void {
+    const identity = subagentIdentityOf(row);
+    if (identity === undefined) {
+      return;
+    }
+    const key = subagentIdentityKey(identity);
+    const held = this.#heldByKey.get(key);
+    if (held !== undefined) {
+      held.rowIds.push(row.id);
+      this.#anchorsByRowId.set(row.id, held.anchor);
+      return;
+    }
+    const rowIds: string[] = [row.id];
+    const anchor: SubagentAnchor = {
+      identity,
+      anchorRowId: row.id,
+      anchoredAt: row.timestamp,
+      rowIds,
+    };
+    this.#heldByKey.set(key, { anchor, rowIds });
+    this.#anchorsByRowId.set(row.id, anchor);
   }
 
   /** The anchor a row belongs to, for the feed's per-row dispatch. */
   public anchorForRowId(rowId: string): SubagentAnchor | undefined {
-    this.#anchorsByRowId ??= new Map(
-      [...this.anchors().values()].flatMap((anchor) =>
-        anchor.rowIds.map((memberRowId) => [memberRowId, anchor] as const),
-      ),
-    );
     return this.#anchorsByRowId.get(rowId);
-  }
-
-  /** Whether this row is the one its subagent's activity hangs from. */
-  public isAnchorRow(rowId: string): boolean {
-    return this.anchorForRowId(rowId)?.anchorRowId === rowId;
   }
 
   /**
@@ -71,34 +80,6 @@ export class SubagentAnchorIndex {
 /** `runId`, `provider` and `subagentId` as one map key. */
 export function subagentIdentityKey(identity: SubagentIdentity): string {
   return `${identity.runId} ${identity.provider} ${identity.subagentId}`;
-}
-
-/**
- * Derive every subagent anchor over one window. First-wins: the anchor is written when an
- * identity is first seen, and later rows of that identity join `rowIds` and move nothing.
- */
-export function deriveSubagentAnchors(
-  rows: readonly TranscriptEventRow[],
-): ReadonlyMap<string, SubagentAnchor> {
-  const anchorsByKey = new Map<string, { anchor: SubagentAnchor; rowIds: string[] }>();
-  for (const row of rows) {
-    const identity = subagentIdentityOf(row);
-    if (identity === undefined) {
-      continue;
-    }
-    const key = subagentIdentityKey(identity);
-    const held = anchorsByKey.get(key);
-    if (held !== undefined) {
-      held.rowIds.push(row.id);
-      continue;
-    }
-    const rowIds: string[] = [row.id];
-    anchorsByKey.set(key, {
-      anchor: { identity, anchorRowId: row.id, anchoredAt: row.timestamp, rowIds },
-      rowIds,
-    });
-  }
-  return new Map([...anchorsByKey].map(([key, held]) => [key, held.anchor]));
 }
 
 /**

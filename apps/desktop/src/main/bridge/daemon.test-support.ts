@@ -116,6 +116,7 @@ export function idleWindowContext(): WindowHandlerContext {
     appearance: { choose: vi.fn(), record: DEFAULT_APPEARANCE_RECORD },
     openWindows: {
       windowWithId: vi.fn(),
+      documentOfWindow: vi.fn(),
       isConsoleDocument: vi.fn(),
       windowUsedLast: vi.fn(),
       setDefaultSizes: vi.fn(),
@@ -173,6 +174,7 @@ export async function bridgeOverLink(
     ...appFactsSwitches({
       version: "0.0.0",
       platform: "darwin",
+      hasPrimarySelection: false,
       arch: "arm64",
       locale: "en-US",
       physicalMemoryBytes: 17_179_869_184,

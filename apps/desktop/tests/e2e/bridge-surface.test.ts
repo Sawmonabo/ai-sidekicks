@@ -54,6 +54,7 @@ function memberKind(_name: string, value: unknown): unknown {
 const SAMPLE_APP_FACTS: AppFacts = {
   version: "",
   platform: "darwin",
+  hasPrimarySelection: false,
   arch: "arm64",
   locale: "",
   physicalMemoryBytes: 0,

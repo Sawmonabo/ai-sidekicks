@@ -22,8 +22,8 @@ export type GeometryChangeCause = (typeof GEOMETRY_CHANGE_CAUSES)[number];
  * The three numbers a scroll sample holds (the offset, the viewport height and the content
  * height), and the facts derived from them.
  *
- * `sampledAt` comes from the clock seam, not `Date.now`, so a frozen fixture clock names one
- * exact frame.
+ * `inputAt` is the time stamp of the scroll event that published the sample, so a pause between a
+ * reader's samples is the pause in their input, whatever clock the app runs on.
  */
 export interface ScrollGeometry {
   readonly scrollTop: number;
@@ -31,14 +31,18 @@ export interface ScrollGeometry {
   readonly contentHeight: number;
   readonly distanceFromTailPx: number;
   readonly isAtTail: boolean;
-  readonly sampledAt: number;
+  /**
+   * The scroll event's own time stamp, in milliseconds on the page's performance timeline;
+   * `undefined` for a sample a write, a resize or an attach published.
+   */
+  readonly inputAt: number | undefined;
   readonly cause: GeometryChangeCause;
 }
 
 /**
  * Whether two samples report the same box at the same offset.
  *
- * Compared within the geometry epsilon over the three sampled numbers only; `sampledAt` and the
+ * Compared within the geometry epsilon over the three sampled numbers only; `inputAt` and the
  * cause are provenance, and the derived facts follow from the three. A publisher uses this to
  * skip waking subscribers, each of which re-renders when woken.
  */

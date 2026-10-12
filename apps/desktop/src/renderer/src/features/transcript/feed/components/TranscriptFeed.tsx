@@ -1,27 +1,57 @@
 // The transcript, composed: the find field and the feed. Derivations belong to
 // `useTranscriptFeedWindows` and every scroll to the viewport binding; this file arranges the
 // pieces and wires their callbacks. There is one viewport binding: a second would leave the find
-// walk reading a virtualizer with no element under it, a jump that scrolls nothing.
+// walk reading a virtualizer with no element under it, a jump that scrolls nothing. The rows are
+// first shown once the first read has landed and the faces they draw in have settled; until then
+// they are laid out hidden, so they ask for those faces and measure in them, and the body shows
+// `Loading…` past the loading line's delay, or nothing while the line under the session header
+// says the window is behind.
 
 import "./TranscriptFeed.css";
 
 import { useCallback, useMemo } from "react";
+
+import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
+
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
 import { LoadEarlier } from "../../history/components/LoadEarlier.js";
-import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { TranscriptFeedHeader } from "./TranscriptFeedHeader.js";
-import { TranscriptWindowSkeleton } from "../../window/components/TranscriptWindowSkeleton.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
+import { useFullBodyReads } from "../hooks/useFullBodyReads.js";
+import { FullBodyReadsContext } from "../../rows/full-body-reads.js";
+import { OffListTableFrames } from "../../rows/bodies/OffListTableFrames.js";
+import { ListedBodiesContext } from "../../rows/markdown/table-window/context.js";
+import { PreparedBodiesContext } from "../../rows/prepared-bodies.js";
+import { DrawnWindowSourcesContext } from "../../rows/drawn-window-sources.js";
+import {
+  useDependentReadFailed,
+  useSessionDegraded,
+} from "#renderer/store/session/hooks/useSessionInitialized.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.js";
+import { useTypefacesSettled } from "../../hooks/useTypefacesSettled.js";
 import { useConversationCopy } from "../../copy/hooks/useConversationCopy.js";
+import {
+  readLargeBodyRowId,
+  readRowBodyText,
+  readRowText,
+  type RowTextSources,
+} from "../../copy/row-text.js";
 import { RowToggleProvider, type RowToggle } from "../../rows/RowToggleProvider.js";
-import { readRunGroupKey } from "../../runs/groups.js";
+import { densityFor } from "../fold-state.js";
+import { rowBesideRunWindowEdge, type RunWindowEdge } from "../../runs/call-window.js";
+import { type RunGroup } from "../../runs/groups.js";
+import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 
 /** What the feed is a log of and the row body it draws each row through. */
 export interface TranscriptFeedProps {
@@ -35,6 +65,11 @@ export interface TranscriptFeedProps {
    * none mounts no `Load earlier` and reads nothing past the rows it was given.
    */
   readonly readTranscriptPage?: TranscriptPageRead | undefined;
+  /**
+   * The `transcript.bodyRead` a large body is read in full with when its control is pressed. A
+   * composition with none offers no control and draws a large body as not read.
+   */
+  readonly readTranscriptBody?: TranscriptBodyRead | undefined;
   /**
    * The event cursor of the message to open at, or `undefined` to open at the bottom. A message
    * older than the window is reached by reading back through `readTranscriptPage`; a cursor no
@@ -56,13 +91,27 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     messageAnchorCursor: props.messageAnchorCursor,
     readTranscriptPage: props.readTranscriptPage,
     drawsBody: props.rowRenderer.drawsBody,
+    prepareRow: props.rowRenderer.prepareRow,
   });
   const { folds, transcriptWindow, viewport, history } = windows;
+  // The first rows are in the document once the virtualizer holds some, or there are none to hold,
+  // and no row whose output is still parsing waits to join between the rows in view.
+  const areRowsCommitted =
+    windows.firstReadSettled &&
+    (transcriptWindow.viewportRows.length === 0 || viewport.virtualItems.length > 0) &&
+    !windows.holdsUnparsedRowInView();
+  const isDrawable = useTypefacesSettled(areRowsCommitted);
+  // The line under the session header stands whenever either holds, and nothing repeats it.
+  const isWindowDegraded = useSessionDegraded(props.sessionStore);
+  const isDependentReadFailed = useDependentReadFailed(props.sessionStore);
+  const fullBodyReads = useFullBodyReads(props.sessionStore, props.readTranscriptBody);
   const jumpToRow = viewport.jumpToRow;
   const findAndJump = useTranscriptFindAndJump({
     foldedAwayRows: windows.runGroupFold.removedRows,
-    drawsRow: windows.drawsRow,
+    systemMessageByRowId: windows.unfurledWindow.systemMessageByRowId,
+    drawsBody: props.rowRenderer.drawsBody,
     rows: transcriptWindow.rows,
+    areRowsShown: isDrawable,
     jumpToRow,
     focusTranscriptViewport: viewport.focusScrollContainer,
   });
@@ -79,26 +128,55 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   // Every fold is held, then made: the viewport reads where the pressed row stands before the
   // press changes the rows, and keeps it there once they are laid out again.
   const { holdRowInPlace, holdRowNearestMiddle } = viewport;
-  const { foldedRunIds, foldedCallRowIds, toggleCall, foldEveryRunGroup, unfoldEveryRunGroup } =
-    folds;
+  const {
+    foldedRunGroupKeys,
+    foldedCallRowIds,
+    toggleCall,
+    openedOutputRowIds,
+    openOutput,
+    foldEveryRunGroup,
+    unfoldEveryRunGroup,
+  } = folds;
   const toggleFoldedRunGroup = folds.toggleRunGroup;
-  // A header's key is the run id it heads.
+  // A header's key is the key of the run group it heads.
   const toggleRunGroup = useCallback(
-    (runId: string) => {
-      holdRowInPlace(runId);
-      toggleFoldedRunGroup(runId);
+    (runGroupKey: string) => {
+      holdRowInPlace(runGroupKey);
+      toggleFoldedRunGroup(runGroupKey);
     },
     [holdRowInPlace, toggleFoldedRunGroup],
   );
+  // The row beside the pressed edge holds where it stands while the next stretch lands past it.
+  const runCallWindows = folds.runCallWindows;
+  const openWindowedRunStretch = windows.openRunStretch;
+  const openRunStretch = useCallback(
+    (runGroup: RunGroup, edge: RunWindowEdge) => {
+      const window = runCallWindows.resolvedWindowOf(runGroup.key);
+      const besideRowId =
+        window === undefined ? undefined : rowBesideRunWindowEdge(runGroup, window, edge);
+      if (besideRowId !== undefined) {
+        holdRowInPlace(besideRowId);
+      }
+      openWindowedRunStretch(runGroup, edge);
+    },
+    [runCallWindows, holdRowInPlace, openWindowedRunStretch],
+  );
+  const toggleCallOncePrepared = windows.toggleCall;
   const rowToggle = useMemo<RowToggle>(
     () => ({
-      toggleCallFold: (rowId, control) => {
-        holdRowInPlace(rowId, control);
-        toggleCall(rowId);
+      toggleCallFold: (rowId) => {
+        toggleCallOncePrepared(rowId, () => {
+          holdRowInPlace(rowId);
+          toggleCall(rowId);
+        });
       },
-      holdControlInPlace: holdRowInPlace,
+      openOutput: (rowId) => {
+        holdRowInPlace(rowId);
+        openOutput(rowId);
+      },
+      holdRowInPlace,
     }),
-    [holdRowInPlace, toggleCall],
+    [toggleCallOncePrepared, holdRowInPlace, toggleCall, openOutput],
   );
   // Named off the props object because the callback below keys on it and `props` is a fresh
   // object every render; depending on the whole object rebuilt `renderRow` on every render and
@@ -106,10 +184,13 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const renderTranscriptRow = props.rowRenderer.render;
   const renderRow = useTranscriptRowRenderer({
     transcriptWindow,
-    foldedRunIds,
+    foldedRunGroupKeys,
     foldedCallRowIds,
+    openedOutputRowIds,
     hueForAgent,
     toggleRunGroup,
+    runCallWindows,
+    openRunStretch,
     renderTranscriptRow,
   });
 
@@ -118,36 +199,94 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   // holds nothing, so it leaves a reader following the tail where they are.
   const runGroupByHeaderKey = transcriptWindow.runGroupByHeaderKey;
   const foldEveryRun = useCallback(() => {
-    const runIds = [...runGroupByHeaderKey.keys()];
-    if (runIds.every((runId) => foldedRunIds.has(runId))) {
+    const runGroupKeys = [...runGroupByHeaderKey.keys()];
+    if (runGroupKeys.every((runGroupKey) => foldedRunGroupKeys.has(runGroupKey))) {
       return;
     }
     // A member row leaves with its group; a header or a row outside every group stays.
-    holdRowNearestMiddle((rowKey) => {
-      const row = transcriptWindow.rowsByKey.get(rowKey);
-      return row === undefined || readRunGroupKey(row) === undefined;
-    });
-    foldEveryRunGroup(runIds);
+    holdRowNearestMiddle((rowKey) => !transcriptWindow.runGroupKeyByRowId.has(rowKey));
+    foldEveryRunGroup(runGroupKeys);
   }, [
     runGroupByHeaderKey,
-    foldedRunIds,
+    foldedRunGroupKeys,
     holdRowNearestMiddle,
     transcriptWindow,
     foldEveryRunGroup,
   ]);
   const unfoldEveryRun = useCallback(() => {
-    const runIds = [...runGroupByHeaderKey.keys()];
-    if (!runIds.some((runId) => foldedRunIds.has(runId))) {
+    const runGroupKeys = [...runGroupByHeaderKey.keys()];
+    if (!runGroupKeys.some((runGroupKey) => foldedRunGroupKeys.has(runGroupKey))) {
       return;
     }
     holdRowNearestMiddle(() => true);
-    unfoldEveryRunGroup(runIds);
-  }, [runGroupByHeaderKey, foldedRunIds, holdRowNearestMiddle, unfoldEveryRunGroup]);
+    unfoldEveryRunGroup(runGroupKeys);
+  }, [runGroupByHeaderKey, foldedRunGroupKeys, holdRowNearestMiddle, unfoldEveryRunGroup]);
   useTranscriptStructureActs(
     { find, jumpToRow, jumpToTail: viewport.jumpToTail, foldEveryRun, unfoldEveryRun },
     runGroupByHeaderKey.size > 0,
   );
-  const copySelection = useConversationCopy();
+  const clockLocale = useClockLocale();
+  const ownerWindow = useOwnerWindow();
+  const revealChannel = windows.reveal.channel;
+  const rowTextSources = useCallback(
+    (
+      rowTextWindow: TranscriptWindowModel,
+      fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
+    ): RowTextSources => ({
+      transcriptWindow: rowTextWindow,
+      reveal: revealChannel,
+      densityOf: (rowId) => densityFor(rowId, foldedCallRowIds),
+      fullBodyOf,
+      clockLocale,
+      view: ownerWindow,
+    }),
+    [revealChannel, foldedCallRowIds, clockLocale, ownerWindow],
+  );
+  const rowText = useCallback(
+    (
+      rowKey: string,
+      rowTextWindow: TranscriptWindowModel,
+      fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
+    ) => readRowText(rowKey, rowTextSources(rowTextWindow, fullBodyOf)),
+    [rowTextSources],
+  );
+  const rowBodyText = useCallback(
+    (
+      rowKey: string,
+      rowTextWindow: TranscriptWindowModel,
+      fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
+    ) => readRowBodyText(rowKey, rowTextSources(rowTextWindow, fullBodyOf)),
+    [rowTextSources],
+  );
+  const largeBodyRowIdOf = useCallback(
+    (rowKey: string, rowTextWindow: TranscriptWindowModel) =>
+      readLargeBodyRowId(rowKey, {
+        transcriptWindow: rowTextWindow,
+        reveal: revealChannel,
+        densityOf: (rowId) => densityFor(rowId, foldedCallRowIds),
+      }),
+    [revealChannel, foldedCallRowIds],
+  );
+  const readPage = props.readTranscriptPage;
+  const deriveRowSourceWindows = windows.deriveRowSourceWindows;
+  const copyHistory = useMemo(
+    () =>
+      readPage === undefined
+        ? undefined
+        : { sessionStore: props.sessionStore, readPage, deriveRowSourceWindows },
+    [props.sessionStore, readPage, deriveRowSourceWindows],
+  );
+  useConversationCopy({
+    selectionTracker: viewport.selectionTracker,
+    selectedRowKeys: viewport.selectedRowKeys,
+    rowSourceWindows: { unfurledWindow: windows.unfurledWindow, transcriptWindow },
+    rowText,
+    rowBodyText,
+    largeBodyRowIdOf,
+    fullBodyReads,
+    drawnWindowSources: windows.drawnWindowSources,
+    history: copyHistory,
+  });
 
   // `Load earlier` comes from `history/`, over the daemon's verdict about the log before the head.
   return (
@@ -155,22 +294,41 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
       <div className="meridian-transcript-feed__head">
         <TranscriptFeedHeader findAndJump={findAndJump} />
       </div>
-      <div className="meridian-transcript-feed__body" onCopy={copySelection}>
+      <div className="meridian-transcript-feed__body">
         <RowToggleProvider rowToggle={rowToggle}>
-          <RowRevealProvider channel={windows.reveal.channel}>
-            <TranscriptViewport
-              binding={viewport}
-              renderRow={renderRow}
-              feedLabel={props.feedLabel}
-              firstReadSettled={windows.firstReadSettled}
-              hasActiveTurn={transcriptWindow.liveRunGroupKeys.size > 0}
-              earlierHistoryControl={
-                history === undefined ? undefined : <LoadEarlier history={history} />
-              }
-            />
+          <RowRevealProvider channel={revealChannel}>
+            <FullBodyReadsContext value={fullBodyReads}>
+              <ListedBodiesContext value={windows.offListTables}>
+                <PreparedBodiesContext value={windows.preparedBodies}>
+                  <DrawnWindowSourcesContext value={windows.drawnWindowSources}>
+                    <TranscriptViewport
+                      binding={viewport}
+                      renderRow={renderRow}
+                      feedLabel={props.feedLabel}
+                      firstReadSettled={windows.firstReadSettled}
+                      isShown={isDrawable}
+                      hasActiveTurn={transcriptWindow.liveRunIds.size > 0}
+                      earlierHistoryControl={
+                        history === undefined ? undefined : (
+                          <LoadEarlier
+                            history={history}
+                            isLinkedMessageMissing={windows.messageReadBack === "not-in-history"}
+                          />
+                        )
+                      }
+                    />
+                  </DrawnWindowSourcesContext>
+                </PreparedBodiesContext>
+              </ListedBodiesContext>
+            </FullBodyReadsContext>
           </RowRevealProvider>
         </RowToggleProvider>
-        <TranscriptWindowSkeleton sessionStore={props.sessionStore} />
+        {isDrawable || isWindowDegraded || isDependentReadFailed ? null : (
+          <div className="meridian-transcript-feed__loading">
+            <LoadingNotice title="Loading…" clock={clock} />
+          </div>
+        )}
+        <OffListTableFrames offList={windows.offListTables} />
       </div>
     </div>
   );

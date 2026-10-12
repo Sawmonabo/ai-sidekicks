@@ -23,7 +23,6 @@
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { QueueItemIdSchema, type QueueItemId } from "@ai-sidekicks/contracts/run/queue";
-import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 import type { DriverInterventionResult } from "@ai-sidekicks/contracts/provider/driver/intervention";
@@ -45,7 +44,7 @@ import { WriteRefusedError } from "../database/writer.js";
 import { describeRejection } from "../rejection.js";
 import type { RunStateReader } from "../session/run/read.js";
 import { RunNotFoundError } from "../session/run/refusals.js";
-import { isTerminalState } from "../session/run/transitions.js";
+import { isTerminalState, type RunState } from "@ai-sidekicks/contracts/run/state";
 import type { QueueRecorder } from "./recorder.js";
 import type { QueueItemReader, QueueItemRecord } from "./store.js";
 

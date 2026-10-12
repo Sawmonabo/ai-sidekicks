@@ -1,6 +1,7 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ClipboardPieces } from "#shared/clipboard-pieces.js";
 import { createStubBridge, type ClipboardContent } from "#shared/preload-api.js";
 import { TRANSIENT_STATUS_DURATION_MS } from "#renderer/lib/transient-status.js";
 import { createLiveBridge } from "#renderer/services/platform/live-bridge.js";
@@ -8,28 +9,58 @@ import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { FIXTURE_APP_META, FIXTURE_WINDOW_ID } from "#renderer/services/platform/bridge.fixture.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { CopyButton } from "#renderer/components/CopyButton/CopyButton.js";
+import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { useClipboardCopy } from "./useClipboardCopy.js";
 
 const MESSAGE_TEXT = "Rename `readFrozenRecord` and keep its callers.\n\nTwo files.";
 
+/**
+ * A bridge writing each copy through `copyToClipboard`, a late one, joined from the pieces sent
+ * ahead of it as main joins them, only while `isUnchanged` answers that no newer copy took the
+ * clipboard.
+ */
 function bridgeCopyingWith(
   copyToClipboard: (content: ClipboardContent) => Promise<void>,
+  isUnchanged = () => true,
 ): PlatformBridge {
   const bridge = createLiveBridge(createStubBridge({ ...FIXTURE_APP_META }, FIXTURE_WINDOW_ID));
+  const pieces = new ClipboardPieces();
   return {
     ...bridge,
-    native: { ...bridge.native, copyToClipboard },
+    native: {
+      ...bridge.native,
+      copyToClipboard,
+      takeClipboardSnapshot: async () => ({ digest: "held" }),
+      sendClipboardPiece: async (piece) => {
+        pieces.take(piece);
+      },
+      dropClipboardPieces: async (copyId) => {
+        pieces.drop(copyId);
+      },
+      copyToClipboardUnlessChanged: async (copyId) => {
+        if (!isUnchanged()) {
+          return false;
+        }
+        await copyToClipboard(pieces.contentOf(copyId));
+        return true;
+      },
+    },
   };
 }
 
-function MessageCopy(): React.JSX.Element {
-  return <CopyButton label="Copy" clipboardCopy={useClipboardCopy({ text: MESSAGE_TEXT })} />;
+function MessageCopy(props: {
+  readonly content: Parameters<typeof useClipboardCopy>[0];
+}): React.JSX.Element {
+  return <CopyButton label="Copy" clipboardCopy={useClipboardCopy(props.content)} />;
 }
 
-async function pressCopy(bridge: PlatformBridge): Promise<void> {
+async function pressCopy(
+  bridge: PlatformBridge,
+  content: Parameters<typeof useClipboardCopy>[0] = { text: MESSAGE_TEXT },
+): Promise<void> {
   render(
     <PlatformBridgeProvider bridge={bridge}>
-      <MessageCopy />
+      <MessageCopy content={content} />
     </PlatformBridgeProvider>,
   );
   await act(async () => {
@@ -40,10 +71,13 @@ async function pressCopy(bridge: PlatformBridge): Promise<void> {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // happy-dom schedules no tasks; a picture's pieces are sent in the slices they start in.
+  vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("a message's Copy control", () => {
@@ -72,5 +106,48 @@ describe("a message's Copy control", () => {
     await pressCopy(bridgeCopyingWith(() => Promise.reject(new Error("clipboard refused"))));
 
     expect(screen.getByRole("button").textContent).toBe("Could not copy");
+  });
+});
+
+describe("a Copy control whose content is built after the press", () => {
+  it("writes content once built, and reads Could not copy when it cannot be built", async () => {
+    const copied: ClipboardContent[] = [];
+    const bridge = bridgeCopyingWith(async (content) => {
+      copied.push(content);
+    });
+    const png = Uint8Array.of(0x89, 0x50, 0x4e, 0x47);
+    await pressCopy(bridge, async () => ({ png }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(copied).toStrictEqual([{ png }]);
+    expect(screen.getByRole("button").textContent).toBe("Copied");
+
+    cleanup();
+    await pressCopy(bridge, () => Promise.reject(new Error("the picture did not decode")));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(copied).toHaveLength(1);
+    expect(screen.getByRole("button").textContent).toBe("Could not copy");
+  });
+
+  it("writes nothing and says nothing once a newer copy took the clipboard", async () => {
+    const copied: ClipboardContent[] = [];
+    const bridge = bridgeCopyingWith(
+      async (content) => {
+        copied.push(content);
+      },
+      () => false,
+    );
+    await pressCopy(bridge, async () => ({ png: Uint8Array.of(0x89, 0x50, 0x4e, 0x47) }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(copied).toStrictEqual([]);
+    expect(screen.getByRole("button").textContent).toBe("Copy");
   });
 });

@@ -1,14 +1,33 @@
 // Maps mdast nodes to React elements; own-built because the libraries considered render raw HTML
 // by default. `html` nodes render as literal text (nothing is parsed as markup, so no sanitizer
-// is on this path), links render as their text with no anchor, and math and diagrams wait for
-// `isSettled`.
+// is on this path), links render as their text with no anchor, and math, inline or display, and
+// mermaid diagrams show their source until `isSettled`, then draw as a formula or a picture.
 
 import "./MarkdownNodes.css";
 
-import type { AlignType, Nodes, PhrasingContent, RootContent, Table, TableRow } from "mdast";
+import type {
+  AlignType,
+  Nodes,
+  PhrasingContent,
+  RootContent,
+  Table,
+  TableCell,
+  TableRow,
+} from "mdast";
 import { Fragment } from "react";
 
 import { readDeferredFenceKind } from "./rules.js";
+import type { BlockCopyRenderer } from "./block-copy-offer.js";
+import {
+  TABLE_LINE_KINDS,
+  TABLE_SAMPLE_IDEOGRAPH,
+  type HeldTableColumns,
+  type MarkdownTableFrame,
+  type MarkdownTableOffer,
+  type MarkdownTableRowAttributes,
+  type TableLineKind,
+} from "./table-offer.js";
+import { DiagramBlock } from "./diagram/DiagramBlock.js";
 import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { CodeBlock } from "./highlight/CodeBlock.js";
 import { FootnoteReference } from "./footnotes/FootnoteReference.js";
@@ -29,10 +48,16 @@ export interface MarkdownRenderContext {
   /** Where a settled code block's colors come from. */
   readonly codeSpanReader: CodeSpanReader;
   /**
-   * Draws a code block's own Copy for its source, or `undefined` for a body whose blocks offer
-   * none. Required, so a body that forgot it fails to compile rather than reading as a choice.
+   * Draws one of a code or diagram block's own copies, or `undefined` for a body whose blocks
+   * offer none. Required, so a body that forgot it fails to compile rather than reading as a
+   * choice.
    */
-  readonly renderCodeCopy: ((source: string) => React.ReactNode) | undefined;
+  readonly renderCopy: BlockCopyRenderer | undefined;
+  /**
+   * Draws a table from its offer, choosing which of its rows to draw, or `undefined` for a body
+   * that draws every table whole. Required, like `renderCopy`.
+   */
+  readonly renderTable: ((offer: MarkdownTableOffer) => React.ReactNode) | undefined;
 }
 
 /** Render a document's top-level children. The entry point every card uses. */
@@ -70,6 +95,15 @@ function renderNode(
       return node.value;
     case "inlineCode":
       return <code className="meridian-markdown__code">{node.value}</code>;
+    case "inlineMath":
+      // A formula inside a sentence, set at the sentence's size once its block has settled.
+      return context.isSettled ? (
+        <MathBlock source={node.value} isDisplayMode={false} />
+      ) : (
+        <code className="meridian-markdown__code">{node.value}</code>
+      );
+    case "math":
+      return renderFence(node.value, "math", context);
     case "break":
       return <br />;
     case "thematicBreak":
@@ -149,10 +183,9 @@ function renderNode(
       // alt text is the author's words and is kept.
       return <span className="meridian-markdown__image-alt">{node.alt ?? ""}</span>;
     case "table":
-      // No box of its own: the cells wrap to the column, so the table never scrolls sideways.
-      return (
-        <table className="meridian-markdown__table">{renderTableSections(node, context)}</table>
-      );
+      return context.renderTable === undefined
+        ? renderWholeTable(node, context)
+        : context.renderTable(tableOfferOf(node, context));
     case "footnoteDefinition":
       // Drawn from the footnote registry, not inline, which would show the text twice.
       return null;
@@ -187,34 +220,153 @@ function childrenOf(node: Nodes): readonly (RootContent | PhrasingContent)[] {
 }
 
 /**
- * A GFM table's head and body. The first row is the header row, as the delimiter line under it
- * declares. The table arm owns its whole subtree, so `tableRow` and `tableCell` have no arm
- * above: whether a cell is a header depends on its row, its alignment on the table.
+ * A GFM table drawn whole: its head, then its body. The first row is the header row, as the
+ * delimiter line under it declares. The table arm owns its whole subtree, so `tableRow` and
+ * `tableCell` have no arm above: whether a cell is a header depends on its row, its alignment on
+ * the table. No box of its own: the cells wrap to the column, so the table never scrolls sideways.
  */
-function renderTableSections(node: Table, context: MarkdownRenderContext): React.ReactNode {
+function renderWholeTable(node: Table, context: MarkdownRenderContext): React.JSX.Element {
   const [headerRow, ...bodyRows] = node.children;
+  return renderTableFrame({
+    columns: undefined,
+    isShrunkToRoom: false,
+    rowCount: undefined,
+    headRow:
+      headerRow === undefined
+        ? null
+        : renderTableRow(headerRow, 0, node.align, "column-header", context, {}),
+    bodyRows:
+      bodyRows.length === 0
+        ? null
+        : bodyRows.map((bodyRow, index) =>
+            renderTableRow(bodyRow, index, node.align, "data", context, {}),
+          ),
+  });
+}
+
+/**
+ * A table's element around the rows a frame holds. Held columns lay the table out at their widths
+ * alone, so the rows drawn never move a column; shrunk to its room, at their shares of it.
+ */
+function renderTableFrame(frame: MarkdownTableFrame): React.JSX.Element {
+  const columns = frame.columns;
   return (
-    <>
-      {headerRow === undefined ? null : (
-        <thead>{renderTableRow(headerRow, 0, node.align, "column-header", context)}</thead>
+    <table
+      ref={frame.tableRef}
+      className="meridian-markdown__table"
+      data-columns={columns === undefined ? undefined : "held"}
+      style={columns === undefined ? undefined : { width: heldTableWidthOf(columns, frame) }}
+      aria-rowcount={frame.rowCount}
+    >
+      {columns === undefined ? null : (
+        <colgroup>
+          {columns.widthsPx.map((widthPx, index) => (
+            <col key={index} style={{ width: heldColumnWidthOf(widthPx, columns, frame) }} />
+          ))}
+        </colgroup>
       )}
-      {bodyRows.length === 0 ? null : (
-        <tbody>
-          {bodyRows.map((bodyRow, index) =>
-            renderTableRow(bodyRow, index, node.align, "data", context),
-          )}
-        </tbody>
-      )}
-    </>
+      {frame.headRow === null ? null : <thead>{frame.headRow}</thead>}
+      {frame.bodyRows === null ? null : <tbody ref={frame.bodyRef}>{frame.bodyRows}</tbody>}
+    </table>
   );
+}
+
+/** The held table's width: as measured, or shrunk to its room, at most the room's. */
+function heldTableWidthOf(columns: HeldTableColumns, frame: MarkdownTableFrame): string {
+  const widthPx = String(columns.tableWidthPx);
+  return frame.isShrunkToRoom ? `min(${widthPx}px, 100%)` : `${widthPx}px`;
+}
+
+/** A held column's width: as measured, or shrunk to its room, its share of the table. */
+function heldColumnWidthOf(
+  widthPx: number,
+  columns: HeldTableColumns,
+  frame: MarkdownTableFrame,
+): string {
+  return frame.isShrunkToRoom
+    ? `${String((widthPx / columns.tableWidthPx) * 100)}%`
+    : `${String(widthPx)}px`;
+}
+
+/** The parts of one table, offered to a body that chooses which of its rows to draw. */
+function tableOfferOf(node: Table, context: MarkdownRenderContext): MarkdownTableOffer {
+  const [headerRow, ...bodyRows] = node.children;
+  return {
+    table: node,
+    bodyRowCount: bodyRows.length,
+    drawWhole: () => renderWholeTable(node, context),
+    drawFrame: renderTableFrame,
+    drawTypeSampleRows: () => (
+      <>
+        {renderTableRow(TYPE_SAMPLE_ROW, 0, node.align, "data", context, {})}
+        {TABLE_LINE_KINDS.map((kind, index) =>
+          renderTableRow(LINE_SAMPLE_ROWS[kind], index + 1, node.align, "data", context, {}),
+        )}
+      </>
+    ),
+    drawHeadRow: (attributes) =>
+      headerRow === undefined
+        ? null
+        : renderTableRow(headerRow, 0, node.align, "column-header", context, attributes),
+    drawBodyRow: (index, attributes) => {
+      const bodyRow = bodyRows[index];
+      return bodyRow === undefined
+        ? null
+        : renderTableRow(bodyRow, index, node.align, "data", context, attributes);
+    },
+    drawSpacerRow: (key, heightPx, attributes) => (
+      <tr
+        key={key}
+        data-table-spacer=""
+        aria-hidden="true"
+        style={{ height: `${String(heightPx)}px` }}
+        {...attributes}
+      />
+    ),
+  };
+}
+
+/** One row whose one cell holds each inline kind whose font a table cell's text can take. */
+const TYPE_SAMPLE_ROW: TableRow = {
+  type: "tableRow",
+  children: [
+    {
+      type: "tableCell",
+      children: [
+        { type: "text", value: "x" },
+        { type: "strong", children: [{ type: "text", value: "x" }] },
+        { type: "emphasis", children: [{ type: "text", value: "x" }] },
+        { type: "inlineCode", value: "x" },
+        { type: "footnoteReference", identifier: "x", label: "x" },
+      ],
+    },
+  ],
+};
+
+/** For each kind of line, a row of one such line, whose height is the line's and its cell's box. */
+const LINE_SAMPLE_ROWS: Readonly<Record<TableLineKind, TableRow>> = {
+  plain: lineSampleRow([{ type: "text", value: "x" }]),
+  code: lineSampleRow([
+    { type: "text", value: "x" },
+    { type: "inlineCode", value: "x" },
+  ]),
+  footnote: lineSampleRow([
+    { type: "text", value: "x" },
+    { type: "footnoteReference", identifier: "x", label: "x" },
+  ]),
+  ideograph: lineSampleRow([{ type: "text", value: `x${TABLE_SAMPLE_IDEOGRAPH}` }]),
+};
+
+function lineSampleRow(children: TableCell["children"]): TableRow {
+  return { type: "tableRow", children: [{ type: "tableCell", children }] };
 }
 
 /** Which kind of cell a row's cells are. Decided by the row, never by the cell. */
 type TableCellKind = "column-header" | "data";
 
 /**
- * One row of a table, with each cell told which column it is in. A row with more cells than the
- * delimiter line declared columns renders the extra ones unaligned.
+ * One row of a table, with each cell told which column it is in and `attributes` on the row. A
+ * row with more cells than the delimiter line declared columns renders the extra ones unaligned.
  */
 function renderTableRow(
   row: TableRow,
@@ -222,9 +374,10 @@ function renderTableRow(
   alignments: readonly AlignType[] | null | undefined,
   cellKind: TableCellKind,
   context: MarkdownRenderContext,
+  attributes: MarkdownTableRowAttributes,
 ): React.JSX.Element {
   return (
-    <tr key={nodeKey(row, rowIndex)}>
+    <tr key={nodeKey(row, rowIndex)} {...attributes}>
       {row.children.map((cell, columnIndex) =>
         renderTableCell(cell, columnIndex, alignments?.[columnIndex] ?? null, cellKind, context),
       )}
@@ -261,27 +414,23 @@ function renderTableCell(
  * A fenced block: math, a diagram, or code, told apart by the info string, which
  * `rules.ts` reads so the deferral rule and this switch agree.
  *
- * A deferred math fence renders as a formula once settled and as its source before; a diagram
- * fence renders as its source always, because the app ships no control that asks for one.
+ * A math fence renders as a formula once settled and as its source before. A mermaid fence is a
+ * diagram block, which shows its source while the fence streams and draws the picture once it
+ * has settled.
  */
 function renderFence(
   source: string,
   language: string | null,
   context: MarkdownRenderContext,
 ): React.ReactNode {
-  const deferredFenceKind = readDeferredFenceKind(language);
-  if (deferredFenceKind !== undefined) {
-    return context.isSettled && deferredFenceKind === "math" ? (
-      <MathBlock source={source} isDisplayMode />
-    ) : (
-      <CodeBlock
-        source={source}
-        infoString={language}
-        isSettled={false}
-        codeSpanReader={context.codeSpanReader}
-        renderCopy={context.renderCodeCopy}
-      />
+  const deferredKind = readDeferredFenceKind(language);
+  if (deferredKind === "diagram") {
+    return (
+      <DiagramBlock source={source} isSettled={context.isSettled} renderCopy={context.renderCopy} />
     );
+  }
+  if (deferredKind === "math" && context.isSettled) {
+    return <MathBlock source={source} isDisplayMode />;
   }
   return (
     <CodeBlock
@@ -289,7 +438,7 @@ function renderFence(
       infoString={language}
       isSettled={context.isSettled}
       codeSpanReader={context.codeSpanReader}
-      renderCopy={context.renderCodeCopy}
+      renderCopy={context.renderCopy}
     />
   );
 }

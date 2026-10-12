@@ -18,7 +18,7 @@ import {
   type ScriptedTranscriptLog,
 } from "#renderer/features/transcript/logs.test-support.js";
 import { type TranscriptRowProps } from "#renderer/features/transcript/rows/renderer.js";
-import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 
@@ -75,7 +75,11 @@ export async function mountEarlierHistoryFeed(): Promise<EarlierHistoryFeed> {
         >
           <TranscriptFeed
             sessionStore={sessionStore}
-            rowRenderer={{ render: FixedHeightRow, drawsBody: () => true }}
+            rowRenderer={{
+              render: FixedHeightRow,
+              drawsBody: () => true,
+              prepareRow: () => undefined,
+            }}
             feedLabel="Transcript"
             readTranscriptPage={read}
           />
@@ -111,8 +115,6 @@ function FixedHeightRow(props: TranscriptRowProps): React.JSX.Element {
     <p
       data-row-id={props.row.id}
       style={{ margin: 0, height: `${String(EARLIER_HISTORY_ROW_HEIGHT_PX)}px` }}
-    >
-      {props.row.summary}
-    </p>
+    />
   );
 }

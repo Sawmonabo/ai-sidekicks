@@ -11,23 +11,14 @@
 // The turns run until the stream has covered half an hour of scenario time, so a run that walks
 // the clock over the whole script has watched the session stream for that long.
 
-import {
-  encodeEventCursor,
-  START_OF_LOG_POSITION,
-} from "@ai-sidekicks/contracts/session/event-cursor";
-
-import {
-  composeScriptBeats,
-  findBeatCursor,
-  newestBeatInstant,
-  type ScriptEntry,
-} from "../data/script-entries.js";
+import { composeScriptBeats, newestBeatInstant, type ScriptEntry } from "../data/script-entries.js";
 import { defineScenario, type Scenario, type ScenarioBeat } from "../scenario.js";
 import { composeOpeningEntry } from "../data/opening-entries.js";
 import { SESSION_LIST_OPENING_NOTICES, SETTINGS_REPLIES } from "../data/settings-replies.js";
 import { WORKFLOW_FIXTURE_NOW_MS } from "../data/workflow/clock.js";
 import { CONCURRENT_STREAMING_LEAD, USER_YOU } from "./concurrent-streaming.js";
 import { composeConversationTurn } from "./long-conversation.js";
+import { sessionReadReply } from "../data/session-record.js";
 
 // The session and its id stems. Ids are UUID v7 values whose leading bytes are a fixed instant.
 const SESSION_ID = "019b7e90-0280-75e5-8510-ada11a5a33a5";
@@ -110,30 +101,14 @@ export const SUSTAINED_STREAMING_SCENARIO: Scenario = defineScenario(
     return {
       beats,
       replies: [
-        {
-          // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
-          call: "session.read",
-          result: {
-            session: {
-              id: SESSION_ID,
-              state: "active",
-              shape: "project",
-              muted: false,
-              pendingWorkingFolder: null,
-              createdAt: STARTED_AT_ISO,
-              updatedAt: newestBeatInstant(beats),
-              draft: "",
-              tags: [],
-            },
-            transcriptCursors: {
-              earliest: encodeEventCursor(START_OF_LOG_POSITION),
-              latest: findBeatCursor(beats, beats.length - 1),
-            },
-            // The record a read before any beat lands holds: no run has begun.
-            liveRuns: [],
-            standingEvents: [],
-          },
-        },
+        sessionReadReply({
+          sessionId: SESSION_ID,
+          state: "active",
+          shape: "project",
+          createdAt: STARTED_AT_ISO,
+          updatedAt: newestBeatInstant(beats),
+          beats,
+        }),
         ...SETTINGS_REPLIES,
       ],
     };

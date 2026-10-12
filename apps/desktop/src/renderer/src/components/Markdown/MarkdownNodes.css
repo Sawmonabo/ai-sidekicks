@@ -133,6 +133,23 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * Held columns: the widths automatic layout gave a long table's widest rows, kept while a window
+ * changes which rows are drawn, so no column moves under the reader. Cells still wrap to them.
+ */
+.meridian-markdown__table[data-columns="held"] {
+  table-layout: fixed;
+}
+
+/*
+ * A long table that a spacer row ends draws its bottom rule itself, matching its cells': the half
+ * of it the collapsed table counts in its height keeps the table as tall as when drawn whole. A
+ * row of cells that ends the table draws its own, and no rule runs under a short row's empty slots.
+ */
+.meridian-markdown__table:has(> tbody > tr[data-table-spacer]:last-child) {
+  border-bottom: 1px solid var(--meridian-edge);
+}
+
 /* The head reads as the head by weight and a rule under the row, not a second ground. */
 .meridian-markdown__table th {
   border-bottom-width: 2px;

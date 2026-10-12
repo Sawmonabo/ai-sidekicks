@@ -5,6 +5,7 @@ import { createContext, type Context } from "react";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
+import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
 
 /** The conversation scroller as a windowed body lays its blocks against it. */
 export interface MarkdownWindowViewport {
@@ -15,6 +16,17 @@ export interface MarkdownWindowViewport {
    * element; `undefined` when the viewport does not hold the row.
    */
   readonly rowStartPx: (rowKey: string) => number | undefined;
+  /**
+   * A row's bottom edge in the scroller's content, in pixels, at the height the conversation lays
+   * it out at, measured or estimated, read when called and reading no element; `undefined` when
+   * the viewport does not hold the row.
+   */
+  readonly rowEndPx: (rowKey: string) => number | undefined;
+  /**
+   * Whether the body holds the reader's place for a block that resized above the scroller's top,
+   * which the conversation holds for a row wholly above it and for a following reader instead.
+   */
+  readonly holdsPlaceInsideRow: (rowKey: string) => boolean;
   /** Hears each selection change that moves what `readSelectionRange` answers. */
   readonly subscribeToSelection: (listener: () => void) => Unsubscribe;
   /**
@@ -30,3 +42,13 @@ export interface MarkdownWindowViewport {
  */
 export const MarkdownWindowViewportContext: Context<MarkdownWindowViewport | undefined> =
   createContext<MarkdownWindowViewport | undefined>(undefined);
+
+/**
+ * How far beyond each edge of the scroller a windowed body draws its items, in screen heights, as
+ * the viewport's render draws its rows; the same object until a side changes. Apart from the
+ * viewport's value, so a band that moves draws again only the windows that read it, in the same
+ * render as the rows. `undefined` outside a viewport.
+ */
+export const DrawnBandContext: Context<DrawnBandScreenHeights | undefined> = createContext<
+  DrawnBandScreenHeights | undefined
+>(undefined);

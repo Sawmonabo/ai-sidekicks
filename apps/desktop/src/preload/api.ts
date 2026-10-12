@@ -1,11 +1,12 @@
 // The object the preload exposes: every member carried over IPC, beside the build facts main
 // passed at start and the machine clock it pushes after.
 
-import { ipcRenderer, webUtils } from "electron";
+import { ipcRenderer, webFrame, webUtils } from "electron";
 
 import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
 import { readLastUsedWindowIdSwitch } from "#shared/window/last-used.js";
 import {
+  type ClipboardSnapshot,
   type EditorEntry,
   type FilePathRef,
   type KeyboardMap,
@@ -56,9 +57,26 @@ export function createPreloadApi(argv: readonly string[]): PreloadApi {
         (await ipcRenderer.invoke(
           BRIDGE_CHANNELS.getNotificationPermission,
         )) as NotificationPermission,
-      copyToClipboard: async (content): Promise<void> => {
-        await ipcRenderer.invoke(BRIDGE_CHANNELS.copyToClipboard, content);
+      copyToClipboard: async (content, clipboard): Promise<void> => {
+        await ipcRenderer.invoke(BRIDGE_CHANNELS.copyToClipboard, { content, clipboard });
       },
+      takeClipboardSnapshot: async (clipboard): Promise<ClipboardSnapshot> =>
+        (await ipcRenderer.invoke(BRIDGE_CHANNELS.takeClipboardSnapshot, {
+          clipboard,
+        })) as ClipboardSnapshot,
+      sendClipboardPiece: async (piece): Promise<void> => {
+        await ipcRenderer.invoke(BRIDGE_CHANNELS.sendClipboardPiece, piece);
+      },
+      dropClipboardPieces: async (copyId): Promise<void> => {
+        await ipcRenderer.invoke(BRIDGE_CHANNELS.dropClipboardPieces, { copyId });
+      },
+      copyToClipboardUnlessChanged: async (copyId, since): Promise<boolean> =>
+        (await ipcRenderer.invoke(BRIDGE_CHANNELS.copyToClipboardUnlessChanged, {
+          copyId,
+          since,
+        })) as boolean,
+      addClipboardFormatting: async (copyId): Promise<boolean> =>
+        (await ipcRenderer.invoke(BRIDGE_CHANNELS.addClipboardFormatting, { copyId })) as boolean,
       revealInFileExplorer: async (ref): Promise<void> => {
         await ipcRenderer.invoke(BRIDGE_CHANNELS.revealInFileExplorer, ref);
       },
@@ -71,6 +89,12 @@ export function createPreloadApi(argv: readonly string[]): PreloadApi {
         (await ipcRenderer.invoke(BRIDGE_CHANNELS.writeKeyboardMap, map)) as KeyboardMap,
     },
     window: createWindowBridge(ipcRenderer, readLastUsedWindowIdSwitch(argv)),
-    app: createAppBridge(ipcRenderer, argv),
+    app: createAppBridge(
+      ipcRenderer,
+      () => {
+        webFrame.clearCache();
+      },
+      argv,
+    ),
   };
 }

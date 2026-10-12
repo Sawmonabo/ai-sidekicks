@@ -5,21 +5,17 @@
 //
 // The state a re-ask needs (last conditions, outcome, held and on-screen sets) lives beside the
 // pass that produces it, not among the controller's fields. The cycle reads the anchor and the
-// virtualizer and notifies nobody, which keeps the controller's publication point single. It owns
-// the compensation for the height let go above the reader because only the pass knows which rows
-// went; the controller pays it after the row set is rebuilt, so a glide's geometry sample never
-// wakes a subscriber against stale keys. Every height is read as the virtualizer laid the row
+// virtualizer and notifies nobody, which keeps the controller's publication point single. It sums
+// the height let go above the reader, because only the pass knows which rows went; the offset pays
+// it once the render that drops them commits. Every height is read as the virtualizer laid the row
 // out, so the pass and the scroll offset agree about where each edge of the window sits.
 
 import { type Clock } from "#renderer/lib/clock.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type ScrollGeometry } from "#renderer/lib/scroll/geometry/sample.js";
-import {
-  TRANSCRIPT_APPROACH_SCREEN_HEIGHTS,
-  TRANSCRIPT_GESTURE_GAP_MS,
-  TRANSCRIPT_LET_GO_SCREEN_HEIGHTS,
-} from "./caps.js";
+import { TRANSCRIPT_APPROACH_SCREEN_HEIGHTS, TRANSCRIPT_LET_GO_SCREEN_HEIGHTS } from "./caps.js";
 import { IdleMemoryTrim } from "./idle-trim.js";
+import { ReaderGesture } from "./reader-gesture.js";
 import { type ReadingAnchor, type ReadingAnchorPoint } from "./reading-anchor.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
 import { type ViewportConditions } from "./snapshot.js";
@@ -28,8 +24,8 @@ import {
   type PruneDeferralReason,
   type PruneOutcome,
   type TranscriptWindow,
-  type WindowSide,
 } from "./window-cap.js";
+import { type WindowSide } from "./window-side.js";
 
 /** Dependencies of a `ViewportPruneCycle`. */
 export interface ViewportPruneCycleOptions {
@@ -74,7 +70,6 @@ export class ViewportPruneCycle {
   readonly #publishedRowKeys: () => readonly string[];
   readonly #publishedIndexOf: (rowKey: string) => number | undefined;
   readonly #readBeyondLogEdge: ((side: WindowSide) => boolean) | undefined;
-  readonly #clock: Clock;
   /**
    * Owned here because `run` is called once per pass, the frame's signal that the transcript
    * moved; the trim measures quiet time against the clock.
@@ -95,8 +90,8 @@ export class ViewportPruneCycle {
   #lastReadingRowKey: string | undefined;
   /** The last sample heard, of any cause, so an edge crossing the let-go distance is told apart. */
   #lastSample: ScrollGeometry | undefined;
-  /** The clock stamp of the reader's last scroll sample or pull, which a pause measures from. */
-  #lastReaderSampleAtMs: number | undefined;
+  /** The reader's gesture over their input and scroll samples, which a pause ends. */
+  readonly #gesture = new ReaderGesture();
   /** Whether the reader's current gesture has had its stretch. */
   #hasGestureAdmitted = false;
 
@@ -109,7 +104,6 @@ export class ViewportPruneCycle {
     this.#publishedRowKeys = options.publishedRowKeys;
     this.#publishedIndexOf = options.publishedIndexOf;
     this.#readBeyondLogEdge = options.readBeyondLogEdge;
-    this.#clock = options.clock;
     this.#idleTrim = new IdleMemoryTrim({
       clock: options.clock,
       window: options.window,
@@ -147,7 +141,7 @@ export class ViewportPruneCycle {
     this.#window.ingest(conditions.rows);
     const outcome = this.#window.prune({
       scrollControllerVetoes: this.#scroll.vetoesPrune(),
-      isWorkingRow: conditions.isWorkingRow,
+      isChangingRow: conditions.isChangingRow,
       heldRowKeys,
       onScreenRowKeys,
       readingPosition,
@@ -167,31 +161,15 @@ export class ViewportPruneCycle {
   }
 
   /**
-   * Moves the offset up by exactly what the pass let go above the reader.
-   *
-   * Arithmetic, not an anchor glide: React has not re-rendered, so the virtualizer still answers
-   * in pre-cut offsets, and the cut stops short of the reader's row, so the pixels it took sat
-   * above them. Returns whether the offset moved, so the caller can fall back to the anchor glide.
-   */
-  public compensateForPrunedHeight(prunedHeightPx: number): boolean {
-    const currentScrollTopPx = this.#scroll.geometry?.scrollTop;
-    if (prunedHeightPx <= 0 || currentScrollTopPx === undefined) {
-      return false;
-    }
-    return (
-      this.#scroll.glideTo("prune-compensation", currentScrollTopPx - prunedHeightPx) !== undefined
-    );
-  }
-
-  /**
    * The pass a geometry sample asks for, or `undefined` when it asks for none: a stretch when the
    * reader comes within the approach distance of an edge the log holds rows past, once per
    * gesture, or a cut when an edge has just drifted past the let-go distance. At an edge the
    * window holds of the log, the gesture's stretch is asked of the history reader instead.
    *
    * Only the reader's own scroll asks; a sample a programmatic write published is the transcript
-   * moving itself. A gesture ends at a pause of `TRANSCRIPT_GESTURE_GAP_MS` between the reader's
-   * samples, read off their clock stamps, so a fling brings one stretch and arms no timer.
+   * moving itself. A gesture ends where `ReaderGesture` reads a pause in the reader's samples,
+   * off their scroll events' own time stamps, so a fling brings one stretch, a busy machine's late
+   * frame mid-fling brings none, and no timer is armed whatever clock the app runs on.
    */
   public passOwedBy(geometry: ScrollGeometry): WindowPassRequest | undefined {
     const previous = this.#lastSample;
@@ -205,7 +183,10 @@ export class ViewportPruneCycle {
     ) {
       return undefined;
     }
-    this.#noteReaderInputAt(geometry.sampledAt);
+    this.#noteReaderInputAt(
+      geometry.inputAt,
+      previous === undefined ? undefined : Math.abs(geometry.scrollTop - previous.scrollTop),
+    );
     const approachPx = TRANSCRIPT_APPROACH_SCREEN_HEIGHTS * screenHeightPx;
     const isNearHead = geometry.scrollTop < approachPx;
     const isNearTail = geometry.distanceFromTailPx < approachPx;
@@ -237,16 +218,30 @@ export class ViewportPruneCycle {
   }
 
   /**
+   * The reader turned the wheel, pressed a key or touched the log at `inputAtMs`, on the timeline
+   * scroll events stamp their samples on: a pause before it ends the gesture, and a sample after a
+   * long gap carries a gesture on only when no input came in the gap, as none does in a fling's
+   * momentum.
+   */
+  public noteReaderInput(inputAtMs: number): void {
+    this.#noteReaderInputAt(inputAtMs, undefined);
+  }
+
+  /** The box's `scrollend` arrived: the scroll sequence that kept the gesture going is over. */
+  public noteScrollEnd(): void {
+    this.#gesture.noteScrollEnd();
+  }
+
+  /**
    * The pass a pull past one end owes with the reader already at that end, where the box cannot
-   * scroll and publishes no sample: a wheel, an arrow key or a drag. The same one stretch per
-   * gesture as an approach, from the log when the window has let that edge go, else from the
-   * history reader.
+   * scroll and publishes no sample: a wheel, an arrow key or a drag, noted first through
+   * `noteReaderInput`. The same one stretch per gesture as an approach, from the log when the
+   * window has let that edge go, else from the history reader.
    */
   public passOwedByPullAt(side: WindowSide): WindowPassRequest | undefined {
     if (this.#lastConditions === undefined || this.#scroll.vetoesPrune()) {
       return undefined;
     }
-    this.#noteReaderInputAt(this.#clock.now());
     if (this.#hasGestureAdmitted) {
       return undefined;
     }
@@ -284,14 +279,16 @@ export class ViewportPruneCycle {
     this.#lastOnScreenRowKeys = [];
   }
 
-  /** Starts a new gesture when the reader's input comes a gesture gap after their last one. */
-  #noteReaderInputAt(inputAtMs: number): void {
-    const lastReaderSampleAtMs = this.#lastReaderSampleAtMs;
-    this.#lastReaderSampleAtMs = inputAtMs;
-    if (
-      lastReaderSampleAtMs === undefined ||
-      inputAtMs - lastReaderSampleAtMs >= TRANSCRIPT_GESTURE_GAP_MS
-    ) {
+  /**
+   * Starts a new gesture when the reader's sample at `inputAtMs`, which moved the box `travelPx`,
+   * or their input, which says no travel, does not carry on the gesture of the last one.
+   */
+  #noteReaderInputAt(inputAtMs: number | undefined, travelPx: number | undefined): void {
+    // A sample no input published (the attach) starts a gesture, as a long pause does.
+    if (inputAtMs === undefined) {
+      this.#gesture.forget();
+      this.#hasGestureAdmitted = false;
+    } else if (!this.#gesture.observe(inputAtMs, travelPx).continuesGesture) {
       this.#hasGestureAdmitted = false;
     }
   }
@@ -335,10 +332,14 @@ export class ViewportPruneCycle {
    * Whether the condition that refused the last pass is gone. Total over
    * `PRUNE_DEFERRAL_REASONS`, so a new reason is a compile error until classified.
    *
-   * `within-share` owes nothing, and the feed re-runs the pass with a new working-row check
-   * whenever the working rows or the reveal's held lanes change, which is when `working-rows`
-   * clears, so those answer `false`. The sets compare rather than test for empty: only a changed
-   * engagement, screen or place helps a stopped cut, and comparing makes the re-ask single-shot.
+   * `within-share` owes nothing. A row stops changing when the log moves (a tool result, a
+   * resolution, a run's end), which re-runs the pass; a changing or held row stops protecting once
+   * the reader moves it past the let-go distance, so `changing-rows` clears with the reader's
+   * place, as the reading floor does, and `held-rows` with the place or the held set. A run group
+   * the cut would split moves only with the log, a fold or the reader's place, which moves the
+   * cut, so `run-group-rows` clears with the place too. The sets compare rather than test for
+   * empty: only a changed engagement, screen or place helps a stopped cut, and comparing makes the
+   * re-ask single-shot.
    */
   #deferralHasCleared(owedBecause: PruneDeferralReason): boolean {
     switch (owedBecause) {
@@ -355,13 +356,17 @@ export class ViewportPruneCycle {
       case "scroll-write":
         return !this.#scroll.vetoesPrune();
       case "reading-floor":
+      case "changing-rows":
+      case "run-group-rows":
         return readingPositionRowKey(this.#readingPosition()) !== this.#lastReadingRowKey;
       case "on-screen-rows":
         return !sameRowKeySet(this.#onScreenRowKeys(), this.#lastOnScreenRowKeys);
       case "held-rows":
-        return !sameRowKeySet(this.#anchor.heldRowKeys(), this.#lastHeldRowKeys);
+        return (
+          readingPositionRowKey(this.#readingPosition()) !== this.#lastReadingRowKey ||
+          !sameRowKeySet(this.#anchor.heldRowKeys(), this.#lastHeldRowKeys)
+        );
       case "within-share":
-      case "working-rows":
         return false;
     }
   }

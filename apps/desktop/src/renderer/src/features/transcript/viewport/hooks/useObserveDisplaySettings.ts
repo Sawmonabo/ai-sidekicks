@@ -8,6 +8,7 @@ import { useEffect } from "react";
 
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import type { ViewportController } from "../controller.js";
+import { declareDisplaySettings } from "../display-settings.js";
 
 /** Tell `controller` the display its window draws on now, and again each time it changes. */
 export function useObserveDisplaySettings(controller: ViewportController): void {
@@ -22,10 +23,7 @@ export function useObserveDisplaySettings(controller: ViewportController): void 
     // A resolution query matches one ratio only, so each change re-arms it on the new one.
     let resolutionQuery: MediaQueryList | undefined;
     const observe = (): void => {
-      controller.observeDisplaySettings(
-        ownerWindow.devicePixelRatio,
-        Number.parseFloat(ownerWindow.getComputedStyle(root).fontSize),
-      );
+      declareDisplaySettings(controller, ownerWindow);
       resolutionQuery?.removeEventListener("change", observe);
       resolutionQuery = ownerWindow.matchMedia(
         `(resolution: ${String(ownerWindow.devicePixelRatio)}dppx)`,

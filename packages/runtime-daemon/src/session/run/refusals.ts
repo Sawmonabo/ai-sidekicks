@@ -7,11 +7,10 @@ import {
 } from "@ai-sidekicks/contracts/run/control";
 import type { RunStateChangeState } from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
-import { isTerminalState } from "./transitions.js";
+import { isTerminalState, type RunState } from "@ai-sidekicks/contracts/run/state";
 
 /** A run id the daemon holds no run for (`run.not_found`). */
 export class RunNotFoundError extends DaemonDomainError {

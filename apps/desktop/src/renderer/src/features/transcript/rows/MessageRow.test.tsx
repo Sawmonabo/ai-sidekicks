@@ -2,9 +2,9 @@
 // cards it hosts, and what its receipt leaves out.
 
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
-import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import {
   inlineCardRegistry,
@@ -17,12 +17,17 @@ import {
 import type { ClipboardContent } from "#shared/preload-api.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { ManualClock } from "#renderer/lib/clock.js";
+import { TEXT_PIECE_LENGTH } from "#renderer/lib/text-pieces.js";
+import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { MessageRow } from "./MessageRow.js";
+import { PreparedBodiesContext } from "./prepared-bodies.js";
 import { classifyTranscriptRow } from "./kind.js";
 import { FootnoteRegistry } from "./markdown/footnotes/registry.js";
+import { prepareRowBodiesForTest } from "./preparation.test-support.js";
 import {
   SAMPLE_RUN_ROW_TIME_SELECTOR,
   sampleRunRow,
+  sampleUserMessageRow,
 } from "#test/helpers/transcript/event-row-samples.js";
 import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
 import {
@@ -53,9 +58,10 @@ function renderMessageCard(
   overrides: {
     readonly id?: string;
     readonly type?: string;
-    readonly summary?: string;
+    /** A person's message: the card is then a `user.message` row whose payload carries it. */
+    readonly message?: string;
     readonly payload?: Readonly<Record<string, unknown>>;
-    readonly content?: HydratedSessionEventContent;
+    readonly content?: TranscriptRowContent;
     readonly liveText?: string;
     readonly inlineCards?: readonly InlineCardProps[];
     readonly replyRowIds?: readonly string[] | undefined;
@@ -63,37 +69,48 @@ function renderMessageCard(
     readonly fixture?: FixtureBridge;
   } = {},
 ): HTMLElement {
-  const row = sampleRunRow({
-    ...(overrides.id === undefined ? {} : { id: overrides.id }),
-    type: overrides.type ?? "assistant.message",
-    ...(overrides.summary === undefined ? {} : { summary: overrides.summary }),
-    ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
-    ...(overrides.content === undefined ? {} : { content: overrides.content }),
-  });
+  const row =
+    overrides.message === undefined
+      ? sampleRunRow({
+          ...(overrides.id === undefined ? {} : { id: overrides.id }),
+          type: overrides.type ?? "assistant.message",
+          ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
+          ...(overrides.content === undefined ? {} : { content: overrides.content }),
+        })
+      : sampleUserMessageRow({
+          ...(overrides.id === undefined ? {} : { id: overrides.id }),
+          message: overrides.message,
+        });
   const rowKind = classifyTranscriptRow(row);
   if (rowKind === undefined) {
     throw new Error(`${row.type} is not a message kind`);
   }
+  const liveText =
+    overrides.liveText === undefined ? undefined : publishedTextOf(overrides.liveText);
+  const preparedBodies = prepareRowBodiesForTest(
+    [row],
+    new Map(liveText === undefined ? [] : [[row.id, liveText]]),
+  ).bodies;
   const { container } = render(
     <FixtureBridgeProvider
       fixture={overrides.fixture ?? createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}
     >
       <RowRevealContext value={overrides.revealChannel}>
-        <MessageRow
-          row={row}
-          rowKind={rowKind}
-          agentHue={undefined}
-          isSuperseded={false}
-          density="expanded"
-          footnotes={new FootnoteRegistry()}
-          thinkingRow={undefined}
-          {...(overrides.liveText === undefined
-            ? {}
-            : { liveText: publishedTextOf(overrides.liveText) })}
-          {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}
-          {...(overrides.replyRowIds === undefined ? {} : { replyRowIds: overrides.replyRowIds })}
-          editControl={undefined}
-        />
+        <PreparedBodiesContext value={preparedBodies}>
+          <MessageRow
+            row={row}
+            rowKind={rowKind}
+            agentHue={undefined}
+            isSuperseded={false}
+            density="expanded"
+            footnotes={new FootnoteRegistry()}
+            thinkingRow={undefined}
+            {...(liveText === undefined ? {} : { liveText })}
+            {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}
+            {...(overrides.replyRowIds === undefined ? {} : { replyRowIds: overrides.replyRowIds })}
+            editControl={undefined}
+          />
+        </PreparedBodiesContext>
       </RowRevealContext>
     </FixtureBridgeProvider>,
     { wrapper: LiveAnnouncerProvider },
@@ -102,13 +119,11 @@ function renderMessageCard(
 }
 
 describe("which body a message renders", () => {
-  it("renders a user's row through the row's own summary", () => {
-    // A user's words reach no `TranscriptEventRow`; the summary is all the wire carries.
-    const container = renderMessageCard({
-      type: "user.message",
-      summary: "please run the tests",
-    });
-    expect(container.textContent).toContain("please run the tests");
+  it("draws a person's whole message from its payload", () => {
+    // Past 4096 characters, so a body drawn from a cut copy of the message would lose its end.
+    const message = `please run the tests ${"and keep going ".repeat(300)}until the end`;
+    const container = renderMessageCard({ message });
+    expect(container.textContent).toContain("until the end");
     expect(container.querySelector(".meridian-markdown")).not.toBeNull();
   });
 
@@ -219,17 +234,52 @@ describe("a message's Copy", () => {
 
     // A person's own message draws its code with no Copy of its own.
     const asked = renderMessageCard({
-      type: "user.message",
-      summary: "Why does this fail?\n\n```ts\nconst a = 1;\n```\n",
+      message: "Why does this fail?\n\n```ts\nconst a = 1;\n```\n",
     });
     expect(asked.querySelector(".meridian-code-block")).not.toBeNull();
     expect(asked.querySelector(".meridian-code-block button")).toBeNull();
   });
 
   it("writes the person's own message as plain text and nothing else", async () => {
-    const copied = await pressCopy({ type: "user.message", summary: "Rename **the reader**" });
+    const copied = await pressCopy({ message: "Rename **the reader**" });
 
     expect(copied).toStrictEqual([{ text: "Rename **the reader**" }]);
+  });
+
+  it("sends a plain-text reply longer than one piece to main in pieces, and writes it whole", async () => {
+    // happy-dom schedules no tasks; the pieces are sent in slices.
+    vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
+    const reply = `Opening ${"a line of output\n".repeat(TEXT_PIECE_LENGTH / 8)}done`;
+    const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
+    const copied: ClipboardContent[] = [];
+    vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
+      copied.push(content);
+    });
+    const pieceLengths: number[] = [];
+    const sendPiece = fixture.bridge.native.sendClipboardPiece.bind(fixture.bridge.native);
+    vi.spyOn(fixture.bridge.native, "sendClipboardPiece").mockImplementation(async (piece) => {
+      pieceLengths.push(piece.piece.length);
+      await sendPiece(piece);
+    });
+    renderMessageCard({
+      id: "reply-long",
+      payload: { contentType: "text/plain" },
+      content: { status: "available", body: reply },
+      replyRowIds: ["reply-long"],
+      fixture,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+
+    await vi.waitFor(() => {
+      expect(copied).toHaveLength(1);
+    });
+    expect(copied).toStrictEqual([{ text: reply }]);
+    expect(pieceLengths.length).toBeGreaterThan(1);
+    expect(pieceLengths.filter((length) => length > TEXT_PIECE_LENGTH)).toStrictEqual([]);
   });
 });
 

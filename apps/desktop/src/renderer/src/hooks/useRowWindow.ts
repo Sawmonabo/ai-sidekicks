@@ -6,6 +6,7 @@
 import { useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef } from "react";
 import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 
+import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
@@ -123,6 +124,7 @@ export function useRowWindow(options: RowWindowOptions): RowWindow {
   useLayoutEffect(() => {
     writeCallerRef.current = undefined;
   });
+  useStopObservingRemovedItems(virtualizer);
 
   const revealRow = useCallback(
     (rowIndex: number) => {

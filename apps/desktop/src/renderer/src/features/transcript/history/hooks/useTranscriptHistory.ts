@@ -1,17 +1,24 @@
 // The React side of the history reader: one reader per session and bridge, its state read as an
-// external store that changes when the reader or a store edge moves, and the one act every
-// trigger asks it through: `Load earlier` and `Try again`, the viewport's approach to an edge, a
-// link reaching back for its message and the look-ahead that keeps rows loaded above the screen.
+// external store that changes when the reader or a store edge moves, the one act every trigger
+// asks a stretch through: `Load earlier` and `Try again`, the viewport's approach to an edge, a
+// link reaching back for its message and the look-ahead that keeps rows loaded above the screen;
+// the jump Home and End read an end of the log through; and the page a long run's window reads
+// back inside the store's window before it opens onto calls the store let go.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
-import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
+import { type ReleasedEventStretch } from "#renderer/store/session/state.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { type WindowSide } from "../../viewport/window-cap.js";
+import { type ReleasedStretchReadDirection } from "#renderer/store/session/transcript-window.js";
+import { type JumpToLogEnd } from "../../viewport/conversation-edge-jump.js";
+import { type WindowSide } from "../../viewport/window-side.js";
+import { queueTaskIn } from "#renderer/lib/queued-task.js";
 import {
   TranscriptHistoryReader,
   type TranscriptHistoryState,
@@ -26,6 +33,20 @@ export interface TranscriptHistory {
    * given; answers whether that edge has more to read. A failed read past it is sent again.
    */
   readonly readStretch: (side: WindowSide, owedHeightPx?: number) => boolean;
+  /**
+   * Asks for a page inside a stretch the store let go between two events it holds, `direction`
+   * from the event that bounds it; answers whether the read started.
+   */
+  readonly readReleasedStretch: (
+    stretch: ReleasedEventStretch,
+    direction: ReleasedStretchReadDirection,
+  ) => boolean;
+  /**
+   * Starts reading the page at one end of the log in place of the held window, calling
+   * `beforePageLands` just before it takes the window's place; answers whether it started, not
+   * when the store holds that end already.
+   */
+  readonly jumpTo: JumpToLogEnd;
   /** Hands the reader the viewport a stretch is measured in, or takes it back. */
   readonly measureWith: (measure: TranscriptStretchMeasure | undefined) => void;
 }
@@ -41,10 +62,14 @@ export function useTranscriptHistory(
   const bridge = usePlatformBridge();
   // The clock moves with the bridge, as the reader does.
   const clock = useBridgeClock();
+  const ownerWindow = useOwnerWindow();
   const held = useSubjectScopedResource(
     bridge,
     sessionStore.sessionId,
-    () => new TranscriptHistoryReader(sessionStore, clock),
+    () =>
+      new TranscriptHistoryReader(sessionStore, clock, (task) => {
+        queueTaskIn(ownerWindow, task);
+      }),
     TRANSCRIPT_HISTORY_READER_DISPOSAL,
   );
   const reader = held.value;
@@ -75,6 +100,12 @@ export function useTranscriptHistory(
             state,
             readStretch: (side: WindowSide, owedHeightPx?: number) =>
               reader.readStretch(side, readPage, owedHeightPx),
+            readReleasedStretch: (
+              stretch: ReleasedEventStretch,
+              direction: ReleasedStretchReadDirection,
+            ) => reader.readReleasedStretch(stretch, direction, readPage),
+            jumpTo: (side: WindowSide, beforePageLands: () => void) =>
+              reader.jumpTo(side, readPage, beforePageLands),
             measureWith,
           },
     [readPage, reader, state, measureWith],

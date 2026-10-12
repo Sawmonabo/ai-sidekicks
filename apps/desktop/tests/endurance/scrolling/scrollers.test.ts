@@ -1,9 +1,9 @@
 // The scrolling budgets: a fling with its momentum and a wheel scroll on each scroller but the
 // conversation, while four agent lanes stream, read from the window's own frame and input records
 // in a DevTools trace (`../trace/scroll.ts`); the conversation's own budgets are
-// `conversation.test.ts`'s. The fling is a touch drag let go at speed, the one fling
-// the DevTools protocol can make; its momentum reaches the window as the browser's inertial scroll
-// updates. The wheel scroll is notches turned several frames apart.
+// `conversation.test.ts`'s. The fling is a touch drag let go at speed, played as touch events
+// (`../../helpers/touch-fling.ts`); its momentum reaches the window as the browser's inertial
+// scroll updates. The wheel scroll is notches turned several frames apart.
 //
 // Each trace gives three readings, every one in refreshes of the display the trace was taken on.
 // The gaps between the frames the window presented while a fling moved the content: one refresh
@@ -22,7 +22,8 @@
 //
 // Every run is a fresh launch, because the scenario's frozen clock does not rewind. The frame-time
 // sampler (`../frame-sampling.ts`) drives the script one step per frame, and each gesture starts
-// once four lanes are mid-turn (`../streaming-lanes.ts`).
+// once four lanes are mid-turn (`../streaming-lanes.ts`). Every launch, each gesture's first among
+// them, is read by the gates and by the hit-test and undrawn-update checks.
 
 import process from "node:process";
 
@@ -32,15 +33,17 @@ import { describe, expect, it } from "vitest";
 import { withLaunchedApp, type AppUnderTest } from "../../helpers/electron/harness.js";
 import { fixtureBundleExists } from "../../helpers/fixture/bundle.js";
 import { openPalette } from "../../helpers/palette-interaction.js";
+import { playTouchFling } from "../../helpers/touch-fling.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../../helpers/launch/body.js";
 import { percentileByNearestRank } from "../../helpers/sample-statistics.js";
-import { MEASURED_RUN_COUNT, sampleFrameTimings } from "../frame-sampling.js";
-import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "../pinned-runner-class.js";
+import { MEASURED_RUN_COUNT, measureLaunches, sampleFrameTimings } from "../frame-sampling.js";
+import { RUNNER_CLASS_DESCRIPTION, gateOnPinnedRunner } from "../pinned-runner-class.js";
 import { findStreamingStretch, peakConcurrentStreamingRuns } from "../streaming-lanes.js";
 import { endTraceRecording, startTraceRecording } from "../trace/recording.js";
 import {
   SCROLL_TRACE_CATEGORIES,
   readScrollTrace,
+  requirePresentedFrameGaps,
   slowestOf,
   type InputToSubmit,
   type ScrollReading,
@@ -78,8 +81,6 @@ const inputToFrameBudget = budgetRegistry.requireBudget(INPUT_TO_FRAME_BUDGET_ID
 
 /** The two gestures the row names. */
 type ScrollGesture = "fling" | "wheel";
-
-const SCROLL_GESTURES: readonly ScrollGesture[] = ["fling", "wheel"];
 
 /** A scroller the row covers, and how a launch puts it on screen with enough in it to scroll. */
 interface ScrollHost {
@@ -218,14 +219,25 @@ describe.skipIf(!bundleIsBuilt)(
         const slowestInputToSubmitByRun: InputToSubmit[] = [];
         const refreshIntervalsMs = new Set<string>();
         const runSummaries: string[] = [];
-        for (const gesture of SCROLL_GESTURES) {
-          for (let runIndex = 1; runIndex <= MEASURED_RUN_COUNT; runIndex += 1) {
-            const run = await scrollOnce(host, gesture, undefined);
+        const flings = await measureLaunches(
+          async () => await scrollOnce(host, "fling", undefined),
+        );
+        const wheels = await measureLaunches(
+          async () => await scrollOnce(host, "wheel", undefined),
+        );
+        const measuredRuns: readonly (readonly [ScrollGesture, readonly ScrollRun[]])[] = [
+          ["fling", flings],
+          ["wheel", wheels],
+        ];
+        for (const [gesture, runs] of measuredRuns) {
+          for (const [runOffset, run] of runs.entries()) {
+            const runIndex = runOffset + 1;
             const label = `${host.name}, ${gesture} ${String(runIndex)}`;
             expectFourLanesThroughGesture(run, label);
             const { reading } = run;
             refreshIntervalsMs.add(reading.refreshIntervalMs.toFixed(3));
             if (gesture === "fling") {
+              requirePresentedFrameGaps(reading);
               flingGapPercentiles.push(
                 percentileByNearestRank(reading.presentedFrameGapsInRefreshes, 0.95),
               );
@@ -236,15 +248,7 @@ describe.skipIf(!bundleIsBuilt)(
               ...reading.slowestInputToSubmit,
               update: `${label}: ${reading.slowestInputToSubmit.update}`,
             });
-            runSummaries.push(
-              `${gesture} ${String(runIndex)}: ${String(reading.movingUpdateCount)} moving, ` +
-                `${String(reading.stillUpdateCount)} still, ` +
-                `${String(reading.mainThreadMissedFrameCount)} of ` +
-                `${String(reading.presentedFrameCount)} frames without the main thread's update, ` +
-                `${String(reading.gestureCount - reading.mainThreadHitTestCount)} of ` +
-                `${String(reading.gestureCount)} gestures found on the compositor, input to ` +
-                `submit up to ${reading.slowestInputToSubmit.durationMs.toFixed(2)} ms`,
-            );
+            runSummaries.push(`${gesture} ${String(runIndex)}: ${describeRun(reading)}`);
           }
         }
         const flingGapP95 = percentileByNearestRank(flingGapPercentiles, 0.5);
@@ -254,8 +258,8 @@ describe.skipIf(!bundleIsBuilt)(
 
         process.stdout.write(
           `[endurance] scrolling ${host.name}: presented-frame gap p95 through a fling ` +
-            `${String(flingGapP95)} refreshes (median of ${String(MEASURED_RUN_COUNT)} runs: ` +
-            `${flingGapPercentiles.join(", ")}) of a ` +
+            `${String(flingGapP95)} refreshes (median of ${String(MEASURED_RUN_COUNT)} fresh ` +
+            `launches: ${flingGapPercentiles.join(", ")}) of a ` +
             `${String(frameGapBudget.limit.canonicalValue)} refresh ceiling ` +
             `(${(frameGapVerdict.utilizationFraction * 100).toFixed(1)} % of budget); ` +
             `slowest input to submit ${slowestInputToSubmit.refreshes.toFixed(2)} refreshes, ` +
@@ -266,36 +270,31 @@ describe.skipIf(!bundleIsBuilt)(
             `ms — ${RUNNER_CLASS_DESCRIPTION}\n`,
         );
 
-        // Not a timing: whether the compositor finds a scroller depends on how it is painted, on
-        // every machine.
+        // Not timings: whether the compositor finds a scroller depends on how it is painted, and
+        // whether a moving update reached a presented frame on how frames are produced, on every
+        // machine.
         expect(
           mainThreadHitTests,
           `${frameGapBudget.label}: gestures on ${host.name} whose scroller the compositor could ` +
             "not find on its own, so each waited for the main thread before it moved",
         ).toStrictEqual([]);
-        if (!isPinnedRunnerClass) {
-          // Not a skip: the instrument ran and the figures are printed. Only the timed
-          // comparisons are withheld, because frame cost off the pinned class describes that
-          // machine.
-          return;
-        }
-        expect(
-          frameGapVerdict.withinBudget,
-          `${frameGapBudget.label}: ${host.name}'s fling presented frames ` +
-            `${String(flingGapP95)} refreshes apart at the 95th percentile, against a ` +
-            `${String(frameGapBudget.limit.canonicalValue)} refresh ceiling`,
-        ).toBe(true);
-        expect(
-          inputVerdict.withinBudget,
-          `${inputToFrameBudget.label}: ${slowestInputToSubmit.update} waited ` +
-            `${slowestInputToSubmit.refreshes.toFixed(2)} refreshes from its input reaching ` +
-            `the window to its frame's submit, against a ` +
-            `${String(inputToFrameBudget.limit.canonicalValue)} refresh ceiling`,
-        ).toBe(true);
         expect(
           undrawnUpdates,
           `${host.name}: scroll updates that moved the content and no presented frame drew`,
         ).toStrictEqual([]);
+        gateOnPinnedRunner(
+          frameGapVerdict,
+          `${frameGapBudget.label}: ${host.name}'s fling presented frames ` +
+            `${String(flingGapP95)} refreshes apart at the 95th percentile, against a ` +
+            `${String(frameGapBudget.limit.canonicalValue)} refresh ceiling`,
+        );
+        gateOnPinnedRunner(
+          inputVerdict,
+          `${inputToFrameBudget.label}: ${slowestInputToSubmit.update} waited ` +
+            `${slowestInputToSubmit.refreshes.toFixed(2)} refreshes from its input reaching ` +
+            `the window to its frame's submit, against a ` +
+            `${String(inputToFrameBudget.limit.canonicalValue)} refresh ceiling`,
+        );
       });
     }
 
@@ -306,6 +305,7 @@ describe.skipIf(!bundleIsBuilt)(
         kind: "blurring-layers",
         layerCount: BLURRING_LAYER_COUNT,
       });
+      requirePresentedFrameGaps(reading);
       const heavyGapP95 = percentileByNearestRank(reading.presentedFrameGapsInRefreshes, 0.95);
       process.stdout.write(
         `[endurance] scrolling under ${String(BLURRING_LAYER_COUNT)} blurring layers: ` +
@@ -397,39 +397,54 @@ async function scrollOnce(
     const cdpSession = await appUnderTest.application.context().newCDPSession(appUnderTest.window);
     await startTraceRecording(cdpSession, SCROLL_TRACE_CATEGORIES);
     const samplingEnd = sampleFrameTimings(appUnderTest, 0).then(() => performance.now());
-    await waitForDeliveredBeats(appUnderTest, FOUR_LANE_BEAT_COUNT);
-    const beatsAtGestureStart = await readDeliveredBeatCount(appUnderTest);
-    if (gesture === "fling") {
-      const waitForScrollEnd = await armScrollEnd(appUnderTest, scroller);
-      await cdpSession.send("Input.synthesizeScrollGesture", {
-        x: pointer.x,
-        y: pointer.y,
-        yDistance: -direction * Math.round(geometry.range * FLING_DRAG_SHARE_OF_RANGE),
-        speed: FLING_SPEED_PX_PER_SECOND,
-        // A synthesized drag stops dead at its last move unless it is let fling.
-        preventFling: false,
-        gestureSourceType: "touch",
-      });
-      await waitForScrollEnd();
-    } else {
-      const travel = direction === 1 ? geometry.range - geometry.offset : geometry.offset;
-      const notchCount = Math.max(
-        1,
-        Math.min(MAX_WHEEL_NOTCH_COUNT, Math.floor(travel / WHEEL_NOTCH_PX)),
-      );
-      await wheelNotches(appUnderTest, scroller, direction, notchCount);
+    // The sampler settles before the window closes on every path, so a failure in the body
+    // reaches the reader alone rather than beside the sampler losing its page.
+    try {
+      await waitForDeliveredBeats(appUnderTest, FOUR_LANE_BEAT_COUNT);
+      const beatsAtGestureStart = await readDeliveredBeatCount(appUnderTest);
+      if (gesture === "fling") {
+        const waitForScrollEnd = await armScrollEnd(appUnderTest, scroller);
+        await playTouchFling(cdpSession, {
+          x: pointer.x,
+          y: pointer.y,
+          distancePx: -direction * Math.round(geometry.range * FLING_DRAG_SHARE_OF_RANGE),
+          speed: FLING_SPEED_PX_PER_SECOND,
+        });
+        await waitForScrollEnd();
+      } else {
+        const travel = direction === 1 ? geometry.range - geometry.offset : geometry.offset;
+        const notchCount = Math.max(
+          1,
+          Math.min(MAX_WHEEL_NOTCH_COUNT, Math.floor(travel / WHEEL_NOTCH_PX)),
+        );
+        await wheelNotches(appUnderTest, scroller, direction, notchCount);
+      }
+      const beatsAtGestureEnd = await readDeliveredBeatCount(appUnderTest);
+      const gestureEndedAtMs = performance.now();
+      const reading = readScrollTrace(await endTraceRecording(cdpSession));
+      const samplingEndedAtMs = await samplingEnd;
+      return {
+        reading,
+        beatsAtGestureStart,
+        beatsAtGestureEnd,
+        didSamplingOutlastGesture: samplingEndedAtMs > gestureEndedAtMs,
+      };
+    } finally {
+      await Promise.allSettled([samplingEnd]);
     }
-    const beatsAtGestureEnd = await readDeliveredBeatCount(appUnderTest);
-    const gestureEndedAtMs = performance.now();
-    const reading = readScrollTrace(await endTraceRecording(cdpSession));
-    const samplingEndedAtMs = await samplingEnd;
-    return {
-      reading,
-      beatsAtGestureStart,
-      beatsAtGestureEnd,
-      didSamplingOutlastGesture: samplingEndedAtMs > gestureEndedAtMs,
-    };
   });
+}
+
+/** What one gesture's trace read, for the printed line. */
+function describeRun(reading: ScrollReading): string {
+  return (
+    `${String(reading.movingUpdateCount)} moving, ${String(reading.stillUpdateCount)} still, ` +
+    `${String(reading.mainThreadMissedFrameCount)} of ` +
+    `${String(reading.presentedFrameCount)} frames without the main thread's update, ` +
+    `${String(reading.gestureCount - reading.mainThreadHitTestCount)} of ` +
+    `${String(reading.gestureCount)} gestures found on the compositor, input to ` +
+    `submit up to ${reading.slowestInputToSubmit.durationMs.toFixed(2)} ms`
+  );
 }
 
 /** The failure line for a reading whose gestures waited for a main-thread hit test, or none. */

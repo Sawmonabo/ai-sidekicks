@@ -1,14 +1,14 @@
 // What each reply row has drawn, kept while the window holds the row. A reply's foot reads its
 // other rows' text from here once that text is gone from where it came: a live lane the engine
-// retired at the turn's end, or a held body whose row was scrolled out of the window's range and
-// unmounted. So the foot, its time and its Copy stay for the rest of the turn, and the Copy takes
-// every row the reply drew.
+// retired when its row left the window, or a held body whose row was scrolled out of the window's
+// range and unmounted. So the foot, its time and its Copy stay for the rest of the turn, and the
+// Copy takes every row the reply drew.
 
 import { Emitter } from "#renderer/lib/emitter.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type PublishedText } from "../reveal/published-text.js";
 import { outputKindOf } from "../rows/bodies/output-kinds.js";
-import { type CopyFlavor } from "./conversation-selection.js";
+import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
 
 /**
  * One reply row's drawn text and the flavor it copies as. The text is the handle the row drew
@@ -27,12 +27,6 @@ export interface DrawnRowText {
 export class DrawnReplyText {
   readonly #drawnByRowId = new Map<string, DrawnRowText>();
   readonly #changes = new Emitter<void>("drawn reply text change");
-  #revision = 0;
-
-  /** Bumped on every change a subscriber hears, so a React read can compare it. */
-  public get revision(): number {
-    return this.#revision;
-  }
 
   /**
    * Records what one reply row drew, in place of what it drew before, which the record then lets
@@ -45,7 +39,7 @@ export class DrawnReplyText {
     const before = this.#drawnByRowId.get(rowId);
     this.#drawnByRowId.set(rowId, drawn);
     if (before?.flavor !== drawn.flavor) {
-      this.#announceChange();
+      this.#changes.emit();
     }
   }
 
@@ -64,17 +58,12 @@ export class DrawnReplyText {
       }
     }
     if (forgotAny) {
-      this.#announceChange();
+      this.#changes.emit();
     }
   }
 
   public subscribe(sink: () => void): Unsubscribe {
     return this.#changes.subscribe(sink);
-  }
-
-  #announceChange(): void {
-    this.#revision += 1;
-    this.#changes.emit();
   }
 }
 

@@ -3,6 +3,7 @@
 import type { ResolvedModifierToken } from "../modifiers.js";
 import type { ChordKeyRendering, KeyboardConvention } from "./contract.js";
 import { PC_KEY_PRINTING, PC_MODIFIER_KEYS } from "./pc-keycaps.js";
+import { PC_SELECTION_KEYS } from "./pc-selection-keys.js";
 
 /**
  * Linux: `$mod` is Control, the Meta key is Super, and the desktop environment's window switcher
@@ -15,6 +16,7 @@ export const LINUX_KEYBOARD_CONVENTION: KeyboardConvention = {
     Meta: { glyph: "Super", spoken: "Super" },
   } satisfies Readonly<Record<ResolvedModifierToken, ChordKeyRendering>>,
   ...PC_KEY_PRINTING,
+  selectionKeys: PC_SELECTION_KEYS,
   reservedChords: [
     {
       chord: "Alt+Tab",

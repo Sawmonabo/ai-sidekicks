@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import { generalRow, runRow } from "../event-rows.test-support.js";
 import {
   SubagentAnchorIndex,
-  deriveSubagentAnchors,
   subagentIdentityKey,
   subagentIdentityOf,
 } from "./subagent-anchors.js";
@@ -20,6 +19,15 @@ function subagentRow(
   runId = "run-a",
 ): ReturnType<typeof runRow> {
   return runRow({ id, sequence, type, runId, position: sequence, payload: { ...SUBAGENT } });
+}
+
+/** The anchors over `rows`, admitted in log order as the window admits them. */
+function anchorsOver(rows: readonly ReturnType<typeof runRow>[]): SubagentAnchorIndex {
+  const index = new SubagentAnchorIndex();
+  for (const row of rows) {
+    index.admit(row);
+  }
+  return index;
 }
 
 describe("the identity — read from three members, never inferred", () => {
@@ -55,18 +63,18 @@ describe("the identity — read from three members, never inferred", () => {
 
 describe("the anchor — first-wins, and every later row of the identity joins it", () => {
   it("does not re-anchor on a completion", () => {
-    const anchors = deriveSubagentAnchors([
+    const anchors = anchorsOver([
       subagentRow("start", 1, "subagent.started"),
       subagentRow("done", 2, "subagent.completed"),
       subagentRow("done-again", 3, "subagent.completed"),
     ]);
-    const anchor = anchors.get("run-a claude sub-1");
+    const anchor = anchors.anchorForRowId("done-again");
     expect(anchor?.anchorRowId).toBe("start");
     expect(anchor?.rowIds).toEqual(["start", "done", "done-again"]);
   });
 
   it("keeps two subagents of one provider apart", () => {
-    const anchors = deriveSubagentAnchors([
+    const anchors = anchorsOver([
       subagentRow("first", 1, "subagent.started"),
       runRow({
         id: "second",
@@ -77,16 +85,18 @@ describe("the anchor — first-wins, and every later row of the identity joins i
         payload: { provider: "claude", subagentId: "sub-2" },
       }),
     ]);
-    expect([...anchors.keys()]).toEqual(["run-a claude sub-1", "run-a claude sub-2"]);
+    expect(["first", "second"].map((rowId) => anchors.anchorForRowId(rowId)?.anchorRowId)).toEqual([
+      "first",
+      "second",
+    ]);
   });
 
   it("answers the per-row question the feed asks", () => {
-    const index = new SubagentAnchorIndex([
+    const index = anchorsOver([
       subagentRow("start", 1, "subagent.started"),
       subagentRow("done", 2, "subagent.completed"),
       runRow({ id: "plain", sequence: 3, type: "user.message", runId: "run-a", position: 3 }),
     ]);
-    expect(index.isAnchorRow("start")).toBe(true);
     expect(index.isAnchoredElsewhere("start")).toBe(false);
     expect(index.isAnchoredElsewhere("done")).toBe(true);
     expect(index.isAnchoredElsewhere("plain")).toBe(false);

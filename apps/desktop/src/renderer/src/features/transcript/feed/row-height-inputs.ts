@@ -1,6 +1,6 @@
 // What the row measurement table estimates an unmeasured row of the feed's list by: the height
-// kind it draws as and the length of its body. Read for the list the feed holds, and for a page
-// of history the feed has not drawn yet.
+// kind it draws as and the length of its body. Read for the list the feed holds, for a page of
+// history the feed has not drawn yet, and for the calls a long run's window is cut in.
 
 import {
   CONTENT_LENGTH_PAYLOAD_KEY,
@@ -9,24 +9,91 @@ import {
 } from "@ai-sidekicks/contracts/event/declared-variants";
 
 import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
+import { readRunWindowEdgeKey, type RunWindowMeasure } from "../runs/call-window.js";
 import { type RowHeightKind } from "../rows/height-kind.js";
 import { classifyTranscriptRow, isFoldableCall } from "../rows/kind.js";
+import { type TranscriptViewportBinding } from "../viewport/hooks/useTranscriptViewport.js";
 import { type TranscriptWindowModel } from "../window/transcript-window.js";
 import { densityFor } from "./fold-state.js";
 
+/** How the feed draws a row of its list, beyond the row itself. */
+export interface RowDrawing {
+  /** The calls the reader folded; every other call with a body draws open. */
+  readonly foldedCallRowIds: ReadonlySet<string>;
+  /** The calls whose output the reader opened whole; every other open call's output draws cut. */
+  readonly openedOutputRowIds: ReadonlySet<string>;
+  /** Whether a row's output is still streaming in. */
+  readonly isRevealing: (rowId: string) => boolean;
+}
+
+/** What a row's height is estimated from: the viewport's table, and how the feed draws the row. */
+export interface RowHeightEstimates extends RowDrawing {
+  readonly estimatedRowHeightPx: TranscriptViewportBinding["estimatedRowHeightPx"];
+}
+
+/** The estimates a long run's window is cut in, with the screen it is measured against. */
+export interface RunWindowEstimates extends RowHeightEstimates {
+  /** The viewport's height in pixels. */
+  readonly screenHeightPx: () => number;
+}
+
+/**
+ * How the feed's latest render draws its list: the window and folds the viewport reads a row's
+ * height kind and body length through. The latest render's rather than the last commit's, since
+ * the viewport's pass runs in the render that brings its rows and lays them out there.
+ */
+export class RenderedRowDrawing implements RowDrawing {
+  /** The height kind a key of the list draws as; stable for the instance. */
+  public readonly heightKindOf = (rowKey: string): RowHeightKind =>
+    rowHeightKindOf(this.#transcriptWindow, this, rowKey);
+
+  /** The body length a key of the list draws; stable for the instance. */
+  public readonly bodyLengthOf = (rowKey: string): number | undefined =>
+    rowBodyLengthOf(this.#transcriptWindow, this.#drawing.isRevealing, rowKey);
+
+  #transcriptWindow: TranscriptWindowModel;
+  #drawing: RowDrawing;
+
+  public constructor(transcriptWindow: TranscriptWindowModel, drawing: RowDrawing) {
+    this.#transcriptWindow = transcriptWindow;
+    this.#drawing = drawing;
+  }
+
+  public get foldedCallRowIds(): ReadonlySet<string> {
+    return this.#drawing.foldedCallRowIds;
+  }
+
+  public get openedOutputRowIds(): ReadonlySet<string> {
+    return this.#drawing.openedOutputRowIds;
+  }
+
+  /** Takes the window and folds a render draws, before the viewport's pass in it reads them. */
+  public adopt(transcriptWindow: TranscriptWindowModel, drawing: RowDrawing): void {
+    this.#transcriptWindow = transcriptWindow;
+    this.#drawing = drawing;
+  }
+
+  public isRevealing(rowId: string): boolean {
+    return this.#drawing.isRevealing(rowId);
+  }
+}
+
 /**
  * The height kind the feed draws a key of its list as, decided as the row dispatch and the tool
- * card decide what to draw: a call draws its body only where it has one and nobody folded it.
- * `isRevealing` names a row whose output is streaming in, which has a body before it has a count.
+ * card decide what to draw: a call draws its body only where it has one and nobody folded it, and
+ * the body's output whole once the reader opened it. A row `isRevealing` names has a body before
+ * it has a count.
  */
 export function rowHeightKindOf(
   transcriptWindow: TranscriptWindowModel,
-  foldedCallRowIds: ReadonlySet<string>,
-  isRevealing: (rowId: string) => boolean,
+  drawing: RowDrawing,
   rowKey: string,
 ): RowHeightKind {
   if (transcriptWindow.runGroupByHeaderKey.has(rowKey)) {
     return "run-group-header";
+  }
+  if (readRunWindowEdgeKey(rowKey, transcriptWindow.runGroupByHeaderKey) !== undefined) {
+    return "run-window-edge";
   }
   const row = transcriptWindow.rowsByKey.get(rowKey);
   if (row === undefined) {
@@ -44,10 +111,13 @@ export function rowHeightKindOf(
   if (kind !== "tool-call") {
     return kind;
   }
-  return isFoldableCall(row, isRevealing(row.id)) &&
-    densityFor(row.id, foldedCallRowIds) === "expanded"
-    ? "tool-call-expanded"
-    : "tool-call-collapsed";
+  if (
+    !isFoldableCall(row, drawing.isRevealing(row.id)) ||
+    densityFor(row.id, drawing.foldedCallRowIds) === "collapsed"
+  ) {
+    return "tool-call-collapsed";
+  }
+  return drawing.openedOutputRowIds.has(row.id) ? "tool-call-output-opened" : "tool-call-expanded";
 }
 
 /**
@@ -70,4 +140,28 @@ export function rowBodyLengthOf(
   return contentLength !== undefined && payload[CONTENT_TRUNCATED_PAYLOAD_KEY] === true
     ? Math.min(contentLength, CONTENT_PAYLOAD_PLAINTEXT_MAX)
     : contentLength;
+}
+
+/** The height, in pixels, the viewport's table estimates a key of `transcriptWindow` at. */
+export function estimatedRowHeightPxOf(
+  transcriptWindow: TranscriptWindowModel,
+  estimates: RowHeightEstimates,
+  rowKey: string,
+): number {
+  return estimates.estimatedRowHeightPx(
+    rowKey,
+    rowHeightKindOf(transcriptWindow, estimates, rowKey),
+    rowBodyLengthOf(transcriptWindow, estimates.isRevealing, rowKey),
+  );
+}
+
+/** The measure a long run's window over `transcriptWindow`'s rows is cut in. */
+export function runWindowMeasureOf(
+  transcriptWindow: TranscriptWindowModel,
+  estimates: RunWindowEstimates,
+): RunWindowMeasure {
+  return {
+    screenHeightPx: estimates.screenHeightPx,
+    rowHeightPx: (rowId) => estimatedRowHeightPxOf(transcriptWindow, estimates, rowId),
+  };
 }

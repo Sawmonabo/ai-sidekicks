@@ -3,11 +3,10 @@
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { RunStateReader } from "../session/run/read.js";
-import { isTerminalState } from "../session/run/transitions.js";
+import { isTerminalState, type RunState } from "@ai-sidekicks/contracts/run/state";
 import type { RuntimeBinding, RuntimeBindingStore } from "./runtime-binding-store.js";
 
 /** One run's live-binding resolution, scoped to the addressed session. */

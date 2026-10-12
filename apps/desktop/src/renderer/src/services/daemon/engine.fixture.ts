@@ -47,17 +47,15 @@ export interface DeliveredNotice {
   readonly payload: unknown;
 }
 
-/** How a `ScenarioEngine` is built: the scenario to play, and optionally its clock. */
+/** How a `ScenarioEngine` is built: the scenario to play. */
 export interface ScenarioEngineOptions {
   readonly scenario: Scenario;
-  /** Defaults to a `ManualClock`, which is what makes the fixture deterministic. */
-  readonly clock?: Clock & { advance?: (deltaMs: number) => void };
 }
 
 /** Plays one scenario on a frozen clock, delivering each beat to subscribers as it falls due. */
 export class ScenarioEngine {
   readonly #scenario: Scenario;
-  readonly #clock: Clock & { advance?: (deltaMs: number) => void };
+  readonly #clock: ManualClock;
   // Who is listening, and the record of what has landed.
   readonly #delivery = new ScenarioDelivery();
   readonly #heldReplies = new HeldReplyQueue(SCENARIO_PENDING_REPLY_CAP);
@@ -77,7 +75,7 @@ export class ScenarioEngine {
     // Not `Date.parse`: it answers `NaN` for a start that is not an instant, so no beat would
     // ever be due. The epoch is a visibly wrong start; silence is an invisible one.
     const declaredStart = parseInstant(options.scenario.startedAtIso);
-    this.#clock = options.clock ?? new ManualClock(declaredStart.epochMilliseconds ?? 0);
+    this.#clock = new ManualClock(declaredStart.epochMilliseconds ?? 0);
   }
 
   public get scenario(): Scenario {
@@ -153,9 +151,7 @@ export class ScenarioEngine {
     }
     const due = beats.slice(this.#deliveredBeatCount, dueEnd);
     this.#elapsedMs = target;
-    if (this.#clock.advance !== undefined) {
-      this.#clock.advance(deltaMs);
-    }
+    this.#clock.advance(deltaMs);
     // Held replies are released before this advance's beats, so a caller cannot observe a beat
     // delivered by an advance whose own reply it is still waiting on. Notices follow replies,
     // since each is pushed by a reply that has already settled.
@@ -165,6 +161,24 @@ export class ScenarioEngine {
       this.#deliveredBeatCount += due.length;
       this.#delivery.admitScriptedBeats(due.map((beat) => beat.event));
     }
+  }
+
+  /**
+   * Run the frame callbacks armed on the frozen clock, as one painted frame runs a real clock's.
+   * Never moves time; a driver calls it once per real frame, after that frame's advance, so the
+   * beats due by then are delivered before the frame work that draws them. A disposed engine
+   * runs nothing, as its window's tree is gone.
+   */
+  public runFrame(): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#clock.runFrame();
+  }
+
+  /** Frame callbacks armed on the frozen clock and not yet run. */
+  public get pendingFrameCount(): number {
+    return this.#clock.pendingFrameCount;
   }
 
   /**

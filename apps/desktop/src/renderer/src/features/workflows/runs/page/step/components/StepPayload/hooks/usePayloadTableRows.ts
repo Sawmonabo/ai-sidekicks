@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useContext, useMemo, useState } from "react";
 
 import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/document";
 
+import { BlockCopyRendererContext } from "#renderer/components/Markdown/block-copy-offer.js";
 import { parseMarkdownDocument } from "../markdown-document-rows.js";
 import { useCodeSpanReader } from "#renderer/services/highlight/hooks/useCodeSpanReader.js";
 import { PayloadTableRows, type PayloadTableRow } from "../rows.js";
@@ -20,9 +21,13 @@ export interface PayloadTableRowsBinding {
  */
 export function usePayloadTableRows(items: readonly WorkflowItem[]): PayloadTableRowsBinding {
   const codeSpanReader = useCodeSpanReader();
+  const renderCopy = useContext(BlockCopyRendererContext);
   const model = useMemo(
-    () => new PayloadTableRows(items, (text) => parseMarkdownDocument(text, codeSpanReader)),
-    [items, codeSpanReader],
+    () =>
+      new PayloadTableRows(items, (text) =>
+        parseMarkdownDocument(text, codeSpanReader, renderCopy),
+      ),
+    [items, codeSpanReader, renderCopy],
   );
   // The model's rows change as strings are read; each read that changed them draws again.
   const [, setReadCount] = useState(0);

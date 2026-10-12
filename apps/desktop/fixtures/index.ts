@@ -9,6 +9,7 @@ import { TRANSCRIPT_STATES_SCENARIO } from "./scenarios/transcript-states.js";
 import { TERMINAL_LEASE_SCENARIO } from "./scenarios/terminal-lease.js";
 import { LONG_CONVERSATION_SCENARIO } from "./scenarios/long-conversation.js";
 import { SUSTAINED_STREAMING_SCENARIO } from "./scenarios/sustained-streaming.js";
+import { LONG_TABLE_HISTORY_SCENARIO } from "./scenarios/long-table-history.js";
 import type { Scenario } from "./scenario.js";
 
 /**
@@ -26,6 +27,7 @@ export const SCENARIOS: readonly Scenario[] = [
   TERMINAL_LEASE_SCENARIO,
   LONG_CONVERSATION_SCENARIO,
   SUSTAINED_STREAMING_SCENARIO,
+  LONG_TABLE_HISTORY_SCENARIO,
 ];
 
 /** Scenario lookup by id. Throws rather than returning a silent default. */

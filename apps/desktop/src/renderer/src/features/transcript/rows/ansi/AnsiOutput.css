@@ -142,12 +142,9 @@
   text-decoration: line-through;
 }
 
-.meridian-transcript-retry {
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-sm);
-  background: transparent;
-  color: var(--meridian-text);
-  font-size: var(--meridian-text-xs);
-  cursor: pointer;
+/* The output's lines, and each chunk of them a block in flow: a line wraps and stands in a chunk
+ * as it would in one block of the whole output. */
+.meridian-ansi__lines,
+.meridian-ansi__chunk {
+  display: block;
 }

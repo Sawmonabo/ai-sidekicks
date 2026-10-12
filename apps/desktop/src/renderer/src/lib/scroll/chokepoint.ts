@@ -3,14 +3,16 @@
 // Geometry is published, never polled, and with no hit test. A container attached with its
 // content height (a virtualizer's total size) costs a scroll event one read, `scrollTop`: the
 // viewport height comes from the resize observation. One attached without it reads
-// `clientHeight` and `scrollHeight` beside the offset. A no-op write is skipped only once the
-// display is known to round offsets.
+// `clientHeight` and `scrollHeight` beside the offset. A write to the offset the box stands at is
+// skipped, and one that rounding would undo only once the display is known to round offsets; a
+// write the frame repeats reads where the box stands from the last sample, so it reads nothing.
 
 import { type Clock } from "#renderer/lib/clock.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { OverflowMeasurementBatch } from "./overflow-measurement-batch.js";
 import { type ScrollGeometry, type GeometryChangeCause } from "./geometry/sample.js";
 import { type ScrollCaller } from "./callers.js";
+import { EasedGlide, type GlideMotion } from "./eased-glide.js";
 import {
   ScrollFrameWrites,
   type ScrollFrameScheduler,
@@ -46,6 +48,8 @@ export class ScrollController {
   readonly #overflowBatch: OverflowMeasurementBatch;
   /** Reactive writes run in phase one of the frame, ahead of reveal work. */
   readonly #frameWrites: ScrollFrameWrites;
+  /** The one eased glide, a write a frame through the same phase. */
+  readonly #easedGlide: EasedGlide;
 
   #scrollContainer: HTMLElement | undefined;
   /** The caller's content height, read in place of `scrollHeight`; absent, the element's are. */
@@ -56,7 +60,7 @@ export class ScrollController {
    * leave out a horizontal scrollbar), so a scroll event reads no box.
    */
   #viewportHeightPx = 0;
-  #onContainerScroll: (() => void) | undefined;
+  #onContainerScroll: ((event: Event) => void) | undefined;
   #overflowSink: OverflowMeasurementSink | undefined;
   #writeDepth = 0;
   #disposed = false;
@@ -65,7 +69,6 @@ export class ScrollController {
     const controllerGeometry = (): ScrollGeometry | undefined =>
       this.#geometryPublisher.lastGeometry;
     this.#geometryPublisher = new ScrollGeometryPublisher({
-      clock: options.clock,
       tailTolerancePx: options.tailTolerancePx,
     });
     this.#overflowBatch = new OverflowMeasurementBatch({
@@ -86,6 +89,10 @@ export class ScrollController {
         this.glideTo(caller, targetScrollTop);
       },
     });
+    this.#easedGlide = new EasedGlide({
+      now: () => options.clock.now(),
+      requestFrame: (caller, computeTarget) => this.#frameWrites.request(caller, computeTarget),
+    });
   }
 
   /**
@@ -105,8 +112,8 @@ export class ScrollController {
     this.#contentHeight = contentHeight;
     // Until the first resize observation, which the platform delivers before the next paint.
     this.#viewportHeightPx = scrollContainer.clientHeight;
-    const onScroll = (): void => {
-      this.#publishGeometry("scroll");
+    const onScroll = (event: Event): void => {
+      this.#publishGeometry("scroll", event.timeStamp);
     };
     this.#onContainerScroll = onScroll;
     scrollContainer.addEventListener("scroll", onScroll, { passive: true });
@@ -136,6 +143,7 @@ export class ScrollController {
   /** Terminal. A disposed controller attaches nothing and arms nothing. */
   public dispose(): void {
     this.detach();
+    this.#easedGlide.stop();
     this.#frameWrites.release();
     this.#overflowBatch.dispose();
     this.#geometryPublisher.clear();
@@ -164,11 +172,21 @@ export class ScrollController {
     if (scrollContainer === undefined || this.#disposed) {
       return undefined;
     }
-    const maximumScrollTop = this.#maximumScrollTop(scrollContainer);
+    const maximumScrollTop = this.#maximumScrollTopOf(scrollContainer);
     const requestedScrollTop = clampToContent(targetScrollTop, maximumScrollTop);
-    const currentScrollTop = scrollContainer.scrollTop;
+    // A write the frame repeats reads the held sample's offset, not the element's: reading or
+    // writing `scrollTop` lays out what the caller just changed, and a write that moves nothing
+    // needs no layout. A sample can trail the box until its scroll event, which moves the next
+    // repeat's target too; a write asked once is never asked again, so it reads the box.
+    const heldScrollTop = isAskedOnce(caller)
+      ? undefined
+      : this.#geometryPublisher.lastGeometry?.scrollTop;
+    const currentScrollTop = heldScrollTop ?? scrollContainer.scrollTop;
     this.#writeCountByCaller.set(caller, (this.#writeCountByCaller.get(caller) ?? 0) + 1);
-    if (this.#quantization.isNoOpWrite(requestedScrollTop, currentScrollTop)) {
+    if (
+      requestedScrollTop === currentScrollTop ||
+      this.#quantization.isNoOpWrite(requestedScrollTop, currentScrollTop)
+    ) {
       return { caller, requestedScrollTop, appliedScrollTop: currentScrollTop, wasSkipped: true };
     }
     // The veto covers the whole glide, publication included: a prune landing while
@@ -193,11 +211,18 @@ export class ScrollController {
 
   /** Glide to the bottom of the log. */
   public glideToTail(caller: ScrollCaller): ScrollWrite | undefined {
+    const maximumScrollTop = this.maximumScrollTop();
+    return maximumScrollTop === undefined ? undefined : this.glideTo(caller, maximumScrollTop);
+  }
+
+  /**
+   * The offset that shows the content's end, read now from the supplied content height or else
+   * the element, so every caller aiming at the tail aims where a write is clamped; `undefined`
+   * while no container is attached.
+   */
+  public maximumScrollTop(): number | undefined {
     const scrollContainer = this.#scrollContainer;
-    if (scrollContainer === undefined) {
-      return undefined;
-    }
-    return this.glideTo(caller, this.#maximumScrollTop(scrollContainer));
+    return scrollContainer === undefined ? undefined : this.#maximumScrollTopOf(scrollContainer);
   }
 
   /**
@@ -217,6 +242,30 @@ export class ScrollController {
    */
   public requestGlide(caller: ScrollCaller, computeTarget: ScrollTargetComputation): boolean {
     return this.#frameWrites.request(caller, computeTarget);
+  }
+
+  /**
+   * Ease toward the offset `computeTarget` answers each frame, one write a frame in phase one,
+   * over `motion`: a target that moves mid-glide restarts the ease from where the box stands, and
+   * a target behind the box is placed at once. A glide for the same caller already under way takes
+   * the new target. Answers whether it runs, which it cannot before a frame is adopted.
+   */
+  public easeTo(
+    caller: ScrollCaller,
+    computeTarget: ScrollTargetComputation,
+    motion: GlideMotion,
+  ): boolean {
+    return this.#easedGlide.start(caller, computeTarget, motion);
+  }
+
+  /** End an eased glide where the box stands. */
+  public stopEasing(): void {
+    this.#easedGlide.stop();
+  }
+
+  /** Whether an eased glide is under way. */
+  public get isEasing(): boolean {
+    return this.#easedGlide.isGliding;
   }
 
   /**
@@ -250,7 +299,7 @@ export class ScrollController {
     return this.#writeCountByCaller.get(caller) ?? 0;
   }
 
-  #maximumScrollTop(scrollContainer: HTMLElement): number {
+  #maximumScrollTopOf(scrollContainer: HTMLElement): number {
     const { contentHeight, viewportHeight } = this.#readHeights(scrollContainer);
     return Math.max(0, contentHeight - viewportHeight);
   }
@@ -276,7 +325,7 @@ export class ScrollController {
    * Read the offset and the heights, publish them, and return the sample; `undefined` when no
    * container is attached. A row rect read here would put a hit test on the scroll path.
    */
-  #publishGeometry(cause: GeometryChangeCause): ScrollGeometry | undefined {
+  #publishGeometry(cause: GeometryChangeCause, inputAt?: number): ScrollGeometry | undefined {
     const scrollContainer = this.#scrollContainer;
     if (scrollContainer === undefined) {
       return undefined;
@@ -284,6 +333,7 @@ export class ScrollController {
     return this.#geometryPublisher.publish(
       { scrollTop: scrollContainer.scrollTop, ...this.#readHeights(scrollContainer) },
       cause,
+      inputAt,
     );
   }
 
@@ -318,6 +368,29 @@ export function scrollForReorderDrag(
   const maximum = Math.max(0, container.scrollHeight - container.clientHeight);
   container.scrollTop = Math.min(Math.max(0, offset), maximum);
   return container.scrollTop;
+}
+
+/**
+ * Whether a caller's write is a person's one ask, which nothing repeats, rather than a write the
+ * frame makes again as the log or the box moves.
+ */
+function isAskedOnce(caller: ScrollCaller): boolean {
+  switch (caller) {
+    case "jump-to-tail":
+    case "jump-to-head":
+    case "find-match":
+    case "message-anchor":
+    case "window-opening":
+    case "row-reveal":
+    case "settings-control-landing":
+      return true;
+    case "follow-tail":
+    case "follow-arriving-text":
+    case "hold-reading-position":
+    case "prune-compensation":
+    case "measurement-compensation":
+      return false;
+  }
 }
 
 function clampToContent(targetScrollTop: number, maximumScrollTop: number): number {

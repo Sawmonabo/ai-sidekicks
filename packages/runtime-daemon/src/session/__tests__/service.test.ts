@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentIdSchema } from "@ai-sidekicks/contracts/agent/definition";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import { type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { ProviderAccountIdSchema } from "@ai-sidekicks/contracts/provider/account/record";
 import { RunIdSchema } from "@ai-sidekicks/contracts/run/id";
 import type { RunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
 import {
@@ -182,11 +183,12 @@ async function appendSessionCreated(events: EventLogService): Promise<StoredEven
   return created;
 }
 
-// Appends a run's `run.queued` with its `runs` row, as admission does.
+// Appends a run's `run.queued` with its `runs` row, as admission does, naming `actor` when given.
 async function appendRunQueued(
   events: EventLogService,
   payload: RunQueuedPayload,
   occurredAt: string,
+  actor: string | null = null,
 ): Promise<void> {
   await events.append(
     {
@@ -195,7 +197,7 @@ async function appendRunQueued(
       occurredAt,
       category: "run_lifecycle",
       type: "run.queued",
-      actor: null,
+      actor,
       payload,
       version: EVENT_VERSION,
     },
@@ -348,7 +350,7 @@ describe("SessionService — readSession", () => {
     ]);
   });
 
-  it("names each live run's agent as its creation names it", async () => {
+  it("names each live run's agent, actor and account as its creation names them", async () => {
     const events = openSessionEventLog();
     await appendSessionCreated(events);
     const leadRunId = RunIdSchema.parse(randomUUID());
@@ -362,8 +364,10 @@ describe("SessionService — readSession", () => {
         runVersion: 0,
         newState: "queued",
         agentId: AgentIdSchema.parse(LEAD_AGENT_ID),
+        admittedProviderAccountId: ProviderAccountIdSchema.parse("account-lead"),
       },
       "2026-04-27T12:01:00.000Z",
+      "device-lead",
     );
     await appendRunQueued(
       events,
@@ -385,6 +389,8 @@ describe("SessionService — readSession", () => {
         state: "queued",
         runVersion: 0,
         agentId: LEAD_AGENT_ID,
+        actor: "device-lead",
+        admittedProviderAccountId: "account-lead",
         touchedAt: "2026-04-27T12:01:00.000Z",
       },
       {

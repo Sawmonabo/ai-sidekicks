@@ -18,6 +18,7 @@ import type {
 } from "@ai-sidekicks/contracts/process-identity";
 
 import type { MachineClockReader } from "../bridge/machine-clock/reader.js";
+import type { ClipboardOperatingSystem } from "../bridge/native/clipboard/host.js";
 import type { InstalledEditors } from "../bridge/native/editors/installed.js";
 import type { ProgramRunner } from "../bridge/native/editors/program-runner.js";
 import type { OwnerOnlyFileOperatingSystem } from "../services/owner-only-file.js";
@@ -50,7 +51,8 @@ export interface ApplicationMenuParts {
 }
 
 /** The facts and readers of one operating system that main's windows, menus and files take. */
-export interface MainOperatingSystem extends OwnerOnlyFileOperatingSystem {
+export interface MainOperatingSystem
+  extends OwnerOnlyFileOperatingSystem, ClipboardOperatingSystem {
   /** The system in Node's spelling, which the app's facts hand every page. */
   readonly platform: SupportedPlatform;
   /** Where the machine's region and 12- or 24-hour clock are read. */

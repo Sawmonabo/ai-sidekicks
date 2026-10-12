@@ -57,15 +57,12 @@ function windowOf(sequences: readonly number[]): SessionBaseState {
 }
 
 /** An entry whose reads answer `script` in turn, and the openings and positions it named. */
-function scriptedEntry(
-  script: readonly (SessionBaseState | Promise<SessionBaseState>)[],
-  applyCoalesceMs: number,
-): {
+function scriptedEntry(script: readonly (SessionBaseState | Promise<SessionBaseState>)[]): {
   readonly entry: OpenSessionEntry;
   readonly clock: ManualClock;
   readonly openings: SessionWindowOpening[];
   readonly positions: SessionStreamPosition[];
-  readonly settle: () => Promise<void>;
+  readonly settle: (advanceMs?: number) => Promise<void>;
 } {
   const clock = new ManualClock(0);
   const openings: SessionWindowOpening[] = [];
@@ -77,14 +74,13 @@ function scriptedEntry(
     clock,
     openingPageLimit,
     offScreenRowLimit,
-    applyCoalesceMs,
     refreshDebounceMs: 20,
   });
   const positions: SessionStreamPosition[] = [];
   entry.subscribeToStreamPosition((position) => positions.push(position));
-  // Past the debounce, then the read's promise turns.
-  async function settle(): Promise<void> {
-    clock.advance(21);
+  // Past the debounce, unless told how far, then the read's promise turns.
+  async function settle(advanceMs = 21): Promise<void> {
+    clock.advance(advanceMs);
     for (let turn = 0; turn < 4; turn += 1) {
       await Promise.resolve();
     }
@@ -98,7 +94,7 @@ describe("OpenSessionEntry — the read places the window and the stream follows
     const repair = new Promise<SessionBaseState>((resolve) => {
       landRepair = resolve;
     });
-    const { entry, openings, positions, settle } = scriptedEntry([baseStateAt(5), repair], 0);
+    const { entry, openings, positions, settle } = scriptedEntry([baseStateAt(5), repair]);
     const sequences = (): number[] =>
       entry.store.snapshot().transcript.map((event) => event.sequence);
 
@@ -147,21 +143,18 @@ describe("OpenSessionEntry — the read places the window and the stream follows
   });
 
   it("repairs a hole from the row before it, dropping what the old stream queued", async () => {
-    const coalesceMs = 50;
-    const { entry, clock, openings, settle } = scriptedEntry(
-      [baseStateAt(5), afterRow(6)],
-      coalesceMs,
-    );
+    const { entry, clock, openings, settle } = scriptedEntry([baseStateAt(5), afterRow(6)]);
     entry.refreshScheduler.request("subscribe");
     await settle();
     entry.store.applyBatch([eventAt(6), eventAt(8)]);
     expect(entry.store.snapshot().degradedCause).toBe("sequence-gap");
 
-    // The old stream's row is still queued when the repair read lands.
-    entry.applyQueue.enqueue(eventAt(50));
+    // The old stream's row is still queued when the repair read lands, inside one frame of it.
     entry.refreshScheduler.request("gap-repull");
-    await settle();
-    clock.advance(coalesceMs);
+    clock.advance(10);
+    entry.applyQueue.enqueue(eventAt(50));
+    await settle(11);
+    clock.runFrame();
     // The stream opened after the row before the hole sends the hole and what followed it.
     entry.applyQueue.enqueueAll([7, 8].map(eventAt));
     entry.applyQueue.flush();
@@ -181,10 +174,11 @@ describe("OpenSessionEntry — the read places the window and the stream follows
   });
 
   it("takes a replay whose stream was refused up after the newest row it folded", async () => {
-    const { entry, openings, positions, settle } = scriptedEntry(
-      [baseStateAt(5), afterRow(6), afterRow(8)],
-      0,
-    );
+    const { entry, openings, positions, settle } = scriptedEntry([
+      baseStateAt(5),
+      afterRow(6),
+      afterRow(8),
+    ]);
     entry.refreshScheduler.request("subscribe");
     await settle();
     entry.store.applyBatch([6, 8, 9, 10].map(eventAt));
@@ -216,7 +210,7 @@ describe("OpenSessionEntry — the read places the window and the stream follows
   });
 
   it("never opens the stream again at any position it refused", async () => {
-    const { entry, openings, settle } = scriptedEntry([baseStateAt(5)], 0);
+    const { entry, openings, settle } = scriptedEntry([baseStateAt(5)]);
     entry.refreshScheduler.request("subscribe");
     await settle();
     entry.store.applyBatch([eventAt(6), eventAt(7)]);
@@ -242,7 +236,6 @@ describe("OpenSessionEntry — the read places the window and the stream follows
       clock,
       openingPageLimit,
       offScreenRowLimit,
-      applyCoalesceMs: 0,
       refreshDebounceMs: 20,
       projectors: {
         "run.starting": (event) => {

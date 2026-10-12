@@ -54,10 +54,10 @@ interface FenceState {
 
 /**
  * What the current block opened as, where that decides whether a blank line ends it. A blank
- * line is not always a boundary: fenced code, indented code and a list item (a loose list) hold
- * blank lines inside themselves, and splitting there would parse each half with no memory of
- * the other. Fences carry their own state; these are the other two. A blockquote needs none,
- * since a `>`-prefixed blank line does not trim to empty.
+ * line is not always a boundary: fenced code or math, indented code and a list item (a loose
+ * list) hold blank lines inside themselves, and splitting there would parse each half with no
+ * memory of the other. Fences carry their own state; these are the other two. A blockquote needs
+ * none, since a `>`-prefixed blank line does not trim to empty.
  */
 type BlockContainer = { readonly kind: "indented-code" } | ListContainer;
 
@@ -131,11 +131,9 @@ export class MarkdownBlockSegmenter {
     }
 
     const settledCount = Math.max(0, this.#completeBlocks.length - MARKDOWN_SETTLE_LAG_BLOCKS);
-    const laggedBlockTexts = this.#completeBlocks
-      .slice(settledCount)
-      .map((block) => cumulativeSource.slice(block.start, block.end));
-    const remainder = cumulativeSource.slice(this.#remainderOffset);
-    const volatileTail = withoutLeadingBlankLines([...laggedBlockTexts, remainder].join(""));
+    // Blocks touch end to start, so the tail is every character after the last settled block.
+    const tailStart = this.#completeBlocks[settledCount - 1]?.end ?? 0;
+    const volatileTail = withoutLeadingBlankLines(cumulativeSource.slice(tailStart));
     return {
       source: cumulativeSource,
       settledBlocks: this.#completeBlocks.slice(0, settledCount),
@@ -177,13 +175,15 @@ export class MarkdownBlockSegmenter {
    * Walks the uncommitted remainder, closing every block boundary it now contains. It starts at
    * `#remainderOffset`, so committed text is never re-examined; fence state is recomputed across
    * the remainder alone, which is sound because a boundary is only committed outside a fence.
-   * On a final text the trailing blank run is a boundary and the unterminated last line is
-   * the author's last line.
+   * A block ends after the first blank line of the run that closes it, and blank lines ahead of a
+   * block's first content line open that block, so the blocks cover the text with no gap. On a
+   * final text the unterminated last line is the author's last line.
    */
   #scanFrom(cumulativeSource: PublishedText, isFinal: boolean): void {
     let openFence: FenceState | undefined;
     let lineStart = this.#remainderOffset;
-    let blankRunStart: number | undefined;
+    // Where the first blank line of the current blank run ends, newline included.
+    let blankRunFirstLineEnd: number | undefined;
     let openContainer: BlockContainer | undefined;
     let blockHasContent = false;
 
@@ -202,7 +202,7 @@ export class MarkdownBlockSegmenter {
         const opener = readFenceMarker(line);
         if (opener !== undefined) {
           openFence = opener;
-          blankRunStart = undefined;
+          blankRunFirstLineEnd = undefined;
           if (!blockHasContent) {
             openContainer = readBlockContainer(line);
             blockHasContent = true;
@@ -211,17 +211,21 @@ export class MarkdownBlockSegmenter {
           continue;
         }
         if (line.trim() === "") {
-          blankRunStart ??= lineStart;
+          blankRunFirstLineEnd ??= nextLineStart;
           lineStart = nextLineStart;
           continue;
         }
-        if (blankRunStart !== undefined && !continuesContainer(openContainer, line)) {
-          // The blank run closed the block before it; the block keeps its trailing blank line
-          // so a re-join reproduces the source.
-          this.#commitBlock(cumulativeSource, blankRunStart + 1);
+        if (
+          blankRunFirstLineEnd !== undefined &&
+          blockHasContent &&
+          !continuesContainer(openContainer, line)
+        ) {
+          // The blank run closed the block before it; the block keeps the run's first blank line
+          // and the rest open the next one.
+          this.#commitBlock(blankRunFirstLineEnd);
           blockHasContent = false;
         }
-        blankRunStart = undefined;
+        blankRunFirstLineEnd = undefined;
         if (!blockHasContent) {
           openContainer = readBlockContainer(line);
           blockHasContent = true;
@@ -236,28 +240,17 @@ export class MarkdownBlockSegmenter {
       lineStart = nextLineStart;
     }
 
-    if (!isFinal) {
-      return;
+    // On the last text no lazy continuation can follow a trailing blank run, so the open block
+    // ends with the text. Blank lines alone after the last block draw nothing and are not kept.
+    if (isFinal && blockHasContent) {
+      this.#commitBlock(cumulativeSource.length);
     }
-    if (blankRunStart !== undefined) {
-      // A trailing blank run is pending only because a lazy continuation could still follow;
-      // on the last text none can. It cannot be set inside a fence: opening one clears it.
-      this.#commitBlock(cumulativeSource, blankRunStart + 1);
-    }
-    this.#commitBlock(cumulativeSource, cumulativeSource.length);
   }
 
-  /**
-   * Closes the block from the remainder's start to `end` and moves the remainder past it. A block
-   * of blank lines alone draws nothing and is not kept.
-   */
-  #commitBlock(cumulativeSource: PublishedText, end: number): void {
-    const start = this.#remainderOffset;
+  /** Closes the block from the remainder's start to `end` and moves the remainder past it. */
+  #commitBlock(end: number): void {
+    this.#completeBlocks.push({ start: this.#remainderOffset, end });
     this.#remainderOffset = end;
-    if (cumulativeSource.slice(start, end).trim() === "") {
-      return;
-    }
-    this.#completeBlocks.push({ start, end });
   }
 }
 
@@ -379,9 +372,12 @@ function leadingIndentColumns(line: string): number {
   return columns;
 }
 
-/** The fence this line opens, or `undefined`. Backticks and tildes, per commonmark. */
+/**
+ * The fence this line opens, or `undefined`: backticks and tildes, per commonmark, and the two or
+ * more dollars that open display math.
+ */
 function readFenceMarker(line: string): FenceState | undefined {
-  const match = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
+  const match = /^ {0,3}(`{3,}|~{3,}|\${2,})/u.exec(line);
   if (match === null) {
     return undefined;
   }
@@ -393,9 +389,9 @@ function readFenceMarker(line: string): FenceState | undefined {
   if (marker === undefined) {
     return undefined;
   }
-  // A backtick fence's info string may not itself contain a backtick, which is the one
-  // case where an apparent opener is ordinary text.
-  if (marker === "`" && line.slice(match.index + run.length).includes("`")) {
+  // A backtick or dollar fence's info string may not itself contain its marker, which is the one
+  // case where an apparent opener is ordinary text, as `$$x$$` on one line is.
+  if ((marker === "`" || marker === "$") && line.slice(match.index + run.length).includes(marker)) {
     return undefined;
   }
   return { marker, runLength: run.length };
@@ -403,7 +399,7 @@ function readFenceMarker(line: string): FenceState | undefined {
 
 /** Whether this line closes the open fence: same marker, at least as long, nothing else. */
 function closesFence(line: string, openFence: FenceState): boolean {
-  const match = /^ {0,3}(`{3,}|~{3,})\s*$/u.exec(line);
+  const match = /^ {0,3}(`{3,}|~{3,}|\${2,})\s*$/u.exec(line);
   const run = match?.[1];
   return run !== undefined && run[0] === openFence.marker && run.length >= openFence.runLength;
 }

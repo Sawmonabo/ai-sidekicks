@@ -18,8 +18,9 @@
 // key or one that ends a text composition.
 //
 // The elements are kept in refs and the shown label in state that changes only when the trigger,
-// its words or its side do, so a pointer sweeping across a page re-renders nothing until it
-// reaches a label.
+// its words or its side do, so a pointer sweeping across a page, or a page scrolling under a still
+// pointer, re-renders nothing until it reaches a label, and reads the label only when the trigger
+// under the pointer changes.
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { isElement } from "@floating-ui/utils/dom";
@@ -90,19 +91,27 @@ export function useShownHoverLabel(
       ) {
         return;
       }
+      const trigger = triggerOf(target);
+      const isSameTrigger = trigger === triggerOf(tracked.pointer);
       tracked.pointer = target;
-      if (tracked.dismissedPointer !== triggerOf(target)) {
+      const isLeavingDismissed =
+        tracked.dismissedPointer !== undefined && tracked.dismissedPointer !== trigger;
+      // Rows scrolling under a still pointer cross many elements a second, mostly of one trigger
+      // or of none; the label changes only when the trigger does or a put-away label is released.
+      if (isSameTrigger && !isLeavingDismissed) {
+        return;
+      }
+      if (isLeavingDismissed) {
         releasePointerDismissal(tracked);
       }
       readShown();
     };
-    // A pointer leaving the window is over nothing of it.
-    const onPointerOut = (event: PointerEvent): void => {
-      if (event.relatedTarget === null) {
-        tracked.pointer = undefined;
-        releasePointerDismissal(tracked);
-        readShown();
-      }
+    // A pointer leaving the window is over nothing of it. Only that leaves the root element, so
+    // no move or scroll inside the page runs this.
+    const onPointerLeave = (): void => {
+      tracked.pointer = undefined;
+      releasePointerDismissal(tracked);
+      readShown();
     };
     const onFocusIn = (event: FocusEvent): void => {
       const { target } = event;
@@ -156,15 +165,16 @@ export function useShownHoverLabel(
       subtree: true,
       attributeFilter: [HOVER_LABEL_TEXT_ATTRIBUTE, HOVER_LABEL_SIDE_ATTRIBUTE],
     });
+    const root = ownerDocument.documentElement;
     ownerDocument.addEventListener("pointerover", onPointerOver);
-    ownerDocument.addEventListener("pointerout", onPointerOut);
+    root.addEventListener("pointerleave", onPointerLeave);
     ownerDocument.addEventListener("focusin", onFocusIn);
     ownerDocument.addEventListener("focusout", onFocusOut);
     ownerDocument.addEventListener("keydown", onKeyDown, { capture: true });
     return () => {
       observer.disconnect();
       ownerDocument.removeEventListener("pointerover", onPointerOver);
-      ownerDocument.removeEventListener("pointerout", onPointerOut);
+      root.removeEventListener("pointerleave", onPointerLeave);
       ownerDocument.removeEventListener("focusin", onFocusIn);
       ownerDocument.removeEventListener("focusout", onFocusOut);
       ownerDocument.removeEventListener("keydown", onKeyDown, { capture: true });

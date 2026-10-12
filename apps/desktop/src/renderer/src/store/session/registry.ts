@@ -155,7 +155,7 @@ export class SessionStoreRegistry {
     return undefined;
   }
 
-  /** Drain a session's queue now, without waiting for its coalescing window. */
+  /** Drain a session's queue now, without waiting for its frame. */
   public flush(sessionId: string): Refusal | undefined {
     const entry = this.#entriesBySessionId.get(sessionId);
     if (entry === undefined) {

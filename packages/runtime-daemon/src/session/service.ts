@@ -16,7 +16,8 @@ import {
   START_OF_LOG_POSITION,
 } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { RunState } from "@ai-sidekicks/contracts/run/state";
+import type { TranscriptRunFacts } from "@ai-sidekicks/contracts/transcript/run-facts";
+import { type RunState, RUN_TERMINAL_STATES } from "@ai-sidekicks/contracts/run/state";
 import type {
   SessionLiveRun,
   SessionReadRequest,
@@ -38,7 +39,7 @@ import { sessionNotFound } from "./not-found.js";
 import { rebuildSession } from "./projector.js";
 import type { DaemonSessionRecord } from "./records.js";
 import { sqlListOf } from "../database/sql-list.js";
-import { RUN_TERMINAL_STATES } from "./run/transitions.js";
+import { TranscriptRunFactsReader } from "../transcript/run-facts.js";
 
 /**
  * A session's read as its row, tags, runs and log answer it, standing events included: everything
@@ -201,6 +202,7 @@ export class SessionService {
   readonly #selectTags: Statement<[string], { readonly tag: string }>;
   readonly #readDamagedFromSequence: DamagedFromSequenceReader;
   readonly #selectLiveRuns: Statement<[SessionBoundedRead], LiveRunRow>;
+  readonly #runFacts: TranscriptRunFactsReader;
   readonly #selectStandingSequences: Statement<[SessionBoundedRead], { readonly sequence: number }>;
 
   /** `readDamagedFromSequence` says where a damaged session's reads stop; none stop when absent. */
@@ -221,6 +223,7 @@ export class SessionService {
       "SELECT tag FROM session_tags WHERE session_id = ? ORDER BY tag_folded",
     );
     this.#selectLiveRuns = reader.prepare(SELECT_LIVE_RUNS_SQL);
+    this.#runFacts = new TranscriptRunFactsReader(reader, readDamagedFromSequence);
     this.#selectStandingSequences = reader.prepare(SELECT_STANDING_SEQUENCES_SQL);
   }
 
@@ -234,15 +237,16 @@ export class SessionService {
    * envelope, and an `Error` for a live run whose creation names no agent.
    */
   readSession(request: SessionReadRequest): SessionLogRead {
-    const { row, tags, liveRuns, standingEvents, head } = this.#reader.transaction(() => ({
-      row: this.#selectRow.get(request.sessionId),
-      tags: this.#selectTags.all(request.sessionId).map((tagRow) => tagRow.tag),
-      liveRuns: this.#selectLiveRuns
-        .all(this.#boundedRead(request.sessionId))
-        .map((runRow) => readLiveRun(runRow, request.sessionId)),
-      standingEvents: this.#readStandingEvents(request.sessionId),
-      head: this.#eventReads.readHead(request.sessionId),
-    }))();
+    const { row, tags, liveRuns, standingEvents, head } = this.#reader.transaction(() => {
+      const snapshotHead = this.#eventReads.readHead(request.sessionId);
+      return {
+        row: this.#selectRow.get(request.sessionId),
+        tags: this.#selectTags.all(request.sessionId).map((tagRow) => tagRow.tag),
+        liveRuns: this.#readLiveRuns(request.sessionId, snapshotHead),
+        standingEvents: this.#readStandingEvents(request.sessionId),
+        head: snapshotHead,
+      };
+    })();
     if (row === undefined) {
       throw sessionNotFound(request.sessionId);
     }
@@ -310,6 +314,21 @@ export class SessionService {
     return { sessionId, readBound: sessionReadBound(this.#readDamagedFromSequence, sessionId) };
   }
 
+  // Each live run with who acts for it and the account it is billed to, folded from the whole log
+  // as a transcript window's run facts are, so a reader knows both before any window names the run.
+  #readLiveRuns(sessionId: SessionId, head: number | undefined): SessionLiveRun[] {
+    const runRows = this.#selectLiveRuns.all(this.#boundedRead(sessionId));
+    const runFacts = this.#runFacts.read(
+      sessionId,
+      runRows.map((runRow) => runRow.run_id),
+      head ?? START_OF_LOG_POSITION,
+    );
+    // `read` answers one facts record per run, in the order the runs were asked for.
+    return runRows.map((runRow, index) =>
+      readLiveRun(runRow, sessionId, runFacts[index] as TranscriptRunFacts),
+    );
+  }
+
   #readStandingEvents(sessionId: SessionId): SessionStandingEvent[] {
     const sequences = this.#selectStandingSequences
       .all(this.#boundedRead(sessionId))
@@ -320,7 +339,11 @@ export class SessionService {
   }
 }
 
-function readLiveRun(row: LiveRunRow, sessionId: SessionId): SessionLiveRun {
+function readLiveRun(
+  row: LiveRunRow,
+  sessionId: SessionId,
+  runFacts: TranscriptRunFacts,
+): SessionLiveRun {
   // Every run is created naming its agent, so one naming none was written outside admission.
   if (row.agent_id === null) {
     throw new Error(`Run ${row.run_id} of session ${sessionId} names no agent`);
@@ -332,6 +355,10 @@ function readLiveRun(row: LiveRunRow, sessionId: SessionId): SessionLiveRun {
     state: row.state,
     runVersion: row.run_version,
     agentId: row.agent_id,
+    ...(runFacts.actor === undefined ? {} : { actor: runFacts.actor }),
+    ...(runFacts.admittedProviderAccountId === undefined
+      ? {}
+      : { admittedProviderAccountId: runFacts.admittedProviderAccountId }),
     touchedAt: row.touched_at,
   };
 }

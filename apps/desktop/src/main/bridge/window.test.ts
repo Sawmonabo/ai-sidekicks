@@ -3,9 +3,10 @@
 // first delivery of a subscription, and a request the schema refuses changes nothing; a member
 // naming one window acts on that window alone, its floor held within the display it is on as it
 // moves and as displays change, the window shrunk to that display when it no longer fits, and
-// brings it forward through main's reveal path; the end of a safe start reaches main's registry; main's ask to reopen a window and its word
-// that a menu scheme was not kept reach the page; and every member, the read of a held navigation
-// request among them, answers the console document alone.
+// brings it forward through main's reveal path and pastes into its document; the end of a safe
+// start reaches main's registry; main's ask to reopen a window and its word that a menu scheme was
+// not kept reach the page; and every member, the read of a held navigation request among them,
+// answers the console document alone.
 
 import { EventEmitter } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -13,7 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { Rectangle } from "electron";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
@@ -42,30 +43,57 @@ const SIDE_WORK_AREA = { x: 1440, y: 0, width: 1024, height: 740 };
 /** The one window open, under its id, the frame name it was opened under. */
 const OPEN_WINDOW_ID = "window/w-2";
 
-let userData: string;
-let appearanceFilePath: string;
-/** What sizing the one open window was asked for, in order: its minimum size, then its bounds. */
-let sizings: (["minimum", number, number] | ["bounds", Rectangle])[];
-/** Where the one open window is, which a case moves. */
-let openWindowBounds: Rectangle;
-/** The one open window's events, which a case fires as Electron would. */
-let openWindowEvents: EventEmitter;
-/** What bringing the one open window forward asked of it, in order. */
-let revealCalls: string[];
-/** Whether the asking document is the console document. */
-let isAskedFromTheConsole: boolean;
-/** How many times main's registry was told the safe start ended. */
-let safeStartEnds: number;
-/** The navigation request main holds for the console document, answered to its first read. */
-let heldNavigationRequest: NavigationRequest | null;
-/** How many times the page read the held navigation request. */
-let navigationRequestReads: number;
-/** The listeners the preload put on each channel main pushes on. */
-let pushListeners: Map<string, (event: unknown, ...args: unknown[]) => void>;
+/** Main's side of one case, which a case reads and moves as Electron and the registry would. */
+interface MainStandIn {
+  readonly appearanceFilePath: string;
+  /** What sizing the one open window was asked for, in order: its minimum size, then its bounds. */
+  readonly sizings: (["minimum", number, number] | ["bounds", Rectangle])[];
+  /** Where the one open window is, which a case moves. */
+  openWindowBounds: Rectangle;
+  /** The one open window's events, which a case fires as Electron would. */
+  readonly openWindowEvents: EventEmitter;
+  /** What bringing the one open window forward asked of it, in order. */
+  readonly revealCalls: string[];
+  /** How many pastes the one open window's document was asked for. */
+  pastes: number;
+  /** Whether the one open window's document is destroyed, as a quit leaves it a moment before. */
+  isDocumentDestroyed: boolean;
+  /** Whether the asking document is the console document. */
+  isAskedFromTheConsole: boolean;
+  /** How many times main's registry was told the safe start ended. */
+  safeStartEnds: number;
+  /** The navigation request main holds for the console document, answered to its first read. */
+  heldNavigationRequest: NavigationRequest | null;
+  /** How many times the page read the held navigation request. */
+  navigationRequestReads: number;
+  /** The listeners the preload put on each channel main pushes on. */
+  readonly pushListeners: Map<string, (event: unknown, ...args: unknown[]) => void>;
+}
 
-/** The preload's `window` member over the mocked IPC, answered by main's real handlers. */
+/**
+ * The preload's `window` member over the mocked IPC, answered by main's real handlers, and main's
+ * side of the case. The appearance file's folder is removed when the test finishes.
+ */
 async function connectWindowBridge() {
   vi.resetModules();
+  const userData = await mkdtemp(path.join(tmpdir(), "sidekicks-window-bridge-test-"));
+  onTestFinished(async () => {
+    await rm(userData, { recursive: true, force: true });
+  });
+  const main: MainStandIn = {
+    appearanceFilePath: path.join(userData, "appearance.json"),
+    sizings: [],
+    openWindowBounds: { x: 100, y: 100, width: 900, height: 600 },
+    openWindowEvents: new EventEmitter(),
+    revealCalls: [],
+    pastes: 0,
+    isDocumentDestroyed: false,
+    isAskedFromTheConsole: true,
+    safeStartEnds: 0,
+    heldNavigationRequest: null,
+    navigationRequestReads: 0,
+    pushListeners: new Map(),
+  };
   const { ipcMain, ipcRenderer, nativeTheme } = (await import("electron")) as unknown as {
     ipcMain: { handle(channel: string, answer: (...args: never[]) => unknown): void };
     ipcRenderer: Parameters<typeof import("#preload/window.js").createWindowBridge>[0];
@@ -80,47 +108,55 @@ async function connectWindowBridge() {
   const operatingSystem = selectMainOperatingSystem(process.platform);
   const appearance = new KeptAppearance({
     file: new AppearanceRecordFile({
-      filePath: appearanceFilePath,
+      filePath: main.appearanceFilePath,
       log: { write: vi.fn() },
       operatingSystem,
     }),
     nativeTheme,
   });
-  const openWindow = Object.assign(new EventEmitter(), {
+  const openWindow = Object.assign(main.openWindowEvents, {
     setMinimumSize: (width: number, height: number) => {
-      sizings.push(["minimum", width, height]);
+      main.sizings.push(["minimum", width, height]);
     },
     // As Electron does, new bounds move the window, which fires `move`.
     setBounds: (bounds: Rectangle) => {
-      sizings.push(["bounds", bounds]);
-      openWindowBounds = bounds;
-      openWindowEvents.emit("move");
+      main.sizings.push(["bounds", bounds]);
+      main.openWindowBounds = bounds;
+      main.openWindowEvents.emit("move");
     },
-    getBounds: () => openWindowBounds,
+    getBounds: () => main.openWindowBounds,
     isMinimized: () => true,
-    restore: () => revealCalls.push("restore"),
-    show: () => revealCalls.push("show"),
-    showInactive: () => revealCalls.push("showInactive"),
-    focus: () => revealCalls.push("focus"),
+    restore: () => main.revealCalls.push("restore"),
+    show: () => main.revealCalls.push("show"),
+    showInactive: () => main.revealCalls.push("showInactive"),
+    focus: () => main.revealCalls.push("focus"),
   });
-  openWindowEvents = openWindow;
   for (const [channel, answer] of Object.entries(
     windowAnswers(
       {
         appearance,
         openWindows: {
-          isConsoleDocument: () => isAskedFromTheConsole,
+          isConsoleDocument: () => main.isAskedFromTheConsole,
           windowWithId: (windowId) =>
             windowId === OPEN_WINDOW_ID ? (openWindow as never) : undefined,
+          documentOfWindow: (windowId) =>
+            windowId === OPEN_WINDOW_ID
+              ? ({
+                  isDestroyed: () => main.isDocumentDestroyed,
+                  paste: () => {
+                    main.pastes += 1;
+                  },
+                } as never)
+              : undefined,
           windowUsedLast: () => undefined,
           setDefaultSizes: () => undefined,
           endSafeStart: () => {
-            safeStartEnds += 1;
+            main.safeStartEnds += 1;
           },
           readNavigationRequest: () => {
-            navigationRequestReads += 1;
-            const held = heldNavigationRequest;
-            heldNavigationRequest = null;
+            main.navigationRequestReads += 1;
+            const held = main.heldNavigationRequest;
+            main.heldNavigationRequest = null;
             return held;
           },
         },
@@ -130,37 +166,24 @@ async function connectWindowBridge() {
   )) {
     ipcMain.handle(channel, answer as never);
   }
-  return createWindowBridge(
+  const windowBridge = createWindowBridge(
     {
       invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
-      on: (channel, listener) => pushListeners.set(channel, listener),
+      on: (channel, listener) => main.pushListeners.set(channel, listener),
     },
     OPEN_WINDOW_ID,
   );
+  return { windowBridge, main };
 }
 
-beforeEach(async () => {
+beforeEach(() => {
   electronMock.reset();
   electronMock.setDisplayWorkAreas([WORK_AREA]);
-  userData = await mkdtemp(path.join(tmpdir(), "sidekicks-window-bridge-test-"));
-  appearanceFilePath = path.join(userData, "appearance.json");
-  sizings = [];
-  openWindowBounds = { x: 100, y: 100, width: 900, height: 600 };
-  revealCalls = [];
-  isAskedFromTheConsole = true;
-  safeStartEnds = 0;
-  heldNavigationRequest = null;
-  navigationRequestReads = 0;
-  pushListeners = new Map();
-});
-
-afterEach(async () => {
-  await rm(userData, { recursive: true, force: true });
 });
 
 describe("the window members", () => {
   it("keep a chosen appearance and hand it to a subscription as its first delivery", async () => {
-    const windowBridge = await connectWindowBridge();
+    const { windowBridge, main } = await connectWindowBridge();
 
     await windowBridge.setAppearance(CHOICE, GROUNDS);
     const deliveries: AppearanceRecord[] = [];
@@ -171,24 +194,26 @@ describe("the window members", () => {
     await vi.waitFor(() => {
       expect(deliveries).toStrictEqual([{ ...CHOICE, grounds: GROUNDS }]);
     });
-    expect(JSON.parse(await readFile(appearanceFilePath, "utf8"))).toStrictEqual({
+    expect(JSON.parse(await readFile(main.appearanceFilePath, "utf8"))).toStrictEqual({
       ...CHOICE,
       grounds: GROUNDS,
     });
   });
 
   it("write no appearance file for an appearance the schema refuses", async () => {
-    const windowBridge = await connectWindowBridge();
+    const { windowBridge, main } = await connectWindowBridge();
 
     await expect(
       windowBridge.setAppearance({ ...CHOICE, textSize: 17 } as never, GROUNDS),
     ).rejects.toThrow('"code": "invalid_value"');
 
-    await expect(readFile(appearanceFilePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(main.appearanceFilePath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it("set a named window's minimum size in whole pixels within its display, and nothing for a closed one", async () => {
-    const windowBridge = await connectWindowBridge();
+    const { windowBridge, main } = await connectWindowBridge();
 
     await windowBridge.setMinimumSize(OPEN_WINDOW_ID, { width: 640.2, height: 480 });
     // Past the display's work area on either side: held to it, so the window still fits.
@@ -196,7 +221,7 @@ describe("the window members", () => {
     // A window no open frame name carries: one that closed while the ask crossed.
     await windowBridge.setMinimumSize("window/w-9", { width: 640, height: 480 });
 
-    expect(sizings).toStrictEqual([
+    expect(main.sizings).toStrictEqual([
       ["minimum", 641, 480],
       ["minimum", WORK_AREA.width, WORK_AREA.height],
     ]);
@@ -204,22 +229,22 @@ describe("the window members", () => {
 
   it("hold a window's floor within the display it moves to, and again as that display changes, shrinking a window that no longer fits", async () => {
     electronMock.setDisplayWorkAreas([WORK_AREA, SIDE_WORK_AREA]);
-    const windowBridge = await connectWindowBridge();
+    const { windowBridge, main } = await connectWindowBridge();
     await windowBridge.setMinimumSize(OPEN_WINDOW_ID, { width: 1200, height: 800 });
 
     // A move within the display holds the same floor, so it sets nothing.
-    openWindowEvents.emit("move");
+    main.openWindowEvents.emit("move");
     // Larger than the smaller display on both sides: the floor is lowered first, then the window
     // is shrunk to the work area, and the move that shrinking fires sets nothing more.
-    openWindowBounds = { x: 1500, y: 40, width: 1300, height: 820 };
-    openWindowEvents.emit("move");
+    main.openWindowBounds = { x: 1500, y: 40, width: 1300, height: 820 };
+    main.openWindowEvents.emit("move");
     electronMock.setDisplayWorkAreas([WORK_AREA, { ...SIDE_WORK_AREA, width: 1100 }]);
     // A display that narrows under the window shrinks it on that side alone.
     electronMock.setDisplayWorkAreas([WORK_AREA, { ...SIDE_WORK_AREA, width: 1000 }]);
-    openWindowBounds = { x: 120, y: 60, width: 900, height: 600 };
-    openWindowEvents.emit("move");
+    main.openWindowBounds = { x: 120, y: 60, width: 900, height: 600 };
+    main.openWindowEvents.emit("move");
 
-    expect(sizings).toStrictEqual([
+    expect(main.sizings).toStrictEqual([
       ["minimum", 1200, 800],
       ["minimum", SIDE_WORK_AREA.width, SIDE_WORK_AREA.height],
       ["bounds", SIDE_WORK_AREA],
@@ -231,16 +256,27 @@ describe("the window members", () => {
   });
 
   it("bring a named window forward through the reveal path, and nothing for a closed one", async () => {
-    const windowBridge = await connectWindowBridge();
+    const { windowBridge, main } = await connectWindowBridge();
 
     await windowBridge.bringForward(OPEN_WINDOW_ID);
     await windowBridge.bringForward("window/w-9");
 
-    expect(revealCalls).toStrictEqual(["restore", "show", "focus"]);
+    expect(main.revealCalls).toStrictEqual(["restore", "show", "focus"]);
+  });
+
+  it("paste into a named window's document, and nothing for a closed one or a destroyed document", async () => {
+    const { windowBridge, main } = await connectWindowBridge();
+
+    await windowBridge.paste(OPEN_WINDOW_ID);
+    await windowBridge.paste("window/w-9");
+    main.isDocumentDestroyed = true;
+    await windowBridge.paste(OPEN_WINDOW_ID);
+
+    expect(main.pastes).toBe(1);
   });
 
   it("end a safe start, and hand the page main's ask to reopen a window and its unkept scheme", async () => {
-    const windowBridge = await connectWindowBridge();
+    const { windowBridge, main } = await connectWindowBridge();
     const reopened: string[] = [];
     const stopHearing = windowBridge.subscribeToReopenRequest((windowId) =>
       reopened.push(windowId),
@@ -251,14 +287,14 @@ describe("the window members", () => {
     });
 
     await windowBridge.endSafeStart();
-    pushListeners.get(REOPEN_WINDOW_CHANNEL)?.({}, OPEN_WINDOW_ID);
-    pushListeners.get(UNKEPT_SCHEME_CHANNEL)?.({}, undefined);
+    main.pushListeners.get(REOPEN_WINDOW_CHANNEL)?.({}, OPEN_WINDOW_ID);
+    main.pushListeners.get(UNKEPT_SCHEME_CHANNEL)?.({}, undefined);
     stopHearing();
     stopHearingUnkept();
-    pushListeners.get(REOPEN_WINDOW_CHANNEL)?.({}, "window/w-9");
-    pushListeners.get(UNKEPT_SCHEME_CHANNEL)?.({}, undefined);
+    main.pushListeners.get(REOPEN_WINDOW_CHANNEL)?.({}, "window/w-9");
+    main.pushListeners.get(UNKEPT_SCHEME_CHANNEL)?.({}, undefined);
 
-    expect(safeStartEnds).toBe(1);
+    expect(main.safeStartEnds).toBe(1);
     expect(reopened).toStrictEqual([OPEN_WINDOW_ID]);
     expect(unkeptSchemes).toBe(1);
   });
@@ -272,8 +308,8 @@ describe("the window members", () => {
       kind: "workflowRun",
       workflowRunId: "0199a0c2-7d3e-7b1f-9c4a-8f3a1b2c5d6f" as WorkflowRunId,
     };
-    heldNavigationRequest = sessionRequest;
-    const windowBridge = await connectWindowBridge();
+    const { windowBridge, main } = await connectWindowBridge();
+    main.heldNavigationRequest = sessionRequest;
     const heard: NavigationRequest[] = [];
 
     // An effect's re-run: the first subscription leaves before main's answer lands.
@@ -284,16 +320,16 @@ describe("the window members", () => {
     });
     // A push that lands while no handler is subscribed waits for the next one.
     stopHearing();
-    pushListeners.get(NAVIGATION_REQUEST_CHANNEL)?.({}, runRequest);
+    main.pushListeners.get(NAVIGATION_REQUEST_CHANNEL)?.({}, runRequest);
     windowBridge.subscribeToNavigationRequest((request) => heard.push(request));
 
     expect(heard).toStrictEqual([sessionRequest, runRequest]);
-    expect(navigationRequestReads).toBe(1);
+    expect(main.navigationRequestReads).toBe(1);
   });
 
   it("answer no document but the console's, on every member", async () => {
-    const windowBridge = await connectWindowBridge();
-    isAskedFromTheConsole = false;
+    const { windowBridge, main } = await connectWindowBridge();
+    main.isAskedFromTheConsole = false;
     const refusal = "Only the console document asks";
 
     await expect(windowBridge.setAppearance(CHOICE, GROUNDS)).rejects.toThrow(refusal);
@@ -303,6 +339,7 @@ describe("the window members", () => {
     await expect(windowBridge.setDefaultSizes({ paneWidths: {} })).rejects.toThrow(refusal);
     await expect(windowBridge.endSafeStart()).rejects.toThrow(refusal);
     await expect(windowBridge.bringForward(OPEN_WINDOW_ID)).rejects.toThrow(refusal);
+    await expect(windowBridge.paste(OPEN_WINDOW_ID)).rejects.toThrow(refusal);
     const { ipcRenderer } = (await import("electron")) as unknown as {
       ipcRenderer: { invoke(channel: string): Promise<unknown> };
     };
@@ -311,8 +348,11 @@ describe("the window members", () => {
       refusal,
     );
 
-    expect(safeStartEnds).toBe(0);
-    expect(revealCalls).toStrictEqual([]);
-    await expect(readFile(appearanceFilePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect(main.safeStartEnds).toBe(0);
+    expect(main.revealCalls).toStrictEqual([]);
+    expect(main.pastes).toBe(0);
+    await expect(readFile(main.appearanceFilePath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 });

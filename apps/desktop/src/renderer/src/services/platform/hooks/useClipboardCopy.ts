@@ -4,23 +4,36 @@ import type {
   ClipboardCopy,
   ClipboardCopyStatus,
 } from "#renderer/components/CopyButton/CopyButton.js";
-import type { ClipboardContent } from "#shared/preload-api.js";
 import type { ScheduledHandle } from "#renderer/lib/clock.js";
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { TRANSIENT_STATUS_DURATION_MS } from "#renderer/lib/transient-status.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+import {
+  copyOnceBuilt,
+  copyReadyContent,
+  type PiecedClipboardContent,
+  type ReadyClipboardContent,
+} from "../clipboard/late-copy.js";
 import { useClock } from "./useClock.js";
 import { usePlatformBridge } from "./usePlatformBridge.js";
 
 /**
  * Put `content` on the system clipboard through main, in one write of its flavors, and hold the
  * outcome for one transient-status duration. A function is called only when the copy is asked
- * for, for content that costs to build. A refused copy ends as `failed`, which the control says in
- * place; `onSettled` hears each outcome of a copy whose control is still mounted.
+ * for, for content that costs to build, and may answer later, as a picture's encoding does, any
+ * text then held in pieces. Content that answers later, and text too long for one message, is
+ * written only while the clipboard holds what it held when the copy was asked for, so a newer
+ * copy made meanwhile, in this app or another, stands and this one settles nothing. A refused
+ * copy, or content that could not be built, ends as `failed`, which the control says in place,
+ * its cause recorded in the window's diagnostics; `onSettled` hears each outcome of a copy whose
+ * control is still mounted.
  */
 export function useClipboardCopy(
-  content: ClipboardContent | (() => ClipboardContent),
+  content: ReadyClipboardContent | (() => ReadyClipboardContent | Promise<PiecedClipboardContent>),
   onSettled?: (outcome: Exclude<ClipboardCopyStatus, "rest">) => void,
 ): ClipboardCopy {
   const bridge = usePlatformBridge();
+  const ownerWindow = useOwnerWindow();
   const clock = useClock();
   const [status, setStatus] = useState<ClipboardCopyStatus>("rest");
   const resetHandle = useRef<ScheduledHandle | undefined>(undefined);
@@ -55,11 +68,20 @@ export function useClipboardCopy(
   };
 
   const copy = (): void => {
-    bridge.native.copyToClipboard(typeof content === "function" ? content() : content).then(
-      () => {
-        settle("copied");
+    const built = typeof content === "function" ? content() : content;
+    // Content ready now is written at once; content still being built is written once it is.
+    const written =
+      built instanceof Promise
+        ? copyOnceBuilt(bridge, ownerWindow, async (write) => write(await built))
+        : copyReadyContent(bridge, ownerWindow, built);
+    written.then(
+      (isWritten) => {
+        if (isWritten) {
+          settle("copied");
+        }
       },
-      () => {
+      (failure: unknown) => {
+        recordRejectedRequest("services/platform/useClipboardCopy", "copy-failed", failure);
         settle("failed");
       },
     );

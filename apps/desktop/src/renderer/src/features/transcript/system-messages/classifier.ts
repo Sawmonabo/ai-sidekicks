@@ -46,16 +46,4 @@ export class SystemMessageClassifier {
       ? undefined
       : { kind, label, rowId: row.id, timestamp: row.timestamp };
   }
-
-  /** Every system message in one loaded window, in log order. */
-  public systemMessages(rows: readonly TranscriptEventRow[]): readonly SystemMessageReading[] {
-    const systemMessages: SystemMessageReading[] = [];
-    for (const row of rows) {
-      const systemMessage = this.classify(row);
-      if (systemMessage !== undefined) {
-        systemMessages.push(systemMessage);
-      }
-    }
-    return systemMessages;
-  }
 }

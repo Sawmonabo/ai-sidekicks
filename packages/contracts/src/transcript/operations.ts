@@ -3,7 +3,8 @@
 // the caller is the authenticated connection.
 import { z } from "zod";
 
-import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
+import { jsonUtf8ByteLength } from "../jsonrpc/byte-length.js";
+import { PAGE_MAX_BYTES, requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import { RunIdSchema, type RunId } from "../run/id.js";
 import { RunStateSchema, type RunState } from "../run/state.js";
 import { wireFreeFormString } from "../free-form-string.js";
@@ -13,6 +14,7 @@ import { type EventCursor } from "../session/event-cursor.js";
 import { refuseSelfParentingRun } from "./child-run-summary.js";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "./limits.js";
 import { TranscriptReadRowSchema, type TranscriptReadRow } from "./row.js";
+import { TranscriptRunFactsSchema, type TranscriptRunFacts } from "./run-facts.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**
@@ -74,11 +76,22 @@ export const TranscriptReadRequestSchema: z.ZodType<TranscriptReadRequest, Trans
  * One read window, discriminated on `hasMore`. The continuing arm requires `nextCursor`, so a
  * consumer that narrows on `hasMore` reaches a present cursor with no assertion. The terminal
  * arm may still carry one: it says where the window ended, which a client needs to open the
- * live stream (`session.subscribe` with `afterCursor`) from exactly there.
+ * live stream (`session.subscribe` with `afterCursor`) from exactly there. `runs` carries the
+ * facts of each run the entries name, folded over the whole log, one per run.
  */
 export type TranscriptReadResponse =
-  | { entries: TranscriptReadRow[]; hasMore: true; nextCursor: EventCursor }
-  | { entries: TranscriptReadRow[]; hasMore: false; nextCursor?: EventCursor | undefined };
+  | {
+      entries: TranscriptReadRow[];
+      runs: TranscriptRunFacts[];
+      hasMore: true;
+      nextCursor: EventCursor;
+    }
+  | {
+      entries: TranscriptReadRow[];
+      runs: TranscriptRunFacts[];
+      hasMore: false;
+      nextCursor?: EventCursor | undefined;
+    };
 
 // A continuing page carries at least one row: `hasMore: true` with no entries would make a
 // client re-ask the same cursor forever. A terminal page may be empty, the honest answer to a
@@ -92,12 +105,64 @@ const terminalTranscriptEntriesSchema = z
   .array(TranscriptReadRowSchema)
   .max(TRANSCRIPT_READ_LIMIT_MAX);
 
-/** Parses a {@link TranscriptReadResponse}; entries also fit one frame and run oldest to newest. */
+// At most one run per entry.
+const transcriptRunFactsListSchema = z
+  .array(TranscriptRunFactsSchema)
+  .max(TRANSCRIPT_READ_LIMIT_MAX);
+
+/**
+ * `runs` holds one fact per run the entries name and no other: a run named twice would leave a
+ * client to choose, a fact no entry names is a run the window never shows, and an entry whose
+ * run has none would draw its header from nothing.
+ */
+const requireOneFactPerNamedRun = (
+  response: { entries: readonly TranscriptReadRow[]; runs: readonly TranscriptRunFacts[] },
+  issueContext: z.RefinementCtx,
+): void => {
+  const namedRunIds = new Set<string>();
+  for (const entry of response.entries) {
+    if (entry.kind !== "general") {
+      namedRunIds.add(entry.runId);
+    }
+  }
+  const factRunIds = new Set<string>();
+  response.runs.forEach((facts, index) => {
+    if (factRunIds.has(facts.runId)) {
+      issueContext.addIssue({
+        code: "custom",
+        path: ["runs", index, "runId"],
+        message: `runs names run ${facts.runId} twice`,
+      });
+    } else if (!namedRunIds.has(facts.runId)) {
+      issueContext.addIssue({
+        code: "custom",
+        path: ["runs", index, "runId"],
+        message: `runs carries run ${facts.runId}, which no entry names`,
+      });
+    }
+    factRunIds.add(facts.runId);
+  });
+  response.entries.forEach((entry, index) => {
+    if (entry.kind !== "general" && !factRunIds.has(entry.runId)) {
+      issueContext.addIssue({
+        code: "custom",
+        path: ["entries", index, "runId"],
+        message: `entry names run ${entry.runId}, which runs carries no facts for`,
+      });
+    }
+  });
+};
+
+/**
+ * Parses a {@link TranscriptReadResponse}; entries and runs together fit one frame, entries run
+ * oldest to newest, and runs holds one fact per run the entries name.
+ */
 export const TranscriptReadResponseSchema: z.ZodType<TranscriptReadResponse> = z
   .discriminatedUnion("hasMore", [
     z
       .object({
         entries: continuingTranscriptEntriesSchema,
+        runs: transcriptRunFactsListSchema,
         hasMore: z.literal(true),
         nextCursor: EventCursorSchema,
       })
@@ -105,14 +170,22 @@ export const TranscriptReadResponseSchema: z.ZodType<TranscriptReadResponse> = z
     z
       .object({
         entries: terminalTranscriptEntriesSchema,
+        runs: transcriptRunFactsListSchema,
         hasMore: z.literal(false),
         nextCursor: EventCursorSchema.optional(),
       })
       .strict(),
   ])
   .superRefine((response, issueContext) => {
-    requireMemberToRideOneFrame(response.entries, "entries", issueContext);
+    // The facts ride in the same frame, so the rows have the budget left beside them.
+    requireMemberToRideOneFrame(
+      response.entries,
+      "entries",
+      issueContext,
+      PAGE_MAX_BYTES - jsonUtf8ByteLength(response.runs),
+    );
     requireNondecreasingSequence(response.entries, "entries", issueContext);
+    requireOneFactPerNamedRun(response, issueContext);
   });
 
 // transcript.reasoningSurfaceRead

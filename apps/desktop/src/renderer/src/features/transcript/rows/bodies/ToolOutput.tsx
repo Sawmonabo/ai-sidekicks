@@ -1,6 +1,6 @@
 // A tool's result, in the same three states as the reply. A tool payload declares no media type,
 // so its bytes decide: an escape means command output, and anything else is shown verbatim, every
-// line as the program printed it.
+// line as the program printed it, cut at a share of the visible flow until its opening is pressed.
 
 import { MachineBody, type MachineBodyProps } from "./MachineBody.js";
 import { toolOutputKindOf } from "./output-kinds.js";

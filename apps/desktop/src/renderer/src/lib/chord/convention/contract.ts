@@ -3,6 +3,7 @@
 // module per system supplies it, and `./selection.ts` picks one by platform.
 
 import type { SpelledModifierToken } from "../modifiers.js";
+import type { SelectionKeys } from "./selection-keys.js";
 
 /**
  * One key of a chord in both forms a person can receive it: printed and spoken.
@@ -37,6 +38,8 @@ export interface KeyboardConvention {
   readonly printPress: (modifierGlyphs: readonly string[], keyGlyph: string) => string;
   /** The chords the system takes on a default install, each in the one spelling. */
   readonly reservedChords: readonly ReservedChord[];
+  /** The keys that extend a selection in read-only text, select all, and reach a view's ends. */
+  readonly selectionKeys: SelectionKeys;
   /** A modifier the system keeps for itself in every chord, with why; absent where none is. */
   readonly reservedModifier?: {
     readonly modifier: SpelledModifierToken;

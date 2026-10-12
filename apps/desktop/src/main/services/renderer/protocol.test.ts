@@ -30,7 +30,10 @@ vi.mock("electron", () => ({
 import { buildLoadFailureUrl, LOAD_FAILURE_PATH } from "../../windows/load-failure/document.js";
 import type { MainDiagnosticEntry } from "../diagnostic-log.js";
 import { handleRendererRequest } from "./protocol.js";
-import { RENDERER_CONTENT_SECURITY_POLICY } from "./scheme.js";
+import {
+  DIAGRAM_WORKER_CONTENT_SECURITY_POLICY,
+  RENDERER_CONTENT_SECURITY_POLICY,
+} from "./scheme.js";
 
 /** The kept appearance record, on the dark scheme. */
 const RECORD_KEPT = {
@@ -72,6 +75,9 @@ beforeAll(async () => {
   await writeFile(path.join(rendererRoot, "bundle.js.map"), '{"sources":["secret.ts"]}', "utf8");
   await writeFile(path.join(rendererRoot, "index.html"), CONSOLE_DOCUMENT, "utf8");
   await writeFile(path.join(rendererRoot, "about.html"), CONSOLE_DOCUMENT, "utf8");
+  await mkdir(path.join(rendererRoot, "assets"));
+  await writeFile(path.join(rendererRoot, "assets", "diagram-worker-Ab_1-x.js"), "", "utf8");
+  await writeFile(path.join(rendererRoot, "assets", "entry-Ab_1-x.js"), "", "utf8");
 });
 
 afterAll(async () => {
@@ -106,6 +112,29 @@ describe("the locked response policy", () => {
     expect(response.status).toBe(404);
     expect(await response.text()).toBe("");
     expect(response.headers.get("content-security-policy")).toBe(RENDERER_CONTENT_SECURITY_POLICY);
+  });
+
+  it("lets only the diagram worker's script compile WebAssembly", async () => {
+    const policyOf = async (url: string): Promise<string | null> => {
+      electronMock.netFetch.mockResolvedValueOnce(new Response(CONSOLE_DOCUMENT));
+      const response = await handleRendererRequest(rendererRoot, url, RECORD_KEPT, LOG);
+      expect(response.status).toBe(200);
+      return response.headers.get("content-security-policy");
+    };
+
+    expect(await policyOf("sidekicks-renderer://app/assets/diagram-worker-Ab_1-x.js")).toBe(
+      DIAGRAM_WORKER_CONTENT_SECURITY_POLICY,
+    );
+    expect(DIAGRAM_WORKER_CONTENT_SECURITY_POLICY).toContain(
+      "script-src 'self' 'wasm-unsafe-eval';",
+    );
+    expect(await policyOf("sidekicks-renderer://app/assets/entry-Ab_1-x.js")).toBe(
+      RENDERER_CONTENT_SECURITY_POLICY,
+    );
+    expect(await policyOf("sidekicks-renderer://app/index.html")).toBe(
+      RENDERER_CONTENT_SECURITY_POLICY,
+    );
+    expect(RENDERER_CONTENT_SECURITY_POLICY).not.toContain("wasm-unsafe-eval");
   });
 
   it("serves an empty body for a refused source map that IS on disk", async () => {

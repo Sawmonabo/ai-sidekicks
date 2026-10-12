@@ -5,7 +5,8 @@
 //
 // The store holds a window of the session's log, not the log: a read places it, the reader's pages
 // grow it at either edge (`transcript-window.ts`), `releaseOutside` lets go of what lies far from
-// the reading position, and `releaseBeyondNewest` bounds a session no screen shows. The stream
+// the reading position and of stretches inside it no one draws, `readReleasedStretch` takes one
+// such stretch back, and `releaseBeyondNewest` bounds a session no screen shows. The stream
 // keeps folding into the entities, the waiting-on-person register and the standing events whether
 // or not the window's tail follows it, so what is outstanding, and every fact a standing event
 // carries, outlives every row the window let go.
@@ -23,6 +24,7 @@
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { TranscriptBodyReadResponse } from "@ai-sidekicks/contracts/transcript/content";
 
 import {
   readPerformanceMeterTime,
@@ -38,16 +40,26 @@ import {
   type SessionDegradedCause,
 } from "./degradation.js";
 import {
+  admitFullBody,
   foldEarlierWindowPage,
   foldLaterWindowPage,
+  foldLogEndPage,
+  foldReleasedStretchPage,
   releaseBeyondNewest,
   releaseOutsideKept,
+  releasedStretchesHeldIn,
   type EarlierWindowMerge,
   type LaterWindowMerge,
+  type LogEndPageMerge,
+  type ReleasedStretchBounds,
+  type ReleasedStretchMerge,
+  type ReleasedStretchReadDirection,
   type TranscriptPageDependencies,
+  type TranscriptWindowPage,
 } from "./transcript-window.js";
 import { EntityProjectionRunner } from "./entities/projection-runner.js";
 import { mergeUpsert, type SessionPartitions } from "./entities/partitions.js";
+import { admitKeptRunFacts, admitServedRunFacts } from "./events/run/facts.js";
 import {
   emptyPartitions,
   type EntityProjectorTable,
@@ -78,11 +90,11 @@ import {
   repairResumeRowCursor,
   uninitializedState,
   withDegradedCause,
+  type ReleasedEventStretch,
   type RepairReopening,
   type RepairResumePoint,
   type SessionBaseState,
   type SessionStoreState,
-  type TranscriptWindowEdge,
 } from "./state.js";
 import { NOTHING_APPLIED, type ApplyOutcome } from "./apply/outcome.js";
 
@@ -356,20 +368,16 @@ export class SessionStore {
 
   /**
    * Adds a backward `transcript.read` page before the head; returns what it admitted. The head
-   * takes `edge`, the page's own, once the page admitted rows or carried none.
+   * takes the page's own edge once the page admitted rows or carried none.
    *
    * Not a second apply chokepoint: no sequence reconciled, no projector run, no stream cursor
-   * moved, and the degraded flag neither set nor cleared. It does advance the waiting-on-person
-   * register, since a recovered row is what a page is worth to it.
+   * moved, and the degraded flag neither set nor cleared. It does admit the page's run facts, and
+   * advance the waiting-on-person register, since a recovered row is what a page is worth to it.
    */
-  public prependEarlierEvents(
-    events: readonly ProjectedSessionEvent[],
-    edge: TranscriptWindowEdge,
-  ): EarlierWindowMerge {
+  public prependEarlierEvents(page: TranscriptWindowPage): EarlierWindowMerge {
     const { merge, nextState } = foldEarlierWindowPage(
       this.#store.getState(),
-      events,
-      edge,
+      page,
       this.#pageDependencies,
     );
     if (nextState !== undefined) {
@@ -379,19 +387,15 @@ export class SessionStore {
   }
 
   /**
-   * Adds a forward page after a detached tail; returns what it admitted. When `edge.hasMore` is
-   * false, or the window reaches what the stream has delivered, the tail goes live again; the
+   * Adds a forward page after a detached tail; returns what it admitted. When its edge has no more
+   * beyond it, or the window reaches what the stream has delivered, the tail goes live again; the
    * open session then reopens the stream after the newest row when the stream ran past it.
    * Not a second apply chokepoint, on the terms of {@link prependEarlierEvents}.
    */
-  public appendLaterEvents(
-    events: readonly ProjectedSessionEvent[],
-    edge: TranscriptWindowEdge,
-  ): LaterWindowMerge {
+  public appendLaterEvents(page: TranscriptWindowPage): LaterWindowMerge {
     const { merge, nextState } = foldLaterWindowPage(
       this.#store.getState(),
-      events,
-      edge,
+      page,
       this.#pageDependencies,
     );
     if (nextState !== undefined) {
@@ -401,17 +405,86 @@ export class SessionStore {
   }
 
   /**
-   * Lets go of the events outside `[firstKeptCursor, lastKeptCursor]` (by sequence), recording
-   * each edge so a later read brings them back; letting go past the tail detaches it. A cursor the
-   * window does not hold, as after a read replaced it, lets go of nothing.
+   * Puts a page read at one end of the log, its start or its end, in place of the whole window;
+   * returns what it admitted. At the start the head closes; at the end the head takes the page's
+   * own edge, and the tail goes live when the page reaches what the stream has delivered. Not a
+   * second apply chokepoint, on the terms of {@link prependEarlierEvents}.
    */
-  public releaseOutside(firstKeptCursor: EventCursor, lastKeptCursor: EventCursor): void {
-    const next = releaseOutsideKept(this.#store.getState(), firstKeptCursor, lastKeptCursor);
+  public replaceWithLogEndPage(
+    logEnd: "start" | "end",
+    page: TranscriptWindowPage,
+  ): LogEndPageMerge {
+    const { merge, nextState } = foldLogEndPage(
+      this.#store.getState(),
+      page,
+      logEnd,
+      this.#pageDependencies,
+    );
+    if (nextState !== undefined) {
+      this.#store.setState(nextState);
+      recordStoreSize(this.#sessionId, nextState.transcript.length);
+    }
+    return merge;
+  }
+
+  /**
+   * Lets go of the events outside `[firstKeptCursor, lastKeptCursor]` (by sequence), and of those
+   * strictly inside each of `releasedBetween`, recording each edge and stretch so a later read
+   * brings them back; letting go past the tail detaches it. A cursor the window does not hold, as
+   * after a read replaced it, lets go of nothing.
+   */
+  public releaseOutside(
+    firstKeptCursor: EventCursor,
+    lastKeptCursor: EventCursor,
+    releasedBetween: readonly ReleasedStretchBounds[] = [],
+  ): void {
+    const next = releaseOutsideKept(
+      this.#store.getState(),
+      firstKeptCursor,
+      lastKeptCursor,
+      releasedBetween,
+    );
     if (next === undefined) {
       return;
     }
     this.#store.setState(next);
     recordStoreSize(this.#sessionId, next.transcript.length);
+  }
+
+  /**
+   * Adds a page read inside the released stretch `stretch`, `direction` from the event that bounds
+   * it; returns what it admitted. Not a second apply chokepoint, on the terms of
+   * {@link prependEarlierEvents}.
+   */
+  public readReleasedStretch(
+    stretch: ReleasedEventStretch,
+    direction: ReleasedStretchReadDirection,
+    page: TranscriptWindowPage,
+  ): ReleasedStretchMerge {
+    const { merge, nextState } = foldReleasedStretchPage(
+      this.#store.getState(),
+      stretch,
+      direction,
+      page,
+      this.#pageDependencies,
+    );
+    if (nextState !== undefined) {
+      this.#store.setState(nextState);
+      recordStoreSize(this.#sessionId, nextState.transcript.length);
+    }
+    return merge;
+  }
+
+  /**
+   * Puts a large body read in full on the held event `eventId`, in place of its size; an event the
+   * window has let go of, or one holding no large body, is left as it is. Not a second apply
+   * chokepoint, on the terms of {@link prependEarlierEvents}.
+   */
+  public admitFullBody(eventId: string, body: TranscriptBodyReadResponse): void {
+    const next = admitFullBody(this.#store.getState(), eventId, body);
+    if (next !== undefined) {
+      this.#store.setState(next);
+    }
   }
 
   /**
@@ -462,7 +535,7 @@ export class SessionStore {
     return establishedState({
       sessionId: this.#sessionId,
       baseState,
-      partitions,
+      partitions: admitServedRunFacts(partitions, baseState.runs ?? []),
       isProjectionFailed,
       cursor: this.#reconciler.cursor,
       orderedTranscript: transcript,
@@ -501,7 +574,9 @@ export class SessionStore {
   /**
    * Replay from the window's head: the stream reopened before the window's oldest row sends every
    * row it holds again, folded onto the read's entities, which stand for the runs no row of the
-   * window touches. A read naming no sequence places the replay at the first row it sends.
+   * window touches, and the run facts the window holds, which the rows sent again cannot restore
+   * where a run was named outside the window. A read naming no sequence places the replay at the
+   * first row it sends.
    */
   #replayFromHead(window: SessionStoreState, baseState: SessionBaseState): void {
     const reconciler = new SequenceReconciler();
@@ -509,7 +584,10 @@ export class SessionStore {
     this.#startReplay(window, reconciler, {
       ...window,
       ...REPLAY_START,
-      partitions: this.#projectedPartitions([], baseState.entities).partitions,
+      partitions: admitKeptRunFacts(
+        this.#projectedPartitions([], baseState.entities).partitions,
+        window.partitions,
+      ),
       transcript: [],
       transcriptTail: liveTailAfter([]),
       cursor: reconciler.cursor,
@@ -519,8 +597,9 @@ export class SessionStore {
 
   /**
    * Replay from a checkpoint of the window or of the replay under way: its rows through the
-   * checkpoint, the partitions as they stood there, and the stream reopened after its row. The tail
-   * grows from there when the checkpoint's row is held, else it stays where `source` had it.
+   * checkpoint, the partitions as they stood there with the run facts the window holds since, and
+   * the stream reopened after its row. The tail grows from there when the checkpoint's row is held,
+   * else it stays where `source` had it.
    */
   #replayFromCheckpoint(
     window: SessionStoreState,
@@ -534,10 +613,12 @@ export class SessionStore {
       ...source,
       ...REPLAY_START,
       shape: window.shape,
-      partitions: point.partitions,
+      partitions: admitKeptRunFacts(point.partitions, window.partitions),
       // A replay under way lacks what the window took since it started and what the read carried.
       standingEvents: mergeStandingEvents(source.standingEvents, window.standingEvents),
       transcript,
+      // The stream sends again what follows the checkpoint, so only the stretches before it stay.
+      releasedStretches: releasedStretchesHeldIn(source.releasedStretches, transcript),
       transcriptTail:
         transcript.at(-1)?.sequence === point.cursor
           ? liveTailAfter(transcript)
@@ -582,11 +663,14 @@ export class SessionStore {
     const replayed = replay.state;
     this.#replay = undefined;
     this.#reconciler = replay.reconciler;
+    const window = replay.windowOnto(visible);
     return countingRaisedAgainCause(
       visible,
       {
         ...replayed,
-        ...replay.windowOnto(visible),
+        ...window,
+        // The window may have let its edges go past a stretch while the replay ran.
+        releasedStretches: releasedStretchesHeldIn(replayed.releasedStretches, window.transcript),
         // A page loaded while the replay ran advanced the window's.
         standingEvents: mergeStandingEvents(replayed.standingEvents, visible.standingEvents),
         isReplaying: false,
@@ -633,6 +717,7 @@ export class SessionStore {
 /** What a replay's start state clears: it begins whole, with nothing missing and no read failed. */
 const REPLAY_START = {
   lastAdmittedEvents: [],
+  releasedStretches: [],
   degradedCause: undefined,
   isReplaying: false,
   lastReadFailed: false,

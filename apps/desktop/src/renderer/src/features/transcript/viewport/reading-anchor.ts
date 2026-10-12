@@ -5,9 +5,12 @@
 //     otherwise they are counted (the tail pill's count).
 //   - The anchor is a row key plus that row's offset from the viewport top, which survives the
 //     height changes of rows above it, where a bare scroll offset would drift.
-//   - Held rows (open ask, approval, deep-link target, selection) are never let go of; the held
-//     set lives here because engagement is a reading fact.
-//   - Following resumes on arrival at the tail or through the pill, never on a timer.
+//   - The rows a reader's selection starts and ends in are held, so the window keeps them while
+//     they sit within its let-go distance and the browser's selection stays anchored; the held set
+//     lives here because engagement is a reading fact.
+//   - Following resumes on arrival at the tail or through the pill, never on a timer, and ends
+//     only on the reader's own act: their input or scroll toward the head, or a move they asked
+//     for.
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
@@ -15,6 +18,9 @@ import {
   SCROLL_GEOMETRY_EPSILON_PX,
   type ScrollGeometry,
 } from "#renderer/lib/scroll/geometry/sample.js";
+import { TRANSCRIPT_GESTURE_GAP_MS } from "./caps.js";
+import { ReaderGesture } from "./reader-gesture.js";
+import { type WindowSide } from "./window-side.js";
 
 /**
  * The three reading states. Closed.
@@ -28,12 +34,7 @@ export const READING_MODES = ["following", "reading", "reading-with-new-rows"] a
 export type ReadingMode = (typeof READING_MODES)[number];
 
 /** Why a row is held against a cut. Closed: each is something a person is doing with the row. */
-export const READING_HOLD_REASONS = [
-  "open-ask",
-  "open-approval",
-  "deep-link-target",
-  "selection",
-] as const;
+export const READING_HOLD_REASONS = ["selection"] as const;
 
 /** One hold reason. Derived from the enumeration, never restated. */
 export type ReadingHoldReason = (typeof READING_HOLD_REASONS)[number];
@@ -57,12 +58,24 @@ export interface ReadingAnchorState {
 export class ReadingAnchor {
   readonly #stateEmitter = new Emitter<ReadingAnchorState>("reading anchor state");
   readonly #holdReasonByRowKey = new Map<string, ReadingHoldReason>();
+  /**
+   * The held keys as one array, rebuilt only when the held set changes, so a reader compares it.
+   */
+  #heldRowKeys: readonly string[] = [];
 
   #mode: ReadingMode = "following";
   #newRowCount = 0;
   #anchorPoint: ReadingAnchorPoint | undefined;
   /** The last sample folded in, so a reader's scroll toward the head is told apart. */
   #lastGeometry: ScrollGeometry | undefined;
+  /** When the reader last turned the wheel, pressed a key or moved a touch on the log. */
+  #lastReaderInputAtMs: number | undefined;
+  /** Whether the reader's pointer is down in the box, where a dragged selection scrolls it. */
+  #isReaderPointerDown = false;
+  /** The gesture over the reader's input and the scroll samples that carry it on. */
+  readonly #gesture = new ReaderGesture();
+  /** Whether the gesture under way is the reader's: their input, or a scroll sample of theirs. */
+  #isReaderGesture = false;
 
   /** Watch the reading state, and receive the current one immediately. */
   public subscribe(sink: (state: ReadingAnchorState) => void): Unsubscribe {
@@ -88,27 +101,63 @@ export class ReadingAnchor {
    * Leaving the tail keeps the last anchor point, since dropping it would leave a frame with
    * nothing to restore.
    *
-   * Leaving takes a `"scroll"` sample whose offset moved toward the head: a shrinking viewport,
-   * and content growing under a still offset before the virtualizer's end anchor catches up, raise
-   * the distance from the tail with no reader action, and neither may stop following on its own.
-   * A scroll toward the head is a decision and releases the follow at once, however small, even
-   * inside the tail band; arriving back within the band re-engages it.
+   * Only the reader leaves the tail: their wheel, key or touch toward the head
+   * ({@link noteReaderInput}), or a `"scroll"` sample whose offset moved toward the head and whose
+   * scroll event came within a gesture gap of their own wheel, key or touch, either side of it,
+   * carries on a gesture of theirs, as a busy machine's late frame does, or came while their
+   * pointer is down in the box. The platform stamps a scroll event when the box moved, which can
+   * be before an input it dispatched ahead of that event. A write the transcript or the
+   * library made, a shrinking viewport and content growing under a still offset never stop
+   * following; the controller lands the follower on the tail again. A scroll toward the head is a
+   * decision and releases the follow at once, however small, even inside the tail band; arriving
+   * back within the band re-engages it. A move the reader asked for elsewhere (a link, a find hit)
+   * releases through {@link readFrom}.
    */
   public observeGeometry(geometry: ScrollGeometry): void {
     const previous = this.#lastGeometry;
-    const scrolledTowardHead = isReaderScrollTowardHead(previous, geometry);
     this.#lastGeometry = geometry;
-    if (geometry.isAtTail && !scrolledTowardHead) {
+    const readerMovedTowardHead =
+      this.#isReaderScroll(geometry, previous) && hasOffsetMovedTowardHead(previous, geometry);
+    if (geometry.isAtTail && !readerMovedTowardHead) {
       this.#transition("following", 0);
       return;
     }
+    if (this.#mode === "following" && readerMovedTowardHead) {
+      this.#transition("reading", this.#newRowCount);
+    }
+  }
+
+  /**
+   * The reader turned the wheel, pressed a key or moved a touch on the log, at `inputAtMs` on the
+   * page's performance timeline, the timeline scroll events stamp their samples on, toward
+   * `towardSide` when the input says which way. An input toward the head of a box that can move
+   * there lets go of the tail at once: the platform moves the box for it before its scroll event
+   * is read, and a follower held meanwhile is pulled back.
+   */
+  public noteReaderInput(inputAtMs: number, towardSide?: WindowSide): void {
+    this.#lastReaderInputAtMs = inputAtMs;
+    this.#gesture.observe(inputAtMs, undefined);
+    this.#isReaderGesture = true;
     if (
+      towardSide === "head" &&
       this.#mode === "following" &&
-      geometry.cause === "scroll" &&
-      hasOffsetMovedTowardHead(previous, geometry)
+      (this.#lastGeometry?.scrollTop ?? 0) >= SCROLL_GEOMETRY_EPSILON_PX
     ) {
       this.#transition("reading", this.#newRowCount);
     }
+  }
+
+  /** The box's `scrollend` arrived: the scroll sequence that kept the gesture going is over. */
+  public noteScrollEnd(): void {
+    this.#gesture.noteScrollEnd();
+  }
+
+  /**
+   * The reader's pointer went down in the box, or came up again. While it is down every scroll is
+   * theirs: a selection dragged past an edge scrolls the box and sends no other input.
+   */
+  public notePointerDown(isDown: boolean): void {
+    this.#isReaderPointerDown = isDown;
   }
 
   /**
@@ -129,6 +178,16 @@ export class ReadingAnchor {
   public readFrom(rowKey: string, offsetWithinViewportPx = 0): void {
     this.#anchorPoint = { rowKey, offsetWithinViewportPx };
     this.#transition(this.#mode === "following" ? "reading" : this.#mode, this.#newRowCount);
+  }
+
+  /**
+   * End following for a move the reader asked for that has no row to read from yet: a link to a
+   * message still being read back.
+   */
+  public stopFollowing(): void {
+    if (this.#mode === "following") {
+      this.#transition("reading", this.#newRowCount);
+    }
   }
 
   /**
@@ -160,12 +219,14 @@ export class ReadingAnchor {
       return;
     }
     this.#holdReasonByRowKey.set(rowKey, reason);
+    this.#heldRowKeys = [...this.#holdReasonByRowKey.keys()];
     this.#emit();
   }
 
   /** Stop holding a row; releasing a row not held changes nothing. */
   public release(rowKey: string): void {
     if (this.#holdReasonByRowKey.delete(rowKey)) {
+      this.#heldRowKeys = [...this.#holdReasonByRowKey.keys()];
       this.#emit();
     }
   }
@@ -175,9 +236,9 @@ export class ReadingAnchor {
     return this.#holdReasonByRowKey.has(rowKey);
   }
 
-  /** Every held row, for the window's pass. */
+  /** Every held row, for the window's pass; the same array until a hold or release changes it. */
   public heldRowKeys(): readonly string[] {
-    return [...this.#holdReasonByRowKey.keys()];
+    return this.#heldRowKeys;
   }
 
   /** Why the reader holds this row, or `undefined` when it is not held. */
@@ -189,6 +250,30 @@ export class ReadingAnchor {
   public dispose(): void {
     this.#stateEmitter.clear();
     this.#holdReasonByRowKey.clear();
+    this.#heldRowKeys = [];
+  }
+
+  /**
+   * Whether the reader's own input moved this sample, read off its scroll event's time stamp and
+   * how far the box moved since `previous`.
+   */
+  #isReaderScroll(geometry: ScrollGeometry, previous: ScrollGeometry | undefined): boolean {
+    const inputAtMs = geometry.inputAt;
+    if (geometry.cause !== "scroll" || inputAtMs === undefined) {
+      return false;
+    }
+    const { continuesGesture } = this.#gesture.observe(
+      inputAtMs,
+      previous === undefined ? undefined : Math.abs(geometry.scrollTop - previous.scrollTop),
+    );
+    const sinceReaderInputMs =
+      this.#lastReaderInputAtMs === undefined ? undefined : inputAtMs - this.#lastReaderInputAtMs;
+    this.#isReaderGesture =
+      this.#isReaderPointerDown ||
+      (continuesGesture && this.#isReaderGesture) ||
+      (sinceReaderInputMs !== undefined &&
+        Math.abs(sinceReaderInputMs) <= TRANSCRIPT_GESTURE_GAP_MS);
+    return this.#isReaderGesture;
   }
 
   #transition(mode: ReadingMode, newRowCount: number): void {
@@ -203,24 +288,6 @@ export class ReadingAnchor {
   #emit(): void {
     this.#stateEmitter.emit(this.state);
   }
-}
-
-/**
- * Whether a sample is the reader moving toward the head: the offset fell while the box and the
- * content kept their sizes. A shrinking log clamps the offset too, and a measurement correction
- * moves it with the content, so a change in either size is not a reader's scroll.
- */
-function isReaderScrollTowardHead(
-  previous: ScrollGeometry | undefined,
-  next: ScrollGeometry,
-): boolean {
-  return (
-    next.cause === "scroll" &&
-    previous !== undefined &&
-    hasOffsetMovedTowardHead(previous, next) &&
-    Math.abs(next.contentHeight - previous.contentHeight) < SCROLL_GEOMETRY_EPSILON_PX &&
-    Math.abs(next.viewportHeight - previous.viewportHeight) < SCROLL_GEOMETRY_EPSILON_PX
-  );
 }
 
 /**

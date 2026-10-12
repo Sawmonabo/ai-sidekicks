@@ -1,6 +1,5 @@
-// Whether this window's first read has landed. One subscription for two readers, the skeleton
-// and the feed's empty window, so they cannot disagree and show "nothing has happened" above
-// skeleton rows while the first read is in flight.
+// Whether this window's first read has landed. One subscription for the feed, which draws its
+// loading line until then and its empty sentence after, so the two cannot both be on screen.
 
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "#renderer/store/session/store.js";

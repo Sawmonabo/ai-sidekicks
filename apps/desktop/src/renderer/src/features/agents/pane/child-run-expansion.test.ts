@@ -39,7 +39,6 @@ function expansionReply(
         cursor: `cursor-at-${String(index)}` as EventCursor,
         category: "run_lifecycle",
         type: "run.started",
-        summary: "the child ran",
         timestamp: new Date(Date.UTC(2026, 0, 1, 9, 0, index)).toISOString(),
         kind: "run",
         runId: childRunId,

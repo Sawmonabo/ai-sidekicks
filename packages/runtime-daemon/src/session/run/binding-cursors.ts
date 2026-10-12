@@ -20,7 +20,7 @@ import type {
 import type { EpochBinding, ExecutionEpochs } from "./epochs.js";
 import type { RunStateReader } from "./read.js";
 import { readStoredRunStateChange } from "./stored-state-change.js";
-import { isTerminalState } from "./transitions.js";
+import { isTerminalState } from "@ai-sidekicks/contracts/run/state";
 
 const SESSION_CLOSED_TYPE = "session.closed";
 

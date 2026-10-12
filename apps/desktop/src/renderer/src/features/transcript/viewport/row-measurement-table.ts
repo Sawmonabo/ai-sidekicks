@@ -1,4 +1,4 @@
-// Measurement table for the virtualizer, covering what `@tanstack/react-virtual` does not:
+// Measurement table for the virtualizer, covering what `@tanstack/virtual-core` does not:
 //   - Epsilon: the library compares sizes exactly, so a streaming row's sub-pixel wobble would
 //     invalidate its cache every frame; `acceptedHeight` is what `measureElement` returns.
 //   - Remembered heights: an accepted height is written to the session's one record of its row
@@ -6,7 +6,10 @@
 //   - Estimates: a row with no height takes its kind's estimate. A row that reports its body's
 //     length, of a kind whose measured rows fit a line of height on body length, is estimated on
 //     that line; any other row at the median of its kind's newest measured rows or, before any,
-//     at the kind's seed. Both move only when published.
+//     at the kind's seed. An open call is estimated no taller than it draws with its output cut
+//     at a share of the visible flow, and one whose output was opened whole no shorter. All three
+//     move only when published. A row still revealing its text joins its kind's samples once it
+//     settles, so its growth moves no estimate.
 //   - Layout validity: a display or row width change re-lays out every row, so the heights and
 //     the samples measured before it are dropped.
 //   - Duplicate keys: its caches are keyed by item key, so two rows sharing one would displace
@@ -17,7 +20,12 @@ import {
   RememberedRowHeights,
   type RowHeightDisplay,
 } from "#renderer/store/session/remembered-row-heights.js";
-import { ROW_HEIGHT_KINDS, ROW_HEIGHT_SEED_REM, type RowHeightKind } from "../rows/height-kind.js";
+import {
+  ROW_HEIGHT_KINDS,
+  ROW_HEIGHT_SEED_REM,
+  cutCallHeightPx,
+  type RowHeightKind,
+} from "../rows/height-kind.js";
 
 /** The keys the virtualizer is given, and what projecting them cost. */
 export interface RowKeyProjection {
@@ -46,6 +54,16 @@ export interface RowMeasurementTableOptions {
   readonly bodyLengthOf?: ((rowKey: string) => number | undefined) | undefined;
   /** Called after each height the table accepts, synchronously, inside `acceptedHeight`. */
   readonly onHeightAccepted?: (() => void) | undefined;
+  /**
+   * The visible flow's height in pixels, whose share an open call's output is cut at, or
+   * `undefined` before it is measured. A table given none caps no open call's estimate.
+   */
+  readonly viewportHeightPx?: (() => number | undefined) | undefined;
+  /**
+   * Whether a row is still revealing its text. Its heights are remembered but held out of its
+   * kind's samples until it settles; a table given none samples every row as it is measured.
+   */
+  readonly isRowRevealing?: ((rowKey: string) => boolean) | undefined;
 }
 
 const EMPTY_PROJECTION: RowKeyProjection = { virtualKeys: [], duplicateKeyCount: 0 };
@@ -73,12 +91,16 @@ const INITIAL_ROOT_FONT_SIZE_PX = 16;
  */
 const KIND_SAMPLE_SIZE = 31;
 
-/** Accepted row heights, the estimates for rows with none, and distinct keys for the virtualizer. */
+/**
+ * Accepted row heights, the estimates for rows with none, and distinct keys for the virtualizer.
+ */
 export class RowMeasurementTable {
   readonly #rememberedHeights: RememberedRowHeights;
   readonly #heightKindOf: (rowKey: string) => RowHeightKind;
   readonly #bodyLengthOf: (rowKey: string) => number | undefined;
   readonly #onHeightAccepted: () => void;
+  readonly #viewportHeightPx: () => number | undefined;
+  readonly #isRowRevealing: (rowKey: string) => boolean;
   /** Every measured row of each kind, for its median and its smallest height. */
   readonly #heightSampleByKind: Readonly<Record<RowHeightKind, KindHeightSample>>;
   /** The measured rows of each kind that report a body length, for its line. */
@@ -87,6 +109,16 @@ export class RowMeasurementTable {
   readonly #estimatePxByKind: Record<RowHeightKind, number>;
   /** The line an unmeasured row reporting its body length is laid out on, as last published. */
   readonly #lineByKind: Record<RowHeightKind, BodyLengthLine | undefined>;
+  /**
+   * The height an open call is drawn at with its output cut, as last published, which bounds an
+   * unmeasured open call's estimate; `undefined` while the viewport has no height.
+   */
+  #cutCallHeightPx: number | undefined;
+  /**
+   * The revealing rows measured since they last joined their kind's samples, each with the
+   * height its samples hold for it, `undefined` for none.
+   */
+  readonly #sampledHeightOfHeldRow = new Map<string, number | undefined>();
 
   #cachedRowKeys: readonly string[] | undefined;
   #cachedProjection: RowKeyProjection = EMPTY_PROJECTION;
@@ -96,6 +128,8 @@ export class RowMeasurementTable {
     this.#heightKindOf = options.heightKindOf ?? (() => "not-loaded");
     this.#bodyLengthOf = options.bodyLengthOf ?? (() => undefined);
     this.#onHeightAccepted = options.onHeightAccepted ?? (() => undefined);
+    this.#viewportHeightPx = options.viewportHeightPx ?? (() => undefined);
+    this.#isRowRevealing = options.isRowRevealing ?? (() => false);
     this.#heightSampleByKind = mapEveryKind(() => new KindHeightSample());
     this.#bodyLengthSampleByKind = mapEveryKind(() => new KindHeightSample());
     this.#estimatePxByKind = mapEveryKind((kind) => this.#seedPxOf(kind));
@@ -122,6 +156,11 @@ export class RowMeasurementTable {
     return true;
   }
 
+  /** The width rows are laid out at, in pixels, as a row last declared it; `undefined` before. */
+  public get rowWidthPx(): number | undefined {
+    return this.#rememberedHeights.rowWidthPx;
+  }
+
   /**
    * Declare the width rows are laid out at, in pixels, as a row's observation reported it. A new
    * width rewraps every row, so the remembered heights and the samples go; the published estimates
@@ -139,7 +178,8 @@ export class RowMeasurementTable {
    * A non-positive or non-finite observation is not a measurement (an unlaid-out element
    * reports zero, which would collapse the window), so the row's height or estimate stands. An
    * observation within the epsilon of the last one is the same height. Anything else is accepted,
-   * remembered, replaces the row's last height in its kind's samples, and is announced.
+   * remembered, replaces the row's last height in its kind's samples (once settled, for a row
+   * still revealing), and is announced.
    */
   public acceptedHeight(rowKey: string, observedHeightPx: number): number {
     const previous = this.#rememberedHeights.heightOf(rowKey);
@@ -153,11 +193,14 @@ export class RowMeasurementTable {
       return previous;
     }
     const accepted = this.#rememberedHeights.remember(rowKey, observedHeightPx);
-    const kind = this.#kindOf(rowKey);
-    this.#heightSampleByKind[kind].replace(previous, accepted, Number.NaN);
-    const bodyLength = this.#bodyLengthOf(this.#rowKeyOf(rowKey));
-    if (bodyLength !== undefined) {
-      this.#bodyLengthSampleByKind[kind].replace(previous, accepted, bodyLength);
+    const sampledHeightPx = this.#sampledHeightOfHeldRow.has(rowKey)
+      ? this.#sampledHeightOfHeldRow.get(rowKey)
+      : previous;
+    if (this.#isRowRevealing(this.#rowKeyOf(rowKey))) {
+      this.#sampledHeightOfHeldRow.set(rowKey, sampledHeightPx);
+    } else {
+      this.#sampledHeightOfHeldRow.delete(rowKey);
+      this.#sample(rowKey, sampledHeightPx, accepted);
     }
     this.#onHeightAccepted();
     return accepted;
@@ -167,7 +210,10 @@ export class RowMeasurementTable {
    * Moves every kind's estimate to the median of its sample, or to its seed while the sample is
    * empty, and its line to the least-squares fit of its measured rows' heights on their body
    * lengths. A line is kept only over at least two distinct lengths and a slope that is not
-   * negative; otherwise the kind's rows take its median.
+   * negative; otherwise the kind's rows take its median. An open call's estimate, on its line or
+   * at its median, is capped at the height it draws with its output cut at the visible flow's
+   * height as it stands now, and one whose output was opened whole is held to no less. A held row
+   * that has settled since joins its samples first.
    *
    * Called only where a moved estimate cannot shift a row already laid out above the reader,
    * since the library reads an estimate whenever it re-lays a row out. Answers whether any
@@ -175,7 +221,17 @@ export class RowMeasurementTable {
    * longest body length it was fitted over, so the caller re-lays out only for a real move.
    */
   public publishEstimates(): boolean {
-    let isMoved = false;
+    this.#sampleSettledRows();
+    const previousCutCallHeightPx = this.#cutCallHeightPx;
+    const viewportHeightPx = this.#viewportHeightPx();
+    this.#cutCallHeightPx =
+      viewportHeightPx === undefined || viewportHeightPx <= 0
+        ? undefined
+        : cutCallHeightPx(viewportHeightPx, this.#rootFontSizePx());
+    let isMoved =
+      this.#cutCallHeightPx === undefined || previousCutCallHeightPx === undefined
+        ? this.#cutCallHeightPx !== previousCutCallHeightPx
+        : Math.abs(this.#cutCallHeightPx - previousCutCallHeightPx) >= SCROLL_GEOMETRY_EPSILON_PX;
     for (const kind of ROW_HEIGHT_KINDS) {
       const previousEstimatePx = this.#estimatePxByKind[kind];
       const estimatePx = this.#heightSampleByKind[kind].median() ?? this.#seedPxOf(kind);
@@ -231,7 +287,10 @@ export class RowMeasurementTable {
   public get smallestEstimatePx(): number {
     return Math.min(
       ...ROW_HEIGHT_KINDS.filter((kind) => kind !== "not-loaded").map((kind) =>
-        Math.min(this.#estimatePxByKind[kind], this.#lineByKind[kind]?.floorPx ?? Infinity),
+        this.#heldToCutPx(
+          kind,
+          Math.min(this.#estimatePxByKind[kind], this.#lineByKind[kind]?.floorPx ?? Infinity),
+        ),
       ),
     );
   }
@@ -279,12 +338,61 @@ export class RowMeasurementTable {
     );
   }
 
-  /** A kind's estimate: on its line where it has one and the length is known, else its median. */
+  /**
+   * A kind's estimate: on its line where it has one and the length is known, else its median,
+   * held to the cut height where the kind is bound to it.
+   */
   #estimateFor(kind: RowHeightKind, bodyLength: number | undefined): number {
     const line = this.#lineByKind[kind];
-    return line === undefined || bodyLength === undefined
-      ? this.#estimatePxByKind[kind]
-      : heightOnLine(line, bodyLength);
+    return this.#heldToCutPx(
+      kind,
+      line === undefined || bodyLength === undefined
+        ? this.#estimatePxByKind[kind]
+        : heightOnLine(line, bodyLength),
+    );
+  }
+
+  /**
+   * A kind's height held to the published cut height: an open call's no taller, one whose output
+   * was opened whole no shorter, and any other kind's as it is.
+   */
+  #heldToCutPx(kind: RowHeightKind, heightPx: number): number {
+    const cutPx = this.#cutCallHeightPx;
+    if (cutPx === undefined) {
+      return heightPx;
+    }
+    switch (kind) {
+      case "tool-call-expanded":
+        return Math.min(heightPx, cutPx);
+      case "tool-call-output-opened":
+        return Math.max(heightPx, cutPx);
+      default:
+        return heightPx;
+    }
+  }
+
+  /** Replace a row's height in its kind's samples: `previousHeightPx` with `heightPx`. */
+  #sample(measuredKey: string, previousHeightPx: number | undefined, heightPx: number): void {
+    const kind = this.#kindOf(measuredKey);
+    this.#heightSampleByKind[kind].replace(previousHeightPx, heightPx, Number.NaN);
+    const bodyLength = this.#bodyLengthOf(this.#rowKeyOf(measuredKey));
+    if (bodyLength !== undefined) {
+      this.#bodyLengthSampleByKind[kind].replace(previousHeightPx, heightPx, bodyLength);
+    }
+  }
+
+  /** Samples each held row that has stopped revealing, at the height last remembered for it. */
+  #sampleSettledRows(): void {
+    for (const [measuredKey, sampledHeightPx] of this.#sampledHeightOfHeldRow) {
+      if (this.#isRowRevealing(this.#rowKeyOf(measuredKey))) {
+        continue;
+      }
+      this.#sampledHeightOfHeldRow.delete(measuredKey);
+      const heightPx = this.#rememberedHeights.heightOf(measuredKey);
+      if (heightPx !== undefined) {
+        this.#sample(measuredKey, sampledHeightPx, heightPx);
+      }
+    }
   }
 
   #kindOf(measuredKey: string): RowHeightKind {
@@ -307,6 +415,7 @@ export class RowMeasurementTable {
   }
 
   #clearSamples(): void {
+    this.#sampledHeightOfHeldRow.clear();
     for (const kind of ROW_HEIGHT_KINDS) {
       this.#heightSampleByKind[kind].clear();
       this.#bodyLengthSampleByKind[kind].clear();

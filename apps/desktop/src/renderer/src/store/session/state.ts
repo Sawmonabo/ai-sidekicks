@@ -4,6 +4,7 @@
 
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
+import type { TranscriptRunFacts } from "@ai-sidekicks/contracts/transcript/run-facts";
 
 import { worstDegradedCause, type SessionDegradedCause } from "./degradation.js";
 import {
@@ -35,12 +36,25 @@ export interface TranscriptWindowTail extends TranscriptWindowEdge {
   readonly following: "live" | "detached";
 }
 
+/**
+ * A stretch of the log let go between two events the window still holds, so a read inside it, by
+ * the copy of a selection that spans it or a person opening the run it cut, brings it back.
+ */
+export interface ReleasedEventStretch {
+  /** The sequence of the held event just before the stretch. */
+  readonly lastHeldSequenceBefore: number;
+  /** The cursor of the held event just after the stretch, which a read back before it starts at. */
+  readonly firstHeldCursorAfter: EventCursor;
+}
+
 /** The immutable state one session store holds. */
 export interface SessionStoreState {
   readonly sessionId: string;
   /** `false` until `initialize()` supplies a read response. */
   readonly initialized: boolean;
-  /** Whether the session is a chat or a project, as its newest read said; unknown until one lands. */
+  /**
+   * Whether the session is a chat or a project, as its newest read said; unknown until one lands.
+   */
   readonly shape: SessionShape | undefined;
   /** Entity maps, one per kind. Only touched partitions change identity. */
   readonly partitions: SessionPartitions;
@@ -67,6 +81,8 @@ export interface SessionStoreState {
   readonly transcriptHead: TranscriptWindowEdge;
   /** The newest end of the window, how a read after it is asked, and whether it is live. */
   readonly transcriptTail: TranscriptWindowTail;
+  /** The stretches let go inside the window, oldest first; none outside its edges. */
+  readonly releasedStretches: readonly ReleasedEventStretch[];
   /**
    * The events the newest batch admitted from the stream, in sequence order, whether or not the
    * transcript took them: a detached tail folds rows the window does not hold, and a reader of
@@ -151,6 +167,11 @@ export interface SessionBaseState {
   readonly cursor?: number;
   /** Entities the read response carried. */
   readonly entities: readonly StoredEntity[];
+  /**
+   * The facts of each run the read's window names, as its reply served them, which stand over
+   * `entities`' runs where they hold through a later position.
+   */
+  readonly runs?: readonly TranscriptRunFacts[];
   /** Events the read response carried, ordered by sequence. */
   readonly transcript?: readonly ProjectedSessionEvent[];
   /** The standing events the read response carried, which may lie outside its window. */
@@ -257,6 +278,7 @@ export function uninitializedState(input: {
     streamAfterCursor: undefined,
     transcriptHead: CLOSED_WINDOW_EDGE,
     transcriptTail: liveTailAfter([]),
+    releasedStretches: [],
     lastAdmittedEvents: [],
     standingEvents: [],
     degradedCause: undefined,
@@ -306,6 +328,7 @@ export function establishedState(input: {
     streamAfterCursor: input.baseState.streamAfterCursor,
     transcriptHead: input.baseState.transcriptHead ?? CLOSED_WINDOW_EDGE,
     transcriptTail: liveTailAfter(input.orderedTranscript),
+    releasedStretches: [],
     lastAdmittedEvents: [],
     standingEvents: input.standingEvents,
     degradedCause: input.isProjectionFailed ? "projection-failed" : undefined,

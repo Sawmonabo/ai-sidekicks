@@ -1,9 +1,9 @@
 // The app's one place that shadows `offsetHeight`; it decides only install and restore.
 //
 // The unit tier runs under happy-dom, which has no layout engine and reports every box as zero,
-// and `@tanstack/react-virtual` reads the scroller's viewport and each row's height through
-// `offsetHeight`. A zero-height scroller correctly shows no rows, so a happy-dom case that asserts
-// about a rendered row must say how tall its container is.
+// and `@tanstack/virtual-core`, under every windowed list, reads the scroller's viewport and each
+// row's height through `offsetHeight`. A zero-height scroller correctly shows no rows, so a
+// happy-dom case that asserts about a rendered row must say how tall its container is.
 //
 // It is parameterized by the measurement alone: each caller owns its rule (scroller class names,
 // row elements, heights), but the write to `HTMLElement.prototype` is global to the environment,

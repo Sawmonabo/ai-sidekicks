@@ -14,14 +14,16 @@ import { jsonUtf8ByteLength } from "./byte-length.js";
 export const PAGE_MAX_BYTES = 991_808;
 
 /**
- * How many leading entries of `candidates`, at most `maxCount`, fit
- * {@link PAGE_MAX_BYTES} exactly, so a page built from the count passes the schema. A
- * non-empty list yields at least one, since a zero would stall the cursor; an over-budget lone
- * entry is then refused by the schema.
+ * How many leading entries of `candidates`, at most `maxCount`, fit `budgetBytes`, by default
+ * {@link PAGE_MAX_BYTES}, exactly, so a page built from the count passes the schema. A reply whose
+ * entries share the frame with a second member passes the budget left beside it. A non-empty list
+ * yields at least one, since a zero would stall the cursor; an over-budget lone entry is then
+ * refused by the schema.
  */
 export function countEntriesFittingOneFrame(
   candidates: readonly unknown[],
   maxCount: number,
+  budgetBytes: number = PAGE_MAX_BYTES,
 ): number {
   // The two brackets are charged up front; every element past the first also charges a comma.
   let usedBytes = 2;
@@ -30,7 +32,7 @@ export function countEntriesFittingOneFrame(
   for (let index = 0; index < ceiling; index += 1) {
     const entryBytes = jsonUtf8ByteLength(candidates[index]);
     const separatorBytes = fittedCount === 0 ? 0 : 1;
-    if (usedBytes + separatorBytes + entryBytes > PAGE_MAX_BYTES) {
+    if (usedBytes + separatorBytes + entryBytes > budgetBytes) {
       // The first candidate alone is over budget: deliver it alone rather than an empty page
       // beside an unconsumed cursor.
       if (fittedCount === 0) {
@@ -45,23 +47,25 @@ export function countEntriesFittingOneFrame(
 }
 
 /**
- * Refuse a reply member over the page budget, so an oversized reply is a failed read. The issue
- * path names the member, so a client learns which one overflowed; a paged member's producer
- * stops at whichever of its row limit and this budget trips first.
+ * Refuse a reply member over `budgetBytes`, by default {@link PAGE_MAX_BYTES}, so an oversized
+ * reply is a failed read; a member sharing the frame with a second one is held to the budget left
+ * beside it. The issue path names the member, so a client learns which one overflowed; a paged
+ * member's producer stops at whichever of its row limit and this budget trips first.
  */
 export function requireMemberToRideOneFrame(
   member: unknown,
   memberName: string,
   issueContext: z.RefinementCtx,
+  budgetBytes: number = PAGE_MAX_BYTES,
 ): void {
   const measuredBytes = jsonUtf8ByteLength(member);
-  if (measuredBytes > PAGE_MAX_BYTES) {
+  if (measuredBytes > budgetBytes) {
     issueContext.addIssue({
       code: "custom",
       path: [memberName],
       message:
         `${memberName} measures ${String(measuredBytes)} JSON bytes, over the ` +
-        `${String(PAGE_MAX_BYTES)}-byte page budget`,
+        `${String(budgetBytes)}-byte page budget`,
     });
   }
 }

@@ -85,6 +85,23 @@ export async function renderAppSettled(
   onTestFinished(() => {
     frames.removeAll();
   });
+  grantNoIdleTimeWithoutIdleCallbacks();
   await renderSettled(<AppProviders composition={composition} openWindow={frames.open} />);
   return frames.windowNamed(FIXTURE_WINDOW_ID);
+}
+
+/**
+ * Stands in for the idle callback happy-dom lacks with one that never fires, as on a page that
+ * grants no idle time, until the test finishes. The app asks for one after its first frame to warm
+ * the diagram label faces, which needs a canvas happy-dom does not have either; a tier on a real
+ * browser keeps its own.
+ */
+function grantNoIdleTimeWithoutIdleCallbacks(): void {
+  if ("requestIdleCallback" in globalThis) {
+    return;
+  }
+  Object.assign(globalThis, { requestIdleCallback: () => 0 });
+  onTestFinished(() => {
+    Reflect.deleteProperty(globalThis, "requestIdleCallback");
+  });
 }

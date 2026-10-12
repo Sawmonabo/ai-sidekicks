@@ -6,8 +6,7 @@ import type { WorkspaceId } from "@ai-sidekicks/contracts/repo/mount";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-
-import type { RunTerminalState } from "./transitions.js";
+import type { RunTerminalState } from "@ai-sidekicks/contracts/run/state";
 
 /**
  * The run a setup gate checks. Its workspace is the session's own live one: the one the send that

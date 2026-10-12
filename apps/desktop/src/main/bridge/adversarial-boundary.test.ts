@@ -22,7 +22,7 @@ import {
   MachineSettingsSubscribeRequestSchema,
 } from "@ai-sidekicks/contracts/machine-settings";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { ZodType } from "zod";
 
 import {
@@ -35,7 +35,7 @@ import {
   REQUEST_UNSENDABLE_MESSAGE,
   type DaemonSubscriptionRequest,
 } from "#shared/daemon/forwarding.js";
-import type { PreloadApi } from "#shared/preload-api.js";
+import type { ClipboardSnapshot, PreloadApi } from "#shared/preload-api.js";
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import {
   bridgeOverLink,
@@ -52,6 +52,7 @@ const electronMock = createElectronMock();
 /** What the platform's dialog, clipboard and file manager were asked to do, in order. */
 const dialogOpens: unknown[] = [];
 const clipboardWrites: unknown[] = [];
+const clipboardReads: unknown[] = [];
 const revealedPaths: string[] = [];
 
 // The shared mock carries no dialog, clipboard or file-manager reveal; these record each ask.
@@ -73,6 +74,15 @@ vi.mock("electron", () => ({
     write: (items: unknown) => {
       clipboardWrites.push(items);
     },
+    // Holds the text every accepted formatting request names, so an accepted one writes, read as
+    // text or from its one entry as each system reads it.
+    readText: () => Promise.resolve("a"),
+    read: () => {
+      clipboardReads.push("read");
+      return Promise.resolve([
+        { types: ["text/plain"], getType: () => Promise.resolve(new Blob(["a"])) },
+      ]);
+    },
   },
   ClipboardItem: class {
     public constructor(public readonly flavors: unknown) {}
@@ -83,6 +93,9 @@ const SESSION_ID = "00000000-0000-4000-8000-000000000001" as SessionId;
 
 /** The file a served `session.memoryRead` offers to open. */
 const MEMORY_FILE = "/Users/person/.claude/projects/app/CLAUDE.md";
+
+/** A digest of the right shape for a payload refused before any clipboard is read. */
+const ANY_DIGEST = "0";
 
 /** A refusal from a member's schema: a Zod issue list, never a runtime error from main's code. */
 const SCHEMA_REFUSAL = /"code": "[a-z_]+"/;
@@ -104,26 +117,50 @@ interface IntakeCase {
   acted(): unknown;
 }
 
-let connection: ScriptedConnection;
-let bridge: PreloadApi;
-let userData: string;
-/** The appearance choices and default sizes main's window owner was handed. */
-let appearanceChoices: unknown[];
-let defaultSizes: unknown[];
-/** The minimum sizes the one open window was given. */
-let minimumSizes: unknown[];
+/** One case's bridge over a scripted daemon, and what main's window owner was asked to do. */
+interface BoundarySubject {
+  readonly connection: ScriptedConnection;
+  readonly bridge: PreloadApi;
+  /** The app's data folder, removed when the test finishes. */
+  readonly userData: string;
+  readonly windowActs: WindowActs;
+}
 
-beforeEach(async () => {
+/** What main's window owner was handed and asked for, in order. */
+interface WindowActs {
+  /** The appearance choices and default sizes main's window owner was handed. */
+  readonly appearanceChoices: unknown[];
+  readonly defaultSizes: unknown[];
+  /** The minimum sizes the one open window was given. */
+  readonly minimumSizes: unknown[];
+  /** How many pastes the one open window's document was asked for. */
+  pastes: number;
+  /** How many times the one open window was brought forward. */
+  windowsBroughtForward: number;
+}
+
+beforeEach(() => {
   electronMock.reset();
   vi.resetModules();
   dialogOpens.length = 0;
   clipboardWrites.length = 0;
   revealedPaths.length = 0;
-  minimumSizes = [];
-  appearanceChoices = [];
-  defaultSizes = [];
-  userData = await mkdtemp(path.join(tmpdir(), "sidekicks-adversarial-boundary-"));
-  connection = scriptedConnection((request) => {
+});
+
+/** The page's bridge over main's real handlers, its daemon scripted, for the running test. */
+async function openBoundary(): Promise<BoundarySubject> {
+  const windowActs: WindowActs = {
+    appearanceChoices: [],
+    defaultSizes: [],
+    minimumSizes: [],
+    pastes: 0,
+    windowsBroughtForward: 0,
+  };
+  const userData = await mkdtemp(path.join(tmpdir(), "sidekicks-adversarial-boundary-"));
+  onTestFinished(async () => {
+    await rm(userData, { recursive: true, force: true });
+  });
+  const connection = scriptedConnection((request) => {
     switch (request.method) {
       case "session.memoryRead":
         return {
@@ -147,7 +184,7 @@ beforeEach(async () => {
   const windowContext: WindowHandlerContext = {
     appearance: {
       choose: (choice, grounds) => {
-        appearanceChoices.push({ choice, grounds });
+        windowActs.appearanceChoices.push({ choice, grounds });
         return Promise.resolve();
       },
       record: DEFAULT_APPEARANCE_RECORD,
@@ -160,24 +197,35 @@ beforeEach(async () => {
           on: () => undefined,
           once: () => undefined,
           setMinimumSize: (width: number, height: number) => {
-            minimumSizes.push([width, height]);
+            windowActs.minimumSizes.push([width, height]);
+          },
+          isMinimized: () => false,
+          restore: () => undefined,
+          show: () => undefined,
+          showInactive: () => undefined,
+          focus: () => {
+            windowActs.windowsBroughtForward += 1;
+          },
+        }) as never,
+      documentOfWindow: () =>
+        ({
+          isDestroyed: () => false,
+          paste: () => {
+            windowActs.pastes += 1;
           },
         }) as never,
       isConsoleDocument: () => true,
       windowUsedLast: () => undefined,
       setDefaultSizes: (sizes) => {
-        defaultSizes.push(sizes);
+        windowActs.defaultSizes.push(sizes);
       },
       endSafeStart: () => undefined,
       readNavigationRequest: () => null,
     },
   };
-  bridge = await bridgeOverLink(await linkOver(connection), userData, windowContext);
-});
-
-afterEach(async () => {
-  await rm(userData, { recursive: true, force: true });
-});
+  const bridge = await bridgeOverLink(await linkOver(connection), userData, windowContext);
+  return { connection, bridge, userData, windowActs };
+}
 
 /** Send `payload` on `channel` as the page's IPC would, past the preload. */
 function invoke(channel: InvokedBridgeChannel, payload: unknown): Promise<unknown> {
@@ -218,8 +266,31 @@ async function refusalOf(answer: Promise<unknown>): Promise<string | undefined> 
   }
 }
 
+/** Sends main a late copy's first and only text piece, under `copyId`. */
+async function sendTextPiece(copyId: string): Promise<void> {
+  await invoke(BRIDGE_CHANNELS.sendClipboardPiece, {
+    copyId,
+    flavor: "text",
+    index: 0,
+    piece: "a",
+  });
+}
+
+/** The digest main's snapshot reads of what the clipboard holds now. */
+async function heldDigest(): Promise<string> {
+  return ((await invoke(BRIDGE_CHANNELS.takeClipboardSnapshot, {})) as ClipboardSnapshot).digest;
+}
+
+/** Writes the late copy `copyId` names onto the clipboard as it is held. */
+async function writeLateCopy(copyId: string): Promise<unknown> {
+  return invoke(BRIDGE_CHANNELS.copyToClipboardUnlessChanged, {
+    copyId,
+    since: { digest: await heldDigest() },
+  });
+}
+
 /** The pictures main has kept in its paste folder; none while the folder is not made yet. */
-async function pastedPictures(): Promise<string[]> {
+async function pastedPictures(userData: string): Promise<string[]> {
   return readdir(path.join(userData, PASTED_IMAGES_FOLDER_NAME)).catch((error: unknown) => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return [];
@@ -229,12 +300,20 @@ async function pastedPictures(): Promise<string[]> {
 }
 
 /** The cases whose accepted payload is built in the case: a token, a real file. */
-async function intakeCases(): Promise<readonly IntakeCase[]> {
+async function intakeCases(subject: BoundarySubject): Promise<readonly IntakeCase[]> {
+  const { connection, bridge, userData, windowActs } = subject;
+  // Its snapshot is taken as it is sent, after the writes the cases before it made.
+  const acceptedLateWrite = { copyId: "late", since: { digest: ANY_DIGEST } };
+  const acceptedFormatting = { copyId: "formatted" };
+  let formattingTextWrites = 0;
   const droppedFile = path.join(userData, "dropped.txt");
   await writeFile(droppedFile, "dropped");
   // A token main minted to attach the file, which no verb that opens a path takes.
   const attachToken = await invoke(BRIDGE_CHANNELS.getDroppedFileRef, droppedFile);
   const droppedTokens: unknown[] = [];
+  // The drop's probe copy is sent once, on its first reading, so every later reading sees it held
+  // until the accepted drop lets it go.
+  let isDropProbeSent = false;
   const appearance = {
     choice: { theme: "graphite", scheme: "dark", textSize: 18, transcriptWidth: 44 },
     grounds: THEME_GROUNDS.meridian,
@@ -310,7 +389,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
       refusal: "A pasted picture arrives as its bytes",
       accepted: new Uint8Array([137, 80, 78, 71]).buffer,
       send: (payload) => invoke(BRIDGE_CHANNELS.savePastedImage, payload),
-      acted: pastedPictures,
+      acted: async () => await pastedPictures(userData),
     },
     {
       member: "native.openExternal",
@@ -338,17 +417,118 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
     {
       member: "native.copyToClipboard",
       refused: [
-        { text: 7 },
-        { html: "<b>a</b>" },
-        { text: "a", html: 7 },
-        { text: "a", extra: true },
+        { content: { text: 7 } },
+        { content: { html: "<b>a</b>" } },
+        { content: { text: "a", html: 7 } },
+        { content: { text: "a", extra: true } },
+        { content: { png: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]) } },
+        { content: { text: "a", png: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]) } },
+        { content: { text: "a" }, clipboard: "system" },
+        { content: { text: "a" }, extra: true },
+        { text: "a" },
         "a",
         null,
       ],
       refusal: SCHEMA_REFUSAL,
-      accepted: { text: "a", html: "<b>a</b>" },
+      accepted: { content: { text: "a", html: "<b>a</b>" } },
       send: (payload) => invoke(BRIDGE_CHANNELS.copyToClipboard, payload),
       acted: () => clipboardWrites.length,
+    },
+    {
+      member: "native.takeClipboardSnapshot",
+      refused: [{ clipboard: "system" }, { clipboard: 7 }, { extra: true }, "a", null],
+      refusal: SCHEMA_REFUSAL,
+      accepted: {},
+      send: (payload) => invoke(BRIDGE_CHANNELS.takeClipboardSnapshot, payload),
+      acted: () => clipboardReads.length,
+    },
+    {
+      member: "native.sendClipboardPiece",
+      refused: [
+        { copyId: "piece-probe", flavor: "text", index: 0 },
+        { copyId: "piece-probe", flavor: "rtf", index: 0, piece: "a" },
+        { copyId: "piece-probe", flavor: "text", index: -1, piece: "a" },
+        { copyId: "piece-probe", flavor: "text", index: 0.5, piece: "a" },
+        { copyId: 7, flavor: "text", index: 0, piece: "a" },
+        { copyId: "piece-probe", flavor: "text", index: 0, piece: "a", extra: true },
+        { copyId: "piece-probe", flavor: "text", index: 0, piece: new Uint8Array([97]) },
+        { copyId: "piece-probe", flavor: "png", index: 0, piece: "iVBORw0KGgo=" },
+        "a",
+        null,
+      ],
+      refusal: SCHEMA_REFUSAL,
+      accepted: { copyId: "piece-probe", flavor: "text", index: 0, piece: "a" },
+      send: (payload) => invoke(BRIDGE_CHANNELS.sendClipboardPiece, payload),
+      // Whether a late copy of the probe's pieces is written, or not for want of them.
+      acted: () => writeLateCopy("piece-probe"),
+    },
+    {
+      member: "native.dropClipboardPieces",
+      refused: [{ copyId: 7 }, { copyId: "drop-probe", extra: true }, "drop-probe", null],
+      refusal: SCHEMA_REFUSAL,
+      accepted: { copyId: "drop-probe" },
+      send: (payload) => invoke(BRIDGE_CHANNELS.dropClipboardPieces, payload),
+      acted: async () => {
+        if (!isDropProbeSent) {
+          isDropProbeSent = true;
+          await sendTextPiece("drop-probe");
+        }
+        return await writeLateCopy("drop-probe");
+      },
+    },
+    {
+      member: "native.copyToClipboardUnlessChanged",
+      refused: [
+        { copyId: "late" },
+        { copyId: "late", since: { digest: 7 } },
+        { copyId: "late", since: { clipboard: "system", digest: ANY_DIGEST } },
+        { copyId: 7, since: { digest: ANY_DIGEST } },
+        { content: { copyId: "late" }, since: { digest: ANY_DIGEST } },
+        { png: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), since: { digest: ANY_DIGEST } },
+        { copyId: "late", since: { digest: ANY_DIGEST }, extra: true },
+        "a",
+        null,
+      ],
+      refusal: SCHEMA_REFUSAL,
+      accepted: acceptedLateWrite,
+      send: async (payload) => {
+        await sendTextPiece("late");
+        return await invoke(
+          BRIDGE_CHANNELS.copyToClipboardUnlessChanged,
+          payload === acceptedLateWrite
+            ? { copyId: "late", since: { digest: await heldDigest() } }
+            : payload,
+        );
+      },
+      acted: () => clipboardWrites.length,
+    },
+    {
+      member: "native.addClipboardFormatting",
+      refused: [
+        { text: "a", html: "<b>a</b>" },
+        { copyId: 7 },
+        { copyId: "formatted", extra: true },
+        "formatted",
+        null,
+      ],
+      refusal: SCHEMA_REFUSAL,
+      accepted: acceptedFormatting,
+      send: async (payload) => {
+        await sendTextPiece("formatted");
+        // Formatting goes beside its copy's text once that text landed, which writes once itself.
+        if (payload === acceptedFormatting) {
+          expect(await writeLateCopy("formatted")).toBe(true);
+          formattingTextWrites += 1;
+        }
+        await invoke(BRIDGE_CHANNELS.sendClipboardPiece, {
+          copyId: "formatted",
+          flavor: "html",
+          index: 0,
+          piece: "<b>a</b>",
+        });
+        return await invoke(BRIDGE_CHANNELS.addClipboardFormatting, payload);
+      },
+      acted: () => clipboardWrites.length - formattingTextWrites,
     },
     {
       member: "native.revealInFileExplorer",
@@ -381,7 +561,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
       refusal: SCHEMA_REFUSAL,
       accepted: appearance,
       send: (payload) => invoke(BRIDGE_CHANNELS.setAppearance, payload),
-      acted: () => appearanceChoices.length,
+      acted: () => windowActs.appearanceChoices.length,
     },
     {
       member: "window.setMinimumSize",
@@ -397,7 +577,23 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
       refusal: SCHEMA_REFUSAL,
       accepted: { windowId: "w-1", size: { width: 600, height: 400 } },
       send: (payload) => invoke(BRIDGE_CHANNELS.setMinimumSize, payload),
-      acted: () => minimumSizes.length,
+      acted: () => windowActs.minimumSizes.length,
+    },
+    {
+      member: "window.bringForward",
+      refused: [7, { windowId: "w-1" }, ["w-1"], null],
+      refusal: SCHEMA_REFUSAL,
+      accepted: "w-1",
+      send: (payload) => invoke(BRIDGE_CHANNELS.bringWindowForward, payload),
+      acted: () => windowActs.windowsBroughtForward,
+    },
+    {
+      member: "window.paste",
+      refused: [7, { windowId: "w-1" }, ["w-1"], null],
+      refusal: SCHEMA_REFUSAL,
+      accepted: "w-1",
+      send: (payload) => invoke(BRIDGE_CHANNELS.pasteInWindow, payload),
+      acted: () => windowActs.pastes,
     },
     {
       member: "window.setDefaultSizes",
@@ -411,7 +607,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
       refusal: SCHEMA_REFUSAL,
       accepted: { paneWidths: { sessions: 300 } },
       send: (payload) => invoke(BRIDGE_CHANNELS.setDefaultSizes, payload),
-      acted: () => defaultSizes.length,
+      acted: () => windowActs.defaultSizes.length,
     },
   ];
 }
@@ -429,7 +625,9 @@ async function withToken(payload: unknown): Promise<unknown> {
 
 describe("intake parity", () => {
   it("refuses in main every payload outside each member's contract, and takes one inside it", async () => {
-    for (const intake of await intakeCases()) {
+    const subject = await openBoundary();
+    const { connection } = subject;
+    for (const intake of await intakeCases(subject)) {
       const before = await intake.acted();
       const requestsBefore = connection.requests.length;
       for (const payload of intake.refused) {
@@ -453,7 +651,8 @@ describe("intake parity", () => {
     }
   });
 
-  it("refuses a status topic opened with a request, and a subscription with no new id", () => {
+  it("refuses a status topic opened with a request, and a subscription with no new id", async () => {
+    const { connection, bridge } = await openBoundary();
     expect(() =>
       bridge.daemon.subscribe(
         "daemon.status",
@@ -469,6 +668,7 @@ describe("intake parity", () => {
   });
 
   it("opens only the daemon streams the app opens, sending nothing for any other method", async () => {
+    const { connection } = await openBoundary();
     for (const [event, params] of [
       ["daemon.stop", {}],
       ["session.attachmentAdd", { sessionId: SESSION_ID, items: [{ path: "/etc/passwd" }] }],

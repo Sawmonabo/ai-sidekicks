@@ -11,11 +11,17 @@ import { registerTranscriptRowRenderer, type TranscriptRowProps } from "./render
 import { registerTranscriptRowFooterRenderer } from "./footer-renderer.js";
 import { registerTranscriptRows } from "../contributions/rows.js";
 import { TranscriptRow } from "./TranscriptRow.js";
-import { sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
+import { sampleRunRow, sampleUserMessageRow } from "#test/helpers/transcript/event-row-samples.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 function rowRendererProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
-  return { row, agentHue: undefined, isSuperseded: false, density: "collapsed" };
+  return {
+    row,
+    agentHue: undefined,
+    isSuperseded: false,
+    density: "collapsed",
+    isOutputOpened: false,
+  };
 }
 
 /**
@@ -34,7 +40,8 @@ function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Elem
 /** The toggles of a list no case here presses. */
 const UNPRESSED_ROW_TOGGLE: RowToggle = {
   toggleCallFold: () => undefined,
-  holdControlInPlace: () => undefined,
+  openOutput: () => undefined,
+  holdRowInPlace: () => undefined,
 };
 
 /** The row renderer inside a list, as a transcript mounts it. */
@@ -69,9 +76,7 @@ describe("the edit control's footer renderer", () => {
   it("draws the footer renderer's control beside Copy on a user's own message", () => {
     registerTranscriptRowFooterRenderer("a test", () => <button type="button">Edit</button>);
     const { container } = render(
-      <MountedInAList
-        row={sampleRunRow({ type: "user.message", summary: "please run the tests" })}
-      />,
+      <MountedInAList row={sampleUserMessageRow({ message: "please run the tests" })} />,
       { wrapper: LiveAnnouncerProvider },
     );
     expect(buttonLabels(container)).toStrictEqual(["Copy", "Edit"]);
@@ -84,7 +89,11 @@ describe("registering the transcript row renderer", () => {
     // picked by import order.
     registerTranscriptRows();
     expect(() => {
-      registerTranscriptRowRenderer("another owner", { render: () => null, drawsBody: () => true });
+      registerTranscriptRowRenderer("another owner", {
+        render: () => null,
+        drawsBody: () => true,
+        prepareRow: () => undefined,
+      });
     }).toThrow(/transcript row renderer/);
   });
 });

@@ -12,14 +12,22 @@
 // document's that opened it and renders its tree, since an entry is reported to the realm whose
 // script ran it.
 //
+// Each real frame plays one frame of the scenario: the frozen clock is advanced, delivering the
+// beats due by then, and the frame work the app armed on it runs, so a sample holds the app's own
+// frame work as a reader's frame does.
+//
 // The warm-up is a frame count, not seconds: the frozen clock only moves when this sampler moves
 // it, so seconds of frames would deliver the whole script before the first sample. The advance per
 // frame is derived from the script's span.
+//
+// A measured case gates on the median over fresh launches (`measureLaunches`), each from a new
+// profile, so each compiles its GPU pipelines from nothing, as an app's first launch does.
 
 import { expect } from "vitest";
 
 import type { AppUnderTest } from "../helpers/electron/harness.js";
 import { SCENARIO_FIXTURE_GLOBAL } from "#renderer/app/fixture/global-names.js";
+import type { ScenarioFixtureHandle } from "#renderer/services/daemon/selection.fixture.js";
 import {
   CONCURRENT_STREAMING_LANE_COUNT,
   CONCURRENT_STREAMING_SCENARIO,
@@ -45,6 +53,20 @@ export const MEASURED_RUN_COUNT = 3;
  * initial measurement pass and V8 compilation, which no frame budget bounds.
  */
 const WARM_UP_FRAME_COUNT = 30;
+
+/**
+ * Launches `MEASURED_RUN_COUNT` times, one after another, each a fresh launch, and answers each
+ * launch's run in order.
+ */
+export async function measureLaunches<TRun>(
+  launchOnce: () => Promise<TRun>,
+): Promise<readonly TRun[]> {
+  const runs: TRun[] = [];
+  for (let runIndex = 0; runIndex < MEASURED_RUN_COUNT; runIndex += 1) {
+    runs.push(await launchOnce());
+  }
+  return runs;
+}
 
 /** What one sampled run measured. */
 export interface FrameTimingRun {
@@ -78,10 +100,7 @@ export async function sampleFrameTimings(
       // The scenario's handle is the console document's, which opened this window.
       const consoleRealm = (window.opener ?? globalThis) as typeof globalThis;
       const scenarioControl = (
-        consoleRealm as unknown as Record<
-          string,
-          { advance(milliseconds: number): void; deliveredBeatCount(): number } | undefined
-        >
+        consoleRealm as unknown as Record<string, ScenarioFixtureHandle | undefined>
       )[scenarioGlobalName];
       if (scenarioControl === undefined) {
         return null;
@@ -113,6 +132,7 @@ export async function sampleFrameTimings(
             isSampling = true;
           }
           scenarioControl.advance(advanceMilliseconds);
+          scenarioControl.runFrame();
           if (stallMilliseconds > 0) {
             const stallUntil = performance.now() + stallMilliseconds;
             while (performance.now() < stallUntil) {

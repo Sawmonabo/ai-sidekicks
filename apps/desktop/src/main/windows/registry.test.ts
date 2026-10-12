@@ -60,6 +60,7 @@ const CENTERED_ON_PRIMARY = { x: 30, y: 55, width: 1380, height: 815 };
 const APP_FACTS_SWITCHES = appFactsSwitches({
   version: "0.0.0",
   platform: "darwin",
+  hasPrimarySelection: false,
   arch: "arm64",
   locale: "en-US",
   physicalMemoryBytes: 17_179_869_184,

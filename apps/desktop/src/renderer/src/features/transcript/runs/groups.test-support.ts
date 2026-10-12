@@ -5,7 +5,7 @@ import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row"
 import { type RunGroup } from "./groups.js";
 import { generalRow, runRow } from "../event-rows.test-support.js";
 
-/** Two interleaved runs and a session row: run A is live, run B has completed. */
+/** Two interleaved runs that each reply, and a session row: run A is live, run B has completed. */
 export function mixedWindow(): readonly TranscriptEventRow[] {
   return [
     runRow({
@@ -26,7 +26,9 @@ export function mixedWindow(): readonly TranscriptEventRow[] {
       actor: "agent-two",
     }),
     runRow({ id: "a2", sequence: 4, type: "run.running", runId: "run-a", position: 2 }),
-    runRow({ id: "b2", sequence: 5, type: "run.completed", runId: "run-b", position: 2 }),
+    runRow({ id: "a3", sequence: 5, type: "assistant.message", runId: "run-a", position: 3 }),
+    runRow({ id: "b2", sequence: 6, type: "assistant.message", runId: "run-b", position: 2 }),
+    runRow({ id: "b3", sequence: 7, type: "run.completed", runId: "run-b", position: 3 }),
   ];
 }
 

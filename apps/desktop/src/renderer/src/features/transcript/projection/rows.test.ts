@@ -1,3 +1,4 @@
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { describe, expect, it } from "vitest";
 
 // The row-id namespace comes from the transcript scenario that declares it: a stem
@@ -5,13 +6,18 @@ import { describe, expect, it } from "vitest";
 import { EVENT_ID_STEM } from "#fixtures/scenarios/transcript-states.js";
 import { isContractTranscriptReadRow } from "./rows.test-support.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
-import { projectTranscriptRows } from "./rows.js";
+import { TranscriptRowProjector } from "./rows.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 const RUN_ONE = "019b793b-7b60-740e-8110-d1a4c1150111";
 const RUN_TWO = "019b793b-7b60-740e-8120-d1a4c1150112";
 const AGENT_TWO = "019b793b-7b60-7a6e-8120-d1a4c1150102";
 const USER = "019b793b-7b60-79a4-8110-cca0117a0410";
+
+/** A whole log read as rows in one stretch. */
+function rowsOf(events: readonly ProjectedSessionEvent[]): readonly TranscriptEventRow[] {
+  return new TranscriptRowProjector().project(events).rows;
+}
 
 function event(
   overrides: Partial<ProjectedSessionEvent> & { readonly sequence: number },
@@ -39,7 +45,7 @@ function runEvent(sequence: number, runId: string, kind = "run.running"): Projec
 describe("the log-derived row projection", () => {
   it("produces rows the contract's own validator accepts, a read event's body carried", () => {
     // Read from history, so each event carries the body its row does; a streamed event has none.
-    const projection = projectTranscriptRows([
+    const rows = rowsOf([
       event({
         sequence: 1,
         kind: "session.created",
@@ -49,8 +55,8 @@ describe("the log-derived row projection", () => {
       { ...runEvent(2, RUN_ONE), content: { status: "large", contentLength: 40_000 } },
     ]);
 
-    expect(projection.rows).toHaveLength(2);
-    for (const row of projection.rows) {
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
       // The real contract validator, not a local shape check: a row it refuses is unusable
       // downstream.
       expect(isContractTranscriptReadRow(row)).toBe(true);
@@ -58,28 +64,28 @@ describe("the log-derived row projection", () => {
   });
 
   it("files a run-attributed event on the run arm and an unattributed one on general", () => {
-    const projection = projectTranscriptRows([
+    const rows = rowsOf([
       event({ sequence: 1, kind: "session.created", payload: { sessionId: SESSION_ID } }),
       runEvent(2, RUN_ONE),
     ]);
 
-    const [sessionRow, runRow] = projection.rows;
+    const [sessionRow, runRow] = rows;
     expect(sessionRow?.kind).toBe("general");
     expect(runRow?.kind).toBe("run");
     expect(runRow?.kind === "run" ? runRow.runId : undefined).toBe(RUN_ONE);
   });
 
   it("draws nothing for an event type with no registered category", () => {
-    const projection = projectTranscriptRows([
+    const rows = rowsOf([
       runEvent(1, RUN_ONE),
       event({ sequence: 2, kind: "run.definitely_not_registered" }),
     ]);
 
-    expect(projection.rows).toHaveLength(1);
+    expect(rows).toHaveLength(1);
   });
 
   it("draws nothing for a rollback whose payload the contract refuses", () => {
-    const projection = projectTranscriptRows([
+    const rows = rowsOf([
       event({
         sequence: 1,
         kind: "run.rolled_back",
@@ -89,7 +95,7 @@ describe("the log-derived row projection", () => {
       }),
     ]);
 
-    expect(projection.rows).toStrictEqual([]);
+    expect(rows).toStrictEqual([]);
   });
 
   it("keys rows by the event's own canonical id, wire-verbatim", () => {
@@ -97,19 +103,11 @@ describe("the log-derived row projection", () => {
     // and a row jump finds a row by `TranscriptEventRow.id`, so a `session:sequence` key would
     // resolve for no caller.
     const events = [runEvent(7, RUN_ONE), runEvent(8, RUN_ONE)];
-    const projection = projectTranscriptRows(events);
+    const rows = rowsOf(events);
 
-    const ids = projection.rows.map((row) => row.id);
+    const ids = rows.map((row) => row.id);
     expect(ids).toStrictEqual(events.map((admitted) => admitted.id));
     expect(new Set(ids).size).toBe(ids.length);
-  });
-
-  it("restates the wire type as the summary rather than composing a sentence", () => {
-    // Negative control for the central claim: a projection that made a sentence up would pass
-    // every other case. The contract refuses an empty summary, so "say nothing" is no option.
-    const projection = projectTranscriptRows([runEvent(1, RUN_ONE, "tool.invoked")]);
-    expect(projection.rows[0]?.summary).toBe("tool.invoked");
-    expect(projection.rows[0]?.summary).toBe(projection.rows[0]?.type);
   });
 });
 
@@ -134,23 +132,25 @@ describe("which payload member names a row's run", () => {
   it("files an intervention under the run it names, beside that run's own rows", () => {
     // `intervention.*` spells the affected run `targetRunId`; it must not project as a
     // session-level row outside its run group.
-    const projection = projectTranscriptRows([
+    const rows = rowsOf([
       runEvent(1, RUN_ONE),
       interventionEvent(2, RUN_ONE),
       runEvent(3, RUN_ONE, "run.completed"),
     ]);
 
-    expect(projection.rows.map((row) => row.kind)).toStrictEqual(["run", "run", "run"]);
-    expect(
-      projection.rows.map((row) => (row.kind === "run" ? row.runId : undefined)),
-    ).toStrictEqual([RUN_ONE, RUN_ONE, RUN_ONE]);
+    expect(rows.map((row) => row.kind)).toStrictEqual(["run", "run", "run"]);
+    expect(rows.map((row) => (row.kind === "run" ? row.runId : undefined))).toStrictEqual([
+      RUN_ONE,
+      RUN_ONE,
+      RUN_ONE,
+    ]);
   });
 
   it("attributes a child run to itself and never to the parent it names", () => {
     // `run.queued` carries `parentRunId` beside its own `runId`; reading any run-naming member
     // would file the child's rows in the parent's group. The contract's attributing list, which
     // omits that spelling, is what keeps it out at runtime.
-    const projection = projectTranscriptRows([
+    const rows = rowsOf([
       event({
         sequence: 1,
         kind: "run.queued",
@@ -164,7 +164,7 @@ describe("which payload member names a row's run", () => {
       }),
     ]);
 
-    const [row] = projection.rows;
+    const [row] = rows;
     expect(row?.kind).toBe("run");
     expect(row?.kind === "run" ? row.runId : undefined).toBe(RUN_TWO);
   });
