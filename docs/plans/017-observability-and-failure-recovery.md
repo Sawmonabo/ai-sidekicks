@@ -32,8 +32,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Target Areas
 
-- `packages/runtime-daemon/src/observability/diagnostic-retention-policy.ts` (the policy state the expiry reads: each bucket's TTL)
-- `packages/runtime-daemon/src/observability/diagnostic-buckets/` (the log-file buckets and their expiry for `driver_raw_events`, `command_output`, `tool_traces` and `workflow_engine_events`)
+- `packages/runtime-daemon/src/observability/diagnostic-buckets/` (the log-file buckets and their expiry for `driver_raw_events`, `command_output`, `tool_traces` and `workflow_engine_events`, and the files each provider writes into an account home that the bound covers)
+- `apps/desktop/src/main/services/diagnostic-log.ts` (the main process's own log, `main.jsonl`, which takes the same bound from the service)
 
 ## PII in Diagnostics
 
@@ -43,7 +43,7 @@ Plan-017 is the implementation surface for [Spec-018 §PII in Diagnostics](../sp
 - Nothing leaves the machine: the daemon runs no telemetry exporter and sends no diagnostic bucket content to any sink.
 - Bound and erase: each bucket deletes a whole file once it is past `Keep diagnostic logs for` ([Spec-020 §Erasure Paths](../specs/020-data-retention-export-and-deletion.md#erasure-paths) Path 3), and `Erase all data` deletes them with the data folder. There is no per-person flush.
 
-**Policy locality (no wire contract).** The diagnostic policy _state_ — each bucket's TTL — is daemon-local code in `diagnostic-retention-policy.ts`. It is deliberately **not** published as a typed payload in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md): the daemon is the only principal that sees diagnostic content, and none of it leaves the machine. The retention period is the `Keep diagnostic logs for` setting on Settings › Runtime, carried by the daemon's configuration reads and writes ([Plan-005 §Phase R1 — Namespace Handlers](./005-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)).
+**One bound.** Every bucket, the service log, the main process's log and the account homes' diagnostic files are held to one bound, `keepDiagnosticLogsDays`, the `Keep diagnostic logs for` setting on Settings › Runtime, kept and served by the daemon's retention verbs (`daemon.retentionRead`, `daemon.retentionUpdate`, `daemon.retentionSubscribe`, [Plan-005 §Phase R1 — Namespace Handlers](./005-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers) T-005r-1-9). No module holds a policy per bucket. No diagnostic content is published in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md): the daemon is the only principal that sees it, and none of it leaves the machine.
 
 ## Data And Storage Changes
 
@@ -54,14 +54,14 @@ Plan-017 is the implementation surface for [Spec-018 §PII in Diagnostics](../sp
 ## API And Transport Changes
 
 - No `health.*` read is added for any client, and no `health.*` method string is registered. Settings › Runtime's service status comes from the supervisor through `daemon.status.read` ([Plan-005 §Phase R1 — Namespace Handlers](./005-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)).
-- The diagnostic policy is daemon-local state, not a contract: the TTL from `Keep diagnostic logs for`. The default TTL is 7 days.
+- The bound is `keepDiagnosticLogsDays`, read, changed and followed through `daemon.retentionRead`, `daemon.retentionUpdate` and `daemon.retentionSubscribe` ([Plan-005 §Phase R1 — Namespace Handlers](./005-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers) T-005r-1-9). The default is 7 days.
 
 ## Invariants
 
 Load-bearing constraints every Plan-017 PR — and every downstream extension — must preserve. Each entry names the governing clause it grounds in, or declares itself plan-owned.
 
-- **I-017-1 — Diagnostic-bucket retention is TTL-bounded by `Keep diagnostic logs for`, 7 days by default.** All the buckets (`driver_raw_events`, `command_output`, `tool_traces`, `workflow_engine_events`) and the service log delete each file once it is past `Keep diagnostic logs for`, 7 days by default; the person may set any period. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Bounded local retention"), with the storage side owned by [Spec-020 §PII Data Map](../specs/020-data-retention-export-and-deletion.md#pii-data-map)'s bounded-retention tier. **Why load-bearing.** The buckets capture full prompts, full command arguments, and full tool results by the nature of their purpose; without the bound, content the person deleted from a session would persist indefinitely beside it in the diagnostics. **Verification.** T2.1, T2.2.
-- **I-017-2 — Diagnostics never leave the machine.** The daemon runs no telemetry exporter and sends no diagnostic-bucket content to any sink. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Nothing leaves the machine"). **Why load-bearing.** The buckets hold full prompts, command output and tool results; a copy sent off the machine would outlive the bound that deletes them here. **Verification.** T2.1.
+- **I-017-1 — Diagnostic-bucket retention is TTL-bounded by `Keep diagnostic logs for`, 7 days by default.** One bound covers all the buckets (`driver_raw_events`, `command_output`, `tool_traces`, `workflow_engine_events`), the service log, the main process's log and the files a provider writes into each account home and never reads back for a session: each file is deleted once it is past `Keep diagnostic logs for`, 7 days by default; the person may set any period. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Bounded local retention"), with the storage side owned by [Spec-020 §PII Data Map](../specs/020-data-retention-export-and-deletion.md#pii-data-map)'s bounded-retention tier. **Why load-bearing.** The buckets capture full prompts, full command arguments, and full tool results by the nature of their purpose; without the bound, content the person deleted from a session would persist indefinitely beside it in the diagnostics. **Verification.** T1.1, T1.2.
+- **I-017-2 — Diagnostics never leave the machine.** The daemon runs no telemetry exporter and sends no diagnostic-bucket content to any sink. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Nothing leaves the machine"). **Why load-bearing.** The buckets hold full prompts, command output and tool results; a copy sent off the machine would outlive the bound that deletes them here. **Verification.** T1.1.
 
 ## Cross-Plan Obligations
 
@@ -71,77 +71,61 @@ Each entry is an obligation shared with the plan it names. See Cross-Plan Depend
 
 **Obligation.** Plan-017's diagnostic buckets delete each file past `Keep diagnostic logs for` on the service's one scheduler ([Plan-005 §Phase R1 — Namespace Handlers](./005-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)); `Erase all data` deletes them with the data folder. There is no per-person flush.
 
-**Resolution.** Plan-017's half is I-017-1, implemented by T2.1. Plan-019 places the bound in its retention tiers as Path 3. A new diagnostic bucket added by either side joins the same bound.
+**Resolution.** Plan-017's half is I-017-1, implemented by T1.1. Plan-019 places the bound in its retention tiers as Path 3. A new diagnostic bucket added by either side joins the same bound.
 
 ### CP-017-2 — The workflow engine's diagnostic bucket (⇄ Plan-014 CP-014-9)
 
 **Obligation.** Plan-017 creates `workflow_engine_events`, the bucket the always-on engine event record of [Spec-015 §Engine event record (SA-40)](../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-40) lands on, with its TTL and its Path-3 membership; Plan-014 writes records into it and authors none of that.
 
-**Resolution.** T2.2 builds the bucket; Plan-014 T5.24 is its writer and waits on it.
+**Resolution.** T1.2 builds the bucket; Plan-014 T5.24 is its writer and waits on it.
 
 ## Implementation Steps
 
 - Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
-1. Define the diagnostic retention policy state, daemon-local: each bucket's TTL.
-2. Implement the expiry of the diagnostic logs, which deletes a whole file past its bound, without weakening canonical diagnosis, with no exporter and no sink off the machine.
+1. Implement the expiry of the diagnostic logs, which deletes a whole file past its bound, without weakening canonical diagnosis, with no exporter and no sink off the machine.
 
 ## Implementation Phase Sequence
 
-Each phase builds one of the §Implementation Steps above: Phase 1 Step 1, Phase 2 Step 2. Phase 1 has no unsatisfied upstream code dependency; Phase 2 serializes behind it.
+One phase builds the §Implementation Steps above, with no unsatisfied upstream code dependency beyond the bound it reads ([Plan-005 §Phase R1 — Namespace Handlers](./005-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers) T-005r-1-9).
 
-### Phase 1 — Diagnostic policy state
+### Phase 1 — Diagnostic-bucket retention
 
-**Precondition:** none. Implementation Step 1; gates Phase 2, whose expiry reads this state.
-
-#### Tasks
-
-- **T1.1 — Diagnostic retention policy state (daemon-local).**
-  - **Files:** `packages/runtime-daemon/src/observability/diagnostic-retention-policy.ts` (CREATE — the policy-state type and its resolution)
-  - The policy _state_ the expiry reads: the TTL per bucket, resolved from the `Keep diagnostic logs for` setting in daemon configuration. The default TTL is 7 days. Neither the state nor the expiry that reads it is a wire contract — see §PII in Diagnostics above.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-retention-policy.test.ts` (CREATE) — the default TTL is 7 days; a configured TTL resolves per bucket; a configuration naming a bucket that does not exist is refused at load.
-  - **Acceptance:** the expiry reads one resolved policy state, and no client can read or override it over the wire.
-  - **Spec coverage:** Spec-018 §PII in Diagnostics
-  - **Verifies invariant:** none (I-017-1 and I-017-2 are enforced by T2.1)
-  - **Consumes:** the bucket names ← [Spec-020 §PII Data Map](../specs/020-data-retention-export-and-deletion.md#pii-data-map) bounded-retention tier (doc contract); the `Keep diagnostic logs for` key ← daemon configuration ([Plan-005 §Phase R1 — Namespace Handlers](./005-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers))
-
-### Phase 2 — Diagnostic-bucket retention
-
-**Precondition:** Phase 1 merged. Implementation Step 2.
+**Precondition:** the retention verbs of [Plan-005](./005-local-ipc-and-daemon-control.md) T-005r-1-9 merged. Implementation Step 1.
 
 #### Tasks
 
-- **T2.1 — Diagnostic-bucket TTL retention.**
-  - **Files:** `packages/runtime-daemon/src/observability/diagnostic-buckets/` (CREATE — one log-file bucket per bucket plus the shared purge driver)
-  - Each bucket writes log files in the daemon's data folder, never a table. The shared purge driver deletes a whole file, the service log's `logs/service-<time begun>.log` files included, the file being written excepted, which the driver has the service log turn into the next once it is a day old, once it is past the TTL `Keep diagnostic logs for` sets, 7 days by default and any period the person chooses. The buckets write nowhere off the machine, and the daemon registers no telemetry exporter. Deleting a log never removes the failure detail a run event carries.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-buckets.test.ts` (CREATE) — a bucket's file, and a service log file, past the configured TTL is deleted whole and a newer one is kept; a run event's failure detail is intact after its logs are deleted.
-  - **Acceptance:** no bucket keeps a file past its TTL.
+- **T1.1 — Diagnostic-bucket retention.**
+  - **Files:** `packages/runtime-daemon/src/observability/diagnostic-buckets/` (CREATE — one log-file bucket per bucket plus the shared purge driver); `packages/runtime-daemon/src/observability/diagnostic-buckets/account-homes.ts` (NEW — each provider's files in an account home the bound covers, from the pinned build's own cleanup list minus every per-session path, recorded in the provider wire reference with its version); `packages/runtime-daemon/src/daemon/session-methods.ts` (EXTEND — the expiry's `keepMs` from `keepDiagnosticLogsDays`); `apps/desktop/src/main/services/diagnostic-log.ts` (EXTEND — the bound from `daemon.retentionRead` at each link-up and from each change `daemon.retentionSubscribe` reports; before the first answer the main process deletes nothing by age)
+  - Each bucket writes log files in the daemon's data folder, never a table. The shared purge driver deletes a whole file, the service log's `logs/service-<time begun>.log` files included, the file being written excepted, which the driver has the service log turn into the next once it is a day old, once it is past the bound `Keep diagnostic logs for` sets, 7 days by default and any period the person chooses. The same bound reaches each account home's logs, telemetry, traces, shell snapshots and paste cache — on Claude Code its own cleanup list's `paste-cache/`, `shell-snapshots/`, `feedback-bundles/`, `feedback/drafts/` and `usage-data/` ([Claude Code, Cleaned up automatically](https://code.claude.com/docs/en/claude-directory#cleaned-up-automatically)), never a path that belongs to a session, which only `Delete old data` removes — and the main process's `main.jsonl` and `main.jsonl.1`. The buckets write nowhere off the machine, and the daemon registers no telemetry exporter. Deleting a log never removes the failure detail a run event carries.
+  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-buckets.test.ts` (CREATE) — a bucket's file, and a service log file, past the configured bound is deleted whole and a newer one is kept; an account home's paste cache past the bound is deleted while a session's transcript of the same age is kept; a run event's failure detail is intact after its logs are deleted; the main process's log follows a bound changed through `daemon.retentionUpdate` and deletes nothing by age before the service first answers.
+  - **Acceptance:** no bucket, log or account-home diagnostic file is kept past the bound.
   - **Spec coverage:** Spec-018 §PII in Diagnostics, Spec-018 §Fallback Behavior
   - **Verifies invariant:** I-017-1, I-017-2
-  - **Consumes:** policy-state shape ← T1.1
+  - **Consumes:** `keepDiagnosticLogsDays` ← `daemon.retentionRead` and `daemon.retentionSubscribe` ([Plan-005](./005-local-ipc-and-daemon-control.md) T-005r-1-9)
 
-- **T2.2 — The workflow engine's diagnostic bucket.**
+- **T1.2 — The workflow engine's diagnostic bucket.**
   - **Files:** `packages/runtime-daemon/src/observability/diagnostic-buckets/` (EXTEND — the `workflow_engine_events` bucket)
-  - The bucket the workflow engine's always-on event record writes to ([Spec-015 §Engine event record (SA-40)](../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-40)): newline-delimited JSON files in the daemon's data folder, one file per day, never a SQLite table and never a canonical event. It takes one record per append call, and Plan-014's `engine-event-log.ts` (T5.24) is its one writer. A day's file is deleted once its day is past `Keep diagnostic logs for`, by T2.1's purge driver, so the TTL and `Erase all data` reach it as they reach every bucket. Nothing reads it for projection rebuild, verification or audit.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-buckets.test.ts` (EXTEND) — a day's file past the configured TTL is deleted and the current day's is kept.
+  - The bucket the workflow engine's always-on event record writes to ([Spec-015 §Engine event record (SA-40)](../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-40)): newline-delimited JSON files in the daemon's data folder, one file per day, never a SQLite table and never a canonical event. It takes one record per append call, and Plan-014's `engine-event-log.ts` (T5.24) is its one writer. A day's file is deleted once its day is past `Keep diagnostic logs for`, by T1.1's purge driver, so the TTL and `Erase all data` reach it as they reach every bucket. Nothing reads it for projection rebuild, verification or audit.
+  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-buckets.test.ts` (EXTEND) — a day's file past the configured bound is deleted and the current day's is kept.
   - **Acceptance:** the engine record lives only in this bucket, under the same bound and erase as every other bucket.
   - **Spec coverage:** Spec-018 §PII in Diagnostics; [Spec-015 §Engine event record (SA-40)](../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-40)
   - **Verifies invariant:** I-017-1
-  - **Consumes:** the purge driver ← T2.1; policy-state shape ← T1.1
+  - **Consumes:** the purge driver ← T1.1
   - **Provides:** the bucket [Plan-014](./014-workflow-authoring-and-execution.md) T5.24 writes into (CP-017-2)
 
-- **T2.3 — The two diagnostic switches.**
+- **T1.3 — The two diagnostic switches.**
   - **Files:** `packages/runtime-daemon/src/observability/diagnostic-buckets/` (EXTEND — the `tool_traces` switch and the `driver_raw_events` switch)
-  - `Record traces` (`recordTraces`) and `Record raw provider messages` (`recordProviderMessages`), both off by default, are read from the daemon's configuration ([Plan-005](./005-local-ipc-and-daemon-control.md) T-005r-1-10) and take effect from the change on. The `tool_traces` bucket is written only while `Record traces` is on. While `Record raw provider messages` is on, `driver_raw_events` writes every message Claude Code or Codex sends the daemon, word for word, into the folder at `providerMessagesPath`, which the Runtime page names, so a turn the daemon translated wrongly can be debugged; while it is off nothing is written to `driver_raw_events`. Both are diagnostic logs: deleted whole past `Keep diagnostic logs for` by T2.1's purge driver, deleted with the data folder by `Erase all data`, and never sent off the machine.
+  - `Record traces` (`recordTraces`) and `Record raw provider messages` (`recordProviderMessages`), both off by default, are read from the daemon's configuration ([Plan-005](./005-local-ipc-and-daemon-control.md) T-005r-1-10) and take effect from the change on. The `tool_traces` bucket is written only while `Record traces` is on. While `Record raw provider messages` is on, `driver_raw_events` writes every message Claude Code or Codex sends the daemon, word for word, into the folder at `providerMessagesPath`, which the Runtime page names, so a turn the daemon translated wrongly can be debugged; while it is off nothing is written to `driver_raw_events`. Both are diagnostic logs: deleted whole past `Keep diagnostic logs for` by T1.1's purge driver, deleted with the data folder by `Erase all data`, and never sent off the machine.
   - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-buckets.test.ts` (EXTEND) — with each switch off a run writes nothing to its file; turned on, the next event lands in it; turned off again, nothing more is written.
   - **Acceptance:** nothing is traced or logged for diagnosis while its switch is off.
   - **Spec coverage:** Spec-018 §PII in Diagnostics
   - **Verifies invariant:** I-017-1, I-017-2
-  - **Consumes:** the purge driver ← T2.1; the two switches ← [Plan-005](./005-local-ipc-and-daemon-control.md) T-005r-1-10
+  - **Consumes:** the purge driver ← T1.1; the two switches ← [Plan-005](./005-local-ipc-and-daemon-control.md) T-005r-1-10
 
 ## Parallelization Notes
 
-- Phase 2 serializes behind T1.1's policy state, and T2.2 and T2.3 build on T2.1's purge driver.
+- T1.2 and T1.3 build on T1.1's purge driver.
 
 ## Test And Verification Plan
 

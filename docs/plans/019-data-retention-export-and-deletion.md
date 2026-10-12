@@ -36,9 +36,10 @@ Ship the Spec-020 data acts and the daemon's secrets: every daemon secret is its
 
 ## Target Areas
 
-- `packages/runtime-daemon/src/crypto/` — **new subsystem directory created by this plan**: `keychain-entry.ts` (one credential-store item through `@napi-rs/keyring`, the Secret Service opened explicitly on Linux, and the one file when no Secret Service answers and on a Mac whose secrets are in it, with the move into it and back); `windows-credential-store.ts` (`WindowsCredentialStore`), which carries every call to the service's Windows half; `data-export.ts` and `data-erase.ts`
+- `packages/runtime-daemon/src/crypto/` — **new subsystem directory created by this plan**: `keychain-entry.ts` (one credential-store item through `@napi-rs/keyring`, the Secret Service opened explicitly on Linux, and the one file when no Secret Service answers and on a Mac whose secrets are in it, with the move into it and back); `windows-credential-store.ts` (`WindowsCredentialStore`), which carries every call to the service's Windows half
+- `packages/runtime-daemon/src/data-acts/` — **created by this plan**: `export.ts` (`Export all data`) and `erase.ts` (`Erase all data`)
 - `packages/runtime-daemon/src/bootstrap/daemon-key-store.ts` — Plan-005 T-005r-2-1 creates it in the `bootstrap/` composition root with the `DaemonKeyStore` interface; this plan adds the production store, which keeps each daemon secret as its own credential-store item through `keychain-entry.ts` and, on Windows, `WindowsCredentialStore`, reciprocating Plan-005 CP-005-5
-- `packages/runtime-daemon/src/ipc/handlers/data.ts` — **created by this plan** in the shipped `ipc/handlers/` host: the data verbs registered on Plan-005's `MethodRegistry`, over the schemas in `packages/contracts/src/daemon/data.ts`
+- `packages/runtime-daemon/src/daemon/data-methods.ts` — **created by this plan** beside the other `daemon.*` methods modules: the data verbs registered on Plan-005's `MethodRegistry`, over the schemas in `packages/contracts/src/daemon/data.ts`
 - Plan-005's retention handlers — **extended** with the purge's erasure step: `secure_delete` on for the delete of the session's rows, and the `TRUNCATE` checkpoint after commit
 - `docs/architecture/contracts/api-payload-contracts.md` — kept in step with the data verbs this plan builds (T19.2.4)
 
@@ -63,11 +64,11 @@ Per [Spec-020 §PII Data Map](../specs/020-data-retention-export-and-deletion.md
 
 | Bucket | Content | Owner Plan | Removal Path |
 | --- | --- | --- | --- |
-| `driver_raw_events` (log files, daemon-local) | raw provider messages, written only while `Record raw provider messages` is on | Plan-017 (T2.1) | Path 3 — a file deleted whole past `Keep diagnostic logs for`; deleted with the data folder on erase |
-| `command_output` (log files, daemon-local) | stdout, stderr | Plan-017 (T2.1) | Path 3 — a file deleted whole past `Keep diagnostic logs for`; deleted with the data folder on erase |
-| `tool_traces` (log files, daemon-local) | tool-call arguments and result bodies | Plan-017 (T2.1) | Path 3 — a file deleted whole past `Keep diagnostic logs for`; deleted with the data folder on erase |
-| `workflow_engine_events` (newline-delimited JSON files, one per day, daemon-local) | each record's engine decision and its typed values | Plan-017 (T2.2) | Path 3 — a day's file deleted past `Keep diagnostic logs for`; deleted with the data folder on erase |
-| Service log (`logs/service-<time begun>.log`, one file begun at each start, each day and at 16 MiB, daemon-local) | the daemon's own lines about itself, which can name local paths | Plan-005 (T-005r-1-18) writes it; Plan-017 (T2.1) expires it | Path 3 — a file deleted whole past `Keep diagnostic logs for`; deleted with the data folder on erase |
+| `driver_raw_events` (log files, daemon-local) | raw provider messages, written only while `Record raw provider messages` is on | Plan-017 (T1.1) | Path 3 — a file deleted whole past `Keep diagnostic logs for`; deleted with the data folder on erase |
+| `command_output` (log files, daemon-local) | stdout, stderr | Plan-017 (T1.1) | Path 3 — a file deleted whole past `Keep diagnostic logs for`; deleted with the data folder on erase |
+| `tool_traces` (log files, daemon-local) | tool-call arguments and result bodies | Plan-017 (T1.1) | Path 3 — a file deleted whole past `Keep diagnostic logs for`; deleted with the data folder on erase |
+| `workflow_engine_events` (newline-delimited JSON files, one per day, daemon-local) | each record's engine decision and its typed values | Plan-017 (T1.2) | Path 3 — a day's file deleted past `Keep diagnostic logs for`; deleted with the data folder on erase |
+| Service log (`logs/service-<time begun>.log`, one file begun at each start, each day and at 16 MiB, daemon-local) | the daemon's own lines about itself, which can name local paths | Plan-005 (T-005r-1-18) writes it; Plan-017 (T1.1) expires it | Path 3 — a file deleted whole past `Keep diagnostic logs for`; deleted with the data folder on erase |
 
 > **D-019-2.** The Content column above says what each bucket carries; every bucket is log files, as [Spec-020 §PII Data Map](../specs/020-data-retention-export-and-deletion.md#pii-data-map) records. See [§Design Decisions](#design-decisions) D-019-2.
 
@@ -89,10 +90,10 @@ Per [Spec-020 §Daemon Secrets](../specs/020-data-retention-export-and-deletion.
 
 ### Data verbs (daemon JSON-RPC via Plan-005's host)
 
-Methods registered by Plan-019 on Plan-005's JSON-RPC `MethodRegistry` (`ipc/handlers/data.ts`), each with its params and result schemas in `packages/contracts/src/daemon/data.ts`. The host is **daemon-bound, not the control plane**: the handlers read the daemon's own database and its credential-store items, which a Cloudflare-Workers control plane cannot reach (data-locality — see [§Design Decisions](#design-decisions) D-019-1). Errors ride the [ADR-009](../decisions/009-json-rpc-ipc-wire-format.md) JSON-RPC envelope.
+Methods registered by Plan-019 on Plan-005's JSON-RPC `MethodRegistry` (`daemon/data-methods.ts`), each with its params and result schemas in `packages/contracts/src/daemon/data.ts`. The host is **daemon-bound, not the control plane**: the handlers read the daemon's own database and its credential-store items, which a Cloudflare-Workers control plane cannot reach (data-locality — see [§Design Decisions](#design-decisions) D-019-1). Errors ride the [ADR-009](../decisions/009-json-rpc-ipc-wire-format.md) JSON-RPC envelope.
 
-- `daemon.dataExport {destination}` → a job; `daemon.dataExportSubscribe` carries its progress. `destination` is the path the save dialog hands back, named `sidekicks-export-<date>`, or the command line's folder. The folder holds `sessions/<id>.jsonl` (every event, one per line, in the canonical event shape), `files/<session id>/…`, `sidekicks/`, `workflows/`, `accounts.json` with no credential, `hosted-account.json` when signed in (the control plane's `account.export`), and `README.txt`; never a settings value, a credential, a pasted token, a workflow secret, a key or a diagnostic log. One session at a time within 64 MiB, one job at a time; an export writes one line to the diagnostic log and no event.
-- `daemon.dataErase {}` — `Erase all data`, in order: stop every run and shell as `Stop` does; sign each provider account out (`claude auth logout` in each Claude Code account home, `account/logout` on each Codex service); revoke this machine's refresh family when signed in to the hosted account; delete every credential-store item the app made; delete the data folder, the account homes it made included; start again empty. Project folders stay, and a backup taken earlier keeps what it held.
+- `daemon.dataExport {destination}` → a job; `daemon.dataExportSubscribe` carries its progress. `destination` is the path the save dialog hands back, named `sidekicks-export-<date>`, or the command line's folder. The folder holds `sessions/<id>.jsonl` (every event, one per line, in the canonical event shape, each body decoded), `files/<session id>/…`, `sidekicks/`, `workflows/`, `accounts.json` with no credential, `hosted-account.json` when signed in (the control plane's `account.export`), and `README.txt`; never a settings value, a credential, a pasted token, a workflow secret, a key or a diagnostic log. One session at a time within 64 MiB, one job at a time; an export writes one line to the diagnostic log and no event.
+- `daemon.dataErase {}` — `Erase all data`, in order: stop every run and shell as `Stop` does; sign each provider account out through its home reset ([Plan-023](./023-provider-accounts-and-credential-homes.md) T2.2), which runs the provider's own sign-out first (`claude auth logout` in each Claude Code account home, `account/logout` on each Codex service); revoke this machine's refresh family when signed in to the hosted account; delete every credential-store item the app made; delete the data folder, the account homes it made included, and the main process's log; start again empty. Project folders stay, and a backup taken earlier keeps what it held.
 
 ## Invariants
 
@@ -135,7 +136,7 @@ The design decisions behind the plan body above.
 
 1. Add `@napi-rs/keyring` to `packages/runtime-daemon/package.json`, the credential store for every daemon secret on macOS and Linux. `keytar` is not used (archived/unmaintained).
 2. Implement `packages/runtime-daemon/src/crypto/keychain-entry.ts`, `packages/runtime-daemon/src/crypto/windows-credential-store.ts` (`WindowsCredentialStore`) and the production `DaemonKeyStore` in `packages/runtime-daemon/src/bootstrap/daemon-key-store.ts`: each daemon secret is its own credential-store item; on Linux the Secret Service is opened explicitly with `{linux: {store: "secret-service"}}` and, when none answers, the items go into one file in the data folder at mode `0600`, never the kernel keyring and never silently; on a Mac the items go into the same file once the approved logged-out service takes over and stay there, even after it is turned off in Login Items & Extensions, until uninstall moves them back, each read back before its source is deleted; on Windows every item goes through the Windows half (CP-019-5); a locked store refuses with its cause ([Spec-020 §Daemon Secrets](../specs/020-data-retention-export-and-deletion.md#daemon-secrets)). Reciprocates Plan-005 CP-005-5.
-3. Implement `packages/runtime-daemon/src/ipc/handlers/data.ts` with `crypto/data-export.ts` and `crypto/data-erase.ts`: the data verbs, registered on Plan-005's `MethodRegistry` over the schemas in `packages/contracts/src/daemon/data.ts` ([§Design Decisions](#design-decisions) D-019-1). Export streams one session at a time within 64 MiB and writes no secret; erase runs its six steps in order. Plan-005 reciprocates registration (see [§Cross-Plan Obligations](#cross-plan-obligations)).
+3. Implement `packages/runtime-daemon/src/daemon/data-methods.ts` with `data-acts/export.ts` and `data-acts/erase.ts`: the data verbs, registered on Plan-005's `MethodRegistry` over the schemas in `packages/contracts/src/daemon/data.ts` ([§Design Decisions](#design-decisions) D-019-1). Export streams one session at a time within 64 MiB and writes no secret; erase runs its six steps in order. Plan-005 reciprocates registration (see [§Cross-Plan Obligations](#cross-plan-obligations)).
 4. Keep `docs/architecture/contracts/api-payload-contracts.md` in step with what this plan builds: the data verbs' shapes.
 5. **The purge's erasure step and the account-deletion alignment.** Extend Plan-005's retention handlers with the purge's erasure step: the delete of the session's rows runs in one transaction with SQLite's `secure_delete` on, and a `TRUNCATE` checkpoint of the write-ahead log follows the commit, called by Plan-005's `daemon.retentionPurge` (CP-019-2). Then verify at code time: (a) the complete `REFERENCES users(id)` inbound-FK closure (CP-019-3) is enumerable from [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md) and Plan-015's `account.delete` covers every table of it with its disposition — hard-DELETE `users`, `devices`, `trust_statements`, `webauthn_credentials`, `webauthn_challenges`, `runtime_nodes`, `revoked_token_families`; anonymize `revoked_jtis.user_id` via `ON DELETE SET NULL`, each `jti` key surviving to its reap — in one Postgres transaction after the account's refresh families are revoked; (b) Plan-017's diagnostic buckets drop past `Keep diagnostic logs for` (CP-019-4). The reciprocal obligations on Plan-001/005/006/016/018/028 are [§Cross-Plan Obligations](#cross-plan-obligations) CP-019-2 to CP-019-6; each owner plan carries its half.
 
@@ -179,17 +180,21 @@ The Implementation Steps regroup into three buildable phases: Phase 1 (the daemo
 #### Tasks
 
 - **T19.2.1 — `Export all data`.**
-  - Files: `packages/runtime-daemon/src/crypto/data-export.ts` (CREATE); `packages/runtime-daemon/src/ipc/handlers/data.ts` (CREATE)
+  - Files: `packages/runtime-daemon/src/data-acts/export.ts` (CREATE); `packages/runtime-daemon/src/daemon/data-methods.ts` (CREATE)
+  - Built in parts: `daemon-control` builds the verb, its progress stream, `sessions/` with every body decoded through the event log's codec ([Plan-004](./004-session-event-taxonomy-and-audit-log.md) T3.6), `files/`, `accounts.json` and `README.txt`; `agent-definitions` adds `sidekicks/`, `workflow-export` adds `workflows/`, and `control-plane-account` adds `hosted-account.json`, each with its line in `README.txt` ([cross-plan-dependencies §Units](../architecture/cross-plan-dependencies.md#units)).
+  - **Tests:** an export of a seeded store holds every session's events with their bodies decoded, its files, `accounts.json` with no credential and `README.txt`, and a byte scan finds no pasted token, workflow secret or key; peak memory stays under 64 MiB over a store larger than that; a second export while one runs is refused.
   - **Spec coverage:** Spec-020 §Data Export
   - **Verifies invariant:** I-019-1
   - Consumes: `daemon.dataExport {destination}` and `daemon.dataExportSubscribe` schemas; each session's rows as the store holds them; Plan-015's `account.export` for `hosted-account.json` when signed in.
 - **T19.2.2 — `Erase all data`.**
-  - Files: `packages/runtime-daemon/src/crypto/data-erase.ts` (CREATE); `ipc/handlers/data.ts` (same)
+  - Files: `packages/runtime-daemon/src/data-acts/erase.ts` (CREATE); `daemon/data-methods.ts` (same)
+  - Built in parts: `daemon-control` builds the verb and the stop, the deletion of the data folder with the account homes it made and of the main process's log, and the start again empty; `provider-accounts` adds the sign-out of each provider account through [Plan-023](./023-provider-accounts-and-credential-homes.md) T2.2's home reset, which it builds and which lands after `daemon-control`; `credential-store` adds the deletion of every credential-store item; `control-plane-account` adds the refresh-family revoke, in I-019-2's order.
+  - **Tests:** the steps run in I-019-2's order, asserted on a recorded call order; project folders and an earlier backup are untouched; the main process's `main.jsonl` and `main.jsonl.1` are gone.
   - **Spec coverage:** Spec-020 §Erasure Paths (Path 1), Spec-020 §Ordering And Atomicity
   - **Verifies invariant:** I-019-2
-  - Consumes: `daemon.dataErase {}` schema; Plan-005's `Stop`; each provider's own sign-out (`claude auth logout`, Codex `account/logout`); the hosted refresh-family revocation; the credential store's delete (T19.1.2, T19.1.3), through the Windows half's one-shot verbs when the service is stopped (CP-019-5).
+  - Consumes: `daemon.dataErase {}` schema; Plan-005's `Stop`; each provider account's home reset ([Plan-023](./023-provider-accounts-and-credential-homes.md) T2.2), which runs the provider's own sign-out (`claude auth logout`, Codex `account/logout`); the hosted refresh-family revocation; the credential store's delete (T19.1.2, T19.1.3), through the Windows half's one-shot verbs when the service is stopped (CP-019-5).
 - **T19.2.3 — Register the data verbs on `MethodRegistry`.**
-  - Files: `ipc/handlers/data.ts` (same); daemon registry wiring
+  - Files: `daemon/data-methods.ts` (same); daemon registry wiring
   - **Spec coverage:** Spec-020 §Interfaces And Contracts
   - **Verifies invariant:** I-019-2
   - Consumes: Plan-005 `MethodRegistry`. Plan-005 reciprocates the registration.
@@ -225,7 +230,7 @@ The Implementation Steps regroup into three buildable phases: Phase 1 (the daemo
 
 ## Rollout Order
 
-1. Land the data verbs in `ipc/handlers/data.ts` (`packages/runtime-daemon/src/ipc/handlers/`, registered on Plan-005's `MethodRegistry` per D-019-1) + documentation updates (Steps 3–4), the erase without its credential-store step.
+1. Land the data verbs in `daemon/data-methods.ts` (`packages/runtime-daemon/src/daemon/`, registered on Plan-005's `MethodRegistry` per D-019-1) + documentation updates (Steps 3–4), the erase without its credential-store step.
 2. Land the credential-store dependency and the production store with their tests (Steps 1–2) — no schema impact — with the erase's credential-store step, then the purge's erasure step (Step 5). The Windows arm lands in the Other platforms group.
 
 ## Rollback Or Fallback
@@ -249,7 +254,7 @@ The Implementation Steps regroup into three buildable phases: Phase 1 (the daemo
 
 ## Schema And Code-Path Ownership
 
-Plan-019 adds no table to the daemon's one schema; its code paths (the credential store, export, erase and the purge's erasure step) ship here. Its tasks land in the `daemon-control` and `credential-store` units, and the Windows and WSL forms in `windows-wsl` ([cross-plan-dependencies §Units](../architecture/cross-plan-dependencies.md#units)).
+Plan-019 adds no table to the daemon's one schema; its code paths (the credential store, export, erase and the purge's erasure step) ship here. Its tasks land in the `daemon-control` and `credential-store` units, the export's and the erase's later parts in `agent-definitions`, `workflow-export`, `provider-accounts` and `control-plane-account` (T19.2.1, T19.2.2), and the Windows and WSL forms in `windows-wsl` ([cross-plan-dependencies §Units](../architecture/cross-plan-dependencies.md#units)).
 
 ## References
 

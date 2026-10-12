@@ -279,7 +279,9 @@ export class ReorderDrag<Key extends string> {
     // and a press that moves would otherwise select the grip's text.
     ownerDocument.addEventListener("dragstart", preventDefault, options);
     ownerDocument.addEventListener("selectstart", preventDefault, options);
-    element.addEventListener("lostpointercapture", this.#onLost, options);
+    // On the document: the item's own loss bubbles here, and an item taken out of its document
+    // mid-drag has its loss fired at the document instead.
+    ownerDocument.addEventListener("lostpointercapture", this.#onLost, options);
   }
 
   #lift(gesture: PressedGesture<Key>): LiftedGesture<Key> {

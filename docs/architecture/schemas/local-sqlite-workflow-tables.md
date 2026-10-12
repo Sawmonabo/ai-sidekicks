@@ -149,8 +149,7 @@ CREATE TABLE workflow_gate_resolutions (
                              )),
   approval_category          TEXT                       -- mirrors Plan-009 approval_requests.category when applicable
                              CHECK(approval_category IS NULL OR approval_category IN (
-                               'tool_execution','file_write','network_access','destructive_git',
-                               'plan_approval','gate'
+                               'tool_execution','file_write','network_access','destructive_git','gate'
                              )),
   approval_request_id        TEXT NOT NULL REFERENCES approval_requests(id), -- the Plan-009 approval request this gate answered
   -- Resolution

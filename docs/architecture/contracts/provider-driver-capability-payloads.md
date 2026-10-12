@@ -217,9 +217,11 @@ type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 // additive nullable `command_receipts.mcp_task_id` column (Plan-003 EXTENDs Plan-002's table per
 // cross-plan-dependencies.md; DDL in local-sqlite-schema.md §Queue and Intervention Tables —
 // bounded ≤256 code points + non-empty + NUL-reject: the id is untrusted remote-peer output, and
-// the write seam mirrors it). That column is the durable handle Spec-013 recovery reads to poll
-// `tasks/get` + `tasks/result` instead of halting the run; NULL until the
-// receiver accepts — a crash before that leaves the halt intact (Spec-004 §Recovery Consequences).
+// the write seam mirrors it), with `mcp_task_generation` (`v1` or `v2`) beside it, set exactly when
+// it is. That column is the durable handle Spec-013 recovery reads to poll `tasks/get` to a terminal
+// status, then read the result (`tasks/result` on 2025-11-25, inline on 2026-07-28) instead of
+// halting the run; NULL until the receiver accepts — a crash before that leaves the halt intact
+// (Spec-004 §Recovery Consequences).
 
 // INGRESS shape — what a provider driver DECLARES via `getCapabilities()`. `idempotency_class`
 // is OPTIONAL: a driver MAY omit it and an undeclared class is NOT a contract violation. Were the

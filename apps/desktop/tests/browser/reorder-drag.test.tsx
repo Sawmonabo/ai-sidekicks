@@ -1,6 +1,7 @@
 // Reordering by dragging with a real pointer: the item rides the pointer by `transform`, its
-// neighbors glide aside, the new order commits once on release, and Escape, a canceled pointer or
-// a refused move puts everything back with no new order; a strip held at its edge scrolls. Real
+// neighbors glide aside, the new order commits once on release, and Escape, a canceled pointer, a
+// lifted item taken out of its document or a refused move puts everything back with no new order;
+// a strip held at its edge scrolls. Real
 // input goes in through the browser's own input pipeline (CDP `Input.dispatchMouseEvent`),
 // because pointer capture holds only for a pointer whose button the browser itself saw pressed.
 //
@@ -302,7 +303,7 @@ describe("browser — dragging a tab to reorder", () => {
     expect(liveRegionText(strip.container, "assertive")).toBe("");
   });
 
-  it("commits nothing for a drop on the tab's own place, and a canceled pointer puts it back", async () => {
+  it("commits nothing for a drop on the tab's own place, a canceled pointer or a tab taken out of its document", async () => {
     const onReorder = vi.fn();
     const strip = await mountTabs({ onReorder });
     const tabs = strip.tabs();
@@ -343,6 +344,22 @@ describe("browser — dragging a tab to reorder", () => {
     expect(onReorder).not.toHaveBeenCalled();
     expect(tabs.map((tab) => tab.style.transform)).toStrictEqual(["", "", "", ""]);
     expect(lefts(tabs)).toStrictEqual(homeLefts);
+
+    // The lifted tab is taken out of its document mid-drag, as a moved pane's element is: the
+    // capture loss reaches only the document, at the next pointer event, and nothing commits.
+    const carried = { x: centerOf(tabAt(tabs, 2)).x + 4, y: press.y };
+    await mouse.press(press);
+    await mouse.dragTo(press, carried, 12);
+    first.remove();
+    await mouse.dragTo(carried, { x: carried.x + 2, y: carried.y }, 1);
+    await act(async () => {
+      await mouse.release({ x: carried.x + 2, y: carried.y });
+      await nextFrame();
+    });
+    const remaining = tabs.slice(1);
+    await glidesEnded(remaining);
+    expect(onReorder).not.toHaveBeenCalled();
+    expect(remaining.map((tab) => tab.style.transform)).toStrictEqual(["", "", ""]);
   });
 
   it("puts the tabs back when the move is refused", async () => {

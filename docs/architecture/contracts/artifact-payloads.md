@@ -6,11 +6,13 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ```ts
 // --- ArtifactManifest: the persisted manifest record — the OCI-inspired envelope (Spec-012
-//     §Interfaces And Contracts) plus the daemon-persisted `state`/`metadata` fields (not in the spec envelope).
+//     §Interfaces And Contracts) plus the daemon-persisted `metadata` field (not in the spec envelope).
 //     Defined once here (the `ArtifactManifest` shape Plan-011 Task 1 mints in
 //     packages/contracts/src/artifacts/); ArtifactPublish returns it (Spec-012 §Interfaces And Contracts),
 //     ArtifactRead returns it plus a payload handle/inline (same spec section). 1:1 with the
-//     `artifact_manifests` row's wire-shareable fields. An artifact is never changed in place. ---
+//     `artifact_manifests` row's wire-shareable fields; the row's grouping keys (a chat file's path and
+//     version number, a plan's record id) reach the wire on the list entry and the read facts instead.
+//     No manifest row is ever updated, so a manifest carries no state. ---
 
 // artifactType discriminator (Spec-012 §Interfaces And Contracts) — the five Spec-012 §Required Behavior families (file, diff, summary,
 // log, design) plus workflow_output, the Spec-015 §Output Mode Specification workflow phase-output type. Spec-012 §Required Behavior
@@ -25,7 +27,6 @@ interface ArtifactManifest {
   artifactType: ArtifactType; // discriminator — Spec-012 §Interfaces And Contracts (D-011-3: file|diff|summary|log|design|workflow_output)
   digest: string; // OCI `digest` (SHA-256) = SQLite content_hash — required: a content-addressed manifest always has one (I-011-1)
   size: number; // OCI manifest-descriptor `size` (payload byte length) = SQLite size_bytes — server-derived, always present
-  state: ArtifactState;
   // daemon-side provenance, the file name and the media type (Spec-012)
   metadata: Record<string, unknown>;
   createdAt: string;
@@ -54,8 +55,9 @@ interface ArtifactPublishResponse {
 }
 
 // ArtifactRead — Spec-012 §Interfaces And Contracts: "must return manifest plus retrievable payload handle or inline content."
-// A chat's file is versioned: each write to the same path is a new version kept with the time it was
-// written, and a read names the version it wants, the newest when `version` is absent. A picture's natural
+// A chat's file is versioned: each write to the same path is a new version, its own manifest, kept with
+// the time it was written. `artifactId` names any version of the file, and `version` picks among the
+// file's versions, the newest when absent; on any other artifact the only version is 1. A picture's natural
 // size and a PDF's first page and page count are read with the manifest, for the quick look, so a reader
 // reserves a picture's place and draws a PDF's first page before any payload arrives.
 interface ArtifactReadRequest {
@@ -81,26 +83,38 @@ type ArtifactReadResponse =
       payloadEncoding: "utf8" | "base64"; // "utf8" only for byte-exact valid UTF-8 (which JSON round-trips losslessly), "base64" otherwise; callers switch on it, never sniff
     });
 interface ArtifactReadFacts {
-  manifest: ArtifactManifest; // the same envelope ArtifactPublish embeds (Spec-012 §Interfaces And Contracts)
+  manifest: ArtifactManifest; // the version in view's own manifest, the same envelope ArtifactPublish embeds (Spec-012 §Interfaces And Contracts); its createdAt is when that version was written
   versionNumber: number; // the version in view, counted from 1 and never above versionCount
   versionCount: number; // how many versions exist, which the file pane's stepper reads
-  versionWrittenAt: string; // when the version in view was written
-  naturalSize?: { width: number; height: number }; // a picture only, in pixels as measured at ingest
+  naturalSize?: { width: number; height: number }; // a picture only, in pixels, read from its header at ingest with its EXIF orientation applied, so it is the size the picture is drawn at
   pdfPreview?: { firstPageArtifactId: ArtifactId; pageCount: number }; // a PDF whose first page could be generated
 }
 
 // ArtifactList — the session's artifacts: every plan the agent finished and, on a chat session, every
-// file and folder the chat wrote. The inspector's `Artifacts` section and a chat's files-written row both
-// read it. A plan's state word is its manifest's `state`.
+// file and folder the chat wrote, each listed once. The inspector's `Artifacts` section and a chat's
+// files-written row both read it, and the section's count is the number of entries listed. A plan's
+// state word is its plan record's (the `plans` projection, moved only by the `plan.*` events), joined by
+// the manifest's plan id; a hand-off's seed plan, written again in the fresh session, lists there as
+// `accepted`.
 interface ArtifactListRequest {
   sessionId: SessionId;
 }
+type ArtifactListEntry =
+  | {
+      kind: "plan";
+      manifest: ArtifactManifest;
+      planId: PlanId;
+      title: string; // the plan's first heading
+      state: PlanState; // waiting | accepted | handed_off | open
+    }
+  | {
+      kind: "file";
+      manifest: ArtifactManifest; // the newest version's; a folder's media type is `inode/directory`
+      path: string; // the file's or folder's path in the chat's managed workspace
+      versionCount: number; // a folder's is 1
+    };
 interface ArtifactListResponse {
-  artifacts: Array<{
-    manifest: ArtifactManifest;
-    title: string; // a plan's first heading; a file's or folder's path
-    versionCount: number;
-  }>;
+  artifacts: ArtifactListEntry[];
 }
 
 // AttachmentIngest — the interface family purpose-built for untrusted caller-supplied bytes, and the
@@ -205,7 +219,7 @@ interface AttachmentIngestCompleteResponse {
 
 > **The artifact manifest envelope.** The ArtifactPublish/ArtifactRead pair composes a single named `ArtifactManifest` envelope ([Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts)) instead of inlining and duplicating the fields — this is the `ArtifactManifest` shape Plan-011 Task 1 mints. `ArtifactPublishResponse` embeds `manifest: ArtifactManifest` per [Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts) ("must return artifact id **and manifest metadata**"): the `ArtifactRead` clause grants handle/inline latitude to the **payload** on _Read_ only, never to the manifest, so both responses return the manifest metadata inline (D-011-2). `ArtifactReadResponse` is `manifest` + `payloadHandle?`/`payload?` ([Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts)). The wire envelope mirrors the `artifact_manifests` row in [Local SQLite Schema](../schemas/local-sqlite-schema.md) 1:1: `digest`/`size` are **required** on the wire because a content-addressed manifest always carries both (I-011-1), and the at-rest `content_hash`/`size_bytes` columns are correspondingly **`NOT NULL`** — each producer (AttachmentIngest, ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref, and AttachmentIngest and ArtifactPublish are independent producers (the `artifactId` `AttachmentIngestCompleteResponse` returns resolves from the ingest-written manifest, not a later publish), so there is no payload-less manifest to reconcile (D-011-1). Producer inputs are closed too (D-011-2): `size`/`digest` stay server-derived from `payload`, and the file name rides in `metadata`. An artifact is never changed in place.
 
-**Plan artifacts and a chat's files.** Two console surfaces are projections of this manifest space and add no store of their own. **A finished plan** is written by the daemon as an artifact of its session in the existing summary family the moment the plan turn ends, keyed by its own stable id and carrying the plan's text as the agent wrote it; its state moves in place as the plan is answered, so the inspector's artifact list reads the plan's word — waiting, accepted, handed on — and the plan reader renders the STORED text and never the provider's own plan file. The artifact survives a restart and is listed on the person's other devices, which is the whole reason the plan is an artifact rather than a rendering of a held request. **A chat session's files** are artifacts too: every file and folder a chat writes into its managed workspace is one, and each write to the same path is a NEW VERSION of that artifact kept with the time it was written — a later write never replaces an earlier one, which is what lets the file pane step through versions and compare one against the one before it. That comparison is the only diff a chat draws and it is never against a repository, so no branch, commit, base or staging concept reaches it.
+**Plan artifacts and a chat's files.** Two console surfaces are projections of this manifest space and add no store of their own. **A finished plan** is written by the daemon as an artifact of its session in the existing summary family the moment the plan turn ends, keyed by its own stable id and carrying the plan's text as the agent wrote it; its manifest is written once and never changed; the plan's word — waiting, accepted, handed on, open — is the plan record's, which the list joins by the manifest's plan id, and a fresh session lists its seed plan, written there over the same bytes, as accepted; the plan reader renders the STORED text and never the provider's own plan file. The artifact survives a restart and is listed on the person's other devices, which is the whole reason the plan is an artifact rather than a rendering of a held request. **A chat session's files** are artifacts too: every file and folder a chat writes into its managed workspace is one, and each write to the same path is a NEW VERSION of that artifact, kept with the time it was written: a manifest of its own, grouped with the file's others by session and path and numbered from 1. A later write never replaces an earlier one, which is what lets the file pane step through versions and compare one against the one before it. That comparison is the only diff a chat draws and it is never against a repository, so no branch, commit, base or staging concept reaches it. A folder is one manifest, made when the folder is created, of media type `inode/directory` over the empty payload, so its `digest` and `size` are those of no bytes.
 
 A client publishes into this manifest space, and the session screen reads it, through these methods on the daemon JSON-RPC transport. `artifact.list` is read again on `artifact.published` rather than on a timer.
 

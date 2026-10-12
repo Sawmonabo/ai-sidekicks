@@ -90,11 +90,10 @@ interface TranscriptEventRowBase {
 // characters recommended, 40,000 before a message is cut, 65,535 bytes for a whole event), so a
 // reply of ordinary length travels whole. The daemon reads a large body's size, never its bytes.
 type TranscriptRowContent =
-  | { status: "available"; body: string; contentLength?: number; contentTruncated?: true }
+  | { status: "available"; body: string; contentLength?: number }
   | { status: "unavailable"; reason: HydratedContentUnavailableReason }
-  // The body's size in bytes, its bytes left out; contentTruncated echoed as on the available arm,
-  // so a cut output still says it was cut.
-  | { status: "large"; contentLength: number; contentTruncated?: true };
+  // The body's size in bytes, its bytes left out; transcript.bodyRead reads it whole.
+  | { status: "large"; contentLength: number };
 interface TranscriptOmittedPatch {
   path: string;
   size: number; // the patch's size in bytes
@@ -106,7 +105,7 @@ type RunScopedTranscriptEntry = TranscriptEventRowBase & {
   kind: "run"; // literal discriminator — row.kind narrowing is structural, never a probe of the free-form type: string
   runId: RunId; // run identity — with position + epoch, the REQUIRED all-or-none attribution triple the run.rolled_back live client rule keys on, never dug out of payload (CP-002-13): arm selection is by kind, so a run-scoped row missing any of the three fails ITS Zod arm — the malformed-row test — and can never fall through to the general arm
   position: number; // the row's projection-resolved originating run position (Plan-002 T3.15's uniform row-to-turn assignment); the live rule compares it against the run.rolled_back boundary's carried targetPosition (sequence is the session event sequence, never a run position)
-  epoch: number; // the row's projection-resolved execution epoch (T3.16's row attribution: the stamped sourceEpoch on late rows, the operation association's epoch on in-time content-asynchronous rows, the run's current epoch at emission otherwise); position alone can never recover the epoch, since re-execution reuses ordinals
+  epoch: number; // the row's projection-resolved execution epoch (Plan-002 T3.15's row-to-turn assignment: the stamped sourceEpoch on late rows, the operation association's epoch on in-time content-asynchronous rows, the run's current epoch at emission otherwise); position alone can never recover the epoch, since re-execution reuses ordinals
   superseded?: { targetPosition: number }; // present exactly when the row's turn is superseded, absence = current — projection-computed from Plan-002 T3.15's exported supersededTurns(runId); deliberately single-field: the marker's run identity and source epoch ARE the containing row's runId + epoch, so no duplicated fields exist to disagree and live marking (the row plus the boundary cutoff) is identical to catch-up marking by construction; targetPosition = the superseding rollback's rewind cutoff — the first accepted rollback in the run's lineage, at the row's epoch or later, that rewound the surviving history containing the row (a later rollback below an earlier retained prefix supersedes the inherited rows; a row ranks superseded when position exceeds the run's effective cutoff for its epoch — the minimum cutoff among accepted rollbacks at epoch >= the row's); identical on TranscriptRead and on live delivery, rows delivered after a boundary arriving with the marker already projection-computed — per Spec-011 §Required Behavior
   // Where a projection echoes canonical keys into payload, they must AGREE with the outer triple
   // (Plan-010 Phase 1 — I-010-3's no-second-source rule reaching the payload): payload run
@@ -252,13 +251,13 @@ interface TranscriptBodyReadRequest {
   sessionId: SessionId;
   rowId: string;
 }
-// `status` is the discriminant. `contentLength` and `contentTruncated` are echoed from the stored
-// event, never recomputed from `body`, so a body kept as a prefix still says how long the whole
-// was. `absent` is the one reason: the row never carried a body. `body` is bounded by
-// PAGE_MAX_BYTES, so one that would not ride a frame is a failed read.
+// `status` is the discriminant. `contentLength` is echoed from the stored event, never recomputed
+// from `body`. `absent` is the one reason: the row never carried a body. Each reply is bounded by
+// PAGE_MAX_BYTES: a body longer than one frame holds comes back whole in consecutive parts, each
+// reply naming the offset its part starts at and whether more follows.
 type HydratedContentUnavailableReason = "absent";
 type TranscriptBodyReadResponse =
-  | { status: "available"; body: string; contentLength?: number; contentTruncated?: true }
+  | { status: "available"; body: string; contentLength?: number }
   | { status: "unavailable"; reason: HydratedContentUnavailableReason };
 
 // TranscriptPatchRead — transcript.patchRead. Every patch one tool call did not carry, in one read,
@@ -268,8 +267,9 @@ interface TranscriptPatchReadRequest {
   sessionId: SessionId;
   toolCallId: string;
 }
-// One entry per left-out file: its patch, or why it cannot be read. `files` is bounded by
-// PAGE_MAX_BYTES as well.
+// One entry per left-out file: its patch, or why it cannot be read. Each reply is bounded by
+// PAGE_MAX_BYTES as well, and patches longer than one frame holds come back in consecutive parts,
+// as transcript.bodyRead's body does.
 type TranscriptPatchFile =
   | { path: string; patch: string }
   | { path: string; unavailable: HydratedContentUnavailableReason };

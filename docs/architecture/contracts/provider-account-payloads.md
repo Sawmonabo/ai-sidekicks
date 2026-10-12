@@ -6,7 +6,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 Wire surfaces for [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md). The `providerAccount.*` namespace administers this machine's provider accounts: this machine's own client or any linked device may call every verb, and no session may (I-023-1).
 
-Each of the namespace's verbs carries the payload pair named below: the reads `providerAccount.list`, `providerAccount.subscribe` and `providerAccount.usageRead`, and the mutating verbs `providerAccount.register`, `providerAccount.update`, `providerAccount.remove`, `providerAccount.setCurrent`, `providerAccount.probe`, `providerAccount.resetCredentialHome`, `providerAccount.login`, `providerAccount.loginCancel` and `providerAccount.memoryImport`. `providerAccount.subscribe` and `providerAccount.usageRead` are grouped with the reads: they mutate nothing and take the same device gate `providerAccount.list` does, for the same disclosure reason. `providerAccount.probe` is grouped with the mutating verbs for two reasons, and the weaker one is the row write: it writes back the observed health state and its observation timestamp to the probed account's row, and — **atomically with that write** — applies I-023-2's generation rule, which names "a transition of the account's probe result into or out of `authenticated`" as a lifecycle transition. So a probe that observes the same authenticated-ness as the stored row leaves `credentialGeneration` untouched, while one that observes a **crossing** of the authenticated boundary bumps it in the same transaction as the health write. Both directions bump: a repaired credential is a new generation, and a destroyed one must not leave consumers holding a generation that still reads as usable. The verb mints and removes no account. The load-bearing reason for the gate is that it reaches into a credential home and drives provider-side credential I/O. That is account-administration work, so it takes the device gate — this machine's own client or any linked device, and no session — rather than the laxer read gate.
+Each of the namespace's verbs carries the payload pair named below: the reads `providerAccount.list`, `providerAccount.subscribe` and `providerAccount.usageRead`, and the mutating verbs `providerAccount.register`, `providerAccount.update`, `providerAccount.remove`, `providerAccount.setCurrent`, `providerAccount.probe`, `providerAccount.resetCredentialHome`, `providerAccount.login`, `providerAccount.loginCodeSubmit`, `providerAccount.loginCancel` and `providerAccount.memoryImport`. `providerAccount.subscribe` and `providerAccount.usageRead` are grouped with the reads: they mutate nothing and take the same device gate `providerAccount.list` does, for the same disclosure reason. `providerAccount.probe` is grouped with the mutating verbs for two reasons, and the weaker one is the row write: it writes back the observed health state and its observation timestamp to the probed account's row, and — **atomically with that write** — applies I-023-2's generation rule, which names "a transition of the account's probe result into or out of `authenticated`" as a lifecycle transition. So a probe that observes the same authenticated-ness as the stored row leaves `credentialGeneration` untouched, while one that observes a **crossing** of the authenticated boundary bumps it in the same transaction as the health write. Both directions bump: a repaired credential is a new generation, and a destroyed one must not leave consumers holding a generation that still reads as usable. The verb mints and removes no account. The load-bearing reason for the gate is that it reaches into a credential home and drives provider-side credential I/O. That is account-administration work, so it takes the device gate — this machine's own client or any linked device, and no session — rather than the laxer read gate.
 
 **The probe verb is not the only writer of the stored pair.** Every validation that actually observes an account's authentication state writes it back under the same rule — the deliberate probe above, the registration-time status invocation (Spec-025 §Non-interactive token registration), and the **background health observer** (Spec-025 §Credential-home health observation), which is the third writer and joins the set rather than replacing it. **The generation-bump authority is deliberately NOT widened with it.** `credentialGeneration` still bumps only on I-023-2's credential-home lifecycle transitions, and a background observation is not one, so an observer that bumped on a transient fault would tell every consumer of the generation that the home changed when nothing did — the precise harm the both-directions bump rule above exists to produce **only** when the boundary is genuinely crossed by an act that changed the home. The observer is constrained in what the DAEMON may do to take its reading, not in what the provider may do inside its own home: the daemon never reads, writes or copies credential material, never speaks a provider token endpoint itself, and never puts a provider into external-authentication mode. What it does is ask a provider its own limits question inside that provider's own per-account home, which on one pinned leg renews that login as a side effect — the provider's own rotation, taken by the provider, under the provider's own re-read-before-refresh guard. That is the keep-alive, and it is safe only because the home is daemon-owned and is never the person's own; a renewal of that kind is NOT a credential-home lifecycle transition and moves no `credentialGeneration`. Anything else would make the stored reading a record of _explicit probes_ rather than of _the last validation_, which is what the readiness derivation reads and what `observedAt` claims, and the row records observations.
 
@@ -470,58 +470,90 @@ interface ProviderAccountProbeResponse {
 interface ProviderAccountMemoryImportRequest {
   accountId: ProviderAccountId;
 }
-type ProviderAccountMemoryImportResponse =
+type ProviderAccountMemoryImportOutcome =
   | { outcome: "imported"; count: number; importedAt: string }
   | { outcome: "nothingToImport" };
 
 // The service's own per-turn usage table, summed: each row names the account that paid for its turn,
-// its model, its tokens and its cost in integer micro-dollars. It answers one account's tokens for a
-// day or a week and the same figures by day and by model, and a provider's figures summed across its
-// accounts. Every figure is the service's own — no provider report of totals, streaks or peak days is
-// read — so it never disagrees with the usage windows beside it by counting something different.
+// its model, its tokens and its cost in integer micro-dollars. Every figure is served from the
+// committed-spend accessor (Plan-013), never assembled by a client, and carries its account's billing
+// mode, the one label a figure carries; no cost-provenance member. Every figure is the service's own —
+// no provider report of totals, streaks or peak days is read — so it never disagrees with the usage
+// windows beside it by counting something different. `tokens` is the sum of the row's input, output,
+// cache-read, cache-write and reasoning counts.
 type ProviderAccountUsageReadRequest = (
   | { accountId: ProviderAccountId }
   | { provider: "claude" | "codex" }
 ) & {
-  from: string; // RFC 3339 UTC, inclusive
-  to: string; // RFC 3339 UTC, exclusive
-  groupBy: "day" | "model";
+  groupBy?: "day" | "model"; // absent = no grouped rows
 };
-interface ProviderAccountUsageReadResponse {
-  rows: Array<{
-    day?: string; // present when grouped by day: the calendar date on this machine's clock
-    modelId?: string; // present when grouped by model
-    inputTokens: number;
-    outputTokens: number;
-    cachedTokens: number;
-    costUsdMicros: number;
-  }>;
-  totals: {
-    inputTokens: number;
-    outputTokens: number;
-    cachedTokens: number;
-    costUsdMicros: number;
-  };
+interface ProviderAccountUsageFigure {
+  tokens: number;
+  costUsdMicros: number;
+  billingMode: BillingMode;
 }
+type ProviderAccountUsageReadResponse =
+  | {
+      scope: "account";
+      accountId: ProviderAccountId;
+      lifetime: ProviderAccountUsageFigure;
+      today: ProviderAccountUsageFigure; // the calendar day on this machine's clock
+      thisWeek: ProviderAccountUsageFigure;
+      rows: Array<
+        ProviderAccountUsageFigure & {
+          day?: string; // present when grouped by day: the calendar date on this machine's clock
+          modelId?: string; // present when grouped by model, as the provider names it
+        }
+      >;
+    }
+  | {
+      // One provider's line across its accounts: `All accounts · today <n> tokens · <cost>`.
+      scope: "provider";
+      provider: "claude" | "codex";
+      todayTokens: number; // summed over the provider's accounts' rows for today
+      todayCostUsdMicros: number; // 0 before any spend
+      byBillingMode: Array<{ billingMode: BillingMode; costUsdMicros: number }>; // more than one entry = the total spans billing modes, and says so
+      // The one stored quota window, over every account of this provider, whose share used is
+      // highest; a share is never summed or averaged across accounts, because a limit belongs to
+      // one account. `accountLabel` is `accountLabel()`'s composition of the provider-reported
+      // identity and the plan. null = no stored window.
+      tightest: {
+        accountId: ProviderAccountId;
+        accountLabel: string;
+        limitId: string;
+        label: string;
+        usedPercent: number;
+      } | null;
+    };
 
 // Brokered interactive sign-in (ADR-026 D1; Spec-025 §Brokered interactive sign-in). The daemon
 // constructs the invocation, spawns the provider's UNMODIFIED binary with this account's home
 // pinned, and reads nothing the flow writes. What returns is what the provider emits for the
 // PERSON to act on, plus an opaque daemon-minted attempt id. It is deliberately NOT a shell
-// string: the request names only the account, the daemon authors the invocation itself, and no
-// client-supplied string is ever executed.
+// string: the request names only the account, or the provider for a new one, the daemon authors
+// the invocation itself, and no client-supplied string is ever executed.
 //
 // SHAPE MIRRORS THE PROVIDER'S OWN, deliberately: the pinned Codex login-start returns either an
 // authorization URL or a device code with its verification URL, and the pinned Claude flow prints
-// a URL and accepts a pasted code. A provider arm emitting neither cannot be brokered and is
+// a URL and accepts a pasted code. WHERE THE SIGN-IN STARTS DECIDES THE ARM: a Codex sign-in
+// started at the machine runs `account/login/start {type: "chatgpt"}`, and one started from another
+// device runs `{type: "chatgptDeviceCode"}`, because the browser arm calls back to `localhost:1455`,
+// which that device cannot reach. A Claude Code sign-in started from another device ends at its
+// `Paste code here if prompted` prompt (https://code.claude.com/docs/en/authentication), which the
+// broker reports as `login_code_requested` and the person answers with `loginCodeSubmit`. A provider arm emitting neither cannot be brokered and is
 // refused `provideraccount.signin_unsupported` rather than spawning a flow the person cannot
 // finish. A second start against an account with one in flight is refused
 // `provideraccount.signin_in_flight` — at least one pinned provider holds exactly ONE active login
 // slot and SILENTLY DROPS the previous attempt, which would strand the person mid-flow on another
 // device with no signal that their code had stopped working.
-interface ProviderAccountLoginRequest {
-  accountId: ProviderAccountId;
-}
+// `{accountId}` signs in an account already registered; `{provider}` adds one. The second arm mints
+// the account id and its home, holds the attempt in memory, and inserts the row only once the
+// health observation reports the provider's identity, its billing mode `unknown` (drawn
+// `Billing not set`) until the person corrects it in place. A sign-in that ends without an identity
+// leaves no row.
+type ProviderAccountLoginRequest =
+  | { accountId: ProviderAccountId }
+  | { provider: "claude" | "codex" };
 interface ProviderAccountLoginResponse {
   attemptId: string; // opaque, daemon-minted, single-use; the correlation key for cancel and for completion
   verificationUri: string; // where the person completes the flow — the provider's own URL, verbatim
@@ -538,6 +570,19 @@ interface ProviderAccountLoginCancelRequest {
 }
 interface ProviderAccountLoginCancelResponse {
   status: "canceled" | "notFound";
+}
+
+// The code a Claude Code sign-in page shows when the browser cannot reach Claude Code's local
+// callback, sent after `login_code_requested`. It is written to that sign-in process's input and
+// nowhere else. It is a one-time authorization code bound to that flow's own PKCE verifier in the
+// provider's process, not credential material (I-023-10), and it is never logged, stored, evented or
+// echoed. `notFound` answers an attempt that is not waiting for a code, as cancel does.
+interface ProviderAccountLoginCodeSubmitRequest {
+  attemptId: string;
+  code: string;
+}
+interface ProviderAccountLoginCodeSubmitResponse {
+  status: "submitted" | "notFound";
 }
 
 // Read-shaped live tail of registry changes for this node (Plan-005 streaming primitive, the
@@ -564,6 +609,11 @@ type ProviderAccountNotification =
   // this notification as the authentication verdict will render an account as ready that a spawn
   // would refuse. `failureReason` is message text shown to the person and carries NO credential
   // material, no provider error body verbatim, and no home path.
+  // The fifth field the broker may emit (Spec-025 §Brokered interactive sign-in): the provider is
+  // waiting for the code its sign-in page shows. A typed state the broker reads from Claude Code's
+  // paste prompt, never the prompt's text; the sign-in card then shows
+  // `Paste the code the sign-in page shows` with `Finish sign-in`.
+  | { kind: "login_code_requested"; attemptId: string }
   | {
       kind: "login_completed";
       attemptId: string;
@@ -637,7 +687,7 @@ interface ProviderAccountUsageWindow {
 
 **Switching a live session's account is `providerAccount.setCurrent` and nothing else.** A session starts on its provider's current account — the one marked current at the moment the session is minted — and moves when that mark moves: in place at its next request, and a session pinned to an account not at all. The verb's own comment above states the mechanism. `agent.configUpdate` carries no account member (orchestration-payloads.md §Plan-013), so there is no per-session account switch and nothing for a client to reconcile between two controls; an account move writes no pending switch, and it settles with the same binding events as every other switch. The console's account word on the provider surface presses this verb; the session inspector's account fact reads which account the session is on and carries no control.
 
-**The one-time memory import is `providerAccount.memoryImport`.** Each account row offers to copy the person's own ambient memory store into THAT account's credential home, once, on a press: after it the row reads how many were copied and when, and an account with nothing to copy settles into saying so and offers the press no more. The two homes are never joined, and the copy is the person's act rather than a background sweep. Its payload pair is `ProviderAccountMemoryImportRequest` / `ProviderAccountMemoryImportResponse` above, and the outcome it records is `ProviderAccount.memoryImport`.
+**The one-time memory import is `providerAccount.memoryImport`.** Each account row offers to copy the person's own ambient memory store into THAT account's credential home, once, on a press: after it the row reads how many were copied and when, and an account with nothing to copy settles into saying so and offers the press no more. The two homes are never joined, and the copy is the person's act rather than a background sweep. Its request is `ProviderAccountMemoryImportRequest` and its reply `ProviderAccountMemoryImportOutcome` above, the same outcome it records as `ProviderAccount.memoryImport`.
 
 **The provider's own standing rules are `provider.standingRuleList` and `provider.standingRuleRevoke`.** Each provider keeps rules of its own that allow or refuse a command on this machine; they are read from and revoked in the provider's own files, the same files the session inspector's `approval.ruleList` and `approval.ruleRevoke` read for one session, so one rule has one place: the provider's. The `provider` root sits beside `providerAccount`, because a machine-wide page cannot use the `driver.*` reads, which need an active session.
 
