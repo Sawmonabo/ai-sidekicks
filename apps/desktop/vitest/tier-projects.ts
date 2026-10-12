@@ -17,6 +17,7 @@ import { tierTimeoutFor } from "#test/helpers/launch/deadline.ts";
 import { WORKSPACE_SOURCE_CONDITIONS } from "../../../vitest.shared.js";
 import {
   browserModeOptions,
+  denseScreenInstance,
   BROWSER_MODE_DEDUPE,
   BROWSER_MODE_OPTIMIZE_DEPS,
   BROWSER_MODE_SETUP_FILES,
@@ -66,9 +67,16 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
       globals: true,
       setupFiles: BROWSER_MODE_SETUP_FILES,
       // The hand of a touch fling, played from outside the page, and the lock the pages' traces
-      // take turns on.
+      // take turns on. The terminal grid's claim is in device pixels, so its file runs again on a
+      // dense screen; `--project=browser` names this tier and so runs both instances.
       browser: {
         ...browserModeOptions(),
+        instances: [
+          { browser: "chromium" },
+          denseScreenInstance("browser (dense screen)", [
+            "tests/browser/terminal-pane/grid.test.ts",
+          ]),
+        ],
         commands: { touchFling, ...browserTraceLockCommands() },
       },
     },

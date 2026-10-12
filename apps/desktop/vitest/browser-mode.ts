@@ -2,6 +2,7 @@
 // under the same conditions from one home.
 
 import { playwright } from "@vitest/browser-playwright";
+import type { BrowserInstanceOption } from "vitest/node";
 
 /**
  * The module that loads the renderer's global sheets. A browser-mode tier mounts
@@ -70,15 +71,22 @@ export const BROWSER_MODE_DEDUPE: string[] = ["react", "react-dom"];
 export const BROWSER_MODE_VIEWPORT = { width: 1440, height: 900 };
 
 /**
+ * Chromium's launch flags for every browser-mode page: `gc()` exposed and `performance.memory`
+ * precise, so a test can read the heap a mount keeps after a full collection. By default the
+ * reading is rounded and cached, and stands still while the heap grows.
+ */
+const BROWSER_MODE_LAUNCH_OPTIONS = {
+  args: ["--enable-precise-memory-info", "--js-flags=--expose-gc"],
+};
+
+/**
  * Browser-mode settings shared by every tier that renders. It is a factory because Vitest writes a
  * derived name back onto the instance descriptor it is handed: projects spread from one literal
  * share one `instances` array, so the second finds the first's name stamped and the run aborts
  * with "the project name ... was already defined".
  *
  * `screenshotFailures` is off so a failing test writes no picture into a `__screenshots__` folder
- * beside it in the source tree. Chromium runs with `gc()` exposed and `performance.memory` precise,
- * so a test can read the heap a mount keeps after a full collection: by default the reading is
- * rounded and cached, and stands still while the heap grows.
+ * beside it in the source tree.
  */
 export function browserModeOptions(): {
   enabled: true;
@@ -86,16 +94,35 @@ export function browserModeOptions(): {
   headless: true;
   screenshotFailures: false;
   viewport: { width: number; height: number };
-  instances: [{ browser: "chromium" }];
+  instances: BrowserInstanceOption[];
 } {
   return {
     enabled: true,
-    provider: playwright({
-      launchOptions: { args: ["--enable-precise-memory-info", "--js-flags=--expose-gc"] },
-    }),
+    provider: playwright({ launchOptions: BROWSER_MODE_LAUNCH_OPTIONS }),
     headless: true,
     screenshotFailures: false,
     viewport: { ...BROWSER_MODE_VIEWPORT },
     instances: [{ browser: "chromium" }],
+  };
+}
+
+/**
+ * A second run of the files `include` names, under its own `name`, on a screen of two device
+ * pixels per CSS pixel, as a Retina display is. Both settings are needed: the launch flag gives the
+ * screen its density, which `devicePixelContentBoxSize` reports (the context's scale alone, a CDP
+ * override, leaves it in CSS pixels), and the context's scale makes `devicePixelRatio` report it
+ * (Playwright overrides the ratio to 1 otherwise).
+ */
+export function denseScreenInstance(name: string, include: string[]): BrowserInstanceOption {
+  return {
+    browser: "chromium",
+    name,
+    include,
+    provider: playwright({
+      launchOptions: {
+        args: [...BROWSER_MODE_LAUNCH_OPTIONS.args, "--force-device-scale-factor=2"],
+      },
+      contextOptions: { deviceScaleFactor: 2 },
+    }),
   };
 }

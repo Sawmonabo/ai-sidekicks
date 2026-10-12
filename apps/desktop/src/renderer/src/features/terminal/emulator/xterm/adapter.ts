@@ -205,6 +205,13 @@ export class XtermTerminalAdapter {
       // `XtermMountPoint.tsx` names the region without announcing anything itself.
       screenReaderMode: true,
       convertEol: true,
+      // A row exactly as tall as the face, which the library rounds up to whole device pixels at
+      // every size and density, so rows abut. Past 1 the cell grows and a glyph the font draws is
+      // centered in it, leaving a band of ground between one row's block glyphs and the next's.
+      lineHeight: 1,
+      // Block and box glyphs drawn as shapes filling the cell rather than from the font, whose
+      // block glyph stops short of the row and leaves a seam.
+      customGlyphs: true,
       linkHandler: buildTerminalLinkHandler(this.#onActivateLink),
     };
     const terminal = new Terminal(options);
