@@ -40,6 +40,11 @@ export class EasedGlide {
     return this.#run !== undefined;
   }
 
+  /** Whom the glide under way is made for; `undefined` with none. */
+  public get caller(): ScrollCaller | undefined {
+    return this.#run?.caller;
+  }
+
   /**
    * Glide toward the offset `computeTarget` answers each frame, for `caller`. A glide already
    * under way takes the new target and motion and keeps its ease; `undefined` from the target

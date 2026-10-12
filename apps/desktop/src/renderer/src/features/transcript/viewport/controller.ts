@@ -579,6 +579,21 @@ export class ViewportController {
   }
 
   /**
+   * Holds the follow of the bottom until the answered release: no write keeps a follower on the
+   * tail meanwhile, so text arriving while a person drags the layout moves nothing under their
+   * hand. On release a reader still following is landed on the tail again.
+   */
+  public holdFollow(): () => void {
+    const releaseScroll = this.scroll.holdFollow();
+    return () => {
+      releaseScroll();
+      if (!this.#disposed && this.anchor.state.mode === "following") {
+        this.#tailFollow.scrollToTail("follow-tail");
+      }
+    };
+  }
+
+  /**
    * Puts a reader who left the tail back where they were: the anchored row at the same distance
    * from the top of the viewport. A follower's position is the library's, so it does nothing. A
    * pass's hold waits for `commitPendingPositionHold`, once the virtualizer counts its rows.

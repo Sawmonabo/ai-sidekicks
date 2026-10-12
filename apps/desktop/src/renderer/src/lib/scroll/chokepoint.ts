@@ -64,6 +64,8 @@ export class ScrollController {
   #onContainerScroll: ((event: Event) => void) | undefined;
   #overflowSink: OverflowMeasurementSink | undefined;
   #writeDepth = 0;
+  /** How many follow holds are unreleased; while any is, a write that follows the tail drops. */
+  #followHoldCount = 0;
   #disposed = false;
 
   public constructor(options: ScrollControllerOptions) {
@@ -170,7 +172,7 @@ export class ScrollController {
    */
   public glideTo(caller: ScrollCaller, targetScrollTop: number): ScrollWrite | undefined {
     const scrollContainer = this.#scrollContainer;
-    if (scrollContainer === undefined || this.#disposed) {
+    if (scrollContainer === undefined || this.#disposed || this.#isHeldFollowWrite(caller)) {
       return undefined;
     }
     const maximumScrollTop = this.#maximumScrollTopOf(scrollContainer);
@@ -256,7 +258,31 @@ export class ScrollController {
     computeTarget: ScrollTargetComputation,
     motion: GlideMotion,
   ): boolean {
+    if (this.#isHeldFollowWrite(caller)) {
+      return false;
+    }
     return this.#easedGlide.start(caller, computeTarget, motion);
+  }
+
+  /**
+   * Holds every write that follows the tail until the answered release is called: each one is
+   * dropped, not queued, and a glide after arriving text ends where the box stands, so a layout a
+   * person is dragging moves nothing under their hand. Landing the follower again on release is
+   * the caller's.
+   */
+  public holdFollow(): () => void {
+    this.#followHoldCount += 1;
+    const glideCaller = this.#easedGlide.caller;
+    if (glideCaller !== undefined && isFollowWrite(glideCaller)) {
+      this.#easedGlide.stop();
+    }
+    let isReleased = false;
+    return () => {
+      if (!isReleased) {
+        isReleased = true;
+        this.#followHoldCount -= 1;
+      }
+    };
   }
 
   /** End an eased glide where the box stands. */
@@ -298,6 +324,10 @@ export class ScrollController {
   /** How many times a caller has written. */
   public writeCount(caller: ScrollCaller): number {
     return this.#writeCountByCaller.get(caller) ?? 0;
+  }
+
+  #isHeldFollowWrite(caller: ScrollCaller): boolean {
+    return this.#followHoldCount > 0 && isFollowWrite(caller);
   }
 
   #maximumScrollTopOf(scrollContainer: HTMLElement): number {
@@ -419,6 +449,26 @@ function isAskedOnce(caller: ScrollCaller): boolean {
     case "hold-reading-position":
     case "prune-compensation":
     case "measurement-compensation":
+      return false;
+  }
+}
+
+/** Whether a caller's write keeps a following reader on the tail, which a follow hold drops. */
+function isFollowWrite(caller: ScrollCaller): boolean {
+  switch (caller) {
+    case "follow-tail":
+    case "follow-arriving-text":
+      return true;
+    case "jump-to-tail":
+    case "jump-to-head":
+    case "hold-reading-position":
+    case "find-match":
+    case "message-anchor":
+    case "prune-compensation":
+    case "measurement-compensation":
+    case "window-opening":
+    case "row-reveal":
+    case "settings-control-landing":
       return false;
   }
 }

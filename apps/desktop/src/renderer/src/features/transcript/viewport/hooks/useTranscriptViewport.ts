@@ -39,6 +39,7 @@ import {
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type JumpToLogEnd } from "../conversation-edge-jump.js";
 import { type WindowSide } from "#renderer/lib/scroll/window-side.js";
+import { useHoldFollowWhilePaneEdgeDragged } from "./useHoldFollowWhilePaneEdgeDragged.js";
 import { useObserveDisplaySettings } from "./useObserveDisplaySettings.js";
 
 /** What the view gets back: a snapshot, the refs, and the acts it offers. */
@@ -253,6 +254,7 @@ export function useTranscriptViewport(
     ownerWindow,
   ]);
   useObserveDisplaySettings(controller);
+  useHoldFollowWhilePaneEdgeDragged(controller);
 
   // The window's pass runs in the render that brings its rows, before the snapshot is read, so a
   // new log draws in one commit; a link's landing goes first, so the pass reads from its row.

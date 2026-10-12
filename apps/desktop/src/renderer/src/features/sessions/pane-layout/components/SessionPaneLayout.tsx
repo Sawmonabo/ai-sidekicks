@@ -13,6 +13,7 @@ import "./SessionPaneLayout.css";
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { PaneEdgeDragContext } from "#renderer/components/PaneFrame/edge-drag.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { isEditableTarget, isUnclaimedEscape } from "#renderer/lib/editable-target.js";
 import { rootFontSizePx } from "#renderer/lib/root-font-size.js";
@@ -343,7 +344,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
       data-resizing={isResizing ? "" : undefined}
     >
       <div ref={conversationRef} className="meridian-pane-layout__conversation">
-        {props.conversation}
+        <PaneEdgeDragContext value={isResizing}>{props.conversation}</PaneEdgeDragContext>
       </div>
       {state.panes.length === 0 ? null : (
         <div
