@@ -33,7 +33,7 @@ import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { hearResizeLoopErrors } from "../resize-loop-errors.js";
-import { settleFrames } from "./reply.js";
+import { letFramePaint, settleFrames } from "./reply.js";
 
 /** The flow's box, in CSS pixels. */
 const FLOW_HEIGHT_PX = 600;
@@ -221,10 +221,11 @@ describe("browser — a long diff opened whole drawn as a window over its steps"
     const windowed = drawInViewport([wrappingPatch(1_200), ...shortFiles]);
     const { flow, card, block } = windowed;
     fireEvent.click(showAllOf(block));
-    await settleFrames();
+    // One frame each, so most steps are still unmeasured when the watch below starts.
+    await letFramePaint();
     // At once just past the long file's block, before its steps are measured.
     flow.scrollTop += block.getBoundingClientRect().bottom - flow.getBoundingClientRect().top + 20;
-    await settleFrames();
+    await letFramePaint();
     expect(block.getBoundingClientRect().bottom).toBeLessThan(flow.getBoundingClientRect().top);
     const reference = firstRowOnScreen(card, flow);
     const readerTopPx = reference.getBoundingClientRect().top;
