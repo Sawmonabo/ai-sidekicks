@@ -201,7 +201,7 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Summary: `patches/@bruits__satteri-wasm32-wasi@0.10.5.patch` makes the WebAssembly build's browser loader use the parser module the first markdown worker compiled, read from the global `satteriWasmModule`, instead of fetching and compiling its own. Each later worker is handed that module, and the page sets the same global to the module the worker posts to it before it loads its own parser ([ADR-043](./decisions/043-long-replies-parsed-on-screen-and-held-packed.md)). bruits/satteri#329 adds the same thing upstream under the global `__SATTERI_WASM_MODULE__`.
 - V1 Release Impact: none; the patch carries the behavior until a release does.
 - Named gate: a Sätteri release carrying bruits/satteri#329.
-- Exit Criteria: that release is taken; the patch and its `patchedDependencies` entry are deleted; `apps/desktop/src/renderer/src/components/Markdown/worker/entry.ts` and the page's parser loader, `apps/desktop/src/renderer/src/components/Markdown/parse/page-parser.ts`, hand the module under `__SATTERI_WASM_MODULE__` in place of `satteriWasmModule`; this entry is deleted.
+- Exit Criteria: that release is taken; the patch and its `patchedDependencies` entry are deleted; `apps/desktop/src/renderer/src/components/Markdown/worker/entry.ts` and the page's parser loader, `apps/desktop/src/renderer/src/components/Markdown/parse/page-parser.ts`, hand the module under `__SATTERI_WASM_MODULE__` in place of `satteriWasmModule`, and `apps/desktop/tests/e2e/webassembly-worker-policy.test.ts` waits for it under that name; this entry is deleted.
 
 ## BL-172: Sätteri exporting its tree reader, materializer and walk on their own
 
