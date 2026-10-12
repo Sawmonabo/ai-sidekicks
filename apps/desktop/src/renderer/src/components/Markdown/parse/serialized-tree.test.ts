@@ -1,7 +1,7 @@
-// What the worker parses a text into: a formula between single dollars only where Pandoc reads one,
+// What the parser parses a text into: a formula between single dollars only where Pandoc reads one,
 // a price or a shell variable left as the words it is whatever symbols the text holds, and one
-// alone between double dollars a display formula; and what it transfers to the page, a plain
-// buffer of the tree's bytes alone. A shared buffer cannot be posted on a page that is not
+// alone between double dollars a display formula; and what the worker transfers to the page, a
+// plain buffer of the tree's bytes alone. A shared buffer cannot be posted on a page that is not
 // cross-origin isolated, and a pooled one would hand the page other bytes besides.
 
 import type { Nodes } from "mdast";

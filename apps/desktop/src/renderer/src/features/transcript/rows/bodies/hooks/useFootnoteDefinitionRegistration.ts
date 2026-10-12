@@ -1,26 +1,24 @@
 import type { FootnoteDefinition } from "mdast";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 import { collectFootnoteDefinitions } from "#renderer/components/Markdown/footnotes/collection.js";
-import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
-import type { Unsubscribe } from "#shared/preload-api.js";
-import { type MarkdownBodyBlocksSnapshot } from "../../markdown/body-blocks.js";
+import { type MarkdownBodyBlocksSnapshot } from "../../markdown/body-blocks/snapshot.js";
 import { type FootnoteRegistry } from "../../markdown/footnotes/registry.js";
 
 /**
  * Records every footnote definition one body declares, drawn or not, from an effect so no render
- * writes the registry. A settled block's definitions are read against the whole body's, once per
- * block and preamble, as its parse lands; the tail's are read from the tail alone, on the frames
- * that hold one. A failed parse throws, for the row's error boundary.
+ * writes the registry. A drawn block's definitions are read from its tree, once per block and
+ * preamble; the tail's are read from the tail alone, on the frames that hold one. A tree the body
+ * cannot read throws, for the row's error boundary.
  */
 export function useFootnoteDefinitionRegistration(
   blocks: MarkdownBodyBlocksSnapshot,
   footnotes: FootnoteRegistry,
   sourceId: string,
 ): void {
-  const { definingBlocks, definitionPreamble, volatileTailDefinitions, readBlockSource } = blocks;
+  const { definingBlocks, definitionPreamble, volatileTailDefinitions, records } = blocks;
+  const { readTransientBlockTree } = blocks;
   const registered = useRef<RegisteredBlocks | undefined>(undefined);
-  const [failure, setFailure] = useState<string | undefined>(undefined);
   useEffect(() => {
     let held = registered.current;
     if (
@@ -31,45 +29,27 @@ export function useFootnoteDefinitionRegistration(
       held = { footnotes, sourceId, definitionPreamble, blockKeys: new Set() };
       registered.current = held;
     }
-    const readsInFlight: Unsubscribe[] = [];
-    for (const block of definingBlocks) {
-      if (held.blockKeys.has(block.key)) {
+    for (const index of definingBlocks) {
+      const key = records.reactKeyAt(index);
+      if (held.blockKeys.has(key)) {
         continue;
       }
-      const blockKeys = held.blockKeys;
-      readsInFlight.push(
-        appMarkdownTrees.requestSettledBlock(
-          readBlockSource(block),
-          definitionPreamble,
-          (outcome) => {
-            if (outcome.status === "failed") {
-              setFailure(outcome.reason);
-              return;
-            }
-            blockKeys.add(block.key);
-            const { definitions } = collectFootnoteDefinitions(outcome.root.children);
-            register(definitions, footnotes, sourceId);
-          },
-        ),
+      held.blockKeys.add(key);
+      const { definitions } = collectFootnoteDefinitions(
+        readTransientBlockTree(index).root.children,
       );
+      register(definitions, footnotes, sourceId);
     }
     register(volatileTailDefinitions, footnotes, sourceId);
-    return () => {
-      for (const stop of readsInFlight) {
-        stop();
-      }
-    };
   }, [
     definingBlocks,
     definitionPreamble,
     volatileTailDefinitions,
-    readBlockSource,
+    records,
+    readTransientBlockTree,
     footnotes,
     sourceId,
   ]);
-  if (failure !== undefined) {
-    throw new Error(failure);
-  }
 }
 
 /** The blocks registered into one registry for one source under one preamble. */

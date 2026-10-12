@@ -5,9 +5,11 @@
 // launched app can catch it. Each worker is started in the console document, as the app starts
 // it: the diagram worker is asked for one drawing, shown as an image the way a diagram block shows
 // it, and the markdown worker compiles the parser, which the page hands a second worker to parse
-// with, as the app hands it to every worker after the first.
+// with, as the app hands it to every worker after the first. The page itself never compiles, but
+// it runs the module the markdown worker compiled: the app hands it to the page's parser, which
+// must instantiate it and parse with nothing refused.
 
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -63,6 +65,13 @@ interface ParsingResult {
   readonly refusals: readonly string[];
 }
 
+/** What the page's own parser made of a reply, and what the page's policy refused meanwhile. */
+interface PageParseResult {
+  /** The type of the reply's first node, or why the page could not parse it. */
+  readonly parsed: string;
+  readonly refusals: readonly string[];
+}
+
 /** A short reply holding a formula, which the markdown worker parses. */
 const PARSED_REPLY = "A **bold** word and $x^2$, which costs $5.";
 
@@ -74,6 +83,27 @@ function workerScriptPathOf(bundleName: string): string {
   expect(workerScripts).toHaveLength(1);
   return `/assets/${workerScripts[0] ?? ""}`;
 }
+
+/**
+ * The served path of the parse module the page's parser loads: the one script the page's own
+ * chunks import it as, which the markdown worker's bundle does not.
+ */
+function pageParserScriptPath(): string {
+  const assets = join(PACKAGE_ROOT, "out", "renderer", "assets");
+  const imported = readdirSync(assets)
+    .filter((fileName) => fileName.endsWith(".js") && !isWebAssemblyWorkerScript(fileName))
+    .flatMap((fileName) =>
+      Array.from(
+        readFileSync(join(assets, fileName), "utf8").matchAll(PARSE_MODULE_IMPORT),
+        (match) => match[1],
+      ),
+    );
+  expect(new Set(imported).size).toBe(1);
+  return `/assets/${imported[0] ?? ""}`;
+}
+
+/** A built chunk's dynamic import of the parse module, by its hashed file name. */
+const PARSE_MODULE_IMPORT = /import\(`\.\/(serialized-tree-[\w-]+\.js)`\)/gu;
 
 describe.skipIf(!bundleIsBuilt)(
   "end-to-end — the WebAssembly workers under the app's policy",
@@ -236,6 +266,53 @@ describe.skipIf(!bundleIsBuilt)(
         expect(result.parses.map((parse) => typeof parse)).toStrictEqual(["number", "number"]);
         expect(result.parses.every((parse) => typeof parse === "number" && parse > 0)).toBe(true);
         expect(result.refusals).toStrictEqual([]);
+      });
+    });
+
+    it("instantiates the markdown worker's parser on the page and parses with it, nothing refused", async () => {
+      const loaderPath = pageParserScriptPath();
+      await withLaunchedApp({ scenarioId: FIRST_RUN_SCENARIO.id }, async (appUnderTest) => {
+        const page = appUnderTest.consolePage;
+        // What the page's policy refuses from here on, kept in the page while the app runs.
+        const refusals = await page.evaluateHandle(() => {
+          const noted: string[] = [];
+          document.addEventListener("securitypolicyviolation", (event) => {
+            noted.push(`${event.effectiveDirective} ${event.blockedURI}`);
+          });
+          return noted;
+        });
+        // The app starts its page parser once the worker it wakes at start sends back the module
+        // it compiled, setting the module where the parse module's loader reads it.
+        const isHanded = await page.evaluate(async (waitMs) => {
+          const scope = globalThis as { satteriWasmModule?: WebAssembly.Module };
+          const deadline = performance.now() + waitMs;
+          while (scope.satteriWasmModule === undefined && performance.now() < deadline) {
+            await new Promise((resolve) => {
+              setTimeout(resolve, 50);
+            });
+          }
+          return scope.satteriWasmModule !== undefined;
+        }, appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS));
+        expect(isHanded).toBe(true);
+        // The page's own parse module, the instance its parser loaded. Written as a string: the
+        // test runner rewrites a dynamic import inside a function it hands the page.
+        const loader = await page.evaluateHandle(`import(${JSON.stringify(loaderPath)})`);
+        const result = await page.evaluate(
+          ([parseModule, noted, source]): PageParseResult => {
+            const parse = parseModule as {
+              readonly parseMarkdownTree: (text: string) => {
+                readonly children: readonly { readonly type: string }[];
+              };
+            };
+            return {
+              parsed: parse.parseMarkdownTree(source).children[0]?.type ?? "no node",
+              refusals: [...noted],
+            };
+          },
+          [loader, refusals, PARSED_REPLY] as const,
+        );
+
+        expect(result).toStrictEqual({ parsed: "paragraph", refusals: [] });
       });
     });
   },

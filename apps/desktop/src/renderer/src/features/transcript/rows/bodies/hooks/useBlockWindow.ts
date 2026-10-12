@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useReducer, useState } from "r
 
 import { useDirectlyPlacedVirtualizer } from "#renderer/hooks/useDirectlyPlacedVirtualizer.js";
 import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
-import { type MarkdownBodyBlocksSnapshot } from "../../markdown/body-blocks.js";
+import { type MarkdownBodyBlocksSnapshot } from "../../markdown/body-blocks/snapshot.js";
 import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import {
   BlockWindowLayout,
@@ -73,10 +73,10 @@ export function useBlockWindow(
   );
   // A new identity whenever a block settles, so the library re-reads every key even where the
   // count did not change: the tail's place can pass to a settled block at the same index.
-  const settledBlocks = blocks.settledBlocks;
+  const { records, settledCount, keepPageTreesOf } = blocks;
   const getItemKey = useCallback(
-    (index: number) => windowedBlockKeyOf(settledBlocks, index),
-    [settledBlocks],
+    (index: number) => windowedBlockKeyOf({ records, settledCount }, index),
+    [records, settledCount],
   );
   // The virtualizer renders again only when the blocks it draws change; a block that moves a
   // spacer redraws here.
@@ -116,9 +116,19 @@ export function useBlockWindow(
   const rows = layout.windowRows(virtualizer.getVirtualItems(), virtualizer.getTotalSize());
   useLayoutEffect(() => {
     layout.commitRows(rows);
+    // The page trees of the blocks this commit drew stay; every other one is let go.
+    keepPageTreesOf(drawnBlockIndexesOf(rows));
   });
 
   return { rows, attachBody: layout.attachBody, attachBlock: virtualizer.measureElement, layout };
+}
+
+function* drawnBlockIndexesOf(rows: readonly BlockWindowRow[]): Generator<number> {
+  for (const row of rows) {
+    if (row.kind === "block") {
+      yield row.index;
+    }
+  }
 }
 
 function countRedraws(count: number): number {

@@ -11,7 +11,7 @@ import {
   type DrawnElement,
   type DrawnTree,
 } from "./drawn-text.js";
-import { parseMarkdownTree } from "./worker/serialized-tree.js";
+import { parseMarkdownTree } from "./parse/serialized-tree.js";
 
 it("copies an inline formula as its source between dollars, and a price as written", () => {
   // As a copy of the drawing hands it over: the formula's place holds its source, marked as math.

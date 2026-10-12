@@ -1,6 +1,7 @@
-// A block's height before it is drawn, from its text and the body's type. It stands only until the
+// A block's height before it is drawn, from its lines and the body's type. It stands only until the
 // block measures, but every pixel it is off moves what is below it, so it counts line boxes: a code
-// fence by its source lines, prose by the lines its text wraps to at the body's width.
+// fence by its source lines, prose by the lines its text wraps to at the body's width. It reads the
+// lengths of the block's lines, never its text, so a new width estimates again from them alone.
 
 import { READING_LINE_HEIGHT, TYPE_SCALE_REM } from "#renderer/styles/typography.js";
 
@@ -22,28 +23,65 @@ export const DEFAULT_BLOCK_TYPOGRAPHY: BlockTypography = {
   widthPx: undefined,
 };
 
-/** A block's estimated height, in CSS pixels, at the given type. */
-export function estimateBlockHeightPx(source: string, typography: BlockTypography): number {
-  const lines = source.replace(TRAILING_LINE_BREAKS, "").split("\n");
-  if (FENCE_OPENER.test(source)) {
-    return (lines.length + CODE_BLOCK_CHROME_LINES) * typography.lineHeightPx;
+/** A block opening on a code fence, which an estimate counts by its source lines. */
+export const FENCE_OPENER: RegExp = /^ {0,3}(?:`{3,}|~{3,})/u;
+
+/**
+ * A block's estimated height, in CSS pixels, at the given type, from the lengths of its lines
+ * (`measureLineLengths`) and whether it opens on a code fence (`FENCE_OPENER`).
+ */
+export function estimateBlockHeightPx(
+  lineLengths: Uint32Array,
+  isFence: boolean,
+  typography: BlockTypography,
+): number {
+  if (isFence) {
+    return (lineLengths.length + CODE_BLOCK_CHROME_LINES) * typography.lineHeightPx;
   }
   const charactersPerLine = Math.max(
     1,
     Math.floor(proseMeasurePx(typography) / averageAdvancePx(typography)),
   );
   let wrappedLines = 0;
-  for (const line of lines) {
-    wrappedLines += Math.max(1, Math.ceil(line.length / charactersPerLine));
+  for (const length of lineLengths) {
+    wrappedLines += Math.max(1, Math.ceil(length / charactersPerLine));
   }
   return (wrappedLines + PROSE_BLOCK_GAP_LINES) * typography.lineHeightPx;
 }
 
-/** Line breaks ending a block's text, which draw nothing. */
-const TRAILING_LINE_BREAKS = /\n+$/u;
+/**
+ * Hands `take` the length of each line of `text` an estimate counts, in UTF-16 code units, in
+ * order: every line but the empty ones its trailing line breaks end on, and one empty line for an
+ * empty text.
+ */
+export function measureLineLengths(text: string, take: (length: number) => void): void {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === LINE_FEED) {
+    end -= 1;
+  }
+  let lineStart = 0;
+  for (;;) {
+    const lineEnd = text.indexOf("\n", lineStart);
+    if (lineEnd === -1 || lineEnd >= end) {
+      take(end - lineStart);
+      return;
+    }
+    take(lineEnd - lineStart);
+    lineStart = lineEnd + 1;
+  }
+}
 
-/** A block opening on a code fence. */
-const FENCE_OPENER = /^ {0,3}(?:`{3,}|~{3,})/u;
+/** The lengths of `text`'s lines as `measureLineLengths` counts them, for a text read once. */
+export function lineLengthsOf(text: string): Uint32Array {
+  const lengths: number[] = [];
+  measureLineLengths(text, (length) => {
+    lengths.push(length);
+  });
+  return Uint32Array.from(lengths);
+}
+
+/** The line feed's code unit. */
+const LINE_FEED = 0x0a;
 
 /** The line boxes a code block's frame adds around its lines: its padding and its bar. */
 const CODE_BLOCK_CHROME_LINES = 2;

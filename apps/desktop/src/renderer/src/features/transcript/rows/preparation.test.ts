@@ -13,6 +13,7 @@ import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row"
 
 import { RESOLVED_SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import { DiagramPictures } from "#renderer/components/Markdown/diagram/pictures.js";
+import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
 import { FakeDiagramWorkers } from "#renderer/components/Markdown/diagram/worker/connection.test-support.js";
 import { typesetterLoadFor } from "#renderer/components/Markdown/typesetter/load.js";
 import { userMessageRow } from "../event-rows.test-support.js";
@@ -191,7 +192,8 @@ describe("a message row's preparation", () => {
     await Promise.resolve();
     expect(sentSources(workers)).toEqual([]);
 
-    // The fence settles once the blocks after it are complete past the segmenter's lag.
+    // The fence settles once the blocks after it are complete past the cut's lag.
+    const pageParses = vi.spyOn(appMarkdownTrees, "parseSettledBlockNow");
     revealInto(
       laneText,
       `\`\`\`mermaid\n${SETTLED_DIAGRAM}\n\`\`\`\n\nFirst step.\n\nSecond step.\n\nThird step.\n\n`,
@@ -202,6 +204,11 @@ describe("a message row's preparation", () => {
       expect(sentSources(workers)).toEqual([SETTLED_DIAGRAM]);
     });
     expect(preparation?.isReady).toBe(false);
+    // Only the block that could hold a diagram is parsed for what the row waits on, and once.
+    expect(pageParses.mock.calls.map(([source]) => source)).toStrictEqual([
+      `\`\`\`mermaid\n${SETTLED_DIAGRAM}\n\`\`\`\n\n`,
+    ]);
+    pageParses.mockRestore();
   });
 
   it("reads a reply's stored body once its lane retires, settling the diagram that ends it", async () => {

@@ -9,8 +9,8 @@ import type { Range, VirtualItem, Virtualizer } from "@tanstack/virtual-core";
 import type { RootContent } from "mdast";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { blockSourceStartOf } from "../body-blocks.js";
-import { type SettledMarkdownBlock } from "../settled-block.js";
+import { BlockFlag, type BlockRecords } from "../block-records.js";
+import { blockSourceStartOf } from "../body-blocks/snapshot.js";
 import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
 import { type DrawnBandScreenHeights } from "#renderer/lib/scroll/window-side.js";
 import { ReaderPlaceHold } from "#renderer/lib/scroll/reader-place-hold.js";
@@ -25,6 +25,8 @@ import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBody
 import {
   DEFAULT_BLOCK_TYPOGRAPHY,
   estimateBlockHeightPx,
+  FENCE_OPENER,
+  lineLengthsOf,
   type BlockTypography,
 } from "./estimate.js";
 import {
@@ -44,16 +46,16 @@ import { warmIdeographFallback } from "../table-window/ideograph-fallback-warm.j
 export type BlockVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
 
 /**
- * The body's blocks as the window counts them: its drawn settled blocks, then its tail once it has
- * nodes to draw.
+ * The body's blocks as the window counts them: the first `settledCount` of its records, then its
+ * tail once it has nodes to draw.
  */
 export interface WindowedBlocks {
-  readonly settledBlocks: readonly SettledMarkdownBlock[];
+  readonly records: BlockRecords;
+  /** How many of `records`' blocks are drawn on their own. */
+  readonly settledCount: number;
   readonly volatileTail: string;
   /** The tail's nodes, or `undefined` before its first tree lands. */
   readonly tailNodes: readonly RootContent[] | undefined;
-  /** Cuts a settled block's text from its body's, for an estimate that lets it go. */
-  readonly readBlockSource: (block: SettledMarkdownBlock) => string;
   /** The definitions every offset in a drawn block's tree counts before the block's own text. */
   readonly readDefinitionPreamble: (index: number) => string;
 }
@@ -107,9 +109,14 @@ export class BlockWindowLayout implements TableBodyPlacement {
   /** The row's last known top, kept for a geometry sample taken while the viewport lets it go. */
   #rowStartPx = 0;
   /** This mount's measured blocks, by key. */
-  readonly #geometries = new Map<string, BlockGeometry>();
-  /** This mount's estimates for blocks it has not measured, by key, at the current width. */
-  readonly #estimates = new Map<string, number>();
+  readonly #geometries = new Map<number, BlockGeometry>();
+  /**
+   * This mount's estimates for the settled blocks it has not measured, by index, at the current
+   * type, `NaN` where none is held: refilled from the records' line lengths, never from text.
+   */
+  #estimates = new Float32Array(0);
+  /** The records `#estimates` were made from. */
+  #estimatedRecords: BlockRecords | undefined;
   /** The rows the body last committed to the page. */
   #committedRows: readonly BlockWindowRow[] = [];
 
@@ -129,21 +136,29 @@ export class BlockWindowLayout implements TableBodyPlacement {
     if (measured !== undefined) {
       return this.#sizeOf(index, measured);
     }
-    const held = this.#estimates.get(key);
-    if (held !== undefined) {
-      return held;
-    }
-    const block = this.#blocks.settledBlocks[index];
-    if (block === undefined) {
+    const { records, settledCount, volatileTail } = this.#blocks;
+    if (index >= settledCount) {
       // The tail changes every frame, so its estimate is never held.
-      return estimateBlockHeightPx(this.#blocks.volatileTail, this.#typography());
+      return estimateBlockHeightPx(
+        lineLengthsOf(volatileTail),
+        FENCE_OPENER.test(volatileTail),
+        this.#typography(),
+      );
+    }
+    const held = this.#estimates[index];
+    if (held !== undefined && !Number.isNaN(held)) {
+      return held;
     }
     const recalled = this.#recall(index);
     const estimate =
       recalled === undefined
-        ? estimateBlockHeightPx(this.#blocks.readBlockSource(block), this.#typography())
+        ? estimateBlockHeightPx(
+            records.lineLengthsOf(index),
+            records.hasFlag(index, BlockFlag.Fence),
+            this.#typography(),
+          )
         : this.#sizeOf(index, recalled);
-    this.#estimates.set(key, estimate);
+    this.#holdEstimate(index, estimate);
     return estimate;
   };
 
@@ -211,15 +226,12 @@ export class BlockWindowLayout implements TableBodyPlacement {
   /** How many blocks the window lays out: the drawn settled ones, and the tail once it draws. */
   public get blockCount(): number {
     const tailNodes = this.#blocks.tailNodes;
-    return (
-      this.#blocks.settledBlocks.length +
-      (tailNodes === undefined || tailNodes.length === 0 ? 0 : 1)
-    );
+    return this.#blocks.settledCount + (tailNodes === undefined || tailNodes.length === 0 ? 0 : 1);
   }
 
   /** The key a block is measured and drawn under. */
-  public keyOf(index: number): string {
-    return windowedBlockKeyOf(this.#blocks.settledBlocks, index);
+  public keyOf(index: number): number {
+    return windowedBlockKeyOf(this.#blocks, index);
   }
 
   /** The body's width and text size, or `undefined` before it is laid out. */
@@ -247,8 +259,20 @@ export class BlockWindowLayout implements TableBodyPlacement {
 
   /** Takes the body's blocks and its text's length for this frame. */
   public setBlocks(blocks: WindowedBlocks, bodyTextLength: number): void {
+    const previous = this.#blocks;
     this.#blocks = blocks;
     this.#bodyTextLength = bodyTextLength;
+    if (blocks.records !== this.#estimatedRecords) {
+      this.#estimatedRecords = blocks.records;
+      this.#estimates.fill(Number.NaN);
+    }
+    if (blocks.records === previous.records && blocks.settledCount < previous.settledCount) {
+      // Blocks given back to the tail may settle again with other text under the same keys.
+      for (let index = blocks.settledCount; index < previous.settledCount; index += 1) {
+        this.#geometries.delete(blocks.records.itemKeyAt(index));
+        this.#estimates[index] = Number.NaN;
+      }
+    }
   }
 
   public blockSourceStart(index: number): number {
@@ -257,7 +281,9 @@ export class BlockWindowLayout implements TableBodyPlacement {
 
   /** A settled block's fingerprint; `undefined` for the streaming tail. */
   public blockFingerprint(index: number): string | undefined {
-    return this.#blocks.settledBlocks[index]?.fingerprint;
+    return index < this.#blocks.settledCount
+      ? this.#blocks.records.fingerprintAt(index)
+      : undefined;
   }
 
   /** A table's anchor here is the wrapper of the block it is drawn in. */
@@ -331,7 +357,7 @@ export class BlockWindowLayout implements TableBodyPlacement {
       }
       rows.push({
         kind: "block",
-        key: String(item.key),
+        key: this.#reactKeyOf(item.index),
         index: item.index,
         isFinal: item.index === lastIndex,
       });
@@ -376,7 +402,7 @@ export class BlockWindowLayout implements TableBodyPlacement {
    * a block not yet measured is taken as all border box, its margins unknown.
    */
   #edgesOf(item: VirtualItem): BlockEdges {
-    const geometry = this.#geometries.get(String(item.key));
+    const geometry = this.#geometries.get(this.keyOf(item.index));
     if (geometry === undefined) {
       return {
         borderTopPx: item.start,
@@ -411,7 +437,7 @@ export class BlockWindowLayout implements TableBodyPlacement {
     }
     this.#bodyType = bodyType;
     this.#bodyOffsetInRowPx = offsetInRowPx(element);
-    this.#estimates.clear();
+    this.#estimates.fill(Number.NaN);
     if (previousType !== undefined) {
       this.#remeasureAtNewType();
     }
@@ -494,24 +520,52 @@ export class BlockWindowLayout implements TableBodyPlacement {
 
   /** Where a settled block's geometry is filed; the tail and an unmeasured body have none. */
   #addressOf(index: number): BlockGeometryAddress | undefined {
-    const block = this.#blocks.settledBlocks[index];
     const bodyType = this.#bodyType;
-    return block === undefined || bodyType === undefined
+    return index >= this.#blocks.settledCount || bodyType === undefined
       ? undefined
-      : { fingerprint: block.fingerprint, bodyType, isFinal: index === this.blockCount - 1 };
+      : {
+          fingerprint: this.#blocks.records.fingerprintAt(index),
+          bodyType,
+          isFinal: index === this.blockCount - 1,
+        };
+  }
+
+  /** The React key block `index` is drawn under: a settled block's place and text, or the tail's. */
+  #reactKeyOf(index: number): string {
+    return index < this.#blocks.settledCount
+      ? this.#blocks.records.reactKeyAt(index)
+      : VOLATILE_TAIL_REACT_KEY;
+  }
+
+  /** Holds a settled block's estimate, growing the estimates as the records do. */
+  #holdEstimate(index: number, estimate: number): void {
+    if (index >= this.#estimates.length) {
+      const grown = new Float32Array(Math.max(INITIAL_ESTIMATE_CAPACITY, (index + 1) * 2));
+      grown.fill(Number.NaN);
+      grown.set(this.#estimates);
+      this.#estimates = grown;
+    }
+    this.#estimates[index] = estimate;
   }
 }
 
-/** The key a windowed block is measured and drawn under: a settled block's own, or the tail's. */
+/**
+ * The number a windowed block is measured under: a settled block's own (`BlockRecords.itemKeyAt`),
+ * or the tail's, `-1`.
+ */
 export function windowedBlockKeyOf(
-  settledBlocks: readonly SettledMarkdownBlock[],
+  blocks: Pick<WindowedBlocks, "records" | "settledCount">,
   index: number,
-): string {
-  return settledBlocks[index]?.key ?? VOLATILE_TAIL_KEY;
+): number {
+  return index < blocks.settledCount ? blocks.records.itemKeyAt(index) : VOLATILE_TAIL_KEY;
 }
 
-/** The tail's key: one element that grows, frame after frame, until its blocks settle. */
-const VOLATILE_TAIL_KEY = "volatile-tail";
+/** The tail's keys: one element that grows, frame after frame, until its blocks settle. */
+const VOLATILE_TAIL_KEY = -1;
+const VOLATILE_TAIL_REACT_KEY = "volatile-tail";
+
+/** How many settled blocks' estimates the window holds room for before it first grows. */
+const INITIAL_ESTIMATE_CAPACITY = 64;
 
 /** Where a drawn block's border box and margins sit in the window, in CSS pixels. */
 interface BlockEdges {

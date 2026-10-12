@@ -6,12 +6,17 @@
 // makes from the tree it sends the page, on the constructs whose meaning reaches across a text:
 // reference links and images, footnotes, a loose list beside a tight one, raw HTML and a table;
 // and reads a drawn part into the same text as the page, as plain text, and as markdown with its
-// HTML, a table's undrawn rows among it, and a text longer than one piece crosses whole.
+// HTML, a table's undrawn rows among it, and a text longer than one piece crosses whole. The page
+// runs the module the worker compiled into the same tree the worker makes. The worker cuts a body
+// into exactly the top-level blocks one parse of the whole body reads, whole and as it streams in,
+// on the constructs a scan for blank lines cuts wrongly; holding back one block instead of two
+// splits a loose ordered list.
 
 import { fromDom } from "hast-util-from-dom";
+import type { Root } from "mdast";
 import { materializeMdastTree } from "satteri/mdast-materializer";
 import { MdastReader } from "satteri/mdast-reader";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 
 import {
   drawnTreeMarkdown,
@@ -21,6 +26,14 @@ import {
   type DrawnTree,
 } from "#renderer/components/Markdown/drawn-text.js";
 import { markdownTreeToHtml } from "#renderer/components/Markdown/html.js";
+import {
+  BlockCut,
+  MARKDOWN_SETTLE_LAG_BLOCKS,
+  type TopLevelChildren,
+} from "#renderer/components/Markdown/parse/block-cut.js";
+import { definitionPreambleOf } from "#renderer/components/Markdown/parse/definition-preamble.js";
+import { PageParser } from "#renderer/components/Markdown/parse/page-parser.js";
+import { MarkdownTrees, type ParsedMarkdown } from "#renderer/components/Markdown/parse/trees.js";
 import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
 import {
   MarkdownWorkerConnection,
@@ -28,8 +41,10 @@ import {
   type MarkdownWorkerPort,
 } from "#renderer/components/Markdown/worker/connection.js";
 import type { MarkdownWorkerReply } from "#renderer/components/Markdown/worker/messages.js";
+import { longReplyMarkdown } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import { TEXT_PIECE_LENGTH } from "#renderer/lib/text-pieces.js";
 import { endWorkersWithTest } from "../helpers/worker-start.js";
+import cutCases from "./markdown-cut-cases.json" with { type: "json" };
 
 /** A reply whose parts each read something defined elsewhere in it, or as markup. */
 const REPLY = [
@@ -83,7 +98,7 @@ it("compiles the parser, and moves a tree to the page as a plain buffer", async 
 });
 
 it("makes the same HTML bytes off the page's thread as the page makes from the tree it sends", async () => {
-  const connection = new MarkdownWorkerConnection(endWorkersWithTest(startMarkdownWorker), window);
+  const { connection } = workerOnly();
 
   expect((await connection.html(REPLY)).text).toBe(markdownTreeToHtml(await parseTree(REPLY)));
   expect((await connection.html(LONG_REPLY)).text).toBe(
@@ -92,7 +107,7 @@ it("makes the same HTML bytes off the page's thread as the page makes from the t
 });
 
 it("reads a drawn part into the same text and HTML off the page's thread as on it", async () => {
-  const connection = new MarkdownWorkerConnection(endWorkersWithTest(startMarkdownWorker), window);
+  const { connection } = workerOnly();
   const drawing = document.createElement("div");
   drawing.innerHTML =
     '<p role="heading" aria-level="2">Findings</p>' +
@@ -134,6 +149,187 @@ it("reads a drawn part into the same text and HTML off the page's thread as on i
   expect(made.html?.text).toBe(onPage.html.join(""));
   expect(made.text.text).toContain("Builder");
 });
+
+it("parses a block on the page, from the worker's module, into the same tree the worker makes", async () => {
+  const { trees } = await pageAndWorker();
+  const preamble = definitionPreambleOf(new Set(["first", "second"]), []);
+
+  const onWorker = await settledBlockOf(trees, REPLY, preamble);
+  const onPage = trees.parseSettledBlockNow(REPLY, preamble) ?? expect.fail("parsed on the page");
+
+  expect(plainTreeOf(onPage.root)).toStrictEqual(plainTreeOf(onWorker.root));
+  expect(onPage.root.children.map((node) => node.type)).toContain("table");
+});
+
+it("cuts a body into the top-level blocks one parse of the whole body reads", async () => {
+  const { connection, pageParser } = await pageAndWorker();
+  for (const [name, text] of Object.entries(CUT_TEXTS)) {
+    const blockEnds = await new Promise<readonly number[]>((resolve, reject) => {
+      connection.cut(text, true, (answer) => {
+        if (answer.status === "failed") {
+          reject(new Error(answer.reason));
+          return;
+        }
+        resolve([...answer.blockEnds]);
+      });
+    });
+    expect(blockEnds, name).toStrictEqual(wholeParseBlockEndsOf(pageParser, text));
+  }
+});
+
+it("cuts a streaming body into the same blocks as it grows, holding back two blocks", async () => {
+  const { pageParser } = await pageAndWorker();
+  const readChildren = await childrenReaderOnPage();
+  for (const [name, text] of Object.entries(CUT_TEXTS)) {
+    const appendLength = seededAppendLengths(name.length);
+    expect(
+      streamedBlockEndsOf(text, MARKDOWN_SETTLE_LAG_BLOCKS, readChildren, appendLength),
+      name,
+    ).toStrictEqual(wholeParseBlockEndsOf(pageParser, text));
+  }
+  // Holding back one block freezes a loose ordered list before its third item arrives.
+  const looseList = "Intro.\n\n1. one\n\n2. two, loose\n\n3. three\n\nAfter.\n";
+  expect(streamedBlockEndsOf(looseList, 1, readChildren, () => 1)).not.toStrictEqual(
+    wholeParseBlockEndsOf(pageParser, looseList),
+  );
+  expect(
+    streamedBlockEndsOf(looseList, MARKDOWN_SETTLE_LAG_BLOCKS, readChildren, () => 1),
+  ).toStrictEqual(wholeParseBlockEndsOf(pageParser, looseList));
+});
+
+/** The hand cases a scan for blank lines cuts wrongly, and a long reply of every kind of block. */
+const CUT_TEXTS: Readonly<Record<string, string>> = {
+  ...cutCases,
+  "a long reply": longReplyMarkdown(80_000),
+};
+
+/** A connection to a markdown worker, whose page parser is never started. */
+function workerOnly(): { readonly connection: MarkdownWorkerConnection } {
+  return {
+    connection: new MarkdownWorkerConnection(
+      endWorkersWithTest(startMarkdownWorker),
+      window,
+      new PageParser(
+        async () => await import("#renderer/components/Markdown/parse/serialized-tree.js"),
+      ),
+    ),
+  };
+}
+
+/**
+ * A markdown worker and a page parser of the test's own, started as the app starts it: the
+ * connection hands the module the worker compiled to the page in an idle moment.
+ */
+async function pageAndWorker(): Promise<{
+  readonly connection: MarkdownWorkerConnection;
+  readonly pageParser: PageParser;
+  readonly trees: MarkdownTrees;
+}> {
+  const pageParser = new PageParser(
+    async () => await import("#renderer/components/Markdown/parse/serialized-tree.js"),
+  );
+  const connection = new MarkdownWorkerConnection(
+    endWorkersWithTest(startMarkdownWorker),
+    window,
+    pageParser,
+  );
+  const trees = new MarkdownTrees(connection);
+  trees.wakeWorker();
+  await vi.waitFor(
+    () => {
+      expect(pageParser.state).toBe("ready");
+    },
+    { timeout: 10_000 },
+  );
+  return { connection, pageParser, trees };
+}
+
+/** The top-level children reader, loaded on the page once a started page parser set its module. */
+async function childrenReaderOnPage(): Promise<(window: string) => TopLevelChildren> {
+  const { readTopLevelChildren } =
+    await import("#renderer/components/Markdown/parse/top-level-children.js");
+  return readTopLevelChildren;
+}
+
+/** A settled block's tree from the worker, against `preamble`. */
+async function settledBlockOf(
+  trees: MarkdownTrees,
+  source: string,
+  preamble: string,
+): Promise<ParsedMarkdown> {
+  return await new Promise((resolve, reject) => {
+    trees.requestSettledBlock(source, preamble, (outcome) => {
+      if (outcome.status === "failed") {
+        reject(new Error(outcome.reason));
+        return;
+      }
+      resolve(outcome);
+    });
+  });
+}
+
+/** A tree's nodes as plain data, without a table's mark of its pieces. */
+function plainTreeOf(root: Root): unknown {
+  return JSON.parse(
+    JSON.stringify(root.children, (key, value: unknown) => (key === "data" ? undefined : value)),
+  );
+}
+
+/**
+ * Where each block of `text` ends as one parse of the whole text reads its top-level children: the
+ * first starts at the text's start, each next one at the start of its child's first line, and the
+ * last runs to the text's end.
+ */
+function wholeParseBlockEndsOf(pageParser: PageParser, text: string): number[] {
+  const children = pageParser.parse(text).children;
+  const ends = children.slice(1).map((child) => {
+    const offset = child.position?.start.offset ?? expect.fail("a top-level child has a position");
+    return text.lastIndexOf("\n", offset - 1) + 1;
+  });
+  return children.length === 0 ? [] : [...ends, text.length];
+}
+
+/**
+ * Where each block of `text` ends as a body streaming it in appends of `appendLength` characters
+ * cuts it: the text past the blocks cut so far, cut again after each append holding back
+ * `lagBlocks`, then cut whole once it is all in.
+ */
+function streamedBlockEndsOf(
+  text: string,
+  lagBlocks: number,
+  readChildren: (window: string) => TopLevelChildren,
+  appendLength: () => number,
+): number[] {
+  const blockEnds: number[] = [];
+  let received = 0;
+  while (received < text.length) {
+    received = Math.min(text.length, received + appendLength());
+    const from = blockEnds.at(-1) ?? 0;
+    const cut = new BlockCut(
+      text.slice(from, received),
+      received === text.length,
+      lagBlocks,
+      readChildren,
+    );
+    let isCut = false;
+    while (!isCut) {
+      isCut = cut.cutWindow();
+    }
+    for (const end of cut.blockEnds) {
+      blockEnds.push(from + end);
+    }
+  }
+  return blockEnds;
+}
+
+/** Append lengths of 1 to 200 characters, the same for the same seed. */
+function seededAppendLengths(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (Math.imul(state, 1_103_515_245) + 12_345) >>> 0;
+    return 1 + (state % 200);
+  };
+}
 
 /** The replies `worker` sends, each read in turn. */
 function repliesOf(worker: MarkdownWorkerPort): {

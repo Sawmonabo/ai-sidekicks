@@ -20,13 +20,12 @@ import { byteFigurePart } from "#renderer/lib/figure-sentence.js";
 import { LARGE_BODY_ATTRIBUTE } from "../../copy/conversation-selection.js";
 import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
 import { AnsiOutput } from "../ansi/AnsiOutput.js";
-import { PreparedBodiesContext } from "../prepared-bodies.js";
 import { FullBodyReadsContext, type FullBodyReads } from "../full-body-reads.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { FullOutputControl } from "./FullOutputControl.js";
+import { PreparedMarkdown } from "./PreparedMarkdown.js";
 import { type OutputOpening } from "./OutputHeightCut.js";
 import { type OutputKind } from "./output-kinds.js";
-import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { TruncationNotice } from "./TruncationNotice.js";
 import { UnavailableBody } from "./UnavailableBody.js";
 import { useLiveOutputByteLength } from "./hooks/useLiveOutputByteLength.js";
@@ -100,11 +99,11 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
   }
 
   if (props.liveText !== undefined || props.content?.status !== "available") {
-    return renderBodyText(props, kind, false, liveByteLength);
+    return renderBodyText(props, kind, liveByteLength);
   }
   return (
     <div className="meridian-machine-body">
-      {renderBodyText(props, kind, true, undefined)}
+      {renderBodyText(props, kind, undefined)}
       {props.content.contentTruncated === true ? (
         <TruncationNotice
           storedBody={props.content.body}
@@ -165,16 +164,12 @@ function LargeBody(props: LargeBodyProps): React.JSX.Element {
 function renderBodyText(
   props: MachineBodyProps,
   kind: OutputKind,
-  isComplete: boolean,
   liveByteLength: number | undefined,
 ): React.JSX.Element {
   if (kind === "prose") {
+    // Only an agent's reply is drawn as prose here; a tool's output never is.
     return (
-      <ReplyMarkdown
-        sourceId={props.sourceId}
-        footnotes={props.footnotes}
-        isComplete={isComplete}
-      />
+      <PreparedMarkdown sourceId={props.sourceId} footnotes={props.footnotes} offersBlockCopy />
     );
   }
   // The row's preparation parsed the text into lines, past what it already parsed. Plain text is
@@ -188,43 +183,6 @@ function renderBodyText(
       rowKey={props.sourceId}
       opening={props.opening}
       liveByteLength={liveByteLength}
-    />
-  );
-}
-
-/** Which reply's markdown to draw, and how. */
-interface ReplyMarkdownProps {
-  readonly sourceId: string;
-  readonly footnotes: FootnoteRegistry;
-  readonly isComplete: boolean;
-}
-
-/**
- * A reply's markdown, as its row's preparation stripped and published it; empty while none is
- * published. Throws outside a feed, where nothing prepares it.
- */
-function ReplyMarkdown(props: ReplyMarkdownProps): React.JSX.Element | null {
-  const preparedBodies = useContext(PreparedBodiesContext);
-  if (preparedBodies === undefined) {
-    throw new Error(
-      "A reply's markdown is drawn only inside a transcript feed, which prepares it.",
-    );
-  }
-  const { sourceId } = props;
-  const markdownText = useSyncExternalStore(preparedBodies.subscribe, () =>
-    preparedBodies.markdownTextOf(sourceId),
-  );
-  if (markdownText === undefined) {
-    return null;
-  }
-  return (
-    <StreamingMarkdown
-      publishedText={markdownText}
-      sourceId={sourceId}
-      footnotes={props.footnotes}
-      isComplete={props.isComplete}
-      // Only an agent's reply is drawn as prose here; a tool's output never is.
-      offersBlockCopy
     />
   );
 }

@@ -1,14 +1,15 @@
 // What a feed's rows draw as their preparations readied it, kept while each row is within the
-// drawn band's reach: an output's chunks of lines and a reply's markdown text. A row's preparation
-// publishes each here, where the row's body draws it, so one copy exists, and drops it when the
-// window lets the row go. The outputs waiting on their parse are parsed here in turn, one slice per
-// task, the output that came into reach last first.
+// drawn band's reach: an output's chunks of lines and a message's markdown text with the reader of
+// its blocks. A row's preparation publishes each here, where the row's body draws it, so one copy
+// exists, and drops it when the window lets the row go. The outputs waiting on their parse are
+// parsed here in turn, one slice per task, the output that came into reach last first.
 
 import { createContext, type Context } from "react";
 
 import { workInSlices } from "#renderer/lib/work-slices.js";
 import { type PublishedText } from "../reveal/published-text.js";
 import { type AnsiLineChunkList } from "./ansi/lines/chunks.js";
+import { type MarkdownBodyBlocks } from "./markdown/body-blocks/reader.js";
 
 /** One output's parse waiting its turn, read a slice at a time. */
 export interface OutputParse {
@@ -19,14 +20,22 @@ export interface OutputParse {
   readInTurn(hasTime: () => boolean): boolean;
 }
 
+/** A message's markdown as its row's preparation reads it, which its body draws. */
+export interface PreparedMarkdownBody {
+  readonly text: PublishedText;
+  readonly isComplete: boolean;
+  /** The reader of the body's blocks, which the body reads with the same text. */
+  readonly blocks: MarkdownBodyBlocks;
+}
+
 /**
  * What one feed's rows draw as their preparation readied it, by row id: an output's chunks of
- * lines, and a reply's markdown text; each is published by the row's preparation and dropped when
- * the window lets the row go.
+ * lines, and a message's markdown body; each is published by the row's preparation and dropped
+ * when the window lets the row go.
  */
 export class PreparedBodies {
   readonly #outputs = new Map<string, PublishedOutput>();
-  readonly #markdownTexts = new Map<string, PublishedMarkdownText>();
+  readonly #markdownBodies = new Map<string, PublishedMarkdownBody>();
   readonly #listeners = new Set<() => void>();
   /** The outputs waiting on their parse, the one to parse next last. */
   readonly #parsesInTurn: OutputParse[] = [];
@@ -35,7 +44,7 @@ export class PreparedBodies {
   #isSliceTaken = false;
   #isTelling = false;
 
-  /** Hears each output or markdown text published or dropped; returns the unsubscribe. */
+  /** Hears each output or markdown body published or dropped; returns the unsubscribe. */
   public readonly subscribe = (listener: () => void): (() => void) => {
     this.#listeners.add(listener);
     return () => {
@@ -47,27 +56,33 @@ export class PreparedBodies {
   public readonly chunksOf = (rowId: string): AnsiLineChunkList | undefined =>
     this.#outputs.get(rowId)?.chunks;
 
-  /** The reply's text its body draws as markdown, or `undefined` while none is published for it. */
-  public readonly markdownTextOf = (rowId: string): PublishedText | undefined =>
-    this.#markdownTexts.get(rowId)?.text;
+  /** The message's markdown its body draws, or `undefined` while none is published for it. */
+  public readonly markdownBodyOf = (rowId: string): PreparedMarkdownBody | undefined =>
+    this.#markdownBodies.get(rowId)?.body;
 
   /**
-   * Publishes `text` as the reply's markdown for `owner`; a handle already published tells no one,
-   * as its body reads each revision as it draws.
+   * Publishes `body` as the message's markdown for `owner`; a handle already published, finished or
+   * not as before and with the same reader, tells no one, as its body reads each revision as it
+   * draws.
    */
-  public publishMarkdownText(rowId: string, owner: object, text: PublishedText): void {
-    const published = this.#markdownTexts.get(rowId);
-    if (published?.owner === owner && published.text === text) {
+  public publishMarkdownBody(rowId: string, owner: object, body: PreparedMarkdownBody): void {
+    const published = this.#markdownBodies.get(rowId);
+    if (
+      published?.owner === owner &&
+      published.body.text === body.text &&
+      published.body.isComplete === body.isComplete &&
+      published.body.blocks === body.blocks
+    ) {
       return;
     }
-    this.#markdownTexts.set(rowId, { owner, text });
+    this.#markdownBodies.set(rowId, { owner, body });
     this.#tell();
   }
 
-  /** Drops the reply's markdown text if `owner` published it, as `withdraw` drops an output. */
-  public withdrawMarkdownText(rowId: string, owner: object): void {
-    if (this.#markdownTexts.get(rowId)?.owner === owner) {
-      this.#markdownTexts.delete(rowId);
+  /** Drops the message's markdown body if `owner` published it, as `withdraw` drops an output. */
+  public withdrawMarkdownBody(rowId: string, owner: object): void {
+    if (this.#markdownBodies.get(rowId)?.owner === owner) {
+      this.#markdownBodies.delete(rowId);
       this.#tell();
     }
   }
@@ -193,8 +208,8 @@ interface PublishedOutput {
   readonly chunks: AnsiLineChunkList;
 }
 
-/** One reply's published markdown text and the preparation that published it. */
-interface PublishedMarkdownText {
+/** One message's published markdown body and the preparation that published it. */
+interface PublishedMarkdownBody {
   readonly owner: object;
-  readonly text: PublishedText;
+  readonly body: PreparedMarkdownBody;
 }

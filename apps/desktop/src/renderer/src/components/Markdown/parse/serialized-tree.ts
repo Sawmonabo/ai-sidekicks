@@ -3,14 +3,15 @@
 // math between dollars, and no front matter. A formula between single dollars keeps Pandoc's rule
 // (`math-syntax.ts`): where the parser reads one that breaks it, the opening dollar becomes a
 // stand-in character the parse reads as text and the text is parsed again, so the words after it
-// read as they would with no formula there.
+// read as they would with no formula there. Both threads load it: the markdown worker, and the page,
+// which parses a block as it mounts, each from the module the worker compiled.
 
 import type { Root } from "mdast";
 import { createMdastHandle, dropHandle, serializeHandle, type Features } from "satteri";
 import { MdastReader, NodeType } from "satteri/mdast-reader";
 
 import { isPandocFormula } from "../math-syntax.js";
-import { materializeMarkdownTree } from "../parse/materialized-tree.js";
+import { materializeMarkdownTree } from "./materialized-tree.js";
 
 /** One text's tree as the worker sends it: its buffer, and the stand-in its dollars took, if any. */
 export interface SerializedTree {
@@ -23,7 +24,7 @@ export interface SerializedTree {
  * and a heading, as commonmark reads it. The parser pairs single tildes as strikethrough and makes
  * a few literal autolinks GFM does not, which the page undoes when it reads the tree.
  */
-const MARKDOWN_FEATURES: Features = { gfm: true, frontmatter: false, math: true };
+export const MARKDOWN_FEATURES: Features = { gfm: true, frontmatter: false, math: true };
 
 /**
  * What can stand in for a dollar the parse must read as text: a symbol, as a dollar is, so emphasis
@@ -38,12 +39,42 @@ const FIRST_STAND_IN_CODE = 0xa1;
 const LAST_STAND_IN_CODE = 0xffff;
 
 /**
+ * A short reply touching the paths replies take through the parser: headings, emphasis, a link, a
+ * list, a task, a quote, a fence, a table, a formula and a footnote. WebAssembly compiles each
+ * function the first time it runs, so parsing this once as the parser loads moves that compiling
+ * off the first reply the person waits on; the compiled code belongs to the module the app keeps.
+ */
+const WARM_UP_TEXT = [
+  "# Heading",
+  "",
+  "Prose with *emphasis*, **strong**, `code`, ~~struck~~, $x^2$, a [link](https://example.com)",
+  "and a note.[^1] It costs $5 and $10.",
+  "",
+  "- [x] A task",
+  "- An item",
+  "  1. Nested",
+  "",
+  "> A quote",
+  "",
+  "```ts",
+  "const answer = 42;",
+  "```",
+  "",
+  "| Lane | Rows |",
+  "| --- | ---: |",
+  "| Architect | 412 |",
+  "",
+  "[^1]: The note.",
+  "",
+].join("\n");
+
+/**
  * `source` parsed, positions included, as a buffer the page can take whole. A NUL becomes U+FFFD
  * first, as commonmark requires, and each dollar read as text a stand-in; neither moves an offset.
  * A text holding every stand-in keeps the formulas the parser reads.
  */
 export function serializeMarkdownTree(source: string): SerializedTree {
-  let parsedText = source.replaceAll("\u0000", "�");
+  let parsedText = withoutNul(source);
   let dollarStandIn: string | undefined;
   for (;;) {
     const bytes = serializedBytesOf(parsedText);
@@ -54,6 +85,22 @@ export function serializeMarkdownTree(source: string): SerializedTree {
     }
     parsedText = withStandIns(parsedText, refusedOpeners, dollarStandIn);
   }
+}
+
+/**
+ * `source` as the parser reads it: each NUL replaced by U+FFFD, as commonmark requires, which moves
+ * no offset.
+ */
+export function withoutNul(source: string): string {
+  return source.replaceAll("\u0000", "\uFFFD");
+}
+
+/**
+ * Parses a short reply touching every path a reply takes through the parser, on the thread that
+ * calls it, so the first reply a person waits on does not pay for compiling them.
+ */
+export function warmUpMarkdownParser(): void {
+  serializeMarkdownTree(WARM_UP_TEXT);
 }
 
 /** `source` parsed and read into the tree the screen draws, on the thread that calls it. */

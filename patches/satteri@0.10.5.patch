@@ -17,3 +17,29 @@ index 7f59389bc55c21eb3f5a589b25e04d5f3f55c4ad..ebdc2993dae55b707b7fa7187d0a11e6
      }
    },
    "dependencies": {
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 8c5691c7853f205c2c560db0f9b23aa0f845747d..974b79e6e87a8e844f2aee36364d82ffdd012a18 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -13,7 +13,7 @@ export { MdastReader } from "./mdast/mdast-reader.js";
+ export { materializeMdastTree } from "./mdast/mdast-materializer.js";
+ export { HastReader } from "./hast/hast-reader.js";
+ export { materializeHastTree } from "./hast/hast-materializer.js";
+-export { serializeHandle, renderHandle, compileHandle, getHandleSource } from "#binding";
++export { serializeHandle, renderHandle, compileHandle, getHandleSource, walkMdastHandle } from "#binding";
+ import { applyCommandsAndConvertToHastHandle as napiApplyCommandsAndConvertToHastHandle, convertMdastToHastHandle as napiConvertMdastToHastHandle, createHastHandle as napiCreateHastHandle } from "#binding";
+ import type { Features } from "./compile.js";
+ import type { AnyHandle } from "./handles.js";
+diff --git a/dist/index.js b/dist/index.js
+index 7c1186140bbd0a3e3c12caadcc7065cdf30b0e74..7511f995ad58d9ed83a945376f669f237953f814 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -11,7 +11,7 @@ export { MdastReader } from "./mdast/mdast-reader.js";
+ export { materializeMdastTree } from "./mdast/mdast-materializer.js";
+ export { HastReader } from "./hast/hast-reader.js";
+ export { materializeHastTree } from "./hast/hast-materializer.js";
+-export { serializeHandle, renderHandle, compileHandle, getHandleSource } from "#binding";
++export { serializeHandle, renderHandle, compileHandle, getHandleSource, walkMdastHandle } from "#binding";
+ import { applyCommandsToMdastHandle as napiApplyCommandsToMdastHandle, applyCommandsAndConvertToHastHandle as napiApplyCommandsAndConvertToHastHandle, convertMdastToHastHandle as napiConvertMdastToHastHandle, createHastHandle as napiCreateHastHandle, createMdastHandle as napiCreateMdastHandle, createMdxHastHandle as napiCreateMdxHastHandle, createMdxMdastHandle as napiCreateMdxMdastHandle, dropHandle as napiDropHandle, } from "#binding";
+ import { featuresToNative } from "./compile.js";
+ import { markHandleMutated } from "./lazy-child-resolver.js";

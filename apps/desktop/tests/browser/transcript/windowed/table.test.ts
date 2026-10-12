@@ -18,6 +18,7 @@ import {
   readSelectedPart,
 } from "#renderer/features/transcript/copy/conversation-selection.js";
 import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
+import { BlockRecords } from "#renderer/features/transcript/rows/markdown/block-records.js";
 import { BlockWindowLayout } from "#renderer/features/transcript/rows/markdown/block-window/layout.js";
 import { MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
 import { type TablePlacementChange } from "#renderer/features/transcript/rows/markdown/table-window/context.js";
@@ -473,10 +474,10 @@ describe("browser — a long table drawn as a window over its rows", () => {
       }),
       rowKey: "reply",
       blocks: {
-        settledBlocks: [],
+        records: new BlockRecords(),
+        settledCount: 0,
         volatileTail: "",
         tailNodes: undefined,
-        readBlockSource: () => "",
         readDefinitionPreamble: () => "",
       },
       bodyTextLength: 0,
@@ -568,7 +569,12 @@ function flowBodyOnPage(): { readonly body: HTMLElement; readonly placement: Flo
   const placement = new FlowBodyPlacement(
     viewport,
     "reply",
-    { settledBlocks: [], volatileTail: text, readDefinitionPreamble: () => "" },
+    {
+      records: new BlockRecords(),
+      settledCount: 0,
+      volatileTail: text,
+      readDefinitionPreamble: () => "",
+    },
     text.length,
   );
   return { body, placement };

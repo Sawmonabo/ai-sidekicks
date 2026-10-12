@@ -1,19 +1,23 @@
 // The page's end of the markdown worker, one for the whole app. It starts the worker on a sign the
 // app will soon draw markdown or on the first request, and hands it the parser: the module the
-// first worker compiled and sent back, which every later worker only instantiates. It sends each
-// text to parse and hands back the parser's binary tree; a reply's markdown as the UTF-8 bytes of
-// its pieces, moved to the worker, or a drawn part's tree as a copy, to be made into what it copies
-// as; and it answers each of the worker's asks for a long table's undrawn rows from the table the
-// page drew, with the rows one slice writes, so no task on the page grows with a text or a table.
-// When the worker stops, fails to load or run the parser, sends what cannot be read or an ask no
-// copied table answers, or leaves a request unanswered past its deadline, it ends that worker and
-// fails every request still waiting; the next request starts a new one. A worker left unused for a
-// minute, with no turn holding it awake, is ended to give its memory back while the compiled module
-// stays; a request sent while a new worker loads waits in the worker's own queue.
+// first worker compiled and sent back, which every later worker only instantiates. That module is
+// handed to the page's own parser too, at an idle moment, which parses the blocks a body mounts;
+// the worker parses what the page does not: a streaming tail, a block too long to parse on the
+// page, a long table's pieces, and every block while the page's parser could not start. It sends
+// each text to parse and hands back the parser's binary tree; a reply's markdown as the UTF-8
+// bytes of its pieces, moved to the worker, or a drawn part's tree as a copy, to be made into what
+// it copies as; and it answers each of the worker's asks for a long table's undrawn rows from the
+// table the page drew, with the rows one slice writes, so no task on the page grows with a text or
+// a table. When the worker stops, fails to load or run the parser, sends what cannot be read or an
+// ask no copied table answers, or leaves a request unanswered past its deadline, it ends that
+// worker and fails every request still waiting; the next request starts a new one. A worker left
+// unused for a minute, with no turn holding it awake, is ended to give its memory back while the
+// compiled module stays; a request sent while a new worker loads waits in the worker's own queue.
 
 import type { Table } from "mdast";
 
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
+import { queueIdleTaskIn } from "#renderer/lib/idle-task.js";
 import type { WorkerPort, WorkerStart } from "#renderer/lib/worker-port.js";
 import { queueTaskIn } from "#renderer/lib/queued-task.js";
 import { startSlice } from "#renderer/lib/work-slices.js";
@@ -26,9 +30,11 @@ import {
   type PiecedText,
 } from "#renderer/lib/text-pieces.js";
 import { drawnTreeLength, drawnTreeText, type CopyFlavor, type DrawnTree } from "../drawn-text.js";
+import { appPageParser, type PageParser } from "../parse/page-parser.js";
 import { piecedRowsOf } from "../parse/pieced-table.js";
 import { holdTableRows, passTableRows } from "../parse/table-rows.js";
 import type {
+  MarkdownCutAnswer,
   MarkdownParseAnswer,
   MarkdownWorkerMade,
   MarkdownWorkerMessage,
@@ -70,15 +76,19 @@ export const MARKDOWN_WORKER_IDLE_STOP_MS = 60_000;
 /**
  * One worker at a time: started on a sign of use or the first request, replaced after it fails,
  * and ended after a minute unused; and one compiled parser that every worker after the first
- * instantiates.
+ * instantiates, and the page's parser starts from.
  */
 export class MarkdownWorkerConnection {
+  /** The page's parser, which this connection hands the compiled module to. */
+  public readonly pageParser: PageParser;
   readonly #startWorker: MarkdownWorkerStart;
   readonly #view: Window;
   /** Each request to make a copy sent and not answered, by its id. */
   readonly #waiting = new Map<number, WaitingText>();
   /** Each text sent to parse and not answered, by its id. */
   readonly #waitingParses = new Map<number, (answer: MarkdownParseAnswer) => void>();
+  /** Each text sent to cut into blocks and not answered, by its id. */
+  readonly #waitingCuts = new Map<number, (answer: MarkdownCutAnswer) => void>();
   /**
    * The trees the worker answered and not yet handed over, in the order it answered them: handed
    * over a slice at a time, so an answer of thousands of trees holds no task long.
@@ -90,6 +100,8 @@ export class MarkdownWorkerConnection {
   #port: MarkdownWorkerPort | undefined;
   /** The parser's compiled module, kept for the app's life once a worker compiled it. */
   #parser: WebAssembly.Module | undefined;
+  /** The module waiting for an idle moment to start the page's parser, while one waits. */
+  #pageParserHandOff: WebAssembly.Module | undefined;
   /** Ends the current worker when it leaves a text to parse unanswered too long. */
   #parseWatchdog: ReturnType<typeof setTimeout> | undefined;
   /** Ends the current worker once it has gone unused for the idle stop. */
@@ -100,10 +112,14 @@ export class MarkdownWorkerConnection {
   #holdCount = 0;
   #requestCount = 0;
 
-  /** `view` is the window whose thread encodes and decodes the texts, a slice at a time. */
-  public constructor(startWorker: MarkdownWorkerStart, view: Window) {
+  /**
+   * `view` is the window whose thread encodes and decodes the texts, a slice at a time, and starts
+   * `pageParser` in an idle moment.
+   */
+  public constructor(startWorker: MarkdownWorkerStart, view: Window, pageParser: PageParser) {
     this.#startWorker = startWorker;
     this.#view = view;
+    this.pageParser = pageParser;
   }
 
   /**
@@ -125,10 +141,36 @@ export class MarkdownWorkerConnection {
     this.#requestCount += 1;
     const requestId = this.#requestCount;
     this.#waitingParses.set(requestId, settle);
-    if (this.#waitingParses.size === 1) {
+    if (this.#waitingWorkCount === 1) {
       this.#armParseWatchdog(port);
     }
     port.postMessage({ kind: "parse", requestId, source });
+  }
+
+  /**
+   * Cut `source` into blocks, its last ones too when `isFinal`, and hand `settle` where each ends.
+   * Never throws. `settle` is called once, after this call returns unless the worker answers on
+   * the same turn, as a stand-in does.
+   */
+  public cut(source: string, isFinal: boolean, settle: (answer: MarkdownCutAnswer) => void): void {
+    this.#lastUseMs = performance.now();
+    let port: MarkdownWorkerPort;
+    try {
+      port = this.#port ?? this.#open();
+    } catch (error: unknown) {
+      settle({
+        status: "failed",
+        reason: `The markdown worker could not start: ${describeFailure(error)}`,
+      });
+      return;
+    }
+    this.#requestCount += 1;
+    const requestId = this.#requestCount;
+    this.#waitingCuts.set(requestId, settle);
+    if (this.#waitingWorkCount === 1) {
+      this.#armParseWatchdog(port);
+    }
+    port.postMessage({ kind: "cut", requestId, source, isFinal });
   }
 
   /**
@@ -270,10 +312,14 @@ export class MarkdownWorkerConnection {
     switch (reply.status) {
       case "compiled":
         this.#parser = reply.parser;
+        this.#handToPageParser(reply.parser);
         return;
       case "load-failed":
         // Compiled again by the next worker, since what failed may have been the module handed.
         this.#parser = undefined;
+        // A page parser never handed a module fails with the worker; one handed it keeps its own.
+        this.#pageParserHandOff = undefined;
+        this.pageParser.fail();
         this.#fail(port, `The markdown parser did not load: ${reply.reason}`);
         return;
       case "parser-failed":
@@ -282,9 +328,32 @@ export class MarkdownWorkerConnection {
       case "parsed":
         this.#landTrees(port, reply.trees);
         return;
+      case "cut":
+        for (const cut of reply.cuts) {
+          this.#landCut(port, cut.requestId, cut.blockEnds);
+        }
+        return;
       default:
         this.#hearMade(port, reply);
     }
+  }
+
+  /**
+   * Starts the page's parser from `parser` at the view's next idle moment, unless it is started
+   * already or the worker's load fails first.
+   */
+  #handToPageParser(parser: WebAssembly.Module): void {
+    const state = this.pageParser.state;
+    if (state === "loading" || state === "ready") {
+      return;
+    }
+    this.#pageParserHandOff = parser;
+    queueIdleTaskIn(this.#view, () => {
+      if (this.#pageParserHandOff === parser) {
+        this.#pageParserHandOff = undefined;
+        this.pageParser.start(parser);
+      }
+    });
   }
 
   #landTrees(
@@ -301,14 +370,31 @@ export class MarkdownWorkerConnection {
         });
       }
     }
-    clearTimeout(this.#parseWatchdog);
-    if (this.#waitingParses.size > 0 && port === this.#port) {
-      this.#armParseWatchdog(port);
-    }
+    this.#rearmParseWatchdog(port);
     // Trees left by the last slice are handed over first, keeping the order the texts were sent.
     if (!this.#isHandingQueued) {
       this.#handTrees();
     }
+  }
+
+  #landCut(port: MarkdownWorkerPort, requestId: number, blockEnds: Uint32Array): void {
+    const settle = this.#waitingCuts.get(requestId);
+    this.#waitingCuts.delete(requestId);
+    this.#rearmParseWatchdog(port);
+    settle?.({ status: "cut", blockEnds });
+  }
+
+  /** Counts the parse watchdog's clock again from an answer, while texts still wait on it. */
+  #rearmParseWatchdog(port: MarkdownWorkerPort): void {
+    clearTimeout(this.#parseWatchdog);
+    if (this.#waitingWorkCount > 0 && port === this.#port) {
+      this.#armParseWatchdog(port);
+    }
+  }
+
+  /** How many texts wait to be parsed or cut. */
+  get #waitingWorkCount(): number {
+    return this.#waitingParses.size + this.#waitingCuts.size;
   }
 
   /** Hands over answered trees until the slice runs out, and queues a task for the rest. */
@@ -440,7 +526,7 @@ export class MarkdownWorkerConnection {
    */
   #armIdleCheck(port: MarkdownWorkerPort, delayMs: number): void {
     this.#idleCheck = setTimeout(() => {
-      if (this.#holdCount > 0 || this.#waiting.size > 0 || this.#waitingParses.size > 0) {
+      if (this.#holdCount > 0 || this.#waiting.size > 0 || this.#waitingWorkCount > 0) {
         this.#armIdleCheck(port, MARKDOWN_WORKER_IDLE_STOP_MS);
         return;
       }
@@ -463,11 +549,16 @@ export class MarkdownWorkerConnection {
     this.#waiting.clear();
     const waitingParses = [...this.#waitingParses.values()];
     this.#waitingParses.clear();
+    const waitingCuts = [...this.#waitingCuts.values()];
+    this.#waitingCuts.clear();
     for (const request of waiting) {
       clearTimeout(request.watchdog);
       request.reject(new Error(reason));
     }
     for (const settle of waitingParses) {
+      settle({ status: "failed", reason });
+    }
+    for (const settle of waitingCuts) {
       settle({ status: "failed", reason });
     }
   }
@@ -524,11 +615,12 @@ interface WaitingText {
 }
 
 /**
- * How long the worker may leave a text to parse unanswered, in milliseconds, counted from the
- * first text it holds and again from each answer. The app's first worker had the parser compiled
- * and loaded about 170 ms after its fetch began on a launching machine, a later one loads it from
- * the kept module in about 15 ms, and a 256 KB text parses in under 10 ms, so this leaves a heavily
- * loaded machine plenty of room while a parser that never answers still fails its texts.
+ * How long the worker may leave a text to parse or cut unanswered, in milliseconds, counted from
+ * the first text it holds and again from each answer. The app's first worker had the parser
+ * compiled and loaded about 170 ms after its fetch began on a launching machine, a later one loads
+ * it from the kept module in about 15 ms, a 256 KB text parses in under 10 ms and an 8 MiB reply
+ * cuts in under 300 ms, so this leaves a heavily loaded machine plenty of room while a parser that
+ * never answers still fails its texts.
  */
 const PARSE_ANSWER_DEADLINE_MS = 10_000;
 
@@ -574,4 +666,5 @@ function answerDeadlineMs(byteLength: number): number {
 export const markdownWorker: MarkdownWorkerConnection = new MarkdownWorkerConnection(
   startMarkdownWorker,
   window,
+  appPageParser,
 );

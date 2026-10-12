@@ -1,30 +1,35 @@
-// The markdown trees every window shares, parsed by the app's one markdown worker: a settled
-// block's tree, or the tree a streaming tail shows, is kept in a cache bounded in bytes and shared
-// by every body that asks for the same text, and a tree a body holds stays kept while it is held,
-// so a body mounted next draws it at once. A kept tree is the worker's binary tree, read into the
-// mdast the screen draws when it is drawn, and that mdast is kept only while something holds its
-// nodes, such as a block on screen: a long reply keeps its blocks' buffers, not their nodes, and a
-// block scrolled back into view reads its buffer again in the frame it mounts. A document read once
-// is parsed each time it is asked for. A block is parsed against the definitions its whole body
-// declares, which the trees here are given as a preamble and returned without. A text whose last
-// block is one long table is parsed in pieces and the table's rows read as they are held
-// (`pieced-table.ts`), its pieces' trees kept in a cache of their own; a text that continues the
-// last one parsed in pieces, as a streaming table grows, parses only the pieces it changed.
+// The markdown trees every window shares. A settled block a body mounts is parsed on the page, at
+// once, by the page's parser, and kept by the body only while it is mounted. The app's one markdown
+// worker cuts a body's text into blocks and parses the rest: a streaming tail, a block too long for
+// the page, and every block while the page's parser could not start. A worker's tree is kept in a
+// cache bounded in bytes and shared by every body that asks for the same text, and a tree a body
+// holds stays kept while it is held, so a body mounted next draws it at once. A kept tree is the
+// worker's binary tree, read into the mdast the screen draws when it is drawn, and that mdast is
+// kept only while something holds its nodes, such as a block on screen: a long reply keeps its
+// blocks' buffers, not their nodes, and a block scrolled back into view reads its buffer again in
+// the frame it mounts. A document read once is parsed each time it is asked for. A block is parsed
+// against the definitions its whole body declares, which the trees here are given as a preamble
+// and returned without. A text whose last block is one long table is parsed in pieces and the
+// table's rows read as they are held (`pieced-table.ts`), its pieces' trees kept in a cache of
+// their own; a text that continues the last one parsed in pieces, as a streaming table grows,
+// parses only the pieces it changed.
 
 import type { Root, RootContent } from "mdast";
 
 import { ByteBoundedCache } from "#renderer/lib/byte-bounded-cache.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { markdownWorker, type MarkdownWorkerConnection } from "../worker/connection.js";
-import type { MarkdownParseAnswer } from "../worker/messages.js";
+import type { MarkdownCutAnswer, MarkdownParseAnswer } from "../worker/messages.js";
+import { treeWithoutPreamble } from "./definition-preamble.js";
 import { materializeMarkdownTree } from "./materialized-tree.js";
+import type { PageParser } from "./page-parser.js";
 import {
   parsePiecedTable,
   PIECE_TREE_BYTE_CAP,
   TablePieceTrees,
   type PiecedRows,
 } from "./pieced-table.js";
-import { tableCutOf } from "./table-cut.js";
+import { TABLE_PIECE_CHARACTERS, tableCutOf } from "./table-cut.js";
 
 /** What parsing one text came to: its tree, or why the parser could not give one. */
 export type MarkdownParseOutcome =
@@ -42,8 +47,13 @@ export type ParsedMarkdown = Extract<MarkdownParseOutcome, { readonly status: "p
 /** Hears what one asked-for tree came to. */
 export type MarkdownTreeListener = (outcome: MarkdownParseOutcome) => void;
 
-/** The trees the app's windows draw, and the one connection that parses them. */
+/**
+ * The trees the app's windows draw: parsed on the page by the connection's page parser, or by the
+ * one connection's worker.
+ */
 export class MarkdownTrees {
+  /** The page's parser, which `parseSettledBlockNow` parses with once it is ready. */
+  public readonly pageParser: PageParser;
   readonly #worker: MarkdownWorkerConnection;
   readonly #settledBlocks = new ByteBoundedCache<ParsedMarkdown>(
     MARKDOWN_BLOCK_CACHE_BYTE_CAP,
@@ -69,9 +79,35 @@ export class MarkdownTrees {
     pieceTreeByteCap: number = PIECE_TREE_BYTE_CAP,
   ) {
     this.#worker = worker;
+    this.pageParser = worker.pageParser;
     this.#pieceTrees = new TablePieceTrees((text, settle) => {
       worker.parse(text, settle);
     }, pieceTreeByteCap);
+  }
+
+  /**
+   * A settled block's tree against `definitionPreamble`, parsed on the page now: `undefined` while
+   * the page's parser is not ready, or for a block over `PAGE_PARSE_MAX_CHARACTERS`, which the
+   * worker parses. Kept by nothing here; throws when the parser breaks on the text.
+   */
+  public parseSettledBlockNow(
+    blockSource: string,
+    definitionPreamble: string,
+  ): ParsedMarkdown | undefined {
+    if (this.pageParser.state !== "ready" || blockSource.length > PAGE_PARSE_MAX_CHARACTERS) {
+      return undefined;
+    }
+    const root = this.pageParser.parse(definitionPreamble + blockSource);
+    return {
+      status: "parsed",
+      root: treeWithoutPreamble(root, definitionPreamble.length),
+      treeByteCount: 0,
+    };
+  }
+
+  /** Starts the worker if it is not running, so it loads the module the page's parser waits on. */
+  public wakeWorker(): void {
+    this.#worker.wake();
   }
 
   /** A settled block's tree, if it was parsed against this preamble and is still kept. */
@@ -187,6 +223,26 @@ export class MarkdownTrees {
     };
   }
 
+  /**
+   * Ask the worker where the blocks of a body's text `source` end, its last ones too when
+   * `isFinal`. Nothing is kept: a body keeps where its blocks end itself.
+   */
+  public requestCut(
+    source: string,
+    isFinal: boolean,
+    listener: (answer: MarkdownCutAnswer) => void,
+  ): Unsubscribe {
+    let isListening = true;
+    this.#worker.cut(source, isFinal, (answer) => {
+      if (isListening) {
+        listener(answer);
+      }
+    });
+    return () => {
+      isListening = false;
+    };
+  }
+
   /** Ask for the tree of a text parsed once, such as a reply being copied. */
   public requestTree(
     source: string,
@@ -258,23 +314,10 @@ export class MarkdownTrees {
 }
 
 /**
- * The definitions a block is parsed against, as a minimal document preamble.
- *
- * GFM resolves `[^1]` only against definitions in its own document, and a lone reference
- * becomes literal text no later pass can upgrade. Every identifier the whole body declares is
- * therefore restated, body-less, ahead of each block. Sorted so the same set yields the same
- * bytes and cache key; a body with no footnotes gets `""`, leaving its key unchanged.
+ * The longest settled block the page parses, in UTF-16 code units; a longer one is parsed by the
+ * worker. A block a long table's cut reads in pieces is always longer, so the worker parses it.
  */
-export function footnoteDefinitionPreamble(definedIdentifiers: ReadonlySet<string>): string {
-  if (definedIdentifiers.size === 0) {
-    return "";
-  }
-  const definitionLines = [...definedIdentifiers]
-    .sort()
-    .map((identifier) => `[^${identifier}]:\n`)
-    .join("");
-  return definitionLines + FOOTNOTE_PREAMBLE_TERMINATOR;
-}
+export const PAGE_PARSE_MAX_CHARACTERS: number = TABLE_PIECE_CHARACTERS;
 
 /**
  * Bytes of parsed-block cache retained across every card, charged against the source text and
@@ -282,15 +325,6 @@ export function footnoteDefinitionPreamble(definedIdentifiers: ReadonlySet<strin
  * magnitude.
  */
 const MARKDOWN_BLOCK_CACHE_BYTE_CAP = 2_097_152;
-
-/**
- * What separates the synthetic definitions from the block's own text.
- *
- * A blank line is not enough: a footnote definition takes indented lines after a blank one as
- * its continuation, so it would swallow a block that opens on indented code. An HTML comment
- * at column zero ends the definition and is dropped with the preamble.
- */
-const FOOTNOTE_PREAMBLE_TERMINATOR = "\n<!---->\n\n";
 
 /**
  * What joins the two halves of a settled block's cache key. A preamble holds no NUL, since the
@@ -373,17 +407,10 @@ class KeptMarkdownTree {
     if (held !== undefined) {
       return held;
     }
-    const whole = materializeMarkdownTree(this.#buffer, this.#parsedText, this.#dollarStandIn);
-    const preambleLength = this.#definitionPreambleLength;
-    const root =
-      preambleLength === 0
-        ? whole
-        : {
-            ...whole,
-            children: whole.children.filter(
-              (child) => (child.position?.start.offset ?? 0) >= preambleLength,
-            ),
-          };
+    const root = treeWithoutPreamble(
+      materializeMarkdownTree(this.#buffer, this.#parsedText, this.#dollarStandIn),
+      this.#definitionPreambleLength,
+    );
     this.#rootsByNodes.set(root.children, root);
     this.#root = new WeakRef(root);
     return root;

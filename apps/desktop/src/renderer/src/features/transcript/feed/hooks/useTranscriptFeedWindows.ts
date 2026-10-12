@@ -68,6 +68,7 @@ import { PreparedBodies } from "../../rows/prepared-bodies.js";
 import { DrawnWindowSources } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import { OffListTables } from "../../rows/markdown/table-window/off-list.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
+import { type ViewportRow } from "../../viewport/snapshot.js";
 import { useMessageAnchorRowKey } from "./useMessageAnchorRowKey.js";
 import { useTranscriptFolds, type TranscriptFolds } from "./useTranscriptFolds.js";
 
@@ -124,6 +125,8 @@ export interface TranscriptFeedWindows {
    * between rows on screen: the feed's first frame waits until none is.
    */
   readonly holdsUnparsedRowInView: () => boolean;
+  /** The rows held out of `transcriptWindow` until their first frame's work lands, in log order. */
+  readonly preparingRows: readonly ViewportRow[];
   /** The history past the store's window, or `undefined` for a composition with no read. */
   readonly history: TranscriptHistory | undefined;
   /** How reading back toward a linked message the log lacks stands, or `undefined` for none. */
@@ -479,6 +482,7 @@ export function useTranscriptFeedWindows(
     preparedBodies,
     toggleCall: preparedRows.toggleCall,
     holdsUnparsedRowInView: preparedRows.holdsUnparsedRowInView,
+    preparingRows: preparedRows.preparingRows,
     history,
     messageReadBack: readBack,
     openRunStretch,

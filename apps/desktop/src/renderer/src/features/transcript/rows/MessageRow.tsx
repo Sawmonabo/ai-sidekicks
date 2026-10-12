@@ -27,7 +27,7 @@ import { useClipboardCopy } from "#renderer/services/platform/hooks/useClipboard
 import { MarkdownFirstDrawContext } from "./bodies/markdown-first-draw.js";
 import { MessageContent } from "./bodies/MessageContent.js";
 import { RecordedBodyLine } from "./RecordedBodyLine.js";
-import { UserBody } from "./bodies/UserBody.js";
+import { PreparedMarkdown } from "./bodies/PreparedMarkdown.js";
 import { userMessageTextOf } from "./user-message.js";
 import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
 import { replyClipboardContent } from "../copy/clipboard-flavors.js";
@@ -149,7 +149,12 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
         {/* The body alone is what a selection in the conversation copies out of this row. */}
         <div className="meridian-message-card__body" {...{ [COPY_FLAVOR_ATTRIBUTE]: copyFlavor }}>
           {isUser ? (
-            <UserBody row={props.row} footnotes={props.footnotes} />
+            // A person types markdown, so a message is drawn as a reply is, without block copies.
+            <PreparedMarkdown
+              sourceId={props.row.id}
+              footnotes={props.footnotes}
+              offersBlockCopy={false}
+            />
           ) : rowKind.kind === "thinking" ? (
             props.thinkingRow
           ) : (

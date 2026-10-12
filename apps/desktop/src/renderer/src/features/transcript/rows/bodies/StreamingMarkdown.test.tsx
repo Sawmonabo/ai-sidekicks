@@ -2,17 +2,18 @@ import { act, render, screen, type RenderResult } from "@testing-library/react";
 import { useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  appMarkdownTrees,
-  footnoteDefinitionPreamble,
-} from "#renderer/components/Markdown/parse/trees.js";
+import { definitionPreambleOf } from "#renderer/components/Markdown/parse/definition-preamble.js";
+import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { appMarkdownWorkers } from "#test/helpers/markdown-worker.js";
 import { duplicateKeyReports, reportsWhileReactRan } from "#test/helpers/react-reports.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { windowedBlockKeyOf } from "../markdown/block-window/layout.js";
+import { MarkdownBodyBlocks } from "../markdown/body-blocks/reader.js";
+import { type MarkdownBodyBlocksSnapshot } from "../markdown/body-blocks/snapshot.js";
 import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
-import { publishedTextOf } from "../../reveal/published-text.js";
+import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
 
 /** A markdown body drawn inside a window, which supplies its code colors. */
 function renderInWindow(body: React.JSX.Element): RenderResult {
@@ -22,7 +23,7 @@ function renderInWindow(body: React.JSX.Element): RenderResult {
 /** A body whose first two blocks repeat, with two more behind them so both settle. */
 const REPEATED_BLOCKS_SETTLED = "same\n\nsame\n\nc\n\nd\n\ne\n\nf";
 
-/** A different history entirely — what a rebase hands the segmenter. */
+/** A different history entirely — what a rebase hands the body. */
 const REBASED_BLOCKS = "other\n\nwords\n\nx\n\ny\n\nz\n\nw";
 
 const PARAGRAPH_SELECTOR = ".meridian-markdown__paragraph";
@@ -139,9 +140,6 @@ const STREAMED_FRAMES = [
 /** Each block's words, which every frame draws exactly once or not yet. */
 const STREAMED_WORDS = ["alpha one", "beta two", "gamma three", "delta four", "epsilon five"];
 
-/** The settled block's text, which the body waits on before drawing it alone. */
-const SETTLING_BLOCK = "alpha *one*\n\n";
-
 /**
  * What a frame drew: the empty boxes held for blocks with no tree, how many characters, and how
  * many times each block's words stand in the drawn text.
@@ -180,19 +178,19 @@ describe("a streaming body whose parses are still out", () => {
       drawnFrames.push(readDrawnFrame(container));
     };
 
-    // A block settles and the tail grows twice while every parse is held.
+    // The tail grows twice while every parse is held.
     worker.hold();
     rerender(streamed(1, false));
     drawnFrames.push(readDrawnFrame(container));
     rerender(streamed(2, false));
     drawnFrames.push(readDrawnFrame(container));
-    // Both tails land at the first growth, and each asks for the second.
-    answer((request) => request.source !== SETTLING_BLOCK && !request.source.includes("five"));
-    // The block and the drawn tail's second growth land; the shorter tail still stands a growth
-    // behind, so the block stays inside the drawn tail.
-    answer((request) => request.source.startsWith("alpha"));
-    expect(drawnFrames.at(-1)?.wordCounts).toStrictEqual([1, 1, 1, 1, 1]);
+    // The drawn tail lands at the first growth, whose parse settles a block; the shorter tail's
+    // parse is held, so the block stays inside the drawn tail.
+    answer((request) => !request.source.includes("five"));
+    expect(drawnFrames.at(-1)?.wordCounts).toStrictEqual([1, 1, 1, 1, 0]);
+    // Both tails land at the second growth, and the block moves out in the same frame.
     answer(() => true);
+    expect(drawnFrames.at(-1)?.wordCounts).toStrictEqual([1, 1, 1, 1, 1]);
     // The body finishes while its last blocks' parses are held.
     rerender(streamed(2, true));
     drawnFrames.push(readDrawnFrame(container));
@@ -208,7 +206,6 @@ describe("a streaming body whose parses are still out", () => {
     }
     expect(drawnFrames.at(-1)?.wordCounts).toStrictEqual([1, 1, 1, 1, 1]);
     expect(container.querySelectorAll("em")).toHaveLength(5);
-    expect(appMarkdownTrees.readSettledBlock("epsilon *five*", "")).toBeDefined();
   });
 });
 
@@ -225,12 +222,14 @@ const FOOTNOTED_FRAMES = [
 ] as const;
 
 /**
- * The second definition's block: its tree, and its read alone for its footnotes, are the parses a
- * case holds, so the block stays inside the drawn tail.
+ * Whether a parse is of a text alone, against no definitions: the tail read for what it defines,
+ * which a case holds while the drawn tail, parsed against the body's definitions, lands.
  */
-const SECOND_DEFINITION = /\[\^2\]: another note\s*$/u;
+function isReadAlone(request: { readonly source: string }): boolean {
+  return !request.source.includes("<!---->");
+}
 
-describe("a streaming body still reading a block for its footnotes", () => {
+describe("a streaming body still reading its tail for its definitions", () => {
   it("keeps growing its tail", () => {
     markdownWorker.wake();
     const worker = appMarkdownWorkers.latest();
@@ -256,13 +255,11 @@ describe("a streaming body still reading a block for its footnotes", () => {
     answerAllBut(() => false);
     expect(container.textContent).toContain("the tail grows");
 
-    // The second definition's parses stay out while the tail grows past it.
-    const isSecondDefinition = (request: { readonly source: string }): boolean =>
-      SECOND_DEFINITION.test(request.source);
+    // The tail's read for the second definition stays out while the tail grows past it.
     rerender(footnoted(1));
-    answerAllBut(isSecondDefinition);
+    answerAllBut(isReadAlone);
     rerender(footnoted(2));
-    answerAllBut(isSecondDefinition);
+    answerAllBut(isReadAlone);
 
     expect(container.textContent).toContain("the end grows on");
     act(() => {
@@ -319,12 +316,13 @@ describe("a footnote whose definition settles in another block", () => {
     expect(marker.getAttribute("data-defined")).toBe("true");
   });
 
-  it("parses each settled block once, against the definitions its streaming tail holds", () => {
+  it("parses each settled block once on the page, against the definitions its tail holds", () => {
     const asked = (): string[] =>
       appMarkdownWorkers.started.flatMap((worker) =>
         worker.requests.map((request) => request.source),
       );
     const askedBefore = asked().length;
+    const pageParses = vi.spyOn(appMarkdownTrees, "parseSettledBlockNow");
     renderInWindow(
       <StreamingMarkdown
         publishedText={publishedTextOf(
@@ -338,16 +336,20 @@ describe("a footnote whose definition settles in another block", () => {
     );
 
     // The tail is read alone for its definitions and drawn against them; the settled block is
-    // asked for once, against them too.
-    const blockAsks = asked()
-      .slice(askedBefore)
-      .filter((source) => !source.endsWith("[^1]: the note"));
-    expect(blockAsks).toEqual([`${footnoteDefinitionPreamble(new Set(["1"]))}first filler\n\n`]);
+    // parsed on the page once, against them too, and never asked of the worker.
+    expect(pageParses.mock.calls.filter(([source]) => source === "first filler\n\n")).toStrictEqual(
+      [["first filler\n\n", definitionPreambleOf(new Set(["1"]), [])]],
+    );
+    expect(
+      asked()
+        .slice(askedBefore)
+        .filter((source) => source.endsWith("first filler\n\n")),
+    ).toEqual([]);
     expect(screen.getByLabelText("Footnote 1").getAttribute("data-defined")).toBe("true");
   });
 });
 
-describe("a body whose trees another body holds", () => {
+describe("a body handed the reader its row's preparation read", () => {
   it("draws every block and the tail in the commit it mounts", () => {
     // What a layout effect of an element around the body reads in the body's first commit, as
     // the transcript restores a selection in a row as it mounts.
@@ -359,19 +361,204 @@ describe("a body whose trees another body holds", () => {
       }, []);
       return <div ref={ref}>{props.children}</div>;
     }
-    const body = (sourceId: string): React.JSX.Element => (
+    const text = publishedTextOf(`held ${CROSS_BLOCK_FOOTNOTE}`);
+    const bodyBlocks = new MarkdownBodyBlocks(appMarkdownTrees);
+    drawnSnapshotOf(bodyBlocks, text, false);
+
+    const { container } = renderInWindow(
+      <FirstCommitProbe>
+        <StreamingMarkdown
+          publishedText={text}
+          sourceId="event-43"
+          footnotes={new FootnoteRegistry()}
+          isComplete={false}
+          offersBlockCopy={false}
+          bodyBlocks={bodyBlocks}
+        />
+      </FirstCommitProbe>,
+    );
+    expect(firstCommitText).toContain("filler three");
+    expect(firstCommitText).toBe(container.textContent);
+  });
+});
+
+/**
+ * The snapshot `bodyBlocks` reads of `text` once it draws, read and asked again as a row's
+ * preparation does until the stand-in parser, which answers as it is asked, has drawn it.
+ */
+function drawnSnapshotOf(
+  bodyBlocks: MarkdownBodyBlocks,
+  text: PublishedText,
+  isComplete: boolean,
+): MarkdownBodyBlocksSnapshot {
+  for (let round = 0; round < 8; round += 1) {
+    const snapshot = bodyBlocks.read(text, isComplete);
+    if (snapshot.isDrawn) {
+      return snapshot;
+    }
+    bodyBlocks.requestReads();
+  }
+  return expect.fail("the body drew");
+}
+
+describe("a body whose text is replaced", () => {
+  it("keeps drawing the old blocks' own text and trees under keys no new block takes", () => {
+    const bodyBlocks = new MarkdownBodyBlocks(appMarkdownTrees);
+    const old = drawnSnapshotOf(bodyBlocks, publishedTextOf(REPEATED_BLOCKS_SETTLED), false);
+    expect(windowedBlockKeyOf(old, 0)).toBe(0);
+
+    // The new text's tail parse is held, so the old blocks stay drawn while it is out; no other
+    // case parsed its tail, which would draw the new text at once.
+    const worker = appMarkdownWorkers.latest();
+    worker.hold();
+    const rebased = publishedTextOf("other\n\nwords\n\nx\n\ny\n\nreplacing\n\ntail");
+    const replacing = bodyBlocks.read(rebased, false);
+    // The new text's cut lands as it is asked, then its tail is asked for and held.
+    bodyBlocks.requestReads();
+    bodyBlocks.read(rebased, false);
+    bodyBlocks.requestReads();
+    const stillReplacing = bodyBlocks.read(rebased, false);
+
+    expect(stillReplacing.generation).toBe(old.generation + 1);
+    expect(stillReplacing.records).toBe(old.records);
+    expect(stillReplacing.settledCount).toBe(old.settledCount);
+    expect(stillReplacing.readBlockSource(0)).toBe("same\n\n");
+    expect(stillReplacing.readBlockTree(0).root.children).toMatchObject([
+      { type: "paragraph", children: [{ type: "text", value: "same" }] },
+    ]);
+    // A replaced block's measured size is filed under a key the new block 0 never reads.
+    expect(windowedBlockKeyOf(replacing, 0)).toBe(-2);
+    expect(windowedBlockKeyOf(stillReplacing, 1)).toBe(-3);
+
+    worker.releaseWhere(() => true);
+    worker.release([]);
+    const replaced = drawnSnapshotOf(bodyBlocks, rebased, false);
+    expect(replaced.records).not.toBe(old.records);
+    expect(windowedBlockKeyOf(replaced, 0)).toBe(0);
+    expect(replaced.readBlockSource(0)).toBe("other\n\n");
+    bodyBlocks.close();
+  });
+});
+
+/**
+ * A body citing links defined after it, one inside a quote, and one label defined twice; its
+ * blocks are parsed apart, so each is drawn against the body's definitions.
+ */
+const LINKED_BODY = [
+  "See [the reader][reader], [the quote][quoted] and [twice].",
+  "filler one",
+  "filler two",
+  "[reader]: https://example.com/reader",
+  "> [quoted]: https://example.com/quoted",
+  "[twice]: https://example.com/first",
+  "[twice]: https://example.com/second",
+  "",
+].join("\n\n");
+
+/** The text of each link a body draws; a link's address is withheld, its text kept. */
+function drawnLinkTexts(container: HTMLElement): (string | null)[] {
+  return [...container.querySelectorAll(".meridian-markdown__link--inert")].map(
+    (link) => link.textContent,
+  );
+}
+
+describe("a reference link whose definition is in another block", () => {
+  it("draws as a link, the first definition of a label winning", () => {
+    const text = publishedTextOf(LINKED_BODY);
+    const blocks = drawnSnapshotOf(new MarkdownBodyBlocks(appMarkdownTrees), text, true);
+    // The citing block is parsed after each label's first definition, restated from its node.
+    expect(blocks.readDefinitionPreamble(0)).toContain("<https://example.com/first>");
+    expect(blocks.readDefinitionPreamble(0)).not.toContain("second");
+
+    const { container } = renderInWindow(
       <StreamingMarkdown
-        publishedText={publishedTextOf(`held ${CROSS_BLOCK_FOOTNOTE}`)}
-        sourceId={sourceId}
+        publishedText={publishedTextOf(LINKED_BODY)}
+        sourceId="event-50"
+        footnotes={new FootnoteRegistry()}
+        isComplete
+        offersBlockCopy={false}
+      />,
+    );
+
+    expect(drawnLinkTexts(container)).toStrictEqual(["the reader", "the quote", "twice"]);
+    expect(container.textContent).not.toContain("[");
+  });
+
+  it("is parsed again as a link once its definition arrives in the tail", () => {
+    const head = "Use [late][late] now.\n\nfiller one\n\nfiller two\n\nthe tail";
+    const streamed = (text: string): React.JSX.Element => (
+      <StreamingMarkdown
+        publishedText={publishedTextOf(text)}
+        sourceId="event-51"
         footnotes={new FootnoteRegistry()}
         isComplete={false}
         offersBlockCopy={false}
       />
     );
-    renderInWindow(body("event-42"));
+    const { container, rerender } = renderInWindow(streamed(head));
+    expect(drawnLinkTexts(container)).toStrictEqual([]);
+    expect(container.textContent).toContain("[late][late]");
 
-    const { container } = renderInWindow(<FirstCommitProbe>{body("event-43")}</FirstCommitProbe>);
-    expect(firstCommitText).toContain("filler three");
-    expect(firstCommitText).toBe(container.textContent);
+    rerender(streamed(`${head}\n\n[late]: https://example.com/late\n\nmore`));
+
+    expect(drawnLinkTexts(container)).toStrictEqual(["late"]);
+    expect(container.textContent).not.toContain("[late]");
+  });
+});
+
+/**
+ * A body holding an HTML comment across a blank line and a footnote whose second paragraph is
+ * indented under it: one block each in a parse of the whole body, which a cut at blank lines
+ * would split, drawing `b -->` as prose and the note's second paragraph as code.
+ */
+const ACROSS_BLANK_LINES =
+  "Intro.\n\n<!-- a\n\nb -->\n\nCites[^1].\n\n[^1]: First paragraph.\n\n" +
+  "    Second paragraph of the note.\n\nAfter.\n";
+
+describe("a body whose blocks run across blank lines", () => {
+  it("draws them as one parse of the whole body does, live and saved, under the same keys", () => {
+    const footnotes = new FootnoteRegistry();
+    const streamed = (text: string, isComplete: boolean): React.JSX.Element => (
+      <StreamingMarkdown
+        publishedText={publishedTextOf(text)}
+        sourceId="event-52"
+        footnotes={footnotes}
+        isComplete={isComplete}
+        offersBlockCopy={false}
+      />
+    );
+    const { container, rerender } = renderInWindow(streamed(ACROSS_BLANK_LINES.slice(0, 1), false));
+    for (let received = 2; received <= ACROSS_BLANK_LINES.length; received += 1) {
+      rerender(streamed(ACROSS_BLANK_LINES.slice(0, received), false));
+    }
+    const liveParagraphs = [...container.querySelectorAll(PARAGRAPH_SELECTOR)];
+    // The stored body takes over, as a lane retires.
+    rerender(streamed(ACROSS_BLANK_LINES, true));
+    const savedParagraphs = [...container.querySelectorAll(PARAGRAPH_SELECTOR)];
+
+    expect(savedParagraphs.map((paragraph) => paragraph.textContent)).toStrictEqual([
+      "Intro.",
+      "Cites1.",
+      "After.",
+    ]);
+    expect(container.querySelector("pre")).toBeNull();
+    // The blocks settled live keep their elements once the stored body takes over.
+    expect(savedParagraphs[0]).toBe(liveParagraphs[0]);
+    expect(savedParagraphs[1]).toBe(liveParagraphs[1]);
+    expect(footnotes.definitionsFor("event-52").get("1")?.bodyNodes).toMatchObject([
+      { type: "paragraph" },
+      { type: "paragraph", children: [{ type: "text", value: "Second paragraph of the note." }] },
+    ]);
+
+    const saved = renderInWindow(
+      <StreamingMarkdown
+        publishedText={publishedTextOf(ACROSS_BLANK_LINES)}
+        sourceId="event-52"
+        footnotes={new FootnoteRegistry()}
+        isComplete
+        offersBlockCopy={false}
+      />,
+    );
+    expect(saved.container.innerHTML).toBe(container.innerHTML);
   });
 });

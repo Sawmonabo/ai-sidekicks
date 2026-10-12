@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
 import { MarkdownNodes } from "#renderer/components/Markdown/MarkdownNodes.js";
-import { parseMarkdownTree } from "#renderer/components/Markdown/worker/serialized-tree.js";
+import { parseMarkdownTree } from "#renderer/components/Markdown/parse/serialized-tree.js";
 import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
 import { inThreadMarkdownWorker } from "#renderer/components/Markdown/worker/connection.test-support.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";

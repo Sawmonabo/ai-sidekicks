@@ -1,11 +1,12 @@
 // What the page and the markdown worker say to each other: the parser the worker loads; a text to
-// parse and the trees the worker sends back as the parser's own binary buffers; a reply's markdown
-// asked for as HTML, or a drawn part asked for as the text it copies as; the worker's asks for a
-// long table's undrawn rows and the page's answers; and the text the worker made, with its HTML for
-// a part copied as markdown, or why it made none. A copied text travels as the UTF-8 bytes of its
-// pieces and a tree as its buffer, each moved to the other side rather than copied, so neither
-// side's task grows with the text; a drawn part's tree is copied, and a table's rows go as the JSON
-// of each. Both sides import these shapes, so a message is checked by the compiler on each end.
+// parse and the trees the worker sends back as the parser's own binary buffers; a text to cut into
+// blocks and where each block ends; a reply's markdown asked for as HTML, or a drawn part asked for
+// as the text it copies as; the worker's asks for a long table's undrawn rows and the page's
+// answers; and the text the worker made, with its HTML for a part copied as markdown, or why it
+// made none. A copied text travels as the UTF-8 bytes of its pieces and a tree as its buffer, each
+// moved to the other side rather than copied, so neither side's task grows with the text; a drawn
+// part's tree is copied, and a table's rows go as the JSON of each. Both sides import these
+// shapes, so a message is checked by the compiler on each end.
 
 import type { Table } from "mdast";
 
@@ -28,6 +29,24 @@ export interface MarkdownParseRequest {
   readonly requestId: number;
   readonly source: string;
 }
+
+/** One body's text to cut into blocks, from where its last block cut ends. */
+export interface MarkdownCutRequest {
+  readonly kind: "cut";
+  /** Pairs the blocks with this request. */
+  readonly requestId: number;
+  readonly source: string;
+  /** Whether the text is whole, so its last blocks are cut too, rather than held back. */
+  readonly isFinal: boolean;
+}
+
+/**
+ * What cutting one text came to: where each block cut ends in it, ascending, the first starting at
+ * its start, or why the parser gave none.
+ */
+export type MarkdownCutAnswer =
+  | { readonly status: "cut"; readonly blockEnds: Uint32Array }
+  | { readonly status: "failed"; readonly reason: string };
 
 /**
  * What parsing one text came to: the parser's binary tree and the stand-in its dollars read as
@@ -76,6 +95,7 @@ export interface UndrawnRowsAnswer {
 export type MarkdownWorkerMessage =
   | MarkdownParserLoad
   | MarkdownParseRequest
+  | MarkdownCutRequest
   | MarkdownWorkerRequest
   | UndrawnRowsAnswer;
 
@@ -89,6 +109,12 @@ export interface SerializedMarkdownTree {
   readonly dollarStandIn: string | undefined;
 }
 
+/** Where the blocks of one text the worker cut end, in UTF-16 code units, by the request's id. */
+export interface MarkdownBlockEnds {
+  readonly requestId: number;
+  readonly blockEnds: Uint32Array;
+}
+
 /** What the worker made for one request, each text as the UTF-8 bytes of its pieces. */
 export interface MarkdownWorkerMade {
   /** The HTML asked for, or the text a drawn part copies as. */
@@ -99,14 +125,16 @@ export interface MarkdownWorkerMade {
 
 /**
  * What the worker says: the parser it compiled, which the page keeps for later workers; the trees
- * of the texts it parsed since it last sent trees, sent together so the page draws them in one
- * pass; that the parser failed to load or failed on a text, after which the page ends this worker;
- * or, about one request to make, an ask for body rows `firstIndex` to `lastIndex` of the table
- * `tableKey` names, what it made, or why it made nothing. A request has one ask unanswered at most.
+ * of the texts it parsed since it last sent trees, and where the blocks of the texts it cut since it
+ * last sent cuts end, each sent together so the page lands them in one pass; that the parser failed
+ * to load or failed on a text, after which the page ends this worker; or, about one request to
+ * make, an ask for body rows `firstIndex` to `lastIndex` of the table `tableKey` names, what it
+ * made, or why it made nothing. A request has one ask unanswered at most.
  */
 export type MarkdownWorkerReply =
   | { readonly status: "compiled"; readonly parser: WebAssembly.Module }
   | { readonly status: "parsed"; readonly trees: readonly SerializedMarkdownTree[] }
+  | { readonly status: "cut"; readonly cuts: readonly MarkdownBlockEnds[] }
   | { readonly status: "load-failed"; readonly reason: string }
   | { readonly status: "parser-failed"; readonly reason: string }
   | {

@@ -1,7 +1,8 @@
 // Stand-ins for the markdown worker, for suites that run where no worker can. Each answers on the
 // test's own thread as the worker answers: a text to parse through the worker's own serializer,
 // which Sätteri's Node build backs here, before `postMessage` returns unless a test holds those
-// answers to release them in an order of its choosing; and a copy to make a microtask later, each
+// answers to release them in an order of its choosing; a text to cut through the worker's own cut,
+// every window at once, before `postMessage` returns; and a copy to make a microtask later, each
 // message copied and its buffers moved, as a message between threads is.
 
 import { expect } from "vitest";
@@ -13,7 +14,10 @@ import type {
   MarkdownWorkerMessage,
   MarkdownWorkerReply,
 } from "./messages.js";
-import { parseMarkdownTree, serializeMarkdownTree } from "./serialized-tree.js";
+import { BlockCut, MARKDOWN_SETTLE_LAG_BLOCKS } from "../parse/block-cut.js";
+import { appPageParser } from "../parse/page-parser.js";
+import { parseMarkdownTree, serializeMarkdownTree } from "../parse/serialized-tree.js";
+import { readTopLevelChildren } from "../parse/top-level-children.js";
 
 /** One stand-in worker: the texts it was sent to parse, and the answers a test holds back. */
 export class InThreadMarkdownWorker implements MarkdownWorkerPort {
@@ -41,8 +45,26 @@ export class InThreadMarkdownWorker implements MarkdownWorkerPort {
     if (message.kind === "load") {
       this.loads.push(message.parser);
       if (message.parser === undefined) {
-        this.#say({ status: "compiled", parser: new WebAssembly.Module(EMPTY_WEBASSEMBLY_MODULE) });
+        this.#say({ status: "compiled", parser: inThreadParserModule() });
       }
+      return;
+    }
+    if (message.kind === "cut") {
+      const cut = new BlockCut(
+        message.source,
+        message.isFinal,
+        MARKDOWN_SETTLE_LAG_BLOCKS,
+        readTopLevelChildren,
+      );
+      // Every window on this turn, so a suite reads the blocks before the ask returns.
+      let isCut = false;
+      while (!isCut) {
+        isCut = cut.cutWindow();
+      }
+      this.#say({
+        status: "cut",
+        cuts: [{ requestId: message.requestId, blockEnds: cut.blockEnds }],
+      });
       return;
     }
     if (message.kind !== "parse") {
@@ -142,9 +164,20 @@ export class InThreadMarkdownWorkers {
   }
 }
 
-/** A connection whose worker answers on the test's thread, its texts sliced in `view`. */
+/**
+ * A connection whose worker answers on the test's thread, its texts sliced in `view`, handing its
+ * module to the app's page parser, which a suite starts before it runs.
+ */
 export function inThreadMarkdownWorker(view: Window): MarkdownWorkerConnection {
-  return new MarkdownWorkerConnection(new InThreadMarkdownWorkers().start, view);
+  return new MarkdownWorkerConnection(new InThreadMarkdownWorkers().start, view, appPageParser);
+}
+
+/**
+ * The module a stand-in worker compiles and hands the page: an empty one, which Sätteri's Node
+ * build, which parses wherever no worker runs, never reads.
+ */
+export function inThreadParserModule(): WebAssembly.Module {
+  return new WebAssembly.Module(EMPTY_WEBASSEMBLY_MODULE);
 }
 
 /** The smallest valid WebAssembly binary: its magic number and version, and no sections. */

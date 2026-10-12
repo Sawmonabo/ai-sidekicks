@@ -2,6 +2,7 @@
 // and the one owner it registers under.
 
 import { render } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
@@ -11,6 +12,8 @@ import { registerTranscriptRowRenderer, type TranscriptRowProps } from "./render
 import { registerTranscriptRowFooterRenderer } from "./footer-renderer.js";
 import { registerTranscriptRows } from "../contributions/rows.js";
 import { TranscriptRow } from "./TranscriptRow.js";
+import { PreparedBodiesContext } from "./prepared-bodies.js";
+import { prepareRowBodiesForTest } from "./preparation.test-support.js";
 import { sampleRunRow, sampleUserMessageRow } from "#test/helpers/transcript/event-row-samples.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
@@ -44,12 +47,15 @@ const UNPRESSED_ROW_TOGGLE: RowToggle = {
   holdRowInPlace: () => undefined,
 };
 
-/** The row renderer inside a list, as a transcript mounts it. */
+/** The row renderer inside a list, its body prepared, as a transcript mounts it. */
 function MountedInAList(props: { readonly row: TranscriptRowProps["row"] }): React.JSX.Element {
+  const [preparedBodies] = useState(() => prepareRowBodiesForTest([props.row]).bodies);
   return (
     <InBridge>
       <RowToggleProvider rowToggle={UNPRESSED_ROW_TOGGLE}>
-        <TranscriptRow {...rowRendererProps(props.row)} />
+        <PreparedBodiesContext value={preparedBodies}>
+          <TranscriptRow {...rowRendererProps(props.row)} />
+        </PreparedBodiesContext>
       </RowToggleProvider>
     </InBridge>
   );

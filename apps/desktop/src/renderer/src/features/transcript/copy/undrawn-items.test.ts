@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { type DrawnWindowSource } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
-import { parseMarkdownTree } from "#renderer/components/Markdown/worker/serialized-tree.js";
+import { parseMarkdownTree } from "#renderer/components/Markdown/parse/serialized-tree.js";
 import { withUndrawnItems, withUndrawnItemsText } from "./undrawn-items.js";
 import {
   drawnTreeMarkdown,
