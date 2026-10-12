@@ -86,7 +86,7 @@ describe("a held settled block", () => {
   });
 });
 
-describe("a block that is one long table", () => {
+describe("a text that ends in one long table", () => {
   it("is parsed in pieces and reads every row as the whole block's parse reads it", () => {
     const preamble = footnoteDefinitionPreamble(new Set(["1"]));
     for (const lineEnding of ["\n", "\r\n"]) {
@@ -101,6 +101,36 @@ describe("a block that is one long table", () => {
       expect(Math.max(...parsedLengths)).toBeLessThan(block.length / 2);
       expect(treeOf(pieced)).toStrictEqual(treeOf(wholeParseOf(block, preamble)));
     }
+  });
+
+  it("after other blocks is parsed in pieces, and they read as the whole text's parse reads them", () => {
+    const preamble = footnoteDefinitionPreamble(new Set(["1"]));
+    const { trees, workers } = standInTrees();
+    // As a streaming tail holds a table: behind the blocks not yet settled.
+    const text = `## The lanes\n\nAs they stand, one row each[^1]:\n\n${longTable("\n")}`;
+
+    const parsed = settledTreeOf(trees, text, preamble);
+
+    const parsedLengths = workers.latest().requests.map((request) => request.source.length);
+    expect(parsedLengths.length).toBeGreaterThan(2);
+    expect(Math.max(...parsedLengths)).toBeLessThan(text.length / 2);
+    expect(treeOf(parsed)).toStrictEqual(treeOf(wholeParseOf(text, preamble)));
+    expect(parsed.children.map((node) => node.type)).toStrictEqual([
+      "heading",
+      "paragraph",
+      "table",
+    ]);
+  });
+
+  it("is parsed whole when a block before it defines a link its rows use", () => {
+    const { trees, workers } = standInTrees();
+    // A later piece, parsed without the definition, would read the reference as text.
+    const text = `[lane]: https://example.com\n\n${longTable("\n")}\n| [lane] | a | b | c | d |`;
+
+    const parsed = settledTreeOf(trees, text);
+
+    expect(workers.latest().requests.at(-1)?.source).toBe(text);
+    expect(treeOf(parsed)).toStrictEqual(treeOf(wholeParseOf(text, "")));
   });
 
   it("is parsed whole when a line ends the table, as the whole parse reads it", () => {

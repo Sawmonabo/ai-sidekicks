@@ -3,10 +3,10 @@
 // by every body that asks for the same text, and a tree a body holds stays kept while it is held,
 // so a body mounted next draws it at once. A document read once is parsed each time it is asked
 // for. A block is parsed against the definitions its whole body declares, which the trees here are
-// given as a preamble and returned without. A block that is one long table is parsed in pieces and
-// its rows read as they are held (`pieced-table.ts`), its pieces' trees kept in a cache of their
-// own; a text that continues the last one parsed in pieces, as a streaming table grows, parses only
-// the pieces it changed.
+// given as a preamble and returned without. A text whose last block is one long table is parsed in
+// pieces and the table's rows read as they are held (`pieced-table.ts`), its pieces' trees kept in a
+// cache of their own; a text that continues the last one parsed in pieces, as a streaming table
+// grows, parses only the pieces it changed.
 
 import type { Root } from "mdast";
 import { MdastReader } from "satteri/mdast-reader";
@@ -19,10 +19,10 @@ import { materializeMarkdownTree } from "./materialized-tree.js";
 import {
   parsePiecedTable,
   PIECE_TREE_BYTE_CAP,
-  tableCutOf,
   TablePieceTrees,
   type PiecedRows,
 } from "./pieced-table.js";
+import { tableCutOf } from "./table-cut.js";
 
 /** What parsing one text came to: its tree, or why the parser could not give one. */
 export type MarkdownParseOutcome =
@@ -197,8 +197,8 @@ export class MarkdownTrees {
   }
 
   /**
-   * Parse a text with the body's definitions in scope, as one table read in pieces where it is
-   * one long table, and keep only the text's own nodes.
+   * Parse a text with the body's definitions in scope, its table read in pieces where its last
+   * block is one long table, and keep only the text's own nodes.
    */
   #parseAgainstDefinitions(
     source: string,

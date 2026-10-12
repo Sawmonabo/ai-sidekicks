@@ -17,6 +17,7 @@ import type {
   ParsedMarkdown,
 } from "#renderer/components/Markdown/parse/trees.js";
 import { Emitter } from "#renderer/lib/emitter.js";
+import { hasPrefix } from "#renderer/lib/text-prefix.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 
 /**
@@ -192,7 +193,9 @@ export class VolatileTailParser {
       tailSource,
       definitionPreamble,
       mended,
-      closers: mended.slice(commonPrefixLength(mended, tailSource)),
+      closers: mended.slice(
+        hasPrefix(mended, tailSource) ? tailSource.length : commonPrefixLength(mended, tailSource),
+      ),
     };
   }
 
@@ -335,7 +338,7 @@ function extendParse(lastParse: TailParse, mended: string): TailParse | undefine
   const lastText = lastParse.mended.slice(0, lastParse.mended.length - closers.length);
   if (
     mended.length <= lastParse.mended.length ||
-    !mended.startsWith(lastText) ||
+    !hasPrefix(mended, lastText) ||
     !mended.endsWith(closers)
   ) {
     return undefined;

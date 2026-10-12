@@ -1,9 +1,11 @@
-// A block that is one long table, parsed in pieces and read a row at a time. Each piece is the
-// table's head and delimiter lines over a run of its rows, so the worker parses a bounded text
-// however long the table is. A table row is one line, and its cells read only that line and the
-// head's columns, so a row parsed in a piece is the row the whole block parses to: each piece is
-// checked to be one table holding every line it was given, and a block whose pieces are not falls
-// back to one parse of the whole. The pieces' binary trees are kept in one cache bounded in bytes
+// A text whose last block is one long table, parsed in pieces and its table read a row at a time.
+// Each piece is the table's head and delimiter lines over a run of its rows (`table-cut.ts`), so the
+// worker parses a bounded text however long the table is. A table row is one line, and its cells
+// read only that line and the head's columns, so a row parsed in a piece is the row the whole text
+// parses to: each piece is checked to end in one table holding every line it was given, and a text
+// whose pieces do not falls back to one parse of the whole. The first piece also holds the blocks
+// before the table, which are read from it; one that defines a link a later piece cannot see sends
+// the text to the whole parse too. The pieces' binary trees are kept in one cache bounded in bytes
 // for every table, so a long table holds no more than the cache however long it is: a row is read
 // only while its piece's tree is held or still kept, and a piece let go is parsed again when its
 // rows are held anew. The block's tree holds one table whose rows are read from those trees, each
@@ -11,14 +13,17 @@
 // one parsed in pieces, as a streaming table grows, takes the earlier parse's pieces it still holds
 // and parses only the rest.
 
-import type { Nodes, Root, Table, TableRow } from "mdast";
+import type { Nodes, Root, RootContent, Table, TableRow } from "mdast";
 import { materializeNode } from "satteri/mdast-materializer";
 import { MdastReader, NodeType } from "satteri/mdast-reader";
 
 import { ByteBoundedCache } from "#renderer/lib/byte-bounded-cache.js";
+import { hasPrefix } from "#renderer/lib/text-prefix.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import type { MarkdownParseAnswer } from "../worker/messages.js";
 import { mayHoldLiteralText, restoreLiteralText } from "./literal-text.js";
+import { materializeMarkdownTree } from "./materialized-tree.js";
+import { offsetShiftOf, type TableCut, type TablePiece } from "./table-cut.js";
 
 declare module "mdast" {
   interface TableData {
@@ -62,22 +67,6 @@ export interface PiecedRows {
 export interface RowSpan {
   readonly firstIndex: number;
   readonly lastIndex: number;
-}
-
-/** One piece of a long table: where its rows run in the block's text. */
-export interface TablePiece {
-  readonly rowsStart: number;
-  readonly rowsEnd: number;
-  /** The block's first body row this piece holds, counted from the first row below the head. */
-  readonly firstRowIndex: number;
-  readonly rowCount: number;
-}
-
-/** A block cut into the pieces it parses in: the head's length, then the pieces in row order. */
-export interface TableCut {
-  /** How long the head and delimiter lines are, with the line ending after them. */
-  readonly headLength: number;
-  readonly pieces: readonly TablePiece[];
 }
 
 /** One piece's binary tree, and the stand-in its dollars read as text took. */
@@ -226,38 +215,6 @@ export class TablePieceTrees {
   }
 }
 
-/**
- * The pieces `blockSource` parses in: `undefined` unless the block opens on a table's head and
- * delimiter lines and is longer than one piece. A block that passes may still hold more than one
- * table; reading its pieces finds that out.
- */
-export function tableCutOf(blockSource: string): TableCut | undefined {
-  if (blockSource.length <= TABLE_PIECE_CHARACTERS) {
-    return undefined;
-  }
-  const headEnd = lineEndOf(blockSource, lineEndOf(blockSource, 0) + 1);
-  const delimiterLine = blockSource.slice(lineEndOf(blockSource, 0) + 1, headEnd);
-  if (!blockSource.slice(0, headEnd).includes("|") || !DELIMITER_ROW.test(delimiterLine)) {
-    return undefined;
-  }
-  const headLength = headEnd + 1;
-  // A block is cut through the blank lines that end it, which hold no row.
-  const rowsEnd = withoutTrailingLineEndings(blockSource);
-  const pieces: TablePiece[] = [];
-  let rowsStart = headLength;
-  let firstRowIndex = 0;
-  while (rowsStart < rowsEnd) {
-    const cut = blockSource.indexOf("\n", rowsStart + TABLE_PIECE_CHARACTERS);
-    const isLast = cut === -1 || cut >= rowsEnd;
-    const pieceEnd = isLast ? rowsEnd : withoutLineEnding(blockSource, cut);
-    const rowCount = countLines(blockSource, rowsStart, pieceEnd);
-    pieces.push({ rowsStart, rowsEnd: pieceEnd, firstRowIndex, rowCount });
-    firstRowIndex += rowCount;
-    rowsStart = isLast ? rowsEnd : cut + 1;
-  }
-  return { headLength, pieces };
-}
-
 /** Whether `node` is a table read in pieces, whose rows are read only while they are held. */
 export function isReadInPieces(node: Nodes): boolean {
   return node.type === "table" && node.data?.piecedRows !== undefined;
@@ -304,8 +261,10 @@ interface CheckedPiece {
   readonly tableId: number;
 }
 
-/** What a block's table takes from its first piece: its head row, columns and start. */
-interface TableHead {
+/** What a text takes from its first piece: the blocks before its table, and the table's head. */
+interface BlockHead {
+  /** The blocks before the table, read as a whole parse reads them. */
+  readonly lead: readonly RootContent[];
   readonly row: TableRow;
   readonly align: Table["align"];
   readonly start: Point | undefined;
@@ -314,19 +273,13 @@ interface TableHead {
 /** The pieces an earlier parse checked that a text continuing it takes, and its head. */
 interface ReusedPieces {
   readonly pieces: readonly CheckedPiece[];
-  readonly head: TableHead;
+  readonly head: BlockHead;
 }
 
 /** What parsing one piece again came to. */
 type PieceParse =
   | { readonly status: "parsed" }
   | { readonly status: "failed"; readonly reason: string };
-
-/**
- * The most characters of a block's rows one piece holds, cut at the end of a row. Measured on the
- * bench's rows, a piece this long parses in under a millisecond into a tree of about 373 KB.
- */
-const TABLE_PIECE_CHARACTERS = 32_768;
 
 /**
  * How many pieces are asked for at once, so the trees that land are checked and given to the
@@ -340,16 +293,13 @@ const KEPT_PIECE_READINGS = 4;
 /** Why a piece parsed again cannot be read: its text no longer parses to the table it did. */
 const PARSED_ANEW_ELSEWISE = "A long table's piece parsed again to another table.";
 
-/** A table's delimiter line, as GFM reads one: cells of dashes, each with optional colons. */
-const DELIMITER_ROW = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*\r?$/u;
-
 /** A block being parsed in pieces: a few pieces asked for at a time, each checked as it lands. */
 class PiecedTableParse {
   readonly #trees: TablePieceTrees;
   readonly #block: PiecedBlock;
   readonly #settle: (outcome: PiecedTableOutcome) => void;
   readonly #checked: (CheckedPiece | undefined)[];
-  #head: TableHead | undefined;
+  #head: BlockHead | undefined;
   #end: Point | undefined;
   #nextIndex: number;
   #landedCount: number;
@@ -420,12 +370,14 @@ class PiecedTableParse {
       throw new Error("A long table's pieces all landed with its head or a piece unread.");
     }
     const rows = new PiecedTableRows(this.#trees, this.#block, pieces, head, this.#end);
-    this.#settle({ status: "parsed", root: { type: "root", children: [rows.table] }, rows });
+    const root: Root = { type: "root", children: [...head.lead, rows.table] };
+    this.#settle({ status: "parsed", root, rows });
   }
 
   /**
-   * The piece checked to be one table holding every row line it was given, and what the block's
-   * table reads from it: its head from the first piece, its end from the last.
+   * The piece checked to end in one table holding every row line it was given, and what the
+   * text's tree reads from it: the blocks before the table and its head from the first piece, its
+   * end from the last.
    */
   #check(
     index: number,
@@ -435,9 +387,10 @@ class PiecedTableParse {
   ): CheckedPiece | undefined {
     const reader = new MdastReader(parsed.buffer);
     const preambleLength = this.#block.definitionPreamble.length;
+    const tableStart = preambleLength + this.#block.cut.headStart - piece.textStart;
     const tables = reader
       .getChildIds(0)
-      .filter((id) => (reader.getPosition(id)?.start.offset ?? 0) >= preambleLength);
+      .filter((id) => (reader.getPosition(id)?.start.offset ?? 0) >= tableStart);
     const [tableId] = tables;
     if (
       tableId === undefined ||
@@ -451,26 +404,50 @@ class PiecedTableParse {
     const checked = { piece, key: this.#trees.newKey(), tableId };
     const position = reader.getPosition(tableId);
     if (index === 0) {
+      const lead =
+        tableStart === preambleLength ? [] : leadOf(parsed, text, preambleLength, tableStart);
+      if (lead.some(holdsDefinition)) {
+        return undefined;
+      }
       this.#head = {
-        row: new PieceReading(checked, parsed, this.#block.cut.headLength).row(0),
+        lead,
+        row: new PieceReading(checked, parsed, this.#block.cut).row(0),
         align: (materializeNode(reader, tableId) as Table).align,
         start: position?.start,
       };
     }
     if (index === this.#block.cut.pieces.length - 1 && position !== undefined) {
       const end = { ...position.end };
-      shiftPoint(end, piece.rowsStart - this.#block.cut.headLength, piece.firstRowIndex);
+      shiftPoint(end, offsetShiftOf(this.#block.cut, piece), piece.lineShift);
       this.#end = end;
     }
     return checked;
   }
 }
 
+/**
+ * The blocks the first piece's tree holds before its table, from `start` to `end` in `text`, read
+ * whole as a whole parse reads them, so they keep nothing of the piece's tree.
+ */
+function leadOf(parsed: ParsedTablePiece, text: string, start: number, end: number): RootContent[] {
+  return materializeMarkdownTree(parsed.buffer, text, parsed.dollarStandIn).children.filter(
+    (child) => {
+      const offset = child.position?.start.offset ?? 0;
+      return offset >= start && offset < end;
+    },
+  );
+}
+
+/** Whether `node` is or holds a link's definition, which the table's later pieces cannot read. */
+function holdsDefinition(node: Nodes): boolean {
+  return node.type === "definition" || ("children" in node && node.children.some(holdsDefinition));
+}
+
 function pieceTextOf(block: PiecedBlock, piece: TablePiece): string {
   const { blockSource, definitionPreamble, cut } = block;
   return (
     definitionPreamble +
-    blockSource.slice(0, cut.headLength) +
+    blockSource.slice(piece.textStart, cut.headEnd) +
     blockSource.slice(piece.rowsStart, piece.rowsEnd)
   );
 }
@@ -481,7 +458,7 @@ class PiecedTableRows implements PiecedRows {
   readonly #trees: TablePieceTrees;
   readonly #block: PiecedBlock;
   readonly #pieces: readonly CheckedPiece[];
-  readonly #head: TableHead;
+  readonly #head: BlockHead;
   /** The pieces whose rows were drawn last, newest last, each keeping the rows read from it. */
   readonly #readings = new Map<number, PieceReading>();
 
@@ -489,7 +466,7 @@ class PiecedTableRows implements PiecedRows {
     trees: TablePieceTrees,
     block: PiecedBlock,
     pieces: readonly CheckedPiece[],
-    head: TableHead,
+    head: BlockHead,
     end: Point | undefined,
   ) {
     this.#trees = trees;
@@ -611,7 +588,7 @@ class PiecedTableRows implements PiecedRows {
         return index;
       }
       // A reader of its own, so the rows it reads go with it.
-      const reading = new PieceReading(checked, parsed, this.#block.cut.headLength);
+      const reading = new PieceReading(checked, parsed, this.#block.cut);
       const pieceLast = Math.min(
         lastIndex,
         checked.piece.firstRowIndex + checked.piece.rowCount - 1,
@@ -637,7 +614,8 @@ class PiecedTableRows implements PiecedRows {
     const earlier = this.#block;
     if (
       definitionPreamble !== earlier.definitionPreamble ||
-      cut.headLength !== earlier.cut.headLength
+      cut.headStart !== earlier.cut.headStart ||
+      cut.headEnd !== earlier.cut.headEnd
     ) {
       return undefined;
     }
@@ -650,7 +628,7 @@ class PiecedTableRows implements PiecedRows {
     if (
       count === 0 ||
       nextStart === undefined ||
-      !blockSource.startsWith(earlier.blockSource.slice(0, nextStart))
+      !hasPrefix(blockSource, earlier.blockSource.slice(0, nextStart))
     ) {
       return undefined;
     }
@@ -674,7 +652,7 @@ class PiecedTableRows implements PiecedRows {
       if (parsed === undefined) {
         return undefined;
       }
-      reading = new PieceReading(checked, parsed, this.#block.cut.headLength);
+      reading = new PieceReading(checked, parsed, this.#block.cut);
     } else {
       this.#readings.delete(pieceIndex);
     }
@@ -704,10 +682,10 @@ class PieceReading {
   /** The text the piece's offsets count in, read from the parser's own copy of it. */
   readonly #parsedText: string;
 
-  public constructor(checked: CheckedPiece, parsed: ParsedTablePiece, headLength: number) {
+  public constructor(checked: CheckedPiece, parsed: ParsedTablePiece, cut: TableCut) {
     this.parsed = parsed;
     this.#checked = checked;
-    this.#offsetShift = checked.piece.rowsStart - headLength;
+    this.#offsetShift = offsetShiftOf(cut, checked.piece);
     this.#reader = new MdastReader(parsed.buffer);
     this.#rowIds = this.#reader.getChildIds(checked.tableId);
     this.#parsedText = this.#reader.getStringPool();
@@ -730,7 +708,7 @@ class PieceReading {
         restoreLiteralText(row, this.#parsedText, dollarStandIn);
       }
       if (index > 0) {
-        shiftPositions(row, this.#offsetShift, this.#checked.piece.firstRowIndex);
+        shiftPositions(row, this.#offsetShift, this.#checked.piece.lineShift);
       }
     }
     return row;
@@ -812,47 +790,6 @@ function shiftPoint(point: Point, offsetShift: number, lineShift: number): void 
   if (point.offset !== undefined) {
     point.offset += offsetShift;
   }
-}
-
-/** Where the line holding `from` ends: its line feed, or the text's end. */
-function lineEndOf(text: string, from: number): number {
-  const end = text.indexOf("\n", from);
-  return end === -1 ? text.length : end;
-}
-
-/** Where `text` ends once every line ending at its end is cut off. */
-function withoutTrailingLineEndings(text: string): number {
-  let end = text.length;
-  for (let trimmed = withoutLineEnding(text, end); trimmed < end; ) {
-    end = trimmed;
-    trimmed = withoutLineEnding(text, end);
-  }
-  return end;
-}
-
-/** `end`, moved back past the line ending before it, if one is there. */
-function withoutLineEnding(text: string, end: number): number {
-  let trimmed = end;
-  if (text.charAt(trimmed - 1) === "\n") {
-    trimmed -= 1;
-  }
-  if (text.charAt(trimmed - 1) === "\r") {
-    trimmed -= 1;
-  }
-  return trimmed;
-}
-
-/** How many lines `text` holds from `start` to `end`. */
-function countLines(text: string, start: number, end: number): number {
-  let count = 1;
-  for (
-    let index = text.indexOf("\n", start);
-    index !== -1 && index < end;
-    index = text.indexOf("\n", index + 1)
-  ) {
-    count += 1;
-  }
-  return count;
 }
 
 /** A node's place in the parsed text, as mdast types it. */
