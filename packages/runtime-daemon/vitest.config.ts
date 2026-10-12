@@ -13,6 +13,13 @@ import {
 // loader its workers and child processes inherit.
 const SOURCE_LOADER = new URL("./tests/helpers/typescript-source-loader.mjs", import.meta.url).href;
 
+// Node 24's V8 can free a WebAssembly import wrapper twice as its code collector frees a stopped
+// worker thread's code, aborting the test process; Node strips each worker's TypeScript with a
+// WebAssembly module, and these tests stop many workers. Keeping that code until exit avoids it.
+const WASM_CODE_COLLECTOR_OFF_FLAGS: readonly string[] = process.versions.node.startsWith("24.")
+  ? ["--no-wasm-code-gc"]
+  : [];
+
 // The endurance tier seeds a database for minutes, so its runs are bounded at ten minutes.
 const ENDURANCE_TIMEOUT_MS = 600_000;
 
@@ -23,7 +30,7 @@ const isMutationRun = process.env["STRYKER_MUTATOR_WORKER"] !== undefined;
 export default defineConfig({
   test: {
     environment: "node",
-    execArgv: ["--import", SOURCE_LOADER],
+    execArgv: ["--import", SOURCE_LOADER, ...WASM_CODE_COLLECTOR_OFF_FLAGS],
     passWithNoTests: false,
     reporters: ["default"],
     // Coverage is read only at the root once projects are declared.

@@ -169,3 +169,14 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - V1 Release Impact: none for a restore on the machine that wrote the backup; a restore on another computer ships designed but unmeasured until this closes.
 - Named gate: a second computer in the build loop.
 - Exit Criteria: a backup taken on one machine is restored on a second with `sidekicks db restore`, the sessions read back whole, the providers ask to sign in and the devices to link, and the figures are recorded in Plan-005; this entry is deleted.
+
+## BL-169: The daemon tests turn off V8's WebAssembly code collector on Node 24
+
+- Status: `blocked` (external-world wait — a Node 24 release carrying V8's fix)
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [nodejs/node#66366](https://github.com/nodejs/node/issues/66366) (the WebAssembly import wrapper freed twice), [nodejs/node#66376](https://github.com/nodejs/node/pull/66376) (the fix's backport to Node 24)
+- Summary: `packages/runtime-daemon/vitest.config.ts` passes `--no-wasm-code-gc` to its test processes on Node 24. Node strips each worker thread's TypeScript with a WebAssembly module, and the daemon tests start and stop many worker threads; CI's test job aborted in V8 with `Check failed: jit_page.has_value()` and no symbols. The issue reports the same double free failing at `jit_page_->allocations_.erase(addr) == 1`, so the match is inferred from the crash site and the trigger rather than from a symbolized stack.
+- V1 Release Impact: none; the flag is on in tests only, and the daemon's own processes run without it.
+- Named gate: a Node 24 release that carries nodejs/node#66376.
+- Exit Criteria: that release is taken; the flag is removed from the daemon's test configuration; the daemon tests pass on the ubuntu leg; this entry is deleted.

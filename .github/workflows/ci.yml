@@ -587,8 +587,18 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
 
+      # The builds the coverage run depends on, read off Turbo's own plan for it, at the default
+      # concurrency.
+      - name: Build what coverage reads
+        run: |
+          plan=$(pnpm --silent turbo run test:coverage --dry=json)
+          mapfile -t filters < <(jq -r '.tasks[] | select(.task == "build") | "--filter=" + .package' <<<"$plan")
+          pnpm turbo run build "${filters[@]}"
+
+      # One workspace at a time: each Vitest run already takes every core, and two at once on this
+      # runner pushed the desktop's slowest cases past their time limit.
       - name: Coverage
-        run: pnpm turbo run test:coverage
+        run: pnpm turbo run test:coverage --only --concurrency=1
 
       # Renders one markdown table into the job summary. Writing to the summary rather than a PR
       # comment keeps this workflow's token at `contents: read` and third-party code out of the

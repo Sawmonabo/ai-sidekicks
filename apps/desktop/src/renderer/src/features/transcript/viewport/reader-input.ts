@@ -17,6 +17,8 @@ export interface ViewportReaderInputOptions {
   readonly notePointerDown: (isDown: boolean) => void;
   /** The box's scroll sequence ended: its `scrollend`, which a fling's momentum holds back. */
   readonly noteScrollEnd: () => void;
+  /** The reader's touch landed on the log at `inputAtMs`, after it was noted as their input. */
+  readonly noteTouchStart: (inputAtMs: number) => void;
   /** Select All pressed on the log: the whole conversation, not only the rows drawn. */
   readonly selectWholeConversation: () => void;
   /** The platform's press for a view's start, Home among them, on the log: its first row. */
@@ -86,6 +88,7 @@ export class ViewportReaderInput {
 
   readonly #onScrollContainerTouchStart = (event: TouchEvent): void => {
     this.#options.noteReaderInput(event.timeStamp);
+    this.#options.noteTouchStart(event.timeStamp);
     this.#touchStartYPx = event.touches[0]?.clientY;
   };
 

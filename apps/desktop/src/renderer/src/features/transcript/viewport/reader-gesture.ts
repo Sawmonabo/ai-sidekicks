@@ -10,7 +10,10 @@
 // again. Between the two, a sample whose box moved through a long gap at half the gesture's pace or
 // more carries the gesture on when no input came in the gap, as none does in a fling's momentum:
 // half keeps a fling's late frame of up to about 430 ms, over which the platform's fling curve
-// still averages more than half the speed it entered at.
+// still averages more than half the speed it entered at. A touch that begins a gesture times the
+// first sample's travel from where the hand landed, since a hand moves the box steadily from then
+// on, so a drag a busy page first meets late, in one burst, reads the speed it carried the box at.
+// A wheel or a key moves the box in one jump, which only the samples time.
 
 import { TRANSCRIPT_GESTURE_GAP_MS } from "./caps.js";
 
@@ -59,6 +62,22 @@ export class ReaderGesture {
       this.#isScrollEndOwed = true;
     }
     return { gapMs, speedPxPerMs, continuesGesture };
+  }
+
+  /**
+   * The reader's touch landed at `atMs`. When it begins a gesture the next sample's travel is
+   * timed from it; within one, a hand that catches a fling, it times nothing.
+   */
+  public noteTouchStart(atMs: number): void {
+    const lastAtMs = this.#lastAtMs;
+    if (
+      lastAtMs !== undefined &&
+      (this.#isScrollEndOwed || atMs - lastAtMs < TRANSCRIPT_GESTURE_GAP_MS)
+    ) {
+      return;
+    }
+    this.#lastAtMs = atMs;
+    this.#paceSpeedsPxPerMs = [];
   }
 
   /** The box's `scrollend` arrived: nothing is owed until a sample moves the box again. */

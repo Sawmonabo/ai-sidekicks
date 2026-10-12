@@ -291,6 +291,10 @@ export class ViewportController {
       noteScrollEnd: () => {
         this.anchor.noteScrollEnd();
         this.#pruneCycle.noteScrollEnd();
+        this.#drawnBand.noteScrollEnd();
+      },
+      noteTouchStart: (inputAtMs) => {
+        this.#drawnBand.noteTouchStart(inputAtMs);
       },
       notePointerDown: (isDown) => {
         this.anchor.notePointerDown(isDown);
