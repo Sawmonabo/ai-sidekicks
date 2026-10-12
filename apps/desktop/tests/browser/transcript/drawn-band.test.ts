@@ -228,6 +228,27 @@ function watchEveryChange(scroller: HTMLElement, onChange: () => void): () => vo
 }
 
 /**
+ * Watches `scroller` for a cut at the head: a change or frame that reads both the content shorter
+ * and the offset nearer the head than the one before, as rows let go above the reader move the
+ * offset under it. A stretch admitted at the tail lengthens the content without moving the offset, so it never
+ * reads as a cut, and its height never offsets one.
+ */
+function watchHeadCut(scroller: HTMLElement): {
+  readonly hasCut: () => boolean;
+  readonly stop: () => void;
+} {
+  let lastScrollTopPx = scroller.scrollTop;
+  let lastScrollHeightPx = scroller.scrollHeight;
+  let hasCut = false;
+  const stop = watchEveryChange(scroller, () => {
+    hasCut ||= scroller.scrollHeight < lastScrollHeightPx && scroller.scrollTop < lastScrollTopPx;
+    lastScrollTopPx = scroller.scrollTop;
+    lastScrollHeightPx = scroller.scrollHeight;
+  });
+  return { hasCut: () => hasCut, stop };
+}
+
+/**
  * Wheels toward the head one gesture at a time until, after `minimumGestureCount`, one takes rows
  * back from the head: the box then stands in the window's middle, rows cut on both sides.
  */
@@ -524,17 +545,21 @@ describe("a land draws the rows the reader ends on first", () => {
     async () => {
       const { scroller } = await mountLongToolFeed();
       await wheelToTakeBack(scroller, GESTURES_BEFORE_MIDDLE);
-      const startScrollHeightPx = scroller.scrollHeight;
+      const headCut = watchHeadCut(scroller);
       const unfilledFramesPx = await unfilledFramesPxDuring(scroller, async () => {
-        await touchFling(scroller, -TOUCH_FLING_PX, FASTEST_FLICK_SPEED);
-        await letFramesPassUntil(
-          () => scroller.scrollHeight < startScrollHeightPx,
-          CONTROL_FRAME_LIMIT,
-          "the fling cut no rows from the head",
-        );
+        try {
+          await touchFling(scroller, -TOUCH_FLING_PX, FASTEST_FLICK_SPEED);
+          await letFramesPassUntil(
+            headCut.hasCut,
+            CONTROL_FRAME_LIMIT,
+            "the fling cut no rows from the head",
+          );
+        } finally {
+          headCut.stop();
+        }
       });
       // The control: the fling cut rows from the head on its way, moving the offset under it.
-      expect(scroller.scrollHeight).toBeLessThan(startScrollHeightPx);
+      expect(headCut.hasCut()).toBe(true);
       expect(unfilledFramesPx).toEqual([]);
     },
   );

@@ -40,6 +40,8 @@ export interface ViewportPruneCycleOptions {
   readonly publishedRowKeys: () => readonly string[];
   /** A published key's index in that order, or `undefined` for a key it does not hold. */
   readonly publishedIndexOf: (rowKey: string) => number | undefined;
+  /** A published row's top edge in the scroller's content, or `undefined` for a key not held. */
+  readonly rowStartPx: (rowKey: string) => number | undefined;
   /** Asks the history reader for the stretch past an edge of the log, as the controller is told. */
   readonly readBeyondLogEdge: ((side: WindowSide) => boolean) | undefined;
 }
@@ -69,6 +71,7 @@ export class ViewportPruneCycle {
   readonly #virtualizer: () => TranscriptRowVirtualizer | undefined;
   readonly #publishedRowKeys: () => readonly string[];
   readonly #publishedIndexOf: (rowKey: string) => number | undefined;
+  readonly #rowStartPx: (rowKey: string) => number | undefined;
   readonly #readBeyondLogEdge: ((side: WindowSide) => boolean) | undefined;
   /**
    * Owned here because `run` is called once per pass, the frame's signal that the transcript
@@ -88,8 +91,10 @@ export class ViewportPruneCycle {
   #lastOnScreenRowKeys: readonly string[] = [];
   /** The reader's row when the last pass ran; `reading-floor` clears when it changes. */
   #lastReadingRowKey: string | undefined;
-  /** The last sample heard, of any cause, so an edge crossing the let-go distance is told apart. */
+  /** The last sample heard, of any cause, so a gesture's travel is read between two samples. */
   #lastSample: ScrollGeometry | undefined;
+  /** How far the window's edges stood at the last sample, so a let-go crossing is told apart. */
+  #lastEdgeDistances: WindowEdgeDistances | undefined;
   /** The reader's gesture over their input and scroll samples, which a pause ends. */
   readonly #gesture = new ReaderGesture();
   /** Whether the reader's current gesture has had its stretch. */
@@ -103,6 +108,7 @@ export class ViewportPruneCycle {
     this.#virtualizer = options.virtualizer;
     this.#publishedRowKeys = options.publishedRowKeys;
     this.#publishedIndexOf = options.publishedIndexOf;
+    this.#rowStartPx = options.rowStartPx;
     this.#readBeyondLogEdge = options.readBeyondLogEdge;
     this.#idleTrim = new IdleMemoryTrim({
       clock: options.clock,
@@ -173,7 +179,10 @@ export class ViewportPruneCycle {
    */
   public passOwedBy(geometry: ScrollGeometry): WindowPassRequest | undefined {
     const previous = this.#lastSample;
+    const previousEdges = this.#lastEdgeDistances;
+    const edges = this.#edgeDistancesAt(geometry);
     this.#lastSample = geometry;
+    this.#lastEdgeDistances = edges;
     const screenHeightPx = geometry.viewportHeight;
     if (
       this.#lastConditions === undefined ||
@@ -207,12 +216,19 @@ export class ViewportPruneCycle {
       }
     }
     // Asked as the edge crosses the distance rather than on every sample past it, so a pass that
-    // found nothing to let go is not run again for each pixel scrolled.
+    // found nothing to let go is not run again for each pixel scrolled. Each edge is read to the
+    // near side of the window's end row, as the cut reads it, so the pass a crossing asks for
+    // always has that row to let go.
     const letGoPx = TRANSCRIPT_LET_GO_SCREEN_HEIGHTS * screenHeightPx;
-    const hasCrossed = (distancePx: number, previousDistancePx: number | undefined): boolean =>
-      distancePx > letGoPx && (previousDistancePx === undefined || previousDistancePx <= letGoPx);
-    return hasCrossed(geometry.scrollTop, previous?.scrollTop) ||
-      hasCrossed(geometry.distanceFromTailPx, previous?.distanceFromTailPx)
+    const hasCrossed = (
+      distancePx: number | undefined,
+      previousDistancePx: number | undefined,
+    ): boolean =>
+      distancePx !== undefined &&
+      distancePx >= letGoPx &&
+      (previousDistancePx === undefined || previousDistancePx < letGoPx);
+    return hasCrossed(edges?.headPx, previousEdges?.headPx) ||
+      hasCrossed(edges?.tailPx, previousEdges?.tailPx)
       ? { admitSide: undefined }
       : undefined;
   }
@@ -293,6 +309,29 @@ export class ViewportPruneCycle {
     }
   }
 
+  /**
+   * How far the window's first row stands above the viewport's top at `geometry` and its last row
+   * below the viewport's bottom, each to the row's near edge as the window's cut reads it;
+   * `undefined` while the window holds no row.
+   */
+  #edgeDistancesAt(geometry: ScrollGeometry): WindowEdgeDistances | undefined {
+    const rowKeys = this.#publishedRowKeys();
+    const headRowKey = rowKeys[0];
+    const tailRowKey = rowKeys.at(-1);
+    if (headRowKey === undefined || tailRowKey === undefined) {
+      return undefined;
+    }
+    const headStartPx = this.#rowStartPx(headRowKey);
+    const tailStartPx = this.#rowStartPx(tailRowKey);
+    if (headStartPx === undefined || tailStartPx === undefined) {
+      return undefined;
+    }
+    return {
+      headPx: geometry.scrollTop - (headStartPx + this.#laidOutHeightOf(headRowKey)),
+      tailPx: tailStartPx - (geometry.scrollTop + geometry.viewportHeight),
+    };
+  }
+
   /** Whether the history reader took the stretch past this edge of the log as the gesture's. */
   #readsBeyond(side: WindowSide): boolean {
     return this.#readBeyondLogEdge?.(side) ?? false;
@@ -370,6 +409,14 @@ export class ViewportPruneCycle {
         return false;
     }
   }
+}
+
+/** How far the window's edge rows stand past the viewport, in pixels, as the window's cut reads. */
+interface WindowEdgeDistances {
+  /** From the viewport's top up to the bottom of the window's first row. */
+  readonly headPx: number;
+  /** From the viewport's bottom down to the top of the window's last row. */
+  readonly tailPx: number;
 }
 
 /** The row a reading position names, or `undefined` for the tail or an unplaced reader. */

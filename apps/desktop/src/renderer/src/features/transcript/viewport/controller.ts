@@ -227,6 +227,7 @@ export class ViewportController {
       virtualizer: () => this.#virtualizer,
       publishedRowKeys: () => this.#rowKeys,
       publishedIndexOf: (rowKey) => this.#indexOfRowKey(rowKey),
+      rowStartPx: (rowKey) => this.rowStartPx(rowKey),
       readBeyondLogEdge: options.readBeyondLogEdge,
     });
     this.#anchorCapture = new ViewportAnchorCapture({
