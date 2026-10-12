@@ -279,6 +279,30 @@ function recordCutFrames(outputsOf: () => readonly Element[], count: number): Pr
   });
 }
 
+/**
+ * What each of the `count` frames after the commit that first cuts an output shows of the outputs
+ * drawn, as `recordCutFrames` reads them, counted from that commit rather than from when the case
+ * next runs: an awaited `act` returns a task later, and a busy machine starts a frame in between.
+ * `onCut` runs in the commit's own task, before any frame starts.
+ */
+function recordCutFramesFromCut(count: number, onCut: () => void = () => {}): Promise<CutFrame[]> {
+  return new Promise((resolve) => {
+    const changes = new MutationObserver(() => {
+      if (document.querySelector(CUT_BODY_SELECTOR) !== null) {
+        changes.disconnect();
+        onCut();
+        resolve(recordCutFrames(() => outputsIn(document.body), count));
+      }
+    });
+    changes.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+  });
+}
+
 /** The outputs drawn in `container`. */
 function outputsIn(container: Element): Element[] {
   return [...container.querySelectorAll(OUTPUT_SELECTOR)];
@@ -548,13 +572,12 @@ describe("a call's output cut at the visible flow", () => {
   it("knows an output runs past the cut in the commit that cuts it, but from its first report in a row a screen above the box", async () => {
     // In view, the commit that cuts the output draws `Show all` too, so no frame starts with the
     // cut drawn and `Show all` missing, which the conversation would measure the row without.
-    const inView = await renderInScroller(
+    const inViewRecording = recordCutFramesFromCut(6);
+    await renderInScroller(
       <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />,
       () => SCROLLER_HEIGHT_PX / 2,
     );
-    const inViewFrames = await act(
-      async () => await recordCutFrames(() => outputsIn(inView.container), 6),
-    );
+    const inViewFrames = await act(async () => await inViewRecording);
     expect(inViewFrames.some((frame) => frame.cutCount > 0)).toBe(true);
     expect(inViewFrames.filter((frame) => frame.cutCount > frame.showAllCount)).toStrictEqual([]);
     cleanup();
@@ -562,13 +585,12 @@ describe("a call's output cut at the visible flow", () => {
     // A screen above the box, the first resize report answers it, in the frame that cut it, and
     // `Show all` is drawn as the next frame starts, before a fling can bring the row into the box:
     // the third frame starts with what the second drew.
-    const above = await renderInScroller(
+    const aboveRecording = recordCutFramesFromCut(6);
+    await renderInScroller(
       <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />,
       () => -SCROLLER_HEIGHT_PX,
     );
-    const aboveFrames = await act(
-      async () => await recordCutFrames(() => outputsIn(above.container), 6),
-    );
+    const aboveFrames = await act(async () => await aboveRecording);
     expect(aboveFrames.slice(0, 2)).toStrictEqual([
       { cutCount: 1, showAllCount: 0 },
       { cutCount: 1, showAllCount: 0 },
@@ -579,14 +601,14 @@ describe("a call's output cut at the visible flow", () => {
     // Brought to within a screen of the box but still above it at the report, the row draws
     // `Show all` as the next frame starts, as one a screen above does.
     let nearRowEndPx = -SCROLLER_HEIGHT_PX;
-    const near = await renderInScroller(
+    const nearRecording = recordCutFramesFromCut(6, () => {
+      nearRowEndPx = -SCROLLER_HEIGHT_PX / 2;
+    });
+    await renderInScroller(
       <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />,
       () => nearRowEndPx,
     );
-    nearRowEndPx = -SCROLLER_HEIGHT_PX / 2;
-    const nearFrames = await act(
-      async () => await recordCutFrames(() => outputsIn(near.container), 6),
-    );
+    const nearFrames = await act(async () => await nearRecording);
     expect(nearFrames.slice(0, 2)).toStrictEqual([
       { cutCount: 1, showAllCount: 0 },
       { cutCount: 1, showAllCount: 0 },
@@ -596,14 +618,15 @@ describe("a call's output cut at the visible flow", () => {
     // A screen above when cut but brought into the box before its first report with no scroll,
     // the row draws `Show all` in the frame of that report, before it paints.
     let rowEndPx = -SCROLLER_HEIGHT_PX;
-    const broughtNearer = await renderInScroller(
+    const broughtNearerRecording = recordCutFramesFromCut(6, () => {
+      rowEndPx = SCROLLER_HEIGHT_PX / 2;
+    });
+    await renderInScroller(
       <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />,
       () => rowEndPx,
     );
-    rowEndPx = SCROLLER_HEIGHT_PX / 2;
-    const broughtNearerFrames = await act(
-      async () => await recordCutFrames(() => outputsIn(broughtNearer.container), 6),
-    );
+    const broughtNearerFrames = await act(async () => await broughtNearerRecording);
+    expect(broughtNearerFrames[0]).toStrictEqual({ cutCount: 1, showAllCount: 0 });
     expect(broughtNearerFrames.slice(1).filter((frame) => frame.showAllCount === 0)).toStrictEqual(
       [],
     );
