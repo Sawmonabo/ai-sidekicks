@@ -238,7 +238,8 @@ export class CodexLifecycleManager {
         createCodexServiceLauncher(options.operatingSystem.endChildProcess),
       runCommand: options.runCommand ?? runCodexCommand,
       connectSocket:
-        options.connectSocket ?? createCodexServiceSocketConnector(options.operatingSystem),
+        options.connectSocket ??
+        createCodexServiceSocketConnector(options.operatingSystem, options.providerServices),
       hooks: this.#hooks,
       additionalConfigOverrides: options.additionalConfigOverrides ?? [],
       reportDiagnostic,

@@ -12,15 +12,17 @@ import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder"
 
 import { withCleanupFailures } from "../cleanup-failures.js";
 import type { CallerProcessReader } from "../ipc/caller-process/contract.js";
-import { createStartedByDaemonCheck } from "../ipc/caller-process/descent.js";
+import { createAgentCallerCheck } from "../ipc/caller-process/descent.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
 import { MethodRegistryImpl } from "../ipc/registry.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
 import { bindSocket, mintSessionToken, prepareRunFolder } from "./run-folder.js";
 
-// No terminal runs while the file is repaired, before the start opens any.
+// No terminal runs and no provider service is dialed while the file is repaired, before the start
+// opens any.
 const NO_TERMINALS = { readTerminalProcessIds: (): ReadonlySet<number> => new Set() };
+const NO_PROVIDER_SERVICES = { has: (): boolean => false };
 
 /**
  * Runs `repair` while the run folder's socket answers that the service is repairing, with the
@@ -42,7 +44,7 @@ export async function answerRepairingWhile<T>(
   const sessionToken = mintSessionToken();
   const negotiator = new ProtocolNegotiator(
     sessionToken,
-    createStartedByDaemonCheck(callerProcessReader, NO_TERMINALS),
+    createAgentCallerCheck(callerProcessReader, NO_TERMINALS, NO_PROVIDER_SERVICES),
   );
   const registry = negotiator.wrap(new MethodRegistryImpl());
   let progress: DaemonRepairProgress | undefined;
@@ -61,7 +63,7 @@ export async function answerRepairingWhile<T>(
   });
   const gateway = new LocalIpcGateway({
     registry,
-    readCallerProcessId: (socket) => callerProcessReader.readConnectedProcessId(socket),
+    readCallerProcessId: (socket) => callerProcessReader.readPeerProcessId(socket),
     hooks: {
       onDisconnect: (transport) => {
         negotiator.cleanupTransport(transport.id);

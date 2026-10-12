@@ -1,4 +1,4 @@
-// macOS: the connected process's id from the socket's `LOCAL_PEERPID` option, and a process's
+// macOS: the peer process's id from the socket's `LOCAL_PEERPID` option, and a process's
 // parent from `proc_pidinfo`'s short BSD record, both called through `koffi`.
 
 import { importKoffi } from "../../koffi.js";
@@ -18,7 +18,9 @@ const PROCESS_ID_BYTES = 4;
 
 /** Binds the calls from the system library; rejects when `koffi` cannot be loaded. */
 export async function openMacCallerProcessReader(): Promise<CallerProcessReader> {
-  const koffi = await importKoffi("telling which process connected to the daemon on macOS");
+  const koffi = await importKoffi(
+    "telling which process is at the other end of a local socket on macOS",
+  );
   const system = koffi.load("/usr/lib/libSystem.B.dylib");
   const getsockopt = system.func(
     "int getsockopt(int socket, int level, int option_name, _Out_ uint8_t *option_value, " +
@@ -28,7 +30,7 @@ export async function openMacCallerProcessReader(): Promise<CallerProcessReader>
     "int proc_pidinfo(int pid, int flavor, uint64_t arg, _Out_ uint8_t *buffer, int buffersize)",
   );
   return {
-    readConnectedProcessId: (socket) => {
+    readPeerProcessId: (socket) => {
       const value = Buffer.alloc(PROCESS_ID_BYTES);
       const length = [PROCESS_ID_BYTES];
       const descriptor = readSocketDescriptor(socket);

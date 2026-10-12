@@ -36,7 +36,8 @@ import { recordDatabaseDamage } from "../../recovery/database-file/damage.js";
 import { recordCleanStop, recordRunStart } from "../../recovery/database-file/last-run.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import type { SearchThread } from "../../session/search/thread/handle.js";
-import { DATABASE_FILE_NAME, DaemonProcess, type DaemonProcessOptions } from "../process.js";
+import { DATABASE_FILE_NAME, DaemonProcess } from "../process.js";
+import type { DaemonProcessOptions } from "../start-options.js";
 import { answerRepairingWhile } from "../repairing-socket.js";
 import { DaemonStartStoppedError } from "../start-stopped-error.js";
 import {

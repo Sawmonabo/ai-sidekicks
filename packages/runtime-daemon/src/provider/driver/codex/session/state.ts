@@ -8,6 +8,7 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { SessionMode } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { ProviderServiceProcesses } from "../../../../ipc/caller-process/provider-services.js";
 import type { ExecutionPostureService } from "../../../../policy/execution-posture-service.js";
 import type { RunEngine } from "../../../../session/run/engine.js";
 import type { PermissionAskPort } from "../../../port/permission-ask.js";
@@ -377,6 +378,8 @@ export interface CodexLifecycleOptions {
   readonly additionalConfigOverrides?: readonly string[] | undefined;
   readonly launchProcess?: CodexServiceLauncher | undefined;
   readonly runCommand?: CodexCommandRunner | undefined;
+  /** Where a dialed service's serving process is held for the daemon's caller check. */
+  readonly providerServices: Pick<ProviderServiceProcesses, "holdServing">;
   readonly connectSocket?: CodexServiceSocketConnector | undefined;
   /** The transport's diagnostic channel; separate from `diagnostics`, the daemon-wide band. */
   readonly reportDiagnostic: CodexDiagnosticSink;

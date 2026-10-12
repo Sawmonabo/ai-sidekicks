@@ -1,6 +1,7 @@
 // The websocket a Codex service is reached over, on the Unix socket the service listens on. Where
 // Node opens a Unix socket, the socket is dialed directly: the advertised socket path is a link to
-// the real socket, and macOS refuses a socket path past 104 bytes, so the link's target is dialed.
+// the real socket, and macOS refuses a socket path past 104 bytes, so the link's target is dialed,
+// and the process serving it is held for the daemon's caller check while the websocket is open.
 // Where Node opens none, the websocket runs over `codex app-server proxy`, which carries its
 // standard input and output to the socket.
 
@@ -8,10 +9,12 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { type FSWatcher, watch } from "node:fs";
 import { mkdir, realpath } from "node:fs/promises";
+import * as net from "node:net";
 import path from "node:path";
 import { Duplex } from "node:stream";
 import WebSocket from "ws";
 
+import type { ProviderServiceProcesses } from "../../../../ipc/caller-process/provider-services.js";
 import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
 import type { ResolvedProviderExecutable } from "../../../spawned-version.js";
 import { CODEX_MAX_RECEIVED_MESSAGE_BYTES } from "../server-requests.js";
@@ -87,18 +90,32 @@ type CodexSocketAttempt = (
 
 /**
  * The connector that dials the socket as the operating system can, and hands each message and the
- * close to the socket's owner. A dial rejects when the signal aborts, or when the socket cannot be
- * reached for another reason than a service the daemon just started not listening yet.
+ * close to the socket's owner. A socket dialed directly holds its serving process in
+ * `providerServices` until it closes; through the proxy, where Node opens no Unix socket and the
+ * daemon has no socket of its own to check callers on, none is held. A dial rejects when the
+ * signal aborts, when the socket cannot be reached for another reason than a service the daemon
+ * just started not listening yet, or when the system cannot name the process serving it.
  */
 export function createCodexServiceSocketConnector(
   operatingSystem: Pick<ProviderOperatingSystem, "canOpenUnixSocket" | "endChildProcess">,
+  providerServices: Pick<ProviderServiceProcesses, "holdServing">,
 ): CodexServiceSocketConnector {
   return async (socketPath, handlers, options) => {
     const attempt: CodexSocketAttempt = operatingSystem.canOpenUnixSocket
       ? async (changes) => {
           const realSocketPath = await realpath(socketPath);
           changes?.watchFolder(path.dirname(realSocketPath));
-          return await openCodexWebSocket(`ws+unix://${realSocketPath}:/`, options.signal);
+          const socket = net.createConnection(realSocketPath);
+          const opened = await openCodexWebSocket("ws://localhost/", options.signal, () => socket);
+          let release: () => void;
+          try {
+            release = providerServices.holdServing(socket);
+          } catch (error) {
+            opened.webSocket.terminate();
+            throw error;
+          }
+          opened.webSocket.once("close", release);
+          return opened;
         }
       : async () => await openThroughProxy(socketPath, options, operatingSystem.endChildProcess);
     const opened = options.awaitSocket

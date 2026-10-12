@@ -1,4 +1,4 @@
-// Linux: the connected process's id from the socket's `SO_PEERCRED` credentials, called through
+// Linux: the peer process's id from the socket's `SO_PEERCRED` credentials, called through
 // `koffi`, and a process's parent from field 4 of `/proc/<id>/stat`.
 
 import { readFile } from "node:fs/promises";
@@ -14,7 +14,9 @@ const PEER_CREDENTIALS_BYTES = 12;
 
 /** Binds `getsockopt` from the C library Node runs on; rejects when `koffi` cannot be loaded. */
 export async function openLinuxCallerProcessReader(): Promise<CallerProcessReader> {
-  const koffi = await importKoffi("telling which process connected to the daemon on Linux");
+  const koffi = await importKoffi(
+    "telling which process is at the other end of a local socket on Linux",
+  );
   // The running program's own symbols, so glibc and musl alike answer.
   const library = koffi.load(null);
   const getsockopt = library.func(
@@ -22,7 +24,7 @@ export async function openLinuxCallerProcessReader(): Promise<CallerProcessReade
       "_Inout_ uint32_t *option_len)",
   );
   return {
-    readConnectedProcessId: (socket) => {
+    readPeerProcessId: (socket) => {
       const credentials = Buffer.alloc(PEER_CREDENTIALS_BYTES);
       const length = [PEER_CREDENTIALS_BYTES];
       const descriptor = readSocketDescriptor(socket);

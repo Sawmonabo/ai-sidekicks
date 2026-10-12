@@ -34,7 +34,7 @@ const PROTOCOL_VERSION = "2026-05-01";
 // The system's own read of who opened each connection: here, this test's own process.
 const callerProcessReader = await HOST_OPERATING_SYSTEM.openCallerProcessReader();
 const readCallerProcessId = (socket: net.Socket): number =>
-  callerProcessReader.readConnectedProcessId(socket);
+  callerProcessReader.readPeerProcessId(socket);
 
 // The service's own device id, which every connection on its socket comes from.
 const SERVICE_DEVICE_ID = DeviceIdSchema.parse("service-device");

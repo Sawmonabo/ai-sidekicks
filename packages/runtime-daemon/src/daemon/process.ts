@@ -35,7 +35,6 @@ import { BACKUP_DEFAULT_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/backu
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
 import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import type { DaemonProcessState } from "@ai-sidekicks/contracts/daemon/status";
-import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/machine-settings";
 import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
@@ -54,8 +53,8 @@ import {
   createStreamedGitRunner,
   type StreamedGitRunner,
 } from "../workspace/clone/streamed-git.js";
-import type { CallerProcessReader } from "../ipc/caller-process/contract.js";
-import { createStartedByDaemonCheck } from "../ipc/caller-process/descent.js";
+import { createAgentCallerCheck } from "../ipc/caller-process/descent.js";
+import { ProviderServiceProcesses } from "../ipc/caller-process/provider-services.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
@@ -68,7 +67,7 @@ import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { PtyHost } from "../pty/host/contract.js";
 import { PtySessionEvents } from "../pty/host/session-events.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
-import { describeOrphanSweep, type OrphanSweepResult } from "../pty/orphan/sweep.js";
+import { describeOrphanSweep } from "../pty/orphan/sweep.js";
 import { DamagedHistory, registerDamagedHistoryMethods } from "../recovery/damaged-history.js";
 import {
   copyDatabaseFilesAside,
@@ -76,7 +75,6 @@ import {
   recordSessionInAsideCopy,
 } from "../recovery/database-file/aside-copy.js";
 import { reportDamageOf } from "../recovery/database-file/damage.js";
-import type { DaemonOperatingSystem } from "../operating-system/contract.js";
 import { ProjectionRebuildService } from "../recovery/projection-rebuild.js";
 import { refuseSessionEvent } from "../recovery/session-write-refusal.js";
 import { StartupRecovery } from "../recovery/startup.js";
@@ -89,17 +87,16 @@ import type { FolderPlace } from "../workspace/folder/place.js";
 import { openDatabaseFile, type OpenedDatabaseFile } from "./database-file.js";
 import { takeDataFolderLock, type DataFolderLock } from "./data-folder-lock.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
-import type { ServiceLogFiles } from "./service-log.js";
 import { readOrMintLocalMachine, type LocalMachine } from "./machine/local.js";
 import { MachineSettingsFile } from "./machine/settings/file.js";
 import { registerMachineSettingsMethods } from "./machine/settings/methods.js";
 import { SESSION_PROJECTIONS } from "./projections.js";
-import type { ProcessTreeUsage } from "./process-tree-usage.js";
 import { DaemonProviders, type ProviderPorts } from "./providers.js";
 import { bindSocket, mintSessionToken, prepareRunFolder } from "./run-folder.js";
 import { describeDrain, endWithinDrainBound } from "./stop-drain.js";
 import type { registerSessionMethods, RegisteredSessionServices } from "./session-methods.js";
 import { registerAppDiagnosticMethods } from "./app-diagnostic-methods.js";
+import type { DaemonProcessOptions } from "./start-options.js";
 import { registerStatusMethods } from "./status-methods.js";
 
 /** The daemon's database file in its data folder. */
@@ -110,65 +107,6 @@ export const SEARCH_INDEX_FOLDER_NAME = "search-index";
 /** The data folder the daemon holds inside `homeDirectory`. */
 export function resolveDataFolder(homeDirectory: string): string {
   return path.join(homeDirectory, DAEMON_DATA_FOLDER_NAME);
-}
-
-/** What a start needs from the machine it runs on; each is injected so a test can stand in. */
-export interface DaemonProcessOptions {
-  /** The person's home folder; the data folder is `.ai-sidekicks` inside it. */
-  readonly homeDirectory: string;
-  /** The run folder the socket and the session token file live in. */
-  readonly runFolder: DaemonRunFolder;
-  /**
-   * Sweeps the data folder's orphan registry of what a previous run left and opens this run's
-   * guard over it; called once the data folder is this daemon's alone.
-   */
-  readonly openOrphanGuard: (
-    dataFolder: string,
-  ) => Promise<{ guard: OrphanGuard; sweep: OrphanSweepResult }>;
-  /**
-   * Builds the terminal host over the orphan guard, which every session's shells run in; the daemon
-   * drains it at its stop.
-   */
-  readonly createPtyHost: (orphanGuard: OrphanGuard) => PtyHost;
-  /** Reads this machine's friendly name; called only at the first start. */
-  readonly readMachineName: () => Promise<string>;
-  /**
-   * Captures the base environment every provider process is built from. A start that fails before
-   * it reads the capture aborts `signal`, with "the start failed" as its reason, and the capture
-   * ends at once.
-   */
-  readonly captureProviderBaseEnvironment: (
-    signal: AbortSignal,
-  ) => Promise<readonly SpawnEnvPair[]>;
-  /** The operating system the daemon runs on, picked once at its start. */
-  readonly operatingSystem: DaemonOperatingSystem;
-  /** Reads which process opened each connection on the socket, and each process's parent. */
-  readonly callerProcessReader: CallerProcessReader;
-  /** The login shell a project's setup commands run in; `null` runs the system's default one. */
-  readonly commandShell: string | null;
-  /**
-   * Reads the person's login shell at each shell open, so a shell changed with `chsh` opens next;
-   * `null` where the account names none.
-   */
-  readonly readLoginShell: () => string | null;
-  /** The service's own release version, which the status read reports. */
-  readonly serviceVersion: string;
-  /** The daemon's own process as the system knows it, which the status read reports. */
-  readonly processIdentity: ProcessIdentity;
-  /** Reads the daemon's process and every process under it, for the status read. */
-  readonly readProcessTreeUsage: () => Promise<ProcessTreeUsage>;
-  /** Reads the free bytes on the volume holding a folder, which an upload is admitted against. */
-  readonly readVolumeFreeBytes: (folderPath: string) => Promise<number>;
-  readonly now: () => Date;
-  /** Writes one line to the service log, the daemon's standard error. */
-  readonly writeServiceLog: (line: string) => void;
-  /** The service log's files, which the diagnostic-log expiry turns by age and expires. */
-  readonly serviceLogFiles: ServiceLogFiles;
-  /**
-   * Aborts when a terminate signal asks the daemon to stop. Before the daemon listens it ends the
-   * start; once it listens it stops the daemon as a stop over the socket does.
-   */
-  readonly stopSignal: AbortSignal;
 }
 
 /**
@@ -259,9 +197,11 @@ export class DaemonProcess {
     // The negotiation gate wraps the recovery gate, which wraps the recording registry, so a
     // refused call is never recorded; under them every call's failure is told to the damage watch.
     this.#inFlightMutations = new InFlightMutations();
+    // The provider services the drivers dial, whose descendants are agents' as the daemon's are.
+    const providerServices = new ProviderServiceProcesses(options.callerProcessReader);
     const negotiator = new ProtocolNegotiator(
       parts.sessionToken,
-      createStartedByDaemonCheck(options.callerProcessReader, this.#ptyHost),
+      createAgentCallerCheck(options.callerProcessReader, this.#ptyHost, providerServices),
     );
     const writeGate = new RecoveryWriteGate(this.#recoveryStatus);
     const registry = negotiator.wrap(
@@ -431,6 +371,7 @@ export class DaemonProcess {
       diskFlush: options.operatingSystem.diskFlush,
       pathRules: options.operatingSystem.pathRules,
       processPeakReader: options.operatingSystem.processPeak,
+      providerServices,
       writeServiceLog: options.writeServiceLog,
     });
     this.providerPorts = this.#providers.ports;
@@ -439,7 +380,7 @@ export class DaemonProcess {
     this.#gateway = new LocalIpcGateway({
       registry,
       deviceId: machineDeviceId,
-      readCallerProcessId: (socket) => options.callerProcessReader.readConnectedProcessId(socket),
+      readCallerProcessId: (socket) => options.callerProcessReader.readPeerProcessId(socket),
       hooks: {
         onDisconnect: (transport) => {
           negotiator.cleanupTransport(transport.id);

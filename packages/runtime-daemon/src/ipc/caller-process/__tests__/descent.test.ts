@@ -1,10 +1,13 @@
 // Real processes on a real socket, with this test's process as the daemon: a command a provider
 // ran that read the session token is refused at its hello, its connection staying refused, while
 // a client outside the daemon's tree, as the desktop and the command line are, and a program in a
-// terminal the daemon opened for the person, are both accepted.
+// terminal the daemon opened for the person, are both accepted. A command the person's own
+// provider service ran, outside the daemon's tree, is refused while the daemon holds a
+// connection to that service.
 
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import * as net from "node:net";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -22,7 +25,8 @@ import { bootstrap } from "../../../bootstrap/index.js";
 import { LocalIpcGateway } from "../../local-gateway.js";
 import { ProtocolNegotiator } from "../../protocol-negotiation.js";
 import { MethodRegistryImpl } from "../../registry.js";
-import { createStartedByDaemonCheck } from "../descent.js";
+import { createAgentCallerCheck } from "../descent.js";
+import { ProviderServiceProcesses } from "../provider-services.js";
 
 const PACKAGE_FOLDER = new URL("../../../../", import.meta.url);
 const SOURCE_LOADER = new URL("tests/helpers/typescript-source-loader.mjs", PACKAGE_FOLDER).href;
@@ -58,6 +62,41 @@ renameSync(process.env.RESULT_PATH + ".partial", process.env.RESULT_PATH);
 await client.close();
 `;
 
+// The stand-in for the person's own service: once the process that started it has gone, it
+// listens on its socket, and for each result path a connection sends it starts the client as its
+// own child. It ends when that connection closes.
+const SERVICE_SCRIPT = `
+import { spawn } from "node:child_process";
+import { createServer } from "node:net";
+import { setTimeout as delay } from "node:timers/promises";
+
+while (process.ppid === Number(process.env.STARTING_PARENT)) {
+  await delay(10);
+}
+const server = createServer((connection) => {
+  connection.setEncoding("utf8");
+  connection.on("data", (resultPath) => {
+    spawn(process.execPath, JSON.parse(process.env.CLIENT_ARGUMENTS), {
+      env: { ...process.env, RESULT_PATH: resultPath },
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+  });
+  connection.on("close", () => {
+    server.close();
+  });
+});
+server.listen(process.env.SERVICE_SOCKET_PATH);
+`;
+
+const CLIENT_ARGUMENTS = [
+  "--conditions=@ai-sidekicks/source",
+  "--import",
+  SOURCE_LOADER,
+  "--input-type=module",
+  "--eval",
+  CLIENT_SCRIPT,
+];
+
 // How the client's shell starts it: `apart` backgrounds it from the shell, which exits at once
 // and names itself as the parent to outlive, so the client is handed to a process outside the
 // daemon's tree.
@@ -74,6 +113,7 @@ interface HelloReply {
 let scratch: string;
 let socketPath: string;
 let gateway: LocalIpcGateway;
+let providerServices: ProviderServiceProcesses;
 // The processes the stand-in terminal host started for the person's terminals.
 const terminalProcessIds = new Set<number>();
 
@@ -82,16 +122,21 @@ beforeAll(async () => {
   socketPath = path.join(scratch, "d.sock");
   bootstrap({ localIpcPath: socketPath });
   const reader = await HOST_OPERATING_SYSTEM.openCallerProcessReader();
+  providerServices = new ProviderServiceProcesses(reader);
   const negotiator = new ProtocolNegotiator(
     SESSION_TOKEN,
-    createStartedByDaemonCheck(reader, { readTerminalProcessIds: () => terminalProcessIds }),
+    createAgentCallerCheck(
+      reader,
+      { readTerminalProcessIds: () => terminalProcessIds },
+      providerServices,
+    ),
   );
   const registry = negotiator.wrap(new MethodRegistryImpl());
   negotiator.registerHandshakeMethod(registry);
   gateway = new LocalIpcGateway({
     registry,
     deviceId: DeviceIdSchema.parse("service-device"),
-    readCallerProcessId: (socket) => reader.readConnectedProcessId(socket),
+    readCallerProcessId: (socket) => reader.readPeerProcessId(socket),
     hooks: {
       onDisconnect: (transport) => {
         negotiator.cleanupTransport(transport.id);
@@ -135,20 +180,74 @@ async function runClient(
     terminalProcessIds.add(shell.pid);
   }
   try {
-    // The client outside the tree outlives its shell, so the file, not an exit, says it is done.
-    for (;;) {
-      try {
-        return JSON.parse(await readFile(resultPath, "utf8")) as HelloReply[];
-      } catch (error) {
-        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-          throw error;
-        }
-        await delay(20);
-      }
-    }
+    return await readReplies(resultPath);
   } finally {
     terminalProcessIds.clear();
   }
+}
+
+// Waits for the replies a client writes to `resultPath`. A client outside the tree outlives its
+// shell, so the file, not an exit, says it is done.
+async function readReplies(resultPath: string): Promise<readonly HelloReply[]> {
+  for (;;) {
+    try {
+      return JSON.parse(await readFile(resultPath, "utf8")) as HelloReply[];
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw error;
+      }
+      await delay(20);
+    }
+  }
+}
+
+// Starts the stand-in service outside this process's tree and connects to it once it listens.
+async function connectToService(): Promise<net.Socket> {
+  const serviceSocketPath = path.join(scratch, "service.sock");
+  spawn(
+    "/bin/sh",
+    [
+      "-c",
+      `STARTING_PARENT=$$ "${process.execPath}" --input-type=module --eval "$SERVICE_SCRIPT" &`,
+    ],
+    {
+      env: {
+        ...process.env,
+        SERVICE_SCRIPT,
+        CLIENT_SCRIPT,
+        CLIENT_ARGUMENTS: JSON.stringify(CLIENT_ARGUMENTS),
+        SERVICE_SOCKET_PATH: serviceSocketPath,
+        SOCKET_PATH: socketPath,
+        SESSION_TOKEN,
+        PROTOCOL_VERSION: CURRENT_PROTOCOL_VERSION,
+      },
+      cwd: PACKAGE_FOLDER,
+      stdio: ["ignore", "inherit", "inherit"],
+    },
+  );
+  for (;;) {
+    const connection = net.createConnection(serviceSocketPath);
+    const error = await new Promise<Error | null>((resolve) => {
+      connection.once("connect", () => {
+        resolve(null);
+      });
+      connection.once("error", resolve);
+    });
+    if (error === null) {
+      return connection;
+    }
+    if (!("code" in error && (error.code === "ENOENT" || error.code === "ECONNREFUSED"))) {
+      throw error;
+    }
+    await delay(20);
+  }
+}
+
+// Has the stand-in service start a client as its child and reads the replies it wrote.
+async function runServiceClient(service: net.Socket, name: string): Promise<readonly HelloReply[]> {
+  const resultPath = path.join(scratch, `service-${name}-${RESULT_FILE_NAME}`);
+  service.write(resultPath);
+  return await readReplies(resultPath);
 }
 
 describe.skipIf(process.platform === "win32")("a connection's caller", () => {
@@ -171,5 +270,20 @@ describe.skipIf(process.platform === "win32")("a connection's caller", () => {
     const [first] = await runClient("inside", true);
 
     expect(first?.result?.compatible).toBe(true);
+  });
+
+  it("refuses a command the person's own service ran while the daemon holds that service", async () => {
+    const service = await connectToService();
+    try {
+      const release = providerServices.holdServing(service);
+      const [whileHeld] = await runServiceClient(service, "held");
+      release();
+      const [afterRelease] = await runServiceClient(service, "released");
+
+      expect(whileHeld?.error?.data?.type).toBe(NEGOTIATION_CALLER_REFUSED_CODE);
+      expect(afterRelease?.result?.compatible).toBe(true);
+    } finally {
+      service.destroy();
+    }
   });
 });
