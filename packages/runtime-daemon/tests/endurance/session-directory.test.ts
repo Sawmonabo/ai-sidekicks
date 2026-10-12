@@ -9,13 +9,14 @@
 // beside them, and fails on any class over one. The build runs in the built daemon, `dist/main.js`,
 // so `pnpm build` runs first.
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { monitorEventLoopDelay, performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -44,7 +45,7 @@ import { SessionLinkService } from "../../src/session/links/service.js";
 import { SessionRelatedRanking } from "../../src/session/related/ranking.js";
 import { SearchThread } from "../../src/session/search/thread/handle.js";
 import { mintUuidV7 } from "../../src/uuid-v7.js";
-import { loadProcessMemoryReader } from "./process-memory.js";
+import { loadProcessMemoryReader, type ProcessMemoryReader } from "./process-memory.js";
 import { SEEDED_SET_SIZE, seedDirectorySet, type SeededSet } from "./seeded-set.js";
 import { timingOf, type Timing } from "./timing.js";
 
@@ -87,7 +88,7 @@ const PROBE_QUERIES = [
   "tag:billing/mitalo lo",
   "neblegrivo",
 ];
-// How often the daemon's and its children's memory is read while the index builds.
+// How often the daemon's and its build process's memory is read while the index builds.
 const MEMORY_SAMPLE_MS = 50;
 // How often a wait for an index change asks again, and when it gives up.
 const POLL_INTERVAL_MS = 5;
@@ -105,6 +106,10 @@ const searchLogLines: string[] = [];
 
 // The built daemon, run as a person runs it, so the build's footprint is its processes' own.
 const DAEMON_ENTRY = fileURLToPath(new URL("../../dist/main.js", import.meta.url));
+// The module of the process the daemon's search thread forks to build the index.
+const BUILD_CHILD_ENTRY = fileURLToPath(
+  new URL("../../dist/session/search/index/child.js", import.meta.url),
+);
 // What the daemon's search thread logs once it has built the index and answers searches.
 const INDEX_REBUILT_LINE = "search_index_rebuilt: missing";
 
@@ -114,15 +119,23 @@ interface MainThreadTurns {
   readonly longestLatenessMs: number;
 }
 
+// One process the daemon started besides the build, such as the provider probe at its start: its
+// command and its peak footprint while the index built.
+interface OtherChild {
+  readonly command: string;
+  readonly peakMiB: number;
+}
+
 // The index's build at the daemon's start: its time, the daemon's lifetime peak footprint, how many
-// processes it started and the sum of their peaks, and the most the daemon and they held at once
-// in a sample.
+// processes the build process and those under it were and the sum of their peaks, the most the
+// daemon and they held at once in a sample, and the daemon's other children apart.
 interface DaemonBuild {
   readonly buildMs: number;
   readonly daemonPeakMiB: number;
-  readonly childCount: number;
-  readonly childrenPeakMiB: number;
+  readonly buildProcessCount: number;
+  readonly buildPeakMiB: number;
   readonly sampledPeakMiB: number;
+  readonly otherChildren: readonly OtherChild[];
 }
 
 // One line of the printed table, and whether its numbers are inside their budgets.
@@ -193,11 +206,39 @@ async function measure(run: () => Promise<unknown>): Promise<Timing & MainThread
   return { ...timingOf(durationsMs), ...stopFollowingTurns() };
 }
 
+const runExecFile = promisify(execFile);
+
+// A process's command line, or `undefined` once it has ended, which `ps` answers with status 1.
+async function readCommand(processId: number): Promise<string | undefined> {
+  try {
+    const { stdout } = await runExecFile("ps", ["-ww", "-o", "args=", "-p", String(processId)]);
+    return stdout.trim();
+  } catch (error) {
+    if ((error as { code?: unknown }).code === 1) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+// `processId` and every process under it.
+async function listProcessTree(
+  memory: ProcessMemoryReader,
+  processId: number,
+): Promise<readonly number[]> {
+  const tree = [processId];
+  for (const childId of await memory.listChildren(processId)) {
+    tree.push(...(await listProcessTree(memory, childId)));
+  }
+  return tree;
+}
+
 // The index's build in a daemon started on `homeFolder`, whose data folder holds the database and
 // no index: how long from the spawn until its search thread answers, and the peak footprints by
-// then of the daemon and of the processes it started, each child's read last while it ran. The
-// daemon is stopped before this resolves, or once `signal` aborts; throws, with what it printed,
-// when it exits before the build.
+// then of the daemon and of its build process with the processes under it, each read last while
+// it ran. The daemon's other children are read apart, outside the build's budget. The daemon is
+// stopped before this resolves, or once `signal` aborts; throws, with what it printed, when it
+// exits before the build.
 async function buildIndexInDaemon(
   homeFolder: string,
   runFolder: string,
@@ -230,7 +271,11 @@ async function buildIndexInDaemon(
       });
     }
   });
-  const childPeakBytes = new Map<number, number>();
+  // Each child's command, read once when it first shows; the build child is the one running
+  // the build module.
+  const commandByChildId = new Map<number, string>();
+  const buildPeakBytes = new Map<number, number>();
+  const otherPeakBytes = new Map<number, number>();
   let sampledPeakBytes = 0;
   let isSampling = true;
   const sampling = (async (): Promise<void> => {
@@ -238,10 +283,22 @@ async function buildIndexInDaemon(
     while (isSampling && daemonId !== undefined) {
       let togetherBytes = (await memory.readMemory(daemonId))?.currentBytes ?? 0;
       for (const childId of await memory.listChildren(daemonId)) {
-        const child = await memory.readMemory(childId);
-        if (child !== undefined) {
-          togetherBytes += child.currentBytes;
-          childPeakBytes.set(childId, Math.max(child.peakBytes, childPeakBytes.get(childId) ?? 0));
+        const command = commandByChildId.get(childId) ?? (await readCommand(childId));
+        if (command === undefined) {
+          continue;
+        }
+        commandByChildId.set(childId, command);
+        const isBuild = command.includes(BUILD_CHILD_ENTRY);
+        for (const processId of isBuild ? await listProcessTree(memory, childId) : [childId]) {
+          const read = await memory.readMemory(processId);
+          if (read === undefined) {
+            continue;
+          }
+          const peaks = isBuild ? buildPeakBytes : otherPeakBytes;
+          peaks.set(processId, Math.max(read.peakBytes, peaks.get(processId) ?? 0));
+          if (isBuild) {
+            togetherBytes += read.currentBytes;
+          }
         }
       }
       sampledPeakBytes = Math.max(sampledPeakBytes, togetherBytes);
@@ -257,13 +314,17 @@ async function buildIndexInDaemon(
     if (!isBuilt || daemonMemory === undefined) {
       throw new Error(`The daemon exited before it built the index:\n${output}`);
     }
-    const childrenPeakBytes = [...childPeakBytes.values()].reduce((sum, bytes) => sum + bytes, 0);
+    const buildBytes = [...buildPeakBytes.values()].reduce((sum, bytes) => sum + bytes, 0);
     return {
       buildMs,
       daemonPeakMiB: daemonMemory.peakBytes / 2 ** 20,
-      childCount: childPeakBytes.size,
-      childrenPeakMiB: childrenPeakBytes / 2 ** 20,
+      buildProcessCount: buildPeakBytes.size,
+      buildPeakMiB: buildBytes / 2 ** 20,
       sampledPeakMiB: sampledPeakBytes / 2 ** 20,
+      otherChildren: [...otherPeakBytes].map(([childId, peakBytes]) => ({
+        command: commandByChildId.get(childId) ?? "",
+        peakMiB: peakBytes / 2 ** 20,
+      })),
     };
   } finally {
     isSampling = false;
@@ -350,24 +411,28 @@ describe("the session directory's budgets on the seeded set", () => {
   });
 
   it("builds the index from the database at the start, merged, in budget", async () => {
-    const { buildMs, daemonPeakMiB, childCount, childrenPeakMiB, sampledPeakMiB } = daemonBuild;
-    // No moment of the build held more than the daemon's peak and its children's together.
-    const peakFootprintMiB = daemonPeakMiB + childrenPeakMiB;
+    const { buildMs, daemonPeakMiB, buildProcessCount, buildPeakMiB, sampledPeakMiB } = daemonBuild;
+    // No moment of the build held more than the daemon's peak and its build process's together.
+    const peakFootprintMiB = daemonPeakMiB + buildPeakMiB;
     await searchThread.searchSessions({ query: seeded.words[0] ?? "" });
     console.log(
       `Index build from ${String(SEEDED_SET_SIZE.messages)} messages at the daemon's start: first ` +
         `answer after ${(buildMs / 1000).toFixed(1)} s (budget ${String(REBUILD_BUDGET_MS / 1000)} ` +
         `s), peak footprint ${peakFootprintMiB.toFixed(0)} MiB for the daemon and its build ` +
         `process together (budget ${String(REBUILD_FOOTPRINT_BUDGET_MIB)} MiB): the daemon's ` +
-        `${daemonPeakMiB.toFixed(0)} MiB and its ${String(childCount)} children's ` +
-        `${childrenPeakMiB.toFixed(0)} MiB, ${sampledPeakMiB.toFixed(0)} MiB at the highest ` +
-        `sample; ${residentMemory()}`,
+        `${daemonPeakMiB.toFixed(0)} MiB and the build's ${String(buildProcessCount)} ` +
+        `processes' ${buildPeakMiB.toFixed(0)} MiB, ${sampledPeakMiB.toFixed(0)} MiB at the ` +
+        `highest sample; ${residentMemory()}. The daemon's other children, outside the budget: ` +
+        (daemonBuild.otherChildren
+          .map(({ command, peakMiB }) => `${command} at ${peakMiB.toFixed(0)} MiB`)
+          .join("; ") || "none"),
     );
     expect(searchLogLines).toEqual([]);
     // The build merged what it built, so the daemon has none of its merging left to do.
     expect(await searchThread.mergeSegments()).toBe(false);
     expect(buildMs).toBeLessThanOrEqual(REBUILD_BUDGET_MS);
-    expect(childCount).toBeGreaterThan(0);
+    // The build process was found, so the budget reads its memory.
+    expect(buildProcessCount).toBeGreaterThan(0);
     expect(peakFootprintMiB).toBeLessThanOrEqual(REBUILD_FOOTPRINT_BUDGET_MIB);
   });
 

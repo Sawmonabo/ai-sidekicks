@@ -264,6 +264,8 @@ export class ApprovalService {
     try {
       await this.#events.requested(payload, {
         occurredAt: createdAt,
+        // The run, and the person shown the card, wait on this write.
+        isWaitedOn: true,
         statements: [
           sessionOpenStatement(parsed.sessionId),
           runLiveStatement(parsed.sessionId, parsed.runId),
@@ -323,6 +325,8 @@ export class ApprovalService {
         },
         {
           occurredAt: resolvedAt,
+          // The person who answered, and the run the answer goes to, wait on this write.
+          isWaitedOn: true,
           statements: [
             settlePendingStatement(stored.approvalRequestId, request.decision, resolvedAt),
             runLiveStatement(stored.sessionId, stored.runId),
@@ -405,13 +409,17 @@ export class ApprovalService {
       return false;
     }
     try {
-      await this.#deps.writer.write([
-        insertCorrectionUseStatement({
-          approvalRequestId,
-          sessionId: stored.sessionId,
-          usedAt: this.#now(),
-        }),
-      ]);
+      // The provider's ask waits on this write for its answer.
+      await this.#deps.writer.write(
+        [
+          insertCorrectionUseStatement({
+            approvalRequestId,
+            sessionId: stored.sessionId,
+            usedAt: this.#now(),
+          }),
+        ],
+        { isWaitedOn: true },
+      );
     } catch (error) {
       if (error instanceof WriteRefusedError) {
         return false;

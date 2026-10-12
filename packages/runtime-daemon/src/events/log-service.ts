@@ -102,6 +102,9 @@ export interface EventLogAppendOptions extends ThinkingUpdateAppendOptions {
    * at its own sequence; each is checked as this one is and carries no content.
    */
   readonly precedingEvents?: readonly UnsequencedEventEnvelope[];
+
+  /** Whether someone is waiting on the write (see `WriteOptions.isWaitedOn`). */
+  readonly isWaitedOn?: boolean;
 }
 
 /** Construction dependencies. */
@@ -227,6 +230,7 @@ export class EventLogService {
       this.#writer.appendEvents(
         written.map((event) => event.row),
         statements,
+        { isWaitedOn: options?.isWaitedOn ?? false },
       ),
     );
     const committed = written.flatMap((event, index) => {
