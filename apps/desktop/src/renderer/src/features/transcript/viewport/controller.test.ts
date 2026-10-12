@@ -181,6 +181,46 @@ describe("the viewport controller — where a reconcile holds a reader", () => {
   });
 });
 
+describe("the viewport controller — Home onto a page whose rows still prepare", () => {
+  it("lands on the page's first row once it joins, unless the reader moved before that", () => {
+    const landedOn = (readerMoves: boolean): unknown[][] => {
+      let pageLands: (() => void) | undefined;
+      const controller = new ViewportController({
+        clock: new ManualClock(),
+        jumpToLogEnd: (_side, beforePageLands) => {
+          pageLands = beforePageLands;
+          return true;
+        },
+      });
+      const scrollContainer = attachReaderAt(controller, {
+        offsetPx: 400,
+        clientHeight: 100,
+        scrollHeight: 4000,
+      });
+      const openingRows = syntheticRows(20);
+      controller.reconcile({ rows: openingRows, ...CALM }, NO_LINK);
+      controller.commitPendingPositionHold(openingRows);
+      scrollContainer.dispatchEvent(new KeyboardEvent("keydown", { key: "Home" }));
+      const landOnRow = vi.spyOn(controller.landing, "landOnRow");
+
+      // The page takes the log's place while every row of it still waits to draw whole.
+      pageLands?.();
+      controller.reconcile({ rows: [], ...CALM }, NO_LINK);
+      controller.commitPendingPositionHold([]);
+      if (readerMoves) {
+        scrollContainer.dispatchEvent(new WheelEvent("wheel", { deltaY: 40 }));
+      }
+      const pageRows = syntheticRows(28).slice(20);
+      controller.reconcile({ rows: pageRows, ...CALM }, NO_LINK);
+      controller.commitPendingPositionHold(pageRows);
+      return landOnRow.mock.calls;
+    };
+
+    expect(landedOn(false)).toEqual([["row-20", "jump-to-head"]]);
+    expect(landedOn(true)).toEqual([]);
+  });
+});
+
 describe("the viewport controller — teardown", () => {
   it("disposes terminally, and arms nothing afterwards", () => {
     const { controller, clock } = attachedController();
