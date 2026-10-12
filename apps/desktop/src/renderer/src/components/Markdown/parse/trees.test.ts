@@ -267,11 +267,11 @@ function fillCache(trees: MarkdownTrees, tag: string): void {
 }
 
 /**
- * Tables the cache charges over a quarter of its cap each, about 2,000 nodes at 260 bytes and
- * their buffer, and enough of them to pass it.
+ * Tables the cache charges about 137 KB each, their text and their buffer of about 2,000 nodes,
+ * and enough of them to pass its cap.
  */
 const FILLING_TABLE_ROWS = 200;
-const FILLING_BLOCK_COUNT = 6;
+const FILLING_BLOCK_COUNT = 20;
 
 describe("text GFM keeps literal", () => {
   it.each([

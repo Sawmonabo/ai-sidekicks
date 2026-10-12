@@ -62,7 +62,10 @@ export function WindowedMarkdown(props: WindowedMarkdownProps): React.JSX.Elemen
                 {block === undefined ? (
                   <VolatileBlock nodes={blocks.tailNodes} context={contexts.volatile} />
                 ) : (
-                  <SettledBlock nodes={blocks.readBlockNodes(block)} context={contexts.settled} />
+                  <SettledBlock
+                    nodes={blocks.readBlockTree(block).root.children}
+                    context={contexts.settled}
+                  />
                 )}
               </MarkdownBlockIndexContext>
             </div>

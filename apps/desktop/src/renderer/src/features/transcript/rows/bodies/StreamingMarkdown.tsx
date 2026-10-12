@@ -131,7 +131,10 @@ function WholeMarkdown(props: {
     <div className="meridian-markdown" ref={flowTableBody?.attachBody}>
       {blocks.settledBlocks.map((block, index) => (
         <MarkdownBlockIndexContext key={block.key} value={index}>
-          <SettledBlock nodes={blocks.readBlockNodes(block)} context={contexts.settled} />
+          <SettledBlock
+            nodes={blocks.readBlockTree(block).root.children}
+            context={contexts.settled}
+          />
         </MarkdownBlockIndexContext>
       ))}
       {blocks.volatileTail === "" ? null : (

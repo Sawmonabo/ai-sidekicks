@@ -3,11 +3,12 @@
 // a block that could define a footnote, the footnote identifiers it defines, kept as strings once
 // its parse lands. A block keeps where its text sits in the body's text, never a copy of it, so a
 // long reply is held once; its text is cut again when it is parsed. Each settled block's tree is
-// held here while the body is, so a block drawn again, scrolled back into a long body's window,
-// draws on the frame it mounts; it is held in the app's shared trees too, with each tree read for
-// the footnotes a block defines and the tail's, so another body of the same text, as a row mounted
-// again draws, reads every one at once. The volatile tail is parsed here as it grows, and alone too
-// while it could define a footnote.
+// held here while the body is, as the shared trees keep it, the parser's buffer read into nodes
+// when drawn, so a block drawn again, scrolled back into a long body's window, draws on the frame
+// it mounts; it is held in the app's shared trees too, with each tree read for the footnotes a block
+// defines and the tail's, so another body of the same text, as a row mounted again draws, reads
+// every one at once. The volatile tail is parsed here as it grows, and alone too while it could
+// define a footnote.
 //
 // What is drawn moves in one step. A body's first draw waits until the body's definitions are
 // read and every settled block's tree and its tail's have landed against them. After that, a block
@@ -24,6 +25,7 @@ import {
   footnoteDefinitionPreamble,
   type MarkdownParseOutcome,
   type MarkdownTrees,
+  type ParsedMarkdown,
 } from "#renderer/components/Markdown/parse/trees.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { startSlice } from "#renderer/lib/work-slices.js";
@@ -77,10 +79,10 @@ export interface MarkdownBodyBlocksSnapshot {
    */
   readonly readBlockSource: (block: SettledMarkdownBlock) => string;
   /**
-   * A drawn block's nodes, from the newest tree of it that has landed; the same array until a
-   * newer one lands. Throws for a block that is not drawn.
+   * A drawn block's newest landed tree: the same object until a newer one lands, whose root reads
+   * the same nodes while anything holds them. Throws for a block that is not drawn.
    */
-  readonly readBlockNodes: (block: SettledMarkdownBlock) => readonly RootContent[];
+  readonly readBlockTree: (block: SettledMarkdownBlock) => ParsedMarkdown;
   /**
    * The definitions the drawn tree of block `index`, or of the tail past the settled blocks, was
    * parsed after: what every offset in that tree counts before the block's own text. Throws for a
@@ -164,8 +166,8 @@ export class MarkdownBodyBlocks {
   public readonly subscribe = (listener: () => void): Unsubscribe =>
     this.#changes.subscribe(listener);
 
-  readonly #readBlockNodes = (block: SettledMarkdownBlock): readonly RootContent[] =>
-    this.#drawnTreeOf(block).nodes;
+  readonly #readBlockTree = (block: SettledMarkdownBlock): ParsedMarkdown =>
+    this.#drawnTreeOf(block).tree;
 
   public constructor(trees: MarkdownTrees) {
     this.#trees = trees;
@@ -239,7 +241,7 @@ export class MarkdownBodyBlocks {
       definedFootnoteIdentifiers,
       definitionPreamble: this.#definitionPreamble,
       readBlockSource: this.#generationText.readBlockSource,
-      readBlockNodes: this.#readBlockNodes,
+      readBlockTree: this.#readBlockTree,
       readDefinitionPreamble: (index) => {
         const block = drawnBlocks[index];
         return block === undefined ? (tailPreamble ?? "") : this.#drawnTreeOf(block).landedPreamble;
@@ -339,7 +341,7 @@ export class MarkdownBodyBlocks {
       held.stop();
       held.letLandedGo();
       held.letLandedGo = NO_STOP;
-      if (held.nodes === undefined) {
+      if (held.tree === undefined) {
         this.#blockTrees.delete(key);
       } else {
         held.askedPreamble = held.landedPreamble;
@@ -482,7 +484,7 @@ export class MarkdownBodyBlocks {
     const held = this.#blockTrees.get(block.key) ?? {
       askedPreamble: definitionPreamble,
       landedPreamble: undefined,
-      nodes: undefined,
+      tree: undefined,
       stop: NO_STOP,
       letLandedGo: NO_STOP,
     };
@@ -554,12 +556,12 @@ export class MarkdownBodyBlocks {
         this.#blockTrees.set(block.key, {
           askedPreamble: undefined,
           landedPreamble: definitionPreamble,
-          nodes: kept.root.children,
+          tree: kept,
           stop: NO_STOP,
           letLandedGo: NO_STOP,
         });
       } else {
-        held.nodes = kept.root.children;
+        held.tree = kept;
         held.landedPreamble = definitionPreamble;
       }
     }
@@ -581,10 +583,10 @@ export class MarkdownBodyBlocks {
     held.letLandedGo();
     held.letLandedGo = letGo;
     // The tree a read drew from the shared trees, now held, changes nothing drawn.
-    if (held.nodes === outcome.root.children && held.landedPreamble === definitionPreamble) {
+    if (held.tree === outcome && held.landedPreamble === definitionPreamble) {
       return;
     }
-    held.nodes = outcome.root.children;
+    held.tree = outcome;
     held.landedPreamble = definitionPreamble;
     this.#changed();
   }
@@ -819,8 +821,8 @@ interface HeldBlockTree {
   askedPreamble: string | undefined;
   /** The definitions its newest landed tree was parsed against, `undefined` before one lands. */
   landedPreamble: string | undefined;
-  /** Its newest landed tree's nodes. */
-  nodes: readonly RootContent[] | undefined;
+  /** Its newest landed tree. */
+  tree: ParsedMarkdown | undefined;
   /** Stops listening for its ask in flight. */
   stop: Unsubscribe;
   /** Lets go of its newest landed tree, held in the shared trees while this body holds it. */
@@ -830,11 +832,11 @@ interface HeldBlockTree {
 /** A block's tree once one has landed. */
 interface LandedBlockTree extends HeldBlockTree {
   landedPreamble: string;
-  nodes: readonly RootContent[];
+  tree: ParsedMarkdown;
 }
 
 function hasLanded(held: HeldBlockTree): held is LandedBlockTree {
-  return held.nodes !== undefined && held.landedPreamble !== undefined;
+  return held.tree !== undefined && held.landedPreamble !== undefined;
 }
 
 /** The tail's identifiers the settled blocks do not define, with the union they made. */

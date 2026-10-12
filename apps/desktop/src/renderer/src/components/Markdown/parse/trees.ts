@@ -1,15 +1,17 @@
 // The markdown trees every window shares, parsed by the app's one markdown worker: a settled
 // block's tree, or the tree a streaming tail shows, is kept in a cache bounded in bytes and shared
 // by every body that asks for the same text, and a tree a body holds stays kept while it is held,
-// so a body mounted next draws it at once. A document read once is parsed each time it is asked
-// for. A block is parsed against the definitions its whole body declares, which the trees here are
-// given as a preamble and returned without. A text whose last block is one long table is parsed in
-// pieces and the table's rows read as they are held (`pieced-table.ts`), its pieces' trees kept in a
-// cache of their own; a text that continues the last one parsed in pieces, as a streaming table
-// grows, parses only the pieces it changed.
+// so a body mounted next draws it at once. A kept tree is the worker's binary tree, read into the
+// mdast the screen draws when it is drawn, and that mdast is kept only while something holds its
+// nodes, such as a block on screen: a long reply keeps its blocks' buffers, not their nodes, and a
+// block scrolled back into view reads its buffer again in the frame it mounts. A document read once
+// is parsed each time it is asked for. A block is parsed against the definitions its whole body
+// declares, which the trees here are given as a preamble and returned without. A text whose last
+// block is one long table is parsed in pieces and the table's rows read as they are held
+// (`pieced-table.ts`), its pieces' trees kept in a cache of their own; a text that continues the
+// last one parsed in pieces, as a streaming table grows, parses only the pieces it changed.
 
-import type { Root } from "mdast";
-import { MdastReader } from "satteri/mdast-reader";
+import type { Root, RootContent } from "mdast";
 
 import { ByteBoundedCache } from "#renderer/lib/byte-bounded-cache.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -29,7 +31,7 @@ export type MarkdownParseOutcome =
   | {
       readonly status: "parsed";
       readonly root: Root;
-      /** What the tree holds once drawn whole, estimated in bytes: what the cache charges it. */
+      /** What the tree keeps, in bytes, read whole or not: what the cache charges it. */
       readonly treeByteCount: number;
     }
   | { readonly status: "failed"; readonly reason: string };
@@ -49,6 +51,11 @@ export class MarkdownTrees {
   );
   /** The listeners of each settled block being parsed, by its cache key. */
   readonly #waitingBlocks = new Map<string, Set<MarkdownTreeListener>>();
+  /**
+   * The root of each kept tree read into mdast, by its nodes: a root lives as long as anything
+   * holds its nodes, so a block on screen is answered the same nodes each time it is read.
+   */
+  readonly #rootsByNodes = new WeakMap<readonly RootContent[], Root>();
   readonly #pieceTrees: TablePieceTrees;
   /**
    * The rows of the last block parsed in pieces, whose pieces a text continuing it takes. It holds
@@ -85,7 +92,8 @@ export class MarkdownTrees {
     definitionPreamble: string,
     listener: MarkdownTreeListener,
   ): Unsubscribe {
-    const kept = this.readSettledBlock(blockSource, definitionPreamble);
+    const hitKey = settledBlockCacheKey(blockSource, definitionPreamble);
+    const kept = this.#settledBlocks.get(hitKey);
     if (kept !== undefined) {
       listener(kept);
       return NO_UNSUBSCRIBE;
@@ -121,41 +129,41 @@ export class MarkdownTrees {
    * Ask for a settled block's tree as `requestSettledBlock` does, and hold it in the cache,
    * whatever its size, until the returned call lets it go; the body that draws the block next is
    * then answered at once. What bounds the held trees is their holders: a second call to let go
-   * does nothing, so no holder frees another's hold.
+   * does nothing, so no holder frees another's hold. A landed hold keeps only its key.
    */
   public holdSettledBlock(
     blockSource: string,
     definitionPreamble: string,
     listener: MarkdownTreeListener,
   ): Unsubscribe {
-    let heldKey: string | undefined;
     const hitKey = settledBlockCacheKey(blockSource, definitionPreamble);
-    let stopListening = NO_UNSUBSCRIBE;
     const kept = this.#settledBlocks.get(hitKey);
     if (kept !== undefined && this.#settledBlocks.hold(hitKey)) {
-      heldKey = hitKey;
       listener(kept);
-    } else {
-      stopListening = this.requestSettledBlock(blockSource, definitionPreamble, (outcome) => {
-        if (outcome.status === "parsed") {
-          // Stored under a key built from a copy, so it keeps no cut's parent string alive.
-          heldKey = settledBlockCacheKey(structuredClone(blockSource), definitionPreamble);
-          this.#settledBlocks.setHeld(heldKey, outcome);
-        }
-        listener(outcome);
-      });
+      return letGoOf(this.#settledBlocks, { key: hitKey, stopListening: NO_UNSUBSCRIBE });
     }
-    let isLetGo = false;
-    return () => {
-      if (isLetGo) {
-        return;
+    const hold: SettledBlockHold = { key: undefined, stopListening: NO_UNSUBSCRIBE };
+    let hasLanded = false;
+    const stopListening = this.requestSettledBlock(blockSource, definitionPreamble, (outcome) => {
+      hasLanded = true;
+      hold.stopListening = NO_UNSUBSCRIBE;
+      if (outcome.status === "parsed") {
+        if (!this.#settledBlocks.hold(hitKey)) {
+          // Too large for the cache unheld: stored under a copy, so it keeps no cut's parent.
+          this.#settledBlocks.setHeld(
+            settledBlockCacheKey(structuredClone(blockSource), definitionPreamble),
+            outcome,
+          );
+        }
+        hold.key = hitKey;
       }
-      isLetGo = true;
-      stopListening();
-      if (heldKey !== undefined) {
-        this.#settledBlocks.release(heldKey);
-      }
-    };
+      listener(outcome);
+    });
+    // Dropped once landed: it holds the ask's listeners, which nothing calls again.
+    if (!hasLanded) {
+      hold.stopListening = stopListening;
+    }
+    return letGoOf(this.#settledBlocks, hold);
   }
 
   /**
@@ -232,12 +240,7 @@ export class MarkdownTrees {
     );
   }
 
-  /**
-   * Parse a text whole and read its tree as the app draws it. The synthetic definitions are dropped
-   * by source offset, not identity: a block's real `[^1]: …` has the same identifier as the
-   * synthetic one and must survive. Every offset in the result counts the preamble, so a node's
-   * start offset minus the preamble's length is where it starts in the text.
-   */
+  /** Parse a text whole, its tree kept as the worker's buffer and read into mdast when drawn. */
   #parseWhole(
     source: string,
     definitionPreamble: string,
@@ -246,7 +249,9 @@ export class MarkdownTrees {
     const parsedText = definitionPreamble + source;
     this.#worker.parse(parsedText, (answer) => {
       settle(
-        answer.status === "failed" ? answer : wholeTreeOf(answer, parsedText, definitionPreamble),
+        answer.status === "failed"
+          ? answer
+          : new KeptMarkdownTree(answer, parsedText, definitionPreamble, this.#rootsByNodes),
       );
     });
   }
@@ -273,18 +278,10 @@ export function footnoteDefinitionPreamble(definedIdentifiers: ReadonlySet<strin
 
 /**
  * Bytes of parsed-block cache retained across every card, charged against the source text and
- * an estimate of the tree it parsed to. Bounded in bytes, not entries, because block sizes span
- * four orders of magnitude.
+ * the tree's buffer. Bounded in bytes, not entries, because block sizes span four orders of
+ * magnitude.
  */
 const MARKDOWN_BLOCK_CACHE_BYTE_CAP = 2_097_152;
-
-/**
- * What one parsed node holds on the heap once read, in bytes. Measured: a table of 24,700 rows read
- * whole held 100 MB in 395,000 nodes, about 253 bytes a node, mostly the position objects, and one
- * of 3,077 rows 13 MB in 49,000. Charging the source alone would let a full cache hold many times
- * its cap.
- */
-const MDAST_NODE_BYTE_ESTIMATE = 260;
 
 /**
  * What separates the synthetic definitions from the block's own text.
@@ -309,28 +306,88 @@ function settledBlockCacheKey(blockSource: string, definitionPreamble: string): 
     : definitionPreamble + SETTLED_KEY_SEPARATOR + blockSource;
 }
 
-/** The tree in `answer`, parsed from `parsedText`, without the definitions its preamble restated. */
-function wholeTreeOf(
-  answer: Extract<MarkdownParseAnswer, { readonly status: "parsed" }>,
-  parsedText: string,
-  definitionPreamble: string,
-): ParsedMarkdown {
-  const nodeCount = new MdastReader(answer.buffer).nodeCount;
-  const root = materializeMarkdownTree(answer.buffer, parsedText, answer.dollarStandIn);
-  return {
-    status: "parsed",
-    root:
-      definitionPreamble === ""
-        ? root
-        : {
-            ...root,
-            children: root.children.filter(
-              (child) => (child.position?.start.offset ?? 0) >= definitionPreamble.length,
-            ),
-          },
-    // The tree reads its nodes from the buffer as they are drawn, so it holds both.
-    treeByteCount: answer.buffer.byteLength + nodeCount * MDAST_NODE_BYTE_ESTIMATE,
+/** A hold on a settled block's tree: the key it is held under, once landed, and the ask in flight. */
+interface SettledBlockHold {
+  key: string | undefined;
+  stopListening: Unsubscribe;
+}
+
+/** Lets go of `hold` once: stops its ask in flight and releases its tree from `cache`. */
+function letGoOf(cache: ByteBoundedCache<ParsedMarkdown>, hold: SettledBlockHold): Unsubscribe {
+  let isLetGo = false;
+  return () => {
+    if (isLetGo) {
+      return;
+    }
+    isLetGo = true;
+    hold.stopListening();
+    if (hold.key !== undefined) {
+      cache.release(hold.key);
+    }
   };
+}
+
+/**
+ * One text's tree kept as the worker's binary buffer, about a quarter of the mdast it reads into,
+ * and read into that mdast when asked for. The mdast is held weakly: it lives while anything holds
+ * its nodes or its root, and once nothing does it is read from the buffer again on the next ask,
+ * within that call.
+ */
+class KeptMarkdownTree {
+  public readonly status = "parsed";
+  public readonly treeByteCount: number;
+  readonly #buffer: ArrayBuffer;
+  readonly #parsedText: string;
+  readonly #definitionPreambleLength: number;
+  readonly #dollarStandIn: string | undefined;
+  readonly #rootsByNodes: WeakMap<readonly RootContent[], Root>;
+  #root: WeakRef<Root> | undefined;
+
+  /**
+   * The tree in `answer`, parsed from `parsedText`, which opens on `definitionPreamble`; each root
+   * read is kept in `rootsByNodes` for as long as its nodes are held.
+   */
+  public constructor(
+    answer: Extract<MarkdownParseAnswer, { readonly status: "parsed" }>,
+    parsedText: string,
+    definitionPreamble: string,
+    rootsByNodes: WeakMap<readonly RootContent[], Root>,
+  ) {
+    this.#buffer = answer.buffer;
+    this.#parsedText = parsedText;
+    this.#definitionPreambleLength = definitionPreamble.length;
+    this.#dollarStandIn = answer.dollarStandIn;
+    this.#rootsByNodes = rootsByNodes;
+    this.treeByteCount = answer.buffer.byteLength;
+  }
+
+  /**
+   * The tree as the app draws it, without the definitions its preamble restated: the same root
+   * while anything holds it or its nodes. The synthetic definitions are dropped by source offset,
+   * not identity: a block's real `[^1]: …` has the same identifier as the synthetic one and must
+   * survive. Every offset counts the preamble, so a node's start offset minus the preamble's length
+   * is where it starts in the text.
+   */
+  public get root(): Root {
+    const held = this.#root?.deref();
+    if (held !== undefined) {
+      return held;
+    }
+    const whole = materializeMarkdownTree(this.#buffer, this.#parsedText, this.#dollarStandIn);
+    const preambleLength = this.#definitionPreambleLength;
+    const root =
+      preambleLength === 0
+        ? whole
+        : {
+            ...whole,
+            children: whole.children.filter(
+              (child) => (child.position?.start.offset ?? 0) >= preambleLength,
+            ),
+          };
+    this.#rootsByNodes.set(root.children, root);
+    this.#root = new WeakRef(root);
+    return root;
+  }
 }
 
 /**

@@ -14,7 +14,7 @@
 // streaming starts the typesetter's load or the diagram worker as soon as it names its language,
 // without the row waiting on either.
 
-import type { Nodes, RootContent } from "mdast";
+import type { Nodes } from "mdast";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -29,7 +29,10 @@ import {
   type DiagramPalette,
 } from "#renderer/components/Markdown/diagram/palette.js";
 import { isReadInPieces } from "#renderer/components/Markdown/parse/pieced-table.js";
-import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
+import {
+  appMarkdownTrees,
+  type ParsedMarkdown,
+} from "#renderer/components/Markdown/parse/trees.js";
 import {
   DEFERRED_FENCE_KINDS,
   readDeferredFenceKind,
@@ -272,19 +275,22 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     this.#readDrawnBlocks = drawnBlocks;
     this.#readTreesRevision = this.#readBlocksRevision;
     for (const [index, block] of drawnBlocks.entries()) {
-      const nodes = blocks.readBlockNodes(block);
+      const tree = blocks.readBlockTree(block);
       const read = this.#readTrees.get(block.key);
-      if (read?.nodes === nodes) {
+      if (read?.tree === tree) {
         continue;
       }
       read?.releaseTables?.();
       this.#readTrees.set(block.key, {
-        nodes,
+        tree,
         releaseTables: this.#readBlockTree({
           source: blocks.readBlockSource(block),
           fingerprint: block.fingerprint,
           definitionPreamble: blocks.readDefinitionPreamble(index),
-          root: { type: "root", children: [...nodes] },
+          // Read into nodes only for a block whose text could hold what the row waits on.
+          get root() {
+            return tree.root;
+          },
           definedFootnoteIdentifiers: blocks.definedFootnoteIdentifiers,
         }),
       });
@@ -610,9 +616,12 @@ class ToolRowPreparation implements TranscriptRowPreparation {
   }
 }
 
-/** One drawn block's tree as the row read it, and what releases the tables it started measuring. */
+/**
+ * One drawn block's tree as the row read it, kept by the shared trees rather than read into nodes
+ * here, and what releases the tables it started measuring.
+ */
 interface ReadBlockTree {
-  readonly nodes: readonly RootContent[];
+  readonly tree: ParsedMarkdown;
   readonly releaseTables: (() => void) | undefined;
 }
 
