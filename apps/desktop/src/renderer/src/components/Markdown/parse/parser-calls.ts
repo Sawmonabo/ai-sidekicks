@@ -10,8 +10,8 @@ export interface MarkdownParserCalls {
 
 /** Imports the parser's calls and warms the parser up on a short reply. */
 export async function loadMarkdownParserCalls(): Promise<MarkdownParserCalls> {
+  const childrenLoad = import("./top-level-children.js");
   const serializer = await import("./serialized-tree.js");
-  const children = await import("./top-level-children.js");
   serializer.warmUpMarkdownParser();
-  return { serializer, children };
+  return { serializer, children: await childrenLoad };
 }
