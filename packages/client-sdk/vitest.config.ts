@@ -6,7 +6,7 @@ import {
   sharedCoverageOptions,
   sharedTestTimeouts,
   WORKSPACE_SOURCE_CONDITIONS,
-} from "../../vitest.shared";
+} from "../../vitest.shared.js";
 
 export default defineConfig({
   test: {

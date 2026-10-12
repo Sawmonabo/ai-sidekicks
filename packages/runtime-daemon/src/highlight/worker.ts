@@ -7,10 +7,15 @@
 //
 // The grammar table is a closed map of loaders keyed by the contract's language set, so a request
 // can never make the thread load a module it names.
+//
+// A grammar that embeds another, as Markdown embeds a fenced block's language or its front matter's
+// YAML, colors the embedded text only when that grammar is loaded. So before a source is
+// tokenized, every colorable grammar its own text opens is loaded, and the same source gives the
+// same spans whatever the thread colored before.
 
 import { parentPort, workerData } from "node:worker_threads";
 
-import type { HighlightLanguage } from "@ai-sidekicks/contracts/highlight";
+import { HIGHLIGHT_LANGUAGES, type HighlightLanguage } from "@ai-sidekicks/contracts/highlight";
 import type { GrammarState, HighlighterCore, LanguageRegistration, ThemedToken } from "shiki/types";
 
 import { carryError } from "../worker/carried-error.js";
@@ -23,25 +28,51 @@ import type {
   TokenizerWorkerData,
 } from "./thread.js";
 
-type GrammarLoader = () => Promise<{ readonly default: LanguageRegistration[] }>;
+/** One language's grammar module and the TextMate scope another grammar embeds it by. */
+interface Grammar {
+  readonly scopeName: string;
+  readonly load: () => Promise<{ readonly default: LanguageRegistration[] }>;
+}
 
-const GRAMMAR_LOADERS: Readonly<Record<HighlightLanguage, GrammarLoader>> = {
-  bash: () => import("shiki/langs/bash.mjs"),
-  css: () => import("shiki/langs/css.mjs"),
-  diff: () => import("shiki/langs/diff.mjs"),
-  go: () => import("shiki/langs/go.mjs"),
-  html: () => import("shiki/langs/html.mjs"),
-  javascript: () => import("shiki/langs/javascript.mjs"),
-  json: () => import("shiki/langs/json.mjs"),
-  jsx: () => import("shiki/langs/jsx.mjs"),
-  markdown: () => import("shiki/langs/markdown.mjs"),
-  python: () => import("shiki/langs/python.mjs"),
-  rust: () => import("shiki/langs/rust.mjs"),
-  sql: () => import("shiki/langs/sql.mjs"),
-  tsx: () => import("shiki/langs/tsx.mjs"),
-  typescript: () => import("shiki/langs/typescript.mjs"),
-  yaml: () => import("shiki/langs/yaml.mjs"),
+/** One rule of a TextMate grammar. */
+type GrammarRule = LanguageRegistration["patterns"][number];
+
+/** A rule of a loaded grammar that opens another colorable grammar's text. */
+interface EmbeddingRule {
+  /** The rule's opening pattern, tested against one line. */
+  readonly opening: RegExp;
+  /** Whether the rule opens only at the source's start, as front matter does. */
+  readonly isAtStartOnly: boolean;
+  readonly language: HighlightLanguage;
+}
+
+const GRAMMARS: Readonly<Record<HighlightLanguage, Grammar>> = {
+  bash: { scopeName: "source.shell", load: () => import("shiki/langs/bash.mjs") },
+  css: { scopeName: "source.css", load: () => import("shiki/langs/css.mjs") },
+  diff: { scopeName: "source.diff", load: () => import("shiki/langs/diff.mjs") },
+  go: { scopeName: "source.go", load: () => import("shiki/langs/go.mjs") },
+  html: { scopeName: "text.html.basic", load: () => import("shiki/langs/html.mjs") },
+  javascript: { scopeName: "source.js", load: () => import("shiki/langs/javascript.mjs") },
+  json: { scopeName: "source.json", load: () => import("shiki/langs/json.mjs") },
+  jsx: { scopeName: "source.js.jsx", load: () => import("shiki/langs/jsx.mjs") },
+  markdown: { scopeName: "text.html.markdown", load: () => import("shiki/langs/markdown.mjs") },
+  python: { scopeName: "source.python", load: () => import("shiki/langs/python.mjs") },
+  rust: { scopeName: "source.rust", load: () => import("shiki/langs/rust.mjs") },
+  sql: { scopeName: "source.sql", load: () => import("shiki/langs/sql.mjs") },
+  tsx: { scopeName: "source.tsx", load: () => import("shiki/langs/tsx.mjs") },
+  typescript: { scopeName: "source.ts", load: () => import("shiki/langs/typescript.mjs") },
+  yaml: { scopeName: "source.yaml", load: () => import("shiki/langs/yaml.mjs") },
 };
+
+const LANGUAGE_BY_SCOPE_NAME: ReadonlyMap<string, HighlightLanguage> = new Map(
+  HIGHLIGHT_LANGUAGES.map((language) => [GRAMMARS[language].scopeName, language]),
+);
+
+/**
+ * Block-quote and list markers before a line's own text. A fence inside a quote or a list item
+ * opens after them, so a line is tested with them removed as well as whole.
+ */
+const CONTAINER_MARKERS = /^(?:[ \t]*(?:>|[-+*]|\d{1,9}[.)])[ \t]?)+/u;
 
 /**
  * Characters tokenized between progress reports, each of which restarts the main thread's time
@@ -72,7 +103,7 @@ const beforeLine =
     ? undefined
     : ((await import(lineHookModuleUrl)) as LineHookModule).beforeLine;
 const highlighter = await createHighlighter();
-const loadedLanguages = new Set<HighlightLanguage>();
+const embeddingRulesByLoadedLanguage = new Map<HighlightLanguage, readonly EmbeddingRule[]>();
 
 port.on("message", (request: TokenizeRequest) => {
   void answer(request);
@@ -80,9 +111,11 @@ port.on("message", (request: TokenizeRequest) => {
 
 async function answer(request: TokenizeRequest): Promise<void> {
   try {
-    if (!loadedLanguages.has(request.language)) {
-      await highlighter.loadLanguage((await GRAMMAR_LOADERS[request.language]()).default);
-      loadedLanguages.add(request.language);
+    // Only Markdown embeds other colorable grammars, and its rules are tested on every line of the
+    // source, so one pass finds what a block nested in another block needs too.
+    const embeddingRules = await loadGrammar(request.language);
+    for (const language of findEmbeddedLanguages(request.source, embeddingRules)) {
+      await loadGrammar(language);
     }
     port.postMessage({ type: "grammar-loaded" } satisfies TokenizerReply);
     const spans = tokenize(request);
@@ -107,6 +140,74 @@ async function createHighlighter(): Promise<HighlighterCore> {
     langs: [],
     engine: createOnigurumaEngine(import("shiki/wasm")),
   });
+}
+
+/**
+ * Loads a language's grammar once and answers the rules by which it embeds other colorable
+ * grammars. Throws when the module no longer holds the scope the table names, since another
+ * grammar could no longer embed it.
+ */
+async function loadGrammar(language: HighlightLanguage): Promise<readonly EmbeddingRule[]> {
+  const loaded = embeddingRulesByLoadedLanguage.get(language);
+  if (loaded !== undefined) {
+    return loaded;
+  }
+  const { scopeName, load } = GRAMMARS[language];
+  const registrations = (await load()).default;
+  const ownGrammar = registrations.find((registration) => registration.scopeName === scopeName);
+  if (ownGrammar === undefined) {
+    throw new Error(`The ${language} grammar module holds no grammar with the scope ${scopeName}`);
+  }
+  await highlighter.loadLanguage(registrations);
+  const embeddingRules = readEmbeddingRules(ownGrammar);
+  embeddingRulesByLoadedLanguage.set(language, embeddingRules);
+  return embeddingRules;
+}
+
+/**
+ * The rules of a grammar's repository that open a colorable grammar's text: a begin pattern whose
+ * first inner rule includes that grammar, as each of Markdown's fences and its front matter do.
+ * Oniguruma's `\G` and `\A` anchors become a line start, the second kept to the source's start.
+ */
+function readEmbeddingRules(grammar: LanguageRegistration): EmbeddingRule[] {
+  // The type requires a repository, but a grammar with no named rules, as diff's, ships none.
+  const repository: Readonly<Record<string, GrammarRule>> | undefined = grammar.repository;
+  return Object.values(repository ?? {}).flatMap((rule) => {
+    const includedScopeName = rule.patterns?.[0]?.patterns?.[0]?.include;
+    const language =
+      includedScopeName === undefined ? undefined : LANGUAGE_BY_SCOPE_NAME.get(includedScopeName);
+    // A grammar file writes each pattern as a string; only a grammar built in code holds a RegExp.
+    if (typeof rule.begin !== "string" || language === undefined) {
+      return [];
+    }
+    const isAtStartOnly = rule.begin.startsWith("\\A");
+    // No `u` flag: the grammar's patterns are written for Oniguruma, where a bare `}` is a literal.
+    const opening = new RegExp(rule.begin.replace("(^|\\G)", "(^)").replace(/^\\A/u, "^"));
+    return [{ opening, isAtStartOnly, language }];
+  });
+}
+
+/** Every language whose embedding rule opens on a line of the source. */
+function findEmbeddedLanguages(
+  source: string,
+  embeddingRules: readonly EmbeddingRule[],
+): Set<HighlightLanguage> {
+  const languages = new Set<HighlightLanguage>();
+  if (embeddingRules.length === 0) {
+    return languages;
+  }
+  source.split("\n").forEach((line, lineIndex) => {
+    const lineInContainer = line.replace(CONTAINER_MARKERS, "");
+    for (const { opening, isAtStartOnly, language } of embeddingRules) {
+      if (
+        (lineIndex === 0 || !isAtStartOnly) &&
+        (opening.test(line) || opening.test(lineInContainer))
+      ) {
+        languages.add(language);
+      }
+    }
+  });
+  return languages;
 }
 
 function tokenize(request: TokenizeRequest): Uint32Array<ArrayBuffer> {

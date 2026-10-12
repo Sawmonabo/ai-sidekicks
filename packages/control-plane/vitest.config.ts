@@ -5,7 +5,7 @@ import {
   sharedCoverageOptions,
   sharedTestTimeouts,
   WORKSPACE_SOURCE_CONDITIONS,
-} from "../../vitest.shared";
+} from "../../vitest.shared.js";
 
 // A `.workers.test.ts` file runs inside workerd against the Worker's own bindings from
 // `wrangler.toml`; every other test runs on Node. Each file runs in one project only.

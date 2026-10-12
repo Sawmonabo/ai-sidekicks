@@ -72,6 +72,21 @@ describe("CodeHighlighter", () => {
     ]);
   });
 
+  it("colors a Markdown file's fences and front matter on a thread that never loaded them", async () => {
+    // A fresh colorer: its thread has loaded no grammar, so the file alone must bring them in.
+    const fenceHighlighter = new CodeHighlighter();
+    highlighter = fenceHighlighter;
+    const markdown = "---\ndraft: true\n---\n\n```ts\nconst fenced = 1;\n```\n";
+    expect(
+      decodeSpans(markdown, await fenceHighlighter.readSpans(markdown, "markdown")),
+    ).toStrictEqual([
+      ["draft", "name"],
+      ["true", "number"],
+      ["const", "keyword"],
+      ["1", "number"],
+    ]);
+  });
+
   it("answers a second read of the same code from the first", async () => {
     const sqlHighlighter = new CodeHighlighter();
     highlighter = sqlHighlighter;
