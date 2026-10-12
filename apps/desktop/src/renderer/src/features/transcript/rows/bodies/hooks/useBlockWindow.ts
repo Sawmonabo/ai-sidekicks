@@ -12,9 +12,12 @@ import {
   type BlockWindowRow,
 } from "../../markdown/block-window/layout.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "../../markdown/block-window/markers.js";
-import { indexesBetween, withPinnedIndexes } from "../../markdown/block-window/selection-pins.js";
-import { useDrawnBandScreenHeights } from "./useDrawnBandScreenHeights.js";
-import { useSelectionPins } from "./useSelectionPins.js";
+import {
+  indexesBetween,
+  withPinnedIndexes,
+} from "#renderer/components/TranscriptBodyViewport/selection-pins.js";
+import { useDrawnBandScreenHeights } from "#renderer/components/TranscriptBodyViewport/hooks/useDrawnBandScreenHeights.js";
+import { useSelectionPins } from "#renderer/components/TranscriptBodyViewport/hooks/useSelectionPins.js";
 
 /** A windowed body's elements as one render draws them. */
 export interface BlockWindow {

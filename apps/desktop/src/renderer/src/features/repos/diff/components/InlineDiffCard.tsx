@@ -10,11 +10,11 @@ import "./InlineDiffCard.css";
 import { useMemo, useState } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useVisibleFlowHeight } from "#renderer/components/TranscriptBodyViewport/hooks/useVisibleFlowHeight.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { DiffInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
 import { useDiffBlockOverhead } from "../hooks/useDiffBlockOverhead.js";
 import { useDiffRowHeightPx } from "../hooks/useDiffRowHeightPx.js";
-import { useVisibleFlowHeight } from "../hooks/useVisibleFlowHeight.js";
 import { type DiffModel } from "../model.js";
 // Type-only: `patch-parse.ts` calls the diff library, and this card is registered eagerly, so
 // a value import would put the parser on the initial import graph.
@@ -25,6 +25,8 @@ import { InlineDiffBlock } from "./InlineDiffBlock.js";
 /** What the diff card is drawn from: the row's registry props and, once read, the diff. */
 export interface InlineDiffCardProps {
   readonly card: DiffInlineCardProps;
+  /** The transcript row the card is drawn in, which a block opened whole lays its rows out from. */
+  readonly rowKey: string;
   /** The diff to render and which of its files are open; absent until a fetch produces one. */
   readonly diff?: OpenableDiff;
 }
@@ -53,7 +55,12 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
           detail={unreadDiffDetail(comparedStatesOf(props.card))}
         />
       ) : flowHeightPx === undefined ? null : (
-        <InlineDiffBlocks diff={props.diff} flowHeightPx={flowHeightPx} cardElement={cardElement} />
+        <InlineDiffBlocks
+          diff={props.diff}
+          rowKey={props.rowKey}
+          flowHeightPx={flowHeightPx}
+          cardElement={cardElement}
+        />
       )}
     </div>
   );
@@ -65,6 +72,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
  */
 function InlineDiffBlocks(props: {
   readonly diff: OpenableDiff;
+  readonly rowKey: string;
   readonly flowHeightPx: number;
   readonly cardElement: HTMLElement | null;
 }): React.JSX.Element {
@@ -92,6 +100,7 @@ function InlineDiffBlocks(props: {
         <InlineDiffBlock
           key={fileIndex}
           file={file}
+          rowKey={props.rowKey}
           flowRows={rowsByFile.rowsOf(fileIndex)}
           flowHeightPx={flowHeightPx}
           rowHeightPx={rowHeightPx}

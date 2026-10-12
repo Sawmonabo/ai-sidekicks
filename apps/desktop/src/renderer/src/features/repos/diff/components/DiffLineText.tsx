@@ -1,4 +1,9 @@
 import { type DiffLine, type DiffLineKind } from "../model.js";
+import {
+  DIFF_FLOW_SIGNS,
+  DIFF_LINE_KIND_LABELS,
+  DIFF_NO_NEWLINE_AT_END_LABEL,
+} from "../rows/row-text.js";
 import type { IntralineReading } from "../intraline/segment-cache.js";
 
 /**
@@ -18,9 +23,9 @@ export function DiffLineText(props: {
         className={props.look === "flow" ? "meridian-diff__sign" : "meridian-diff__marker"}
         aria-hidden="true"
       >
-        {(props.look === "flow" ? FLOW_SIGNS : REVIEW_MARKERS)[line.kind]}
+        {(props.look === "flow" ? DIFF_FLOW_SIGNS : REVIEW_MARKERS)[line.kind]}
       </span>
-      <span className="meridian-visually-hidden">{LINE_KIND_LABELS[line.kind]}</span>
+      <span className="meridian-visually-hidden">{DIFF_LINE_KIND_LABELS[line.kind]}</span>
       <code className="meridian-diff__code">
         {props.reading.segments.map((segment, segmentIndex) =>
           // An unchanged run is the code's own text; only a changed run needs an element of its
@@ -36,7 +41,7 @@ export function DiffLineText(props: {
         )}
       </code>
       {line.noNewlineAtEnd === true ? (
-        <span className="meridian-diff__no-newline">{NO_NEWLINE_AT_END_LABEL}</span>
+        <span className="meridian-diff__no-newline">{DIFF_NO_NEWLINE_AT_END_LABEL}</span>
       ) : null}
     </>
   );
@@ -48,24 +53,3 @@ const REVIEW_MARKERS: Readonly<Record<DiffLineKind, string>> = {
   insert: "+",
   delete: "-",
 };
-
-/** The flow's signs: a context line's cell is blank and keeps its width. */
-const FLOW_SIGNS: Readonly<Record<DiffLineKind, string>> = {
-  context: "",
-  insert: "+",
-  delete: "\u2212",
-};
-
-/** Announced text per line kind, so the marker is not the only carrier. */
-const LINE_KIND_LABELS: Readonly<Record<DiffLineKind, string>> = {
-  context: "unchanged",
-  insert: "added",
-  delete: "removed",
-};
-
-/**
- * The patch's `\ No newline at end of file` without the leading `\`, which the row already
- * conveys by drawing it inside the line. On a newline-only change it is the only thing that
- * tells the two rows apart.
- */
-const NO_NEWLINE_AT_END_LABEL = "No newline at end of file";

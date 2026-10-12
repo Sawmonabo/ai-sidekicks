@@ -13,7 +13,7 @@ import { useCodeSpanReader } from "#renderer/services/highlight/hooks/useCodeSpa
 import { TranscriptRowLayout } from "../../components/TranscriptRowLayout/TranscriptRowLayout.js";
 import { type TableMeasuringFrame } from "../markdown/table-window/measurement.js";
 import { type OffListTable, type OffListTables } from "../markdown/table-window/off-list.js";
-import { MeasuringFrames } from "./MeasuringFrames.js";
+import { MeasuringFrames } from "#renderer/components/MeasuringFrames/MeasuringFrames.js";
 import { TableSampleFrame } from "./TableSampleFrame.js";
 
 /** What the off-list frames are drawn from. */

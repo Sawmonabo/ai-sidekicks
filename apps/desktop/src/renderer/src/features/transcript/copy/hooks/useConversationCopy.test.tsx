@@ -30,7 +30,7 @@ import { PreparedBodiesContext } from "../../rows/prepared-bodies.js";
 import { classifyTranscriptRow } from "../../rows/kind.js";
 import { prepareRowBodiesForTest } from "../../rows/preparation.test-support.js";
 import { FootnoteRegistry } from "../../rows/markdown/footnotes/registry.js";
-import { DrawnWindowSources } from "../../rows/drawn-window-sources.js";
+import { DrawnWindowSources } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import { ViewportSelectionTracker } from "../../viewport/selection/tracker.js";
 import { deriveTranscriptWindow } from "../../window/transcript-window.js";
 import { type SelectedPart } from "../conversation-selection.js";

@@ -13,10 +13,8 @@ import { markdownWorker } from "#renderer/components/Markdown/worker/connection.
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { readSelectedPart } from "#renderer/features/transcript/copy/conversation-selection.js";
 import { AnsiOutput } from "#renderer/features/transcript/rows/ansi/AnsiOutput.js";
-import {
-  ANSI_LINE_CHUNK_INDEX_ATTRIBUTE,
-  ANSI_OUTPUT_KEY_ATTRIBUTE,
-} from "#renderer/features/transcript/rows/ansi/lines/markers.js";
+import { UNDRAWN_TEXT_SOURCE_ATTRIBUTE } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
+import { ANSI_LINE_CHUNK_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/ansi/lines/markers.js";
 import {
   PreparedBodiesContext,
   type PreparedBodies,
@@ -32,7 +30,7 @@ import {
 import {
   DrawnWindowSources,
   DrawnWindowSourcesContext,
-} from "#renderer/features/transcript/rows/drawn-window-sources.js";
+} from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import { ViewportSelectionTracker } from "#renderer/features/transcript/viewport/selection/tracker.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
@@ -269,7 +267,7 @@ describe("browser — a long command output drawn as a window over its lines", (
     await settleMeasuring();
 
     expect(scroller.scrollTop).toBe(0);
-    expect(row.querySelectorAll(`[${ANSI_OUTPUT_KEY_ATTRIBUTE}]`).length).toBeGreaterThan(0);
+    expect(row.querySelectorAll(`[${UNDRAWN_TEXT_SOURCE_ATTRIBUTE}]`).length).toBeGreaterThan(0);
     const heightOf = (root: Element): number =>
       (
         root.querySelector(".meridian-ansi__lines") ?? expect.fail("the output's lines")
@@ -296,7 +294,7 @@ describe("browser — a long command output drawn as a window over its lines", (
     await settleFrames();
 
     const range = selection.getRangeAt(0);
-    const spacers = [...row.querySelectorAll(`[${ANSI_OUTPUT_KEY_ATTRIBUTE}]`)];
+    const spacers = [...row.querySelectorAll(`[${UNDRAWN_TEXT_SOURCE_ATTRIBUTE}]`)];
     // Most lines between the ends are not drawn: spacers stand for them inside the selection.
     expect(spacers.some((spacer) => range.intersectsNode(spacer))).toBe(true);
     const { text } = await readSelectedPart(
@@ -317,7 +315,7 @@ describe("browser — a long command output drawn as a window over its lines", (
       const box = within(row).getByLabelText(LABEL);
       expect(box.tagName).toBe("PRE");
       const chunks = [...box.querySelectorAll(`[${ANSI_LINE_CHUNK_INDEX_ATTRIBUTE}]`)];
-      const spacers = [...box.querySelectorAll(`[${ANSI_OUTPUT_KEY_ATTRIBUTE}]`)];
+      const spacers = [...box.querySelectorAll(`[${UNDRAWN_TEXT_SOURCE_ATTRIBUTE}]`)];
       expect(chunks.length).toBeGreaterThan(0);
       expect(spacers.length).toBeGreaterThan(0);
       // A spacer is hidden from assistive technology and holds no text to read.

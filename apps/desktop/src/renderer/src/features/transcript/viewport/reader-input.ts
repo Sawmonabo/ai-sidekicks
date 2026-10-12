@@ -4,7 +4,7 @@
 
 import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
 import { isChordPress, type KeyChord } from "#renderer/lib/chord/convention/selection-keys.js";
-import { type WindowSide } from "./window-side.js";
+import { type WindowSide } from "#renderer/lib/scroll/window-side.js";
 
 /** What the reader's input asks of the frame, each call made as the input is heard. */
 export interface ViewportReaderInputOptions {

@@ -1,7 +1,7 @@
 import { useContext } from "react";
 
-import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
-import { DrawnBandContext } from "../../markdown/block-window/context.js";
+import { type DrawnBandScreenHeights } from "#renderer/lib/scroll/window-side.js";
+import { DrawnBandContext } from "../context.js";
 
 /**
  * How far beyond each edge of the scroller a window nested in a row draws its items, as the

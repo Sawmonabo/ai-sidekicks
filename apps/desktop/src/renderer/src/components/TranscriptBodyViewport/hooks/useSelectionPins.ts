@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
-import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
-import { pinnedRangeOf, type PinnedRange } from "../../markdown/block-window/selection-pins.js";
+import { type TranscriptBodyViewport } from "../context.js";
+import { pinnedRangeOf, type PinnedRange } from "../selection-pins.js";
 
 /**
  * The items of one window, marked with `indexAttribute`, that the reader's selection runs across,

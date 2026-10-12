@@ -80,7 +80,8 @@ export type InlineCardProps = InlineCardPropsByKind[InlineCardKind];
 export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineCardKind> {
   /** The feature that owns the body. */
   readonly owner: string;
-  readonly render: (props: InlineCardPropsByKind[TKind]) => React.ReactNode;
+  /** Draws the card's body in the transcript row `rowKey` names. */
+  readonly render: (props: InlineCardPropsByKind[TKind], rowKey: string) => React.ReactNode;
 }
 
 /**
@@ -105,7 +106,7 @@ export class InlineCardRegistry {
   ): void {
     this.#bodiesByKind.register(kind, {
       owner: descriptor.owner,
-      render: (props) => {
+      render: (props, rowKey) => {
         if (props.kind !== kind) {
           throw new RefusalError(
             refuse(
@@ -116,7 +117,7 @@ export class InlineCardRegistry {
           );
         }
         // Sound because the guard above proves `props.kind` is the registered key.
-        return descriptor.render(props as InlineCardPropsByKind[TKind]);
+        return descriptor.render(props as InlineCardPropsByKind[TKind], rowKey);
       },
     });
   }
@@ -137,11 +138,12 @@ export class InlineCardRegistry {
   }
 
   /**
-   * Renders one card, keyed on the props' own kind. An unfilled kind renders nothing; a caller
-   * that must tell that from a body that rendered nothing asks `bodyFor`.
+   * Renders one card in the transcript row `rowKey` names, keyed on the props' own kind. An
+   * unfilled kind renders nothing; a caller that must tell that from a body that rendered nothing
+   * asks `bodyFor`.
    */
-  public render(props: InlineCardProps): React.ReactNode {
-    return this.#bodiesByKind.get(props.kind)?.render(props);
+  public render(props: InlineCardProps, rowKey: string): React.ReactNode {
+    return this.#bodiesByKind.get(props.kind)?.render(props, rowKey);
   }
 }
 

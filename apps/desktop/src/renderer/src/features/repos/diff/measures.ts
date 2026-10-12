@@ -48,8 +48,9 @@ export const DIFF_FLOW_FILE_BLOCK_SCREENS = 2;
 export const DIFF_GUTTER_MIN_DIGITS = 2;
 
 /**
- * Rows one task mounts while a block opens whole past what the flow shows: few enough that a
- * task stays inside one frame on a slow machine, many enough that the rows land faster than a
- * person scrolls to them.
+ * Rows in one step of a block opened whole: what one task mounts while a block outside a
+ * transcript viewport fills, and what a block inside one draws, measures and copies as one item of
+ * its window. Few enough that a task stays inside one frame on a slow machine, many enough that
+ * the rows land faster than a person scrolls to them.
  */
-export const DIFF_FLOW_FILL_STEP_ROWS = 48;
+export const DIFF_FLOW_STEP_ROWS = 48;

@@ -8,7 +8,7 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
 import { blockSourceStartOf, type MarkdownBodyBlocksSnapshot } from "../body-blocks.js";
-import { offsetInRowPx } from "../scroller-window.js";
+import { offsetInRowPx } from "#renderer/components/TranscriptBodyViewport/scroller-window.js";
 import { type TableBodyPlacement, type TablePlacementChange } from "./context.js";
 import { warmIdeographFallback } from "./ideograph-fallback-warm.js";
 import { TablePlacementReports } from "./placement-reports.js";

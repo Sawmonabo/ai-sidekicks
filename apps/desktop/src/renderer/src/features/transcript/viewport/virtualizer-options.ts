@@ -21,7 +21,7 @@ import {
   TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS,
   TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS,
 } from "./caps.js";
-import { type DrawnBandScreenHeights } from "./drawn-band.js";
+import { type DrawnBandScreenHeights } from "#renderer/lib/scroll/window-side.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
 import { type ViewportRowReach } from "./row-reach.js";
 import { prefersReducedMotion } from "#renderer/lib/reduced-motion.js";

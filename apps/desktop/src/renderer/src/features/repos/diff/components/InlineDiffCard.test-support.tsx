@@ -4,10 +4,7 @@
 import { render } from "@testing-library/react";
 import { useCallback, useState } from "react";
 
-import {
-  TranscriptBodyViewportContext,
-  type TranscriptBodyViewport,
-} from "#renderer/components/TranscriptBodyViewport/context.js";
+import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import type { DiffInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import type { DiffModel } from "../model.js";
@@ -35,6 +32,9 @@ export interface DrawnDiffCard {
   readonly setCardMounted: (isMounted: boolean) => void;
 }
 
+/** The transcript row a suite's card is drawn in. */
+export const DIFF_CARD_ROW_KEY = "diff-row";
+
 /**
  * A diff card whose open files are held outside it, as the transcript's fold will hold them, so
  * a card mounted again opens them as they were. Draws the card only while `isCardMounted`.
@@ -49,27 +49,34 @@ export function DiffCardWithOpenState(props: {
     setOpenFileIndexes((open) => new Set(open).add(fileIndex));
   }, []);
   return props.isCardMounted ? (
-    <InlineDiffCard card={props.card} diff={{ model: props.diff, openFileIndexes, onOpenFile }} />
+    <InlineDiffCard
+      card={props.card}
+      rowKey={DIFF_CARD_ROW_KEY}
+      diff={{ model: props.diff, openFileIndexes, onOpenFile }}
+    />
   ) : null;
 }
 
 /**
  * Draw the card with its open state held outside it, in a document whose tokens the suite
- * installed, in a flow of `heightPx` by `widthPx` that scrolls, inside `viewport` where one is
- * given, and hand back the flow, the card and its first block.
+ * installed, in a flow of `heightPx` by `widthPx` that scrolls, in a transcript row that starts the
+ * flow's content, inside the viewport `inViewport` draws it in where one is given, and hand back
+ * the flow, the card and its first block.
  */
 export function drawDiffCard(
   diff: DiffModel,
   options: {
     readonly heightPx: number;
     readonly widthPx: number;
-    readonly viewport?: TranscriptBodyViewport;
+    readonly inViewport?: (card: React.JSX.Element) => React.JSX.Element;
   },
 ): DrawnDiffCard {
   const BridgeHost = liveBridgeWrapper();
   const tree = (isCardMounted: boolean): React.JSX.Element => {
     const card = (
-      <DiffCardWithOpenState card={DIFF_CARD} diff={diff} isCardMounted={isCardMounted} />
+      <div {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: 0 }}>
+        <DiffCardWithOpenState card={DIFF_CARD} diff={diff} isCardMounted={isCardMounted} />
+      </div>
     );
     return (
       <BridgeHost>
@@ -84,13 +91,7 @@ export function drawDiffCard(
               overflowAnchor: "none",
             }}
           >
-            {options.viewport === undefined ? (
-              card
-            ) : (
-              <TranscriptBodyViewportContext value={options.viewport}>
-                {card}
-              </TranscriptBodyViewportContext>
-            )}
+            {options.inViewport === undefined ? card : options.inViewport(card)}
           </div>
         </AlignmentWorkerProvider>
       </BridgeHost>

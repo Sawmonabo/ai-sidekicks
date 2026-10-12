@@ -1,9 +1,10 @@
-// Which of a window's items a selection keeps drawn: a long body's blocks, or a long table's rows,
-// each marked with its index under its window's own attribute. A selection's ends live in drawn
-// nodes, so the items holding them stay drawn however far the reader scrolls; a body's blocks
-// between the ends stay drawn too, since a copy reads them from the page, while a table's rows
-// between them are read from the text and drawn only where the reader looks. An end outside the
-// window pins the window's edge on that side.
+// Which of a window's items a selection keeps drawn: a long body's blocks, a long table's rows, a
+// command output's chunks of lines or a diff's steps of rows, each marked with its index under its
+// window's own attribute. A selection's ends live in drawn nodes, so the items holding them stay
+// drawn however far the reader scrolls; a body's blocks between the ends stay drawn too, since a
+// copy reads them from the page, while the other windows' items between them are read from their
+// text and drawn only where the reader looks. An end outside the window pins the window's edge on
+// that side.
 
 /** The items a selection runs across, first and last, by index. */
 export interface PinnedRange {

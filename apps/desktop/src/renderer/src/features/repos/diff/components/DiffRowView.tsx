@@ -11,6 +11,7 @@ import { DiffGutter } from "./DiffGutter.js";
 import { DiffLineText } from "./DiffLineText.js";
 import { DiffStepMark } from "./DiffStepMark.js";
 import { diffFlowLineNumber } from "../rows/flow.js";
+import { DIFF_SKIPPED_LINES_LABEL, DIFF_SKIPPED_LINES_MARK } from "../rows/row-text.js";
 
 /**
  * How a row is drawn, and what that look needs. Review's rows carry both sides' numbers and a gap
@@ -214,13 +215,6 @@ interface RowElementProps {
 }
 
 /**
- * Three middle dots, the skipped-lines mark: a midline ellipsis drawn in the app's own face, which
- * has no midline ellipsis of its own. Set in sans, three of them span what one midline ellipsis
- * does.
- */
-const SKIPPED_LINES_MARK = "\u00B7\u00B7\u00B7";
-
-/**
  * The flow's quiet separator where the file's lines are skipped: no number, no wash and nothing to
  * press, and never the hunk's own `@@` spelling.
  */
@@ -228,8 +222,8 @@ function FlowSeparatorRow(props: { readonly rowProps: RowElementProps }): React.
   return (
     <div {...props.rowProps} className="meridian-diff__row">
       <span className="meridian-diff__separator" role="cell">
-        <span aria-hidden="true">{SKIPPED_LINES_MARK}</span>
-        <span className="meridian-visually-hidden">Lines skipped</span>
+        <span aria-hidden="true">{DIFF_SKIPPED_LINES_MARK}</span>
+        <span className="meridian-visually-hidden">{DIFF_SKIPPED_LINES_LABEL}</span>
       </span>
     </div>
   );

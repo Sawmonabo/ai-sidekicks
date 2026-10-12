@@ -6,8 +6,7 @@ import type { Table, TableRow } from "mdast";
 import { describe, expect, it } from "vitest";
 
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
-import { type AnsiLineChunkList } from "../rows/ansi/lines/chunks.js";
-import { type DrawnWindowSource } from "../rows/drawn-window-sources.js";
+import { type DrawnWindowSource } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import { withUndrawnItems, withUndrawnItemsText } from "./undrawn-items.js";
 import {
   drawnTreeMarkdown,
@@ -37,35 +36,14 @@ function text(value: string): DrawnTree {
 /** The output's lines, its second holding the marker too. */
 const OUTPUT_LINES = [`one ${MARKED}\n`, `two ${MARKED}\n`, "three\n"];
 
-/** The output's lines a chunk each, as its window reads them. */
-const OUTPUT_CHUNKS: AnsiLineChunkList = {
-  generation: 0,
-  count: OUTPUT_LINES.length,
-  chunkAt: (index) => {
-    const line = OUTPUT_LINES[index] ?? "";
-    return {
-      spans: [
-        {
-          text: line,
-          foreground: undefined,
-          background: undefined,
-          reversed: false,
-          decorations: [],
-        },
-      ],
-      lineLengths: [line.length - 1],
-    };
-  },
-};
-
 /** A part of a paragraph and the output, its second line drawn as a spacer or drawn whole. */
 function outputPart(isWhole: boolean): DrawnTree {
   const second = isWhole
     ? element("span", [text(OUTPUT_LINES[1] ?? "")])
     : element("span", [], {
-        dataAnsiOutput: "output",
-        dataAnsiFirstUndrawnChunk: 1,
-        dataAnsiLastUndrawnChunk: 1,
+        dataUndrawnTextSource: "output",
+        dataFirstUndrawnItem: 1,
+        dataLastUndrawnItem: 1,
       });
   return element("div", [
     element("p", [text(MARKED)]),
@@ -122,7 +100,8 @@ function tablePart(isWhole: boolean): DrawnTree {
 }
 
 const SOURCES = new Map<string, DrawnWindowSource>([
-  ["output", { kind: "output", chunks: OUTPUT_CHUNKS }],
+  // The output's lines a chunk each, as its window reads them.
+  ["output", { kind: "text", itemText: (index) => OUTPUT_LINES[index] ?? "", itemSeparator: "" }],
   ["table", { kind: "table", table: TABLE }],
 ]);
 

@@ -8,12 +8,13 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { RealClock } from "#renderer/lib/clock.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
-import { ViewportDrawnBand, type DrawnBandScreenHeights } from "../../viewport/drawn-band.js";
-import { DrawnBandContext } from "../markdown/block-window/context.js";
+import { type DrawnBandScreenHeights } from "#renderer/lib/scroll/window-side.js";
 import {
+  DrawnBandContext,
   TranscriptBodyViewportContext,
   type TranscriptBodyViewport,
 } from "#renderer/components/TranscriptBodyViewport/context.js";
+import { ViewportDrawnBand } from "../../viewport/drawn-band.js";
 
 /** A reply of at least `minimumCharacters`, cycle after cycle of every kind of block. */
 export function longReplyMarkdown(minimumCharacters: number): string {

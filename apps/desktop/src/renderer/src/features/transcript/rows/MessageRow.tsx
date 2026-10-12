@@ -157,7 +157,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
             />
           )}
         </div>
-        <InlineCards cards={props.inlineCards ?? []} />
+        <InlineCards cards={props.inlineCards ?? []} rowKey={props.row.id} />
         {isUser || rowKind.kind === "thinking" || props.liveText !== undefined ? null : (
           <RecordedBodyLine
             contentType={assistantMediaType}

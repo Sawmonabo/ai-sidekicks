@@ -16,7 +16,7 @@ import {
   drawDiffCard,
   filePatch,
 } from "#renderer/features/repos/diff/components/InlineDiffCard.test-support.js";
-import { DIFF_FLOW_FILL_STEP_ROWS } from "#renderer/features/repos/diff/measures.js";
+import { DIFF_FLOW_STEP_ROWS } from "#renderer/features/repos/diff/measures.js";
 import type { DiffModel } from "#renderer/features/repos/diff/model.js";
 import { diffModelFromRead } from "#renderer/features/repos/diff/read-model.js";
 import { letObserversAnswer } from "../helpers/animation-frame.js";
@@ -119,7 +119,7 @@ describe("browser — the transcript's diff card", () => {
     }
 
     const rows = [...rowsBox.querySelectorAll<HTMLElement>('[role="row"]')];
-    expect(rows.length).toBeGreaterThan(DIFF_FLOW_FILL_STEP_ROWS);
+    expect(rows.length).toBeGreaterThan(DIFF_FLOW_STEP_ROWS);
     const cutEdgePx = rowsBox.getBoundingClientRect().bottom;
     const seenRows = rows.filter((row) => row.getBoundingClientRect().top < cutEdgePx);
     expect(seenRows.length).toBeLessThan(rows.length);

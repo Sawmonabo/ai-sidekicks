@@ -14,6 +14,6 @@ import { REPOS_FEATURE_OWNER } from "./owner.js";
 export function registerReposInlineCards(inlineCardRegistry: InlineCardRegistry): void {
   inlineCardRegistry.register("diff", {
     owner: REPOS_FEATURE_OWNER,
-    render: (cardProps) => createElement(InlineDiffCard, { card: cardProps }),
+    render: (cardProps, rowKey) => createElement(InlineDiffCard, { card: cardProps, rowKey }),
   });
 }

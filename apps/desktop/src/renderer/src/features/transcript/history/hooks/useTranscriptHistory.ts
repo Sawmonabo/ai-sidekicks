@@ -17,7 +17,7 @@ import { type ReleasedEventStretch } from "#renderer/store/session/state.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type ReleasedStretchReadDirection } from "#renderer/store/session/transcript-window.js";
 import { type JumpToLogEnd } from "../../viewport/conversation-edge-jump.js";
-import { type WindowSide } from "../../viewport/window-side.js";
+import { type WindowSide } from "#renderer/lib/scroll/window-side.js";
 import { queueTaskIn } from "#renderer/lib/queued-task.js";
 import {
   TranscriptHistoryReader,

@@ -64,7 +64,7 @@ import { useDrawnRows } from "./useDrawnRows.js";
 import { usePreparedRows } from "./usePreparedRows.js";
 import { classifyTranscriptRow } from "../../rows/kind.js";
 import { PreparedBodies } from "../../rows/prepared-bodies.js";
-import { DrawnWindowSources } from "../../rows/drawn-window-sources.js";
+import { DrawnWindowSources } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import { OffListTables } from "../../rows/markdown/table-window/off-list.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { useMessageAnchorRowKey } from "./useMessageAnchorRowKey.js";

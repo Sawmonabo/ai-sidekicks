@@ -4,7 +4,7 @@
 
 import type { Range } from "@tanstack/virtual-core";
 
-import { type DrawnBandScreenHeights } from "./drawn-band.js";
+import { type DrawnBandScreenHeights } from "#renderer/lib/scroll/window-side.js";
 import { type ReadingAnchorState } from "./reading-anchor.js";
 import { type RowKeyProjection } from "./row-measurement-table.js";
 import { type WindowRow, type PruneOutcome } from "./window-cap.js";

@@ -1,17 +1,19 @@
-// What a long body in a transcript row reads from the viewport it is drawn in: a markdown reply, a
-// long table or a command output, to draw only what is near the reader, and a diff opened whole,
-// to keep the reader still as its rows first lay out above them. Outside a viewport there is none.
+// What a long body in a transcript row reads from the viewport it is drawn in, to draw only what is
+// near the reader: a markdown reply, a long table, a command output or a diff opened whole. Each is
+// a window nested in its row, drawing its items within the conversation's own drawn band. Outside a
+// viewport there is none.
 
 import { createContext, type Context } from "react";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
+import { type DrawnBandScreenHeights } from "#renderer/lib/scroll/window-side.js";
 
 /** The conversation scroller as a long body in one of its rows lays itself against it. */
 export interface TranscriptBodyViewport {
   /**
-   * The scroller's one writer, whose geometry a body follows. A markdown body never writes it; a
-   * diff writes it only to take back what its rows grew above the reader.
+   * The scroller's one writer, whose geometry a body follows. A body writes it only to hold the
+   * reader's place through items it resized above them.
    */
   readonly scrollController: ScrollController;
   /**
@@ -41,7 +43,17 @@ export interface TranscriptBodyViewport {
 
 /**
  * The viewport a long body is drawn in, provided by the transcript viewport. `undefined` outside
- * one, where a markdown body is drawn whole.
+ * one, where a body is drawn whole.
  */
 export const TranscriptBodyViewportContext: Context<TranscriptBodyViewport | undefined> =
   createContext<TranscriptBodyViewport | undefined>(undefined);
+
+/**
+ * How far beyond each edge of the scroller a windowed body draws its items, in screen heights, as
+ * the viewport's render draws its rows; the same object until a side changes. Apart from the
+ * viewport's value, so a band that moves draws again only the windows that read it, in the same
+ * render as the rows. `undefined` outside a viewport.
+ */
+export const DrawnBandContext: Context<DrawnBandScreenHeights | undefined> = createContext<
+  DrawnBandScreenHeights | undefined
+>(undefined);

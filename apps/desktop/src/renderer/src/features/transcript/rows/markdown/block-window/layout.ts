@@ -10,9 +10,12 @@ import type { Range, VirtualItem, Virtualizer } from "@tanstack/virtual-core";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { blockSourceStartOf, type SettledMarkdownBlock } from "../body-blocks.js";
 import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
-import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
-import { ReaderPlaceHold } from "../reader-place-hold.js";
-import { offsetInRowPx, ScrollerWindowMembers } from "../scroller-window.js";
+import { type DrawnBandScreenHeights } from "#renderer/lib/scroll/window-side.js";
+import { ReaderPlaceHold } from "#renderer/lib/scroll/reader-place-hold.js";
+import {
+  offsetInRowPx,
+  ScrollerWindowMembers,
+} from "#renderer/components/TranscriptBodyViewport/scroller-window.js";
 import { type TableBodyPlacement, type TablePlacementChange } from "../table-window/context.js";
 import { TablePlacementReports } from "../table-window/placement-reports.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "./markers.js";
@@ -168,11 +171,8 @@ export class BlockWindowLayout implements TableBodyPlacement {
     deltaPx: number,
     instance: BlockVirtualizer,
   ): boolean => {
-    if (
-      item.end <= (instance.scrollOffset ?? 0) &&
-      this.#viewport.holdsPlaceInsideRow(this.#rowKey)
-    ) {
-      this.#placeHold.add(deltaPx);
+    if (this.#viewport.holdsPlaceInsideRow(this.#rowKey)) {
+      this.#placeHold.holdThroughResizedItem(item.end, deltaPx, instance.scrollOffset ?? 0);
     }
     return false;
   };

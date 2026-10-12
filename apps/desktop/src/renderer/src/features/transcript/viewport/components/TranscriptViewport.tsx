@@ -17,7 +17,7 @@ import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";
 import { JumpToLatest } from "./JumpToLatest.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
 import { ViewportSelectionTrackerContext } from "../selection/context.js";
-import { DrawnBandContext } from "../../rows/markdown/block-window/context.js";
+import { DrawnBandContext } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { TranscriptBodyViewportProvider } from "#renderer/components/TranscriptBodyViewport/TranscriptBodyViewportProvider.js";
 
 /** Props for `TranscriptViewport`. */
