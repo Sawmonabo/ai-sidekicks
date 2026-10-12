@@ -1,6 +1,7 @@
 // A long reply drawn as a window over its blocks, against the same reply drawn whole, in the
 // engine that lays them out. The claims are about where text lands, how many elements stay
-// mounted and what a selection keeps, none of which a DOM shim can answer.
+// mounted, what a selection keeps and where the reader's block stays when the text size changes,
+// none of which a DOM shim can answer.
 
 import { act } from "@testing-library/react";
 import { fromDom } from "hast-util-from-dom";
@@ -254,6 +255,42 @@ describe("browser — a long reply drawn as a window over its blocks", () => {
     expect(
       [...drawnAtEnd.values()].reduce((count, wrapper) => count + wrapper.children.length, 0),
     ).toBe(flowBody.children.length);
+  });
+
+  it("keeps the block a reader reads in place when the reply's text size changes", async () => {
+    const { scroller, windowedBody } = await mountBodies(coldReplyMarkdown(), {
+      isComplete: true,
+      drawsFlowBody: false,
+    });
+    await scrollTo(scroller, scroller.scrollHeight / 2);
+    // The first block starting on screen is brought to the reader's top, so the block before it
+    // ends just above the reader.
+    const scrollerTopPx = scroller.getBoundingClientRect().top;
+    const [index, block] =
+      [...drawnBlocks(windowedBody).entries()]
+        .sort(([left], [right]) => left - right)
+        .find(([, wrapper]) => wrapper.getBoundingClientRect().top > scrollerTopPx) ??
+      expect.fail("no block starts on the scroller's screen");
+    await scrollTo(
+      scroller,
+      scroller.scrollTop + block.getBoundingClientRect().top - scrollerTopPx,
+    );
+    const readBlockTopPx = (): number =>
+      (
+        drawnBlocks(windowedBody).get(index) ?? expect.fail(`block ${String(index)} is not drawn`)
+      ).getBoundingClientRect().top;
+    const readerTopPx = readBlockTopPx();
+    const scrollTopPx = scroller.scrollTop;
+
+    // A larger text size: every block wraps anew, the ones above the reader included.
+    windowedBody.style.fontSize = "17px";
+    await settleFrames();
+
+    expect(Math.abs(readBlockTopPx() - readerTopPx)).toBeLessThanOrEqual(
+      SAME_LINE_TOLERANCE_PX + 0.5,
+    );
+    // The control: the blocks above the reader grew, and the scroller moved by what they changed.
+    expect(scroller.scrollTop - scrollTopPx).toBeGreaterThan(SCROLLER_HEIGHT_PX);
   });
 
   it("keeps the text being read still while blocks above it draw for the first time", async () => {

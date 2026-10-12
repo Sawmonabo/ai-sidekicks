@@ -15,7 +15,12 @@ import { type AppearanceTheme } from "#shared/theme/registry.js";
 import { TERMINAL_ROLE_ALIASES } from "#shared/theme/terminal-colors.js";
 // The enumeration row height and the transcript's row gap are products of the type scale and line
 // heights from `typography.ts`, a leaf that imports nothing local, and the spacing scale here.
-import { BODY_LINE_HEIGHT, READING_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
+import {
+  BODY_LINE_HEIGHT,
+  MONO_ADVANCE_EM,
+  READING_LINE_HEIGHT,
+  TYPE_SCALE_REM,
+} from "./typography.js";
 
 /** A color token's values: every theme's light and dark. */
 export type ThemedColor = Readonly<Record<AppearanceTheme, SchemePair>>;
@@ -117,6 +122,19 @@ export const RADIUS_SCALE_PX: Readonly<Record<string, number>> = {
   "radius-md": 6,
   "radius-lg": 10,
 };
+
+// How dark a lifted surface's shadow is, as a percent of black. A shadow carries no hue, so it is
+// one opacity in every theme and scheme.
+const FLOAT_SHADOW_OPACITY_PERCENT = 22;
+
+/**
+ * The shadow a surface lifted above the rest casts, a popup or a pane held in a drag: dropped one
+ * `space-5` step and blurred over a `space-8` step, so it grows with the text size.
+ */
+export const FLOAT_SHADOW: string =
+  `0 ${String(scaleStep(SPACE_SCALE_REM, "space-5"))}rem ` +
+  `${String(scaleStep(SPACE_SCALE_REM, "space-8"))}rem ` +
+  `oklch(0% 0 0 / ${String(FLOAT_SHADOW_OPACITY_PERCENT)}%)`;
 
 /**
  * The glass's blur, in px: what shows through a glass surface is blurred this far. Drawn, like a
@@ -228,11 +246,83 @@ export const CONVERSATION_HEIGHT_FLOOR_REM: number =
   CONVERSATION_HEIGHT_FLOOR_LINES * scaleStep(TYPE_SCALE_REM, "text-sm") * READING_LINE_HEIGHT;
 
 /**
- * The separator between two panes in a pane row, in rem: its width is the drag target and a
- * hairline is drawn down its middle. Summed into the window's floor, which holds one separator
- * between the conversation and one pane.
+ * Review's width until a person drags its edge, in rem: room for both halves of a diff beside
+ * the conversation on a laptop, 720 px at the default text size.
  */
-export const PANE_SEPARATOR_WIDTH_REM: number = scaleStep(SPACE_SCALE_REM, "space-2");
+export const REVIEW_PANE_WIDTH_REM = 45;
+
+/** Preview's width until a person drags its edge, in rem: 720 px at the default text size. */
+export const PREVIEW_PANE_WIDTH_REM = 45;
+
+/**
+ * The terminal's floor while it is alone in the pane block, in rem: the narrowest a command line
+ * still reads at, 360 px at the default text size. Stacked with the row it takes the row's width.
+ */
+export const TERMINAL_PANE_FLOOR_REM = 22.5;
+
+// The type step the terminal's shell text is set at, 12 px at the default text size.
+const TERMINAL_TEXT_REM = scaleStep(TYPE_SCALE_REM, "text-12");
+
+// The columns command-line programs lay their output out in.
+const TERMINAL_LINE_COLUMNS = 80;
+
+/**
+ * The terminal's width while it is alone in the pane block, until a person drags its edge, in
+ * rem: one line of eighty mono columns at the terminal's step, so a command's output wraps
+ * rarely, 576 px at the default text size.
+ */
+export const TERMINAL_PANE_WIDTH_REM: number =
+  TERMINAL_LINE_COLUMNS * MONO_ADVANCE_EM * TERMINAL_TEXT_REM;
+
+/**
+ * The widest floor one pane holds, in rem: the window's floor keeps room for any one pane beside
+ * the conversation. The inspector and the agents pane are not resizable, so their width is their
+ * floor.
+ */
+export const PANE_FLOOR_WIDEST_REM: number = Math.max(
+  INSPECTOR_WIDTH_REM,
+  AGENTS_PANE_WIDTH_REM,
+  CONVERSATION_FLOOR_REM,
+  TERMINAL_PANE_FLOOR_REM,
+);
+
+// How many lines of the shell the stacked terminal keeps beside the row of panes.
+const TERMINAL_HEIGHT_FLOOR_LINES = 10;
+
+/**
+ * The shortest the terminal gets beside the row of panes, in rem: ten lines of the shell at the
+ * terminal's step and the body line height, 180 px at the default text size.
+ */
+export const TERMINAL_PANE_HEIGHT_FLOOR_REM: number =
+  TERMINAL_HEIGHT_FLOOR_LINES * TERMINAL_TEXT_REM * BODY_LINE_HEIGHT;
+
+// How many lines of a pane's body the row of panes keeps beside the terminal.
+const PANE_ROW_HEIGHT_FLOOR_LINES = 15;
+
+/**
+ * The shortest the row of panes gets beside the terminal, in rem: fifteen lines of a pane's
+ * `text-sm` body at the body line height, about 293 px at the default text size.
+ */
+export const PANE_ROW_HEIGHT_FLOOR_REM: number =
+  PANE_ROW_HEIGHT_FLOOR_LINES * scaleStep(TYPE_SCALE_REM, "text-sm") * BODY_LINE_HEIGHT;
+
+/**
+ * One arrow press on a pane edge, its nudge, in rem: a `space-5` step, 24 px at the default text
+ * size, so a press moves the edge as far at every text size.
+ */
+export const PANE_EDGE_STEP_REM: number = scaleStep(SPACE_SCALE_REM, "space-5");
+
+// How many nudges one arrow press with Shift moves a pane edge.
+const PANE_EDGE_LARGE_STEP_NUDGES = 5;
+
+/** One arrow press with Shift on a pane edge, in rem: five nudges, 120 px at the default size. */
+export const PANE_EDGE_LARGE_STEP_REM: number = PANE_EDGE_LARGE_STEP_NUDGES * PANE_EDGE_STEP_REM;
+
+/**
+ * A pane edge's grab zone, in rem: wider than the hairline it draws, so the pointer finds it
+ * without hunting, and laid over the pane's own side so it takes no width from the row.
+ */
+export const PANE_EDGE_WIDTH_REM: number = scaleStep(SPACE_SCALE_REM, "space-2");
 
 /** The gutter either side of a transcript row's column, in rem: 36 px at the default text size. */
 export const ROW_GUTTER_REM = 2.25;

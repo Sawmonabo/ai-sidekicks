@@ -43,8 +43,12 @@ import {
   AGENTS_PANE_WIDTH_REM,
   CONVERSATION_FLOOR_REM,
   CONVERSATION_HEIGHT_FLOOR_REM,
-  PANE_SEPARATOR_WIDTH_REM,
+  PANE_EDGE_WIDTH_REM,
+  PANE_FLOOR_WIDEST_REM,
+  PANE_ROW_HEIGHT_FLOOR_REM,
+  TERMINAL_PANE_HEIGHT_FLOOR_REM,
   SPACE_SCALE_REM,
+  FLOAT_SHADOW,
   GLASS_BLUR_PX,
   HOVER_WASH_EDGE_PERCENT,
   TOKEN_ALIASES,
@@ -277,6 +281,7 @@ function invariantBlock(): string {
     lines.push(declaration(tokenName, `${sizePx}px`));
   }
   lines.push(declaration("glass-blur", `${GLASS_BLUR_PX}px`));
+  lines.push(declaration("shadow-float", FLOAT_SHADOW));
   lines.push(declaration("leading-edge", `${LEADING_EDGE_WIDTH_PX}px`));
   lines.push(declaration("rail-button-size", `${RAIL_BUTTON_SIZE_REM}rem`));
   lines.push(declaration("rail-width", `${RAIL_WIDTH_REM}rem`));
@@ -285,7 +290,10 @@ function invariantBlock(): string {
   lines.push(declaration("agents-pane-width", `${AGENTS_PANE_WIDTH_REM}rem`));
   lines.push(declaration("conversation-floor", `${CONVERSATION_FLOOR_REM}rem`));
   lines.push(declaration("conversation-height-floor", `${CONVERSATION_HEIGHT_FLOOR_REM}rem`));
-  lines.push(declaration("pane-separator-width", `${PANE_SEPARATOR_WIDTH_REM}rem`));
+  lines.push(declaration("pane-edge-width", `${PANE_EDGE_WIDTH_REM}rem`));
+  lines.push(declaration("pane-floor-widest", `${PANE_FLOOR_WIDEST_REM}rem`));
+  lines.push(declaration("pane-row-height-floor", `${PANE_ROW_HEIGHT_FLOOR_REM}rem`));
+  lines.push(declaration("terminal-pane-height-floor", `${TERMINAL_PANE_HEIGHT_FLOOR_REM}rem`));
   lines.push(declaration("window-height-floor", `${WINDOW_HEIGHT_FLOOR_REM}rem`));
   // The terminal opens on a third of its pane block's height; the percentage resolves against the
   // block that reads the token, which must have a definite height.

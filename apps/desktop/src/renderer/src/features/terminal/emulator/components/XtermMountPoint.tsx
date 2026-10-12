@@ -12,6 +12,7 @@ import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButt
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { useChunkLoad, type ChunkLoadState } from "#renderer/hooks/useChunkLoad.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
+import { useRootFontSizePx } from "#renderer/hooks/useRootFontSizePx.js";
 import { terminalEmulatorLoader, type TerminalEmulatorModule } from "../loader.js";
 import type { TerminalRendererMode } from "../xterm/addons.js";
 
@@ -107,6 +108,13 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
       adapter.dispose();
     };
   }, [emulator, terminalId, canWriteToWire, canActivateLinks, callbacksRef, isWritableRef]);
+
+  // A text size step moves the type step the stylesheet sets the grid in, which the emulator
+  // reads only on attach and when told.
+  const rootFontSizePx = useRootFontSizePx();
+  useEffect(() => {
+    adapterRef.current?.followMountTypeface();
+  }, [rootFontSizePx]);
 
   // Separate from the mount effect because the lease changes far more often than the pane
   // mounts. It watches the lease only and is the write gate's one mutator.

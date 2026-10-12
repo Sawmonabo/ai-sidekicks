@@ -3,7 +3,8 @@
 // at least as wide as the buttons, its first destination starts below them, and both the width
 // and the inset go in fullscreen, where the buttons go. Everywhere else the system's own strip
 // stays and the rail keeps its own width with no inset. On every platform the rail and the
-// session header are the window's drag regions, and the session's title is cut out of them.
+// session header are the window's drag regions, and the session's title is cut out of them. Only a
+// window on screen enters fullscreen, so that case runs where windows may be shown: CI's macOS leg.
 //
 // What this reads is the style the window's own document computes, not a native drag: no test
 // here moves the pointer.
@@ -36,20 +37,18 @@ interface RailReading {
   readonly paddingBottom: string;
 }
 
-describe.skipIf(!bundleIsBuilt)("end-to-end — the title bar", () => {
-  it("keeps the rail's destinations clear of the traffic lights, and drops the room in fullscreen", async () => {
-    await withLaunchedApp({ scenarioId: FIRST_RUN_SCENARIO.id }, async (appUnderTest) => {
-      const appWindow = appUnderTest.window;
-      await appWindow
-        .locator(".meridian-rail__button")
-        .first()
-        .waitFor({
-          state: "visible",
-          timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
-        });
-      const windowed = await readRail(appWindow);
+/**
+ * Whether this run may put windows on screen, which the macOS end-to-end leg in CI sets: macOS
+ * takes no window into fullscreen while the app keeps the unobtrusive activation policy every
+ * other launch asks for. A person's Mac leaves it unset, so its windows stay out of the way.
+ */
+const mayShowWindows = process.env["SIDEKICKS_SHOWN_WINDOWS"] === "1";
 
-      // CI runs on Linux, so the macOS half below runs only on a local Mac.
+describe.skipIf(!bundleIsBuilt)("end-to-end — the title bar", () => {
+  it("keeps the rail's destinations clear of the traffic lights on macOS, with no inset elsewhere", async () => {
+    await withLaunchedApp({ scenarioId: FIRST_RUN_SCENARIO.id }, async (appUnderTest) => {
+      const windowed = await readWindowedRail(appUnderTest);
+      // The macOS half runs on a Mac: a person's, or CI's macOS leg.
       if (process.platform !== "darwin") {
         expect(windowed.isOverlayVisible, "a title-bar overlay off macOS").toBe(false);
         expect(windowed.paddingTop, "the rail carries an inset off macOS").toBe(
@@ -57,47 +56,48 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the title bar", () => {
         );
         return;
       }
-
-      expect(windowed.isOverlayVisible, "the traffic lights are not reported").toBe(true);
-      expect(windowed.overlayHeight).toBeGreaterThan(0);
-      expect(
-        windowed.overlayStart,
-        "the overlay reports no start past the buttons",
-      ).toBeGreaterThan(0);
-      expect(
-        windowed.railWidth,
-        "the rail is narrower than the traffic lights",
-      ).toBeGreaterThanOrEqual(windowed.overlayStart);
-      expect(windowed.paddingTop).toBe(`${String(windowed.overlayHeight)}px`);
-      expect(
-        windowed.firstButtonTop,
-        "the first destination starts under the traffic lights",
-      ).toBeGreaterThanOrEqual(windowed.overlayHeight);
-
-      // The overlay's change reaches the document a moment after the platform's event.
-      await setFullScreen(appUnderTest, true);
-      await expect
-        .poll(async () => (await readRail(appWindow)).isOverlayVisible, {
-          timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
-          message: "the traffic lights stay reported in fullscreen",
-        })
-        .toBe(false);
-      const fullscreen = await readRail(appWindow);
-      expect(fullscreen.paddingTop, "the inset stays in fullscreen").toBe(fullscreen.paddingBottom);
-      expect(fullscreen.firstButtonTop).toBeLessThan(windowed.firstButtonTop);
-      expect(fullscreen.railWidth, "the rail stays widened in fullscreen").toBeLessThan(
-        windowed.railWidth,
-      );
-
-      await setFullScreen(appUnderTest, false);
-      await expect
-        .poll(async () => await readRail(appWindow), {
-          timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
-          message: "the inset did not come back on leaving fullscreen",
-        })
-        .toEqual(windowed);
+      expectClearOfTrafficLights(windowed);
     });
   });
+
+  it.skipIf(process.platform !== "darwin" || !mayShowWindows)(
+    "drops the traffic lights' room in fullscreen, and brings it back on leaving (macOS, shown windows)",
+    async () => {
+      await withLaunchedApp(
+        { scenarioId: FIRST_RUN_SCENARIO.id, isWindowOnScreen: true },
+        async (appUnderTest) => {
+          const appWindow = appUnderTest.window;
+          const windowed = await readWindowedRail(appUnderTest);
+          expectClearOfTrafficLights(windowed);
+
+          // The overlay's change reaches the document a moment after the platform's event.
+          await setFullScreen(appUnderTest, true);
+          await expect
+            .poll(async () => (await readRail(appWindow)).isOverlayVisible, {
+              timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+              message: "the traffic lights stay reported in fullscreen",
+            })
+            .toBe(false);
+          const fullscreen = await readRail(appWindow);
+          expect(fullscreen.paddingTop, "the inset stays in fullscreen").toBe(
+            fullscreen.paddingBottom,
+          );
+          expect(fullscreen.firstButtonTop).toBeLessThan(windowed.firstButtonTop);
+          expect(fullscreen.railWidth, "the rail stays widened in fullscreen").toBeLessThan(
+            windowed.railWidth,
+          );
+
+          await setFullScreen(appUnderTest, false);
+          await expect
+            .poll(async () => await readRail(appWindow), {
+              timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+              message: "the inset did not come back on leaving fullscreen",
+            })
+            .toEqual(windowed);
+        },
+      );
+    },
+  );
 
   it("makes the rail and the session header drag regions, with the title cut out", async () => {
     await withLaunchedApp({ scenarioId: FIRST_RUN_SCENARIO.id }, async (appUnderTest) => {
@@ -136,6 +136,33 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the title bar", () => {
     });
   });
 });
+
+/** The rail once its first destination is drawn, read in a window that is not fullscreen. */
+async function readWindowedRail(appUnderTest: AppUnderTest): Promise<RailReading> {
+  await appUnderTest.window
+    .locator(".meridian-rail__button")
+    .first()
+    .waitFor({
+      state: "visible",
+      timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+    });
+  return await readRail(appUnderTest.window);
+}
+
+/** On macOS, the rail at least as wide as the traffic lights, its destinations below them. */
+function expectClearOfTrafficLights(windowed: RailReading): void {
+  expect(windowed.isOverlayVisible, "the traffic lights are not reported").toBe(true);
+  expect(windowed.overlayHeight).toBeGreaterThan(0);
+  expect(windowed.overlayStart, "the overlay reports no start past the buttons").toBeGreaterThan(0);
+  expect(windowed.railWidth, "the rail is narrower than the traffic lights").toBeGreaterThanOrEqual(
+    windowed.overlayStart,
+  );
+  expect(windowed.paddingTop).toBe(`${String(windowed.overlayHeight)}px`);
+  expect(
+    windowed.firstButtonTop,
+    "the first destination starts under the traffic lights",
+  ).toBeGreaterThanOrEqual(windowed.overlayHeight);
+}
 
 /** The rail and the traffic-light area as the window's own document lays them out. */
 async function readRail(appWindow: Page): Promise<RailReading> {

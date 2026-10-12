@@ -1,40 +1,35 @@
-// The face the grid draws in, taken from the element it draws into.
+// The face and size the grid draws in, taken from the element it draws into.
 //
-// `@xterm/xterm` measures its cell from its own `fontFamily` option, never from the element it
-// opens onto, so the stylesheet's `--meridian-font-mono` alone left the grid on the library's
-// default face and sized the pane from it. Reading the mount element's computed family keeps
-// the stylesheet the one source of the face.
+// `@xterm/xterm` measures its cell from its own `fontFamily` and `fontSize` options, never from
+// the element it opens onto, so the stylesheet's `--meridian-font-mono` and type step alone left
+// the grid on the library's default face and size and sized the pane from them. Reading the mount
+// element's computed face and size keeps the stylesheet the one source of both, so the grid
+// follows the text size as every other surface does.
 
-/**
- * The part of `Terminal` this module touches, so the rule can be proved against a plain
- * object.
- */
+/** The part of `Terminal` this module touches, so the rule can be proved against a plain object. */
 export interface MonospaceTypefaceTarget {
-  readonly options: { fontFamily?: string | undefined };
+  readonly options: { fontFamily?: string | undefined; fontSize?: number | undefined };
 }
 
 /**
- * The face declared on a mount element, or `undefined` when it declares none. A detached
- * element and a DOM shim both answer with an empty string, so an absent declaration leaves the
- * emulator's face alone.
+ * Tell an emulator which face and size its mount element is in, in CSS px. Each is skipped when
+ * unchanged, because assigning re-measures the cell and re-renders every row, and `attach` runs on
+ * every remount. A detached element and a DOM shim declare an empty face and no size, which leave
+ * the emulator's own alone.
  */
-export function readDeclaredMonospaceFamily(mountElement: HTMLElement): string | undefined {
-  const declared =
-    mountElement.ownerDocument.defaultView?.getComputedStyle(mountElement).fontFamily;
-  return declared === undefined || declared === "" ? undefined : declared;
-}
-
-/**
- * Tell an emulator which face its mount element is in. Skipped when unchanged, because
- * assigning re-measures the cell and re-renders every row, and `attach` runs on every remount.
- */
-export function applyDeclaredMonospaceFamily(
+export function applyDeclaredMonospaceTypeface(
   terminal: MonospaceTypefaceTarget,
   mountElement: HTMLElement,
 ): void {
-  const declared = readDeclaredMonospaceFamily(mountElement);
-  if (declared === undefined || declared === terminal.options.fontFamily) {
+  const declared = mountElement.ownerDocument.defaultView?.getComputedStyle(mountElement);
+  if (declared === undefined) {
     return;
   }
-  terminal.options.fontFamily = declared;
+  if (declared.fontFamily !== "" && declared.fontFamily !== terminal.options.fontFamily) {
+    terminal.options.fontFamily = declared.fontFamily;
+  }
+  const fontSizePx = Number.parseFloat(declared.fontSize);
+  if (Number.isFinite(fontSizePx) && fontSizePx !== terminal.options.fontSize) {
+    terminal.options.fontSize = fontSizePx;
+  }
 }

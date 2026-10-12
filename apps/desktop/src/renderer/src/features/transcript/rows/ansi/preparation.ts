@@ -57,7 +57,7 @@ export class AnsiOutputPreparation implements OutputParse {
     this.#onReady = onReady;
   }
 
-  /** Whether the output's text last read is parsed whole. */
+  /** Whether the output's text last read is settled: parsed whole, or its parse failed. */
   public get isReady(): boolean {
     return this.#isReady;
   }
@@ -106,12 +106,19 @@ export class AnsiOutputPreparation implements OutputParse {
   }
 
   /**
-   * Reads one slice of the output in its turn, answering whether it is whole; a whole parse leaves
-   * its turn and tells the row.
+   * Reads one slice of the output in its turn, answering whether its turn is over. A whole parse
+   * leaves its turn and tells the row; so does one that throws, whose error goes to the window's
+   * own error report and whose text is not parsed again until it changes. Never throws.
    */
   public readInTurn(hasTime: () => boolean): boolean {
-    if (!this.#readSlice(hasTime)) {
-      return false;
+    try {
+      if (!this.#readSlice(hasTime)) {
+        return false;
+      }
+    } catch (failure: unknown) {
+      // The row draws what was published, and the app's diagnostics hear the error, stack and all.
+      this.#parsedRevision = this.#text?.revision;
+      this.#ownerWindow.reportError(failure);
     }
     this.#outputs.leaveTurn(this);
     this.#isReady = true;

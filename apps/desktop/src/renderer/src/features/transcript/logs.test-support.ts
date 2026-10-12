@@ -96,23 +96,26 @@ export function openSessionStoreWithFeedLog(count: number): SessionStore {
 export function openSessionStoreWithToolRows(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialize({ shape: "project", cursor: -1, entities: [] });
-  sessionStore.applyBatch(
-    Array.from({ length: count }, (_unused, index) => ({
-      id: transcriptFixtureEventId(index),
-      sessionId: SESSION_ID,
-      sequence: index,
-      cursor: transcriptFixtureStreamCursor(index),
-      kind: "tool.invoked",
-      occurredAt: transcriptFixtureStampAt(index),
-      payload: {
-        sessionId: SESSION_ID,
-        toolName: `tool_${String(index)}`,
-        toolCallId: `call-${String(index)}`,
-        [CONTENT_LENGTH_PAYLOAD_KEY]: TOOL_ROW_BODY_LENGTH,
-      },
-    })),
-  );
+  sessionStore.applyBatch(Array.from({ length: count }, (_unused, index) => toolRowEventAt(index)));
   return sessionStore;
+}
+
+/** The tool row event at one log position of `openSessionStoreWithToolRows`' log. */
+export function toolRowEventAt(index: number): ProjectedSessionEvent {
+  return {
+    id: transcriptFixtureEventId(index),
+    sessionId: SESSION_ID,
+    sequence: index,
+    cursor: transcriptFixtureStreamCursor(index),
+    kind: "tool.invoked",
+    occurredAt: transcriptFixtureStampAt(index),
+    payload: {
+      sessionId: SESSION_ID,
+      toolName: `tool_${String(index)}`,
+      toolCallId: `call-${String(index)}`,
+      [CONTENT_LENGTH_PAYLOAD_KEY]: TOOL_ROW_BODY_LENGTH,
+    },
+  };
 }
 
 /**

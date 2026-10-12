@@ -10,6 +10,9 @@ export function createSpyingPaneLayoutActs(): SpyingPaneLayoutActs {
     closeFocusedPane: vi.fn<() => void>(),
     moveFocusedPaneLeft: vi.fn<() => void>(),
     moveFocusedPaneRight: vi.fn<() => void>(),
+    moveTerminalUp: vi.fn<() => void>(),
+    moveTerminalDown: vi.fn<() => void>(),
+    openInspector: vi.fn<() => void>(),
   };
 }
 
@@ -20,4 +23,7 @@ interface SpyingPaneLayoutActs extends PaneLayoutActs {
   readonly closeFocusedPane: Mock<() => void>;
   readonly moveFocusedPaneLeft: Mock<() => void>;
   readonly moveFocusedPaneRight: Mock<() => void>;
+  readonly moveTerminalUp: Mock<() => void>;
+  readonly moveTerminalDown: Mock<() => void>;
+  readonly openInspector: Mock<() => void>;
 }

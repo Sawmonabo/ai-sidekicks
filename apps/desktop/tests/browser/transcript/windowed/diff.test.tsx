@@ -3,8 +3,9 @@
 // as the block drawn whole lays it out, its undrawn steps measured off screen; a selection dragged
 // far past the window copies the same text the block drawn whole copies; assistive technology reads
 // the drawn rows by their places in the block and never a spacer, and focus stays on the rows Show
-// all opened; and a reader below the block stays where they were while its steps are measured above
-// them, the block growing outside every resize report.
+// all opened; a reader below the block stays where they were while its steps are measured above
+// them, the block growing outside every resize report; and a reader inside the block keeps the
+// step they read when the rows' text size changes, the step before it ending just above them.
 
 import { act, cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -22,6 +23,7 @@ import {
   filePatch,
   type DrawnDiffCard,
 } from "#renderer/features/repos/diff/components/InlineDiffCard.test-support.js";
+import { DIFF_FLOW_STEP_ATTRIBUTE } from "#renderer/features/repos/diff/rows/flow.js";
 import { readSelectedPart } from "#renderer/features/transcript/copy/conversation-selection.js";
 import {
   SuiteWindowViewportProvider,
@@ -31,7 +33,7 @@ import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { hearResizeLoopErrors } from "../resize-loop-errors.js";
-import { settleFrames } from "./reply.js";
+import { letFramePaint, settleFrames } from "./reply.js";
 
 /** The flow's box, in CSS pixels. */
 const FLOW_HEIGHT_PX = 600;
@@ -219,10 +221,11 @@ describe("browser — a long diff opened whole drawn as a window over its steps"
     const windowed = drawInViewport([wrappingPatch(1_200), ...shortFiles]);
     const { flow, card, block } = windowed;
     fireEvent.click(showAllOf(block));
-    await settleFrames();
+    // One frame each, so most steps are still unmeasured when the watch below starts.
+    await letFramePaint();
     // At once just past the long file's block, before its steps are measured.
     flow.scrollTop += block.getBoundingClientRect().bottom - flow.getBoundingClientRect().top + 20;
-    await settleFrames();
+    await letFramePaint();
     expect(block.getBoundingClientRect().bottom).toBeLessThan(flow.getBoundingClientRect().top);
     const reference = firstRowOnScreen(card, flow);
     const readerTopPx = reference.getBoundingClientRect().top;
@@ -239,7 +242,8 @@ describe("browser — a long diff opened whole drawn as a window over its steps"
     await settleMeasuring();
     growth.disconnect();
     expect(resizeLoopErrors.stop()).toStrictEqual([]);
-    expect(movesPx.length).toBeGreaterThan(1);
+    // A fast runner measures every remaining step in one frame, so one resize is enough to judge.
+    expect(movesPx.length).toBeGreaterThan(0);
     for (const [frame, movedPx] of movesPx.entries()) {
       expect(Math.abs(movedPx), `moved ${String(movedPx)} at change ${String(frame)}`).toBeLessThan(
         HELD_TOLERANCE_PX,
@@ -247,6 +251,42 @@ describe("browser — a long diff opened whole drawn as a window over its steps"
     }
     // The steps measured above the reader did grow the block while they read.
     expect(block.getBoundingClientRect().height - heightAtStartPx).toBeGreaterThan(FLOW_HEIGHT_PX);
+  });
+
+  it("keeps the step a reader reads in place when the rows' text size changes", async () => {
+    const windowed = drawInViewport([wrappingPatch(1_200)]);
+    const { flow, block } = windowed;
+    fireEvent.click(showAllOf(block));
+    await settleMeasuring();
+    const rows = rowsOf(block);
+    flow.scrollTop +=
+      rows.getBoundingClientRect().top -
+      flow.getBoundingClientRect().top +
+      rows.getBoundingClientRect().height / 2;
+    await settleFrames();
+    // The first step starting on screen is brought to the reader's top, so the step before it
+    // ends just above the reader.
+    const flowTopPx = flow.getBoundingClientRect().top;
+    const step =
+      [...block.querySelectorAll<HTMLElement>(`[${DIFF_FLOW_STEP_ATTRIBUTE}]`)].find(
+        (candidate) => candidate.getBoundingClientRect().top > flowTopPx,
+      ) ?? expect.fail("no step starts on the flow's screen");
+    flow.scrollTop += step.getBoundingClientRect().top - flowTopPx;
+    await settleFrames();
+    const stepNumber = step.getAttribute(DIFF_FLOW_STEP_ATTRIBUTE) ?? expect.fail("a step number");
+    const readStep = (): HTMLElement =>
+      block.querySelector<HTMLElement>(`[${DIFF_FLOW_STEP_ATTRIBUTE}="${stepNumber}"]`) ??
+      expect.fail(`step ${stepNumber} is not drawn`);
+    const readerTopPx = readStep().getBoundingClientRect().top;
+
+    // A larger text size: every step wraps anew, the ones above the reader included.
+    rows.style.fontSize = "15px";
+    rows.style.lineHeight = "24px";
+    await settleFrames();
+    await settleMeasuring();
+    expect(Math.abs(readStep().getBoundingClientRect().top - readerTopPx)).toBeLessThan(
+      HELD_TOLERANCE_PX,
+    );
   });
 });
 

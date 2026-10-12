@@ -8,6 +8,7 @@
 // write the frame repeats reads where the box stands from the last sample, so it reads nothing.
 
 import { type Clock } from "#renderer/lib/clock.js";
+import { prefersReducedMotion } from "#renderer/lib/reduced-motion.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { OverflowMeasurementBatch } from "./overflow-measurement-batch.js";
 import { type ScrollGeometry, type GeometryChangeCause } from "./geometry/sample.js";
@@ -28,6 +29,14 @@ export interface ScrollWrite {
   readonly appliedScrollTop: number;
   /** True when quantization was confirmed and the write was a no-op. */
   readonly wasSkipped: boolean;
+}
+
+/** What one write to a container no `ScrollController` drives did: its caller and its offsets. */
+export interface ScrollOffsetWrite {
+  readonly caller: ScrollCaller;
+  readonly axis: "horizontal" | "vertical";
+  readonly requestedOffset: number;
+  readonly appliedOffset: number;
 }
 
 /** Called once per batched overflow pass, with the geometry it was measured at. */
@@ -63,6 +72,8 @@ export class ScrollController {
   #onContainerScroll: ((event: Event) => void) | undefined;
   #overflowSink: OverflowMeasurementSink | undefined;
   #writeDepth = 0;
+  /** How many follow holds are unreleased; while any is, a write that follows the tail drops. */
+  #followHoldCount = 0;
   #disposed = false;
 
   public constructor(options: ScrollControllerOptions) {
@@ -169,7 +180,7 @@ export class ScrollController {
    */
   public glideTo(caller: ScrollCaller, targetScrollTop: number): ScrollWrite | undefined {
     const scrollContainer = this.#scrollContainer;
-    if (scrollContainer === undefined || this.#disposed) {
+    if (scrollContainer === undefined || this.#disposed || this.#isHeldFollowWrite(caller)) {
       return undefined;
     }
     const maximumScrollTop = this.#maximumScrollTopOf(scrollContainer);
@@ -255,7 +266,31 @@ export class ScrollController {
     computeTarget: ScrollTargetComputation,
     motion: GlideMotion,
   ): boolean {
+    if (this.#isHeldFollowWrite(caller)) {
+      return false;
+    }
     return this.#easedGlide.start(caller, computeTarget, motion);
+  }
+
+  /**
+   * Holds every write that follows the tail until the answered release is called: each one is
+   * dropped, not queued, and a glide after arriving text ends where the box stands, so a layout a
+   * person is dragging moves nothing under their hand. Landing the follower again on release is
+   * the caller's.
+   */
+  public holdFollow(): () => void {
+    this.#followHoldCount += 1;
+    const glideCaller = this.#easedGlide.caller;
+    if (glideCaller !== undefined && isFollowWrite(glideCaller)) {
+      this.#easedGlide.stop();
+    }
+    let isReleased = false;
+    return () => {
+      if (!isReleased) {
+        isReleased = true;
+        this.#followHoldCount -= 1;
+      }
+    };
   }
 
   /** End an eased glide where the box stands. */
@@ -297,6 +332,10 @@ export class ScrollController {
   /** How many times a caller has written. */
   public writeCount(caller: ScrollCaller): number {
     return this.#writeCountByCaller.get(caller) ?? 0;
+  }
+
+  #isHeldFollowWrite(caller: ScrollCaller): boolean {
+    return this.#followHoldCount > 0 && isFollowWrite(caller);
   }
 
   #maximumScrollTopOf(scrollContainer: HTMLElement): number {
@@ -351,23 +390,62 @@ export class ScrollController {
 }
 
 /**
- * Scrolls `container` along `axis` to `offset` CSS pixels, clamped to its content, and answers
- * the offset it reached. The reorder drag's edge scroll is its one caller: a drag carries the
- * list it moves in near an edge and holds no `ScrollController` for that list.
+ * Scrolls `container` along `axis` to `offset` CSS pixels, clamped to its content, for `caller`,
+ * and answers what it wrote. A reorder drag's edge scroll calls it: a drag carries the list it
+ * moves in near an edge and holds no `ScrollController` for that list.
  */
 export function scrollForReorderDrag(
   container: Element,
   axis: "horizontal" | "vertical",
   offset: number,
-): number {
+  caller: ScrollCaller,
+): ScrollOffsetWrite {
   if (axis === "horizontal") {
     const maximum = Math.max(0, container.scrollWidth - container.clientWidth);
-    container.scrollLeft = Math.min(Math.max(0, offset), maximum);
-    return container.scrollLeft;
+    const requestedOffset = Math.min(Math.max(0, offset), maximum);
+    container.scrollLeft = requestedOffset;
+    return { caller, axis, requestedOffset, appliedOffset: container.scrollLeft };
   }
   const maximum = Math.max(0, container.scrollHeight - container.clientHeight);
-  container.scrollTop = Math.min(Math.max(0, offset), maximum);
-  return container.scrollTop;
+  const requestedOffset = Math.min(Math.max(0, offset), maximum);
+  container.scrollTop = requestedOffset;
+  return { caller, axis, requestedOffset, appliedOffset: container.scrollTop };
+}
+
+/**
+ * Scrolls `container` sideways the least distance that brings `item` wholly into view, for
+ * `caller`, gliding unless its window asks for reduced motion, and answers what it asked for;
+ * `undefined` when the item is already in view. The pane block calls it, and holds no
+ * `ScrollController`. Throws for a container whose document has no window.
+ */
+export function revealInRow(
+  container: Element,
+  item: Element,
+  caller: ScrollCaller,
+): ScrollOffsetWrite | undefined {
+  const view = container.ownerDocument.defaultView;
+  if (view === null) {
+    throw new Error("A row was scrolled in a document with no window.");
+  }
+  const containerBox = container.getBoundingClientRect();
+  const itemBox = item.getBoundingClientRect();
+  const leftOverflow = itemBox.left - containerBox.left;
+  const rightOverflow = itemBox.right - containerBox.right;
+  // An item wider than the view shows its start, where its header is.
+  const shift =
+    leftOverflow < 0 || itemBox.width > containerBox.width
+      ? leftOverflow
+      : Math.max(0, rightOverflow);
+  if (shift === 0) {
+    return undefined;
+  }
+  const requestedOffset = container.scrollLeft + shift;
+  container.scrollTo({
+    left: requestedOffset,
+    behavior: prefersReducedMotion(view) ? "instant" : "smooth",
+  });
+  // A glide reaches its offset over later frames; the write answers where it began.
+  return { caller, axis: "horizontal", requestedOffset, appliedOffset: container.scrollLeft };
 }
 
 /**
@@ -383,12 +461,36 @@ function isAskedOnce(caller: ScrollCaller): boolean {
     case "window-opening":
     case "row-reveal":
     case "settings-control-landing":
+    case "pane-reveal":
       return true;
     case "follow-tail":
     case "follow-arriving-text":
     case "hold-reading-position":
     case "prune-compensation":
     case "measurement-compensation":
+    case "reorder-edge-scroll":
+      return false;
+  }
+}
+
+/** Whether a caller's write keeps a following reader on the tail, which a follow hold drops. */
+function isFollowWrite(caller: ScrollCaller): boolean {
+  switch (caller) {
+    case "follow-tail":
+    case "follow-arriving-text":
+      return true;
+    case "jump-to-tail":
+    case "jump-to-head":
+    case "hold-reading-position":
+    case "find-match":
+    case "message-anchor":
+    case "prune-compensation":
+    case "measurement-compensation":
+    case "window-opening":
+    case "row-reveal":
+    case "settings-control-landing":
+    case "pane-reveal":
+    case "reorder-edge-scroll":
       return false;
   }
 }

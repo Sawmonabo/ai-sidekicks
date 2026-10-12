@@ -61,6 +61,8 @@ export interface PaneBreadcrumbProps extends PaneScopeAddress {
   readonly crumbsId: string;
   /** The pane's own name, prose, and the crumb the trail is on. */
   readonly currentCrumb: string;
+  /** The id the pane's own name carries, where something else is named by it. */
+  readonly currentCrumbId?: string | undefined;
 }
 
 /** The crumbs the address carries, with nothing standing in for the ones it lacks. */
@@ -82,7 +84,7 @@ export function PaneBreadcrumb(props: PaneBreadcrumbProps): React.JSX.Element {
         )}
         <li className="meridian-pane__crumb meridian-pane__heading" aria-current="page">
           <Glyph name="chevron-right" size={GLYPH_SIZE_CHROME} />
-          {props.currentCrumb}
+          <span id={props.currentCrumbId}>{props.currentCrumb}</span>
         </li>
       </ol>
     </nav>

@@ -2,6 +2,7 @@ import { useCallback, useSyncExternalStore } from "react";
 
 import { getWindow } from "@floating-ui/utils/dom";
 
+import { rootFontSizePx } from "#renderer/lib/root-font-size.js";
 import { useOwnerWindow } from "./useOwnerWindow.js";
 
 /**
@@ -23,12 +24,6 @@ export function useRootFontSizePx(): number {
     },
     [ownerWindow],
   );
-  const readRootFontSizePx = useCallback(
-    () =>
-      Number.parseFloat(
-        ownerWindow.getComputedStyle(ownerWindow.document.documentElement).fontSize,
-      ),
-    [ownerWindow],
-  );
+  const readRootFontSizePx = useCallback(() => rootFontSizePx(ownerWindow.document), [ownerWindow]);
   return useSyncExternalStore(subscribe, readRootFontSizePx);
 }

@@ -43,7 +43,8 @@ export function readComposerCommands(route: AppRoute): ComposerCommands {
  * Where a command run from the composer would be running. `sessionActive` is true because the
  * composer only renders inside a session; the three rail destinations are false because it does
  * not render on the sessions list, the workflows builder or settings. `transcriptHoldsRunGroup` is
- * false because the composer's list offers no transcript fold.
+ * false because the composer's list offers no transcript fold, and `paneFocused` because the
+ * composer stands in the conversation, outside every pane.
  */
 function composerWhenContext(route: AppRoute): WindowWhenClauseContext {
   return {
@@ -53,5 +54,6 @@ function composerWhenContext(route: AppRoute): WindowWhenClauseContext {
     onWorkflows: false,
     onSettings: false,
     transcriptHoldsRunGroup: false,
+    paneFocused: false,
   };
 }

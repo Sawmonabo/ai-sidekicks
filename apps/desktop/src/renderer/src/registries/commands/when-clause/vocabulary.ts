@@ -6,8 +6,9 @@ import type { Keybinding } from "../keybinding.js";
 
 /**
  * The `when`-clause keys the window publishes: one per main-window route kind, `sessionActive`,
- * and `transcriptHoldsRunGroup`, whether the window's transcript holds a run group. The types
- * below derive from it, so a new key is a compile error until every context builder supplies it.
+ * `transcriptHoldsRunGroup`, whether the window's transcript holds a run group, and
+ * `paneFocused`, whether the window's focus is in one of a session's panes. The types below
+ * derive from it, so a new key is a compile error until every context builder supplies it.
  */
 export const WHEN_CLAUSE_KEYS = [
   "sessionActive",
@@ -16,6 +17,7 @@ export const WHEN_CLAUSE_KEYS = [
   "onWorkflows",
   "onSettings",
   "transcriptHoldsRunGroup",
+  "paneFocused",
 ] as const;
 
 /** One key of the window's `when` vocabulary. */

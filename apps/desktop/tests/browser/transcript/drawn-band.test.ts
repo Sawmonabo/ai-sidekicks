@@ -39,11 +39,14 @@ const TOUCH_FLING_PX = FEED_HEIGHT_PX * 3;
 const QUICK_FLICK_SPEED = 8000;
 /**
  * The flick a frame of momentum is drawn late in, in pixels a second: from the commit that drew the
- * rows to the frame after the late one it carries the box past the leading band at rest, and short
- * of the band's 3-screen cap, which the product does not fill beyond, on both a fling curve that
- * slows fast and one that slows late.
+ * rows to the frame after the late one it carries the box past the leading band at rest (900 px),
+ * and short of the band's 3-screen cap (1800 px), which the product does not fill beyond, on both
+ * a fling curve that slows fast and one that slows late. The travel is the flick's speed over that
+ * span, about 0.2 s, longer where frames run long, so the speed sets it near the middle: about 1100
+ * to 1400 px on a curve that slows fast, and under 1600 px where frames run long on one that slows
+ * late, which 7500 carries 2 px past the cap.
  */
-const LATE_FRAME_FLICK_SPEED = 7500;
+const LATE_FRAME_FLICK_SPEED = 6600;
 /**
  * The hand's travel toward the tail in the fling a frame is drawn late in: one screen, so the late
  * frame ends far from the window's end and only the band's reach is read.

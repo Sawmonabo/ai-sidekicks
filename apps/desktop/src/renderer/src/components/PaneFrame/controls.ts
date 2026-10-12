@@ -24,6 +24,16 @@ export interface PaneControls {
    * reorder panes.
    */
   readonly registerDragHandle?: (element: HTMLElement | null) => void;
+  /** Whether this pane holds the whole width, and the toggle; absent where it cannot take it. */
+  readonly fullWidth?: PaneFullWidthControl;
+  /** The id the pane's own name carries, which names the host's resize edges for this pane. */
+  readonly titleId?: string;
+}
+
+/** A pane's full-width toggle: whether it holds the width now, and the press that flips it. */
+export interface PaneFullWidthControl {
+  readonly isHeld: boolean;
+  readonly toggle: () => void;
 }
 
 /** The seam. `undefined`, not an empty object, means no host is mounted. */

@@ -33,8 +33,13 @@
   border-style: dashed;
 }
 
+/* The face and type step the emulator reads off this element and sets its cell from. Shaping is
+   off, ligatures and contextual alternates both, because the DOM renderer draws a run of cells as
+   one span, where a glyph joining two characters would take one cell and shift the line. */
 .meridian-terminal-mount-point__mount-element {
   block-size: 100%;
   inline-size: 100%;
   font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-12);
+  font-variant-ligatures: none;
 }

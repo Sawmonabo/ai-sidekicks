@@ -15,6 +15,7 @@ import { COLOR_SCHEMES, type ColorScheme } from "#shared/color-scheme.js";
 import { formatPaintedHex } from "#shared/color.js";
 import type { ColorRole } from "#shared/theme/palette.js";
 import { APPEARANCE_THEMES, THEME_PALETTES, type AppearanceTheme } from "#shared/theme/registry.js";
+import { rootFontSizePx } from "#renderer/lib/root-font-size.js";
 import { scaleStep } from "#renderer/styles/palette.js";
 import { FONT_STACKS, TYPE_SCALE_REM } from "#renderer/styles/typography.js";
 
@@ -163,15 +164,15 @@ function composeDiagramPalette(ownerWindow: Window): DiagramPalette {
   const root = ownerWindow.document.documentElement;
   const theme = readTheme(root.getAttribute(THEME_ATTRIBUTE));
   const scheme = readScheme(root.getAttribute(RESOLVED_SCHEME_ATTRIBUTE), ownerWindow);
-  const rootFontSizePx = Number.parseFloat(ownerWindow.getComputedStyle(root).fontSize);
+  const rootPx = rootFontSizePx(ownerWindow.document);
   const themeColors = THEME_PALETTES[theme].colors;
   const hexOf = (role: ColorRole): string => formatPaintedHex(themeColors[role][scheme]);
   return {
-    identity: `${theme}|${scheme}|${String(rootFontSizePx)}`,
+    identity: `${theme}|${scheme}|${String(rootPx)}`,
     isDark: scheme === "dark",
     groundColor: hexOf(PICTURE_GROUND_ROLE),
     fontFamily: PICTURE_FONT_FAMILY,
-    fontSizePx: scaleStep(TYPE_SCALE_REM, "text-sm") * rootFontSizePx,
+    fontSizePx: scaleStep(TYPE_SCALE_REM, "text-sm") * rootPx,
     colors: Object.fromEntries(
       Object.entries(DRAWING_COLOR_ROLES).map(([name, role]) => [name, hexOf(role)]),
     ),

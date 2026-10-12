@@ -215,6 +215,14 @@ export class DurableViewState<TValue extends PersistedValue> {
   }
 }
 
+/**
+ * Whether `refusal` is a durable view state's failed read rather than a refused write: the view
+ * starts from its defaults and says so in that refusal's own words.
+ */
+export function isUnreadableRecordRefusal(refusal: Refusal): boolean {
+  return refusal === UNREADABLE_RECORD_REFUSAL;
+}
+
 /** What a view says when its saved record could not be read. */
 const UNREADABLE_RECORD_REFUSAL = refusePersistence(
   "adapter-unavailable",

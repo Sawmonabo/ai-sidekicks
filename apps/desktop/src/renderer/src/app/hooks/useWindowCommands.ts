@@ -13,6 +13,7 @@ import { keybindingOverrides } from "#renderer/registries/keybindings/overrides/
 import { KeybindingTable } from "#renderer/registries/keybindings/table.js";
 import type { CommandPaletteProps } from "#renderer/layout/CommandPalette/hooks/useCommandPalette.js";
 import { useTranscriptHoldsRunGroup } from "#renderer/features/transcript/index.js";
+import { useIsFocusInPane } from "#renderer/features/sessions/index.js";
 
 /** What one window's palette and chords are built against. */
 export interface WindowCommandsInput {
@@ -55,6 +56,8 @@ export function useWindowCommands(input: WindowCommandsInput): WindowCommands {
   // Whether this window's transcript holds a run group, so the fold rows are offered only where
   // there is a run to fold.
   const transcriptHoldsRunGroup = useTranscriptHoldsRunGroup(ownerWindow.document);
+  // Whether focus is in a pane, so the pane moves' chords answer only there.
+  const paneFocused = useIsFocusInPane(ownerWindow.document);
 
   // Derived from the route, so the palette cannot disagree with the rail about where it is.
   const whenContext: WindowWhenClauseContext = useMemo(
@@ -65,8 +68,9 @@ export function useWindowCommands(input: WindowCommandsInput): WindowCommands {
       onWorkflows: route.kind === "workflows",
       onSettings: route.kind === "settings",
       transcriptHoldsRunGroup,
+      paneFocused,
     }),
-    [route, lastOpenedSessionId, transcriptHoldsRunGroup],
+    [route, lastOpenedSessionId, transcriptHoldsRunGroup, paneFocused],
   );
 
   // Read through a ref: a closure captured at construction would evaluate every chord against

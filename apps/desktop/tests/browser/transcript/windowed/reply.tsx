@@ -41,16 +41,21 @@ const FLING_TRAVEL_SCREENS = 3;
 /** The key the scroller's one row, the reply, is known to the selection tracker by. */
 const REPLY_ROW_KEY = "reply";
 
+/** One frame painted: the window hears what changed, re-renders, mounts and measures its items. */
+export async function letFramePaint(): Promise<void> {
+  await act(async () => {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        resolve();
+      });
+    });
+  });
+}
+
 /** Lets a window hear the scroll, re-render, mount and measure its items, and paint. */
 export async function settleFrames(): Promise<void> {
   for (let frame = 0; frame < 4; frame += 1) {
-    await act(async () => {
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          resolve();
-        });
-      });
-    });
+    await letFramePaint();
   }
 }
 

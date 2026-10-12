@@ -1,17 +1,13 @@
 /* The pane frame: one sheet for every pane kind. */
 
-/* `flex: 1 1 auto` because a pane is a flex child as often as a grid one: the pane layout is a
-   column flex chain (`features/sessions/pane-layout/components/SessionPaneLayout.css`), where the initial `0 1 auto` would size the pane by its
-   content. `flex` is inert on a grid item. `tests/browser/pane-layout/fill.test.tsx` holds
-   both. `height: 100%` would break under a parent that is not full height.
+/* `flex: 1 1 auto` because a pane is a flex child as often as a grid one: a pane's slot is a
+   column flex chain (`features/sessions/pane-layout/components/SessionPaneLayout.css`), where
+   the initial `0 1 auto` would size the pane by its content. `flex` is inert on a grid item.
+   `tests/browser/pane-layout/fill.test.tsx` holds both. `height: 100%` would break under a
+   parent that is not full height.
 
-   The corners are rounded without clipping the pane. Chromium cannot hit-test a point under a
-   rounded clip on its compositor, so every scroll inside a clipped pane would wait for the main
-   thread before it moved. The pane's own edge and ground round on their own; the head rounds its
-   top corners, and two corner caps (`CornerCaps`) paint over whatever the body draws past the
-   bottom ones. A pane layout restores the clip by setting `--meridian-pane-overflow` while a
-   pane is lifted, since a lifted pane glides over its neighbors and a cap would paint the ground
-   there. */
+   The frame draws no edge of its own: a pane is set apart from its neighbors by the one-pixel
+   line its place in the pane layout draws, and a pane in its own window needs none. */
 .meridian-pane {
   position: relative;
   display: flex;
@@ -19,14 +15,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow: var(--meridian-pane-overflow, visible);
   background: var(--meridian-surface);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-lg);
-  --meridian-corner-cap-radius: var(--meridian-radius-lg);
-  --meridian-corner-cap-ground: var(--meridian-ground);
-  /* The pane's own 1 px edge, which the caps draw along their curve. */
-  --meridian-corner-cap-edge: 1px;
 }
 
 /* Quiet chrome: the head is a boundary, not a title bar. */
@@ -35,15 +24,8 @@
   gap: var(--meridian-space-3);
   align-items: center;
   min-height: 34px;
-  /* Block padding and type size come from the pane layout's rhythm, with fallbacks for a pane
-     mounted outside one. */
-  padding: var(--meridian-pane-head-padding-block, 0) var(--meridian-space-2)
-    var(--meridian-pane-head-padding-block, 0) var(--meridian-space-3);
-  font-size: var(--meridian-pane-head-font-size, inherit);
+  padding: 0 var(--meridian-space-2) 0 var(--meridian-space-3);
   border-bottom: 1px solid var(--meridian-edge);
-  /* The pane's inner curve, inside its 1 px edge. */
-  border-start-start-radius: calc(var(--meridian-radius-lg) - 1px);
-  border-start-end-radius: calc(var(--meridian-radius-lg) - 1px);
   background: var(--meridian-surface-sunken);
 }
 
@@ -137,7 +119,8 @@
 
 /*
  * No padding: the body's feature decides. It scrolls so a body with no scroll container of its
- * own is reachable rather than running past the frame.
+ * own is reachable rather than running past the frame. Its vertical scroll stays its own, while a
+ * sideways swipe it has no room for passes on to the pane row around it.
  */
 .meridian-pane__body {
   display: flex;
@@ -145,4 +128,5 @@
   flex-direction: column;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior-y: contain;
 }

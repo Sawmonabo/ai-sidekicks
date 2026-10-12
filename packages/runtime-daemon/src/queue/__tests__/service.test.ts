@@ -1,9 +1,10 @@
 // The run queue over a real database, writer, event log and run engine: a send is one write or
 // nothing, a retried send saves nothing twice, a picked skill reaches Codex only as the file Codex
 // listed, Codex's held messages go together at a tool boundary, what a turn left waiting becomes
-// the next run, a message Claude Code kept or took late is admitted on its replay, and a run the
-// memory gate never admits leaves its message not delivered. A skill read that starts Codex's
-// service waits at the memory gate, and a run opens its provider session after its setup gates.
+// the next run, a message Claude Code kept or took late is admitted on its replay, one being
+// admitted or written not delivered is never handed again, and a run the memory gate never admits
+// leaves its message not delivered. A skill read that starts Codex's service waits at the memory
+// gate, and a run opens its provider session after its setup gates.
 
 import { randomUUID } from "node:crypto";
 
@@ -347,6 +348,60 @@ describe("the run queue", () => {
       expect(queueFixture.readItem(kept.queueItemId)?.state).toBe("admitted");
     });
   });
+
+  // Mutations: unmarking a handed message before the write that moves it out of `queued` lands,
+  // on its replay or on a failed hand, lets a hand made meanwhile send it to Claude Code again.
+  it.each([
+    { outcome: "admitted", isHandFailed: false },
+    { outcome: "not_delivered", isHandFailed: true },
+  ] as const)(
+    "never hands Claude Code a message again while its move to $outcome is being written",
+    async ({ outcome, isHandFailed }) => {
+      const queueFixture = await openRunQueueFixture({ driverName: "claude" });
+      fixture = queueFixture;
+      const { sessionId } = queueFixture.engine;
+      const runId = await startFirstRun(queueFixture, "Add the retry");
+      const { recorder } = queueFixture.queue;
+      const recordOutcome = recorder.recordOutcome.bind(recorder);
+      const writeStarted = Promise.withResolvers<void>();
+      const writeReleased = Promise.withResolvers<void>();
+      vi.spyOn(recorder, "recordOutcome").mockImplementation(async (...args) => {
+        writeStarted.resolve();
+        await writeReleased.promise;
+        await recordOutcome(...args);
+      });
+      if (isHandFailed) {
+        queueFixture.answerSteer = () => Promise.reject(new Error("The pipe closed"));
+      }
+      const sent = await queueFixture.send("Cover the timeout too");
+      if (!isHandFailed) {
+        await vi.waitFor(() => {
+          expect(queueFixture.steers).toHaveLength(1);
+        });
+        queueFixture.queue.delivery.messageTaken(sessionId, sent.queueItemId, runId);
+      }
+      await writeStarted.promise;
+
+      // Reading the session again hands its running run whatever reads waiting for it.
+      await queueFixture.queue.lifecycle.reconcile(sessionId);
+      writeReleased.resolve();
+      await queueFixture.queue.delivery.settle(sessionId);
+
+      expect(queueFixture.readItem(sent.queueItemId)?.state).toBe(outcome);
+      expect(queueFixture.steers.map((steer) => steer.clientIdempotencyKey)).toEqual([
+        sent.queueItemId,
+      ]);
+      expect(queueFixture.serviceLog).toEqual(
+        isHandFailed
+          ? [
+              `run queue: message ${sent.queueItemId} could not be handed to run ${runId}: ` +
+                "The pipe closed",
+            ]
+          : [],
+      );
+      queueFixture.serviceLog.length = 0;
+    },
+  );
 
   // Mutations: keeping a handed message past its run's end whatever became of the process it went
   // to leaves it waiting for a turn no process will start, never sent again; looking at a kept

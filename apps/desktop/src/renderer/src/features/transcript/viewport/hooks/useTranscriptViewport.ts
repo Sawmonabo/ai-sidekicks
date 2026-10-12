@@ -20,6 +20,7 @@ import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
 import { type Clock } from "#renderer/lib/clock.js";
+import { rootFontSizePx } from "#renderer/lib/root-font-size.js";
 import { type RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
@@ -27,7 +28,6 @@ import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers
 import { type AnimationFrameScheduler } from "../../animation-frame-scheduler.js";
 import { type RowHeightKind } from "../../rows/height-kind.js";
 import { ViewportController, type ViewportControllerOptions } from "../controller.js";
-import { declareDisplaySettings } from "../display-settings.js";
 import { type MessageReadBack } from "../landing.js";
 import { type RowOutputParses } from "../row-reach.js";
 import { type ViewportSelectionTracker } from "../selection/tracker.js";
@@ -39,6 +39,7 @@ import {
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type JumpToLogEnd } from "../conversation-edge-jump.js";
 import { type WindowSide } from "#renderer/lib/scroll/window-side.js";
+import { useHoldFollowWhilePaneEdgeDragged } from "./useHoldFollowWhilePaneEdgeDragged.js";
 import { useObserveDisplaySettings } from "./useObserveDisplaySettings.js";
 
 /** What the view gets back: a snapshot, the refs, and the acts it offers. */
@@ -253,6 +254,7 @@ export function useTranscriptViewport(
     ownerWindow,
   ]);
   useObserveDisplaySettings(controller);
+  useHoldFollowWhilePaneEdgeDragged(controller);
 
   // The window's pass runs in the render that brings its rows, before the snapshot is read, so a
   // new log draws in one commit; a link's landing goes first, so the pass reads from its row.
@@ -357,11 +359,11 @@ export function useTranscriptViewport(
       [controller],
     ),
     focusScrollContainer: useCallback(() => {
-      controller.focusLog();
+      controller.logFocus.focusLog();
     }, [controller]),
     noteShown: useCallback(
       (isShown: boolean) => {
-        controller.noteShown(isShown);
+        controller.logFocus.noteShown(isShown);
       },
       [controller],
     ),
@@ -524,7 +526,12 @@ function mintViewportController(
     },
     isRowRevealing: (rowKey) => latestOptions.current.isRowRevealing?.(rowKey) ?? false,
   });
-  declareDisplaySettings(controller, ownerWindow);
+  // The display a new controller's first pass lays rows out on; `useObserveDisplaySettings`
+  // tells it each later change.
+  controller.observeDisplaySettings(
+    ownerWindow.devicePixelRatio,
+    rootFontSizePx(ownerWindow.document),
+  );
   return controller;
 }
 
