@@ -13,12 +13,13 @@ Each of the namespace's verbs carries the payload pair named below: the reads `p
 **The identifier is opaque everywhere.** `ProviderAccountId` is daemon-minted and immutable. No client, driver, or renderer parses it, decomposes it, or uses it to locate credential material — it selects a credential environment and nothing else. It is deliberately not derived from an email, a provider subject id, or any credential value, because those rotate and an identity that rotates cannot key historical spend.
 
 ```ts
+// ProviderName is the closed provider set, `@ai-sidekicks/contracts/provider/name`.
 type ProviderAccountId = string & { readonly __brand: "ProviderAccountId" };
 type BillingMode = "subscription" | "metered" | "unknown"; // `unknown` is the honest-absence arm (Spec-025 §Billing mode) — never rendered as metered
 
 interface ProviderAccount {
   accountId: ProviderAccountId;
-  provider: "claude" | "codex";
+  provider: ProviderName;
   credentialGeneration: number; // monotonic; bumps at every credential-home lifecycle transition (I-023-2)
   billingMode: BillingMode;
   // Provider-REPORTED identity, present only where a health observation surfaced it, each member
@@ -138,7 +139,7 @@ type ProviderReadinessState =
   | "no_default"; // accounts exist, none is default; mirrors `provideraccount.no_default`
 
 interface ProviderReadiness {
-  provider: "claude" | "codex";
+  provider: ProviderName;
   state: ProviderReadinessState;
   resolvedAccountId?: ProviderAccountId; // present iff resolution reached exactly one account
   // RFC 3339 UTC of the STORED observation this entry's state was read from. Absent in exactly two
@@ -184,7 +185,7 @@ type ProviderRemedy =
 // `state: "no_account"` — nothing is registered, so there is nothing to sign into yet.
 interface ProviderRegisterRemedy {
   kind: "register";
-  provider: "claude" | "codex";
+  provider: ProviderName;
 }
 
 // `state: "no_default"` — accounts exist and none is default. Resolution reached no account BY
@@ -221,7 +222,7 @@ interface ProviderLookAgainRemedy {
 }
 
 interface ProviderAccountListRequest {
-  provider?: "claude" | "codex";
+  provider?: ProviderName;
   // Scopes the readiness derivation to ONE account instead of the provider's default. It exists for
   // a single caller: a run refused on the account plane while bound to an account a saved agent
   // definition or a workflow step pinned
@@ -253,7 +254,7 @@ interface ProviderAccountListResponse {
 }
 
 interface ProviderAccountRegisterRequest {
-  provider: "claude" | "codex";
+  provider: ProviderName;
   billingMode: BillingMode;
   makeDefault?: boolean;
   // The name the person gives an account the provider names nowhere: REQUIRED with
@@ -483,7 +484,7 @@ type ProviderAccountMemoryImportOutcome =
 // cache-read, cache-write and reasoning counts.
 type ProviderAccountUsageReadRequest = (
   | { accountId: ProviderAccountId }
-  | { provider: "claude" | "codex" }
+  | { provider: ProviderName }
 ) & {
   groupBy?: "day" | "model"; // absent = no grouped rows
 };
@@ -509,7 +510,7 @@ type ProviderAccountUsageReadResponse =
   | {
       // One provider's line across its accounts: `All accounts · today <n> tokens · <cost>`.
       scope: "provider";
-      provider: "claude" | "codex";
+      provider: ProviderName;
       todayTokens: number; // summed over the provider's accounts' rows for today
       todayCostUsdMicros: number; // 0 before any spend
       byBillingMode: Array<{ billingMode: BillingMode; costUsdMicros: number }>; // more than one entry = the total spans billing modes, and says so
@@ -551,9 +552,7 @@ type ProviderAccountUsageReadResponse =
 // health observation reports the provider's identity, its billing mode `unknown` (drawn
 // `Billing not set`) until the person corrects it in place. A sign-in that ends without an identity
 // leaves no row.
-type ProviderAccountLoginRequest =
-  | { accountId: ProviderAccountId }
-  | { provider: "claude" | "codex" };
+type ProviderAccountLoginRequest = { accountId: ProviderAccountId } | { provider: ProviderName };
 interface ProviderAccountLoginResponse {
   attemptId: string; // opaque, daemon-minted, single-use; the correlation key for cancel and for completion
   verificationUri: string; // where the person completes the flow — the provider's own URL, verbatim
@@ -698,12 +697,12 @@ interface ProviderAccountUsageWindow {
 // `permissions` of its user-level, project and project-local settings files. A provider holding none
 // answers an empty list, which the page reads as saying so.
 interface ProviderStandingRuleListRequest {
-  provider?: "claude" | "codex";
+  provider?: ProviderName;
 }
 interface ProviderStandingRuleListResponse {
   rules: Array<{
     ruleId: string; // daemon-minted, stable while the rule's file and text are unchanged
-    provider: "claude" | "codex";
+    provider: ProviderName;
     text: string; // the rule as the provider's file spells it
     effect: "allow" | "deny";
     scope:

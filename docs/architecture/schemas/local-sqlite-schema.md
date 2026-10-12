@@ -131,7 +131,7 @@ The daemon keeps one row per session it hosts in `sessions`, the directory that 
 - `muted_at TEXT` — RFC 3339 UTC; NULL while the session is not muted. `session.muted` sets it and `session.unmuted` clears it, and a rebuild restores it from those events; it reaches clients as `muted` on `session.read` and `session.list`. While it is set, the session's `Finished` and `Failed` moments reach no channel and no device; `Waiting on you` and a workflow's Notify step are never silenced by it. The attention service reads it when it writes an entry.
 - `group_id TEXT REFERENCES session_groups(id)` — the one group of its project the session sits in; NULL for a session in no group and for every chat. Indexed (`idx_sessions_group`), because the sessions list and search read a group's sessions by it. An archived session keeps it.
 - `pending_working_folder TEXT` — the folder a `session.setWorkingFolder` move goes to, applied at the active run's next boundary; NULL while no move waits. Written by the session service with no event of its own, so a rebuild, which rewrites only the row's event-derived columns, keeps it; it reaches clients as `pendingWorkingFolder` on `session.read`, and a purge keeps every worktree a pending move names.
-- `permission_level TEXT NOT NULL DEFAULT 'yolo' CHECK (permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'))` — the session's permission level, which the run queue's admission reads: every process the session opens or resumes starts at it, and a new session starts at `yolo`. `session.permissionLevelUpdate` writes it once an open session's provider has taken the level, under the lock the session's opening takes, so the process never runs at another level than the stored one. Written with no event of its own, so a rebuild keeps it.
+- `permission_level TEXT NOT NULL DEFAULT 'yolo' CHECK (permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'))` — the session's permission level, which the run queue's admission reads: every process the session opens or resumes starts at it. `session.create` writes the level the provider's own settings give for the session's project ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)); the column's `yolo` is that read's answer when they set none. `session.permissionLevelUpdate` writes it once an open session's provider has taken the level, under the lock the session's opening takes, so the process never runs at another level than the stored one. Written with no event of its own, so a rebuild keeps it.
 
 A session's groups, links and tags are the three layers of [Spec-001 §Groups, Links And Tags](../../specs/001-session-core.md#groups-links-and-tags): one place in the list, any number of relationships, any number of categories. All three are row-canonical daemon state written by the session service and the session tools, not rebuilt from the event log, and removed with their session.
 
@@ -556,7 +556,7 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 
 ## Daemon Configuration (Plan-005)
 
-The service's machine-wide configuration and its two retention bounds, read by the daemon's own modules and changed over the wire only through `daemon.configRead`, `daemon.configUpdate`, `daemon.retentionRead` and `daemon.retentionUpdate` ([Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-9 and T-005r-1-10). A `NULL` is the setting's own unbounded state: `No limit`, `Never ask`, `Unlimited` or no cap.
+The service's machine-wide configuration and its two retention bounds, read by the daemon's own modules and changed over the wire only through `daemon.configRead`, `daemon.configUpdate`, `daemon.retentionRead` and `daemon.retentionUpdate` ([Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-9 and T-005r-1-10). A `NULL` is the setting's own unbounded state: `No limit`, `Never ask`, `Unlimited` or no cap. The row is written whole when the store is created: the listener port starts at the daemon's one default constant ([Workflow Graph Model §Entry node and the V1 trigger surface (SA-34)](../../domain/workflow-graph-model.md#entry-node-and-the-v1-trigger-surface-sa-34)), and every other column at its default or `NULL`.
 
 ```sql
 -- Owner: Plan-005
@@ -565,6 +565,8 @@ CREATE TABLE daemon_configuration (
   singleton                      INTEGER PRIMARY KEY CHECK (singleton = 1),
   keep_diagnostic_logs_days      INTEGER NOT NULL DEFAULT 7 CHECK (keep_diagnostic_logs_days >= 1),
   keep_sessions_days             INTEGER NOT NULL DEFAULT 90 CHECK (keep_sessions_days >= 1),
+  -- Created at the daemon's one default listener port, a constant chosen from a range no common
+  -- developer tool uses, never a free port picked when the row is written.
   workflow_listener_port         INTEGER NOT NULL CHECK (workflow_listener_port BETWEEN 1 AND 65535),
   run_time_limit_minutes         INTEGER CHECK (run_time_limit_minutes IN (30, 60, 240, 720, 1440)),
   workflow_chain_ask_after_runs  INTEGER DEFAULT 100
@@ -636,7 +638,7 @@ CREATE INDEX idx_artifact_payload_refs_storage_path ON artifact_payload_refs(sto
 
 ## Approval Tables (Plan-009)
 
-The canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `gate`. A question, a tool server's own MCP elicitation and a proposed plan are not approvals: each is one `question.asked` record, answered outside the approval pipeline. Codex's own approval of a tool-server call, an elicitation marked `_meta.codex_approval_kind: "mcp_tool_call"`, is a `tool_execution` approval.
+The canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `gate`. A plan, a question and a tool server's own MCP elicitation are not approvals: a plan is one `plan.proposed` record answered by `plan.resolve`, and a question or elicitation is one `question.asked` record answered by `question.resolve`, outside the approval pipeline. Codex's own approval of a tool-server call, an elicitation marked `_meta.codex_approval_kind: "mcp_tool_call"`, is a `tool_execution` approval.
 
 ```sql
 -- Owner: Plan-009 (D-009-2)
@@ -728,20 +730,26 @@ CREATE TABLE reviewer_denials (
 CREATE INDEX idx_reviewer_denials_session ON reviewer_denials(session_id);
 
 -- Owner: Plan-009
--- The plan record, rebuilt from plan.proposed, plan.accepted, plan.handed_off and plan.kept.
+-- The plan record, rebuilt from plan.proposed, plan.accepted, plan.handed_off, plan.kept and
+-- plan.hold_ended. The plan's artifact is never changed; its state word is read here.
 CREATE TABLE plans (
-  id                TEXT PRIMARY KEY,         -- PlanId
-  session_id        TEXT NOT NULL,
+  id                TEXT PRIMARY KEY,  -- PlanId
+  session_id        TEXT NOT NULL,     -- the planning session
   run_id            TEXT NOT NULL,
   artifact_id       TEXT NOT NULL REFERENCES artifact_manifests(id),
+  title             TEXT NOT NULL,     -- the plan's first heading
+  holds_request     INTEGER NOT NULL CHECK(holds_request IN (0, 1)), -- a held provider request waits on the verdict
   state             TEXT NOT NULL DEFAULT 'waiting'
                     CHECK(state IN ('waiting', 'accepted', 'handed_off', 'open')),
-  fresh_session_id  TEXT,                     -- set exactly when state = 'handed_off'
-  resolved_by       TEXT,                     -- the device whose verdict landed
+  fresh_session_id  TEXT,              -- set exactly when state = 'handed_off'
+  resolved_by       TEXT,              -- the device whose verdict landed; NULL while pending and after plan.hold_ended
   resolved_at       TEXT,
   created_at        TEXT NOT NULL,
   CHECK((state = 'handed_off') = (fresh_session_id IS NOT NULL))
 ) STRICT;
+
+CREATE INDEX idx_plans_session ON plans(session_id);
+CREATE INDEX idx_plans_fresh_session ON plans(fresh_session_id) WHERE fresh_session_id IS NOT NULL;
 ```
 
 The daemon keeps no table of approval rules: the providers keep them ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)), and a session's own answers are its `approval_resolutions` rows and its `approval.remembered` and `approval.rule_revoked` events, which the inspector's `Rules` reads beside the providers' own rules.

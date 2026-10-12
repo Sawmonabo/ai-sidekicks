@@ -147,4 +147,4 @@ One phase builds the §Implementation Steps above, with no unsatisfied upstream 
 
 ## Done Checklist
 
-- Diagnostic-bucket discipline verified across every bucket: files deleted whole past `Keep diagnostic logs for`, 7 days by default (I-017-1), with nothing leaving the machine (I-017-2), and nothing recorded by a diagnostic switch that is off (T2.3)
+- Diagnostic-bucket discipline verified across every bucket: files deleted whole past `Keep diagnostic logs for`, 7 days by default (I-017-1), with nothing leaving the machine (I-017-2), and nothing recorded by a diagnostic switch that is off (T1.3)

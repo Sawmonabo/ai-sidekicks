@@ -120,8 +120,20 @@ export class ReorderDrag<Key extends string> {
     this.cancel();
   };
 
-  readonly #onLost = (event: PointerEvent): void => {
+  readonly #onCanceled = (event: PointerEvent): void => {
     if (event.pointerId === this.#gesture?.pointerId) {
+      this.cancel();
+    }
+  };
+
+  readonly #onCaptureLost = (event: PointerEvent): void => {
+    const gesture = this.#gesture;
+    if (event.pointerId !== gesture?.pointerId) {
+      return;
+    }
+    // Only the dragged item's own loss ends the drag; another element's loss of the same pointer
+    // does not, unless the item has left its document and its loss lands on the document instead.
+    if (event.target === gesture.element || !gesture.element.isConnected) {
       this.cancel();
     }
   };
@@ -273,7 +285,7 @@ export class ReorderDrag<Key extends string> {
     };
     ownerDocument.addEventListener("pointermove", this.#onPointerMove, options);
     ownerDocument.addEventListener("pointerup", this.#onPointerUp, options);
-    ownerDocument.addEventListener("pointercancel", this.#onLost, options);
+    ownerDocument.addEventListener("pointercancel", this.#onCanceled, options);
     ownerDocument.addEventListener("keydown", this.#onKeyDown, { ...options, capture: true });
     // An image or a link inside the grip would start the browser's own drag, which ends ours,
     // and a press that moves would otherwise select the grip's text.
@@ -281,7 +293,7 @@ export class ReorderDrag<Key extends string> {
     ownerDocument.addEventListener("selectstart", preventDefault, options);
     // On the document: the item's own loss bubbles here, and an item taken out of its document
     // mid-drag has its loss fired at the document instead.
-    ownerDocument.addEventListener("lostpointercapture", this.#onLost, options);
+    ownerDocument.addEventListener("lostpointercapture", this.#onCaptureLost, options);
   }
 
   #lift(gesture: PressedGesture<Key>): LiftedGesture<Key> {

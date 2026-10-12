@@ -250,14 +250,25 @@ type ChildRunExpandResponse = {
 interface TranscriptBodyReadRequest {
   sessionId: SessionId;
   rowId: string;
+  // Where the part starts: a UTF-8 byte offset into the body, always on a code-point boundary; 0
+  // when absent. An offset inside a character or past the body's end is refused on this path.
+  offset?: number;
 }
 // `status` is the discriminant. `contentLength` is echoed from the stored event, never recomputed
 // from `body`. `absent` is the one reason: the row never carried a body. Each reply is bounded by
-// PAGE_MAX_BYTES: a body longer than one frame holds comes back whole in consecutive parts, each
-// reply naming the offset its part starts at and whether more follows.
+// PAGE_MAX_BYTES, as artifact.read's `range` bounds its window: a body longer than one frame holds
+// comes back whole in consecutive parts. `offset` echoes where this part starts and `nextOffset`
+// is where the next one starts, null on the last part; the client reads from `nextOffset` until it
+// is null and joins the parts.
 type HydratedContentUnavailableReason = "absent";
 type TranscriptBodyReadResponse =
-  | { status: "available"; body: string; contentLength?: number }
+  | {
+      status: "available";
+      body: string; // this part of the body
+      offset: number;
+      nextOffset: number | null;
+      contentLength?: number;
+    }
   | { status: "unavailable"; reason: HydratedContentUnavailableReason };
 
 // TranscriptPatchRead — transcript.patchRead. Every patch one tool call did not carry, in one read,
@@ -266,15 +277,25 @@ type TranscriptBodyReadResponse =
 interface TranscriptPatchReadRequest {
   sessionId: SessionId;
   toolCallId: string;
+  // Where the part starts: the left-out file's index in the call's `omittedPatches` order and a
+  // UTF-8 byte offset into its patch, on a code-point boundary; the first file's start when absent.
+  cursor?: TranscriptPatchCursor;
+}
+interface TranscriptPatchCursor {
+  fileIndex: number;
+  offset: number;
 }
 // One entry per left-out file: its patch, or why it cannot be read. Each reply is bounded by
-// PAGE_MAX_BYTES as well, and patches longer than one frame holds come back in consecutive parts,
-// as transcript.bodyRead's body does.
+// PAGE_MAX_BYTES as well: patches longer than one frame holds come back in consecutive parts, as
+// transcript.bodyRead's body does. A part holds the files from `cursor` on, its first entry's patch
+// starting at `cursor.offset` and its last one's ending where `next` starts; `next` is null on the
+// last part, and the client joins the pieces of one file in order.
 type TranscriptPatchFile =
   | { path: string; patch: string }
   | { path: string; unavailable: HydratedContentUnavailableReason };
 interface TranscriptPatchReadResponse {
   files: TranscriptPatchFile[];
+  next: TranscriptPatchCursor | null;
 }
 
 // TranscriptPathResolve — transcript.pathResolve. The candidate paths a reply's prose holds (bare,
