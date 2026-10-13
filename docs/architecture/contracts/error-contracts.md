@@ -29,15 +29,16 @@ Local IPC traffic (Plan-005 daemon ↔ in-tree clients) frames errors per [JSON-
 
 ### Numeric Code Space (per JSON-RPC 2.0 §5.1)
 
-| Numeric code | JSON-RPC name  | Triggered by                                                   |
-| ------------ | -------------- | -------------------------------------------------------------- |
-| `-32700`     | ParseError     | Frame body is not valid JSON                                   |
-| `-32600`     | InvalidRequest | JSON parses but envelope is not a valid JSON-RPC Request shape |
-| `-32601`     | MethodNotFound | Method is not registered against the dispatcher                |
-| `-32602`     | InvalidParams  | the params failed the method's contract check                  |
-| `-32603`     | InternalError  | Handler-thrown unhandled exception or programmer-error path    |
+| Numeric code | JSON-RPC name | Triggered by |
+| --- | --- | --- |
+| `-32700` | ParseError | Frame body is not valid JSON |
+| `-32600` | InvalidRequest | JSON parses but envelope is not a valid JSON-RPC Request shape |
+| `-32601` | MethodNotFound | Method is not registered against the dispatcher |
+| `-32602` | InvalidParams | the params failed the method's contract check |
+| `-32603` | InternalError | Handler-thrown unhandled exception or programmer-error path |
+| `-32800` | RequestCanceled | The client canceled the call with `$/cancelRequest` before the daemon reached its commit point |
 
-The reserved range `-32768..-32000` is the JSON-RPC spec's prerogative; the project does NOT mint additional numeric codes inside that range. Project domain codes live as dotted-namespace strings in `data.type`.
+The reserved range `-32768..-32000` is the JSON-RPC spec's prerogative; the project does NOT mint additional numeric codes inside that range. `-32800` lies outside it and is LSP 3.17's `RequestCancelled`, the answer to `$/cancelRequest`. Project domain codes live as dotted-namespace strings in `data.type`.
 
 ### Two-Layer Envelope Shape
 
@@ -62,6 +63,10 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 | `data.type` | JSON-RPC `code` | Trigger |
 | --- | --- | --- |
 | `unknown_setting` | `-32602` | Bootstrap rejected an unrecognized SecureDefaults config key (T-005p-1-3) |
+| `method_not_found` | `-32601` | The request names a method the daemon does not register; no handler runs |
+| `invalid_params` | `-32602` | The request's params failed the method's contract check, so no handler ran, or the handler found they name nothing it can read: a paging `cursor` the daemon did not write or that points past the end, a transcript `rowId` the session does not hold, or two workflow versions of different workflows |
+| `invalid_result` | `-32603` | The handler's result failed the method's result check, or a transcript read's result does not answer the request it was given; a daemon fault, never the client's |
+| `request.canceled` | `-32800` | A call the client canceled with `$/cancelRequest` before the daemon reached its commit point; the call still gets exactly one response |
 | `transport.unavailable` | `-32603` | The client cannot reach the daemon's OS-local socket or named pipe, or its link to the daemon is down; no fallback transport exists |
 | `transport.message_too_large` | `-32600` | An inbound message passed the 4 MiB cap on its JSON or on its attachments (the InvalidRequest classification of [Plan-005 §Phase 2: Wire Substrate](../../plans/005-local-ipc-and-daemon-control.md#phase-2-wire-substrate), T-005p-2-2): a framing error, answered with this error frame before the connection closes. A reply of the daemon's own past the cap closes the connection with no answer. It is a 413-semantic peer mis-framing of the wire layer, never a domain-level refusal. |
 | `transport.invalid_protocol_version` | `-32600` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format): missing, wrong type, or fails the ISO 8601 `YYYY-MM-DD` shape. The substrate `dispatchFrame` gate in `crates/sidekicks-daemon/src/ipc/local_gateway.rs` (`LocalIpcGateway`) enforces per I-005-6 BEFORE handler dispatch; the handshake (`daemon.hello`) is exempt because the negotiation parameter rides in `params.protocolVersion`. Distinct from `protocol.version_mismatch` (NegotiationError, registry-side gate for incompatible negotiated versions on subsequent mutating ops): the wire-layer envelope shape gate fires once-per-frame, the registry-side gate fires once-per-incompatible-mutating-op. |
@@ -69,6 +74,10 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 `data.fields` shape per code:
 
 - `unknown_setting`: `{ setting: string, value: unknown }`
+- `method_not_found`: none
+- `invalid_params`: `{ issues }`, the failed check's issues, each with its `path` and `message`, absent when the list is empty; a refused diff of two workflows' versions carries `{ fromWorkflowVersionId, toWorkflowVersionId }` instead
+- `invalid_result`: `{ issues }`, the result's failed checks in the same form, absent when the list is empty
+- `request.canceled`: none
 - `transport.unavailable`: for a socket the client cannot reach, `{ reason }`, one listed reason (`TransportUnavailableReason` in `crates/sidekicks-contracts/src/jsonrpc/message.rs`, its generated TypeScript at `packages/contracts/src/jsonrpc/message.ts`): `not_listening` when nothing answers on it (the system's `ENOENT` or `ECONNREFUSED`, `io::ErrorKind::NotFound` or `ConnectionRefused`), `access_denied` when the client may not open it (`EACCES`, `EPERM`, `io::ErrorKind::PermissionDenied`) and `unreachable` for any other socket failure. The system's own error code never rides in `reason`. A link that is down carries no `fields`
 - `transport.message_too_large`: `{ limit: number, observed: number }`
 - `transport.invalid_protocol_version`: `{ reason: "missing" | "wrong_type" | "invalid_format", observedType?: string }` (`observedType` is the offending value's JSON type, as the gateway writes it: `"null"` for `null`, `"object"` for an object or an array, else `"boolean"`, `"number"` or `"string"`; present only when `reason === "wrong_type"`; the offending VALUE itself is NOT echoed back so client-supplied content does not leak through observability)
@@ -433,6 +442,14 @@ The review and ship surface's refusals ([Spec-009](../../specs/009-gitflow-pr-an
 | `preview.file_path_refused` | A device's answer to a folder picker named a file's path that is empty, absolute, holds an empty, `.` or `..` segment, or is missing, or main's download report named a file by anything but an id main minted; nothing is set, dropped or staged. The details never echo the path | 422 |
 | `preview.port_already_shared` | `preview.portShareAdd` named a port already on the shared list; nothing changes. `data.fields.port` is the port the request named | 409 |
 | `preview.port_not_shared` | A forward or a `preview.portTicketIssue` named a port that is not on the shared list. The machine forwards only listed ports, and only to its own loopback. `data.fields.port` is the port the request named | 403 |
+
+### Highlight
+
+Highlight codes ride the daemon JSON-RPC wire with notional HTTP statuses.
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `highlight.read_replaced` | A `highlight.read` that a newer read for the same block, on the same connection, replaced while it waited to be colored; only the newer read is answered with the colors. No `data.fields` | 409 |
 
 ### Provider
 

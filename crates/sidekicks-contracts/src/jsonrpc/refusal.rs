@@ -182,8 +182,16 @@ refusal_codes! {
     /// A read the review pane depends on still failed after the daemon's one retry, so the pane
     /// shows its own error state and keeps what it already drew.
     GitflowReadFailed = "gitflow.read_failed" (500);
+    /// A `highlight.read` that a newer read for the same block, on the same connection, replaced
+    /// while it waited to be colored.
+    HighlightReadReplaced = "highlight.read_replaced" (409);
     /// A `clientIdempotencyKey` was reused with a differing payload.
     InterventionIdempotencyConflict = "intervention.idempotency_conflict" (422);
+    /// The request's params failed the method's contract check, so no handler ran, or the handler
+    /// found they name nothing it can read.
+    InvalidParams = "invalid_params" ();
+    /// The handler's result failed the method's result check: a daemon fault, never the client's.
+    InvalidResult = "invalid_result" ();
     /// The submitted server configuration failed validation.
     McpConfigInvalid = "mcp.config_invalid" (400);
     /// A Codex config write lost to a concurrent edit, on either arm: a `user`-scope write's
@@ -195,6 +203,8 @@ refusal_codes! {
     /// No server with the requested `(provider, scope, scopeRef, serverName)` binding exists in the
     /// unified inventory.
     McpServerNotFound = "mcp.server_not_found" (404);
+    /// The request names a method the daemon does not register; no handler runs.
+    MethodNotFound = "method_not_found" ();
     /// An address Preview will not open.
     PreviewAddressRefused = "preview.address_refused" (422);
     /// A device's paste, select all or cut for a menu that is no longer the page's current one.
