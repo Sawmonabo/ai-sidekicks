@@ -1,0 +1,56 @@
+//! What a failed operation returns once cleaning up after it failed too.
+
+use std::fmt::{self, Display};
+
+use crate::settle_all::DescribeEach;
+
+/// A failure kept whole, so its type and code still reach the caller, beside the failures of
+/// cleaning up after it. Its source is the original, whose own source chain stays as it was.
+#[derive(Debug, thiserror::Error)]
+pub(crate) struct CleanupFailures<Original, Cleanup = Original> {
+    #[source]
+    original: Original,
+    cleanup_failures: Vec<Cleanup>,
+    operation: &'static str,
+}
+
+impl<Original, Cleanup> CleanupFailures<Original, Cleanup> {
+    /// `original` carrying `cleanup_failures`, each kept whole; with none, it reads as `original`
+    /// alone. `operation` names what failed, as a log line says it.
+    pub(crate) fn new(
+        original: Original,
+        cleanup_failures: Vec<Cleanup>,
+        operation: &'static str,
+    ) -> Self {
+        Self {
+            original,
+            cleanup_failures,
+            operation,
+        }
+    }
+
+    /// The failure the operation itself ended with.
+    pub(crate) fn original(&self) -> &Original {
+        &self.original
+    }
+
+    /// The failures of cleaning up after it, in the order they came; empty when cleanup succeeded.
+    pub(crate) fn cleanup_failures(&self) -> &[Cleanup] {
+        &self.cleanup_failures
+    }
+}
+
+impl<Original: Display, Cleanup: Display> Display for CleanupFailures<Original, Cleanup> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}", self.original)?;
+        if self.cleanup_failures.is_empty() {
+            return Ok(());
+        }
+        write!(
+            formatter,
+            "; cleaning up after {} failed too: {}",
+            self.operation,
+            DescribeEach(&self.cleanup_failures)
+        )
+    }
+}
