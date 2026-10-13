@@ -85,7 +85,8 @@ fn check_environment(environment: &[(String, String)]) -> io::Result<()> {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!(
-                    "shell environment entry {index} has an empty name, an `=` in its name or a NUL"
+                    "shell environment entry {index} has an empty name, an `=` in its name or \
+                     a NUL"
                 ),
             ));
         }

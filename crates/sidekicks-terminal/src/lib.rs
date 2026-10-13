@@ -198,7 +198,11 @@ impl Terminals {
         tokio::spawn(async move {
             let kill = terminal_signal_route(TerminalSignal::Kill);
             if let Err(error) = kill::deliver_signal(&entry, &entry.escalation, kill).await {
-                tracing::warn!(%handle, %error, "a shell started as the drain began could not be killed");
+                tracing::warn!(
+                    %handle,
+                    %error,
+                    "a shell started as the drain began could not be killed"
+                );
             }
         });
         Err(TerminalError::Draining)

@@ -234,7 +234,8 @@ async fn end_tree_within_bound<E: ChildEnding>(ending: &E, process_id: u32) {
 
 /// Ends the program for a close after cancelling the pending escalation: a hangup, a stop and a
 /// kill in turn, each reaching it by `route_of` and each lasting at most its step, its delivery
-/// included, stopping once the program has exited. Nothing is reported, since a closing terminal reports nothing; a failed
+/// included, stopping once the program has exited. Nothing is reported, since a closing terminal
+/// reports nothing; a failed
 /// ending is logged and the next tried. Fails when the program outlives its kill.
 pub(crate) async fn end_through_endings<E: ChildEnding>(
     ending: &E,
