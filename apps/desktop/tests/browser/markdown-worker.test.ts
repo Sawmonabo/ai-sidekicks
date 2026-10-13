@@ -13,10 +13,12 @@
 // packed or kept plain where packing would not shrink them, that unpack to the same bytes and tree,
 // while a shorter held tree stays as it came. The worker cuts a body into exactly the top-level
 // blocks one parse of the whole body reads, whole and as it streams in, on the constructs a scan
-// for blank lines cuts wrongly and on multibyte text, an emoji's halves either side of a window's
-// edge among it; holding back one block instead of two splits a loose ordered list. A body no
-// longer than a block the page parses is cut on the page, whole and as it streams in, at the ends
-// the worker cuts, with no cut sent to the worker.
+// for blank lines cuts wrongly, on multibyte text, an emoji's halves either side of a window's
+// edge among it, on lines that end in a carriage return alone or with a line feed, over many
+// windows too, and on a body or a window that opens on a byte order mark, which the parser drops
+// before it counts offsets; holding back one block instead of two splits a loose ordered list. A
+// body no longer than a block the page parses is cut on the page, whole and as it streams in, at
+// the ends the worker cuts, with no cut sent to the worker.
 
 import { fromDom } from "hast-util-from-dom";
 import type { Root } from "mdast";
@@ -34,6 +36,7 @@ import {
 import { markdownTreeToHtml } from "#renderer/components/Markdown/html.js";
 import {
   BlockCut,
+  droppedByteOrderMarkLengthOf,
   MARKDOWN_SETTLE_LAG_BLOCKS,
   type TopLevelChildren,
 } from "#renderer/components/Markdown/parse/block-cut.js";
@@ -305,6 +308,20 @@ it("cuts a body into the top-level blocks one parse of the whole body reads", as
     });
     expect(blockEnds, name).toStrictEqual(wholeParseBlockEndsOf(pageParser, text));
   }
+  // The reference cuts where the texts' own lines start, after a byte order mark and a lone CR.
+  const opensOnMark = cutCases["bom at start"];
+  expect(wholeParseBlockEndsOf(pageParser, opensOnMark)).toStrictEqual([
+    opensOnMark.indexOf("Para."),
+    opensOnMark.indexOf("- a"),
+    opensOnMark.length,
+  ]);
+  const loneCarriageReturns = cutCases["lone cr line ends"];
+  expect(wholeParseBlockEndsOf(pageParser, loneCarriageReturns)).toStrictEqual([
+    loneCarriageReturns.indexOf("Para one."),
+    loneCarriageReturns.indexOf("- a"),
+    loneCarriageReturns.indexOf("After."),
+    loneCarriageReturns.length,
+  ]);
 });
 
 it("cuts a streaming body into the same blocks as it grows, holding back two blocks", async () => {
@@ -381,9 +398,16 @@ const EMOJI_AT_WINDOW_EDGE = ((): string => {
   return `${paragraphs}${lead}\u{1F600} after the edge\n\n${"c".repeat(40)}\n\n- an item\n`;
 })();
 
+/** `line` repeated to a text longer than the cut's first window. */
+function longerThanWindow(line: string): string {
+  return line.repeat(Math.ceil(70_000 / line.length));
+}
+
 /**
- * The hand cases a scan for blank lines cuts wrongly, a long reply of every kind of block, and
- * multibyte text, whose code units and UTF-8 bytes place each block apart.
+ * The hand cases a scan for blank lines cuts wrongly, a long reply of every kind of block,
+ * multibyte text, whose code units and UTF-8 bytes place each block apart, and paragraphs over
+ * several windows whose lines end in a carriage return, alone or with a line feed, or which each
+ * open on a byte order mark, so every window after the first opens on one too.
  */
 const CUT_TEXTS: Readonly<Record<string, string>> = {
   ...cutCases,
@@ -391,6 +415,9 @@ const CUT_TEXTS: Readonly<Record<string, string>> = {
   "multibyte lines": MULTIBYTE_TEXT,
   "multibyte paragraphs": MULTIBYTE_PARAGRAPHS,
   "an emoji across a window's edge": EMOJI_AT_WINDOW_EDGE,
+  "lone cr line ends over windows": longerThanWindow("Para.\r\r"),
+  "crlf line ends over windows": longerThanWindow("Para.\r\n\r\n"),
+  "byte order marks opening windows": longerThanWindow("\uFEFFPara.\n\n"),
 };
 
 /** A connection to a markdown worker, whose page parser is never started. */
@@ -512,14 +539,17 @@ function plainTreeOf(root: Root): unknown {
 
 /**
  * Where each block of `text` ends as one parse of the whole text reads its top-level children: the
- * first starts at the text's start, each next one at the start of its child's first line, and the
- * last runs to the text's end.
+ * first starts at the text's start, each next one at the start of its child's first line, after a
+ * line feed or a carriage return, and the last runs to the text's end.
  */
 function wholeParseBlockEndsOf(pageParser: PageParser, text: string): number[] {
   const children = pageParser.parse(text).children;
+  const droppedLength = droppedByteOrderMarkLengthOf(text);
   const ends = children.slice(1).map((child) => {
-    const offset = child.position?.start.offset ?? expect.fail("a top-level child has a position");
-    return text.lastIndexOf("\n", offset - 1) + 1;
+    const offset =
+      (child.position?.start.offset ?? expect.fail("a top-level child has a position")) +
+      droppedLength;
+    return Math.max(text.lastIndexOf("\n", offset - 1), text.lastIndexOf("\r", offset - 1)) + 1;
   });
   return children.length === 0 ? [] : [...ends, text.length];
 }

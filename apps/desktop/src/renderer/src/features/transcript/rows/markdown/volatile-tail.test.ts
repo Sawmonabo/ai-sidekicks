@@ -2,8 +2,10 @@
 // several chunk sizes, must show the same tree a whole parse gives, positions included, and read
 // as micromark, the reference GFM reader, reads it. Positions are left out of that second
 // comparison because micromark starts a task item's paragraph at its checkbox and the parser
-// after it, which nothing drawn reads. While a whole parse is on its way, or a parser ended for
-// idleness loads again, the tree on screen stays.
+// after it, which nothing drawn reads. A parsed tail settles its blocks where their lines start,
+// after a byte order mark the parser drops and after lines that end in a carriage return alone.
+// While a whole parse is on its way, or a parser ended for idleness loads again, the tree on
+// screen stays.
 
 import type { Root } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
@@ -172,6 +174,20 @@ describe("a streaming tail parsed frame after frame", () => {
       }
     },
   );
+
+  it("settles blocks where their lines start, after a byte order mark or a lone carriage return", () => {
+    const opensOnMark = "\uFEFF# Title\nPara.\n\nAfter.\n";
+    const loneCarriageReturns = "a\r\rb\r\rc\r\rd\r";
+    for (const [tail, settledBlockEnds] of [
+      [opensOnMark, [opensOnMark.indexOf("Para.")]],
+      [loneCarriageReturns, [loneCarriageReturns.indexOf("b"), loneCarriageReturns.indexOf("c")]],
+    ] as const) {
+      const { parser } = tailParser();
+      expect(shownAfter(parser, tail, "")?.settledBlockEnds, JSON.stringify(tail)).toStrictEqual(
+        settledBlockEnds,
+      );
+    }
+  });
 
   it("parses against the body's definitions as they change, never extending an older parse", async () => {
     // A definition settling elsewhere in the body changes what the tail's reference means.

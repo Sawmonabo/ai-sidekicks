@@ -13,6 +13,7 @@ import type { Nodes, Parents, Root, RootContent } from "mdast";
 import remend from "remend";
 
 import {
+  droppedByteOrderMarkLengthOf,
   settledBlockEndsOf,
   type TopLevelChildren,
 } from "#renderer/components/Markdown/parse/block-cut.js";
@@ -376,7 +377,7 @@ function viewOf(parse: TailParse): VolatileTailView {
     settledBlockEnds: parse.isGrown
       ? NO_BLOCK_ENDS
       : settledBlockEndsOf(
-          childrenOf(parse.root, parse.definitionPreamble.length),
+          childrenOf(parse.root, parse.definitionPreamble, parse.mended),
           parse.tailSource,
           parse.unchangedLength,
         ),
@@ -385,9 +386,12 @@ function viewOf(parse: TailParse): VolatileTailView {
 
 /**
  * Where the tail's top-level children start and end in it, up to the first with no position: the
- * tree's offsets count the preamble ahead of the tail.
+ * tree, parsed from `preamble` and the `mended` tail, counts its offsets after the preamble's
+ * length less the byte order mark the parser dropped from the start of what it read.
  */
-function childrenOf(root: Root, preambleLength: number): TopLevelChildren {
+function childrenOf(root: Root, preamble: string, mended: string): TopLevelChildren {
+  const tailStart =
+    preamble.length - droppedByteOrderMarkLengthOf(preamble === "" ? mended : preamble);
   const starts: number[] = [];
   const ends: number[] = [];
   for (const child of root.children) {
@@ -395,8 +399,8 @@ function childrenOf(root: Root, preambleLength: number): TopLevelChildren {
     if (position?.start.offset === undefined || position.end.offset === undefined) {
       break;
     }
-    starts.push(position.start.offset - preambleLength);
-    ends.push(position.end.offset - preambleLength);
+    starts.push(position.start.offset - tailStart);
+    ends.push(position.end.offset - tailStart);
   }
   return { starts, ends };
 }

@@ -40,5 +40,11 @@
   "html comment one line": "<!-- a -->\n\nAfter.\n",
   "html comment then text same block": "<!-- a\n\nb --> trailing\n\nAfter.\n",
   "deep list blank lines": "1. a\n\n   - b\n\n     c\n\n   - d\n\n2. e\n\nAfter.\n",
-  "footnote def then paragraph indented": "[^x]: a\n\n  b\n\nAfter.[^x]\n"
+  "footnote def then paragraph indented": "[^x]: a\n\n  b\n\nAfter.[^x]\n",
+  "lone cr line ends": "# Title\r\rPara one.\r\r- a\r- b\r\rAfter.\r",
+  "crlf line ends": "# Title\r\n\r\nPara one.\r\n\r\n- a\r\n- b\r\n\r\n```\r\ncode\r\n```\r\n\r\nAfter.\r\n",
+  "bom at start": "\ufeff# Title\n\nPara.\n\n- a\n- b\n",
+  "bom at start, heading then paragraph": "\ufeff# Title\nPara.\n\nAfter.\n",
+  "bom at a line start": "Para.\n\n\ufeff# Title\n\nPara two.\n",
+  "nul inside": "Para one\u0000 with nul.\n\n```\ncode\u0000\n```\n\nAfter.\n"
 }

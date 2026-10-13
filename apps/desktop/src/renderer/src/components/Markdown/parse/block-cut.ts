@@ -73,7 +73,8 @@ export class BlockCut {
   /**
    * Cuts the next window, answering whether the cut is done. A window holding too few children to
    * keep one is parsed again twice as long, and later windows keep that length, so a text of long
-   * blocks is not parsed twice over a window at a time.
+   * blocks is not parsed twice over a window at a time. Throws when a window would keep no text,
+   * which would cut the same window again forever.
    */
   public cutWindow(): boolean {
     const source = this.#source;
@@ -85,8 +86,8 @@ export class BlockCut {
     let to = Math.min(source.length, from + this.#windowCharacters);
     if (to < source.length) {
       // Whole lines: a line longer than the window is cut inside the last child, which is held.
-      const lastLineEnd = source.lastIndexOf("\n", to - 1);
-      to = lastLineEnd >= from ? lastLineEnd + 1 : to;
+      const lastLineStart = lineStartOf(source, to, from);
+      to = lastLineStart > from ? lastLineStart : to;
     }
     const isLast = to === source.length;
     const window = source.slice(from, to);
@@ -108,6 +109,9 @@ export class BlockCut {
       keptCount === children.starts.length
         ? source.length
         : from + lineStartOf(window, children.starts[keptCount] ?? 0);
+    if (end <= from) {
+      throw new Error(`The markdown block cut did not advance past offset ${String(from)}`);
+    }
     this.#blockEnds.push(end);
     this.#from = end;
     this.#isDone = isLast;
@@ -140,13 +144,37 @@ export function settledBlockEndsOf(
 }
 
 /**
+ * How many UTF-16 units the parser drops from the start of `text` before it counts offsets: a
+ * leading byte order mark, which it strips. Add it to an offset in the parse to place it in `text`.
+ */
+export function droppedByteOrderMarkLengthOf(text: string): number {
+  return text.charCodeAt(0) === BYTE_ORDER_MARK ? 1 : 0;
+}
+
+/**
  * The characters of a body's text one window parses first, cut back to whole lines. Measured on
  * 8 MiB replies, windows this long cut a reply as fast as larger ones while the parser's memory
  * grows by a few mebibytes, where one parse of the whole reply grows it by up to 190.
  */
 const CUT_WINDOW_CHARACTERS = 65_536;
 
-/** Where the line holding `offset` starts in `text`. */
-function lineStartOf(text: string, offset: number): number {
-  return offset === 0 ? 0 : text.lastIndexOf("\n", offset - 1) + 1;
+const BYTE_ORDER_MARK = 0xfeff;
+const LINE_FEED = 0x0a;
+const CARRIAGE_RETURN = 0x0d;
+
+/**
+ * Where the line holding `offset` starts in `text`, looking back no further than `floor`: after
+ * the last line feed or carriage return before it, as commonmark ends a line at either, and a
+ * carriage return and line feed together once.
+ */
+function lineStartOf(text: string, offset: number, floor = 0): number {
+  let index = offset;
+  while (index > floor) {
+    const code = text.charCodeAt(index - 1);
+    if (code === LINE_FEED || code === CARRIAGE_RETURN) {
+      return index;
+    }
+    index -= 1;
+  }
+  return floor;
 }
