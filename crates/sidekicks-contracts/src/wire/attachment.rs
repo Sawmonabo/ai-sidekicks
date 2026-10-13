@@ -103,9 +103,16 @@ pub enum ReceivedError {
     /// The contract's check could not be built.
     #[error(transparent)]
     Check(#[from] ReceivedCheckError),
-    /// The message passed its schema but its attachments do not match it.
-    #[error(transparent)]
-    Attachment(#[from] AttachmentError),
+    /// The message passed its schema but its type refused a value in it: a malformed id, say, or
+    /// an attachment placeholder naming no attachment sent with it.
+    #[error("the message passed its schema but does not read as its type")]
+    Read(#[source] serde_json::Error),
+    /// The message was read but an attachment sent with it is referenced by no placeholder.
+    #[error("attachment {index} is not referenced")]
+    Unreferenced {
+        /// The unreferenced attachment's index.
+        index: usize,
+    },
     /// The message was read but breaks a rule no schema shape holds, a repeated list key among
     /// them.
     #[error(transparent)]
@@ -125,7 +132,12 @@ where
     check
         .validate(&value)
         .map_err(|error| ReceivedError::Shape(Box::new(error.to_owned())))?;
-    let received = read_with_attachments(attachments, || T::deserialize(value))?;
+    let received = read_with_attachments(attachments, || T::deserialize(value)).map_err(
+        |error| match error {
+            AttachmentError::Json(error) => ReceivedError::Read(error),
+            AttachmentError::Unreferenced { index } => ReceivedError::Unreferenced { index },
+        },
+    )?;
     received.validate()?;
     Ok(received)
 }

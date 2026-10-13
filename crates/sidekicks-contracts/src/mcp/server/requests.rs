@@ -506,11 +506,11 @@ mod tests {
             .expect("an address within the cap is read");
         assert!(matches!(
             parse_received::<McpUpsertServerRequest>(upsert(&padded).as_bytes(), vec![]),
-            Err(ReceivedError::Attachment(_))
+            Err(ReceivedError::Read(_))
         ));
         assert!(matches!(
             parse_received::<McpOauthLogoutRequest>(logout(&padded).as_bytes(), vec![]),
-            Err(ReceivedError::Attachment(_))
+            Err(ReceivedError::Read(_))
         ));
     }
 }
