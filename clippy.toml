@@ -1,0 +1,13 @@
+# Tests may unwrap, panic and print.
+allow-unwrap-in-tests = true
+allow-panic-in-tests = true
+allow-print-in-tests = true
+# `missing_docs_in_private_items` checks only crate-visible items, such as `pub(crate)` ones.
+missing-docs-in-crate-items = true
+
+# Every stored row id and event id comes from the one `mint_uuid_v7`, which carries the exemption.
+disallowed-methods = [
+  { path = "uuid::Uuid::new_v4", reason = "ids come from mint_uuid_v7" },
+  { path = "uuid::Uuid::new_v7", reason = "ids come from mint_uuid_v7" },
+  { path = "uuid::Uuid::now_v7", reason = "ids come from mint_uuid_v7" },
+]

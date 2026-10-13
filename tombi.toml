@@ -1,0 +1,3 @@
+# The same width as rustfmt and Prettier.
+[format.rules]
+line-width = 100

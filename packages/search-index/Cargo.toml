@@ -2,9 +2,9 @@
 name = "search-index"
 version = "0.1.0"
 edition = "2024"
-publish = false
 description = "The daemon's session search index: Tantivy in a Node-API addon."
 license = "Apache-2.0"
+publish = false
 
 [lib]
 crate-type = ["cdylib"]
@@ -23,20 +23,24 @@ tantivy = { version = "0.26.2", default-features = false }
 # is the one Tantivy itself builds with, so the two crates share the type.
 tantivy-common = "0.11.0"
 unicode-normalization = "0.1.25"
-unicode-properties = { version = "0.1.4", default-features = false, features = [
-  "general-category",
-] }
+unicode-properties = {
+  version = "0.1.4",
+  default-features = false,
+  features = [
+    "general-category",
+  ]
+}
+
+[build-dependencies]
+napi-build = "2.6.0"
 
 # The memory-mapped reader is built for macOS alone, where it measures the smaller footprint; every
 # other target reads index files by positioned reads.
 [target.'cfg(target_os = "macos")'.dependencies]
-tantivy = { version = "0.26.2", default-features = false, features = ["mmap"] }
 # The measurement runs read macOS's own footprint figure for the test process.
 libc = { version = "0.2.186", optional = true }
+tantivy = { version = "0.26.2", default-features = false, features = ["mmap"] }
 
 [features]
 # The budgets' measurement runs, compiled into the tests only when asked for.
 measurements = ["dep:libc"]
-
-[build-dependencies]
-napi-build = "2.6.0"

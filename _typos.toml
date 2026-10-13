@@ -1,0 +1,6 @@
+# Code is spelled in American English; documents are not checked.
+[default]
+locale = "en-us"
+
+[files]
+extend-exclude = ["*.md"]

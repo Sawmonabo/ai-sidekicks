@@ -1,0 +1,9 @@
+[env]
+# The bundled SQLite gets the page table the SQLite shell's `.recover` reads. Forced, since `[env]`
+# otherwise yields to a variable already set.
+LIBSQLITE3_FLAGS = { value = "SQLITE_ENABLE_DBPAGE_VTAB", force = true }
+
+# A crate version waits a day after it is published before Cargo resolves to it, unless the lock
+# already holds it, as pnpm's `minimumReleaseAge` holds an npm version.
+[registry]
+global-min-publish-age = "1 day"

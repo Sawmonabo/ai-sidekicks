@@ -1,5 +1,7 @@
-# The newest stable Rust, with the WebAssembly target the compression module builds for;
-# rustup installs a listed target the first time Cargo runs here without it.
+# One exact stable release, moved in its own change; CI and rustup install what this file names.
 [toolchain]
-channel = "stable"
+channel = "1.99.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+# The WebAssembly builds: the compression module, the matcher and the workflow checks.
 targets = ["wasm32-unknown-unknown"]

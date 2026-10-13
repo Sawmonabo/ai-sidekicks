@@ -12,7 +12,7 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage",
-    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\" && cargo fmt --all",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
     "prepare": "lefthook install",
     "structure:dead-code": "knip --treat-config-hints-as-errors --treat-tag-hints-as-errors",
@@ -35,7 +35,8 @@
     "lint-staged": "^17.6.0",
     "prettier": "~3.8.5",
     "publint": "^0.3.25",
-    "turbo": "^2.11.7",
+    "tombi": "1.8.4",
+    "turbo": "2.11.7",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.71.0",
     "vitest": "catalog:testing"

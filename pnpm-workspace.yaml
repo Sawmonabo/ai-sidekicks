@@ -1,6 +1,7 @@
 packages:
   - "packages/*"
   - "apps/*"
+  - "crates/sidekicks-daemon/js"
 
 # pnpm 10 hardening (both flip on by default in pnpm 11):
 # - minimumReleaseAge: blocks installs of brand-new package versions for the floor below

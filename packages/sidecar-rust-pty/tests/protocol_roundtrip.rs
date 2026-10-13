@@ -5,7 +5,7 @@
 //! is absent while a `None` signal code is `null`, and a payload written the way the TS producer
 //! writes it deserializes.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sidecar_rust_pty::protocol::{
     DataFrame, DataStream, Envelope, ExitCodeNotification, KillRequest, KillResponse, PingRequest,
     PingResponse, PtySignal, ResizeRequest, ResizeResponse, SpawnRequest, SpawnResponse,

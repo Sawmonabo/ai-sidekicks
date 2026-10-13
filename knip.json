@@ -241,6 +241,19 @@
       "ignoreBinaries": ["rustup"]
     },
     "packages/client-sdk": {},
+    "crates/sidekicks-daemon/js": {
+      // Libraries installed ahead of the engine module that imports each, with what will import it.
+      "ignoreDependencies": [
+        // A workflow's expressions checked against the reference evaluator, and the
+        // regular-expression engine it runs on.
+        "jsonata",
+        "re2js",
+        // The machine's own check of a passkey's signature on a trust statement.
+        "@simplewebauthn/server",
+        // The file-watch trigger's glob patterns.
+        "picomatch"
+      ]
+    },
     "packages/control-plane": {
       // The Cloudflare CLI: the worker is run with `wrangler dev` and published with
       // `wrangler deploy` by hand, so no package script names it. `pg` and its types are the

@@ -1,13 +1,382 @@
 [workspace]
-resolver = "2"
-members = ["packages/search-index", "packages/sidecar-rust-pty", "packages/compression"]
+# The edition-2024 default, which a virtual workspace must state.
+resolver = "3"
+# `packages/search-index` and `packages/sidecar-rust-pty` move into `crates/` with the code that
+# replaces them.
+members = ["crates/*", "packages/search-index", "packages/sidecar-rust-pty"]
 
-# The compression WebAssembly module's build: small and fast, with no unwinding to carry. The
-# release profile the other crates build with stays as it is.
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+# The release `rust-toolchain.toml` pins.
+rust-version = "1.99"
+license = "Apache-2.0"
+publish = false
+
+# Every outside version once; members write `name.workspace = true` and add only features.
+[workspace.dependencies]
+# The workspace's own crates.
+sidekicks-client = { path = "crates/sidekicks-client" }
+sidekicks-contracts = { path = "crates/sidekicks-contracts" }
+sidekicks-platforms = { path = "crates/sidekicks-platforms" }
+sidekicks-search = { path = "crates/sidekicks-search" }
+sidekicks-terminal = { path = "crates/sidekicks-terminal" }
+
+# Runtime, errors and logs.
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+flexi_logger = { version = "0.31.10", default-features = false }
+futures = { version = "0.3.34", default-features = false, features = ["async-await", "std"] }
+futures-util = { version = "0.3.34", default-features = false }
+libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
+mimalloc = "0.1.52"
+opentelemetry-proto = {
+  version = "0.33.1",
+  default-features = false,
+  features = [
+    "gen-tonic-messages",
+    "logs",
+    "trace",
+    "with-serde",
+  ]
+}
+thiserror = "2.0.21"
+tokio = {
+  version = "1.53.2",
+  features = [
+    "fs",
+    "io-util",
+    "macros",
+    "net",
+    "process",
+    "rt-multi-thread",
+    "signal",
+    "sync",
+    "time",
+  ]
+}
+tracing = "0.1.44"
+tracing-subscriber = {
+  version = "0.3.23",
+  default-features = false,
+  features = [
+    "fmt",
+    "std",
+    "tracing-log",
+  ]
+}
+
+# Storage.
+deadpool-postgres = "0.14.2"
+libsqlite3-sys = "0.38.2"
+rusqlite = { version = "0.40.2", features = ["backup", "bundled"] }
+tantivy = { version = "0.26.2", default-features = false }
+tantivy-common = "0.11.0"
+tempfile = "3.27.0"
+tokio-postgres = { version = "0.7.18", default-features = false }
+tokio-postgres-rustls = "0.14.0"
+
+# Processes and the operating system.
+alacritty_terminal = "0.26.0"
+async-io = "2.6.0"
+command-fds = { version = "0.3.3", features = ["tokio"] }
+junction = "2.1.0"
+keepawake = "0.6.1"
+libc = "0.2.190"
+nix = {
+  version = "0.31.3",
+  features = [
+    "event",
+    "fs",
+    "hostname",
+    "process",
+    "signal",
+    "time",
+    "user",
+  ]
+}
+objc2-core-foundation = "0.3.2"
+objc2-foundation = { version = "0.3.2", features = ["NSString", "NSURL"] }
+objc2-service-management = {
+  version = "0.3.2",
+  default-features = false,
+  features = [
+    "SMAppService",
+    "objc2",
+    "objc2-foundation",
+    "std",
+  ]
+}
+polling = "3.8"
+process-wrap = { version = "10.0.1", features = ["tokio1"] }
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+uds_windows = "1.2.1"
+vte = "0.15.0"
+windows = "0.62.2"
+windows-sys = "0.61.2"
+zbus = { version = "5.19.0", features = ["tokio"] }
+
+# Credentials.
+apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
+keyring-core = "1.0.1"
+secret-service = "5.2.0"
+security-framework = "3.7.0"
+windows-native-keyring-store = { version = "1.1.0", default-features = false }
+zbus-secret-service-keyring-store = { version = "1.0.1", features = ["rt-tokio-crypto-rust"] }
+
+# Files, folders and git.
+cc = "1.8.0"
+flate2 = {
+  version = "1.1.10",
+  default-features = false,
+  features = ["runtime_detection", "zlib-rs"]
+}
+ignore = "0.4.33"
+notify = { version = "=9.0.0-rc.5", features = ["tokio"] }
+reflink-copy = "0.1.30"
+sha3 = "0.12.0"
+tar = "0.4.46"
+typed-path = "0.12.3"
+zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+# Wire, contracts and network.
+axum = { version = "0.8.9", default-features = false, features = ["json"] }
+base64 = "0.23.1"
+bytes = "1.12.1"
+chromiumoxide_cdp = "0.9.1"
+form_urlencoded = "1.2.2"
+garde = { version = "0.23.0", features = ["derive", "regex", "serde"] }
+h2 = "0.4.20"
+hickory-server = "0.26.3"
+hyper-util = "0.1.21"
+instant-acme = "0.8.5"
+interprocess = { version = "2.4.5", features = ["tokio"] }
+percent-encoding = "2.3.2"
+psl = "2.1.241"
+reqwest = { version = "0.13.5", features = ["json", "stream"] }
+rmcp = { version = "3.5.1", features = ["transport-streamable-http-server"] }
+rustls = "0.23.45"
+rustls-platform-verifier = "0.7.1"
+schemars = "1.2.3"
+semver = "1.0.28"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip", "raw_value"] }
+serde_json_canonicalizer = "0.3.2"
+serde_path_to_error = "0.1.20"
+serde_with = { version = "3.24.0", features = ["base64"] }
+sse-stream = "0.3.0"
+tokio-rustls = "0.26.6"
+tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
+tokio-util = { version = "0.7.20", features = ["codec"] }
+tower-service = "0.3.3"
+typify = "0.8.0"
+url = "2.5.8"
+uuid = { version = "1.28.0", features = ["v7"] }
+
+# Signing, sealing and secrets.
+blake3 = "1.8.7"
+cedar-policy = "4.13.0"
+chacha20poly1305 = "0.11.0"
+ed25519-dalek = "3.0.0"
+gcp_auth = { version = "0.12.7", default-features = false, features = ["aws-lc-rs"] }
+getrandom = "0.4.3"
+hkdf = "0.13.0"
+hmac = "0.13.0"
+hpke = { version = "0.14.1", features = ["aes"] }
+jwt-simple = { version = "0.15.0", default-features = false, features = ["pure-rust"] }
+p256 = "0.14.0"
+pasetors = "0.8.1"
+rpassword = "7.5.4"
+secrecy = "0.10.3"
+sha2 = "0.11.1"
+snow = { version = "0.10.0", features = ["ring-accelerated"] }
+subtle = "2.6.1"
+time = "0.3.55"
+web-push-native = { version = "0.5.0", default-features = false, features = ["serialization"] }
+x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
+zeroize = "1.9.1"
+
+# Content, text and time.
+croner = { version = "4.0.1", default-features = false, features = ["jiff"] }
+csv = "1.4.0"
+diffy = "0.5.2"
+dugong = "0.9.0"
+fast_image_resize = "6.1.0"
+fast_qr = "0.14.0"
+ferriki = "1.0.0"
+icu_casemap = "2.3.0"
+icu_collator = "2.3.1"
+icu_datetime = "2.3.0"
+icu_locale_core = "2.3.0"
+image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+jiff = { version = "0.2.38", features = ["tzdb-bundle-always"] }
+jsonata-core = { version = "2.2.11", default-features = false }
+jsonc-parser = { version = "0.34.0", features = ["cst"] }
+lettre = {
+  version = "0.11.23",
+  default-features = false,
+  features = [
+    "aws-lc-rs",
+    "builder",
+    "hostname",
+    "pool",
+    "rustls-platform-verifier",
+    "smtp-transport",
+    "tokio1-rustls",
+  ]
+}
+lru = "0.18.5"
+lz4_flex = {
+  version = "0.14.0",
+  default-features = false,
+  features = ["safe-decode", "safe-encode"]
+}
+pdfium-render = "0.9.4"
+pulldown-cmark = { version = "0.13.4", default-features = false }
+quick_cache = "0.7.0"
+regex = "1.13.1"
+serde-saphyr = "1.3.0"
+toml = "1.1.8"
+toml_edit = { version = "0.25.17", features = ["serde"] }
+unicode-normalization = "0.1.25"
+unicode-properties = {
+  version = "0.1.4",
+  default-features = false,
+  features = ["general-category"]
+}
+unicode-segmentation = "1.13.3"
+webp = "0.3.1"
+yaml-edit = "0.3.2"
+
+# The JavaScript engines: QuickJS and the web APIs the bundled modules call, held at the commit
+# whose crates build against this exact engine release.
+llrt_abort = {
+  git = "https://github.com/awslabs/llrt",
+  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
+}
+llrt_buffer = {
+  git = "https://github.com/awslabs/llrt",
+  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
+}
+llrt_crypto = {
+  git = "https://github.com/awslabs/llrt",
+  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
+}
+llrt_exceptions = {
+  git = "https://github.com/awslabs/llrt",
+  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
+}
+llrt_stream_web = {
+  git = "https://github.com/awslabs/llrt",
+  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
+}
+llrt_timers = {
+  git = "https://github.com/awslabs/llrt",
+  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
+}
+llrt_util = {
+  git = "https://github.com/awslabs/llrt",
+  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
+}
+rquickjs = { version = "=0.14.0", features = ["futures", "rust-alloc"] }
+
+# Crash reports.
+crash-handler = "0.8.1"
+minidumper = "0.11.0"
+
+# The desktop's Node-API addon.
+napi = {
+  version = "3.14.2",
+  default-features = false,
+  features = [
+    "async",
+    "napi10",
+    "serde-json",
+    "tokio_rt",
+  ]
+}
+napi-build = "2.6.0"
+napi-derive = "3.6.12"
+
+# The Cloudflare Worker.
+js-sys = "0.3.106"
+wasm-bindgen = "0.2.129"
+wasm-bindgen-futures = "0.4.79"
+worker = { version = "0.8.7", features = ["axum", "http"] }
+
+# Tests.
+caseless = "0.2.2"
+dhat = "0.3.3"
+insta = { version = "1.49.0", features = ["json"] }
+mockall = "0.15.0"
+postgresql_embedded = {
+  version = "0.21.0",
+  default-features = false,
+  features = [
+    "theseus",
+    "tls-rustls-aws-lc-rs",
+    "tokio",
+  ]
+}
+proptest = "1.12.0"
+rstest = "0.27.0"
+standardwebhooks = "1.0.1"
+wasm-bindgen-test = "0.3.79"
+x-wing = { version = "0.1.1", features = ["hazmat"] }
+
+[workspace.lints.clippy]
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+dbg_macro = "warn"
+exit = "warn"
+let_underscore_must_use = "warn"
+map_err_ignore = "warn"
+# Scoped to crate-visible items by `clippy.toml`.
+missing_docs_in_private_items = "warn"
+# The error contract is in the doc's one or two sentences.
+missing_errors_doc = "allow"
+# Panics are linted away below.
+missing_panics_doc = "allow"
+mod_module_files = "warn"
+# `#[must_use]` goes by hand where ignoring a value is a bug.
+must_use_candidate = "allow"
+panic = "warn"
+# The group sits below the single lints, which override it.
+pedantic = { level = "warn", priority = -1 }
+print_stderr = "warn"
+print_stdout = "warn"
+redundant_clone = "warn"
+# Noise for full descriptive names.
+similar_names = "allow"
+todo = "warn"
+# A per-function count, not a project rule.
+too_many_lines = "allow"
+undocumented_unsafe_blocks = "warn"
+unimplemented = "warn"
+unused_result_ok = "warn"
+unwrap_used = "warn"
+wildcard_enum_match_arm = "warn"
+
+[workspace.lints.rust]
+dead_code_pub_in_binary = "warn"
+missing_docs = "warn"
+redundant_lifetimes = "warn"
+unit_bindings = "warn"
+unreachable_pub = "warn"
+# Not forbid: a crate that binds a C or Node-API interface lowers it at its root.
+unsafe_code = "deny"
+unused_lifetimes = "warn"
+
+# Turbo's name for the Cargo workspace in its task graph.
+[workspace.metadata]
+name = "sidekicks-crates"
+
+# The WebAssembly builds: small and fast, with no unwinding to carry. The release profile the other
+# crates build with stays as it is.
 [profile.wasm-release]
 inherits = "release"
 opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
 strip = true
+lto = true
+panic = "abort"
+codegen-units = 1

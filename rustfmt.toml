@@ -1,0 +1,4 @@
+# Bare rustfmt parses as edition 2015 unless told, so `cargo fmt` and an editor's rustfmt agree.
+edition = "2024"
+style_edition = "2024"
+# Everything else stays at the stable defaults: 100 columns, 4-space indent.

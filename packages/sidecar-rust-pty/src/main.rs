@@ -32,7 +32,7 @@ use std::io::{Error as IoError, ErrorKind};
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
-use sidecar_rust_pty::framing::{read_frame, write_frame, FrameReadOutcome};
+use sidecar_rust_pty::framing::{FrameReadOutcome, read_frame, write_frame};
 use sidecar_rust_pty::protocol::{
     Envelope, KillResponse, PingResponse, ResizeResponse, SpawnResponse, WriteResponse,
 };

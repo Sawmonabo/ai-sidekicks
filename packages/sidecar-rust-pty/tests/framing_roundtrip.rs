@@ -3,7 +3,7 @@
 
 use std::io::ErrorKind;
 
-use sidecar_rust_pty::framing::{read_frame, write_frame, FrameReadOutcome, MAX_FRAME_BODY_BYTES};
+use sidecar_rust_pty::framing::{FrameReadOutcome, MAX_FRAME_BODY_BYTES, read_frame, write_frame};
 use tokio::io::BufReader;
 
 /// Unwraps a [`FrameReadOutcome::Frame`], panicking on `CleanEof`.

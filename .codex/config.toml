@@ -21,4 +21,4 @@ multi_agent = true
 shell_tool = true
 
 [tools]
-web_search = {context_size = "high"}
+web_search = { context_size = "high" }

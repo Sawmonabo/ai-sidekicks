@@ -2,33 +2,36 @@
 name = "sidecar-rust-pty"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
-publish = false
+rust-version = "1.99"
 description = "AI Sidekicks PTY sidecar binary."
 license = "Apache-2.0"
+publish = false
 
 [[bin]]
 name = "sidecar"
 path = "src/main.rs"
 
 [dependencies]
+clap = { version = "4.5", features = ["derive"] }
 portable-pty = "0.9"
 serde = { version = "1.0", features = ["derive"] }
-serde_with = { version = "3.7", features = ["base64"] }
 serde_json = "1.0"
+serde_with = { version = "3.7", features = ["base64"] }
 # `sync` is required by `session::PtySessionRegistry` for `tokio::sync::{Mutex, mpsc}`. `rt` is
 # pulled in transitively by `rt-multi-thread`, so it is not listed.
-tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "sync"] }
-clap = { version = "4.5", features = ["derive"] }
+tokio = {
+  version = "1.40",
+  features = ["io-std", "io-util", "macros", "process", "rt-multi-thread", "sync"]
+}
+
+# Only the tests use `tokio::time` (`sleep`, `timeout`).
+[dev-dependencies]
+tokio = { version = "1.40", features = ["time"] }
 
 # POSIX `kill(2)` for `session::kill()`. `portable-pty`'s default `ChildKiller` on unix
 # hardcodes `SIGHUP`; this crate calls `libc::kill` directly to forward the caller-supplied
 # `PtySignal`. `libc` is already a transitive dependency of `portable-pty` and `tokio`; declaring it
 # under `cfg(unix)` makes the signal-delivery intent visible in the manifest and pins the major
 # version.
-[target.'cfg(unix)'.dependencies]
+[target."cfg(unix)".dependencies]
 libc = "0.2"
-
-# Only the tests use `tokio::time` (`sleep`, `timeout`).
-[dev-dependencies]
-tokio = { version = "1.40", features = ["time"] }

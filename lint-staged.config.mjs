@@ -3,4 +3,6 @@ export default {
   "*.{ts,tsx,mts,cts}": ["eslint --fix --cache", "prettier --write"],
   "*.{js,mjs,cjs,jsx}": ["eslint --fix --cache", "prettier --write"],
   "*.{json,json5,md,yml,yaml,css,scss}": ["prettier --write"],
+  "*.rs": ["rustfmt"],
+  "*.toml": ["tombi format"],
 };

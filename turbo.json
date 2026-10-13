@@ -5,11 +5,17 @@
   "remoteCache": {
     "signature": true
   },
+  // The Cargo workspace joins the task graph beside the pnpm packages, and a task can name its own
+  // command. Turbo's Cargo support is experimental, so `turbo` is pinned exact.
+  "futureFlags": { "experimentalCargoWorkspaces": true, "experimentalTaskCommand": true },
   "globalDependencies": ["tsconfig.base.json", "tsconfig.node.json", "eslint.config.mjs"],
+  // Strict environment mode withholds anything not named; Cargo reads this one.
+  "globalEnv": ["CARGO_BUILD_WARNINGS"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "inputs": ["src/**", "tsconfig.json", "package.json"],
+      // Keeps Turbo's own inputs for a crate: its dependencies, the root Cargo files, Cargo.lock.
+      "inputs": ["$TURBO_DEFAULT$"],
       "outputs": ["dist/**", ".tsbuildinfo"]
     },
     "typecheck": {
@@ -20,7 +26,7 @@
       "outputs": ["dist/**", ".tsbuildinfo"]
     },
     "lint": {
-      "inputs": ["src/**", "*.{ts,tsx,js,mjs,cjs,json}", "eslint.config.mjs"],
+      "inputs": ["$TURBO_DEFAULT$"],
       "outputs": []
     },
     "test": {
@@ -38,6 +44,35 @@
     "dev": {
       "cache": false,
       "persistent": true
-    }
+    },
+    // The Cargo workspace's own checks, once for every crate.
+    "sidekicks-crates#lint": {
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--keep-going"
+      ]
+    },
+    // A package-scoped task does not inherit the shared test task's settings.
+    "sidekicks-crates#test": {
+      "dependsOn": ["sidekicks-crates#test:doc"],
+      "cache": false,
+      "command": ["cargo", "nextest", "run", "--workspace", "--locked"]
+    },
+    "sidekicks-crates#test:doc": {
+      "cache": false,
+      "command": ["cargo", "test", "--workspace", "--doc", "--locked"]
+    },
+    // The daemon embeds the JavaScript bundles its engines run.
+    "sidekicks-daemon#build": {
+      "dependsOn": ["^build", "@ai-sidekicks/daemon-engines#build"]
+    },
+    // Crates a pnpm package compiles to WebAssembly: their build only carries the crate's hash.
+    "sidekicks-compression#build": { "command": null },
+    "sidekicks-search#build": { "command": null }
   }
 }

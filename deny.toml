@@ -1,0 +1,18 @@
+# Run as `cargo deny check advisories bans sources`; licenses are read with
+# `cargo deny list -l license` when a dependency is added.
+[advisories]
+yanked = "deny"
+ignore = [
+  { id = "RUSTSEC-2023-0071", reason = "a timing leak of an RSA private key, and nothing here holds one: jwt-simple signs with ES256 keys, and passkey RS256 checks verify with public keys" },
+]
+
+[bans]
+# A duplicate version is reported, not refused.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+# crates.io only, plus the one git source the JavaScript engines' web APIs come from.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = ["https://github.com/awslabs/llrt"]
