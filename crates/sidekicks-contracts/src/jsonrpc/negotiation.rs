@@ -55,8 +55,9 @@ pub type NegotiationText = BoundedText<1, NEGOTIATION_FIELD_MAX_LEN>;
 /// The `daemon.hello` request, the first call on a connection: the client's preferred version,
 /// its full supported set (by default `[protocolVersion]`), and the daemon's session token read
 /// from its token file.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DaemonHello {
     /// The client's preferred version.
     pub protocol_version: ProtocolVersion,

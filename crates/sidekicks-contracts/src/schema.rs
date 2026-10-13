@@ -120,13 +120,13 @@ pub fn closed_schema_for<T: JsonSchema>() -> serde_json::Result<Value> {
     Ok(schema)
 }
 
-/// `T`'s schema as the receiving side checks it: [`closed_schema_for`] with every Ajv `$data`
-/// reference dropped by [`drop_data_references`]. Fails only where `T`'s schema does not
-/// serialize.
-pub fn received_schema_for<T: JsonSchema>() -> serde_json::Result<Value> {
-    let mut schema = closed_schema_for::<T>()?;
-    drop_data_references(&mut schema);
-    Ok(schema)
+/// `T`'s schema as the receiving side checks it: [`closed_schema_for`] cut to its shape by
+/// [`received_shape`]. Fails where `T`'s schema does not serialize or cannot be cut to its shape.
+pub fn received_schema_for<T: JsonSchema>() -> Result<Value, ReceivedCheckError> {
+    received_shape(&closed_schema_for::<T>()?).map_err(|source| ReceivedCheckError::Shape {
+        type_name: T::schema_name().into_owned(),
+        source,
+    })
 }
 
 /// Why the check of a received type could not be built.
@@ -135,6 +135,15 @@ pub enum ReceivedCheckError {
     /// The type's schema does not serialize.
     #[error(transparent)]
     Schema(#[from] serde_json::Error),
+    /// The type's schema holds a keyword the shape would drop although a kept keyword reads it.
+    #[error("the schema of {type_name} cannot be cut to its shape")]
+    Shape {
+        /// The type's schema name.
+        type_name: String,
+        /// The keyword in the way.
+        #[source]
+        source: ShapeError,
+    },
     /// The checker refused the type's schema.
     #[error("the schema of {type_name} does not build a check")]
     Build {
@@ -217,24 +226,190 @@ pub fn close_composite_objects(schema: &mut Value) {
     close(schema, false);
 }
 
-/// Removes every keyword whose value is an Ajv `$data` reference (`{"$data": "1/count"}`): a
-/// standard checker refuses one under `maxItems` or `minimum` when it builds, and compares one
-/// under `const` as a literal, so the receiving side's copy leaves those rules to garde.
-pub fn drop_data_references(schema: &mut Value) {
-    match schema {
-        Value::Object(object) => {
-            object.retain(|_, value| !is_data_reference(value));
-            object.values_mut().for_each(drop_data_references);
+/// Why a schema cannot be cut to its shape.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "`{keyword}` marks members a kept `{reader}` reads, so dropping it would refuse valid input"
+)]
+pub struct ShapeError {
+    /// The keyword the shape would drop.
+    pub keyword: &'static str,
+    /// The kept keyword that reads what it marks.
+    pub reader: &'static str,
+}
+
+/// The shape of a closed schema, the part of it that says which members and which JSON kinds a
+/// message holds, which the receiving side checks before serde reads it; garde holds every other
+/// rule, the Ajv `$data` ones among them. It keeps the structural keywords and the `const` and
+/// `enum` that hold no `$data` reference, writes `oneOf` as `anyOf` and `if`/`then`/`else` as an
+/// `anyOf`, and drops the rest, so it only ever accepts more than the schema. Fails where a
+/// dropped keyword marks members a kept `unevaluatedProperties` or `unevaluatedItems` reads:
+/// `$dynamicRef` anywhere, or `contains` within an `unevaluatedItems`' reach.
+pub fn received_shape(schema: &Value) -> Result<Value, ShapeError> {
+    refuse_dropped_markers(schema, schema, false, 0)?;
+    Ok(shape(schema))
+}
+
+fn shape(schema: &Value) -> Value {
+    let Some(object) = schema.as_object() else {
+        return schema.clone();
+    };
+    let mut shaped = serde_json::Map::new();
+    let mut alternatives = Vec::new();
+    for (key, value) in object {
+        match key.as_str() {
+            "$schema" | "$ref" | "type" | "required" => {
+                shaped.insert(key.clone(), value.clone());
+            }
+            "const" | "enum" if !holds_data_reference(value) => {
+                shaped.insert(key.clone(), value.clone());
+            }
+            "$defs" | "properties" | "patternProperties" | "dependentSchemas" => {
+                if let Value::Object(members) = value {
+                    let members = members
+                        .iter()
+                        .map(|(name, member)| (name.clone(), shape(member)))
+                        .collect();
+                    shaped.insert(key.clone(), Value::Object(members));
+                }
+            }
+            "additionalProperties" | "unevaluatedProperties" | "items" => {
+                shaped.insert(key.clone(), shape(value));
+            }
+            "prefixItems" | "allOf" => {
+                if let Value::Array(arms) = value {
+                    shaped.insert(key.clone(), Value::Array(arms.iter().map(shape).collect()));
+                }
+            }
+            "anyOf" | "oneOf" => {
+                if let Value::Array(arms) = value {
+                    alternatives.push(Value::Array(arms.iter().map(shape).collect()));
+                }
+            }
+            "if" => {
+                let taken = json!({ "allOf": [
+                    shape(value),
+                    object.get("then").map_or(Value::Bool(true), shape),
+                ] });
+                let otherwise = object.get("else").map_or(Value::Bool(true), shape);
+                alternatives.push(json!([taken, otherwise]));
+            }
+            _ => {}
         }
-        Value::Array(items) => items.iter_mut().for_each(drop_data_references),
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+    // One `anyOf` stays in place; each further one is nested in `allOf`, since all must hold.
+    let mut alternatives = alternatives.into_iter();
+    if let Some(first) = alternatives.next() {
+        shaped.insert("anyOf".into(), first);
+    }
+    for further in alternatives {
+        let all_of = shaped
+            .entry("allOf")
+            .or_insert_with(|| Value::Array(Vec::new()));
+        if let Value::Array(arms) = all_of {
+            arms.push(json!({ "anyOf": further }));
+        }
+    }
+    Value::Object(shaped)
+}
+
+/// Whether `value` holds an Ajv `$data` reference (`{"$data": "1/count"}`) anywhere in it.
+fn holds_data_reference(value: &Value) -> bool {
+    match value {
+        Value::Object(object) => {
+            (object.len() == 1 && object.contains_key("$data"))
+                || object.values().any(holds_data_reference)
+        }
+        Value::Array(items) => items.iter().any(holds_data_reference),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => false,
     }
 }
 
-fn is_data_reference(value: &Value) -> bool {
-    value
-        .as_object()
-        .is_some_and(|object| object.len() == 1 && object.contains_key("$data"))
+/// The deepest `$ref` chain followed; a schema's references never nest deeper than its types do.
+const REFERENCE_DEPTH_LIMIT: usize = 64;
+
+/// Walks `schema` for [`received_shape`]'s refusals: `$dynamicRef` anywhere, and `contains` where
+/// an enclosing `unevaluatedItems` reads it in place (`is_item_marked`), through `$ref`s into
+/// `root`'s `$defs`.
+fn refuse_dropped_markers(
+    root: &Value,
+    schema: &Value,
+    is_item_marked: bool,
+    depth: usize,
+) -> Result<(), ShapeError> {
+    let Some(object) = schema.as_object() else {
+        return Ok(());
+    };
+    if object.contains_key("$dynamicRef") {
+        return Err(ShapeError {
+            keyword: "$dynamicRef",
+            reader: "unevaluatedProperties",
+        });
+    }
+    let is_item_marked = is_item_marked || object.contains_key("unevaluatedItems");
+    if is_item_marked && object.contains_key("contains") {
+        return Err(ShapeError {
+            keyword: "contains",
+            reader: "unevaluatedItems",
+        });
+    }
+    // In-place applicators read the same value, so an enclosing `unevaluatedItems` reaches them.
+    let in_place = ["allOf", "anyOf", "oneOf"]
+        .iter()
+        .filter_map(|key| object.get(*key).and_then(Value::as_array))
+        .flatten()
+        .chain(
+            ["if", "then", "else", "not"]
+                .iter()
+                .filter_map(|key| object.get(*key)),
+        )
+        .chain(
+            object
+                .get("dependentSchemas")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flat_map(serde_json::Map::values),
+        );
+    for subschema in in_place {
+        refuse_dropped_markers(root, subschema, is_item_marked, depth)?;
+    }
+    // `$defs` are walked once below; a reference is followed only to see what a reader reaches.
+    if is_item_marked
+        && let Some(target) = object
+            .get("$ref")
+            .and_then(Value::as_str)
+            .and_then(|reference| reference.strip_prefix("#/$defs/"))
+            .and_then(|name| root.get("$defs")?.get(name))
+        && depth < REFERENCE_DEPTH_LIMIT
+    {
+        refuse_dropped_markers(root, target, is_item_marked, depth + 1)?;
+    }
+    // Every other subschema reads another value: an enclosing `unevaluatedItems` stops there.
+    let other_values = ["properties", "patternProperties", "$defs"]
+        .iter()
+        .filter_map(|key| object.get(*key).and_then(Value::as_object))
+        .flat_map(serde_json::Map::values)
+        .chain(
+            [
+                "additionalProperties",
+                "unevaluatedProperties",
+                "items",
+                "contains",
+            ]
+            .iter()
+            .filter_map(|key| object.get(*key)),
+        )
+        .chain(
+            object
+                .get("prefixItems")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten(),
+        );
+    for subschema in other_values {
+        refuse_dropped_markers(root, subschema, false, depth)?;
+    }
+    Ok(())
 }
 
 fn close(schema: &mut Value, is_inside_closed: bool) {

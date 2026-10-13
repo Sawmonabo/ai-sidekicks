@@ -115,8 +115,9 @@ pub(crate) use stream_frame;
 
 /// The params of a cancel call. It is a request, so the client learns from its result whether it
 /// worked; only the connection that owns a subscription can cancel it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SubscriptionCancelParams {
     /// The subscription to cancel.
     pub subscription_id: SubscriptionId,

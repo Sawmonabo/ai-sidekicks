@@ -169,11 +169,15 @@ pub(crate) use methods;
 
 #[cfg(test)]
 mod tests {
+    use crate::jsonrpc::message::CancelRequestParams;
+    use crate::jsonrpc::negotiation::DaemonHello;
+    use crate::jsonrpc::streaming::SubscriptionCancelParams;
+    use crate::schema::received_check;
     use crate::wire::attachment::ReceivedError;
 
     #[test]
-    fn every_method_builds_its_params_check() {
-        let failures: Vec<String> = crate::typescript_modules()
+    fn every_received_type_builds_its_check() {
+        let mut failures: Vec<String> = crate::typescript_modules()
             .flat_map(|module| module.method_tables)
             .flat_map(|table| table.methods)
             .filter_map(|method| match (method.params_check)(b"null", Vec::new()) {
@@ -187,6 +191,22 @@ mod tests {
                 ) => None,
             })
             .collect();
+        // The calls a server receives outside the method tables.
+        failures.extend(
+            [
+                ("daemon.hello", received_check::<DaemonHello>().err()),
+                (
+                    "$/cancelRequest",
+                    received_check::<CancelRequestParams>().err(),
+                ),
+                (
+                    "$/subscription/cancel",
+                    received_check::<SubscriptionCancelParams>().err(),
+                ),
+            ]
+            .into_iter()
+            .filter_map(|(method, error)| Some(format!("{method}: {:?}", error?))),
+        );
         assert!(failures.is_empty(), "{failures:#?}");
     }
 }
