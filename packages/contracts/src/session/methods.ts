@@ -381,6 +381,29 @@ export const SearchMatchRangeSchema: z.ZodType<SearchMatchRange> = z
   });
 
 /**
+ * Refuses, under `matchRanges`, a range that starts before the one before it ends or ends past
+ * `text`, both in UTF-16 code units, so a hit's ranges run in order, never overlap, and sit
+ * inside the text they mark.
+ */
+export function requireMatchRangesInOrderWithin(
+  text: string,
+  matchRanges: readonly SearchMatchRange[],
+  issueContext: z.RefinementCtx,
+): void {
+  let previousEnd = 0;
+  for (const [index, range] of matchRanges.entries()) {
+    if (range.start < previousEnd || range.end > text.length) {
+      issueContext.addIssue({
+        code: "custom",
+        path: ["matchRanges", index],
+        message: "match ranges run in order, never overlap, and sit inside the text they mark",
+      });
+    }
+    previousEnd = range.end;
+  }
+}
+
+/**
  * One hit: the line of the message the match sits in, the matched stretches to mark, and the
  * message's cursor, which lands the transcript on it and loads whatever history that takes.
  */
@@ -395,7 +418,10 @@ const SessionSearchHitSchema: z.ZodType<SessionSearchHit> = z
     line: z.string().max(SESSION_SEARCH_HIT_LINE_MAX_LEN),
     matchRanges: z.array(SearchMatchRangeSchema).min(1),
   })
-  .strict();
+  .strict()
+  .superRefine((hit, issueContext) => {
+    requireMatchRangesInOrderWithin(hit.line, hit.matchRanges, issueContext);
+  });
 
 /** The hits in one session, under that session's name; an untitled session has no `name`. */
 export interface SessionSearchGroup {

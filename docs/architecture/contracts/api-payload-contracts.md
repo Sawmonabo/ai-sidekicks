@@ -317,7 +317,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
 | `artifact.list` | The session's artifacts | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-011](../../plans/011-artifacts-files-and-attachments.md) T11.11 |
-| `artifact.read {artifactId, version?, includePayload?, range?}` | One artifact's content, whole or one byte window at a time; on a chat's file, the version picked among its versions | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-011](../../plans/011-artifacts-files-and-attachments.md) T11.11 |
+| `artifact.read {artifactId, version?, payloadSelection}` | One artifact's content, whole or one byte window at a time; on a chat's file, the version picked among its versions | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-011](../../plans/011-artifacts-files-and-attachments.md) T11.11 |
 
 ### `attention.*`
 

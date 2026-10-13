@@ -1,5 +1,6 @@
-// The two session searches: a hit's match range ends after it starts, and a file search cannot
-// match more files than it searched.
+// The two session searches: a hit's match ranges each end after they start, run in order, never
+// overlap and sit inside the hit's line, and a file search cannot match more files than it
+// searched.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -34,6 +35,41 @@ describe("session.search", () => {
       hasMore: false,
     });
     expect(result.success).toBe(false);
+  });
+
+  it("refuses match ranges that overlap or end past the line, and accepts touching ones", () => {
+    const withRanges = (matchRanges: { start: number; end: number }[]) => ({
+      groups: [{ sessionId: SESSION_ID, hits: [{ ...hit, matchRanges }] }],
+      hasMore: false,
+    });
+    // The line is 22 UTF-16 code units long.
+    expect(
+      SessionSearchResponseSchema.safeParse(withRanges([{ start: 17, end: 23 }])).success,
+    ).toBe(false);
+    expect(
+      SessionSearchResponseSchema.safeParse(
+        withRanges([
+          { start: 8, end: 13 },
+          { start: 10, end: 14 },
+        ]),
+      ).success,
+    ).toBe(false);
+    expect(
+      SessionSearchResponseSchema.safeParse(
+        withRanges([
+          { start: 8, end: 13 },
+          { start: 14, end: 22 },
+        ]),
+      ).success,
+    ).toBe(true);
+    expect(
+      SessionSearchResponseSchema.safeParse(
+        withRanges([
+          { start: 8, end: 13 },
+          { start: 13, end: 22 },
+        ]),
+      ).success,
+    ).toBe(true);
   });
 });
 

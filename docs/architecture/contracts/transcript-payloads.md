@@ -256,7 +256,7 @@ interface TranscriptBodyReadRequest {
 }
 // `status` is the discriminant. `contentLength` is echoed from the stored event, never recomputed
 // from `body`. `absent` is the one reason: the row never carried a body. Each reply is bounded by
-// PAGE_MAX_BYTES, as artifact.read's `range` bounds its window: a body longer than one frame holds
+// PAGE_MAX_BYTES, as a `range` selection on artifact.read bounds its window: a body longer than one frame holds
 // comes back whole in consecutive parts. `offset` echoes where this part starts and `nextOffset`
 // is where the next one starts, null on the last part; the client reads from `nextOffset` until it
 // is null and joins the parts.

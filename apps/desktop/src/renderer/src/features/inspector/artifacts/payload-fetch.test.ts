@@ -140,7 +140,7 @@ describe("artifact list actions: one payload fetch in flight, each with its own 
     // draws the bytes it was asked for.
     const clock = new ManualClock();
     const artifactRead = vi.fn<ReadArtifact>(async (request) =>
-      request.range === undefined
+      request.payloadSelection.kind !== "range"
         ? {
             manifest: { ...SERVED_SUMMARY, size: 5 },
             ...SERVED_VERSION,
@@ -163,8 +163,7 @@ describe("artifact list actions: one payload fetch in flight, each with its own 
     expect(artifactRead).toHaveBeenLastCalledWith({
       artifactId: SERVED_SUMMARY.id,
       version: SERVED_VERSION.versionNumber,
-      includePayload: true,
-      range: { offset: 0, length: 5 },
+      payloadSelection: { kind: "range", offset: 0, length: 5 },
     });
   });
 });

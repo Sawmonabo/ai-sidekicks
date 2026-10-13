@@ -63,13 +63,18 @@ interface ArtifactPublishResponse {
 interface ArtifactReadRequest {
   artifactId: ArtifactId;
   version?: number; // counted from 1, oldest first; absent reads the newest
-  includePayload?: boolean; // absent or false returns the handle only
-  // A window of the payload's bytes, `length` bytes from `offset` (counted from 0), at most
-  // ARTIFACT_CHUNK_MAX_BYTES so its encoded bytes fit one message; a window reaching past the end answers
-  // the bytes up to the end. A payload too large for one message is read whole by asking for its windows
-  // in turn, so a text body, a picture or a PDF is never cut short. A range on a read that declines the
-  // payload (`includePayload: false`) is refused.
-  range?: { offset: number; length: number };
+  // How much of the payload the read returns, one member so a window cannot sit beside a read that
+  // declines the bytes:
+  // - none: the handle only.
+  // - whole: the bytes when they fit in one message, the handle otherwise.
+  // - range: one window, `length` bytes from `offset` (counted from 0), at most ARTIFACT_CHUNK_MAX_BYTES
+  //   so its encoded bytes fit one message; a window reaching past the end answers the bytes up to the
+  //   end. A payload too large for one message is read whole by asking for its windows in turn, so a
+  //   text body, a picture or a PDF is never cut short.
+  payloadSelection:
+    | { kind: "none" }
+    | { kind: "whole" }
+    | { kind: "range"; offset: number; length: number };
 }
 // Two arms, never three independent optional members, because only these two replies can be acted on:
 // a handle to fetch the bytes with, or the bytes with their encoding. A read that did not ask for the
@@ -79,7 +84,7 @@ type ArtifactReadResponse =
   | (ArtifactReadFacts & { payloadHandle: string }) // CAS key or URL for deferred retrieval
   | (ArtifactReadFacts & {
       payloadHandle?: string; // allowed beside the bytes
-      payload: string; // the whole payload, or the window `range` asked for: UTF-8 text verbatim or base64 per payloadEncoding
+      payload: string; // the whole payload, or the window a `range` selection asked for: UTF-8 text verbatim or base64 per payloadEncoding
       payloadEncoding: "utf8" | "base64"; // "utf8" only for byte-exact valid UTF-8 (which JSON round-trips losslessly), "base64" otherwise; callers switch on it, never sniff
     });
 interface ArtifactReadFacts {

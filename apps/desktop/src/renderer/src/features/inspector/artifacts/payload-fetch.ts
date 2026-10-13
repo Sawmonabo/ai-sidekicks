@@ -49,10 +49,10 @@ export class ArtifactPayloadFetches {
   /**
    * Ask for one artifact's whole payload, because the user pressed for them.
    *
-   * The same call as the manifest re-read, told apart by `includePayload`; a payload too large
-   * for one message is read window by window. Never run on mount,
-   * because a payload is bounded only by the ingest cap, and not routed through the scheduler,
-   * which would make a refresh silently re-fetch bytes. A second press while a fetch is on
+   * The same call as the manifest re-read, told apart by `payloadSelection`; a payload too
+   * large for one message is read window by window. Never run on mount, because a payload is
+   * bounded only by the ingest cap, and not routed through the scheduler, which would make a
+   * refresh silently re-fetch bytes. A second press while a fetch is on
    * the wire throws; the `fetching` arm holds the control, so only a caller that offers the
    * act unheld reaches it. A rejected call, or a window that comes back short, propagates and
    * the reading returns to no payload.

@@ -520,7 +520,8 @@ interface SessionSearchHit {
   // hit lands the transcript on that message and loads whatever history that takes.
   cursor: EventCursor;
   line: string; // the line the match sits in
-  matchRanges: SearchMatchRange[]; // at least one
+  // At least one, in UTF-16 code units of `line`; they run in order, never overlap, and sit inside it.
+  matchRanges: SearchMatchRange[];
 }
 // A matched stretch of `line`, in UTF-16 code units: `start` inclusive, `end` exclusive and after `start`.
 interface SearchMatchRange {
