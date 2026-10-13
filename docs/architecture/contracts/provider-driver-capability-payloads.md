@@ -103,7 +103,7 @@ interface SessionCallbackTool {
   inputSchema: Record<string, unknown>; // JSON Schema for the tool's arguments
 }
 
-// Callback-tool dispatch seam (Plan-003 T1.8 / T3.15 leg 3). The daemon injects
+// Callback-tool dispatch seam (Plan-003 T1.7 / T3.15 leg 3). The daemon injects
 // `onCallbackToolCall` at spawn (CreateSessionParams in provider-driver-payloads.md); when the provider issues a callback-tool
 // request (a tool call on the daemon's MCP `url` entry, from either provider), the driver translates the wire request
 // into a `CallbackToolInvocation`, invokes the injected dispatcher, and answers the provider with the
@@ -131,7 +131,7 @@ type CallbackToolResult =
   | { status: "denied"; output?: never; error?: string }
   | { status: "failed"; output?: never; error?: string };
 
-// MCP server-status producer seam (Plan-003 T1.8 / T3.13). Producer-only: the daemon
+// MCP server-status producer seam (Plan-003 T1.7 / T3.13). Producer-only: the daemon
 // injects `onMcpServerStatus` at spawn (CreateSessionParams in provider-driver-payloads.md); the driver emits the per-session MCP
 // SERVER inventory (name + status) at init plus status-change updates through it — never an untyped
 // record. Servers only, never a per-server tool-list assumption (support is not visibility, Spec-004
@@ -223,24 +223,12 @@ type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 // halting the run; NULL until the receiver accepts — a crash before that leaves the halt intact
 // (Spec-004 §Recovery Consequences).
 
-// INGRESS shape — what a provider driver DECLARES via `getCapabilities()`. `idempotency_class`
-// is OPTIONAL: a driver MAY omit it and an undeclared class is NOT a contract violation. Were the
-// field required here, the contract check would reject a conformant-but-silent driver at ingress BEFORE the
-// default could apply — defeating Spec-004 §idempotency_class. The daemon's capability-normalization seam
-// (Plan-003 T2.4 hydration) resolves an omitted class to `manual_reconcile_only` (the conservative
-// default per Spec-004 §idempotency_class), producing a `NormalizedProviderToolMetadata`.
+// One shape, `ProviderToolMetadata` in `crates/sidekicks-contracts/src/provider/driver/tools.rs`.
+// Its `idempotency_class` takes a serde default, `manual_reconcile_only` (the conservative
+// default per Spec-004 §idempotency_class), so a driver that declares no class is read as that
+// class and is no contract violation; the generated TypeScript, shown here, has the field
+// required, so no undeclared value reaches the NOT NULL `driver_tools.idempotency_class` column.
 interface ProviderToolMetadata {
-  name: string;
-  idempotency_class?: IdempotencyClass;
-  description?: string;
-}
-
-// NORMALIZED shape — the daemon-side projection AFTER the normalization seam has applied the
-// `manual_reconcile_only` default. `idempotency_class` is REQUIRED, so the type system forbids
-// persisting an un-normalized value into the NOT NULL `driver_tools.idempotency_class` column.
-// This is the only tool-metadata shape that crosses the persistence boundary; ingress
-// `ProviderToolMetadata` never does.
-interface NormalizedProviderToolMetadata {
   name: string;
   idempotency_class: IdempotencyClass;
   description?: string;

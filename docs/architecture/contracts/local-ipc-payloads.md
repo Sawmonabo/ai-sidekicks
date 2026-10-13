@@ -10,8 +10,8 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 **Canonical format**: `dotted-camelCase`. Method-name strings match the regex:
 
-```
-/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/
+```text
+^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$
 ```
 
 Every dot-delimited segment starts with a lowercase letter and may contain camelCase (`[a-z][a-zA-Z0-9]*`) — the first segment (the namespace root) included. This is the dotted-camelCase segment style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`, and camelCase-rooted names such as `textDocument.didOpen`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), applied uniformly to every segment, the root included. A segment may carry an uppercase letter inside it but never start with one, in any position (`Session.create` fails), and a name has at least two segments. Most roots are one lowercase word (`session`, `daemon`, `run`, `repo`, `voice`); a camelCase root such as `providerAccount` or `callbackTool` passes the same rule. Each root's methods are documented in the section of the plan that owns them, and [§Operations Not Yet Built](./api-payload-contracts.md#operations-not-yet-built) lists every documented method no handler serves yet. The V1 `session.*` surface (`session.create`, `session.read`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `run.subscribeState` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex, as is a camelCase root such as `providerAccount.list`.
@@ -22,30 +22,19 @@ The regex accepts the registered surface and rejects:
 - `SessionCreate` — PascalCase (collides with the project's type-name convention; `Session.create` is rejected on the same ground — the root widening admits an uppercase letter _inside_ a segment, never at its start; `SessionCreate` is already a request-payload type symbol per `crates/sidekicks-contracts/src/session/methods.rs`, so a string-form would be ambiguous at every call site).
 - `sessionCreate` — bare camelCase without a namespace dot (cannot express the namespace/operation split without a convention-internal delimiter; doesn't scale to nested namespaces).
 
-**Method-name table** (Plan-005 Phase 3 surface):
+**Method-name table** (Plan-005 Phase 3 surface; procedure types per [API Payload Contracts §Procedure Types](./api-payload-contracts.md#procedure-types)):
 
 | Method | Procedure type | Notes |
 | --- | --- | --- |
-| `session.create` | RPC (request/response) | Materialize new session row + emit `SessionCreated`. |
-| `session.read` | RPC (request/response) | Resolve session by id. |
-| `session.subscribe` | Long-lived (`SessionSubscribeResponse`, then `SessionStreamFrame` notifications) | Event stream that catches up, then follows. |
+| `session.create` | `mutation` | Materialize new session row + emit `SessionCreated`. |
+| `session.read` | `query` | Resolve session by id. |
+| `session.subscribe` | `subscription` (`SessionSubscribeResponse`, then `SessionStreamFrame` notifications) | Event stream that catches up, then follows. |
 
 **Cross-transport consistency**: This same `dotted-camelCase` format is used by Plan-025's control-plane HTTP procedures (per remote-control-payloads.md §Plan-025 — Remote Control Bootstrap). Both transport surfaces share the convention so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls.
 
-**Register-time enforcement** ([Plan-005 §I-005-8](../../plans/005-local-ipc-and-daemon-control.md#i-005-8--method-names-conform-to-the-canonical-format-declared-in-api-payload-contractsmd)): the method registry's `register(method, handler)` call MUST evaluate `method` against this regex and throw on mismatch. This is mechanical validation, not human review — out-of-format names cannot reach the dispatcher.
+**Register-time enforcement** ([Plan-005 §I-005-8](../../plans/005-local-ipc-and-daemon-control.md#i-005-8--method-names-conform-to-the-canonical-format-declared-in-api-payload-contractsmd)): the method registry's `register(method, handler)` call MUST evaluate `method` against this regex and refuse on mismatch. This is mechanical validation, not human review — out-of-format names cannot reach the dispatcher.
 
-```ts
-const METHOD_NAME_FORMAT = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
-
-function register(method: string, handler: Handler): void {
-  if (!METHOD_NAME_FORMAT.test(method)) {
-    throw new Error(`method name "${method}" violates dotted-camelCase canonical format`);
-  }
-  // ... registry insertion
-}
-```
-
-The runtime regex check is owed by the Plan-005 substrate at `crates/sidekicks-daemon/src/ipc/registry.rs` (`isCanonicalMethodName`, the `register()`-time guard), which imports the canonical regex as the `METHOD_NAME_FORMAT` constant declared in `crates/sidekicks-contracts/src/jsonrpc/registry.rs` and generated into `packages/contracts/src/jsonrpc/registry.ts` (the single source — no per-package re-declaration); the `MethodRegistry` interface itself is likewise canonical in code there per the api-payload-contracts.md §Source-of-Truth Policy.
+The runtime regex check is owed by the Plan-005 substrate at `crates/sidekicks-daemon/src/ipc/registry.rs` (`is_canonical_method_name`, the `register()`-time guard), which imports the canonical regex as the `METHOD_NAME_FORMAT` constant declared in `crates/sidekicks-contracts/src/jsonrpc/registry.rs` and generated into `packages/contracts/src/jsonrpc/registry.ts` (the single source — no per-package re-declaration); the `MethodRegistry` interface itself is likewise canonical in code there per the api-payload-contracts.md §Source-of-Truth Policy.
 
 ### JSON-RPC Handshake `protocolVersion` Field
 
@@ -198,10 +187,11 @@ interface DaemonFlushResult {
   flushed: true;
 }
 
-// DaemonPing — `daemon.ping`, main's liveness check on its link to the service. Main sends it only
-// after 5 s with no frame from the service, so a busy link carries none; after 20 s with no frame
-// main counts the link as dead, shows it on the connection state and restarts the service with its
-// backoff. The answer is the evidence of life, so it carries nothing.
+// DaemonPing — `daemon.ping`, the desktop client helper's liveness check on its link to the
+// service. The helper sends it only after 5 s with no frame from the service, so a busy link carries
+// none; after 20 s with no frame the helper counts the link as dead and reports it to main, which
+// shows it on the connection state and restarts the service with its backoff. The answer is the
+// evidence of life, so it carries nothing.
 interface DaemonPingParams {}
 interface DaemonPingResult {}
 

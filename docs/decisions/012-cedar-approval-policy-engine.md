@@ -101,6 +101,7 @@ The daemon depends on the `cedar-policy` crate on the Cedar **v4.13** line ([Pla
 - [AWS — Amazon Verified Permissions at scale](https://aws.amazon.com/blogs/security/use-amazon-verified-permissions-for-fine-grained-authorization-at-scale/) — decision-caching guidance for a remote PDP, carrying an explicit staleness warning; it does not cover the local in-process authorizer
 - [Zanzibar: Google's Consistent, Global Authorization System (USENIX ATC '19)](https://www.usenix.org/conference/atc19/presentation/pang) — the distributed-authorizer caching precedent acknowledged as valid outside the local in-process posture
 - Cedar native-engine benchmarks — [arXiv:2403.04651](https://arxiv.org/abs/2403.04651) / [OOPSLA 2024](https://dl.acm.org/doi/10.1145/3649835): the published microsecond figures measure the native engine the service links
+- [cedar-wasm README](https://github.com/cedar-policy/cedar/blob/main/cedar-wasm/README.md) — carries no WASM performance claims
 
 - [ADR-007: Device Trust and Permission Model](./007-device-trust-and-permission-model.md)
 - [Spec-010: Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md)

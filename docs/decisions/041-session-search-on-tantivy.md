@@ -168,7 +168,7 @@ The build is accepted when each of these is measured or built on the daemon's ow
 - Each platform's read mode measured by that platform's own memory figure: macOS measured by footprint, Linux in `linux`, Windows in `windows`.
 - The index built and its tests passing on each target: macOS arm64 and x64 and the CI Linux runner in `session-directory`; Windows x64 and arm64 in `windows`; Linux x64 and arm64, glibc and musl, in `linux`.
 - The index writer in steady state: one indexing thread, its memory arena at most 64 MiB. The probe's build used four threads of 128 MiB each and peaked at a footprint of 314.9 MiB at 1M and 739.6 MiB at 10M.
-- A full rebuild at 1M messages in at most 60 s, with a peak footprint of at most 350 MiB, the daemon and its build process counted together, run on a thread of its own, off the service's async runtime. The probe rebuilt 1M in 23.2 s and 10M in 299 s on four threads.
+- A full rebuild at 1M messages in at most 60 s, with a peak footprint of at most 350 MiB, the daemon and its build process counted together, run in the daemon program's `index-build` child process, off the service's async runtime. The probe rebuilt 1M in 23.2 s and 10M in 299 s on four threads.
 - A merge at 1M messages in at most 3 s, never on the service's async runtime, one at a time, and no turn of a streaming session held past its budget while one runs. The probe merged four segments into one at 1M in 2.0 s.
 - A settled message searchable within 1 s of settling: the batch interval plus a durable commit, which the probe measured at 65.01 to 66.95 ms at p50 and 102.10 to 108.20 ms at p95.
 

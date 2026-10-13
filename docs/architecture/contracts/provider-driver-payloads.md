@@ -50,7 +50,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // The daemon's provider layer (`crates/sidekicks-daemon/src/provider/`) realizes this enumeration for the
 // driver-internal shapes; `crates/sidekicks-contracts/src/provider/driver/intervention.rs` (`DriverInterventionResult`),
 // `commands.rs` (`ProviderCommandEntry`) and `output_speed.rs` (`ProviderOutputSpeedState`) in the same folder
-// realize it for the ones that reach a client, and `crates/sidekicks-contracts/src/free_form_string.rs` holds the
+// realize it for the ones that reach a client, and `crates/sidekicks-contracts/src/free_form_text.rs` holds the
 // `FreeFormText<MAX>` newtype they use.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
@@ -381,7 +381,7 @@ interface ResumeSessionParams {
   // surface CreateSessionParams binds must re-realize here or the resumed leg silently sheds it —
   // a posture-less resume relaunches UNSANDBOXED, a schema-less one unconstrained. The DATA legs below are
   // reconstructed by the daemon from the durable
-  // runtime_bindings.spawn_config record (written at every spawn; Plan-003 T1.7) — never from the
+  // runtime_bindings.spawn_config record (written at every spawn; Plan-003 T1.6) — never from the
   // original client request, which recovery does not have; the two FUNCTION legs are re-injected
   // fresh at every spawn (functions are never stored in spawn_config).
   executionPosture?: ExecutionPosture;
@@ -641,7 +641,7 @@ type ProviderUsageLimitCause = "plan-allowance-exhausted";
 // standard: the Codex leg reads it off the published rate-limit shapes — the
 // `account/rateLimits/read` pull + `account/rateLimits/updated` push pair the provider-wire
 // reference family's codex file records (Generated schema, Verified at the version that file
-// names), consumed by the shipped codex event-normalizer's push row. The Claude leg emits no
+// names), consumed by the codex event-normalizer's push row. The Claude leg emits no
 // usage-limit signal: Claude Code retries no plan limit, so its final announced `api_retry`
 // of a `rate_limit` or `overloaded` error is the spent-retries cause, `retries-exhausted`,
 // with no reset boundary — the mid-session retry taxonomy the provider-wire claude file

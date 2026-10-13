@@ -14,9 +14,10 @@ All API errors use the canonical `ErrorResponse` envelope defined in API Payload
 interface ErrorResponse {
   code: string; // namespaced: 'session.not_found', 'auth.token_expired', etc.
   message: string; // human-readable description
-  details?: Record<string, unknown>; // structured context
 }
 ```
+
+A code's own fields sit beside `code` and `message`, as in `RateLimitResponse`, never under a nested member.
 
 This shape is the **HTTP/control-plane** envelope (the control plane's HTTP routes, served by `axum` on `worker`). Local IPC traffic uses the JSON-RPC wire envelope declared in §JSON-RPC Wire Mapping below — the dotted-namespace `code` from this envelope rides as `data.type` on the JSON-RPC side. The two surfaces share the same project code registry (§Error Codes); only the framing differs.
 
@@ -91,9 +92,9 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 Test code asserting on JSON-RPC error envelopes MUST discriminate on `data.type` for project-level expectations and on `code` for JSON-RPC-level expectations, and asserts the whole envelope:
 
 ```rust
-let envelope = serde_json::to_value(&error).unwrap();
+let envelope = serde_json::to_value(&error).expect("an error envelope serializes");
 assert_eq!(envelope["code"], -32602);
-assert!(envelope["message"].as_str().unwrap().contains("unknown_setting"));
+assert!(envelope["message"].as_str().expect("message is text").contains("unknown_setting"));
 assert_eq!(envelope["data"]["type"], "unknown_setting");
 assert!(envelope["data"]["fields"]["setting"].is_string());
 ```
@@ -210,7 +211,7 @@ WebAuthn-ceremony refusals (Plan-015 Phase 6). Both codes are served on **contro
 
 ### Runtime Node
 
-This code is registry-only (code + message; no structured `details`): no acceptance criterion needs structured detail, and a detail naming the machine would say whether it exists. The domain token `runtimenode` matches the method namespace ([Remote Control Payload Contracts §Machine Registration Method Registry](./remote-control-payloads.md#machine-registration-method-registry)).
+This code is registry-only (code and message, with no fields of its own): no acceptance criterion needs structured detail, and a detail naming the machine would say whether it exists. The domain token `runtimenode` matches the method namespace ([Remote Control Payload Contracts §Machine Registration Method Registry](./remote-control-payloads.md#machine-registration-method-registry)).
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
@@ -223,11 +224,11 @@ Terminal refusals: the write lease ([Spec-002 §Required Behavior](../../specs/0
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `pty.control_not_held` | A write from a connection the shell's hold is not bound to — a shell another writer holds, or one its own device holds through other connections until this one takes it — a run's write to a shell it does not hold, or a resize or a pane's appearance report for a shell nobody holds or that its own device holds through other connections; a device's first write to a shell nobody holds takes it instead of being refused. `data.fields`: `terminalId` | 409 |
-| `pty.control_held_by_other` | `session.takeControl`, a resize, a pane's appearance report or a close refused for the named shell because someone else holds it. **Two take refusals share this code; the second has the stronger precondition.** A plain take while another of the account's devices holds that shell: refused, and the recourse is the take's forced form, which moves the lease to the taker without a release. Any take while a run's command holds the shell: refused, and normatively so, because a run's hold ends with its command or the run and never by a lease contest — the recourse is stopping the command from its row, or pausing or interrupting the run, and the hold then ends when the command ends or on the run's first transition out of running, whichever comes first. `data.fields` names the shell and its holder flat, as `pty.control_changed` does — `{ terminalId, holderDeviceId, holderRunId?, holderCommandId? }`, with `holderRunId` and `holderCommandId` set together while an agent's running command holds the shell and the agent read from that run — on the JSON-RPC surface, mirrored as `details` on the HTTP `ErrorResponse` envelope (same value on both surfaces, via the canonical envelope's structured-context field) | 409 |
+| `pty.control_held_by_other` | `session.takeControl`, a resize, a pane's appearance report or a close refused for the named shell because someone else holds it. **Two take refusals share this code; the second has the stronger precondition.** A plain take while another of the account's devices holds that shell: refused, and the recourse is the take's forced form, which moves the lease to the taker without a release. Any take while a run's command holds the shell: refused, and normatively so, because a run's hold ends with its command or the run and never by a lease contest — the recourse is stopping the command from its row, or pausing or interrupting the run, and the hold then ends when the command ends or on the run's first transition out of running, whichever comes first. `data.fields` names the shell and its holder flat, as `pty.control_changed` does — `{ terminalId, holderDeviceId, holderRunId?, holderCommandId? }`, with `holderRunId` and `holderCommandId` set together while an agent's running command holds the shell and the agent read from that run — on the JSON-RPC surface, and beside `code` and `message` on the HTTP `ErrorResponse` body (the same value on both surfaces) | 409 |
 | `pty.not_found` | A request naming a shell its session does not have: no shell by that terminal id, or another session's shell, which the refusal never tells apart. The flow-control signal is the one exception: naming such a shell changes nothing, since it may race a closing shell. `data.fields`: `terminalId` | 404 |
 | `pty.output_subscription_not_found` | `session.takeControl` or `pty.write` naming an output subscription that is not the calling connection's own open `pty.outputSubscribe` subscription to the named shell: no such subscription, another connection's, or one to another shell, which the refusal never tells apart. Checked before the lease is read, so a hold is never bound to another connection's pane. `data.fields`: `terminalId`, `outputSubscriptionId` | 404 |
 | `pty.chat_unsupported` | `pty.open` on a chat session, which is bound to a managed workspace and no repository and has no shell. The screen never offers the control on a chat, so only a caller fault reaches this refusal; no shell starts. `data.fields`: `sessionId` | 422 |
-| `pty.backend_unavailable` | The PTY a shell needs cannot be opened: `sidekicks-terminal` in the daemon could not create it (ConPTY on Windows, `alacritty_terminal`'s tty elsewhere). Each platform has one PTY and no fallback. `details`: an optional `cause` | 503 |
+| `pty.backend_unavailable` | The PTY a shell needs cannot be opened: `sidekicks-terminal` in the daemon could not create it (ConPTY on Windows, `alacritty_terminal`'s tty elsewhere). Each platform has one PTY and no fallback. `data.fields`: an optional `cause` | 503 |
 
 Opening a shell on a session that is a chat is refused `pty.chat_unsupported`: a chat is bound to a managed workspace and no repository, so it has no shells.
 
@@ -513,6 +514,7 @@ Standard 429 response shape (from API Payload Contracts):
 ```ts
 interface RateLimitResponse {
   code: "rate_limited";
+  message: string; // human-readable description
   retryAfter: number; // seconds until retry is allowed
   limit: number; // total allowed requests in the window
   remaining: number; // requests remaining in the current window
@@ -520,6 +522,6 @@ interface RateLimitResponse {
 }
 ```
 
-The relay counts requests on its sign-in routes only, and a refusal there returns the `RateLimitResponse` envelope with HTTP status 429; a counter error fails that one request like any backend error. A request with no source address the relay can count never reaches the counter: it is refused 400 with [`relay.source_address_unresolvable`](#relay), not with this envelope. The `resetAt` field provides the absolute timestamp (ISO 8601) when the oldest counted request leaves the sliding window, the moment the next request is admitted, complementing the relative `retryAfter` seconds value. Every refusal carries both timing fields, with the `Retry-After` header ([Spec-019 §Overflow Response](../../specs/019-rate-limiting-policy.md#overflow-response)).
+The relay counts requests on its sign-in routes only, and a refusal there returns the `RateLimitResponse` body with HTTP status 429; a counter error fails that one request like any backend error. A request with no source address the relay can count never reaches the counter: it is refused 400 with [`relay.source_address_unresolvable`](#relay), not with this body. The `resetAt` field provides the absolute timestamp (ISO 8601) when the oldest counted request leaves the sliding window, the moment the next request is admitted, complementing the relative `retryAfter` seconds value. Every refusal carries both timing fields, with the `Retry-After` header ([Spec-019 §Overflow Response](../../specs/019-rate-limiting-policy.md#overflow-response)).
 
-Every refusal on this envelope carries `code: "rate_limited"`. The relay's channel carries no rate limit: its per-connection backpressure slows a sender rather than refusing it.
+Every refusal with this body carries `code: "rate_limited"`. The relay's channel carries no rate limit: its per-connection backpressure slows a sender rather than refusing it.

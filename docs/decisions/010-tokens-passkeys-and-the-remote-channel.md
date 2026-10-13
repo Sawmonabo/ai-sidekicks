@@ -13,7 +13,7 @@
 
 One person drives their sessions from their devices — a phone, a browser, the desktop app on another computer — and each session runs on one of their machines. Three paths need authentication and protection:
 
-- **The local daemon**, reached over its socket by the desktop app's main process and the CLI on the same machine.
+- **The local daemon**, reached over its socket by the desktop app's client helper and the CLI on the same machine.
 - **The control plane**, where the machine holds a hosted account, registers itself, reaches the relay and sends pushes. It is the person's own: deployed in their own Cloudflare account or on their own server, serving no one else.
 - **The remote channel** between a device and a machine, carried by that relay, which must never read it.
 
@@ -29,7 +29,7 @@ Remote Control gives every device the whole console on every machine the person 
 
 ## Decision
 
-1. **Local daemon.** Socket reachability plus a required 256-bit session token (mode 0600, rotated on every daemon restart), presented by the desktop app's main process and by the CLI. The renderer is not a daemon client: every renderer request is brokered by the main process through the preload bridge. [Security Architecture §Local Daemon Authentication](../architecture/security-architecture.md#local-daemon-authentication) is the full model. No network authentication is involved.
+1. **Local daemon.** Socket reachability plus a required 256-bit session token (mode 0600, rotated on every daemon restart), presented by the CLI and by the desktop app's client helper, an Electron `utilityProcess`, in the `daemon.hello` of its own daemon connection. The renderer is not a daemon client: its daemon and control-plane calls travel over a `MessagePort` that main hands the page through the preload, to the helper, which checks each call against its method allowlist and params check and returns only the sanitized reply. Main's own daemon calls reach the helper over `parentPort`, through the same allowlist, and main keeps the file tokens. Neither main nor the renderer holds the session token. [Security Architecture §Local Daemon Authentication](../architecture/security-architecture.md#local-daemon-authentication) is the full model. No network authentication is involved.
 
 2. **Control plane: PASETO v4, device-code sign-in, DPoP.**
    - `sidekicks sign-in` runs the OAuth 2.0 Device Authorization Grant ([RFC 8628](https://www.rfc-editor.org/rfc/rfc8628)): the CLI prints a code and an address, opens the address in a browser where one exists, and waits. It runs with the service stopped and writes what it receives to the machine's credential store through the service's own custody code.
@@ -103,7 +103,7 @@ An unreviewed hybrid draft is a construction no one has analyzed, which is what 
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| A flaw is found in the chosen Noise library | Low | High | Security advisories, dependency scanning in CI | The shared channel package isolates the library; replace it with a fixed version or another implementation of the same profile. The protocol itself does not change. |
+| A flaw is found in the chosen Noise library | Low | High | Security advisories, dependency scanning in CI | `snow` on the machine and the channel package on the devices each isolate their library; replace the flawed one with a fixed version or another implementation of the same profile. The protocol itself does not change. |
 | A large enough quantum computer arrives before the hybrid profile is reviewed | Low | High | Public cryptanalysis news; the backlog entry's blocker | Recorded traffic is exposed; the docs already state it. Ship the hybrid profile the day it is reviewed. |
 | A PASETO library bug (key handling, `v4.local` decryption) | Low | High | Security review, fuzzing of token parsing | Take the fixed release; the official PASETO test vectors run against every token `pasetors` makes. |
 | A stolen device key is used from a second place | Med | Med | The relay holds one live connection per key: the newest wins, and the key seen on two connections is flagged | The device's card says so, and the person revokes it; every machine refuses it from the next chain head. |
@@ -152,7 +152,7 @@ An unreviewed hybrid draft is a construction no one has analyzed, which is what 
 
 PASETO v4 tokens in §Decision item 2 are produced and verified with the maintained [`pasetors`](https://crates.io/crates/pasetors) 0.8.1 crate with its default features (`std`, `v4`, `paserk`), linked into the daemon and the control plane's Worker; the project wraps it in no package of its own. It carries the token framing, the claim checks and the encoding, and builds in both `v4.public` (Ed25519) and `v4.local`. `v4.local` is an **encrypt-then-MAC** construction (XChaCha20 stream encryption followed by BLAKE2b-MAC over the PAE), **not** XChaCha20-Poly1305 AEAD — this matches the PASETO v4 spec ([Version4.md §v4.local](https://github.com/paseto-standard/paseto-spec/blob/master/docs/01-Protocol-Versions/Version4.md#v4local)), which deliberately replaces Poly1305 with keyed BLAKE2b.
 
-The crate verifies with `ed25519-compact` 2.6.0, which refuses a small-order public key before the signature check (`WeakPublicKey`), so a forgery that a lax Ed25519 verify accepts is refused. On the Worker, the crate adds `time` with its `wasm-bindgen` feature, because `pasetors`' claim checks read `OffsetDateTime::now_utc()`, which panics on `wasm32-unknown-unknown` without it. `pasetors` was chosen over `rusty_paseto` by a proof run natively and in workerd: every official v4 vector (the crate's own `v4.json` holds them), the forged small-order key refused, and fresh tokens minted on both.
+The crate verifies with `ed25519-compact` 2.6.0, which refuses a small-order public key before the signature check (`WeakPublicKey`), so a forgery that a lax Ed25519 verify accepts is refused. On the Worker, the crate adds `time` with its `wasm-bindgen` feature, because `pasetors`' claim checks read `OffsetDateTime::now_utc()`, which panics on `wasm32-unknown-unknown` without it. `pasetors` was weighed against `rusty_paseto` and proven natively and in workerd: every official v4 vector (the crate's own `v4.json` holds them), the forged small-order key refused, and fresh tokens minted on both.
 
 ## Identity Key Storage
 

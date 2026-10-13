@@ -53,7 +53,7 @@ Plan-001 owns the daemon-side session lifecycle and the shell spawn's entry-poin
 
 [Plan-021 §Invariants I-021-4](./021-terminal.md#i-021-4--the-apps-quit-never-stops-a-shell-shells-end-only-when-the-service-stops) declares that the desktop app's quit never stops a shell: the shells run inside the daemon through `sidekicks-terminal`, and the daemon is the person's own background service, never a child of the app, so quitting the app leaves the service, every run and every shell running. The shells end only when the service itself stops — Runtime's `Stop` or `Restart`, or the operating system's service manager stopping it — and that drain must finish before the daemon exits, or the shells' child processes orphan (primary source cited at [Plan-021 §Windows Implementation Gotchas Gotcha 4](./021-terminal.md#4-the-apps-quit-and-the-services-stop)).
 
-**Resolution.** Plan-001 wires the drain into the daemon's own stop sequence, ahead of the daemon's exit; nothing in the app's quit reaches it. The stop calls `sidekicks-terminal`'s drain once, the same on every operating system: each live shell gets the hard stop (`SIGTERM` on macOS and Linux, the `console-helper` mode's `CTRL_BREAK_EVENT` on Windows), the drain waits for its exit up to `DAEMON_STOP_TERMINAL_DRAIN_MS`, and escalates to `SIGKILL` (`taskkill /T /F /PID <pid>` on Windows) on timeout. `DAEMON_STOP_TERMINAL_DRAIN_MS` lives in `crates/sidekicks-contracts/src/daemon/lifecycle.rs`, beside the whole drain's own bound, `DAEMON_STOP_DRAIN_BOUND_MS` (4 seconds), so a write still running at it has time to finish rather than roll back: a client that ends the service (main through the client helper, the CLI, the Windows half on a WSL computer) waits that long after the stop for the process to exit before it sends any signal, so no signal cuts the drain short.
+**Resolution.** Plan-001 wires the drain into the daemon's own stop sequence, ahead of the daemon's exit; nothing in the app's quit reaches it. The stop calls `sidekicks-terminal`'s drain once, the same on every operating system: each live shell gets the hard stop (`SIGTERM` on macOS and Linux, the `console-helper` mode's `CTRL_BREAK_EVENT` on Windows), the drain waits for its exit up to `DAEMON_STOP_TERMINAL_DRAIN_MS`, and escalates to `SIGKILL` (`taskkill /T /F /PID <pid>` on Windows) on timeout. `DAEMON_STOP_TERMINAL_DRAIN_MS` lives in `crates/sidekicks-contracts/src/daemon/lifecycle.rs`, beside the whole drain's own bound, `DAEMON_STOP_DRAIN_BOUND_MS` (4 seconds), so a write still running at it has time to finish rather than roll back: a client that ends the service (main's supervisor, the CLI, the Windows half on a WSL computer) waits that long after the stop for the process to exit before it sends any signal, so no signal cuts the drain short.
 
 **Why surfaced in Plan-001.** This obligation lives at the daemon's session-lifecycle layer (Plan-001 owns the session-lifecycle daemon code), not in `sidekicks-terminal` (Plan-021 supplies only each shell's close and stop). Without the bidirectional citation, a Plan-001 reviewer would have no signal that the drain at the service's stop is a Plan-001 obligation.
 
@@ -100,7 +100,7 @@ Workspace topology is described in [Container Architecture](../architecture/cont
 
 Every `packages/*` and `apps/*` member receives a `package.json` (with `"type": "module"`, `engines.node` set to the packages' floor `>=24.21.0` per [ADR-021](../decisions/021-v1-toolchain-selection.md), and an `exports` map), a `tsconfig.json` extending base, and a `src/` directory. Every `crates/*` member receives a `Cargo.toml` taking its edition, versions and lints from the workspace tables and a `src/lib.rs`, a program a thin `src/main.rs` beside it.
 
-The daemon and the command line are native Rust programs built with the toolchain `rust-toolchain.toml` pins: the memory gate that decides when a step starts reads `sidekicks-platforms`' available memory, computed as libuv's `uv_get_available_memory` computes it. The TypeScript packages share the one Node 24.21 floor, the Node Electron 44 bundles, and the desktop app runs the Node its Electron pin bundles.
+The daemon and the command line are native Rust programs built with the toolchain `rust-toolchain.toml` pins. The memory gate that decides when a step starts reads `sidekicks-platforms`' available memory, computed as libuv's `uv_get_available_memory` computes it. The TypeScript packages share the one Node 24.21 floor, the Node Electron 44 bundles, and the desktop app runs the Node its Electron pin bundles.
 
 The crates' tests run under nextest (`cargo nextest run --workspace`), each crate's unit tests in its modules' `#[cfg(test)] mod tests` and its integration tests one binary, `tests/it/main.rs`. Vitest test-file discovery for the TypeScript is owned by each package's own standalone `vitest.config.ts` — a plain `defineConfig` with no workspace-level config above it and no single project-wide test path. The root `vitest.shared.ts` holds only the coverage options and test limits every config calls, a factory rather than one root config with `projects`, because Vitest 4 reads `coverage` only at the root once projects exist. The suites aggregate through Turbo's `test` task (`turbo run test`), which runs each package's own `test` script and the crates' tests through Cargo. Every TypeScript package under `packages/` discovers `src/**/__tests__/**/*.test.ts`. `apps/desktop/` declares Vitest `projects` in its config: `smoke` (Node, `tests/*.test.ts`, the Electron-spawning probes), `main-unit` (Node, the units of the main process, the preload, the shared code, the build and script trees and the test helpers), and the renderer tiers declared in `vitest/tier-projects.ts` — `renderer` (happy-dom, `src/renderer/src/**/*.test.{ts,tsx}`), then `browser`, `accessibility`, `bundle`, `e2e` and `endurance`, each over its own folder under `tests/`; its `test` script runs them tier by tier through Turbo, except `accessibility` and `endurance`, which run only by name until the console-polish unit makes them gates on every PR.
 
@@ -154,8 +154,7 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 | ID | Test | Asserts | Spec-001 AC |
 | --- | --- | --- | --- |
 | C1 | `SessionId deserialization refuses a malformed UUID` | id format invariant | (no direct AC; format invariant — precondition for AC1/AC3/AC4) |
-| C2 | `SessionCreate payload rejects unknown fields` | request schema strictness | AC1 |
-| C3 | `SessionEvent tagged enum round-trips through serde_json` | event serialization | AC1, AC6 |
+| C2 | `An unknown member on session.create is refused with -32602` | request schema strictness | AC1 |
 
 ### Daemon Projection Layer (`crates/sidekicks-daemon/src/session/`)
 
@@ -172,18 +171,18 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 | ID | Test | Asserts | Spec-001 AC |
 | --- | --- | --- | --- |
 | I1 | `SessionCreate then SessionRead returns identical session id` | round-trip | AC1, AC3 |
-| I3 | `SessionSubscribe yields events in sequence ASC across reconnect` | reconnect ordering by canonical key | AC3, AC7 |
-| I4 | `Reconnect after lost stream restores from snapshot, not client cache` | snapshot authority | AC6 |
-| I5 | `Terminal drain at the service's stop: each shell's hard stop escalating to a kill (SIGKILL, taskkill /T /F on Windows) at DAEMON_STOP_TERMINAL_DRAIN_MS; a spawn during the drain refused; the app's quit drains nothing` | verifies obligation CP-001-1 (also verifies inherited Plan-021 I-021-4) — file: `crates/sidekicks-daemon/tests/it/terminal_drain.rs` | (no AC; verifies CP-001-1) |
-| I6 | `The shell spawn rewrites a worktree-path cwd to a stable parent dir + cd-prefix or CWD-env; round-trip on Windows CI does not surface ERROR_SHARING_VIOLATION` | verifies obligation CP-001-2 (also verifies inherited Plan-021 I-021-5) — file: `crates/sidekicks-daemon/tests/it/spawn_cwd_translator.rs` | (no AC; verifies CP-001-2) |
+| I2 | `SessionSubscribe yields events in sequence ASC across reconnect` | reconnect ordering by canonical key | AC3, AC7 |
+| I3 | `Reconnect after lost stream restores from snapshot, not client cache` | snapshot authority | AC6 |
+| I4 | `Terminal drain at the service's stop: each shell's hard stop escalating to a kill (SIGKILL, taskkill /T /F on Windows) at DAEMON_STOP_TERMINAL_DRAIN_MS; a spawn during the drain refused; the app's quit drains nothing` | verifies obligation CP-001-1 (also verifies inherited Plan-021 I-021-4) — file: `crates/sidekicks-daemon/tests/it/terminal_drain.rs` | (no AC; verifies CP-001-1) |
+| I5 | `The shell spawn rewrites a worktree-path cwd to a stable parent dir + cd-prefix or CWD-env; round-trip on Windows CI does not surface ERROR_SHARING_VIOLATION` | verifies obligation CP-001-2 (also verifies inherited Plan-021 I-021-5) — file: `crates/sidekicks-daemon/tests/it/spawn_cwd_translator.rs` | (no AC; verifies CP-001-2) |
 
 ### Verification
 
 - `pnpm turbo test` at workspace root green across all packages and crates
 - Manual smoke: create a session in the desktop client, reload it, and verify the transcript is rebuilt from the authoritative snapshot
-- Every enumerated test above passes (the C-, D-, I- and W-tier tooling tests — see Phase 1 §Tests; CP-001-1 / CP-001-2 coverage via I5 / I6 lands at Phase 5 in the daemon crate), and each Phase 6 task's acceptance holds.
-- Test ID prefixes map to Phases as follows: W → Phase 1, C → Phase 2, D → Phase 3, I → Phase 5. Each Phase's Goal line names the ID range it owns. Phases 4 and 6 own no ID range: Phase 4 creates the control plane's `users` anchor, and each Phase 6 task carries its own acceptance and tests.
-- Spec-001 AC7 (concurrent agents and runs without transcript corruption) receives full coverage at the integration boundary in [Plan-025](./025-remote-control.md), where several devices drive one session through its machine over the relay. Plan-001 covers AC7 partially via I3's reconnect-ordering invariant: concurrent writes on the session's one daemon serialize on SQLite's `UNIQUE(session_id, sequence)` constraint.
+- Every enumerated test above passes (the C-, D- and I-tier tests; CP-001-1 / CP-001-2 coverage via I4 / I5 lands at Phase 5 in the daemon crate), and each Phase 6 task's acceptance holds.
+- Test ID prefixes map to Phases as follows: C → Phase 2, D → Phase 3, I → Phase 5. Each Phase's Goal line names the ID range it owns. Phases 1, 4 and 6 own no ID range: Phase 1's CI runs `cargo nextest run --workspace`, Phase 4 creates the control plane's `users` anchor, and each Phase 6 task carries its own acceptance and tests.
+- Spec-001 AC7 (concurrent agents and runs without transcript corruption) receives full coverage at the integration boundary in [Plan-025](./025-remote-control.md), where several devices drive one session through its machine over the relay. Plan-001 covers AC7 partially via I2's reconnect-ordering invariant: concurrent writes on the session's one daemon serialize on SQLite's `UNIQUE(session_id, sequence)` constraint.
 - Spec-001 AC4 and AC5 (another device opening a session receives the same session id and full history, and nothing forks or resets) are proven at the same relay boundary in [Plan-025](./025-remote-control.md), where a device opens a session through its machine; in Plan-001, I1 proves that a read returns the created session's id.
 
 ## Implementation Phase Sequence
@@ -204,7 +203,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 - Declare `tokio-postgres` 0.7.18 with its `js` feature on `crates/sidekicks-control-plane/` per [ADR-021](../decisions/021-v1-toolchain-selection.md)
 - Wire engineering CI surface per [ADR-022](../decisions/022-v1-ci-cd-and-release-automation.md): `.github/workflows/ci.yml`, lefthook 2.1.16 + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 21.2.3 config, Renovate config, Gitleaks workflow, `CODEOWNERS`; the release workflow is [Plan-020](./020-desktop-app-and-renderer.md) T-020r-6-4's. The literal-file content for `lefthook.yml`, `CODEOWNERS`, `renovate.json5`, `eslint.config.mjs`, `prettier.config.js`, `commitlint.config.mjs`, and the workflow files is the Phase 1 PR's authoring scope; [ADR-022 §Decision](../decisions/022-v1-ci-cd-and-release-automation.md#decision) pins versions and policy choices, the implementer of this Phase materializes the literal artifact contents.
 - Verify: `pnpm install`, `pnpm turbo build`, `pnpm turbo typecheck`, and `pnpm turbo lint` all green; CI runs green on this PR; pre-commit hooks active locally
-- Single passing test (a nextest sanity test in `crates/sidekicks-contracts/tests/it/`): trivial sanity check that nextest is wired (test ID **W1** per § Test And Verification Plan)
+- CI runs `cargo nextest run --workspace`, which exits 0
 
 #### Tasks
 
@@ -226,23 +225,13 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ##### T1.5 — Engineering CI surface (per ADR-022)
 
-**Files:** `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/workflows/gitleaks.yml`, `lefthook.yml`, `lint-staged.config.mjs`, `commitlint.config.mjs`, `renovate.json5`, `CODEOWNERS` **Acceptance:** `pnpm turbo build`, `pnpm turbo typecheck`, `pnpm turbo lint`, `pnpm turbo test` all green; CI workflow runs green on this PR; pre-commit hooks active locally. **Spec coverage:** none (engineering CI surface) **Verifies invariant:** none
-
-##### T1.6 — Nextest sanity test
-
-**File:** a nextest sanity test in `crates/sidekicks-contracts/tests/it/` **Acceptance:** `cargo nextest run -p sidekicks-contracts` returns exit 0; W1 (per § Tests below) green. **Spec coverage:** none (tooling readiness) **Verifies invariant:** none (tooling readiness)
-
-#### Tests
-
-| ID | Test | Asserts | Spec-001 AC |
-| --- | --- | --- | --- |
-| W1 | `nextest sanity: trivial assertion in crates/sidekicks-contracts passes` | the Cargo workspace resolves; CI test job exits 0 | n/a (tooling) |
+**Files:** `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/workflows/gitleaks.yml`, `lefthook.yml`, `lint-staged.config.mjs`, `commitlint.config.mjs`, `renovate.json5`, `CODEOWNERS` **Acceptance:** `pnpm turbo build`, `pnpm turbo typecheck`, `pnpm turbo lint`, `pnpm turbo test` all green; `cargo nextest run --workspace` exits 0; CI workflow runs green on this PR; pre-commit hooks active locally. **Spec coverage:** none (engineering CI surface) **Verifies invariant:** none
 
 ### Phase 2 — Contracts Package
 
 **Precondition:** Phase 1 merged (workspace + CI surface in place).
 
-**Goal:** Tests C1–C3 from § Test And Verification Plan go green.
+**Goal:** Tests C1–C2 from § Test And Verification Plan go green.
 
 - `crates/sidekicks-contracts/src/session/id.rs` and `crates/sidekicks-contracts/src/session/methods.rs` — `SessionId`, `SessionCreate`, `SessionRead`, `SessionSubscribe` payload types. `SessionCreate` names the one main agent on the request — a saved definition id, or the axes spelled out — and its response echoes the resolved binding (driver, model, effort, provider account) beside the session id and state. Plan-001 also declares the subscription's item type against an opaque `EventEnvelope` placeholder per **C-6** (forward-stub for Plan-004); the stub is narrowed when Plan-004 ships.
 - `crates/sidekicks-contracts/src/event/session.rs` — the `SessionEvent` internally tagged enum (V1 subset: `SessionCreated`, declared in `crates/sidekicks-contracts/src/event/declared_variants.rs`). `SessionCreated` carries a per-type payload rather than the shared state-transition shape: `{sessionId, mainAgent, actor?}`, where `mainAgent` holds every value the daemon resolved when it started the session — the agent id it minted, the definition id where one was named, the name, driver, model, provider account and effort, the three axes the daemon reads for itself (tool allowlist, instructions, goal) and the resolved agent state — the same values the create reply echoes, so wire and durable record serialize identically ([Spec-005 §Event Type Enumeration](../specs/005-session-event-taxonomy-and-audit-log.md#event-type-enumeration)). The discriminator surface in `api-payload-contracts.md` (per C-6) lands the same Phase as this file.
@@ -251,11 +240,11 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ##### T2.1 — `SessionId`, `SessionCreate`, `SessionRead`, `SessionSubscribe` payload types
 
-**Files:** `crates/sidekicks-contracts/src/session/id.rs` and `crates/sidekicks-contracts/src/session/methods.rs`, each with its `#[cfg(test)] mod tests` (the id's parse, the read and the subscribe) **Spec coverage:** Spec-001 AC1, AC3; Spec-001 §Interfaces And Contracts (the main agent named on create and the resolved binding echoed in the reply) **Verifies invariant:** none (contract layer)
+**Files:** `crates/sidekicks-contracts/src/session/id.rs` and `crates/sidekicks-contracts/src/session/methods.rs` **Tests:** a malformed `SessionId` is refused (C1); an unknown member on `session.create` is refused with `-32602` (C2) **Spec coverage:** Spec-001 AC1, AC3; Spec-001 §Interfaces And Contracts (the main agent named on create and the resolved binding echoed in the reply) **Verifies invariant:** none (contract layer)
 
 ##### T2.2 — `SessionEvent` tagged enum
 
-**Files:** `crates/sidekicks-contracts/src/event/session.rs` with its `#[cfg(test)] mod tests`, `crates/sidekicks-contracts/src/event/declared_variants.rs` **Spec coverage:** Spec-001 AC1, AC6; Spec-005 §Event Type Enumeration (`session.created`'s `mainAgent` payload) **Verifies invariant:** none
+**Files:** `crates/sidekicks-contracts/src/event/session.rs`, `crates/sidekicks-contracts/src/event/declared_variants.rs` **Spec coverage:** Spec-001 AC1, AC6; Spec-005 §Event Type Enumeration (`session.created`'s `mainAgent` payload) **Verifies invariant:** none
 
 ### Phase 3 — Daemon Schema And Projection
 
@@ -305,13 +294,13 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ### Phase 5 — Client SDK And Daemon Wiring
 
-**Goal:** Tests I1, I3, and I4 go green; the manual desktop smoke test passes.
+**Goal:** Tests I1, I2, and I3 go green; the manual desktop smoke test passes.
 
 **Precondition:** Phase 5 ships in three lanes with per-task gating, not as a single monolithic gate. Each lane unblocks when its named upstream substrate has merged. The per-task `Files:` rows at T5.1, T5.2 and T5.3 below define the per-lane boundaries.
 
 - **Lane A** (T5.1 — `session.rs`): consumes the [Plan-005 partial sequence](./005-local-ipc-and-daemon-control.md#partial-pr-sequence) (SecureDefaults Bootstrap, Wire Substrate, `session.*` Handlers + SDK Layer).
 - **Lane B** (T5.3 — `spawn_cwd_translator.rs`): unblocks once [Plan-021](./021-terminal.md) ships `sidekicks-terminal`'s shell spawn in the daemon.
-- **Lane C** (T5.2 — the drain at the service's stop): unblocks once [Plan-021](./021-terminal.md) ships each shell's close and stop, which the drain consumes.
+- **Lane C** (T5.2 — the drain at the service's stop): unblocks once [Plan-021](./021-terminal.md) Phase 3 ships `sidekicks-terminal`'s drain (T-021-3-3), which the drain consumes.
 
 Phase 1–Phase 4 may proceed independently; the per-lane substrate dependencies only bind at Phase 5.
 
@@ -323,15 +312,15 @@ Phase 1–Phase 4 may proceed independently; the per-lane substrate dependencies
 
 ##### T5.1 — `session.rs` daemon transport
 
-**Files:** `crates/sidekicks-client/src/session.rs`, `crates/sidekicks-client/tests/it/session.rs` (starting the built `sidekicks-daemon`) **Spec coverage:** Spec-001 AC1, AC3, AC6 **Verifies invariant:** none (integration-layer wrapper; I1, I3 and I4 run over the daemon transport)
+**Files:** `crates/sidekicks-client/src/session.rs`, `crates/sidekicks-client/tests/it/session.rs` (starting the built `sidekicks-daemon`) **Spec coverage:** Spec-001 AC1, AC3, AC6 **Verifies invariant:** none (integration-layer wrapper; I1, I2 and I3 run over the daemon transport)
 
 ##### T5.2 — The terminal drain at the service's stop
 
-**Files:** `crates/sidekicks-daemon/src/daemon/process.rs` (the daemon's stop sequence, which calls the terminal drain before the daemon exits), `crates/sidekicks-daemon/tests/it/terminal_drain.rs` (verifies I5 — CP-001-1 + Plan-021 I-021-4) **Acceptance:** when the service stops — Runtime `Stop` or `Restart`, or the operating system's service manager — the daemon's stop sequence calls `sidekicks-terminal`'s drain before the daemon exits, which gives every live shell the hard stop (`SIGTERM`, or the `console-helper` mode's `CTRL_BREAK_EVENT` on Windows) and escalates to a kill (`SIGKILL`, or `taskkill /T /F /PID` on Windows) at `DAEMON_STOP_TERMINAL_DRAIN_MS` (2 s), inside the whole drain's own bound `DAEMON_STOP_DRAIN_BOUND_MS` (4 s). The app's quit registers no drain and leaves every shell running. The drain is terminal — the terminal refuses new spawns once it has begun. The stop sequence is the same on every operating system. **Spec coverage:** none (verifies obligation CP-001-1 + inherited Plan-021 I-021-4) **Verifies invariant:** I-021-4 (inherited from Plan-021 together with obligation CP-001-1; exercised end-to-end by test I5)
+**Files:** `crates/sidekicks-daemon/src/daemon/process.rs` (the daemon's stop sequence, which calls the terminal drain before the daemon exits), `crates/sidekicks-daemon/tests/it/terminal_drain.rs` (verifies I4 — CP-001-1 + Plan-021 I-021-4) **Acceptance:** when the service stops — Runtime `Stop` or `Restart`, or the operating system's service manager — the daemon's stop sequence calls `sidekicks-terminal`'s drain before the daemon exits, which gives every live shell the hard stop (`SIGTERM`, or the `console-helper` mode's `CTRL_BREAK_EVENT` on Windows) and escalates to a kill (`SIGKILL`, or `taskkill /T /F /PID` on Windows) at `DAEMON_STOP_TERMINAL_DRAIN_MS` (2 s), inside the whole drain's own bound `DAEMON_STOP_DRAIN_BOUND_MS` (4 s). The app's quit registers no drain and leaves every shell running. The drain is terminal — the terminal refuses new spawns once it has begun. The stop sequence is the same on every operating system. **Spec coverage:** none (verifies obligation CP-001-1 + inherited Plan-021 I-021-4) **Verifies invariant:** I-021-4 (inherited from Plan-021 together with obligation CP-001-1; exercised end-to-end by test I4)
 
 ##### T5.3 — `spawn_cwd_translator.rs` daemon-layer cwd-translator
 
-**Files:** `crates/sidekicks-daemon/src/session/spawn_cwd_translator.rs` with its `#[cfg(test)] mod tests` (Linux/Mac unit-only) + `crates/sidekicks-daemon/tests/it/spawn_cwd_translator.rs` (Windows CI integration — verifies I6 / CP-001-2) **Spec coverage:** none (daemon-internal wrapper) **Verifies invariant:** none (verifies obligation CP-001-2; verifies inherited Plan-021 I-021-5)
+**Files:** `crates/sidekicks-daemon/src/session/spawn_cwd_translator.rs` with its `#[cfg(test)] mod tests` (Linux/Mac unit-only) + `crates/sidekicks-daemon/tests/it/spawn_cwd_translator.rs` (Windows CI integration — verifies I5 / CP-001-2) **Spec coverage:** none (daemon-internal wrapper) **Verifies invariant:** none (verifies obligation CP-001-2; verifies inherited Plan-021 I-021-5)
 
 ### Phase 6 — The Session Directory And Lifecycle
 

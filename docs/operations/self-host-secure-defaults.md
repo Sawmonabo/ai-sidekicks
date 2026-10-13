@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Describe the secure defaults that are active out-of-the-box for a self-host deployment of AI Sidekicks: what is on without the person configuring anything, how to verify each default is actually active, what the override path is, and the one-line reason the default is what it is. This doc is the hands-on companion to [Spec-023](../specs/023-self-host-secure-defaults.md); it does not state requirements — it describes current shipped behavior in declarative form.
+Describe the secure defaults that are active out-of-the-box for a self-host deployment of AI Sidekicks: what is on without the person configuring anything, how to verify each default is actually active, what the override path is, and the one-line reason the default is what it is. This doc is the hands-on companion to [Spec-023](../specs/023-self-host-secure-defaults.md); it does not state requirements — it describes the deployment's behavior in declarative form.
 
 If a row in the table below does not match what your deployment is doing, treat that as a deviation worth investigating — the first-run banner (row 9) should agree with this doc on every fresh boot.
 
@@ -23,7 +23,7 @@ If a row in the table below does not match what your deployment is doing, treat 
 
 ## Operational Events To Expect
 
-These are shipped-behavior facts that will affect the person running the deployment over the V1 lifecycle. They are not requirements — they are heads-up notes.
+These are facts about the deployment's behavior that will affect the person running the deployment over the V1 lifecycle. They are not requirements — they are heads-up notes.
 
 - **Let's Encrypt is shortening certificate lifetimes.** Its opt-in `tlsserver` profile issues 45-day certificates; its default `classic` profile moves to 64-day certificates on 2027-02-10 and to 45-day certificates on 2028-02-16 ([announcement](https://letsencrypt.org/2025/12/02/from-90-to-45)). The deployed ACME client is ARI-driven (RFC 9773) and handles each of these lifetimes without code changes, so the change is transparent to the person — but expect shorter cert validity periods in dashboards and monitoring after each step.
 - **Let's Encrypt short-lived certificates (`shortlived`, 160 hours) are an opt-in.** The Compose relay's Caddy takes `ACME_PROFILE`, empty by default, which leaves Caddy's own profile; `ACME_PROFILE=shortlived` requests the short-lived certificates. Let's Encrypt: "Short-lived certificates are opt-in and we have no plan to make them the default at this time." The relay's key is pinned only when its certificate is not publicly trusted, so a short-lived certificate never trips the pin.

@@ -37,23 +37,23 @@ The console design shows the same file in the flow, in Review and in the file vi
 - A diff takes a first pass from its own lines the moment it opens, so it is colored before the whole file's spans arrive, and corrects itself when they do. A string that opens above the hunk is the case that changes.
 - A file whose language is not recognized stays plain and asks the daemon for nothing.
 - The renderer holds no colorer and no Worker in the renderer colors anything. `ferriki` belongs to the service, in `sidekicks-daemon`, and not to the desktop package.
-- **The daemon tokenizes on one long-lived thread of its own, which holds one `ferriki` highlighter.** The highlighter is built on the first read the span cache does not hold and dropped after five minutes with nothing asked, every grammar and compiled pattern with it, so the memory they take goes back to the system. Code already colored is answered from the cache at once; the first read in a language after a quiet spell takes up to about 0.3 s to color.
+- **The daemon tokenizes on one long-lived thread of its own, which holds one `ferriki` highlighter.** The highlighter is built on the first read the span cache does not hold and dropped after five minutes with nothing asked, every grammar and compiled pattern with it, so the memory they take goes back to the system. Code already colored is answered from the cache at once; the first read in a language after a quiet spell loads that language's grammar again.
 - **The highlighter is also dropped once the memory it holds passes 128 MiB**, right after the read that took it past, and the next read builds a fresh one that loads only the grammars asked for from then on. A drop gives back what the highlighter holds. The ceiling keeps the thread's peak inside its budget. The colors are the same, since a fresh highlighter runs the same engine and grammars.
-- **A line the thread cannot finish within 3 s stays plain while the rest of the file is colored**, as an over-long line does, and the next line starts from the state before it, with no thread ended. The slowest legitimate line measured, 19,999 characters of Go on a fresh thread, took 300 ms. The limit bounds a line that started and has not ended, never the thread's start or a grammar's load, which are bounded work: a slow machine waits for them, and one that fails rejects the read.
+- **A line the thread cannot finish within 3 s stays plain while the rest of the file is colored**, as an over-long line does, and the next line starts from the state before it, with no thread ended. The limit bounds a line that started and has not ended, never the thread's start or a grammar's load, which are bounded work: a slow machine waits for them, and one that fails rejects the read.
 - **A read nobody waits for any more is never colored.** Reads of the same code share one tokenization; a code block's read names the block, and the block's next read on the same connection replaces it while it waits, as a block whose code is still arriving asks again for each version; a connection's reads go when it closes. A tokenization no read waits for leaves the line before its turn, keeping nothing of its source, so at most one waits for each block on each connection.
 - **The engine is `ferriki` with its regex prefilter off, on `ferroni`, a pure-Rust port of Oniguruma.** It runs `shiki`'s own grammars and gives the same classes as `shiki`'s Oniguruma engine on all 15 languages. Oniguruma's semantics decide it: a JavaScript regex engine, the other candidate, left 50 characters of SQL plain or in the wrong class where Oniguruma colors them (a `CREATE TABLE` name, matched by a pattern with a backreference), though `shiki`'s own compatibility report lists SQL as matching. Oniguruma is also the engine TextMate grammars are written for and resists runaway backtracking, which reports against the JavaScript engine show freezing a thread.
 
 ### Budget
 
-The workload: one read in each of the 15 languages, a real or hand-written file of 1 to 37 KB each, then four TypeScript and four TSX files read alternately, then nothing asked. Measured on macOS with Node 24.21, against the same process before its first read. Every figure here is resident memory (RSS, as `ps` and `process.resourceUsage().maxRSS` report it), not footprint (`phys_footprint`, what Activity Monitor's Memory column shows), which is lower. RSS is the whole process's, so the thread's own heap and its WebAssembly memory are counted:
+The workload: one read in each of the 15 languages, 76,837 visible code points in all, then nothing asked. Every figure here is resident memory (RSS, as `ps` reports it), not footprint (`phys_footprint`, what Activity Monitor's Memory column shows), which is lower. RSS is the whole process's, so a whole-process figure is an upper bound on what the colorer adds:
 
 | State | Resident memory (RSS) the colorer adds | Measured |
 | --- | --- | --- |
-| Once the highlighter has been dropped after five quiet minutes | 30 MB at most | 16.5 MB under the process's reading before its first read in the shipped build's run, and 25 to 29 MB over it in earlier runs of a thread ended the same way; the main thread's live heap 0.4 MB over |
-| While the highlighter is built | 160 MB at most | 154 MB at the peak, the process's own high-water mark; before the ceiling, a thread holding all 15 grammars took 248 MB |
+| Once the highlighter has been dropped after five quiet minutes | 30 MB at most | Measured on the `shiki` engine: 16.5 MB under the process's reading before its first read in one run, and 25 to 29 MB over it in others |
+| While the highlighter is built | 160 MB at most | 101 MB at the peak for the whole process coloring all 15 languages, in 191 ms; 159 to 163 MB with `ferriki`'s regex prefilter on |
 | The span cache | 1/2048 of physical memory at most, 8 MB on a 16 GB machine | bounded by its byte size |
 
-A change that raises a figure past its budget fails. The built daemon itself, idle before any read, holds 220 to 225 MB of RSS (182 to 189 MB of footprint) 10 to 15 s after start, so at the colorer's peak the whole daemon reaches about 375 MB of RSS, past its 256 MB operating target, which is an RSS figure ([deployment-topology §Local Daemon Memory Instrumentation And Budget](../architecture/deployment-topology.md#local-daemon-memory-instrumentation-and-budget)); that document's trigger decides what follows, and colors are never cut to meet it. In the measured run the thread was ended twice at the ceiling, after a 25 KB TSX file read after TypeScript, and after Go; the reads that followed, JavaScript and SQL, took 161 ms and 30 ms on their fresh threads. In the alternation of smaller TypeScript and TSX files, 0.5 to 8 KB, the pair stayed on one thread, and every read after the first two took 3 to 62 ms.
+A change that raises a figure past its budget fails. The daemon's own figures and its 256 MB operating target, an RSS figure, are in [deployment-topology §Local Daemon Memory Instrumentation And Budget](../architecture/deployment-topology.md#local-daemon-memory-instrumentation-and-budget); that document decides what follows a figure past the target, and colors are never cut to meet it.
 
 ### Thesis — Why This Option
 
@@ -108,7 +108,7 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| Coloring a very large file stalls the daemon | Med | Med | The daemon's event-loop delay under the large-file workload | Tokenize on the daemon's own thread, so no other work waits on it; a line past the time limit stays plain and the next line starts from the state before it |
+| Coloring a very large file stalls the daemon | Med | Med | The service's other reads' latency under the large-file workload | Tokenize on the daemon's own thread, so no other work waits on it; a line past the time limit stays plain and the next line starts from the state before it |
 | Spans arrive after the text and the block repaints visibly | Med | Low | A visible change of color on open | The diff's own first pass; plain text is a legitimate first frame for a whole file |
 | The span cache grows without bound | Low | Med | Resident memory over budget | The cache is keyed on content and bounded by bytes, each entry charged its spans, its key and its own overhead |
 | The grammars' memory stays taken after coloring ends | Med | Med | Resident memory over the idle budget | The highlighter is dropped after five quiet minutes, and its memory goes back with it |
@@ -132,9 +132,9 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 ### Negative (accepted trade-offs)
 
 - The daemon does rendering-adjacent work. Accepted because it already owns the read and the result is shared.
-- The first read in a language after the highlighter has been dropped pays the grammar's load again, up to about 0.3 s. Accepted because the highlighter's memory goes back in return.
+- The first read in a language after the highlighter has been dropped pays the grammar's load again. Accepted because the highlighter's memory goes back in return.
 - A highlighter dropped at its memory ceiling drops every grammar, so a read in a language it held pays that load again too. Accepted because the ceiling keeps the thread's peak inside its budget.
-- A code block that leaves the screen while its read waits is still colored once, since nothing on the wire cancels one request; its spans land in the cache for when it is drawn again.
+- A code block that leaves the screen while its read waits is still colored once; its spans land in the cache for when it is drawn again.
 
 ---
 

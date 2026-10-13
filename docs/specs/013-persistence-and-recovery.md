@@ -176,11 +176,13 @@ The daemon samples the queue depth every second and alerts at **80% of queue cap
 
 ### References
 
-- [Node.js worker_threads](https://nodejs.org/docs/latest-v24.x/api/worker_threads.html) — platform constraint mandating per-worker native-addon handles
-- [better-sqlite3 API](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md) — `.backup()`, `db.transaction(fn)`, pragma surface (v13.0.3 released 2026-08-05). Node-API floor for that pin: [`binding.gyp` at `v13.0.3`](https://github.com/WiseLibs/better-sqlite3/blob/v13.0.3/binding.gyp) declares `NAPI_VERSION=10`; the [Node-API version matrix](https://nodejs.org/docs/latest-v24.x/api/n-api.html#node-api-version-matrix) maps 10 to Node `v22.14.0+` / `23.6.0+`; and [`src/node_api.cc` at `v22.14.0`](https://github.com/nodejs/node/blob/v22.14.0/src/node_api.cc) carries `ThrowNodeApiVersionError` — the documented failure for a too-new Node-API module is a load-time throw, not a crash
+- [Node.js worker_threads](https://nodejs.org/docs/latest-v24.x/api/worker_threads.html) — read for the writer's design
+- [better-sqlite3 API](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md) — `.backup()`, `db.transaction(fn)`, pragma surface (v13.0.3 released 2026-08-05), read for the driver choice
 - [better-sqlite3 performance](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/performance.md) — default `synchronous=NORMAL` trade-off
 - [better-sqlite3 threads](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/threads.md) — per-worker connection pattern
 - [Node.js node:sqlite](https://nodejs.org/docs/latest-v24.x/api/sqlite.html) — Stability `1.2 — Release candidate` on Node 24 LTS, read 2026-04-19
+- [rusqlite 0.40.2](https://docs.rs/rusqlite/0.40.2/rusqlite/) — the `bundled` feature, which compiles SQLite from `libsqlite3-sys` into the service, read 2026-10-13
+- [rusqlite `Connection`](https://docs.rs/rusqlite/0.40.2/rusqlite/struct.Connection.html) — `Send` but not `Sync` (it holds its inner connection in a `RefCell`), the reason for the one writer thread, read 2026-10-13
 
 ## Clock Handling
 

@@ -9,7 +9,7 @@
 | **Author(s)** | `Claude Opus 4.7` |
 | **Spec** | [Spec-019: Rate Limiting Policy](../specs/019-rate-limiting-policy.md) |
 | **Required ADRs** | [ADR-013: Control Plane API](../decisions/013-control-plane-api.md); [ADR-019: V1 Deployment Model And OSS License](../decisions/019-v1-deployment-model-and-oss-license.md); [ADR-014: V1 Feature Scope Definition](../decisions/014-v1-feature-scope-definition.md); [ADR-010: Tokens, Passkeys And The Remote Channel](../decisions/010-tokens-passkeys-and-the-remote-channel.md) |
-| **Dependencies** | the shipped control-plane host (the stable `axum` router the middleware layers onto; `wrangler.jsonc` deployment config extended); the sign-in, token-refresh and device-linking routes the middleware wraps ([Plan-015](./015-hosted-account-and-identity.md), [Plan-025](./025-remote-control.md) Phase 5). Non-blocking context, not dependencies: Plan-005 daemon-IPC scope exclusion (§Non-Goals); Plan-025's Compose relay, `sidekicks-control-plane`'s native program, as a downstream consumer (see §Cross-Plan Obligations) |
+| **Dependencies** | the control-plane host (the stable `axum` router the middleware layers onto; `wrangler.jsonc` deployment config extended); the sign-in, token-refresh and device-linking routes the middleware wraps ([Plan-015](./015-hosted-account-and-identity.md), [Plan-025](./025-remote-control.md) Phase 5). Non-blocking context, not dependencies: Plan-005 daemon-IPC scope exclusion (§Non-Goals); Plan-025's Compose relay, `sidekicks-control-plane`'s native program, as a downstream consumer (see §Cross-Plan Obligations) |
 | **Cross-Plan Deps** | Cross-Plan Dependency Graph |
 
 ## Goal
@@ -56,7 +56,7 @@ The plan builds on:
   - `enforcement_pipeline.rs` — `create_admission_check`, which returns `check_admission` (D-018-1).
 - `crates/sidekicks-control-plane/tests/fixtures/rate_limiter_scenarios.json` — **created by this plan:** the one JSON scenario table of the I-018-2 parity proof, read by the Rust test against the in-memory counter and by the Workers test against the real Durable Object (T18.2-6).
 - `crates/sidekicks-control-plane/src/middleware/rate_limit.rs` — **created by this plan.** The `axum` middleware `rate_limit_layer`.
-- `crates/sidekicks-control-plane/src/server/router.rs` — **extended by this plan:** the router's shared state carries `check_admission`, and each host's entry puts the caller's `SourceAddress` in the request's extensions as the deployment's edge reports it. `ControlPlaneRefusal` answers W4's body, `{code, message}` with the code's own fields beside them, so a 429's body is the `RateLimitResponse`. An internal failure answers 500 with the fixed message `Unexpected internal error`, the wording of error-contracts.md's `system.internal_error`, so a caller never reads the relay's own error text; request paths hold no panicking call, since a panic in the Worker answers 500 and resets the instance.
+- `crates/sidekicks-control-plane/src/server/router.rs` — **extended by this plan:** the router's shared state carries `check_admission`, and each host's entry puts the caller's `SourceAddress` in the request's extensions as the deployment's edge reports it. `ControlPlaneRefusal` answers [ADR-013](../decisions/013-control-plane-api.md)'s refusal body, `{code, message}` with the code's own fields beside them, so a 429's body is the `RateLimitResponse`. An internal failure answers 500 with the fixed message `Unexpected internal error`, the wording of error-contracts.md's `system.internal_error`, so a caller never reads the relay's own error text; request paths hold no panicking call, since a panic in the Worker answers 500 and resets the instance.
 - `crates/sidekicks-control-plane/src/worker.rs` — **created by this plan:** the Worker entry module, `#[event(fetch)]`, which calls the router through `tower-service` (`router().call(request)`), and the home of the `#[durable_object]` `RateLimitIdentityDurableObject` the deployed script exports. `wrangler.jsonc`'s `main` names the shim `worker-build` writes for it.
 - `crates/sidekicks-control-plane/src/server/host.rs` — **extended by this plan, inside the CP-018-1 stable-mount seam:** `ControlPlaneEnv` gains the `RATE_LIMIT_IDENTITY` binding; the Worker's entry supplies `SourceAddress` from `CF-Connecting-IP` and `check_admission` over the `Workers` factory; an internal failure, such as a counter error, is logged and the caller reads only a 500. No route is wired here; T18.3-3 does that.
 - `docs/architecture/contracts/api-payload-contracts.md` — carries the `RateLimitResponse` (symbol anchor: `interface RateLimitResponse` under §Error Responses), and the `RateLimitCheckRequest` and `RateLimitCheckResponse`. T18.1-2 verifies shape parity against the typed exports at implementation time and lands only drift fixes.
@@ -92,7 +92,7 @@ pub struct RateLimitResponse {
 }
 ```
 
-Code-level home: `crates/sidekicks-contracts/src/rate_limiter.rs`, which T18.1-1 creates, so its consumers assert against a typed export instead of a doc shape; devices read the generated TypeScript at `@ai-sidekicks/contracts/rate-limiter`. The api-payload-contracts.md shape is anchored by symbol (`interface RateLimitResponse` under §Error Responses); T18.1-2 verifies doc-vs-export parity at implementation time. Every refusal carries both timing fields, so the type requires both and a body missing either fails to decode (T18.1-4).
+Code-level home: `crates/sidekicks-contracts/src/rate_limiter.rs`, which T18.1-1 creates, so its consumers assert against a typed export instead of a doc shape; devices read the generated TypeScript at `@ai-sidekicks/contracts/rate-limiter`. The api-payload-contracts.md shape is anchored by symbol (`interface RateLimitResponse` under §Error Responses); T18.1-2 verifies doc-vs-export parity at implementation time. Every refusal carries both timing fields, so the type holds both as required, non-`Option` fields (T18.1-4).
 
 ## API And Transport Changes
 
@@ -146,7 +146,7 @@ One stage on every enforced transport (I-018-1): every rate-limited route calls 
 
 - **The source address is the identity.** The check keys on the caller's source address alone (D-018-5).
 - **Canonical form (D-018-4):** IPv4 exact dotted-quad / IPv6 normalized to its /64 prefix (lowercase, compressed); an IPv4-mapped IPv6 address counts as its IPv4 address. The parse is `std::net`'s `IpAddr`, whose IPv6 text is the RFC 5952 compressed form and whose `to_ipv4_mapped` folds a mapped address: it needs no dependency and runs alike on the Worker's `wasm32` build and the Compose relay's native one, where a hand-written parser would be code the project keeps forever.
-- **Client IP provenance.** Workers: the Cloudflare-set `CF-Connecting-IP` header. Compose relay: the rightmost `X-Forwarded-For` entry, read only from a request whose connection comes from the configured Caddy address (Caddy appends the address it saw); a request from any other address is refused as unresolvable. Each host puts the address it trusts in the request's `SourceAddress`; the middleware canonicalizes it. A request with no resolvable address is refused 400 with `relay.source_address_unresolvable`, before anything is counted, rather than rate-limited into a shared bucket.
+- **Client IP provenance.** Workers: the Cloudflare-set `CF-Connecting-IP` header. Compose relay: the rightmost `X-Forwarded-For` entry, read only from a request whose connection comes from the configured Caddy address (Caddy appends the address it saw). Each host puts the address it trusts in the request's `SourceAddress`; the middleware canonicalizes it. A request with no resolvable address is refused 400 with `relay.source_address_unresolvable`, before anything is counted, rather than rate-limited into a shared bucket.
 
 ### The `axum` middleware (layered onto the control-plane router per CP-018-1)
 
@@ -171,7 +171,7 @@ async fn rate_limit(
 
 - Usage on a route: `.route_layer(rate_limit_layer(RateLimitEndpointGroup::AuthEndpoint))`, where `rate_limit_layer` is `axum::middleware::from_fn_with_state` over `rate_limit` ([axum middleware](https://docs.rs/axum/latest/axum/middleware/index.html)). The clock is read through `time` with its `wasm-bindgen` feature on the Worker, never `std::time::SystemTime::now`, which panics on `wasm32-unknown-unknown`.
 - Header policy: `Retry-After` on every 429, and none on an allowed response.
-- The 429 body: `ControlPlaneRefusal` (in `server/router.rs`) answers W4's body, `{code, message}` with the code's own fields beside them, so a 429 answers the `RateLimitResponse` (`{code: "rate_limited", message, retryAfter, limit, remaining, resetAt}`) and the 400 answers `{code: "relay.source_address_unresolvable", message}`. The refusal sets the status and, on a 429, the `Retry-After` header on its own response.
+- The 429 body: `ControlPlaneRefusal` (in `server/router.rs`) answers [ADR-013](../decisions/013-control-plane-api.md)'s refusal body, `{code, message}` with the code's own fields beside them, so a 429 answers the `RateLimitResponse` (`{code: "rate_limited", message, retryAfter, limit, remaining, resetAt}`) and the 400 answers `{code: "relay.source_address_unresolvable", message}`. The refusal sets the status and, on a 429, the `Retry-After` header on its own response.
 
 ### Retry-After on 429 responses
 
@@ -186,7 +186,7 @@ A 429 response must set:
 | I-018-1 | Every enforced transport admits through one stage: every rate-limited route through `check_admission`, whose only stage is the sliding-window counter. The daemon IPC path is reachable by no admission stage. | T18.3-1 pipeline unit tests; Cargo's dependency graph: `sidekicks-daemon` does not depend on `sidekicks-control-plane` (T18.3-3). |
 | I-018-2 | Both `RateLimiter` implementations enforce the same limit and expose identical `check` semantics; selection is configuration-only. | The one JSON scenario table (T18.2-6), read by the Rust test against the in-memory counter and by the Workers test against the real Durable Object, both green in CI. |
 | I-018-3 | Rate-limit state is ephemeral and bounded by its window: sliding-window counters live in the per-identity DO's SQLite rows or in the self-hosted relay's program memory; no table this plan owns holds rate-limit state. | DO restart-persistence and full-expiry eviction tests (T18.2-2); the in-memory counter's window-expiry test (T18.2-4). |
-| I-018-4 | The check request/response and the 429 `RateLimitResponse` body have exactly one canonical shape — identical in [Spec-019 §Interfaces And Contracts](../specs/019-rate-limiting-policy.md#interfaces-and-contracts), error-contracts.md, api-payload-contracts.md, and code: the check shapes in `crates/sidekicks-control-plane/src/rate_limit/limiter.rs`, the body in `crates/sidekicks-contracts/src/rate_limiter.rs`. | T18.1-2/T18.1-3 parity verification at implementation; T18.1-4 decode tests (the full body decodes; a body missing a field or half-timed is refused); cross-doc drift checked at review. |
+| I-018-4 | The check request/response and the 429 `RateLimitResponse` body have exactly one canonical shape — identical in [Spec-019 §Interfaces And Contracts](../specs/019-rate-limiting-policy.md#interfaces-and-contracts), error-contracts.md, api-payload-contracts.md, and code: the check shapes in `crates/sidekicks-control-plane/src/rate_limit/limiter.rs`, the body in `crates/sidekicks-contracts/src/rate_limiter.rs`. | T18.1-2/T18.1-3 parity verification at implementation; T18.1-4 decode test (the full body decodes; every field is required, non-`Option`); cross-doc drift checked at review. |
 
 ## Cross-Plan Obligations
 
@@ -221,7 +221,7 @@ A 429 response must set:
 
 **Precondition:** none.
 
-The phase builds on the shipped contracts crate.
+The phase builds on the contracts crate (Plan-001 Phase 1 T1.2).
 
 #### Tasks
 
@@ -237,7 +237,7 @@ The phase builds on the shipped contracts crate.
   - **Spec coverage:** Spec-019 §Interfaces And Contracts (error-contracts holds error response schemas and error codes)
   - **Verifies invariant:** I-018-4 (registry side)
   - **Consumes:** error-contracts.md §Rate Limiting table.
-- **T18.1-4 — Decode tests.** A unit test in `crates/sidekicks-contracts/src/rate_limiter.rs` decodes the full body and refuses a body missing `retryAfter` or `resetAt`. The `RateLimitEndpointGroup` enum matching the registry's keys is held by the compiler, not a test: `endpoint_groups.rs` maps it with one exhaustive `match`, so `rustc` refuses a key with no limit, and a limit for no key has no variant to name.
+- **T18.1-4 — Decode test.** A unit test in `crates/sidekicks-contracts/src/rate_limiter.rs` decodes the full body; `retryAfter` and `resetAt` are required, non-`Option` fields. The `RateLimitEndpointGroup` enum matching the registry's keys is held by the compiler, not a test: `endpoint_groups.rs` maps it with one exhaustive `match`, so `rustc` refuses a key with no limit, and a limit for no key has no variant to name.
   - **Spec coverage:** Spec-019 §Overflow Response (canonical body), Spec-019 §Interfaces And Contracts (check shape)
   - **Verifies invariant:** I-018-4
   - **Consumes:** T18.1-1 exports (same Phase).
@@ -323,7 +323,7 @@ The per-task test obligations live in each `#### Tasks` row above. Summary by la
 
 - **Unit (`#[cfg(test)] mod tests` in `crates/sidekicks-control-plane/src/rate_limit/` and `src/middleware/`):** factory rows; the in-memory counter's window expiry; pipeline rows; middleware address and header rows.
 - **Workers (TypeScript under `@cloudflare/vitest-plugin`, against the Rust build):** DO single-alarm re-arm, restart persistence, full-expiry eviction and the counter (T18.2-2); T18.4-1 row (2).
-- **Contracts (`crates/sidekicks-contracts/src/rate_limiter.rs`):** full body acceptance / refusal of a body missing a field or half-timed (T18.1-4). The registry-key enum is held by the registry table's exhaustive `match`, which `rustc` checks (T18.1-4).
+- **Contracts (`crates/sidekicks-contracts/src/rate_limiter.rs`):** the full body decodes (T18.1-4). The registry-key enum is held by the registry table's exhaustive `match`, which `rustc` checks (T18.1-4).
 - **Parity (`tests/fixtures/rate_limiter_scenarios.json`):** the I-018-2 proof, one JSON scenario table read by the Rust test and the Workers test (T18.2-6; CP-018-2).
 - **Integration (`crates/sidekicks-control-plane/tests/it/`):** the AC-anchored rows of T18.4-1, through the real router over the real counters.
 - **Structural:** the daemon's dependency boundary is Cargo's (`sidekicks-daemon` does not depend on `sidekicks-control-plane`, T18.3-3); no test parses sources for it.

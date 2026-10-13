@@ -236,7 +236,7 @@ CREATE TABLE session_convert_files (
 ) STRICT, WITHOUT ROWID;
 ```
 
-Budget, at 10,000 sessions, 1,000,000 indexed messages, 100,000 links and 30,000 tags, measured on the daemon's own build: a related list under 1 ms and a search under 50 ms at p95. Measured on the daemon's build (SQLite 3.53.4, Apple M1 Pro) at 10,000 sessions and 100,000 links: a stored related list read in 0.128 ms at p95, about 20 stored rows per session, and the re-score after one new link took 55 ms of wall time at p95 in the background, on a blocking thread (`spawn_blocking`), off the runtime's two workers; one session's scoring is not split.
+Budget, at 10,000 sessions, 1,000,000 indexed messages, 100,000 links and 30,000 tags, measured on the daemon's own build: a related list under 1 ms and a search under 50 ms at p95. Measured with SQLite 3.53.4 on an Apple M1 Pro at 10,000 sessions and 100,000 links: a stored related list read in 0.128 ms at p95, about 20 stored rows per session, and the re-score after one new link took 55 ms of wall time at p95 in the background. The re-score runs on a blocking thread (`spawn_blocking`), off the runtime's two workers; one session's scoring is not split.
 
 A conversion records each file as its copy lands without waiting for that record before the next copy, with at most 100 records waiting at once, so the writer folds them into shared batches. Measured on the same build, converting a chat of 1 KiB files in 100 folders took 0.36 s and 68 writer batches at 1,000 files and 29 s at 100,000 files; awaiting each record would hold every file for the writer's 10 ms batch window, 12.6 s at 1,000 files.
 

@@ -132,7 +132,7 @@ The 256 MB local daemon budget above is an operating target derived from one use
 
 **Instrumentation requirement.** The daemon reads its own resident set size (RSS) and reports it in `daemon.status.read`, which Settings › Runtime and `sidekicks daemon status` show with the time the reading was taken ([Spec-018 §Interfaces And Contracts](../specs/018-observability-and-failure-recovery.md#interfaces-and-contracts)). RSS is the authoritative figure for process footprint: it counts SQLite's page cache, the terminals' buffers and every other allocation, where an allocator's own statistics can miss some.
 
-**Measurement.** Footprint and RSS on macOS, the service counted apart from Claude Code, Codex, Chromium and terminals: idle, with four sessions while all four stream, and two minutes after. Comparable compiled services idle at 25–33 MB; that is the reason the service is written in Rust, not a promised figure, and the operating target is set from the service's first measurement under this workload.
+**Measurement.** Footprint and RSS on macOS, the service counted apart from Claude Code, Codex, Chromium and terminals: idle, with four sessions while all four stream, and two minutes after. Comparable compiled services idle at 25–33 MB; that is the reason the service is written in Rust, not a promised figure; a tighter target than the 256 MB budget is set from the service's first measurement under this workload.
 
 **Flat over time.** The same four-session run, idle again after streaming, returns to its idle figure, and nothing in the service keeps an unbounded queue or cache.
 
@@ -142,7 +142,7 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 - **The daemon:** the 256 MB operating target above, the same inside a WSL 2 distribution.
 - **The service's Windows half,** on a computer whose service runs in WSL 2: 15 MB private working set or less at idle. Proposed; the baseline is measured on a Windows machine before the WSL phase lands.
-- **The channel's buffers:** bounded by the channel's `h2` settings on each end, its `max_send_buffer_size`, a 1 MiB stream window and a 16 MiB connection window, which are never a resident figure at idle.
+- **The channel's buffers:** bounded by the channel's `h2` settings on each end, its `max_send_buffer_size` of 128 MB, a 1 MiB stream window and a 16 MiB connection window, which are never a resident figure at idle.
 - **The attached `wsl.exe`, and the channel's latency and throughput against a native pipe:** measured on a Windows machine before the WSL phase lands.
 - **The WSL virtual machine:** kept running for the service's whole life. Its memory cap defaults to half of RAM, with `autoMemoryReclaim` at `dropCache`, and the person's `.wslconfig` is never edited. Its idle cost with only the service running is measured on a Windows machine and stated here; it is not part of the Runtime figure, which counts the service's own processes (the daemon's process tree inside the distribution, plus the Windows half and its `wsl.exe` on Windows), because the VM's working set holds other distributions and the person's own WSL work.
 - **A folder on the other side's disk** (`/mnt/c` from Linux, `\\wsl.localhost` from Windows) is slower, because every file operation crosses 9P; its cost is measured before the WSL phase lands.
@@ -171,7 +171,7 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 **Local artifacts:** the desktop app's installers and the daemon's and command line's signed native binaries, built on a release tag by the release workflow, `.github/workflows/release.yml`, which [Plan-020](../plans/020-desktop-app-and-renderer.md) T-020r-6-4 creates, and published to GitHub Releases. Nothing publishes to npm ([ADR-022 §Axis 3](../decisions/022-v1-ci-cd-and-release-automation.md#axis-3--release-automation)).
 
-**Versioning:** semver for packages; control-plane API versioned by route-path namespacing.
+**Versioning:** semver for packages.
 
 ## Related Domain Docs
 

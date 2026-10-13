@@ -11,7 +11,7 @@
 
 ## Context
 
-MCP (Anthropic) and LSP (Microsoft) both standardize on JSON-RPC 2.0 for local IPC. All three reference apps (Claude Code, Cursor, Windsurf) use JSON over stdio or sockets. V8's native `JSON.parse`/`JSON.stringify` outperforms JS-level binary serializers for typical message sizes, so a binary wire format adds complexity without a measurable speed gain in this tier.
+MCP (Anthropic) and LSP (Microsoft) both standardize on JSON-RPC 2.0 for local IPC. Claude Code, Cursor and Windsurf use JSON over stdio or sockets. Both ends parse JSON natively, `serde_json` in the daemon and each client engine's own JSON parse, so a binary wire format adds complexity without a measurable speed gain in this tier (§Assumptions Audit row 1).
 
 ## Problem Statement
 
@@ -45,7 +45,7 @@ Use JSON-RPC 2.0 messages in one frame codec (a 10-byte header per frame, with b
 ### Option D: MessagePack (Rejected)
 
 - **What:** Binary JSON-compatible serialization.
-- **Why rejected:** Removes human-readable debugging without compensating performance benefit in V8.
+- **Why rejected:** Removes human-readable debugging without compensating performance benefit for `serde_json` or the clients' native JSON.
 
 ### Option E: Newline-Delimited JSON (Rejected)
 
@@ -56,7 +56,7 @@ Use JSON-RPC 2.0 messages in one frame codec (a 10-byte header per frame, with b
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | V8 native JSON parsing is fast enough for daemon message volume. | MCP, LSP, and reference apps (Claude Code, Cursor, Windsurf) ship on JSON/stdio at scale. | If tool-call payloads or streamed artifacts push per-message parse cost above the single-digit-ms budget, we would need a binary format. |
+| 1 | `serde_json` in the daemon and each client engine's native JSON parse are fast enough for daemon message volume. | MCP, LSP, Claude Code, Cursor and Windsurf ship on JSON/stdio at scale. | If tool-call payloads or streamed artifacts push per-message parse cost above the single-digit-ms budget, we would need a binary format. |
 | 2 | Local IPC consumers can open a Unix domain socket on macOS/Linux and a named pipe on Windows. | tokio serves both: `UnixListener` on macOS and Linux, and the named-pipe `ServerOptions` that `sidekicks-platforms` wraps on Windows. | If a supported runtime cannot speak either, we would need a TCP loopback fallback with its own auth story. |
 | 3 | The same JSON-RPC payloads can be reused verbatim inside a device's sealed channel, which the relay carries over its WSS connection; [ADR-013](./013-control-plane-api.md) owns the control plane's own request-response transport. | ADR-008 sends every device other than the machine through the relay, the client SDK's relay arm serves every method the local transport serves, and JSON-RPC 2.0 is transport-agnostic. | If remote clients need a different payload shape, we would carry two serialization schemas. |
 | 4 | The frame codec's length-prefixed frames are robust against embedded newlines and partial reads. | Length-prefixed framing (LSP's `Content-Length` header among it) has carried tooling traffic for years without corruption issues across large tooling ecosystems. | If framing proves ambiguous (e.g., mismatched header parsers), we would have to version the frame header. |
@@ -65,7 +65,7 @@ Use JSON-RPC 2.0 messages in one frame codec (a 10-byte header per frame, with b
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| JSON payloads become too large (streamed artifacts, large tool results) and parse latency spikes | Med | Med | Daemon IPC latency metrics and parse-time histograms | Add chunked streaming for large artifacts outside the JSON-RPC envelope; keep control messages JSON |
+| JSON payloads become too large (streamed artifacts, large tool results) and parse latency spikes | Med | Med | Round-trip latency measured in the daemon's tests | Add chunked streaming for large artifacts outside the JSON-RPC envelope; keep control messages JSON |
 | A client mis-implements the frame codec and desyncs the stream | Med | High | Framing-error counters and dropped-connection logs | Publish a conformance test suite and reject malformed frames with a clear close code |
 | JSON-RPC 2.0 evolves or a competing successor emerges before the relay arm lands | Low | Low | Spec tracker and upstream MCP/LSP release notes | JSON-RPC 2.0 is effectively frozen; transport layer can wrap a successor without rewriting clients |
 | Windows named pipe semantics diverge from Unix socket behavior (permissions, reconnection) | Med | Med | Platform-specific integration tests and daemon crash reports | Abstract transport in a thin adapter; document per-platform quirks |
@@ -95,9 +95,9 @@ Use JSON-RPC 2.0 messages in one frame codec (a 10-byte header per frame, with b
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Daemon IPC round-trip latency for control messages | < 5 ms at p95 on a local socket | Daemon metrics histogram | When the daemon's JSON-RPC transport lands |
+| Daemon IPC round-trip latency for control messages | < 5 ms at p95 on a local socket | Round-trip latency measured in the daemon's tests | When the daemon's JSON-RPC transport lands |
 | Outside tools reach the product through the daemon's `sidekicks` MCP server over standard MCP; the local socket serves only the desktop app and the CLI, in the one 10-byte-header frame codec; the Claude Code plugin's held read (`session.overviewRead {afterRevision}`) is HTTP on a second socket of its own, served by `axum` (`axum::serve` over tokio's `UnixListener` on Unix, an `axum::serve::Listener` over `uds_windows`' listener in `async-io` (wrapped for `AsSocket`, as Codex's `codex-rs/uds` does, and through `tokio_util::compat`) on Windows, each listener in `sidekicks-platforms`), its path checked before binding. Claude Code's plugin MCP and LSP servers (it starts them itself, over stdio) and Codex's MCP servers (through the daemon's own MCP client) never use that socket, so nothing a person uses changes. | 100% of tested outside tools | MCP conformance run against the `sidekicks` MCP server | When the daemon's JSON-RPC transport lands |
-| Framing desynchronization incidents in production logs | 0 per week | Framing-error counter dashboard | Each week from the first release |
+| Framing desynchronization incidents in production logs | 0 per week | Framing-error lines in the service log | Each week from the first release |
 
 ## References
 

@@ -54,11 +54,11 @@ The monorepo layout for implementation is:
 
 ## Data Flow
 
-1. The CLI and the desktop app's client helper call the daemon client; the desktop's main process calls through the client helper, and the renderer through the preload bridge, which the main process answers.
+1. The CLI and the desktop app's client helper call the daemon client. The renderer's daemon and control-plane calls travel over a `MessagePort` that main hands the page through the preload, to the client helper, which checks each against its method allowlist and params check, carries it on its own daemon connection, whose `daemon.hello` presented the session token, and returns only the sanitized reply. Main's own daemon calls reach the helper over `parentPort`, through the same allowlist, and main keeps the file tokens. Neither main nor the renderer holds the session token, and the renderer is not a daemon client.
 2. The daemon client talks to the local daemon for execution state. The control plane is reached for sign-in, device linking, the statement chain and the relay.
 3. The local daemon writes to local persistence and emits live updates.
 4. The control plane writes to shared metadata and relays each device's channel to each machine; push notices reach it already sealed by the machine.
-5. Renderers draw the sessions and their screens from the daemon of the machine in view: through the main process, the client helper and local IPC on that machine, and over the device's channel from anywhere else.
+5. Renderers draw the sessions and their screens from the daemon of the machine in view: through the client helper's port and local IPC on that machine, and over the device's channel from anywhere else.
 
 ## Transport Protocols
 

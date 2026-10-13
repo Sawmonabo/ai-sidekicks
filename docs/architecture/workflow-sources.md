@@ -105,8 +105,8 @@ Two crates carry no documentation page in any source read for Spec-015: `rquickj
 
 **Testing (SA-27):**
 
-- [`fast-check` (model-based testing)](https://github.com/dubzzz/fast-check) — property-test framework pin (SA-27)
-- [Jazzer.js (fuzzing)](https://github.com/CodeIntelligenceTesting/jazzer.js) — fuzz-test framework pin (SA-27)
+- [`fast-check` (model-based testing)](https://github.com/dubzzz/fast-check) — property-test precedent read for SA-27; the pin is `proptest`
+- [Jazzer.js (fuzzing)](https://github.com/CodeIntelligenceTesting/jazzer.js) — fuzz-test precedent read for SA-27; the pin is `cargo-fuzz`
 - [Jazzer.js — fuzz-targets docs](https://github.com/CodeIntelligenceTesting/jazzer.js/blob/main/docs/fuzz-targets.md) — fuzz-target shape (SA-27)
 - [Astronomer — testing Airflow](https://www.astronomer.io/docs/learn/testing-airflow/) — DAG-test precedent
 

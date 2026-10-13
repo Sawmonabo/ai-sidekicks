@@ -4,7 +4,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ## Plan-013 — Multi-Agent Orchestration
 
-Contracts per D-013-1..20. The Rust types live in the topic modules [Plan-013 D-013-1](../../plans/013-multi-agent-orchestration.md#design-decisions) names, `crates/sidekicks-contracts/src/orchestration.rs` among them; the generated TypeScript keeps `packages/contracts/src/orchestration.ts`. `AgentId` is a new branded UUID newtype (`AgentId`). All mutations are daemon JSON-RPC (orchestration and agent authority is daemon-local, ADR-001/ADR-003 posture).
+Contracts per D-013-1..20. The Rust types live in the topic modules [Plan-013 D-013-1](../../plans/013-multi-agent-orchestration.md#design-decisions) names, `crates/sidekicks-contracts/src/orchestration.rs` among them; the generated TypeScript keeps `packages/contracts/src/orchestration.ts`. `AgentId` is a new branded UUID newtype. All mutations are daemon JSON-RPC (orchestration and agent authority is daemon-local, ADR-001/ADR-003 posture).
 
 ```ts
 interface OrchestrationRunConfig {
