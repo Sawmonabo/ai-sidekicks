@@ -387,15 +387,12 @@ impl TokenStream for TagPathStream<'_> {
         let Some(from) = self.next_end else {
             return false;
         };
-        let end = match self.fold[from..].find(TAG_LEVEL_SEPARATOR) {
-            Some(offset) => {
-                self.next_end = Some(from + offset + 1);
-                from + offset
-            }
-            None => {
-                self.next_end = None;
-                self.fold.len()
-            }
+        let end = if let Some(offset) = self.fold[from..].find(TAG_LEVEL_SEPARATOR) {
+            self.next_end = Some(from + offset + 1);
+            from + offset
+        } else {
+            self.next_end = None;
+            self.fold.len()
         };
         self.token.text.clear();
         self.token.text.push_str(&self.fold[..end]);

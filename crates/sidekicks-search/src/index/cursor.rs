@@ -221,12 +221,11 @@ impl<'a> GatedCursors<'a> {
             let Some(term) = phrase.long_prefix_field_term(fields) else {
                 continue;
             };
-            match term_cursor(segment, &term, IndexRecordOption::Basic)? {
-                Some(filter) => filters.push(filter),
-                None => {
-                    cursors = GatedState::NoRowMatches;
-                    break;
-                }
+            if let Some(filter) = term_cursor(segment, &term, IndexRecordOption::Basic)? {
+                filters.push(filter);
+            } else {
+                cursors = GatedState::NoRowMatches;
+                break;
             }
         }
         Ok(GatedCursors {

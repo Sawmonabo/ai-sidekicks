@@ -49,7 +49,7 @@ impl Mulberry {
         self.0 = self.0.wrapping_add(0x6d2b_79f5);
         let seed = self.0;
         let mut mixed = (seed ^ (seed >> 15)).wrapping_mul(1 | seed);
-        mixed = (mixed.wrapping_add((mixed ^ (mixed >> 7)).wrapping_mul(61 | mixed))) ^ mixed;
+        mixed = (mixed.wrapping_add((mixed ^ (mixed >> 7)).wrapping_mul(0x3d | mixed))) ^ mixed;
         f64::from(mixed ^ (mixed >> 14)) / 4_294_967_296.0
     }
 

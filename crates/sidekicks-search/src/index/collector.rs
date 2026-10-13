@@ -584,20 +584,17 @@ pub(crate) fn top_sessions(
             }
             top.cutoff()
         };
-        match &pruning {
-            Some(pruning) => {
-                let threshold = pruning.threshold_in(segment)?;
-                let mut callback = |doc: DocId, _: Score| threshold(offer(&mut cursors, doc));
-                pruning
-                    .weight
-                    .for_each_pruning(threshold(first_cutoff), segment, &mut callback)?;
-            }
-            None => {
-                let mut doc = cursors[driver.phrase].doc();
-                while doc != TERMINATED {
-                    offer(&mut cursors, doc);
-                    doc = cursors[driver.phrase].advance();
-                }
+        if let Some(pruning) = &pruning {
+            let threshold = pruning.threshold_in(segment)?;
+            let mut callback = |doc: DocId, _: Score| threshold(offer(&mut cursors, doc));
+            pruning
+                .weight
+                .for_each_pruning(threshold(first_cutoff), segment, &mut callback)?;
+        } else {
+            let mut doc = cursors[driver.phrase].doc();
+            while doc != TERMINATED {
+                offer(&mut cursors, doc);
+                doc = cursors[driver.phrase].advance();
             }
         }
     }
