@@ -432,6 +432,7 @@ The review and ship surface's refusals ([Spec-009](../../specs/009-gitflow-pr-an
 | --- | --- | --- |
 | `preview.address_refused` | An address Preview will not open; the page stays where it was, and nothing is ever searched on the web. `data.fields.reason` is `scheme` (a scheme the pane cannot open) or `not_an_address` (the text is not an address at all). The details never echo the address. An address carrying a username or a password opens | 422 |
 | `preview.edit_refused` | A device's paste, select all or cut for a menu that is no longer the page's current one; nothing changes and the pane reads `The page changed before that could run.` | 409 |
+| `preview.file_path_refused` | A device's answer to a folder picker named a file's path that is empty, absolute, holds an empty, `.` or `..` segment, or is missing, or main's download report named a file by anything but an id main minted; nothing is set, dropped or staged. The details never echo the path | 422 |
 | `preview.port_already_shared` | `preview.portShareAdd` named a port already on the shared list; nothing changes. `data.fields.port` is the port the request named | 409 |
 | `preview.port_not_shared` | A forward or a `preview.portTicketIssue` named a port that is not on the shared list. The machine forwards only listed ports, and only to its own loopback. `data.fields.port` is the port the request named | 403 |
 
