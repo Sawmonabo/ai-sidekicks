@@ -29,11 +29,11 @@ use crate::session::search::{
 use crate::tag::TagList;
 use crate::transcript::row::TranscriptRunStamp;
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::BoolLiteral;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt};
 use crate::wire::list::BoundedVec;
 use crate::wire::text::{BoundedText, FreeFormText, NulFreeText, branded_text};
+use crate::wire::{False, True};
 
 /// Where a session is in its lifecycle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -154,8 +154,8 @@ pub struct SessionLiveRun {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "BoolLiteral<true>")]
-    pub is_apart: Option<BoolLiteral<true>>,
+    #[schemars(with = "True")]
+    pub is_apart: Option<True>,
     /// Its state now.
     pub state: RunState,
     /// Its record's version.
@@ -470,7 +470,7 @@ pub struct SessionSearchContinuing {
     }))]
     pub groups: NonEmptyList<SessionSearchGroup>,
     /// More hits follow.
-    pub has_more: BoolLiteral<true>,
+    pub has_more: True,
     /// Where to continue.
     pub next_cursor: SessionSearchCursor,
 }
@@ -486,7 +486,7 @@ pub struct SessionSearchTerminal {
     #[garde(custom(|groups: &Vec<SessionSearchGroup>, (): &()| require_search_page(groups)))]
     pub groups: Vec<SessionSearchGroup>,
     /// No hits follow.
-    pub has_more: BoolLiteral<false>,
+    pub has_more: False,
 }
 
 /// One `session.search` page: hits grouped by session, each session's hits best first. A

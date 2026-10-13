@@ -9,11 +9,11 @@ use crate::jsonrpc::page::fits_one_page;
 use crate::repo::mount::RepoMountId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::BoolLiteral;
 use crate::wire::id::ClientUuid;
 use crate::wire::integer::{BoundedInt, SafeInt};
 use crate::wire::list::BoundedVec;
 use crate::wire::text::{BoundedText, FreeFormText, pattern_text};
+use crate::wire::{False, True};
 
 /// Converts a chat to a project. `path` is the folder the person typed; it travels as data and the
 /// daemon checks it, reusing the machine's mount for that folder or attaching one, and refusing a
@@ -137,7 +137,7 @@ pub struct SessionConvertSkippedFilesContinuing {
     pub files:
         BoundedVec<SessionConvertSkippedFile, 1, SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX>,
     /// More files follow.
-    pub has_more: BoolLiteral<true>,
+    pub has_more: True,
     /// Where to continue.
     pub next_cursor: SessionConvertSkippedFileCursor,
 }
@@ -154,7 +154,7 @@ pub struct SessionConvertSkippedFilesTerminal {
     pub files:
         BoundedVec<SessionConvertSkippedFile, 0, SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX>,
     /// No files follow.
-    pub has_more: BoolLiteral<false>,
+    pub has_more: False,
 }
 
 /// One page of the files a conversion did not copy, in path order, split on `hasMore`.
