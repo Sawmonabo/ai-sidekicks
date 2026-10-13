@@ -9,4 +9,4 @@ Binding for every change under `packages/`, on top of the [root `AGENTS.md`](../
 
 ## Contracts
 
-- **The TypeScript under `packages/contracts` is generated from `crates/sidekicks-contracts` and never edited:** its types, constants and Ajv checks come from the Rust types, and a change to a contract is made in the crate and regenerated. Only the hand-written pieces `crates/AGENTS.md` lists sit beside the generated files.
+- **The TypeScript under `packages/contracts/src/generated/` is generated from `crates/sidekicks-contracts` and never edited:** its types, constants and Ajv checks come from the Rust types, and a change to a contract is made in the crate and regenerated. Only the hand-written pieces `crates/AGENTS.md` lists sit outside that folder, in `packages/contracts/src`.
