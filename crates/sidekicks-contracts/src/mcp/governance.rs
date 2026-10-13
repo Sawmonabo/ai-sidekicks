@@ -5,6 +5,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::jsonrpc::refusal::RefusalCode;
 use crate::mcp::server::inventory::McpRuntimeBindingId;
 use crate::mcp::server::requests::{
     McpClearToolOverrideRequest, McpGetResponse, McpKeyedBindingRequest, McpListRequest,
@@ -233,14 +234,14 @@ methods! {
 
 ts_constants! {
     /// No binding with the requested provider, scope, folder and name exists.
-    MCP_SERVER_NOT_FOUND_CODE = "mcp.server_not_found";
+    MCP_SERVER_NOT_FOUND_CODE = RefusalCode::McpServerNotFound;
     /// The submitted configuration failed validation before anything was written.
-    MCP_CONFIG_INVALID_CODE = "mcp.config_invalid";
+    MCP_CONFIG_INVALID_CODE = RefusalCode::McpConfigInvalid;
     /// The provider's config file changed under the write: Codex's version check failed, or a
     /// Codex project file no longer hashes to what the daemon last read.
-    MCP_CONFIG_WRITE_CONFLICT_CODE = "mcp.config_write_conflict";
+    MCP_CONFIG_WRITE_CONFLICT_CODE = RefusalCode::McpConfigWriteConflict;
     /// The sign-in could not be started. A failure after it started arrives as an event.
-    MCP_OAUTH_FLOW_FAILED_CODE = "mcp.oauth_flow_failed";
+    MCP_OAUTH_FLOW_FAILED_CODE = RefusalCode::McpOauthFlowFailed;
 }
 
 /// The TypeScript module of the `mcp.*` method table, the status notice and the sign-in payload.

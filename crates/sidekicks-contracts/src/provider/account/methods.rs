@@ -7,6 +7,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::provider::account::record::readiness::ProviderLoginExpiredRemedy;
@@ -39,17 +40,17 @@ ts_constants! {
     pub const PROVIDER_WAKE_HELPER_REASON_MAX_LEN: usize = 1024;
     /// The update renamed an account the person did not name: only an account added from a
     /// pasted token or API key carries a typed name.
-    PROVIDER_ACCOUNT_RENAME_REFUSED_CODE = "provideraccount.rename_refused";
+    PROVIDER_ACCOUNT_RENAME_REFUSED_CODE = RefusalCode::ProvideraccountRenameRefused;
     /// No account is registered for the provider a run needs, so the run is not admitted.
-    PROVIDER_ACCOUNT_NOT_REGISTERED_CODE = "provideraccount.not_registered";
+    PROVIDER_ACCOUNT_NOT_REGISTERED_CODE = RefusalCode::ProvideraccountNotRegistered;
     /// The provider has accounts but none is current, so a run's account is ambiguous and it is
     /// not admitted.
-    PROVIDER_ACCOUNT_NO_DEFAULT_CODE = "provideraccount.no_default";
+    PROVIDER_ACCOUNT_NO_DEFAULT_CODE = RefusalCode::ProvideraccountNoDefault;
     /// A run bound to the account is live, so it is not removed; the refusal names the sessions.
-    PROVIDER_ACCOUNT_IN_USE_CODE = "provideraccount.account_in_use";
+    PROVIDER_ACCOUNT_IN_USE_CODE = RefusalCode::ProvideraccountAccountInUse;
     /// The named account is not signed in, so it is refused as a switch target before anything
     /// moves.
-    PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE = "provideraccount.not_authenticated";
+    PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE = RefusalCode::ProvideraccountNotAuthenticated;
 }
 
 /// Edits an account's descriptive settings; an omitted member is unchanged. The provider, the

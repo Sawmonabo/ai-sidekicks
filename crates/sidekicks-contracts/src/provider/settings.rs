@@ -10,6 +10,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -41,9 +42,9 @@ ts_constants! {
     pub const PROVIDER_INSTALL_COMMAND_MAX_LEN: usize = 1024;
     /// The provider's command is not installed, so a setting that needs it cannot be turned on:
     /// availability for new sessions, the shared terminal service and the terminal plugin.
-    PROVIDER_NOT_INSTALLED_CODE = "provider.not_installed";
+    PROVIDER_NOT_INSTALLED_CODE = RefusalCode::ProviderNotInstalled;
     /// Nothing runnable sits at the command path the person typed.
-    PROVIDER_COMMAND_NOT_RUNNABLE_CODE = "provider.command_not_runnable";
+    PROVIDER_COMMAND_NOT_RUNNABLE_CODE = RefusalCode::ProviderCommandNotRunnable;
 }
 
 /// The provider version as its command printed it.

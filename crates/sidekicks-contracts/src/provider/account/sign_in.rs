@@ -6,6 +6,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::jsonrpc::refusal::RefusalCode;
 use crate::keychain::KeychainRefusalCause;
 use crate::provider::account::record::{
     BillingMode, CredentialGeneration, DisplayLabel, PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN,
@@ -27,13 +28,14 @@ ts_constants! {
     /// body rides in through the one member whose value is never logged.
     pub const PROVIDER_NON_INTERACTIVE_TOKEN_MAX_LEN: usize = 8192;
     /// A pasted token could not be sealed in this machine's keychain, so nothing was stored.
-    PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE = "provideraccount.credential_seal_refused";
+    PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE =
+        RefusalCode::ProvideraccountCredentialSealRefused;
     /// The provider's status output, run on a pasted token, reported no signed-in mode, so
     /// nothing is registered, sealed or replaced.
-    PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE = "provideraccount.token_not_accepted";
+    PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE = RefusalCode::ProvideraccountTokenNotAccepted;
     /// The name given to a token or API-key account repeats another of that provider's account
     /// names; a rename refuses on the same code.
-    PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE = "provideraccount.display_label_taken";
+    PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE = RefusalCode::ProvideraccountDisplayLabelTaken;
     /// Every way a cancel ends, in declaration order.
     pub const PROVIDER_LOGIN_CANCEL_STATUSES: [ProviderLoginCancelStatus; 2] =
         [ProviderLoginCancelStatus::Canceled, ProviderLoginCancelStatus::NotFound];

@@ -6,6 +6,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::jsonrpc::refusal::RefusalCode;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::driver::capabilities::{DriverCapabilities, ProviderMode, ProviderModel};
@@ -34,7 +35,7 @@ ts_constants! {
     /// daemon stores it.
     pub const DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN: usize = 64;
     /// The refusal of a provider operation that outlived its deadline.
-    DRIVER_TIMEOUT_CODE = "driver.timeout";
+    DRIVER_TIMEOUT_CODE = RefusalCode::DriverTimeout;
 }
 
 /// The request of the reads that take nothing; an unknown member is refused, since the caller

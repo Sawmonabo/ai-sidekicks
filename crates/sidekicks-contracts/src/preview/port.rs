@@ -5,6 +5,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -131,9 +132,9 @@ methods! {
 
 ts_constants! {
     /// A port added to the shared list that is on it already; nothing changes.
-    PREVIEW_PORT_ALREADY_SHARED_CODE = "preview.port_already_shared";
+    PREVIEW_PORT_ALREADY_SHARED_CODE = RefusalCode::PreviewPortAlreadyShared;
     /// A forward or a web ticket asked for a port that is not on the shared list.
-    PREVIEW_PORT_NOT_SHARED_CODE = "preview.port_not_shared";
+    PREVIEW_PORT_NOT_SHARED_CODE = RefusalCode::PreviewPortNotShared;
 }
 
 /// The TypeScript module of the shared ports.

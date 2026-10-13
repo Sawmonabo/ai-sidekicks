@@ -1,6 +1,7 @@
 //! The `preview.*` page, dev-server, marks and live-picture methods the daemon answers. Its other
 //! `preview.*` methods are the page host's link (`page_host`) and the shared ports (`port`).
 
+use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -120,7 +121,7 @@ ts_constants! {
     PREVIEW_ZOOM_FACTORS = page::PREVIEW_ZOOM_FACTORS;
     /// An address Preview will not open, refused with its cause and the page left where it was.
     /// Nothing is ever searched on the web.
-    PREVIEW_ADDRESS_REFUSED_CODE = "preview.address_refused";
+    PREVIEW_ADDRESS_REFUSED_CODE = RefusalCode::PreviewAddressRefused;
     /// Every reason an address is refused.
     PREVIEW_ADDRESS_REFUSED_REASONS = page::PREVIEW_ADDRESS_REFUSED_REASONS;
     /// The longest note a comment or a box carries.
