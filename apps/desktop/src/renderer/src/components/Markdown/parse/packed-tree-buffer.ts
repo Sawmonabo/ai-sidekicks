@@ -1,7 +1,8 @@
 // A parsed tree's binary buffer, held packed. Once asked, the page's codec packs it at idle moments
 // a chunk at a time, keeping plain a chunk whose packed form is no smaller; the whole buffer is
-// held until every chunk has been offered, then let go. A read unpacks every chunk into a buffer of
-// its own, which nothing here keeps, so a tree read and let go holds only its packed chunks.
+// held until every chunk has been offered, then let go, and the asker told, so whatever charges the
+// buffer's bytes charges what is held now. A read unpacks every chunk into a buffer of its own,
+// which nothing here keeps, so a tree read and let go holds only its packed chunks.
 
 import {
   PACKED_CHUNK_MAX_BYTES,
@@ -18,7 +19,8 @@ export class PackedTreeBuffer implements PackableChunks {
   /** The chunks offered so far, in order, each at most `PACKED_CHUNK_MAX_BYTES` plain. */
   readonly #chunks: TreeChunk[] = [];
   #chunkByteCount = 0;
-  #isPackingQueued = false;
+  /** Hears the whole buffer let go, once every chunk is held in its place; set once asked. */
+  #hearPacked: (() => void) | undefined;
 
   /** `buffer`, held as it is until `queuePacking` asks `compression` to pack it. */
   public constructor(buffer: ArrayBuffer, compression: TextCompression) {
@@ -32,12 +34,15 @@ export class PackedTreeBuffer implements PackableChunks {
     return (this.#whole?.byteLength ?? 0) + this.#chunkByteCount;
   }
 
-  /** Asks the codec to pack the buffer at its idle moments; a second ask does nothing. */
-  public queuePacking(): void {
-    if (this.#isPackingQueued) {
+  /**
+   * Asks the codec to pack the buffer at its idle moments, and `hearPacked` to hear when the whole
+   * buffer is let go; a second ask does nothing.
+   */
+  public queuePacking(hearPacked: () => void): void {
+    if (this.#hearPacked !== undefined) {
       return;
     }
-    this.#isPackingQueued = true;
+    this.#hearPacked = hearPacked;
     this.#compression.queuePacking(this);
   }
 
@@ -72,6 +77,7 @@ export class PackedTreeBuffer implements PackableChunks {
       this.#chunkByteCount += chunk.bytes.byteLength;
       if (start + plain.byteLength === this.#byteLength) {
         this.#whole = undefined;
+        this.#hearPacked?.();
         return true;
       }
     } while (hasTime());

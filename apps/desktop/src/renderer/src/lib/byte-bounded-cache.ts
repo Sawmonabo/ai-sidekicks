@@ -4,7 +4,8 @@
 // Eviction is least-recently-used, using `Map` insertion order. An entry a caller holds is kept
 // whatever its size and charged like any other, so while it is held the rest give way to it. The
 // entries no one holds are kept in their own order too, so passing the cap visits only those it
-// evicts, however many entries are held.
+// evicts, however many entries are held. A value whose size changes while kept, such as one packed
+// after it was stored, is charged its new size when its owner says so.
 
 import { measureUtf8ByteLength } from "#renderer/lib/text/utf8-byte-length.js";
 
@@ -93,6 +94,21 @@ export class ByteBoundedCache<TValue> {
     }
   }
 
+  /**
+   * Charges the entry under `key` what its value measures now, as one whose size changed while
+   * kept, and evicts down to the cap if it grew; nothing when no entry is kept under it.
+   */
+  public recharge(key: string): void {
+    const entry = this.#entriesByKey.get(key);
+    if (entry === undefined) {
+      return;
+    }
+    const byteLength = measureUtf8ByteLength(key) + (this.#measureValueBytes?.(entry.value) ?? 0);
+    this.#retainedByteCount += byteLength - entry.byteLength;
+    entry.byteLength = byteLength;
+    this.#evictToCap();
+  }
+
   /** Forget everything. The cap survives — it is how the cache was built. */
   public clear(): void {
     const hearRemoved = this.#hearRemoved;
@@ -138,6 +154,6 @@ export class ByteBoundedCache<TValue> {
 /** One cached value, its charge, and how many holders keep it from eviction. */
 interface CacheEntry<TValue> {
   readonly value: TValue;
-  readonly byteLength: number;
+  byteLength: number;
   holdCount: number;
 }

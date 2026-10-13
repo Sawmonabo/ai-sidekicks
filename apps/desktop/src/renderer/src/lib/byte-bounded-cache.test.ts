@@ -58,4 +58,16 @@ describe("the byte-bounded cache", () => {
     cache.release("a".repeat(64));
     expect(cache.get("a".repeat(64))).toBeUndefined();
   });
+
+  it("charges a kept value what it holds now once it shrinks, leaving room for others", () => {
+    // A held tree packed after it was stored would otherwise keep its unpacked charge, and every
+    // other entry would give way to bytes no longer held.
+    const cache = new ByteBoundedCache<{ byteLength: number }>(16, (value) => value.byteLength);
+    const held = { byteLength: 14 };
+    cache.setHeld("held", held);
+    held.byteLength = 2;
+    cache.recharge("held");
+    cache.set("other", { byteLength: 4 });
+    expect(cache.get("other")).toBeDefined();
+  });
 });

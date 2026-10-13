@@ -11,12 +11,12 @@
 // holds its nodes, such as a block on screen: a long reply keeps its blocks' buffers, not their
 // nodes or text, and a block scrolled back into view reads its buffer again in the frame it mounts.
 // A held block too long for the page has its buffer packed at idle moments, unpacked only when it
-// is read. A document read once is parsed each time it is asked for. A block is parsed against the
-// definitions its body declares, which the trees here are given as a preamble and returned without.
-// A text whose last block is one long table is parsed in pieces and the table's rows read as they
-// are held (`pieced-table.ts`), its pieces' trees kept in a cache of their own; a text that
-// continues the last one parsed in pieces, as a streaming table grows, parses only the pieces it
-// changed.
+// is read, and is charged its packed bytes once packed. A document read once is parsed each time it
+// is asked for. A block is parsed against the definitions its body declares, which the trees here
+// are given as a preamble and returned without. A text whose last block is one long table is parsed
+// in pieces and the table's rows read as they are held (`pieced-table.ts`), its pieces' trees kept
+// in a cache of their own; a text that continues the last one parsed in pieces, as a streaming
+// table grows, parses only the pieces it changed.
 
 import type { Root, RootContent } from "mdast";
 
@@ -46,7 +46,7 @@ export type MarkdownParseOutcome =
       readonly root: Root;
       /**
        * What the tree keeps now, in bytes, read whole or not and packed or not; the cache charges
-       * what it kept when stored.
+       * what it kept when stored, and a packed tree again once it is packed.
        */
       readonly treeByteCount: number;
     }
@@ -191,7 +191,7 @@ export class MarkdownTrees {
     const isOverPageCap = blockSource.length > PAGE_PARSE_MAX_CHARACTERS;
     const kept = this.#settledBlocks.get(key);
     if (kept !== undefined && this.#settledBlocks.hold(key)) {
-      packOverPageCap(kept, isOverPageCap);
+      packOverPageCap(this.#settledBlocks, key, kept, isOverPageCap);
       listener(new KeptTreeView(kept, definitionPreamble, readSource));
       return letGoOf(this.#settledBlocks, { key, stopListening: NO_UNSUBSCRIBE });
     }
@@ -205,7 +205,7 @@ export class MarkdownTrees {
         if (!this.#settledBlocks.hold(key)) {
           this.#settledBlocks.setHeld(key, outcome);
         }
-        packOverPageCap(outcome, isOverPageCap);
+        packOverPageCap(this.#settledBlocks, key, outcome, isOverPageCap);
         hold.key = key;
       }
       listener(answerOf(outcome, definitionPreamble, readSource));
@@ -437,10 +437,20 @@ interface SettledBlockHold {
   stopListening: Unsubscribe;
 }
 
-/** Packs `kept`'s buffer while it is kept, when its block is too long for the page. */
-function packOverPageCap(kept: KeptTree, isOverPageCap: boolean): void {
+/**
+ * Packs `kept`'s buffer while it is kept under `key`, when its block is too long for the page, and
+ * charges `cache` its packed bytes once packed: the cache bounds what its trees hold, held or not.
+ */
+function packOverPageCap(
+  cache: ByteBoundedCache<KeptTree>,
+  key: string,
+  kept: KeptTree,
+  isOverPageCap: boolean,
+): void {
   if (isOverPageCap && kept instanceof BufferedTree) {
-    kept.queuePacking();
+    kept.queuePacking(() => {
+      cache.recharge(key);
+    });
   }
 }
 
@@ -491,9 +501,12 @@ class BufferedTree implements KeptTree {
     return this.#buffer.heldByteCount;
   }
 
-  /** Packs the buffer at the codec's idle moments; a second ask does nothing. */
-  public queuePacking(): void {
-    this.#buffer.queuePacking();
+  /**
+   * Packs the buffer at the codec's idle moments, `hearPacked` hearing when it is packed; a second
+   * ask does nothing.
+   */
+  public queuePacking(hearPacked: () => void): void {
+    this.#buffer.queuePacking(hearPacked);
   }
 
   /**
