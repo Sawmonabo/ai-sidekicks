@@ -8,12 +8,13 @@ use crate::approval::{
     ApprovalCategory, ApprovalRequestId, ApprovalScope, ApprovalText, InvalidationTrigger,
     RememberedRuleId, RememberedScope, ReviewerDenialId,
 };
+use crate::event::declared_variants::with_machine_content_descriptor;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
-use crate::internal::branded::{ClientUuid, UuidTextForm};
 use crate::run::id::RunId;
 use crate::runtime_node::id::NodeId;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
+use crate::wire::id::{ClientUuid, UuidTextForm};
 use crate::wire::record::JsonRecord;
 use crate::wire::text::FreeFormText;
 
@@ -161,34 +162,36 @@ pub struct ApprovalRuleRevokedPayload {
     pub approval_request_id: Option<ApprovalRequestId>,
 }
 
-/// The `approval.reviewer_denied` payload: a provider's own reviewer blocked an action. The
-/// daemon keeps the denial whole beside the row, which is what lets the override hold across a
-/// restart. `eventId` names the blocked call's own row, whose reason line reads
-/// `Blocked · <reason>`, or `Blocked` alone where the reviewer gave no reason. `overridable` is
-/// false where the provider lets no person overrule the block, and no `Allow once` is drawn.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ApprovalReviewerDeniedPayload {
-    /// The session.
-    pub session_id: SessionId,
-    /// The run.
-    pub run_id: RunId,
-    /// The agent whose action was blocked.
-    pub agent_id: UuidTextForm,
-    /// The block.
-    pub denial_id: ReviewerDenialId,
-    /// The blocked call's own row.
-    pub event_id: ApprovalText,
-    /// The reviewer's reason.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "ApprovalText")]
-    pub reason: Option<ApprovalText>,
-    /// Whether a person may overrule it.
-    pub overridable: bool,
+with_machine_content_descriptor! {
+    /// The `approval.reviewer_denied` payload: a provider's own reviewer blocked an action. The
+    /// daemon keeps the denial whole beside the row, which is what lets the override hold across a
+    /// restart. `eventId` names the blocked call's own row, whose reason line reads
+    /// `Blocked · <reason>`, or `Blocked` alone where the reviewer gave no reason. `overridable` is
+    /// false where the provider lets no person overrule the block, and no `Allow once` is drawn.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct ApprovalReviewerDeniedPayload {
+        /// The session.
+        pub session_id: SessionId,
+        /// The run.
+        pub run_id: RunId,
+        /// The agent whose action was blocked.
+        pub agent_id: UuidTextForm,
+        /// The block.
+        pub denial_id: ReviewerDenialId,
+        /// The blocked call's own row.
+        pub event_id: ApprovalText,
+        /// The reviewer's reason.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ApprovalText")]
+        pub reason: Option<ApprovalText>,
+        /// Whether a person may overrule it.
+        pub overridable: bool,
+    }
 }
 
 /// The `approval.denial_overridden` payload: the person allowed a blocked action once.

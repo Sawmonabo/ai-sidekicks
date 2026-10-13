@@ -7,6 +7,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::event::envelope::{
+    SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
+};
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::NullPayload;
@@ -14,7 +17,7 @@ use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
-use crate::wire::integer::{BoundedInt, SafeInt};
+use crate::wire::integer::{SafeInt, SafeSignedInt};
 use crate::wire::list::unique_by;
 use crate::wire::text::{BoundedText, branded_text};
 use crate::wire::{False, True};
@@ -225,9 +228,12 @@ pub enum CommandEnding {
 }
 
 /// The `command.ended` payload: one command's ending. `exitCode` is the process's own when it has
-/// one; `durationMs` is how long it ran, so the row reads its duration after a reload.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// one; `durationMs` is how long it ran, so the row reads its duration after a reload. It takes
+/// the epoch stamp.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+#[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
 pub struct CommandEndedPayload {
     /// The session.
     pub session_id: SessionId,
@@ -247,10 +253,29 @@ pub struct CommandEndedPayload {
     pub exit_code: Option<ExitCode>,
     /// How long it ran, in milliseconds.
     pub duration_ms: SafeInt<0>,
+    /// The superseded execution epoch the row was delivered for; comes with `sourcePosition`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SourceEpoch")]
+    #[garde(custom(|epoch: &Option<SourceEpoch>, (): &()| {
+        check_epoch_stamp(*epoch, self.source_position, true)
+    }))]
+    pub source_epoch: Option<SourceEpoch>,
+    /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SourcePosition")]
+    pub source_position: Option<SourcePosition>,
 }
 
 /// A process's exit code, any whole number a JavaScript number holds exactly.
-pub type ExitCode = BoundedInt<-9_007_199_254_740_991, 9_007_199_254_740_991>;
+pub type ExitCode = SafeSignedInt;
 
 methods! {
     /// The `command.*` methods.
