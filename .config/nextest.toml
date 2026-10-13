@@ -1,15 +1,5 @@
 # No profile retries a failed test: a retry hides a flaky one.
 
-# Every run leaves the daemon's endurance tests out; only the endurance profile runs them.
-[profile.default]
-default-filter = "not binary_id(sidekicks-daemon::endurance)"
-
 # Every failure is reported in one run.
 [profile.ci]
 fail-fast = false
-
-# The endurance tests one at a time, each ended after ten minutes.
-[profile.endurance]
-default-filter = "binary_id(sidekicks-daemon::endurance)"
-test-threads = 1
-slow-timeout = { period = "60s", terminate-after = 10 }
