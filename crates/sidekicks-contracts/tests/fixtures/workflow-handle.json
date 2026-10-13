@@ -1,0 +1,110 @@
+[
+  {
+    "id": "inputs/tool/0",
+    "handle": {
+      "mode": "inputs",
+      "type": "tool",
+      "index": 0,
+      "isTypeKnown": true
+    }
+  },
+  {
+    "id": "outputs/main/12",
+    "handle": {
+      "mode": "outputs",
+      "type": "main",
+      "index": 12,
+      "isTypeKnown": true
+    }
+  },
+  {
+    "id": "inputs/error/2",
+    "handle": {
+      "mode": "inputs",
+      "type": "main",
+      "index": 2,
+      "isTypeKnown": false
+    }
+  },
+  {
+    "id": "",
+    "handle": {
+      "mode": "outputs",
+      "type": "main",
+      "index": 0,
+      "isTypeKnown": false
+    }
+  },
+  {
+    "id": "outputs/main",
+    "handle": {
+      "mode": "outputs",
+      "type": "main",
+      "index": 0,
+      "isTypeKnown": false
+    }
+  },
+  {
+    "id": "outputs/main/0/1",
+    "handle": {
+      "mode": "outputs",
+      "type": "main",
+      "index": 0,
+      "isTypeKnown": false
+    }
+  },
+  {
+    "id": "sideways/main/0",
+    "handle": {
+      "mode": "outputs",
+      "type": "main",
+      "index": 0,
+      "isTypeKnown": false
+    }
+  },
+  {
+    "id": "outputs/main/-1",
+    "handle": {
+      "mode": "outputs",
+      "type": "main",
+      "index": 0,
+      "isTypeKnown": false
+    }
+  },
+  {
+    "id": "outputs/main/1.5",
+    "handle": {
+      "mode": "outputs",
+      "type": "main",
+      "index": 0,
+      "isTypeKnown": false
+    }
+  },
+  {
+    "id": "outputs/main/01",
+    "handle": {
+      "mode": "outputs",
+      "type": "main",
+      "index": 0,
+      "isTypeKnown": false
+    }
+  },
+  {
+    "id": "outputs/main/99999999999999999999",
+    "handle": {
+      "mode": "outputs",
+      "type": "main",
+      "index": 0,
+      "isTypeKnown": false
+    }
+  },
+  {
+    "id": "outputs//0",
+    "handle": {
+      "mode": "outputs",
+      "type": "main",
+      "index": 0,
+      "isTypeKnown": false
+    }
+  }
+]

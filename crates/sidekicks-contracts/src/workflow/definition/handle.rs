@@ -115,3 +115,34 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: &[],
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+
+    use super::{WorkflowHandle, parse_workflow_handle};
+
+    /// The table the client's handle suite reads too.
+    const CASES: &str = include_str!("../../../tests/fixtures/workflow-handle.json");
+
+    /// One case: a stored handle string and what it reads as.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct HandleCase {
+        id: String,
+        handle: WorkflowHandle,
+    }
+
+    #[test]
+    fn a_handle_string_reads_as_the_client_reads_it() {
+        let cases: Vec<HandleCase> = serde_json::from_str(CASES).expect("the cases read");
+        for case in cases {
+            assert_eq!(
+                parse_workflow_handle(&case.id),
+                case.handle,
+                "{:?}",
+                case.id
+            );
+        }
+    }
+}
