@@ -324,8 +324,11 @@ describe("a tail parsed after the parser's idle stop", () => {
 });
 
 describe("mending the volatile tail", () => {
-  it("leaves a fence open whose lines end in a carriage return alone, keeping its returns", () => {
+  it("leaves a fence open whose lines end in a carriage return, keeping its returns", () => {
     expect(mendVolatileTail("```ts\rconst a = 1;\rconst b")).toBe("```ts\rconst a = 1;\rconst b");
+    expect(mendVolatileTail("```ts\r\nconst a = 1;\r\nconst b")).toBe(
+      "```ts\r\nconst a = 1;\r\nconst b",
+    );
     expect(mendVolatileTail("Text with **bold\rand more")).toBe("Text with **bold\rand more**");
   });
 
