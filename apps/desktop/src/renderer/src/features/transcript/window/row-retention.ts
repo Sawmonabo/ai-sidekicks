@@ -6,11 +6,11 @@ import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vo
 
 /**
  * Whether two projections of one row are equal member for member, by identity. Compares the
- * candidate's own keys, not a list written here, so a member added to `ProjectedTranscriptRow` cannot
- * be forgotten and make a changed row compare equal (a stale card). `payload` is the delivered
- * envelope's own object, held by the store across revisions. A row whose envelope has no payload
- * gets a fresh `{}` each projection, so it takes a new identity and redraws; that is correct, and
- * it costs one row.
+ * candidate's own keys, not a list written here, so a member added to `ProjectedTranscriptRow`
+ * cannot be forgotten and make a changed row compare equal (a stale card). `payload` is the
+ * delivered envelope's own object, held by the store across revisions. A row whose envelope has no
+ * payload gets a fresh `{}` each projection, so it takes a new identity and redraws; that is
+ * correct, and it costs one row.
  */
 export function hasSameMembers(
   previous: ProjectedTranscriptRow,

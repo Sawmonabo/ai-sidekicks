@@ -1,6 +1,6 @@
 // Transcript-row builders for this subtree's co-located tests. Every row is a real
-// `ProjectedTranscriptRow` under the contract's discriminated union, so a test never asserts against a
-// shape the daemon cannot send.
+// `ProjectedTranscriptRow` under the contract's discriminated union, so a test never asserts
+// against a shape the daemon cannot send.
 
 import {
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,

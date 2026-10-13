@@ -9,8 +9,8 @@
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { ProjectedTranscriptRow } from "../entities/vocabulary.js";
 import { projectedPayload } from "./wire-payload.js";
-import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** One question record, as much of it as the row's payload carries. */
 export interface QuestionReading {

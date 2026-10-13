@@ -12,7 +12,9 @@ export type TruncatedRemainderDisposition =
   | { readonly kind: "none-recorded" }
   | { readonly kind: "claimable"; readonly remainderByteCount: number };
 
-/** What a truncated stored body carries: the prefix's UTF-8 size and the recorded original length. */
+/**
+ * What a truncated stored body carries: the prefix's UTF-8 size and the recorded original length.
+ */
 export interface TruncationNoticeProps {
   readonly storedByteLength: number;
   readonly preTruncationLength: number | undefined;
@@ -34,8 +36,9 @@ export function truncatedRemainderDisposition(
 }
 
 /**
- * "Truncated at N of M bytes", and what became of the rest. N is the stored prefix's own size, M is the recorded pre-truncation `contentLength`. With no recorded length the notice
- * does not invent a total: one computed from the prefix would be the prefix's own size twice.
+ * "Truncated at N of M bytes", and what became of the rest. N is the stored prefix's own size, M is
+ * the recorded pre-truncation `contentLength`. With no recorded length the notice does not invent a
+ * total: one computed from the prefix would be the prefix's own size twice.
  */
 export function TruncationNotice(props: TruncationNoticeProps): React.JSX.Element {
   const storedByteCount = props.storedByteLength;

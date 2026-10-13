@@ -1,10 +1,10 @@
 // The log-derived row projection: this window's event log read as `ProjectedTranscriptRow`s. Rows
 // carry what the log supports (id, sequence, cursor, `type`, `actor`, `payload` and a read row's
-// `content`, its body packed as the store holds it) and a run's turn position, epoch and superseded marker as the daemon stamped
-// them. The stamps are the daemon's because the window holds a share of the log: an ordinal counted
-// here would change with what was loaded. The id is the daemon's opaque one, carried not composed:
-// the hydrated-event read keys on {sessionId, eventId} and a row jump finds a row by it, so a
-// `session:sequence` key would resolve for no caller.
+// `content`, its body packed as the store holds it) and a run's turn position, epoch and superseded
+// marker as the daemon stamped them. The stamps are the daemon's because the window holds a share
+// of the log: an ordinal counted here would change with what was loaded. The id is the daemon's
+// opaque one, carried not composed: the hydrated-event read keys on {sessionId, eventId} and a row
+// jump finds a row by it, so a `session:sequence` key would resolve for no caller.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import {

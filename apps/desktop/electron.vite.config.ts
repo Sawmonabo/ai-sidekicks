@@ -382,9 +382,9 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ command, 
       build: {
         outDir: "out/renderer",
         sourcemap: "hidden",
-        // A font or a WebAssembly module is always its own file, though Vite inlines any asset under
-        // 4 KiB (one of KaTeX's faces is): the policy's `font-src 'self'` blocks a `data:` face,
-        // and a module compiled from a `data:` address is refused by the page's policy.
+        // A font or a WebAssembly module is always its own file, though Vite inlines any asset
+        // under 4 KiB (one of KaTeX's faces is): the policy's `font-src 'self'` blocks a `data:`
+        // face, and a module compiled from a `data:` address is refused by the page's policy.
         assetsInlineLimit: (filePath) =>
           FONT_EXTENSIONS.test(filePath) || filePath.endsWith(".wasm") ? false : undefined,
         // Minified, because electron-vite is not Vite here. Vite's production default is `minify:
