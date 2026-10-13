@@ -1,0 +1,79 @@
+[
+  {
+    "schema": "highlight#HighlightReadResponseSchema",
+    "side": "ajv",
+    "reason": "JSON Schema cannot state that spans come in triples; only the daemon's Rust type writes them",
+    "inputSha256": "75dd8faa3b5bca67a053f49cbcdd21b1b40cb0f9778c90fa723240cdf73ff50d",
+    "inputPreview": "{\"spans\":[0,0,1]}"
+  },
+  {
+    "schema": "highlight#HighlightReadResponseSchema",
+    "side": "ajv",
+    "reason": "JSON Schema cannot state that spans come in triples; only the daemon's Rust type writes them",
+    "inputSha256": "f5a2f53aaf28719fbc038af94441148ccf1e2b8e3723b0688c639d422ca7a64a",
+    "inputPreview": "{\"spans\":[0,1,1,1000,1,1,2000,1,1,3000,1,1,4000,1,1,5000,1,1,6000,1,1,7000,1,1,8000,1,1,9000,1,1,100…"
+  },
+  {
+    "schema": "highlight#HighlightReadResponseSchema",
+    "side": "ajv",
+    "reason": "JSON Schema cannot state that spans come in triples; only the daemon's Rust type writes them",
+    "inputSha256": "322a8995c9149303ae2143c175c877f2513571887fcf9ab6bf0345fe09c00b00",
+    "inputPreview": "{\"spans\":[0,1,11]}"
+  },
+  {
+    "schema": "highlight#HighlightReadResponseSchema",
+    "side": "ajv",
+    "reason": "JSON Schema cannot state that spans come in triples; only the daemon's Rust type writes them",
+    "inputSha256": "e68d1e59595d258e9f267a218cebe8e6dac88c57ef0a6ab53b4ad635ba592027",
+    "inputPreview": "{\"spans\":[0,3,1,2,2,0]}"
+  },
+  {
+    "schema": "highlight#HighlightReadResponseSchema",
+    "side": "ajv",
+    "reason": "JSON Schema cannot state that spans come in triples; only the daemon's Rust type writes them",
+    "inputSha256": "a22d61a68b1cd55f117bbd72ec99abd38e6df990aef5f04b889856811135909b",
+    "inputPreview": "{\"spans\":[0,3]}"
+  },
+  {
+    "schema": "highlight#HighlightReadResponseSchema",
+    "side": "ajv",
+    "reason": "JSON Schema cannot state that spans come in triples; only the daemon's Rust type writes them",
+    "inputSha256": "0e5d7752b2e6e2a25a4af7892a24f84bd0191d869edae2cc0b45d7fd903f4cf5",
+    "inputPreview": "{\"spans\":[0,5,0,4,2,1]}"
+  },
+  {
+    "schema": "highlight#HighlightReadResponseSchema",
+    "side": "ajv",
+    "reason": "JSON Schema cannot state that spans come in triples; only the daemon's Rust type writes them",
+    "inputSha256": "997137415aa49808211d500437a6c95fa2b04a6a7c1fe40617738e18b208bfdf",
+    "inputPreview": "{\"spans\":[0,5,11]}"
+  },
+  {
+    "schema": "highlight#HighlightReadResponseSchema",
+    "side": "ajv",
+    "reason": "JSON Schema cannot state that spans come in triples; only the daemon's Rust type writes them",
+    "inputSha256": "8e3e24ac0a80db00497888262e7063dcef34f375e044d37f21ab9f9264776895",
+    "inputPreview": "{\"spans\":[0,5]}"
+  },
+  {
+    "schema": "highlight#HighlightReadResponseSchema",
+    "side": "ajv",
+    "reason": "JSON Schema cannot state that spans come in triples; only the daemon's Rust type writes them",
+    "inputSha256": "b25a3015bc7ef27d3c4ad02f0f26a6a708aab6f93f91887f51547ad8d5818386",
+    "inputPreview": "{\"spans\":[10,2,0,0,2,1]}"
+  },
+  {
+    "schema": "highlight#HighlightReadResponseSchema",
+    "side": "ajv",
+    "reason": "JSON Schema cannot state that spans come in triples; only the daemon's Rust type writes them",
+    "inputSha256": "004c4e4fd14c16c700692bc3f779ae4e9315b6bd864a2aebe2b65c047d271aed",
+    "inputPreview": "{\"spans\":[1000000,1,0,1000002,1,0,1000004,1,0,1000006,1,0,1000008,1,0,1000010,1,0,1000012,1,0,100001…"
+  },
+  {
+    "schema": "agent/definition#AgentDefinitionCreateRequestSchema",
+    "side": "rust",
+    "reason": "serde_json refuses a lone surrogate that JavaScript strings hold; the TypeScript frame encoder sends every string through toWellFormed(), so the daemon never meets one",
+    "inputSha256": "b4a10aa716624bd4d35fdd221278660b32587168ce338093b1958b5a9ea785db",
+    "inputPreview": "{\"name\":\"reviewer\\ud800\",\"description\":\"Reviews code changes.\",\"icon\":\"magnifier\",\"accentHue\":\"hue-0…"
+  }
+]
