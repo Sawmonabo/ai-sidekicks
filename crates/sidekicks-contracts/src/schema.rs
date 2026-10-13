@@ -226,27 +226,22 @@ pub fn close_composite_objects(schema: &mut Value) {
     close(schema, false);
 }
 
-/// Why a schema cannot be cut to its shape.
+/// Why a schema cannot be cut to its shape: it holds a `$dynamicRef`, which marks members a kept
+/// `unevaluatedProperties` reads, so dropping it would refuse valid input.
 #[derive(Debug, thiserror::Error)]
-#[error(
-    "`{keyword}` marks members a kept `{reader}` reads, so dropping it would refuse valid input"
-)]
-pub struct ShapeError {
-    /// The keyword the shape would drop.
-    pub keyword: &'static str,
-    /// The kept keyword that reads what it marks.
-    pub reader: &'static str,
-}
+#[error("`$dynamicRef` marks members a kept `unevaluatedProperties` reads")]
+pub struct ShapeError;
 
 /// The shape of a closed schema, the part of it that says which members and which JSON kinds a
 /// message holds, which the receiving side checks before serde reads it; garde holds every other
 /// rule, the Ajv `$data` ones among them. It keeps the structural keywords and the `const` and
 /// `enum` that hold no `$data` reference, writes `oneOf` as `anyOf` and `if`/`then`/`else` as an
-/// `anyOf`, and drops the rest, so it only ever accepts more than the schema. Fails where a
-/// dropped keyword marks members a kept `unevaluatedProperties` or `unevaluatedItems` reads:
-/// `$dynamicRef` anywhere, or `contains` within an `unevaluatedItems`' reach.
+/// `anyOf`, and drops the rest, so it only ever accepts more than the schema. Fails where the
+/// schema holds a `$dynamicRef`, the one dropped keyword a kept `unevaluatedProperties` reads.
 pub fn received_shape(schema: &Value) -> Result<Value, ShapeError> {
-    refuse_dropped_markers(schema, schema, false, 0)?;
+    if holds_dynamic_reference(schema) {
+        return Err(ShapeError);
+    }
     Ok(shape(schema))
 }
 
@@ -325,67 +320,18 @@ fn holds_data_reference(value: &Value) -> bool {
     }
 }
 
-/// The deepest `$ref` chain followed; a schema's references never nest deeper than its types do.
-const REFERENCE_DEPTH_LIMIT: usize = 64;
-
-/// Walks `schema` for [`received_shape`]'s refusals: `$dynamicRef` anywhere, and `contains` where
-/// an enclosing `unevaluatedItems` reads it in place (`is_item_marked`), through `$ref`s into
-/// `root`'s `$defs`.
-fn refuse_dropped_markers(
-    root: &Value,
-    schema: &Value,
-    is_item_marked: bool,
-    depth: usize,
-) -> Result<(), ShapeError> {
+/// Whether `schema` or any subschema in it holds a `$dynamicRef`.
+fn holds_dynamic_reference(schema: &Value) -> bool {
     let Some(object) = schema.as_object() else {
-        return Ok(());
+        return false;
     };
-    if object.contains_key("$dynamicRef") {
-        return Err(ShapeError {
-            keyword: "$dynamicRef",
-            reader: "unevaluatedProperties",
-        });
-    }
-    let is_item_marked = is_item_marked || object.contains_key("unevaluatedItems");
-    if is_item_marked && object.contains_key("contains") {
-        return Err(ShapeError {
-            keyword: "contains",
-            reader: "unevaluatedItems",
-        });
-    }
-    // In-place applicators read the same value, so an enclosing `unevaluatedItems` reaches them.
-    let in_place = ["allOf", "anyOf", "oneOf"]
-        .iter()
-        .filter_map(|key| object.get(*key).and_then(Value::as_array))
-        .flatten()
-        .chain(
-            ["if", "then", "else", "not"]
-                .iter()
-                .filter_map(|key| object.get(*key)),
-        )
-        .chain(
-            object
-                .get("dependentSchemas")
-                .and_then(Value::as_object)
-                .into_iter()
-                .flat_map(serde_json::Map::values),
-        );
-    for subschema in in_place {
-        refuse_dropped_markers(root, subschema, is_item_marked, depth)?;
-    }
-    // `$defs` are walked once below; a reference is followed only to see what a reader reaches.
-    if is_item_marked
-        && let Some(target) = object
-            .get("$ref")
-            .and_then(Value::as_str)
-            .and_then(|reference| reference.strip_prefix("#/$defs/"))
-            .and_then(|name| root.get("$defs")?.get(name))
-        && depth < REFERENCE_DEPTH_LIMIT
-    {
-        refuse_dropped_markers(root, target, is_item_marked, depth + 1)?;
-    }
-    // Every other subschema reads another value: an enclosing `unevaluatedItems` stops there.
-    let other_values = ["properties", "patternProperties", "$defs"]
+    object.contains_key("$dynamicRef")
+        || [
+            "properties",
+            "patternProperties",
+            "$defs",
+            "dependentSchemas",
+        ]
         .iter()
         .filter_map(|key| object.get(*key).and_then(Value::as_object))
         .flat_map(serde_json::Map::values)
@@ -395,21 +341,21 @@ fn refuse_dropped_markers(
                 "unevaluatedProperties",
                 "items",
                 "contains",
+                "not",
+                "if",
+                "then",
+                "else",
             ]
             .iter()
             .filter_map(|key| object.get(*key)),
         )
         .chain(
-            object
-                .get("prefixItems")
-                .and_then(Value::as_array)
-                .into_iter()
+            ["allOf", "anyOf", "oneOf", "prefixItems"]
+                .iter()
+                .filter_map(|key| object.get(*key).and_then(Value::as_array))
                 .flatten(),
-        );
-    for subschema in other_values {
-        refuse_dropped_markers(root, subschema, false, depth)?;
-    }
-    Ok(())
+        )
+        .any(holds_dynamic_reference)
 }
 
 fn close(schema: &mut Value, is_inside_closed: bool) {
