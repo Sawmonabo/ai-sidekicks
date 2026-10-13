@@ -4,6 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::agent::definition::AgentId;
 use crate::approval::{
     ApprovalCategory, ApprovalRequestId, ApprovalScope, ApprovalText, InvalidationTrigger,
     RememberedRuleId, RememberedScope, ReviewerDenialId,
@@ -14,7 +15,7 @@ use crate::run::id::RunId;
 use crate::runtime_node::id::NodeId;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
-use crate::wire::id::{ClientUuid, UuidTextForm};
+use crate::wire::id::ClientUuid;
 use crate::wire::record::JsonRecord;
 use crate::wire::text::FreeFormText;
 
@@ -176,7 +177,7 @@ with_machine_content_descriptor! {
         /// The run.
         pub run_id: RunId,
         /// The agent whose action was blocked.
-        pub agent_id: UuidTextForm,
+        pub agent_id: AgentId,
         /// The block.
         pub denial_id: ReviewerDenialId,
         /// The blocked call's own row.
