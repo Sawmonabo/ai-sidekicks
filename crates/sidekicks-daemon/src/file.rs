@@ -1,1 +1,3 @@
-//! Files: the crash-safe write, publishing without replacing, and reading whether a path exists.
+//! Files: the crash-safe write and publishing without replacing.
+
+pub(crate) mod publish_without_replacing;
