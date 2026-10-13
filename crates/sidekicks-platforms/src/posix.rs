@@ -51,9 +51,10 @@ pub fn send_signal(pid: u32, signal: TerminalSignal) -> io::Result<()> {
     }
 }
 
-/// Ends the process group `pid` leads (a shell's program and every process it started) with
-/// `SIGKILL`. Fails with `InvalidInput` for a pid past `i32::MAX`, and with the system's error when
-/// the kill is refused; a group already gone answers [`ProcessTreeEnd::AlreadyGone`].
+/// Ends the process group `pid` leads with `SIGKILL`; no stop takes this route on macOS or Linux,
+/// and a job an interactive shell moved into a group of its own is outside it. Fails with
+/// `InvalidInput` for a pid past `i32::MAX`, and with the system's error when the kill is refused;
+/// a group already gone answers [`ProcessTreeEnd::AlreadyGone`].
 pub fn end_process_tree(
     _spawner: &Spawner,
     pid: u32,
