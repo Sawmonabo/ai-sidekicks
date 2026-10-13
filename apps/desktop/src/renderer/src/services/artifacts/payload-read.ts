@@ -39,7 +39,7 @@ export async function readArtifactPayload(
   read: ArtifactReadCall,
   artifactId: ArtifactId,
 ): Promise<DaemonReply<ArtifactPayloadRead>> {
-  const first = await read({ artifactId, payload: { kind: "whole" } });
+  const first = await read({ artifactId, payloadSelection: { kind: "whole" } });
   if (first.status === "refused") {
     return first;
   }
@@ -58,7 +58,7 @@ export async function readArtifactPayload(
     const windowReply = await read({
       artifactId,
       version: reply.versionNumber,
-      payload: { kind: "range", offset, length },
+      payloadSelection: { kind: "range", offset, length },
     });
     if (windowReply.status === "refused") {
       return windowReply;

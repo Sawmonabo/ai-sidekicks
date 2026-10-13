@@ -59,7 +59,7 @@ describe("artifact payload — fetching is an act", () => {
 
     expect(artifactRead).toHaveBeenCalledWith({
       artifactId: OPENED_ARTIFACT_ID,
-      payload: { kind: "whole" },
+      payloadSelection: { kind: "whole" },
     });
   });
 

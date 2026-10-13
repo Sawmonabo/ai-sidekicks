@@ -48,7 +48,7 @@ export class ArtifactRowActions {
   /**
    * Re-read one artifact's manifest, and put what came back on its row.
    *
-   * Asks for no bytes (`payload` of kind `none`). A re-read a refresh superseded is dropped. A
+   * Asks for no bytes (a `none` payload selection). A re-read a refresh superseded is dropped. A
    * second press while the row's re-read is on the wire throws; the section holds the control,
    * so only a caller that offers the act unheld reaches it. A rejected call propagates.
    */
@@ -60,7 +60,7 @@ export class ArtifactRowActions {
     const readRound = this.#publisher.scheduledReadClaim();
     this.#holdManifestRead(artifactId);
     try {
-      const answer = await this.#readArtifact({ artifactId, payload: { kind: "none" } });
+      const answer = await this.#readArtifact({ artifactId, payloadSelection: { kind: "none" } });
       // This row's round says whether the reply is still awaited; the scheduled read's round
       // says whether a refresh has since re-read the row.
       if (!manifestRound.isCurrent || !readRound.isCurrent) {

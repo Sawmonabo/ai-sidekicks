@@ -31,7 +31,7 @@ describe("reading an artifact's payload window by window", () => {
       status: "text",
       text: SPLIT_TEXT,
     });
-    expect(requests.map((request) => request.payload)).toStrictEqual([
+    expect(requests.map((request) => request.payloadSelection)).toStrictEqual([
       { kind: "whole" },
       { kind: "range", offset: 0, length: ARTIFACT_CHUNK_MAX_BYTES },
       { kind: "range", offset: ARTIFACT_CHUNK_MAX_BYTES, length: 3 },
@@ -64,10 +64,10 @@ function windowedRead(
   };
   return async (request) => {
     requests.push(request);
-    if (request.payload.kind !== "range") {
+    if (request.payloadSelection.kind !== "range") {
       return { status: "served", value: { ...facts, payloadHandle: "sha256:2b4c" } };
     }
-    const { offset, length } = request.payload;
+    const { offset, length } = request.payloadSelection;
     const window = bytes.subarray(offset, offset + length - shortBy);
     return {
       status: "served",

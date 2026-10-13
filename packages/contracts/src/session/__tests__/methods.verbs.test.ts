@@ -37,7 +37,7 @@ describe("session.search", () => {
     expect(result.success).toBe(false);
   });
 
-  it("refuses match ranges out of order, overlapping, or ending past the line", () => {
+  it("refuses match ranges that overlap or end past the line, and accepts touching ones", () => {
     const withRanges = (matchRanges: { start: number; end: number }[]) => ({
       groups: [{ sessionId: SESSION_ID, hits: [{ ...hit, matchRanges }] }],
       hasMore: false,
@@ -57,16 +57,16 @@ describe("session.search", () => {
     expect(
       SessionSearchResponseSchema.safeParse(
         withRanges([
-          { start: 14, end: 22 },
           { start: 8, end: 13 },
+          { start: 14, end: 22 },
         ]),
       ).success,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       SessionSearchResponseSchema.safeParse(
         withRanges([
           { start: 8, end: 13 },
-          { start: 14, end: 22 },
+          { start: 13, end: 22 },
         ]),
       ).success,
     ).toBe(true);

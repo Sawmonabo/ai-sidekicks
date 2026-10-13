@@ -91,23 +91,23 @@ const ArtifactPayloadSelectionSchema: z.ZodType<
 ]);
 
 /**
- * Asks for one artifact: its manifest, a handle, and as much of the payload as `payload` selects.
+ * Asks for one artifact: its manifest, a handle, and as much of the payload as `payloadSelection` picks.
  * `version` counts from 1, oldest first; without it the read answers the newest.
  */
 export interface ArtifactReadRequest {
   artifactId: ArtifactId;
   version?: number | undefined;
-  payload: ArtifactPayloadSelection;
+  payloadSelection: ArtifactPayloadSelection;
 }
 /**
- * Parses an {@link ArtifactReadRequest}; a version below 1, a window past the chunk bound, and a
- * payload selection of any other kind are refused.
+ * Parses an {@link ArtifactReadRequest}; a version below 1, a window past the chunk bound, a
+ * window on a `none` or `whole` selection, and any other `kind` are refused.
  */
 export const ArtifactReadRequestSchema: z.ZodType<ArtifactReadRequest, ArtifactReadRequest> = z
   .object({
     artifactId: ArtifactIdSchema,
     version: z.number().int().positive().optional(),
-    payload: ArtifactPayloadSelectionSchema,
+    payloadSelection: ArtifactPayloadSelectionSchema,
   })
   .strict();
 

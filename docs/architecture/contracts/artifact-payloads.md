@@ -71,7 +71,10 @@ interface ArtifactReadRequest {
   //   so its encoded bytes fit one message; a window reaching past the end answers the bytes up to the
   //   end. A payload too large for one message is read whole by asking for its windows in turn, so a
   //   text body, a picture or a PDF is never cut short.
-  payload: { kind: "none" } | { kind: "whole" } | { kind: "range"; offset: number; length: number };
+  payloadSelection:
+    | { kind: "none" }
+    | { kind: "whole" }
+    | { kind: "range"; offset: number; length: number };
 }
 // Two arms, never three independent optional members, because only these two replies can be acted on:
 // a handle to fetch the bytes with, or the bytes with their encoding. A read that did not ask for the

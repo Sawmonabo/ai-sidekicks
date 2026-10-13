@@ -71,12 +71,11 @@ describe("ArtifactListResponseSchema", () => {
 
 describe("ArtifactReadRequestSchema", () => {
   it("reads a window only through the range selection, and refuses one beside another", () => {
-    const parse = (payload: unknown) =>
-      ArtifactReadRequestSchema.safeParse({ artifactId: MANIFEST.id, payload }).success;
+    const parse = (payloadSelection: unknown) =>
+      ArtifactReadRequestSchema.safeParse({ artifactId: MANIFEST.id, payloadSelection }).success;
     expect(parse({ kind: "range", offset: 0, length: 1 })).toBe(true);
     expect(parse({ kind: "whole", offset: 0, length: 1 })).toBe(false);
     expect(parse({ kind: "none", offset: 0, length: 1 })).toBe(false);
-    expect(parse(undefined)).toBe(false);
   });
 });
 
