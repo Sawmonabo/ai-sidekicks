@@ -29,8 +29,14 @@ use crate::typescript::TypeScriptModule;
 /// Every contract module's TypeScript face, topic by topic: what the emit writes for the
 /// TypeScript generator.
 pub fn typescript_modules() -> impl Iterator<Item = &'static TypeScriptModule> {
-    [jsonrpc::TYPESCRIPT_MODULES, wire::TYPESCRIPT_MODULES]
-        .into_iter()
-        .flatten()
-        .copied()
+    [
+        event::TYPESCRIPT_MODULES,
+        jsonrpc::TYPESCRIPT_MODULES,
+        run::TYPESCRIPT_MODULES,
+        wire::TYPESCRIPT_MODULES,
+        workflow::TYPESCRIPT_MODULES,
+    ]
+    .into_iter()
+    .flatten()
+    .copied()
 }
