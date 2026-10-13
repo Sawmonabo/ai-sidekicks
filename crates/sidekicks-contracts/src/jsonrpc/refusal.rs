@@ -428,6 +428,9 @@ refusal_codes! {
     TransportInvalidProtocolVersion = "transport.invalid_protocol_version" (400);
     /// An inbound message passed the 4 MiB cap on its JSON or its attachments.
     TransportMessageTooLarge = "transport.message_too_large" (413);
+    /// A subscribe call found its connection already holding 10,000 open subscriptions; it may
+    /// be sent again once one closes.
+    TransportSubscriptionLimitReached = "transport.subscription_limit_reached" (429);
     /// The client cannot reach the daemon's OS-local socket or named pipe, or its link to the
     /// daemon is down.
     TransportUnavailable = "transport.unavailable" (503);
