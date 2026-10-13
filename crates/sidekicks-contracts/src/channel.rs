@@ -52,7 +52,6 @@ pub struct ChannelOffer {
     pub channel_version: SafeInt<1>,
     /// The profiles, in the device's order of preference.
     #[garde(dive)]
-    #[schemars(extend("uniqueItems" = true))]
     pub profiles: UniqueList<NoiseProtocolName, 1, CHANNEL_OFFER_MAX_PROFILES>,
 }
 

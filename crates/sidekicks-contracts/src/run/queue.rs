@@ -513,7 +513,6 @@ pub struct QueueReorderRequest {
     pub child_handle: Option<ChildHandle>,
     /// The new order, each waiting item once.
     #[garde(dive)]
-    #[schemars(extend("uniqueItems" = true))]
     pub queue_item_ids: UniqueList<QueueItemId, 1, { usize::MAX }>,
 }
 

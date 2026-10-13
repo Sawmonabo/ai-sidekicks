@@ -182,7 +182,6 @@ pub struct PtyReorderRequest {
     pub session_id: SessionId,
     /// The shells, in their new order.
     #[garde(dive)]
-    #[schemars(extend("uniqueItems" = true))]
     pub terminal_ids: UniqueList<TerminalId, 1, { usize::MAX }>,
 }
 

@@ -112,10 +112,10 @@ pub trait ListKey {
 }
 
 /// A list of `MIN..=MAX` items no two of which share their [`ListKey`]; its check reports each
-/// repeat at the repeat's index, as Zod's does.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+/// repeat at the repeat's index, as Zod's does. Its schema states `uniqueItems`, which refuses
+/// equal items only, so the key check stays garde's.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-#[schemars(transparent)]
 pub struct UniqueList<T, const MIN: usize, const MAX: usize>(BoundedVec<T, MIN, MAX>);
 
 impl<T, const MIN: usize, const MAX: usize> UniqueList<T, MIN, MAX> {
@@ -127,6 +127,22 @@ impl<T, const MIN: usize, const MAX: usize> UniqueList<T, MIN, MAX> {
     /// The items.
     pub fn as_slice(&self) -> &[T] {
         self.0.as_slice()
+    }
+}
+
+impl<T: JsonSchema, const MIN: usize, const MAX: usize> JsonSchema for UniqueList<T, MIN, MAX> {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        format!("UniqueList{MIN}To{MAX}Of{}", T::schema_name()).into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        let mut schema = BoundedVec::<T, MIN, MAX>::json_schema(generator);
+        schema.insert("uniqueItems".into(), true.into());
+        schema
     }
 }
 

@@ -86,7 +86,11 @@ impl JsonSchema for PreviewZoomFactor {
     }
 
     fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({ "type": "number", "enum": PREVIEW_ZOOM_FACTORS })
+        json_schema!({
+            "description": "A page's zoom: one of the preset factors and nothing between them.",
+            "type": "number",
+            "enum": PREVIEW_ZOOM_FACTORS,
+        })
     }
 }
 

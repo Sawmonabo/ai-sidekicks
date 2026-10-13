@@ -303,6 +303,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<inventory::McpToolOverride>(),
         Definition::read::<inventory::McpToolOverrideFacet>(),
         Definition::read::<inventory::McpToolReading>(),
+        Definition::read::<inventory::McpAnsweredInventoryEntry>(),
+        Definition::read::<inventory::McpStoreUnavailableInventoryEntry>(),
         Definition::read::<inventory::McpServerInventoryEntry>(),
         Definition::read::<requests::McpListRequest>().checked(),
         Definition::read::<requests::McpListResponse>().checked(),
