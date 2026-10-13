@@ -255,7 +255,7 @@ methods! {
             mutating: true,
             params: ReviewNoteAddRequest,
             result: ReviewNoteResponse,
-            refusals: [],
+            refusals: [SessionReviewNoteNotFound],
         },
         /// Replaces a held note's words.
         SessionReviewNoteUpdate = mutation "session.reviewNoteUpdate" {

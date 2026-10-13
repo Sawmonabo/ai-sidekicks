@@ -419,7 +419,11 @@ methods! {
             mutating: true,
             params: PtyOpenRequest,
             result: PtyOpenResponse,
-            refusals: [PtyChatUnsupported, PtyBackendUnavailable],
+            refusals: [
+                PtyChatUnsupported,
+                PtyBackendUnavailable,
+                SessionWorkingFolderUnavailable,
+            ],
         },
         /// Closes one shell.
         PtyClose = mutation "pty.close" {

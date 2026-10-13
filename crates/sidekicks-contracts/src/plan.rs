@@ -172,7 +172,7 @@ methods! {
             mutating: true,
             params: PlanResolveRequest,
             result: PlanResolveResponse,
-            refusals: [],
+            refusals: [SessionPermissionLevelUnavailable],
         },
     ];
 }

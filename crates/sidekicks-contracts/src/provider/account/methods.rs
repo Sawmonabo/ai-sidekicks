@@ -429,6 +429,7 @@ methods! {
                 ProvideraccountUnknown,
                 ProvideraccountNotAuthenticated,
                 ProvideraccountDefaultConflict,
+                ProvideraccountCredentialHomeUnavailable,
             ],
         },
         /// Checks an account's health now.
