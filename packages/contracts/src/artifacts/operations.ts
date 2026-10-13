@@ -63,49 +63,53 @@ export const ArtifactListResponseSchema: z.ZodType<ArtifactListResponse> = z
   .strict();
 
 /**
- * A window of a payload's bytes: `length` bytes from `offset`, counted from 0. One
- * window is at most {@link ARTIFACT_CHUNK_MAX_BYTES}, so its encoded bytes fit one
- * message. A window reaching past the payload's end answers the bytes up to the end.
+ * How much of the payload a read returns:
+ * - `none`: the handle only.
+ * - `whole`: the bytes when they fit in one message, and the handle otherwise, so a large
+ *   payload is then read whole window by window.
+ * - `range`: one window, `length` bytes from `offset`, counted from 0, at most
+ *   {@link ARTIFACT_CHUNK_MAX_BYTES} so its encoded bytes fit one message. A window reaching past
+ *   the payload's end answers the bytes up to the end.
  */
-export interface ArtifactByteRange {
-  offset: number;
-  length: number;
-}
+export type ArtifactPayloadSelection =
+  | { kind: "none" }
+  | { kind: "whole" }
+  | { kind: "range"; offset: number; length: number };
+const ArtifactPayloadSelectionSchema: z.ZodType<
+  ArtifactPayloadSelection,
+  ArtifactPayloadSelection
+> = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("none") }).strict(),
+  z.object({ kind: z.literal("whole") }).strict(),
+  z
+    .object({
+      kind: z.literal("range"),
+      offset: countSchema,
+      length: z.number().int().positive().max(ARTIFACT_CHUNK_MAX_BYTES),
+    })
+    .strict(),
+]);
 
 /**
- * Asks for one artifact: the manifest and a handle, or with `includePayload` the bytes when they
- * fit in one message, or with `includePayload` and `range` one window of them, so a large payload
- * is read whole window by window. `version` counts from 1, oldest first; without it the read
- * answers the newest.
+ * Asks for one artifact: its manifest, a handle, and as much of the payload as `payload` selects.
+ * `version` counts from 1, oldest first; without it the read answers the newest.
  */
 export interface ArtifactReadRequest {
   artifactId: ArtifactId;
   version?: number | undefined;
-  includePayload?: boolean | undefined;
-  range?: ArtifactByteRange | undefined;
+  payload: ArtifactPayloadSelection;
 }
 /**
- * Parses an {@link ArtifactReadRequest}; a version below 1, a window past the chunk
- * bound, and a window on a read that does not ask for the payload are refused.
+ * Parses an {@link ArtifactReadRequest}; a version below 1, a window past the chunk bound, and a
+ * payload selection of any other kind are refused.
  */
 export const ArtifactReadRequestSchema: z.ZodType<ArtifactReadRequest, ArtifactReadRequest> = z
   .object({
     artifactId: ArtifactIdSchema,
     version: z.number().int().positive().optional(),
-    includePayload: z.boolean().optional(),
-    range: z
-      .object({
-        offset: countSchema,
-        length: z.number().int().positive().max(ARTIFACT_CHUNK_MAX_BYTES),
-      })
-      .strict()
-      .optional(),
+    payload: ArtifactPayloadSelectionSchema,
   })
-  .strict()
-  .refine((request) => request.range === undefined || request.includePayload === true, {
-    message: "A byte range reads the payload, so it asks for it with includePayload.",
-    path: ["range"],
-  });
+  .strict();
 
 /** A picture's width and height in pixels, as the store measured them at ingest. */
 export interface ArtifactPictureSize {

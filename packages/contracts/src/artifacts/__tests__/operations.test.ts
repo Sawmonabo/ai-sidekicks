@@ -70,20 +70,13 @@ describe("ArtifactListResponseSchema", () => {
 });
 
 describe("ArtifactReadRequestSchema", () => {
-  it("refuses a window on a read that does not ask for the payload", () => {
-    const range = { offset: 0, length: 1 };
-    expect(
-      ArtifactReadRequestSchema.safeParse({ artifactId: MANIFEST.id, includePayload: true, range })
-        .success,
-    ).toBe(true);
-    expect(
-      ArtifactReadRequestSchema.safeParse({ artifactId: MANIFEST.id, includePayload: false, range })
-        .success,
-    ).toBe(false);
-    // An absent `includePayload` returns the handle only, so a window beside it is refused too.
-    expect(ArtifactReadRequestSchema.safeParse({ artifactId: MANIFEST.id, range }).success).toBe(
-      false,
-    );
+  it("reads a window only through the range selection, and refuses one beside another", () => {
+    const parse = (payload: unknown) =>
+      ArtifactReadRequestSchema.safeParse({ artifactId: MANIFEST.id, payload }).success;
+    expect(parse({ kind: "range", offset: 0, length: 1 })).toBe(true);
+    expect(parse({ kind: "whole", offset: 0, length: 1 })).toBe(false);
+    expect(parse({ kind: "none", offset: 0, length: 1 })).toBe(false);
+    expect(parse(undefined)).toBe(false);
   });
 });
 
