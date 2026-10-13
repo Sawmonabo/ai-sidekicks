@@ -14,18 +14,26 @@ const MODULE_ROOT = fileURLToPath(new URL("../", import.meta.url));
 /** The longest stretch of an input a failure quotes. */
 const QUOTED_INPUT_LENGTH = 300;
 
-interface CorpusEntry {
+/**
+ * An input as the corpus writes it: the JSON value, or, where that value holds a lone surrogate,
+ * which serde_json refuses to read, its JSON text.
+ */
+type CorpusInput = { readonly input: unknown } | { readonly inputText: string };
+
+type CorpusEntry = CorpusInput & {
   readonly schema: string;
   readonly accepted: boolean;
   readonly note?: string;
-  readonly input: unknown;
-}
+};
 
-interface ExpectedDifference {
+type ExpectedDifference = CorpusInput & {
   readonly schema: string;
   readonly side: "ajv" | "rust";
   readonly reason: string;
-  readonly input: unknown;
+};
+
+function inputOf(entry: CorpusInput): unknown {
+  return "inputText" in entry ? JSON.parse(entry.inputText) : entry.input;
 }
 
 /** JSON with every object's keys sorted, so two equal inputs compare equal as text. */
@@ -74,7 +82,10 @@ it("gives Zod's verdict on every parity corpus input", async () => {
   const unmatched = new Map(
     expected
       .filter((difference) => difference.side === "ajv")
-      .map((difference) => [`${difference.schema} ${canonicalJson(difference.input)}`, difference]),
+      .map((difference) => [
+        `${difference.schema} ${canonicalJson(inputOf(difference))}`,
+        difference,
+      ]),
   );
   const entriesByModule = new Map<string, CorpusEntry[]>();
   for (const file of corpusFiles(CORPUS_ROOT)) {
@@ -106,14 +117,15 @@ it("gives Zod's verdict on every parity corpus input", async () => {
         continue;
       }
       checkedInputs++;
-      if ((check as (value: unknown) => boolean)(entry.input) === entry.accepted) {
+      const input = inputOf(entry);
+      if ((check as (value: unknown) => boolean)(input) === entry.accepted) {
         continue;
       }
-      const differenceKey = `${key} ${canonicalJson(entry.input)}`;
+      const differenceKey = `${key} ${canonicalJson(input)}`;
       if (!unmatched.delete(differenceKey)) {
         faults.push(
           `${key}: Zod ${entry.accepted ? "accepts" : "refuses"} and the check does not: ` +
-            JSON.stringify(entry.input).slice(0, QUOTED_INPUT_LENGTH),
+            JSON.stringify(input).slice(0, QUOTED_INPUT_LENGTH),
         );
       }
     }
