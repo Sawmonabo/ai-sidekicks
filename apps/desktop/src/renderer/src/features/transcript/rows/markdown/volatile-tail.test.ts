@@ -9,19 +9,20 @@ import type { Root } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
-import {
-  footnoteDefinitionPreamble,
-  MarkdownTrees,
-} from "#renderer/components/Markdown/parse/trees.js";
+import { definitionPreambleOf } from "#renderer/components/Markdown/parse/definition-preamble.js";
+import { appPageParser } from "#renderer/components/Markdown/parse/page-parser.js";
+import { MarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
 import { InThreadMarkdownWorkers } from "#renderer/components/Markdown/worker/connection.test-support.js";
 import {
   MARKDOWN_WORKER_IDLE_STOP_MS,
   MarkdownWorkerConnection,
 } from "#renderer/components/Markdown/worker/connection.js";
-import { mendVolatileTail, VolatileTailParser } from "./volatile-tail.js";
+import { appTextCompression } from "#renderer/lib/text/compression.js";
+import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
+import { mendVolatileTail, VolatileTailParser, type VolatileTailView } from "./volatile-tail.js";
 
 /** A tail parser on its own trees, and the stand-in workers those trees parse with. */
 function tailParser(): {
@@ -38,7 +39,12 @@ function standInTrees(): {
   readonly workers: InThreadMarkdownWorkers;
 } {
   const workers = new InThreadMarkdownWorkers();
-  return { trees: new MarkdownTrees(new MarkdownWorkerConnection(workers.start, window)), workers };
+  return {
+    trees: new MarkdownTrees(
+      new MarkdownWorkerConnection(workers.start, window, appPageParser, appTextCompression),
+    ),
+    workers,
+  };
 }
 
 /** The tree the tail shows after `prefix` arrives, and the tail it says that tree answers. */
@@ -46,14 +52,10 @@ function shownAfter(
   parser: VolatileTailParser,
   prefix: string,
   preamble: string,
-):
-  | { readonly root: Root; readonly tailSource: string; readonly definitionPreamble: string }
-  | undefined {
+): Extract<VolatileTailView, { readonly status: "parsed" }> | undefined {
   parser.update(prefix, preamble);
   const view = parser.read();
-  return view?.status === "parsed"
-    ? { root: view.root, tailSource: view.tailSource, definitionPreamble: view.definitionPreamble }
-    : undefined;
+  return view?.status === "parsed" ? view : undefined;
 }
 
 /**
@@ -127,10 +129,14 @@ const TAIL_CASES = TRICKY_TAILS.flatMap((tail) =>
     { against: "no definitions", preamble: "" },
     {
       against: "the body's definitions",
-      preamble: footnoteDefinitionPreamble(new Set(["1", "elsewhere"])),
+      preamble: definitionPreambleOf(new Set(["1", "elsewhere"]), []),
     },
   ].map((definitions) => ({ ...definitions, tail, opening: tail.slice(0, 24) })),
 );
+
+// Every slice has time, so the trees the stand-in workers answer with are handed over in the task
+// they land in, and a tail reads its tree right after it is asked, on any machine.
+beforeEach(giveEverySliceTime);
 
 describe("a streaming tail parsed frame after frame", () => {
   it.each(TAIL_CASES)(
@@ -156,9 +162,11 @@ describe("a streaming tail parsed frame after frame", () => {
             }
           }
           expect(shownAfter(parser, prefix, preamble), label).toStrictEqual({
+            status: "parsed",
             root: wholeParse,
             tailSource: prefix,
             definitionPreamble: preamble,
+            settledBlockEnds: expect.any(Array),
           });
         }
       }
@@ -169,7 +177,7 @@ describe("a streaming tail parsed frame after frame", () => {
     // A definition settling elsewhere in the body changes what the tail's reference means.
     const { parser } = tailParser();
     parser.update("The tail cites[^1] a note and", "");
-    const preamble = footnoteDefinitionPreamble(new Set(["1"]));
+    const preamble = definitionPreambleOf(new Set(["1"]), []);
     const prefix = "The tail cites[^1] a note and more";
     expect(shownAfter(parser, prefix, preamble)?.root).toStrictEqual(
       await parseTree(mendVolatileTail(prefix), preamble),
@@ -180,7 +188,7 @@ describe("a streaming tail parsed frame after frame", () => {
     // The definitions change and change back: the ask for the middle ones lands last.
     const { parser, workers } = tailParser();
     const text = "The tail cites[^1] a note";
-    const preamble = footnoteDefinitionPreamble(new Set(["1"]));
+    const preamble = definitionPreambleOf(new Set(["1"]), []);
     parser.update(text, preamble);
     workers.latest().hold();
     parser.update(text, "");
@@ -191,6 +199,7 @@ describe("a streaming tail parsed frame after frame", () => {
       root: await parseTree(mendVolatileTail(text), preamble),
       tailSource: text,
       definitionPreamble: preamble,
+      settledBlockEnds: [],
     });
   });
 
@@ -248,7 +257,7 @@ describe("a streaming tail parsed frame after frame", () => {
     workers.latest().hold();
     // A closing star could pair with an earlier one, so this frame needs a whole parse.
     parser.update("Some words *with emphasis", "");
-    expect(parser.read()).toStrictEqual({ status: "parsed", ...first });
+    expect(parser.read()).toStrictEqual(first);
 
     // One parse in flight at a time: the newest tail waits for it, never a second request.
     parser.update("Some words *with emphasis* done", "");
@@ -259,6 +268,7 @@ describe("a streaming tail parsed frame after frame", () => {
       root: await parseTree(mendVolatileTail("Some words *with emphasis* done")),
       tailSource: "Some words *with emphasis* done",
       definitionPreamble: "",
+      settledBlockEnds: [],
     });
   });
 });
@@ -275,7 +285,7 @@ describe("a tail parsed after the parser's idle stop", () => {
       // The next worker keeps the text in its queue until it has loaded the parser.
       workers.loadSlowly();
       parser.update("Some words *with emphasis", "");
-      expect(parser.read()).toStrictEqual({ status: "parsed", ...first });
+      expect(parser.read()).toStrictEqual(first);
       expect(workers.started).toHaveLength(2);
       workers.latest().release([0]);
       expect(parser.read()).toStrictEqual({
@@ -283,6 +293,7 @@ describe("a tail parsed after the parser's idle stop", () => {
         root: await parseTree(mendVolatileTail("Some words *with emphasis")),
         tailSource: "Some words *with emphasis",
         definitionPreamble: "",
+        settledBlockEnds: [],
       });
     } finally {
       vi.useRealTimers();

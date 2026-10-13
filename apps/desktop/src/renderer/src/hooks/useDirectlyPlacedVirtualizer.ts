@@ -3,7 +3,11 @@
 // page directly, and the list renders again only when the items it draws change. A move that keeps
 // the same items drawn (a scroll inside the drawn band, an item measuring, the offset a hold
 // writes) costs no render. A list with no container attached is written nothing, and renders only
-// for a change of the items it draws.
+// for a change of the items it draws. The changes of every item one pass resizes are taken once,
+// after the pass, before the frame paints: each lays out every item after the one resized again,
+// which for a list of tens of thousands of items costs milliseconds. An item resized in the pass is
+// handed its place as the pass began. A resize the library holds by writing the offset is taken at
+// once, so its items move in the same frame as that write.
 
 import { Virtualizer, type VirtualItem, type VirtualizerOptions } from "@tanstack/virtual-core";
 import { useInsertionEffect, useLayoutEffect, useReducer, useState } from "react";
@@ -21,7 +25,7 @@ export type DirectlyPlacedVirtualizer<
  * A virtualizer over `options` whose items are placed by a transform written to each drawn item,
  * which renders the calling component again only when the indexes it draws, or whether it is
  * scrolling, change. An `onChange` in `options` is called after each change, as the library calls
- * it.
+ * it, except that the changes of the items one pass resizes are told once, after the pass.
  */
 export function useDirectlyPlacedVirtualizer<
   TScrollElement extends Element,
@@ -34,11 +38,13 @@ export function useDirectlyPlacedVirtualizer<
   const resolvedOptions: VirtualizerOptions<TScrollElement, TItemElement> = {
     ...options,
     onChange: (instance, sync) => {
-      placement.placeAll(instance);
-      if (placement.drawsAnew(instance)) {
-        redraw();
-      }
-      options.onChange?.(instance, sync);
+      placement.takeChange(sync, () => {
+        placement.placeAll(instance);
+        if (placement.drawsAnew(instance)) {
+          redraw();
+        }
+        options.onChange?.(instance, sync);
+      });
     },
   };
   const [virtualizer] = useState(() => placement.bind(new Virtualizer(resolvedOptions)));
@@ -67,14 +73,29 @@ class DirectPlacement<TScrollElement extends Element, TItemElement extends HTMLE
   /** The offset last written to each item, keyed by element so a remounted item is written anew. */
   #offsetsPx = new WeakMap<Element, number>();
   #drawn: { readonly indexes: readonly number[]; readonly isScrolling: boolean } | undefined;
+  /** How deep the resizes under way are nested: the library tells a resize's change inside it. */
+  #resizeDepth = 0;
+  /** The change last told during a pass of resizes, taken once the pass ends. */
+  #pendingChange: (() => void) | undefined;
 
   /**
-   * Gives `virtualizer` the container ref, and has its item ref place each item it measures, which
-   * moves nothing else when the measured size equals the one laid out.
+   * Gives `virtualizer` the container ref, has its item ref place each item it measures, which
+   * moves nothing else when the measured size equals the one laid out, and marks its resizes so
+   * their changes are taken once per pass.
    */
   public bind(
     virtualizer: Virtualizer<TScrollElement, TItemElement>,
   ): DirectlyPlacedVirtualizer<TScrollElement, TItemElement> {
+    // The library resizes through its own member, so every resize, observed or asked, passes here.
+    const resizeItem = virtualizer.resizeItem;
+    virtualizer.resizeItem = (index, size) => {
+      this.#resizeDepth += 1;
+      try {
+        resizeItem(index, size);
+      } finally {
+        this.#resizeDepth -= 1;
+      }
+    };
     const measureElement = virtualizer.measureElement;
     virtualizer.measureElement = (element) => {
       measureElement(element);
@@ -94,6 +115,28 @@ class DirectPlacement<TScrollElement extends Element, TItemElement extends HTMLE
         }
       },
     });
+  }
+
+  /**
+   * Takes a change the library told: at once, unless a resize told it and wrote no offset, which
+   * waits for the end of the pass with every other such change, so the items are laid out once.
+   * A change taken at once takes any waiting with it.
+   */
+  public takeChange(isOffsetWritten: boolean, take: () => void): void {
+    if (this.#resizeDepth === 0 || isOffsetWritten) {
+      this.#pendingChange = undefined;
+      take();
+      return;
+    }
+    const isQueued = this.#pendingChange !== undefined;
+    this.#pendingChange = take;
+    if (!isQueued) {
+      queueMicrotask(() => {
+        const pending = this.#pendingChange;
+        this.#pendingChange = undefined;
+        pending?.();
+      });
+    }
   }
 
   /**

@@ -10,6 +10,7 @@ import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/co
 import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 import { TranscriptReadResponseSchema } from "@ai-sidekicks/contracts/transcript/operations";
 
+import { PackedText } from "#renderer/lib/text/packed.js";
 import { readTranscriptPage } from "./page.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5" as SessionId;
@@ -48,19 +49,26 @@ describe("readTranscriptPage — one window, read as the store's own log", () =>
 
     const page = readTranscriptPage(response);
 
-    expect(page.events).toStrictEqual([
-      {
-        id: "event-7",
-        sessionId: SESSION_ID,
-        sequence: 7,
-        cursor: "cursor-at-7",
-        kind: "session.created",
-        occurredAt: "2026-01-01T11:00:00.000Z",
-        actorId: "user-a",
-        payload: { note: 7 },
-        content: { status: "available", body: "Done.", contentLength: 5 },
-      },
-    ]);
+    expect(page.events).toHaveLength(1);
+    const { content, ...members } = page.events[0] ?? expect.fail("the window holds no event");
+    expect(members).toStrictEqual({
+      id: "event-7",
+      sessionId: SESSION_ID,
+      sequence: 7,
+      cursor: "cursor-at-7",
+      kind: "session.created",
+      occurredAt: "2026-01-01T11:00:00.000Z",
+      actorId: "user-a",
+      payload: { note: 7 },
+    });
+    // The body is admitted packed, never kept as the string the wire brought.
+    const body = content?.status === "available" ? content.body : expect.fail("no body");
+    expect(body).toBeInstanceOf(PackedText);
+    expect({ ...content, body: body.slice(0) }).toStrictEqual({
+      status: "available",
+      body: "Done.",
+      contentLength: 5,
+    });
   });
 
   it("takes the producer's own `hasMore` as the verdict, never the cursor's presence", () => {

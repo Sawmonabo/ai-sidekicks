@@ -5,7 +5,7 @@
 
 import type { Root, TableRow } from "mdast";
 
-import { decodeTextPieces, encodeTextPieces } from "#renderer/lib/text-pieces.js";
+import { decodeTextPieces, encodeTextPieces } from "#renderer/lib/text/pieces.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { drawnTreeMarkdown, drawnTreeText } from "../drawn-text.js";
 import { markdownTreeToHtml } from "../html.js";

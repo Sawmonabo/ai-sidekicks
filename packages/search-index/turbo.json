@@ -3,14 +3,16 @@
   "extends": ["//"],
   "tasks": {
     // The build compiles the Rust crate into the addon for this platform and writes its loader
-    // and declarations; the workspace's Cargo files pin the crates it compiles.
+    // and declarations; the workspace's Cargo files pin the crates it compiles, and its toolchain
+    // file the Rust that compiles them.
     "build": {
       "inputs": [
         "$TURBO_EXTENDS$",
         "Cargo.toml",
         "build.rs",
         "$TURBO_ROOT$/Cargo.toml",
-        "$TURBO_ROOT$/Cargo.lock"
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/rust-toolchain.toml"
       ],
       "outputs": ["index.js", "index.d.ts", "*.node"],
       // A task's hash leaves out the operating system and processor the addon is built for; CI's

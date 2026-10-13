@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
 import { MarkdownNodes } from "#renderer/components/Markdown/MarkdownNodes.js";
-import { parseMarkdownTree } from "#renderer/components/Markdown/worker/serialized-tree.js";
+import { parseMarkdownTree } from "#renderer/components/Markdown/parse/serialized-tree.js";
 import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
 import { inThreadMarkdownWorker } from "#renderer/components/Markdown/worker/connection.test-support.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
@@ -39,6 +39,7 @@ import {
 import { FootnoteRegistry } from "../rows/markdown/footnotes/registry.js";
 import { characterOffsetWithin } from "../viewport/selection/preservation.js";
 import { ConversationCopyBuild, type ConversationCopyRows } from "./conversation-copy.js";
+import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { piecesJoinedOf, windowCuttingEveryPart } from "./conversation-copy.test-support.js";
 import { COPY_FLAVOR_ATTRIBUTE } from "./conversation-selection.js";
@@ -179,6 +180,8 @@ function conversationDrawing(markdown: string, flavor: CopyFlavor): HTMLElement 
 
 describe("a selection across the conversation", () => {
   it("copies each row's lines as drawn, and no control's label", async () => {
+    // Every slice has time, so each body's landed cut is recorded before the rows mount.
+    giveEverySliceTime();
     const asked = sampleUserMessageRow({ id: "asks", message: "line one\n\nline two" });
     const askedKind = classifyTranscriptRow(asked);
     if (askedKind === undefined) {
@@ -282,6 +285,8 @@ describe("a selection across the conversation", () => {
   });
 
   it("rebuilds a reply's code block as its fence, with no word from the block's corner", async () => {
+    // Every slice has time, so the reply's landed cut is recorded before it mounts.
+    giveEverySliceTime();
     const reply = sampleRunRow({
       id: "replies",
       type: "assistant.message",

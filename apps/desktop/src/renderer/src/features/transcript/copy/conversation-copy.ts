@@ -10,15 +10,16 @@
 // is handed over once, both flavors together.
 // A copy built in slices is the same bytes as one built at once.
 
-import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 import { toHtml } from "hast-util-to-html";
 
 import { type MarkdownWorkerConnection } from "#renderer/components/Markdown/worker/connection.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
-import { joinIntoPieces, piecesOf, type PiecedText } from "#renderer/lib/text-pieces.js";
+import { joinIntoPieces, piecesOf, type PiecedText } from "#renderer/lib/text/pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
 import type { PiecedTextClipboardContent } from "#renderer/services/platform/clipboard/late-copy.js";
 import { type DrawnWindowSource } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
+import type { ProjectedFullBody } from "#renderer/store/session/entities/vocabulary.js";
 import { type FullBodyReads } from "../rows/full-body-reads.js";
 import { type RowSelection } from "../viewport/selection/record.js";
 import {
@@ -28,8 +29,8 @@ import {
   type SelectedPart,
 } from "./conversation-selection.js";
 
-/** A large body a copy read in full, by its row's id; `undefined` for a body not read. */
-export type FullBodyOf = (rowId: string) => HydratedSessionEventContent | undefined;
+/** A large body a copy read in full, held packed, by its row's id; `undefined` for one not read. */
+export type FullBodyOf = (rowId: string) => ProjectedFullBody | undefined;
 
 /** The rows a copy runs across, and where each one's text is read. */
 export interface ConversationCopyRows {
@@ -93,7 +94,7 @@ export class ConversationCopyBuild {
   /** A long plain part's formatted flavor while it is made a piece at a time. */
   #plainHtml: PlainHtmlMaking | undefined;
   /** The large body the next row reads, once it is read in full. */
-  #fullBody: { readonly rowId: string; readonly content: HydratedSessionEventContent } | undefined;
+  #fullBody: { readonly rowId: string; readonly content: ProjectedFullBody } | undefined;
   /** The body text of the next row, an end row reaching a large body, once it is read. */
   #bodyText: { readonly rowKey: string; readonly text: string | undefined } | undefined;
   /** What the build waits on before it goes on, while it waits. */
@@ -370,7 +371,7 @@ export class ConversationCopyBuild {
       if (reply.status === "refused") {
         throw new RefusalError(reply.refusal);
       }
-      this.#fullBody = { rowId: awaited.rowId, content: reply.value };
+      this.#fullBody = { rowId: awaited.rowId, content: projectedContentOf(reply.value) };
       this.#isLong = true;
     }
     this.#awaited = undefined;

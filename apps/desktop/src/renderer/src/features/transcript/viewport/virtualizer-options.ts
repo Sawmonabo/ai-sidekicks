@@ -380,7 +380,7 @@ export class VirtualizerOptions {
     bandIndexes.sort((left, right) => left - right);
     const drawnIndexes = bandIndexes.filter(
       (index) =>
-        this.#drawnRowKeys.has(this.getItemKey(index)) || this.#rowReach.isOutputParsedAt(index),
+        this.#drawnRowKeys.has(this.getItemKey(index)) || this.#rowReach.isRowParsedAt(index),
     );
     if (drawnIndexes.length < bandIndexes.length) {
       this.#rowReach.awaitRowWork();

@@ -1,8 +1,9 @@
 // The third-party notices a packaged app carries, written at build time: every npm package a
 // bundle holds, with its license and notice text as the package ships them, and, for a package that
 // itself carries other projects' compiled code, the notices and license files it ships for them.
-// Each bundle writes its own file under `out/third-party-notices/`, which electron-builder copies
-// beside the app's archive.
+// The workspace's own packages are the app's own code and are left out, unless one carries other
+// projects' compiled code. Each bundle writes its own file under `out/third-party-notices/`, which
+// electron-builder copies beside the app's archive.
 
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -24,19 +25,23 @@ const THIRD_PARTY_NOTICES_DIRECTORY = fileURLToPath(
 /** The desktop package's own dependencies, where a direct dependency's files are found. */
 const PACKAGE_MODULES_DIRECTORY = fileURLToPath(new URL("../node_modules/", import.meta.url));
 
+/** The scope of the workspace's own packages, the app's own code rather than a third party's. */
+const WORKSPACE_PACKAGE_SCOPE = "@ai-sidekicks/";
+
 /** A package carrying other projects' code with its own notices for them. */
 interface BundledNoticeSource {
-  /** The notices file at the package's root. */
+  /** The notices file, by its path in the package. */
   readonly noticesFile: string;
-  /** The folder holding each carried project's license files. */
+  /** The folder holding each carried project's license files, by its path in the package. */
   readonly licensesDirectory: string;
-  /** What the package's license obliges a binary to say about where its source is. */
-  readonly sourceOffer: (version: string) => string;
+  /** What a carried project's license obliges a binary to say about where its source is, if any. */
+  readonly sourceOffer?: (version: string) => string;
 }
 
 /**
  * merman ships its compiled ELK, a translation of Eclipse ELK, under EPL-2.0, which asks a program
- * distributed other than as source to say where the source is.
+ * distributed other than as source to say where the source is. The compression module carries
+ * compiled Rust crates, whose licenses ask only that their notices travel with it.
  */
 const BUNDLED_NOTICE_SOURCES: Readonly<Record<string, BundledNoticeSource>> = {
   "@mermanjs/web-render": {
@@ -46,6 +51,10 @@ const BUNDLED_NOTICE_SOURCES: Readonly<Record<string, BundledNoticeSource>> = {
       `The compiled ELK in this package (merman-elk-layered, a Rust translation of Eclipse ELK) ` +
       `is distributed under the Eclipse Public License 2.0 (EPL-2.0). Its source code is ` +
       `available at https://github.com/Latias94/merman/tree/v${version}.`,
+  },
+  "@ai-sidekicks/compression": {
+    noticesFile: "dist/THIRD_PARTY_NOTICES.md",
+    licensesDirectory: "dist/THIRD_PARTY_LICENSES",
   },
 };
 
@@ -81,16 +90,25 @@ export function thirdPartyNoticesPlugins(
   const notices = license({
     thirdParty: {
       multipleVersions: true,
+      // Some of the workspace's own packages are private; every package comes through, and the
+      // workspace's own are filtered out below.
+      includePrivate: true,
       output: (dependencies) => {
         if (bundleName === undefined) {
           throw new Error("the notices were generated before the bundle was named");
         }
+        const thirdParty = dependencies.filter((dependency) => {
+          const name = dependency.name ?? "";
+          return (
+            !name.startsWith(WORKSPACE_PACKAGE_SCOPE) || BUNDLED_NOTICE_SOURCES[name] !== undefined
+          );
+        });
         mkdirSync(THIRD_PARTY_NOTICES_DIRECTORY, { recursive: true });
         writeFileSync(
           path.join(THIRD_PARTY_NOTICES_DIRECTORY, `${bundleName}.txt`),
-          dependencies.length === 0
+          thirdParty.length === 0
             ? "This bundle carries no third-party package.\n"
-            : [...dependencies]
+            : thirdParty
                 .sort((left, right) => (left.name ?? "").localeCompare(right.name ?? ""))
                 .map(noticeOf)
                 .join(`\n\n${"=".repeat(80)}\n\n`),
@@ -126,7 +144,7 @@ function bundledNoticesOf(name: string, version: string, bundled: BundledNoticeS
     .map((entry) => path.join(entry.parentPath, entry.name))
     .sort();
   return [
-    bundled.sourceOffer(version),
+    ...(bundled.sourceOffer === undefined ? [] : [bundled.sourceOffer(version)]),
     readFileSync(path.join(packageDirectory, bundled.noticesFile), "utf8"),
     ...licenseFiles.map(
       (file) =>

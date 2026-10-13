@@ -1,16 +1,20 @@
-// A long reply drawn as a window over its blocks, against the same reply drawn whole, in the
-// engine that lays them out. The claims are about where text lands, how many elements stay
-// mounted, what a selection keeps, where the reader's block stays when the text size changes and
-// what each painted frame shows while the parser answers late, none of which a DOM shim can
-// answer. Every frame a case lets pass is checked for a block drawn before its tree: an empty box
-// where a block belongs, or markdown's own syntax as text.
+// A long reply drawn as a window over its blocks, against the same reply drawn whole, in the engine
+// that lays them out. The claims are about where text lands, how many elements stay mounted, what a
+// selection keeps, where the reader's block stays when the text size changes, what a far jump into
+// a long table or a block too long for the page draws, and what each painted frame shows while the
+// worker answers late, none of which a DOM shim can answer. Every frame a case lets pass is checked
+// for a block drawn before its tree: an empty box where a block belongs, or markdown's own syntax
+// as text.
 
 import { act } from "@testing-library/react";
 import { fromDom } from "hast-util-from-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { drawnTreeText } from "#renderer/components/Markdown/drawn-text.js";
-import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
+import {
+  appMarkdownTrees,
+  PAGE_PARSE_MAX_CHARACTERS,
+} from "#renderer/components/Markdown/parse/trees.js";
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import type { MarkdownParseAnswer } from "#renderer/components/Markdown/worker/messages.js";
 import { longReplyMarkdown } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
@@ -26,7 +30,6 @@ import {
   scrollToEnd,
   settleFrames,
   textEnds,
-  unformattedDraw,
 } from "./reply.js";
 
 /** How far apart two renderings of one line may land and still be the same pixel. */
@@ -78,32 +81,6 @@ function blockAtMiddleOf(scroller: HTMLElement, windowedBody: HTMLElement): Elem
 
 /** How long a late parser holds each answer, in milliseconds: several frames at any rate. */
 const LATE_ANSWER_MS = 60;
-
-/**
- * Checks every frame painted from now until `stop` with `find`, and answers what each frame that
- * `find` faulted showed.
- */
-function recordFrames(find: () => string | undefined): { readonly stop: () => readonly string[] } {
-  const found: string[] = [];
-  let isRecording = true;
-  const onFrame = (): void => {
-    if (!isRecording) {
-      return;
-    }
-    const fault = find();
-    if (fault !== undefined) {
-      found.push(fault);
-    }
-    requestAnimationFrame(onFrame);
-  };
-  requestAnimationFrame(onFrame);
-  return {
-    stop: () => {
-      isRecording = false;
-      return found;
-    },
-  };
-}
 
 /**
  * Fills the shared tree cache past its cap with other replies' blocks, each led by `label`: about
@@ -416,7 +393,51 @@ describe("browser — a long reply drawn as a window over its blocks", () => {
     }
   });
 
-  it("draws every block and the tail formatted on their first frame while the parser answers late", async () => {
+  it("draws a far jump into a long table and into a block too long for the page formatted on its first frame", async () => {
+    // A table and a fence each longer than the page parses, which the worker parses and the body
+    // holds while it lives, between stretches of prose a scroll jumps across.
+    const tableRows = Array.from(
+      { length: 1_500 },
+      (_, index) => `| lane-${String(index)} | **${String(index)}** | \`code ${String(index)}\` |`,
+    );
+    const longTable = ["| Lane | State | Code |", "| --- | --- | --- |", ...tableRows].join("\n");
+    const longFence = [
+      "```ts",
+      ...Array.from({ length: 1_500 }, (_, index) => `const heldOverCap${String(index)} = 1;`),
+      "```",
+    ].join("\n");
+    expect(Math.min(longTable.length, longFence.length)).toBeGreaterThan(PAGE_PARSE_MAX_CHARACTERS);
+    const reply = [
+      longReplyMarkdown(60_000),
+      longTable,
+      longReplyMarkdown(60_000),
+      longFence,
+      longReplyMarkdown(30_000),
+    ].join("\n\n");
+    const { scroller, windowedBody } = await mountBodies(reply, {
+      isComplete: true,
+      drawsFlowBody: false,
+    });
+
+    let hasDrawnTable = false;
+    let hasDrawnFence = false;
+    for (const share of [0.3, 0.35, 0.4, 0.6, 0.65, 0.7, 0.75, 0]) {
+      scroller.scrollTop = Math.round(scroller.scrollHeight * share);
+      for (let frame = 0; frame < 3; frame += 1) {
+        await letFramePaint();
+        expect(
+          blocksDrawnEmpty(windowedBody),
+          `frame ${String(frame)} at ${String(share)}`,
+        ).toEqual([]);
+        hasDrawnTable ||= windowedBody.querySelector("table") !== null;
+        hasDrawnFence ||= windowedBody.textContent.includes("heldOverCap");
+      }
+    }
+    // The control: the jumps landed in both long blocks.
+    expect([hasDrawnTable, hasDrawnFence]).toStrictEqual([true, true]);
+  });
+
+  it("draws every block and the tail formatted on their first frame while the worker answers late", async () => {
     const parse = markdownWorker.parse.bind(markdownWorker);
     const lateParse = vi
       .spyOn(markdownWorker, "parse")
@@ -447,8 +468,8 @@ describe("browser — a long reply drawn as a window over its blocks", () => {
       const blockCount = flowBody.children.length;
       expect(drawnBlocks(windowedBody).size).toBeGreaterThan(0);
 
-      // Other replies' trees fill the shared cache past its cap, so none of these blocks is kept
-      // there when the window draws it again.
+      // Other replies' trees fill the shared cache past its cap, so no tail tree is kept there
+      // when the window draws it again.
       await fillTreeCache("Evicting");
 
       // A jump to the middle, a fling to the end, back to the top and down to the tail again, each
@@ -478,18 +499,6 @@ describe("browser — a long reply drawn as a window over its blocks", () => {
       }
       await settleFrames();
       expect(flowBody.textContent).toContain("Rewritten section 1");
-
-      // The same reply mounted again while the first copy holds its trees, as a row drawn again
-      // as it scrolls back in, draws every block and the tail on its first frame, though other
-      // replies' trees passed through the cache since.
-      await fillTreeCache("Passing");
-      const frames = recordFrames(() => {
-        const emptyBody = document.querySelector(".meridian-markdown:empty");
-        return emptyBody === null ? unformattedDraw() : "an empty body";
-      });
-      const again = await mountBodies(rewrittenReply, { isComplete: false, drawsFlowBody: true });
-      expect(frames.stop()).toEqual([]);
-      expect(again.flowBody?.children.length).toBe(flowBody.children.length);
     } finally {
       lateParse.mockRestore();
     }

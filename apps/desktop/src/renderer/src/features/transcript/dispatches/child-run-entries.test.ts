@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 
 import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-run-summary";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { generalRow, runRow } from "../event-rows.test-support.js";
 import { ChildRunIndex, type ChildRunEntry, type HandoffEntry } from "./child-run-entries.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** When a later observation saw the child's transcript lose entries. */
 const OBSERVED_AT = "2026-09-02T10:04:00.000Z";
@@ -28,15 +28,15 @@ function rowCarryingChildRun(
   id: string,
   sequence: number,
   summary: ChildRunSummary,
-): TranscriptEventRow {
+): ProjectedTranscriptRow {
   return {
     ...runRow({ id, sequence, type: "run.started", runId: "run-parent", position: sequence }),
     childRunSummary: summary,
-  } as TranscriptEventRow;
+  } as ProjectedTranscriptRow;
 }
 
 /** The index over `rows`, admitted in log order as the window admits them. */
-function indexOver(rows: readonly TranscriptEventRow[]): ChildRunIndex {
+function indexOver(rows: readonly ProjectedTranscriptRow[]): ChildRunIndex {
   const index = new ChildRunIndex();
   for (const row of rows) {
     index.admit(row);
@@ -45,12 +45,12 @@ function indexOver(rows: readonly TranscriptEventRow[]): ChildRunIndex {
 }
 
 /** Every child-run entry over `rows`, in log order. */
-function childRunEntriesOf(rows: readonly TranscriptEventRow[]): readonly ChildRunEntry[] {
+function childRunEntriesOf(rows: readonly ProjectedTranscriptRow[]): readonly ChildRunEntry[] {
   return [...indexOver(rows).childRunEntryByRowId().values()];
 }
 
 /** Every handoff entry over `rows`, in log order. */
-function handoffEntriesOf(rows: readonly TranscriptEventRow[]): readonly HandoffEntry[] {
+function handoffEntriesOf(rows: readonly ProjectedTranscriptRow[]): readonly HandoffEntry[] {
   return [...indexOver(rows).handoffEntryByRowId().values()];
 }
 
@@ -107,7 +107,7 @@ describe("child-run entries — one card per child, at the row that first named 
       {
         ...generalRow({ id: "g1", sequence: 1, type: "session.note" }),
         childRunSummary: completeSummary("run-child", 2),
-      } as TranscriptEventRow,
+      } as ProjectedTranscriptRow,
     ]);
     expect(entries.map((entry) => entry.rowId)).toEqual(["g1"]);
   });
@@ -202,7 +202,7 @@ describe("handoff entries — the three members, each read as itself", () => {
         payload: { childRunId: "run-from-payload" },
       }),
       childRunSummary: completeSummary("run-from-summary", 1),
-    } as TranscriptEventRow;
+    } as ProjectedTranscriptRow;
     expect(handoffEntriesOf([row])[0]?.childRunId).toBe("run-from-summary");
   });
 });

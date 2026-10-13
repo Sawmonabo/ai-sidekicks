@@ -28,6 +28,7 @@ import type { TranscriptBodyReadResponse } from "@ai-sidekicks/contracts/transcr
 import type { TranscriptRunFacts } from "@ai-sidekicks/contracts/transcript/run-facts";
 
 import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";
+import { projectedContentOf } from "./entities/projected-content.js";
 import type { ProjectedSessionEvent } from "./entities/vocabulary.js";
 import { admitServedRunFacts } from "./events/run/facts.js";
 import { WaitingOnPersonRegister } from "./waiting-on-person/register.js";
@@ -465,8 +466,9 @@ export function releasedStretchesHeldIn(
 }
 
 /**
- * The state with the held event `eventId`'s large body replaced by `body`, the body read in full,
- * or `undefined` when the window no longer holds that event or holds it with no large body.
+ * The state with the held event `eventId`'s large body replaced by `body`, the body read in full
+ * and held packed, or `undefined` when the window no longer holds that event or holds it with no
+ * large body.
  */
 export function admitFullBody(
   current: SessionStoreState,
@@ -481,7 +483,7 @@ export function admitFullBody(
   }
   return {
     ...current,
-    transcript: transcript.with(index, { ...event, content: body }),
+    transcript: transcript.with(index, { ...event, content: projectedContentOf(body) }),
     revision: current.revision + 1,
   };
 }

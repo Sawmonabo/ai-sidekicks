@@ -31,7 +31,7 @@ const CELL_TYPE: TableCellType = {
 
 describe("geometry remembered at one text size", () => {
   it("is recalled at that size and never at another of the same width", () => {
-    const block = { fingerprint: "block", isFinal: false };
+    const block = { textLength: 5, textHash: 0x2b_c4_7f_1a, isFinal: false };
     rememberBlockGeometry(
       { ...block, bodyType: MEASURED_AT },
       { heightPx: 40, topMarginPx: 0, bottomMarginPx: 8 },

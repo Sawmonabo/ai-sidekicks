@@ -1,20 +1,45 @@
-// The app's markdown trees: a settled block against the whole body's definitions, the cache that
-// shares a block's tree, a long table read in pieces as its whole parse reads it, and a worker that
-// fails or stops answering, which fails every text it holds and is replaced on the next one.
+// The app's markdown trees: a settled block against the whole body's definitions, parsed by the
+// worker or on the page, the cache that shares a worker's tree and keeps none of the page's, a long
+// table read in pieces as its whole parse reads it, and a worker that fails or stops answering,
+// which fails every text it holds and is replaced on the next one.
 
 import type { Root, Table } from "mdast";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MarkdownWorkerConnection, type MarkdownWorkerStart } from "../worker/connection.js";
 import { InThreadMarkdownWorkers } from "../worker/connection.test-support.js";
-import { parseMarkdownTree } from "../worker/serialized-tree.js";
+import { definitionPreambleOf } from "./definition-preamble.js";
+import { appPageParser } from "./page-parser.js";
+import { parseMarkdownTree } from "./serialized-tree.js";
 import { piecedRowsOf } from "./pieced-table.js";
-import { footnoteDefinitionPreamble, MarkdownTrees, type MarkdownParseOutcome } from "./trees.js";
+import { MarkdownTrees, type MarkdownParseOutcome } from "./trees.js";
+import { appTextCompression } from "#renderer/lib/text/compression.js";
+import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 
-/** Trees of their own, parsed by stand-in workers that `start` starts. */
+/** Trees of their own, parsed by stand-in workers that `start` starts and the app's page parser. */
 function treesOn(start: MarkdownWorkerStart): MarkdownTrees {
-  return new MarkdownTrees(new MarkdownWorkerConnection(start, window));
+  return new MarkdownTrees(
+    new MarkdownWorkerConnection(start, window, appPageParser, appTextCompression),
+  );
 }
+
+/** The preamble restating footnote `1`, as a body defining it restates it before each block. */
+const FOOTNOTE_PREAMBLE = definitionPreambleOf(new Set(["1"]), []);
+
+/** Where a settled block is parsed: by the worker, or on the page. */
+const PARSE_PATHS = [
+  {
+    path: "the worker",
+    treeOf: (trees: MarkdownTrees, source: string, preamble = "") =>
+      settledTreeOf(trees, source, preamble),
+  },
+  {
+    path: "the page",
+    treeOf: (trees: MarkdownTrees, source: string, preamble = "") =>
+      (trees.parseSettledBlockNow(source, preamble) ?? expect.fail("the page parsed the block"))
+        .root,
+  },
+];
 
 /** Trees of their own, and the stand-in workers they parse with. */
 function standInTrees(): {
@@ -34,6 +59,10 @@ function settledTreeOf(trees: MarkdownTrees, source: string, definitionPreamble 
   return outcome?.status === "parsed" ? outcome.root : expect.fail("the block was parsed");
 }
 
+// Every slice has time, so the trees a stand-in worker answers with are handed over in the task
+// they land in, and a case reads them right after it asks, on any machine.
+beforeEach(giveEverySliceTime);
+
 describe("a settled block", () => {
   it("is parsed once and shared, and two different blocks are two different trees", () => {
     const { trees, workers } = standInTrees();
@@ -45,13 +74,20 @@ describe("a settled block", () => {
     expect(workers.latest().requests).toHaveLength(2);
   });
 
+  it("parsed on the page is parsed anew each time and kept nowhere", () => {
+    const { trees } = standInTrees();
+    const first = trees.parseSettledBlockNow("on the page\n", "")?.root;
+
+    expect(first?.children.map((node) => node.type)).toStrictEqual(["paragraph"]);
+    expect(trees.parseSettledBlockNow("on the page\n", "")?.root).not.toBe(first);
+    expect(trees.readSettledBlock("on the page\n", "")).toBeUndefined();
+  });
+});
+
+describe.each(PARSE_PATHS)("a settled block parsed by $path", ({ treeOf: parsedTreeOf }) => {
   it("drops the synthetic definitions and keeps the author's own", () => {
     // Both carry the identifier `1`, so identity cannot tell them apart; the offset rule does.
-    const parsed = settledTreeOf(
-      standInTrees().trees,
-      "[^1]: the note body\n",
-      footnoteDefinitionPreamble(new Set(["1"])),
-    );
+    const parsed = parsedTreeOf(standInTrees().trees, "[^1]: the note body\n", FOOTNOTE_PREAMBLE);
     expect(parsed.children).toHaveLength(1);
     expect(JSON.stringify(parsed.children)).toContain("the note body");
   });
@@ -59,11 +95,7 @@ describe("a settled block", () => {
   it("keeps an indented code block out of the preamble's last definition", () => {
     // A footnote definition takes indented lines after a blank one as its body, so a preamble
     // ending in a blank line would swallow this block.
-    const parsed = settledTreeOf(
-      standInTrees().trees,
-      "    command --flag\n",
-      footnoteDefinitionPreamble(new Set(["1"])),
-    );
+    const parsed = parsedTreeOf(standInTrees().trees, "    command --flag\n", FOOTNOTE_PREAMBLE);
     expect(parsed.children[0]?.type).toBe("code");
   });
 });
@@ -88,7 +120,7 @@ describe("a held settled block", () => {
 
 describe("a text that ends in one long table", () => {
   it("is parsed in pieces and reads every row as the whole block's parse reads it", () => {
-    const preamble = footnoteDefinitionPreamble(new Set(["1"]));
+    const preamble = FOOTNOTE_PREAMBLE;
     for (const lineEnding of ["\n", "\r\n"]) {
       const { trees, workers } = standInTrees();
       // As the reply's blocks are cut: through the blank line that ends the table.
@@ -104,7 +136,7 @@ describe("a text that ends in one long table", () => {
   });
 
   it("after other blocks is parsed in pieces, and they read as the whole text's parse reads them", () => {
-    const preamble = footnoteDefinitionPreamble(new Set(["1"]));
+    const preamble = FOOTNOTE_PREAMBLE;
     const { trees, workers } = standInTrees();
     // As a streaming tail holds a table: behind the blocks not yet settled.
     const text = `## The lanes\n\nAs they stand, one row each[^1]:\n\n${longTable("\n")}`;
@@ -152,7 +184,10 @@ describe("a long table's piece trees", () => {
   it("are kept within their cap, and a piece let go is parsed again as its rows are held", () => {
     const workers = new InThreadMarkdownWorkers();
     // Room for about two pieces' trees.
-    const trees = new MarkdownTrees(new MarkdownWorkerConnection(workers.start, window), 1_000_000);
+    const trees = new MarkdownTrees(
+      new MarkdownWorkerConnection(workers.start, window, appPageParser, appTextCompression),
+      1_000_000,
+    );
     const block = longTable("\n");
     const table = onlyTableOf(settledTreeOf(trees, block));
     const rows = piecedRowsOf(table) ?? expect.fail("the table is read in pieces");
@@ -273,7 +308,7 @@ function fillCache(trees: MarkdownTrees, tag: string): void {
 const FILLING_TABLE_ROWS = 200;
 const FILLING_BLOCK_COUNT = 20;
 
-describe("text GFM keeps literal", () => {
+describe.each(PARSE_PATHS)("text GFM parsed by $path keeps literal", ({ treeOf: parsedTreeOf }) => {
   it.each([
     "x ~y~ z",
     "H~2~O",
@@ -285,7 +320,7 @@ describe("text GFM keeps literal", () => {
     "Open http://… in browser",
     "see 😀www.example.org",
   ])("keeps %j the text it was written as", (source) => {
-    const paragraph = settledTreeOf(standInTrees().trees, source).children[0];
+    const paragraph = parsedTreeOf(standInTrees().trees, source).children[0];
     expect(paragraph?.type === "paragraph" ? paragraph.children : undefined).toMatchObject([
       {
         type: "text",
@@ -296,9 +331,9 @@ describe("text GFM keeps literal", () => {
   });
 
   it("still strikes a double tilde through and links a domain, behind the body's definitions", () => {
-    const preamble = footnoteDefinitionPreamble(new Set(["1"]));
+    const preamble = FOOTNOTE_PREAMBLE;
     const source = "~~gone~~ and ~b *c* d~ at www.example.org";
-    const paragraph = settledTreeOf(standInTrees().trees, source, preamble).children[0];
+    const paragraph = parsedTreeOf(standInTrees().trees, source, preamble).children[0];
     const children = paragraph?.type === "paragraph" ? paragraph.children : [];
     expect(children.map(({ type }) => type)).toStrictEqual([
       "delete",

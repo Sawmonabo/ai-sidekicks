@@ -5,7 +5,6 @@
 // register, when the reader comes back.
 
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { readQuestion } from "#renderer/store/session/events/question-reading.js";
 import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
@@ -13,6 +12,7 @@ import { type WaitingOnPersonRecords } from "#renderer/store/session/waiting-on-
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { rowGrowthOf, sequenceInsertionPosition } from "./row-positions.js";
 import { type TranscriptWindowModel } from "./transcript-window.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** The state a live run waits in while its question is open. */
 const WAITING_FOR_INPUT: RunState = "waiting_for_input";
@@ -23,7 +23,7 @@ const WAITING_FOR_INPUT: RunState = "waiting_for_input";
  * live runs and the register of what waits on a person, each time it is asked.
  */
 export class ChangingRowIndex {
-  #rows: readonly TranscriptEventRow[] = [];
+  #rows: readonly ProjectedTranscriptRow[] = [];
   #isInSequenceOrder = true;
   readonly #toolCallsByRunId = new Map<string, RunToolCalls>();
   /** Each run's newest question, the one its wait on a person answers; earlier ones are settled. */
@@ -76,13 +76,13 @@ export class ChangingRowIndex {
 
   // Takes the window's rows up: the new ones when the rows only grew at their end, else all of
   // them again. A row projected again with its type and payload is the same tool call or question.
-  #follow(rows: readonly TranscriptEventRow[]): void {
+  #follow(rows: readonly ProjectedTranscriptRow[]): void {
     const growth = rowGrowthOf(this.#rows, rows);
     const isGrowth =
       growth !== undefined &&
       growth.replacedPositions.every((position) => {
-        const previousRow = this.#rows[position] as TranscriptEventRow;
-        const nextRow = rows[position] as TranscriptEventRow;
+        const previousRow = this.#rows[position] as ProjectedTranscriptRow;
+        const nextRow = rows[position] as ProjectedTranscriptRow;
         return previousRow.type === nextRow.type && previousRow.payload === nextRow.payload;
       });
     const admitFrom = isGrowth ? growth.appendedFrom : 0;
@@ -92,7 +92,7 @@ export class ChangingRowIndex {
       this.#newestQuestionRowIdByRunId.clear();
     }
     for (let position = admitFrom; position < rows.length; position += 1) {
-      const row = rows[position] as TranscriptEventRow;
+      const row = rows[position] as ProjectedTranscriptRow;
       const previousRow = position === 0 ? undefined : rows[position - 1];
       if (previousRow !== undefined && previousRow.sequence >= row.sequence) {
         this.#isInSequenceOrder = false;
@@ -102,7 +102,7 @@ export class ChangingRowIndex {
     this.#rows = rows;
   }
 
-  #admit(row: TranscriptEventRow): void {
+  #admit(row: ProjectedTranscriptRow): void {
     const questionRunId = readQuestion(row)?.runId;
     if (questionRunId !== undefined) {
       this.#newestQuestionRowIdByRunId.set(questionRunId, row.id);
@@ -139,7 +139,7 @@ export class ChangingRowIndex {
       this.#rows[position]?.sequence === sequence;
       position += 1
     ) {
-      rowIds.push((this.#rows[position] as TranscriptEventRow).id);
+      rowIds.push((this.#rows[position] as ProjectedTranscriptRow).id);
     }
     return rowIds;
   }
@@ -154,6 +154,6 @@ interface RunToolCalls {
   unpairedRowId: string | undefined;
 }
 
-function isToolRow(row: TranscriptEventRow): boolean {
+function isToolRow(row: ProjectedTranscriptRow): boolean {
   return row.type === "tool.invoked" || row.type === "tool.result" || row.type === "tool.error";
 }

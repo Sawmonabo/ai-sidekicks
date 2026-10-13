@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { writeJsonInPieces } from "./json-text.js";
-import { TEXT_PIECE_LENGTH } from "./text-pieces.js";
+import { TEXT_PIECE_LENGTH } from "./text/pieces.js";
 
 /** `value` written in pieces, each checked to fit one piece, and joined. */
 async function jsonWrittenInPieces(value: unknown, indent: number): Promise<string> {

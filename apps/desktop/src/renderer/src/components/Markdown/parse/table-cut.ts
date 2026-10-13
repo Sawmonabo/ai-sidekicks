@@ -26,6 +26,13 @@ export interface TableCut {
 }
 
 /**
+ * The most characters of a block's rows one piece holds, cut at the end of a row; a block no longer
+ * than this is never cut. Measured on the bench's rows, a piece this long parses in under a
+ * millisecond into a tree of about 373 KB.
+ */
+export const TABLE_PIECE_CHARACTERS = 32_768;
+
+/**
  * The pieces `blockSource` parses in: `undefined` unless it is longer than one piece and its last
  * block, after a blank line or at its start, opens on a table's head and delimiter lines. A block
  * that passes may still not end in one table; reading its pieces finds that out.
@@ -74,12 +81,6 @@ export function tableCutOf(blockSource: string): TableCut | undefined {
 export function offsetShiftOf(cut: TableCut, piece: TablePiece): number {
   return piece.rowsStart - (cut.headEnd - piece.textStart);
 }
-
-/**
- * The most characters of a block's rows one piece holds, cut at the end of a row. Measured on the
- * bench's rows, a piece this long parses in under a millisecond into a tree of about 373 KB.
- */
-const TABLE_PIECE_CHARACTERS = 32_768;
 
 /** A table's delimiter line, as GFM reads one: cells of dashes, each with optional colons. */
 const DELIMITER_ROW = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*\r?$/u;

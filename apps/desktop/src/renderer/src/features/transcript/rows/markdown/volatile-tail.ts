@@ -5,11 +5,17 @@
 // whole tail, and the tree on screen stays until that tree lands; nothing unparsed is ever drawn.
 // The tree on screen is held in the app's shared trees under its text, so another parser of the
 // same tail, as a body mounted again starts one, shows it at once. Correctness comes first: the
-// extension is taken only where the append provably lands in one node.
+// extension is taken only where the append provably lands in one node. A tree the worker parsed
+// also says where the blocks it settles end, which its body cuts from the tail; a tree grown here
+// settles none.
 
 import type { Nodes, Parents, Root, RootContent } from "mdast";
 import remend from "remend";
 
+import {
+  settledBlockEndsOf,
+  type TopLevelChildren,
+} from "#renderer/components/Markdown/parse/block-cut.js";
 import { isReadInPieces } from "#renderer/components/Markdown/parse/pieced-table.js";
 import type {
   MarkdownParseOutcome,
@@ -17,7 +23,7 @@ import type {
   ParsedMarkdown,
 } from "#renderer/components/Markdown/parse/trees.js";
 import { Emitter } from "#renderer/lib/emitter.js";
-import { hasPrefix } from "#renderer/lib/text-prefix.js";
+import { hasPrefix } from "#renderer/lib/text/prefix.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 
 /**
@@ -84,6 +90,11 @@ export type VolatileTailView =
       readonly tailSource: string;
       /** The definitions the tree was parsed after, whose length every offset in it counts. */
       readonly definitionPreamble: string;
+      /**
+       * Where each block the tree settles ends in `tailSource`, ascending, the first starting at
+       * its start: none for a tree grown here rather than parsed.
+       */
+      readonly settledBlockEnds: readonly number[];
     }
   | { readonly status: "failed"; readonly reason: string };
 
@@ -126,7 +137,12 @@ export class VolatileTailParser {
     if (shown?.definitionPreamble === definitionPreamble && shown.mended === mended) {
       this.#wanted = undefined;
       // The tree on screen answers this ask, so an older ask still in flight never replaces it.
-      const answered = { ...shown, askNumber: tail.askNumber, tailSource };
+      const answered = {
+        ...shown,
+        askNumber: tail.askNumber,
+        tailSource,
+        unchangedLength: tail.unchangedLength,
+      };
       // A tail shown again after `close` holds its tree in the shared trees once more.
       const hold =
         this.#shownHold === NO_HOLD
@@ -168,8 +184,23 @@ export class VolatileTailParser {
     const tail = this.#ask(tailSource, definitionPreamble);
     const kept = this.#trees.readSettledBlock(tail.mended, definitionPreamble);
     if (kept !== undefined) {
-      this.#shown = { ...tail, root: kept.root, treeByteCount: kept.treeByteCount };
-      this.#view = { status: "parsed", root: kept.root, tailSource, definitionPreamble };
+      this.#shown = {
+        ...tail,
+        root: kept.root,
+        treeByteCount: kept.treeByteCount,
+        isGrown: false,
+      };
+      this.#view = viewOf(this.#shown);
+    }
+  }
+
+  /**
+   * Forgets a whole parse that failed: the tail shows the last tree that landed again, or nothing,
+   * and the next `update` parses its tail anew.
+   */
+  public forgetFailure(): void {
+    if (this.#view?.status === "failed") {
+      this.#view = this.#shown === undefined ? undefined : viewOf(this.#shown);
     }
   }
 
@@ -188,14 +219,16 @@ export class VolatileTailParser {
   #ask(tailSource: string, definitionPreamble: string): WantedTail {
     const mended = mendVolatileTail(tailSource);
     this.#askCount += 1;
+    const unchangedLength = hasPrefix(mended, tailSource)
+      ? tailSource.length
+      : commonPrefixLength(mended, tailSource);
     return {
       askNumber: this.#askCount,
       tailSource,
       definitionPreamble,
       mended,
-      closers: mended.slice(
-        hasPrefix(mended, tailSource) ? tailSource.length : commonPrefixLength(mended, tailSource),
-      ),
+      unchangedLength,
+      closers: mended.slice(unchangedLength),
     };
   }
 
@@ -210,7 +243,12 @@ export class VolatileTailParser {
       return false;
     }
     this.#show(
-      { ...extended, askNumber: tail.askNumber, tailSource: tail.tailSource },
+      {
+        ...extended,
+        askNumber: tail.askNumber,
+        tailSource: tail.tailSource,
+        unchangedLength: tail.unchangedLength,
+      },
       this.#trees.holdLandedTree(tail.mended, tail.definitionPreamble, parsedOf(extended)),
     );
     return true;
@@ -223,7 +261,10 @@ export class VolatileTailParser {
       kept = outcome;
     });
     if (kept?.status === "parsed") {
-      this.#show({ ...tail, root: kept.root, treeByteCount: kept.treeByteCount }, letGo);
+      this.#show(
+        { ...tail, root: kept.root, treeByteCount: kept.treeByteCount, isGrown: false },
+        letGo,
+      );
     } else {
       letGo();
     }
@@ -263,7 +304,10 @@ export class VolatileTailParser {
     // A tree for an older tail than the one on screen, which an extension already passed, is
     // dropped; it never replaces newer text.
     if (tail.askNumber > (this.#shown?.askNumber ?? 0)) {
-      this.#show({ ...tail, root: outcome.root, treeByteCount: outcome.treeByteCount }, letGo);
+      this.#show(
+        { ...tail, root: outcome.root, treeByteCount: outcome.treeByteCount, isGrown: false },
+        letGo,
+      );
     } else {
       letGo();
     }
@@ -281,12 +325,7 @@ export class VolatileTailParser {
       this.#shownHold = hold;
     }
     this.#shown = parse;
-    this.#view = {
-      status: "parsed",
-      root: parse.root,
-      tailSource: parse.tailSource,
-      definitionPreamble: parse.definitionPreamble,
-    };
+    this.#view = viewOf(parse);
     this.#changes.emit();
   }
 }
@@ -309,6 +348,8 @@ interface WantedTail {
   readonly definitionPreamble: string;
   /** The mended tail. */
   readonly mended: string;
+  /** How much of `mended` is the tail's own text, before what mending rewrote or added. */
+  readonly unchangedLength: number;
   /**
    * The end of `mended` that `remend` wrote rather than took from the tail: the closers of the
    * tail's open constructs. An extension keeps them and grows the text before them.
@@ -321,7 +362,46 @@ interface TailParse extends WantedTail {
   readonly root: Root;
   /** What the tree's parse charged the shared trees; a grown tree holds as much. */
   readonly treeByteCount: number;
+  /** Whether the tree was grown here from an earlier parse, rather than parsed. */
+  readonly isGrown: boolean;
 }
+
+/** What the tail shows for `parse`, with the blocks a parsed tree settles. */
+function viewOf(parse: TailParse): VolatileTailView {
+  return {
+    status: "parsed",
+    root: parse.root,
+    tailSource: parse.tailSource,
+    definitionPreamble: parse.definitionPreamble,
+    settledBlockEnds: parse.isGrown
+      ? NO_BLOCK_ENDS
+      : settledBlockEndsOf(
+          childrenOf(parse.root, parse.definitionPreamble.length),
+          parse.tailSource,
+          parse.unchangedLength,
+        ),
+  };
+}
+
+/**
+ * Where the tail's top-level children start and end in it, up to the first with no position: the
+ * tree's offsets count the preamble ahead of the tail.
+ */
+function childrenOf(root: Root, preambleLength: number): TopLevelChildren {
+  const starts: number[] = [];
+  const ends: number[] = [];
+  for (const child of root.children) {
+    const position = child.position;
+    if (position?.start.offset === undefined || position.end.offset === undefined) {
+      break;
+    }
+    starts.push(position.start.offset - preambleLength);
+    ends.push(position.end.offset - preambleLength);
+  }
+  return { starts, ends };
+}
+
+const NO_BLOCK_ENDS: readonly number[] = Object.freeze([]);
 
 /** A tree on screen as the shared trees keep it. */
 function parsedOf(parse: TailParse): ParsedMarkdown {
@@ -349,7 +429,7 @@ function extendParse(lastParse: TailParse, mended: string): TailParse | undefine
     appended: mended.slice(lastText.length, mended.length - closers.length),
   };
   const root = extendOpenFence(growth) ?? extendTrailingText(growth);
-  return root === undefined ? undefined : { ...lastParse, mended, root };
+  return root === undefined ? undefined : { ...lastParse, mended, root, isGrown: true };
 }
 
 /** Text a frame appended to the last parse's text, before the closers both keep. */

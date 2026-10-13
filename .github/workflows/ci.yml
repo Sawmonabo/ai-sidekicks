@@ -96,6 +96,11 @@ jobs:
               - '.nvmrc'
               - '.npmrc'
               - 'pnpm-workspace.yaml'
+              # The compression crate the desktop's build compiles to WebAssembly, the Cargo
+              # workspace files it builds under, and the toolchain that names its target.
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
               - '.github/workflows/ci.yml'
               - '.github/actions/setup-electron-display/**'
             # knip reads every workspace, its own config, the manifests and the files that name
@@ -123,12 +128,13 @@ jobs:
               # The daemon's SQLite shell, which every leg builds, and the repair that runs it.
               - 'packages/runtime-daemon/sqlite-shell/**'
               - 'packages/runtime-daemon/src/recovery/database-file/**'
-            # The session search's addon crate, the Cargo workspace files it builds under, and
-            # this workflow.
+            # The session search's addon crate, the Cargo workspace files and toolchain it builds
+            # under, and this workflow.
             search-index:
               - 'packages/search-index/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - 'rust-toolchain.toml'
               - '.github/workflows/ci.yml'
 
   # The Node floor as major.minor, read from `.nvmrc`, for the `test` matrix: its job name renders
@@ -231,10 +237,15 @@ jobs:
       - name: Format check (full repo)
         run: pnpm -w exec prettier --check .
 
-      # The session search's addon is a Rust crate the build compiles and the tests run through
-      # Cargo. The action installs the newest stable Rust; SHA-pinned.
+      # Two Rust crates build here: the session search's addon, which the tests also run through
+      # Cargo, and the compression module, built for WebAssembly. The action installs the
+      # newest stable Rust with that target once, before Turbo runs both builds at the same time;
+      # left to `rust-toolchain.toml`, each Cargo run would install it and the two would collide.
+      # SHA-pinned.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: wasm32-unknown-unknown
 
       # Every workspace but the desktop: the `desktop` job's bundle leg builds it whenever a file
       # its filter names changes, so building it here too would build it twice.
@@ -403,12 +414,15 @@ jobs:
       - name: Set up Electron on a display
         uses: ./.github/actions/setup-electron-display
 
-      # A tier's turbo edges build the daemon and with it the session search's addon, which
-      # compiles from Rust. The remote cache above returns the addon while its inputs are
-      # unchanged; on a miss it compiles with this toolchain, not whichever the runner image
-      # carries. The newest stable Rust; SHA-pinned.
+      # A tier's turbo edges build the daemon with the session search's addon and the desktop with
+      # the compression module, both compiled from Rust. The remote cache above returns them
+      # while their inputs are unchanged; on a miss they compile with this toolchain, not whichever
+      # the runner image carries, and the WebAssembly target is installed once here, never by two
+      # Cargo runs at the same time. The newest stable Rust; SHA-pinned.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: wasm32-unknown-unknown
 
       # A window manager on that display, for the leg that runs the end-to-end tier. Bare Xvfb has
       # none, and without one a window never minimizes, so the end-to-end check that minimizes a
@@ -523,10 +537,13 @@ jobs:
       - name: Set up Electron on a display
         uses: ./.github/actions/setup-electron-display
 
-      # The fixture bundle's edges build the daemon, whose session search addon compiles from Rust
-      # on a cache miss. The newest stable Rust; SHA-pinned.
+      # The fixture bundle's edges build the daemon's session search addon and the compression
+      # module, both compiled from Rust on a cache miss; the WebAssembly target is installed once
+      # here, never by two Cargo runs at the same time. The newest stable Rust; SHA-pinned.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Build the fixture bundle
         run: pnpm turbo run build:fixtures --filter=@ai-sidekicks/desktop ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
@@ -651,10 +668,13 @@ jobs:
       - name: Turborepo remote cache (GitHub Actions cache backend)
         uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
 
-      # The daemon's build compiles the addon from Rust on a cache miss. The newest stable Rust;
-      # SHA-pinned.
+      # On a cache miss the daemon's build compiles the session search's addon and the desktop's
+      # compiles the compression module, both from Rust; the WebAssembly target is installed
+      # once here, never by two Cargo runs at the same time. The newest stable Rust; SHA-pinned.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: wasm32-unknown-unknown
 
       # The builds the coverage run depends on, read off Turbo's own plan for it, at the default
       # concurrency.
@@ -794,9 +814,12 @@ jobs:
         with:
           ref: ${{ env.SWEEP_REF }}
 
-      # The newest stable Rust; SHA-pinned.
+      # The newest stable Rust, with the WebAssembly target `rust-toolchain.toml` lists for the
+      # compression module, so Cargo finds it installed; SHA-pinned.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Test the addon's crate
         run: cargo test -p search-index --locked

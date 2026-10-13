@@ -24,9 +24,9 @@ export interface PreparedRowsBinding
       | "holdsRowAfter"
       | "subscribeToWork"
       | "observeReach"
-      | "isOutputParsed"
+      | "isRowParsed"
       | "toggleCall"
-      | "holdsUnparsedRowInView"
+      | "holdsRowJoiningView"
     > {}
 
 /**
@@ -80,9 +80,9 @@ export function usePreparedRows(
       holdsRowAfter: gate.holdsRowAfter,
       subscribeToWork: gate.subscribeToWork,
       observeReach: gate.observeReach,
-      isOutputParsed: gate.isOutputParsed,
+      isRowParsed: gate.isRowParsed,
       toggleCall: gate.toggleCall,
-      holdsUnparsedRowInView: gate.holdsUnparsedRowInView,
+      holdsRowJoiningView: gate.holdsRowJoiningView,
     };
     // A held row becoming ready is what `readiness` reports; the pass reads it from the gate.
   }, [gate, foldedCallRowIds, model, prepareRow, sources, readiness]);

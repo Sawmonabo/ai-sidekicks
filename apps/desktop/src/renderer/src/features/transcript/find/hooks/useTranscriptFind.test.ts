@@ -2,10 +2,12 @@
 // Matching is `matcher.test.ts`'s.
 
 import { act, renderHook, type RenderHookResult } from "@testing-library/react";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { describe, expect, it } from "vitest";
 
-import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import {
+  type ProjectedSessionEvent,
+  type ProjectedTranscriptRow,
+} from "#renderer/store/session/entities/vocabulary.js";
 import { useTranscriptFind, type TranscriptFindState } from "./useTranscriptFind.js";
 import {
   NO_ROWS_REMOVED,
@@ -42,8 +44,8 @@ function syntheticEventLog(count: number): readonly ProjectedSessionEvent[] {
 
 describe("the walk when the result moves under it", () => {
   function findOver(
-    rows: readonly TranscriptEventRow[],
-  ): RenderHookResult<TranscriptFindState, { readonly rows: readonly TranscriptEventRow[] }> {
+    rows: readonly ProjectedTranscriptRow[],
+  ): RenderHookResult<TranscriptFindState, { readonly rows: readonly ProjectedTranscriptRow[] }> {
     return renderHook(
       ({ rows: currentRows }) =>
         useTranscriptFind({
@@ -66,7 +68,7 @@ describe("the walk when the result moves under it", () => {
   function findOverPipeline(stages: {
     readonly unfurled: number;
     readonly folded: number;
-    readonly drawsBody: (row: TranscriptEventRow) => boolean;
+    readonly drawsBody: (row: ProjectedTranscriptRow) => boolean;
   }): RenderHookResult<TranscriptFindState, unknown> {
     const modelOf = (count: number): TranscriptWindowModel => windowOfSyntheticLog(count);
     const foldedWindow = modelOf(stages.folded);

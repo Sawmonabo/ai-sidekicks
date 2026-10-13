@@ -1,0 +1,14 @@
+{
+  "$schema": "../../node_modules/turbo/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // The tests' helpers are type-checked with the source by `tsconfig.test.json`.
+    "typecheck": {
+      "inputs": ["$TURBO_EXTENDS$", "tests/**"]
+    },
+    // The root inputs plus the tests' helpers, which `eslint src tests` lints.
+    "lint": {
+      "inputs": ["$TURBO_EXTENDS$", "tests/**"]
+    }
+  }
+}

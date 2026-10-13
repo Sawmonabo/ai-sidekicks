@@ -50,6 +50,7 @@
   },
   "devDependencies": {
     "@ai-sidekicks/client-sdk": "workspace:*",
+    "@ai-sidekicks/compression": "workspace:*",
     "@ai-sidekicks/contracts": "workspace:*",
     "@ai-sidekicks/runtime-daemon": "workspace:*",
     "@ai-sidekicks/search-ranking": "workspace:*",

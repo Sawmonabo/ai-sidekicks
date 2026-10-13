@@ -3,7 +3,7 @@
 // keeps as links to the pieces rather than copying them, and move to and from a worker as UTF-8
 // bytes, each piece encoded or decoded in a step of its own, the buffers moved rather than copied.
 
-import { startSlice, workInSlices } from "./work-slices.js";
+import { startSlice, workInSlices } from "../work-slices.js";
 
 /** A text, and the same text in pieces of at most `TEXT_PIECE_LENGTH` code units. */
 export interface PiecedText {
@@ -46,7 +46,7 @@ export function piecedTextOf(text: string): PiecedText {
  * `texts` joined, in pieces of at most `TEXT_PIECE_LENGTH` code units: a long text cut as
  * `piecesOf` cuts it, and short ones run together into one piece, so many short texts go in few.
  */
-export function joinIntoPieces(texts: readonly string[]): PiecedText {
+export function joinIntoPieces(texts: Iterable<string>): PiecedText {
   const joining = new PieceJoining();
   for (const text of texts) {
     joining.add(text);
@@ -151,16 +151,22 @@ export async function decodePiecesInSlices(
   return { text: joinPieces(pieces), pieces };
 }
 
+/** Whether a UTF-16 code unit is the first half of a surrogate pair. */
+export function isHighSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xd800 && codeUnit <= 0xdbff;
+}
+
+/** Whether a UTF-16 code unit is the second half of a surrogate pair. */
+export function isLowSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xdc00 && codeUnit <= 0xdfff;
+}
+
 /** Stateless, so one encoder serves every caller. */
 const UTF8_ENCODER = new TextEncoder();
 
 /** The UTF-8 bytes of `piece`, in a buffer of their own that can be moved. */
 function utf8BytesOf(piece: string): ArrayBuffer {
   return UTF8_ENCODER.encode(piece).buffer as ArrayBuffer;
-}
-
-function isHighSurrogate(codeUnit: number): boolean {
-  return codeUnit >= 0xd800 && codeUnit <= 0xdbff;
 }
 
 /** Texts run together into pieces of at most `TEXT_PIECE_LENGTH` code units as they are added. */

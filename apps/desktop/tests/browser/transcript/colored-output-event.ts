@@ -8,6 +8,7 @@ import {
   pagedSessionEventAt,
 } from "#renderer/features/transcript/logs.test-support.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 
 /** The byte that starts a terminal escape: an output still drawn as its source shows it. */
 export const ESCAPE: string = String.fromCodePoint(0x1b);
@@ -34,6 +35,6 @@ export function toolOutputEventAt(index: number, body: string): ProjectedSession
       toolCallId: `call-${String(index)}`,
       [CONTENT_LENGTH_PAYLOAD_KEY]: new TextEncoder().encode(body).byteLength,
     },
-    content: { status: "available", body },
+    content: projectedContentOf({ status: "available", body }),
   };
 }

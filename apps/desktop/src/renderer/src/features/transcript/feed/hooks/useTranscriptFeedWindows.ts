@@ -8,8 +8,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
@@ -34,7 +32,10 @@ import {
   type TranscriptPipelineStage,
   type TranscriptWindowModel,
 } from "../../window/transcript-window.js";
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import {
+  type ProjectedSessionEvent,
+  type ProjectedTranscriptRow,
+} from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { useHistoryLookAhead } from "../../history/hooks/useHistoryLookAhead.js";
 import { useReleaseOutsideWindow } from "../../history/hooks/useReleaseOutsideWindow.js";
@@ -120,10 +121,10 @@ export interface TranscriptFeedWindows {
    */
   readonly toggleCall: (rowId: string, press: () => void) => void;
   /**
-   * Whether a row is held out beside a row in view until its output parses, so it would join
-   * between rows on screen: the feed's first frame waits until none is.
+   * Whether a row held out until its first frame's work lands would join the rows drawn: the
+   * feed's first frame waits until none would.
    */
-  readonly holdsUnparsedRowInView: () => boolean;
+  readonly holdsRowJoiningView: () => boolean;
   /** The history past the store's window, or `undefined` for a composition with no read. */
   readonly history: TranscriptHistory | undefined;
   /** How reading back toward a linked message the log lacks stands, or `undefined` for none. */
@@ -191,7 +192,8 @@ export function useTranscriptFeedWindows(
   const drawnWindow = useDrawnRows(runGroupFold.window, drawsBody, inputs.sessionStore.sessionId);
   // Over the unfurled window's system messages, which name the rows a fold hides as well.
   const drawsRow = useCallback(
-    (row: TranscriptEventRow) => isDrawnRow(row, unfurledWindow.systemMessageByRowId, drawsBody),
+    (row: ProjectedTranscriptRow) =>
+      isDrawnRow(row, unfurledWindow.systemMessageByRowId, drawsBody),
     [unfurledWindow, drawsBody],
   );
   // The reveal engine is this feed's, minted once and disposed with it. The frame scheduler is
@@ -304,7 +306,7 @@ export function useTranscriptFeedWindows(
       holdsRowAfter: preparedRows.holdsRowAfter,
       subscribeToRowWork: preparedRows.subscribeToWork,
       observeRowReach,
-      isRowOutputParsed: preparedRows.isOutputParsed,
+      isRowParsed: preparedRows.isRowParsed,
       isRowRevealing: isRevealing,
       frameScheduler,
     }),
@@ -324,7 +326,7 @@ export function useTranscriptFeedWindows(
       preparedRows.holdsRowAfter,
       preparedRows.subscribeToWork,
       observeRowReach,
-      preparedRows.isOutputParsed,
+      preparedRows.isRowParsed,
       isRevealing,
       frameScheduler,
     ],
@@ -478,7 +480,7 @@ export function useTranscriptFeedWindows(
     drawnWindowSources,
     preparedBodies,
     toggleCall: preparedRows.toggleCall,
-    holdsUnparsedRowInView: preparedRows.holdsUnparsedRowInView,
+    holdsRowJoiningView: preparedRows.holdsRowJoiningView,
     history,
     messageReadBack: readBack,
     openRunStretch,

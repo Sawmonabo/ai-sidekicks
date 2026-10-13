@@ -1,31 +1,24 @@
-// One lane's text: the source as immutable flat chunks, and a cursor that says how much of it is
-// revealed. The text is held once: revealing moves the cursor and copies nothing, an append
-// rebuilds only the last, partly filled chunk, and a reader reads the revealed prefix through this
-// rope as a `PublishedText` instead of through a growing string. `append` is the single text
-// writer; `advance`, `releasePending` and `rebase` are the only cursor writers.
+// One lane's text: the source, held once as packed UTF-8, and a cursor that says how much of it is
+// revealed. Revealing moves the cursor and copies nothing, an append encodes only what it brings,
+// and a reader reads the revealed prefix through this rope as a `PublishedText` instead of through
+// a growing string. `append` is the single text writer; `advance`, `releasePending` and `rebase`
+// are the only cursor writers.
 
-import { REVEAL_TEXT_CHUNK_CHARACTERS } from "./caps.js";
-import { type PublishedText } from "./published-text.js";
+import { PackedText } from "#renderer/lib/text/packed.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 
 /**
- * One lane's text as chunks and a cursor that only a rebase moves back. The rope is also the
- * lane's `PublishedText`: its reads see the revealed prefix alone, and it is the same object for
- * the lane's whole life, rebases included.
+ * One lane's text and a cursor that only a rebase moves back. The rope is also the lane's
+ * `PublishedText`: its reads see the revealed prefix alone, and it is the same object for the
+ * lane's whole life, rebases included.
  */
 export class RevealTextRope implements PublishedText {
   readonly #laneId: string;
-  /**
-   * The source, oldest first. Every chunk but the last holds exactly
-   * `REVEAL_TEXT_CHUNK_CHARACTERS`; each is the rope's own flat copy and never changes once a
-   * later one follows it, which is what makes slicing and handing it out safe.
-   */
-  readonly #chunks: string[] = [];
+  /** The source, revealed or not: the rope's own copy, which no reader is handed. */
+  readonly #source = new PackedText();
   /** The rewrites that cut revealed text, newest last: what `keepsPrefix` answers from. */
   readonly #retractions: Retraction[] = [];
-  /** Where `firstIndexOf` has looked for each code unit asked about, since the last cut. */
-  readonly #firstIndexScans = new Map<string, FirstIndexScan>();
 
-  #sourceLength = 0;
   #revealedLength = 0;
   #revision = 0;
   /** The newest retraction dropped from the log; a reader older than it cannot be answered. */
@@ -36,24 +29,12 @@ export class RevealTextRope implements PublishedText {
   }
 
   /**
-   * The single text writer. Fills the last chunk, rebuilt as one new flat copy, then copies the
-   * rest in whole chunks, so no chunk holds alive a larger string it was cut from (an
-   * authoritative commit's whole source). An empty append changes nothing.
+   * The single text writer. Encodes `text` onto the source, so the rope keeps nothing of a larger
+   * string it was cut from (an authoritative commit's whole source). An empty append changes
+   * nothing.
    */
   public append(text: string): void {
-    let consumed = 0;
-    const lastIndex = this.#chunks.length - 1;
-    const last = this.#chunks[lastIndex];
-    if (last !== undefined && last.length < REVEAL_TEXT_CHUNK_CHARACTERS) {
-      consumed = Math.min(REVEAL_TEXT_CHUNK_CHARACTERS - last.length, text.length);
-      if (consumed > 0) {
-        this.#chunks[lastIndex] = structuredClone(last + text.slice(0, consumed));
-      }
-    }
-    for (let start = consumed; start < text.length; start += REVEAL_TEXT_CHUNK_CHARACTERS) {
-      this.#chunks.push(structuredClone(text.slice(start, start + REVEAL_TEXT_CHUNK_CHARACTERS)));
-    }
-    this.#sourceLength += text.length;
+    this.#source.append(text);
   }
 
   /**
@@ -101,7 +82,7 @@ export class RevealTextRope implements PublishedText {
    * the cursor without reading the whole prefix each frame.
    */
   public revealedTail(characterCount: number): string {
-    return this.#sliceSource(
+    return this.#source.slice(
       Math.max(0, this.#revealedLength - characterCount),
       this.#revealedLength,
     );
@@ -112,36 +93,37 @@ export class RevealTextRope implements PublishedText {
    * cursor stands on a construct. Bounded by the caller rather than materializing the source.
    */
   public lookahead(characterCount: number): string {
-    return this.#sliceSource(
+    return this.#source.slice(
       this.#revealedLength,
-      Math.min(this.#sourceLength, this.#revealedLength + Math.max(0, characterCount)),
+      this.#revealedLength + Math.max(0, characterCount),
     );
   }
 
-  /** Whether this rope's source is a prefix of `candidate`, compared chunk by chunk. */
+  /**
+   * Whether this rope's source is a prefix of `candidate` as the source is held, a lone surrogate
+   * matching the U+FFFD it is held as; see `PackedText.isPrefixOf`.
+   */
   public isPrefixOf(candidate: string): boolean {
-    if (candidate.length < this.#sourceLength) {
-      return false;
-    }
-    return this.#chunks.every((chunk, index) =>
-      candidate.startsWith(chunk, index * REVEAL_TEXT_CHUNK_CHARACTERS),
-    );
+    return this.#source.isPrefixOf(candidate);
   }
 
   /** How many leading characters the revealed prefix shares with `candidate`. */
   public commonRevealedPrefixLength(candidate: string): number {
     const ceiling = Math.min(this.#revealedLength, candidate.length);
-    for (let start = 0; start < ceiling; start += REVEAL_TEXT_CHUNK_CHARACTERS) {
-      const end = Math.min(ceiling, start + REVEAL_TEXT_CHUNK_CHARACTERS);
-      const piece = this.#sliceSource(start, end);
-      if (candidate.startsWith(piece, start)) {
-        continue;
+    let start = 0;
+    for (const chunk of this.chunks()) {
+      const piece = chunk.slice(0, ceiling - start);
+      if (!candidate.startsWith(piece, start)) {
+        let shared = start;
+        while (piece[shared - start] === candidate[shared]) {
+          shared += 1;
+        }
+        return shared;
       }
-      let shared = start;
-      while (shared < end && piece[shared - start] === candidate[shared]) {
-        shared += 1;
+      start += piece.length;
+      if (start >= ceiling) {
+        break;
       }
-      return shared;
     }
     return ceiling;
   }
@@ -151,7 +133,7 @@ export class RevealTextRope implements PublishedText {
   }
 
   public get sourceLength(): number {
-    return this.#sourceLength;
+    return this.#source.length;
   }
 
   /** The revealed prefix's length: what a reader of this rope sees. */
@@ -163,8 +145,14 @@ export class RevealTextRope implements PublishedText {
     return this.#revision;
   }
 
+  /** Whether the revealed prefix holds an escape. */
+  public get holdsEscape(): boolean {
+    const escapeIndex = this.#source.firstEscapeIndex;
+    return escapeIndex !== -1 && escapeIndex < this.#revealedLength;
+  }
+
   public get pendingCharacterCount(): number {
-    return this.#sourceLength - this.#revealedLength;
+    return this.#source.length - this.#revealedLength;
   }
 
   public get isSettled(): boolean {
@@ -172,48 +160,28 @@ export class RevealTextRope implements PublishedText {
   }
 
   public slice(start: number, end: number = this.#revealedLength): string {
-    return this.#sliceSource(
+    return this.#source.slice(
       clampedTo(start, this.#revealedLength),
       clampedTo(end, this.#revealedLength),
     );
   }
 
   public indexOf(character: string, from: number): number {
-    const start = Math.max(0, from);
-    for (
-      let chunkIndex = Math.floor(start / REVEAL_TEXT_CHUNK_CHARACTERS);
-      chunkIndex * REVEAL_TEXT_CHUNK_CHARACTERS < this.#revealedLength;
-      chunkIndex += 1
-    ) {
-      const chunkStart = chunkIndex * REVEAL_TEXT_CHUNK_CHARACTERS;
-      const found = this.#chunks[chunkIndex]?.indexOf(character, Math.max(0, start - chunkStart));
-      if (found !== undefined && found !== -1) {
-        return chunkStart + found < this.#revealedLength ? chunkStart + found : -1;
+    const found = from >= this.#revealedLength ? -1 : this.#source.indexOf(character, from);
+    return found < this.#revealedLength ? found : -1;
+  }
+
+  public *chunks(): Generator<string> {
+    let start = 0;
+    for (const chunk of this.#source.chunks()) {
+      if (start >= this.#revealedLength) {
+        return;
       }
+      yield start + chunk.length <= this.#revealedLength
+        ? chunk
+        : chunk.slice(0, this.#revealedLength - start);
+      start += chunk.length;
     }
-    return -1;
-  }
-
-  public firstIndexOf(character: string): number {
-    const scan = this.#firstIndexScans.get(character);
-    if (scan !== undefined && scan.foundAt !== -1) {
-      return scan.foundAt;
-    }
-    // A code unit cannot straddle two chunks, so resuming where the last look ended misses none.
-    const foundAt = this.indexOf(character, scan?.scannedTo ?? 0);
-    this.#firstIndexScans.set(character, { scannedTo: this.#revealedLength, foundAt });
-    return foundAt;
-  }
-
-  public chunks(): readonly string[] {
-    const fullChunkCount = Math.floor(this.#revealedLength / REVEAL_TEXT_CHUNK_CHARACTERS);
-    const revealed = this.#chunks.slice(0, fullChunkCount);
-    const partialLength = this.#revealedLength % REVEAL_TEXT_CHUNK_CHARACTERS;
-    const partialChunk = this.#chunks[fullChunkCount];
-    if (partialLength > 0 && partialChunk !== undefined) {
-      revealed.push(partialChunk.slice(0, partialLength));
-    }
-    return revealed;
   }
 
   public keepsPrefix(revision: number, length: number): boolean {
@@ -240,62 +208,19 @@ export class RevealTextRope implements PublishedText {
       return budget;
     }
     const stop = this.#revealedLength + budget;
-    const unitAtStop = this.#codeUnitAt(stop);
-    const unitBeforeStop = this.#codeUnitAt(stop - 1);
-    if (unitAtStop === undefined || unitBeforeStop === undefined) {
+    if (stop === 0) {
       return budget;
     }
-    return TRAILING_SURROGATE.test(unitAtStop) && LEADING_SURROGATE.test(unitBeforeStop)
+    const around = this.#source.slice(stop - 1, stop + 1);
+    return LEADING_SURROGATE.test(around.charAt(0)) && TRAILING_SURROGATE.test(around.charAt(1))
       ? budget + 1
       : budget;
   }
 
-  /** The source's code unit at `offset`, found by division rather than a walk. */
-  #codeUnitAt(offset: number): string | undefined {
-    if (offset < 0) {
-      return undefined;
-    }
-    return this.#chunks[Math.floor(offset / REVEAL_TEXT_CHUNK_CHARACTERS)]?.[
-      offset % REVEAL_TEXT_CHUNK_CHARACTERS
-    ];
-  }
-
-  /**
-   * The source between two offsets. One chunk's range is that chunk's slice; a longer one joins
-   * the pieces, so only the range is ever built.
-   */
-  #sliceSource(start: number, end: number): string {
-    if (end <= start) {
-      return "";
-    }
-    const firstChunkIndex = Math.floor(start / REVEAL_TEXT_CHUNK_CHARACTERS);
-    const lastChunkIndex = Math.floor((end - 1) / REVEAL_TEXT_CHUNK_CHARACTERS);
-    let text = "";
-    for (let chunkIndex = firstChunkIndex; chunkIndex <= lastChunkIndex; chunkIndex += 1) {
-      const chunkStart = chunkIndex * REVEAL_TEXT_CHUNK_CHARACTERS;
-      text += (this.#chunks[chunkIndex] ?? "").slice(
-        Math.max(0, start - chunkStart),
-        end - chunkStart,
-      );
-    }
-    return text;
-  }
-
-  /**
-   * Cut the source to `length` characters, rebuilding the chunk the cut falls inside as its own
-   * copy so it pins none of the dropped text. The cursor never stays past the source.
-   */
+  /** Cut the source to `length` characters. The cursor never stays past the source. */
   #truncateSource(length: number): void {
-    const keptChunkCount = Math.ceil(length / REVEAL_TEXT_CHUNK_CHARACTERS);
-    this.#chunks.length = Math.min(this.#chunks.length, keptChunkCount);
-    const lastIndex = keptChunkCount - 1;
-    const keptInLast = length - lastIndex * REVEAL_TEXT_CHUNK_CHARACTERS;
-    const last = this.#chunks[lastIndex];
-    if (last !== undefined && last.length > keptInLast) {
-      this.#chunks[lastIndex] = structuredClone(last.slice(0, keptInLast));
-    }
-    this.#sourceLength = Math.min(this.#sourceLength, length);
-    this.#revealedLength = Math.min(this.#revealedLength, length);
+    this.#source.truncate(length);
+    this.#revealedLength = Math.min(this.#revealedLength, this.#source.length);
   }
 
   /** Note a rewrite that cut revealed text back to `revealedLength`, under a new revision. */
@@ -305,8 +230,6 @@ export class RevealTextRope implements PublishedText {
     if (this.#retractions.length > RETRACTION_LOG_CAP) {
       this.#forgottenRetractionRevision = this.#retractions.shift()?.revision ?? NO_REVISION;
     }
-    // A cut can remove what a scan found, so every scan starts again.
-    this.#firstIndexScans.clear();
   }
 }
 
@@ -314,12 +237,6 @@ export class RevealTextRope implements PublishedText {
 interface Retraction {
   readonly revision: number;
   readonly revealedLength: number;
-}
-
-/** How far `firstIndexOf` has looked for one code unit, and where it found it, or -1. */
-interface FirstIndexScan {
-  readonly scannedTo: number;
-  readonly foundAt: number;
 }
 
 /**

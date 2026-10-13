@@ -9,7 +9,7 @@
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { ProjectedTranscriptRow } from "../entities/vocabulary.js";
 import { projectedPayload } from "./wire-payload.js";
 
 /** One question record, as much of it as the row's payload carries. */
@@ -38,7 +38,7 @@ export const UNSENT_ANSWER_DELIVERY: AnswerDelivery = Object.freeze({ status: "u
 /**
  * Read one row as a question, or `undefined` for a row of another type or one missing its id.
  */
-export function readQuestion(row: TranscriptEventRow): QuestionReading | undefined {
+export function readQuestion(row: ProjectedTranscriptRow): QuestionReading | undefined {
   if (row.type !== "question.asked") {
     return undefined;
   }

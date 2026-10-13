@@ -11,9 +11,9 @@
 // parse until the new one is whole, which then replaces it. A listed body that turns into an
 // output, with no parse drawn yet, draws each slice's parse as it lands.
 
-import { startSlice } from "#renderer/lib/work-slices.js";
-import { type PublishedText } from "../../reveal/published-text.js";
-import { type OutputParse, type PreparedBodies } from "../prepared-bodies.js";
+import { startSlice, WHOLE_SLICE } from "#renderer/lib/work-slices.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
+import { type PreparedBodies, type RowParse } from "../prepared-bodies.js";
 import { AnsiLineChunks } from "./lines/chunks.js";
 
 /**
@@ -28,7 +28,7 @@ export type OutputReach = "outside" | "band" | "view";
  * view, a slice after. Released with the row's preparation, which takes it out of its turn and
  * drops the row's published output.
  */
-export class AnsiOutputPreparation implements OutputParse {
+export class AnsiOutputPreparation implements RowParse {
   readonly #rowId: string;
   readonly #outputs: PreparedBodies;
   readonly #ownerWindow: Window;
@@ -87,7 +87,7 @@ export class AnsiOutputPreparation implements OutputParse {
     // in view is drawn, and keeps drawing its last parse while a change of it parses.
     if (isComingIntoView) {
       this.#outputs.leaveTurn(this);
-      this.#readSlice(WHOLE_PARSE);
+      this.#readSlice(WHOLE_SLICE);
       this.#isReady = true;
       return;
     }
@@ -165,6 +165,3 @@ export class AnsiOutputPreparation implements OutputParse {
     this.#isReady = true;
   }
 }
-
-/** A slice with no end: a parse that reads the text whole. */
-const WHOLE_PARSE = (): boolean => true;

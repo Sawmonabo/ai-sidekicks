@@ -2,7 +2,6 @@
 // capped count cannot understate how broad the query is, and what a held search reads again.
 
 import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -15,6 +14,8 @@ import {
 } from "./matcher.js";
 import { generalRow, runRow, userMessageRow } from "../event-rows.test-support.js";
 import { type SystemMessageReading } from "../system-messages/classifier.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 
 /** A window with no system message in it. */
 const NO_SYSTEM_MESSAGES: ReadonlyMap<string, SystemMessageReading> = new Map();
@@ -26,7 +27,7 @@ function rollbackLine(): ReadonlyMap<string, SystemMessageReading> {
   ]);
 }
 
-function searchWindow(): readonly TranscriptEventRow[] {
+function searchWindow(): readonly ProjectedTranscriptRow[] {
   return [
     userMessageRow({ id: "u1", sequence: 1, message: "Rewrite the DEPLOY plan" }),
     runRow({
@@ -75,7 +76,7 @@ describe("find — what a query matches", () => {
       id: string,
       sequence: number,
       content: TranscriptRowContent,
-    ): TranscriptEventRow => ({
+    ): ProjectedTranscriptRow => ({
       ...runRow({
         id,
         sequence,
@@ -84,7 +85,7 @@ describe("find — what a query matches", () => {
         position: sequence,
         payload: { toolName: "read_file" },
       }),
-      content,
+      content: projectedContentOf(content),
     });
     const rows = [
       resultRow("cut", 1, { status: "available", body: "lines", contentTruncated: true }),
@@ -119,7 +120,7 @@ describe("find — what a query matches", () => {
 });
 
 describe("find — the cap bounds the walk and never the count", () => {
-  function oversizedWindow(): readonly TranscriptEventRow[] {
+  function oversizedWindow(): readonly ProjectedTranscriptRow[] {
     return Array.from({ length: FIND_MATCH_CAP + 5 }, (_unused, index) =>
       userMessageRow({
         id: `row-${String(index)}`,
@@ -148,7 +149,7 @@ describe("find — the cap bounds the walk and never the count", () => {
     );
     const held = new FindMatchList();
     const published: { readonly result: FindResult; readonly text: string }[] = [];
-    let rows: readonly TranscriptEventRow[] = [];
+    let rows: readonly ProjectedTranscriptRow[] = [];
     for (const row of grown) {
       rows = [...rows, row];
       const result = held.resultOf(rows, " Recurring ", NO_SYSTEM_MESSAGES);
@@ -188,11 +189,11 @@ describe("find — a held search over a growing log", () => {
         timestamp: "",
       };
     }
-    const rowsAt = (count: number): readonly TranscriptEventRow[] =>
+    const rowsAt = (count: number): readonly ProjectedTranscriptRow[] =>
       Array.from({ length: count }, (_unused, index) =>
         generalRow({ id: `s${String(index)}`, sequence: index + 1, type: "run.rolled_back" }),
       );
-    const linesAt = (rows: readonly TranscriptEventRow[]) =>
+    const linesAt = (rows: readonly ProjectedTranscriptRow[]) =>
       new Map(rows.map((row) => [row.id, countedLine(row.id)]));
     const held = new FindMatchList();
     const first = rowsAt(20);
@@ -240,7 +241,7 @@ describe("find — stepping the walk", () => {
 
 describe("find — the first step, before anything is selected", () => {
   /** A window whose every row matches `hit`, so the match list is exactly `count` long. */
-  function windowOfMatches(count: number): readonly TranscriptEventRow[] {
+  function windowOfMatches(count: number): readonly ProjectedTranscriptRow[] {
     return Array.from({ length: count }, (_unused, index) =>
       userMessageRow({ id: `hit-${String(index + 1)}`, sequence: index + 1, message: "hit" }),
     );
@@ -287,7 +288,7 @@ describe("find — the first step, before anything is selected", () => {
 });
 
 describe("find — the matches a run fold withholds, held across what it reports", () => {
-  function foldedRow(sequence: number, message: string): TranscriptEventRow {
+  function foldedRow(sequence: number, message: string): ProjectedTranscriptRow {
     return userMessageRow({ id: `folded-${String(sequence)}`, sequence, message });
   }
 
@@ -313,7 +314,7 @@ describe("find — the matches a run fold withholds, held across what it reports
     // The system message's row left the window with the third list, so its reading went with it;
     // the fourth list is out of log order.
     const steps: readonly {
-      readonly rows: readonly TranscriptEventRow[];
+      readonly rows: readonly ProjectedTranscriptRow[];
       readonly systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>;
       readonly count: number;
     }[] = [
@@ -326,7 +327,7 @@ describe("find — the matches a run fold withholds, held across what it reports
       { rows: [reworded, undrawn, joined, miss], systemMessageByRowId: new Map(), count: 1 },
       { rows: [reworded, ...outOfOrder], systemMessageByRowId: new Map(), count: 2 },
     ];
-    const drawsBody = (row: TranscriptEventRow): boolean =>
+    const drawsBody = (row: ProjectedTranscriptRow): boolean =>
       row.id !== undrawn.id && row.id !== systemMessage.id;
     const held = new FoldedMatchCount();
     const counted = steps.map((step) =>

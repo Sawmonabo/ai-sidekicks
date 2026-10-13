@@ -18,10 +18,12 @@ function drawnTensOf(range: Range): number[] {
 
 function renderCountedVirtualizer(): {
   readonly renders: () => number;
+  readonly changes: () => number;
   readonly firstRowInView: () => number | undefined;
-  readonly resizeFirstRow: (sizePx: number) => void;
+  readonly resizeRows: (sizesPx: readonly number[]) => Promise<void>;
 } {
   let renders = 0;
+  let changes = 0;
   const scrollElement = document.createElement("div");
   const { result } = renderHook(() => {
     renders += 1;
@@ -36,6 +38,9 @@ function renderCountedVirtualizer(): {
       initialOffset: SCROLL_OFFSET_PX,
       overscan: 0,
       rangeExtractor: drawnTensOf,
+      onChange: () => {
+        changes += 1;
+      },
     });
     // The rows follow the box's place and never move it, however a row measures.
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
@@ -43,27 +48,35 @@ function renderCountedVirtualizer(): {
   });
   return {
     renders: () => renders,
+    changes: () => changes,
     firstRowInView: () => result.current.range?.startIndex,
-    resizeFirstRow: (sizePx) => {
-      act(() => {
-        result.current.resizeItem(0, sizePx);
+    // One pass: every row resized in one task, its changes taken as the task ends.
+    resizeRows: async (sizesPx) => {
+      await act(async () => {
+        for (const [index, sizePx] of sizesPx.entries()) {
+          result.current.resizeItem(index, sizePx);
+        }
+        await Promise.resolve();
       });
     },
   };
 }
 
 describe("useDirectlyPlacedVirtualizer", () => {
-  it("renders again for a measured row only when the rows it draws change", () => {
+  it("renders again only when the drawn rows change, telling a pass's change once", async () => {
     const list = renderCountedVirtualizer();
     const settledRenders = list.renders();
+    const settledChanges = list.changes();
 
-    // Row 0 grows by 5: row 24 comes into view, but rows 20 to 29 are still the ones drawn.
-    list.resizeFirstRow(ROW_HEIGHT_PX + 5);
+    // Rows 0 and 1 grow by 5 in one pass: row 24 comes into view, but rows 20 to 29 are still the
+    // ones drawn, and the pass lays the rows out and tells its change once.
+    await list.resizeRows([ROW_HEIGHT_PX + 5, ROW_HEIGHT_PX + 5]);
     expect(list.firstRowInView()).toBe(24);
     expect(list.renders()).toBe(settledRenders);
+    expect(list.changes()).toBe(settledChanges + 1);
 
-    // Row 0 grows by 90: row 16 is at the top, so rows 10 to 29 are drawn.
-    list.resizeFirstRow(ROW_HEIGHT_PX + 90);
+    // Row 0 grows by 85 more: row 16 is at the top, so rows 10 to 29 are drawn.
+    await list.resizeRows([ROW_HEIGHT_PX + 90]);
     expect(list.renders()).toBe(settledRenders + 1);
   });
 });

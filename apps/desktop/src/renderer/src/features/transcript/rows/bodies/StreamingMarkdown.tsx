@@ -1,8 +1,8 @@
-// Mounts the markdown pipeline for one body: the block segmenter, two-pass footnote resolution and
-// footnote registration. Pass one reads each block alone, once, as it settles, for the footnotes
-// it defines; pass two parses each block against the whole body's definitions, so `cite[^1]` in
-// one block references `[^1]: ...` in another, and the settled blocks are drawn once those trees
-// have landed.
+// Mounts the markdown pipeline for one body: its blocks as the parser cuts them, two-pass
+// definition resolution and footnote registration. Pass one reads each block that could define a
+// footnote or a link alone, once, as it settles; pass two parses each block against the whole
+// body's definitions, so `cite[^1]` in one block references `[^1]: ...` in another, and the
+// settled blocks are drawn once those trees can be read.
 // The published text arrives as a prop rather than a reveal-engine subscription, so a settled
 // message, which has no reveal stream, renders through the same path: a handle over a lane's text
 // or over a settled string, read in ranges and never held whole. A long body inside a
@@ -12,9 +12,10 @@
 import { useContext } from "react";
 
 import { type MarkdownTableOffer } from "#renderer/components/Markdown/table-offer.js";
-import { type PublishedText } from "../../reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
-import { type MarkdownBodyBlocksSnapshot } from "../markdown/body-blocks.js";
+import { type MarkdownBodyBlocks } from "../markdown/body-blocks/reader.js";
+import { type MarkdownBodyBlocksSnapshot } from "../markdown/body-blocks/snapshot.js";
 import {
   TranscriptBodyViewportContext,
   type TranscriptBodyViewport,
@@ -59,6 +60,8 @@ export interface StreamingMarkdownProps {
    * not.
    */
   readonly offersBlockCopy: boolean;
+  /** The body's blocks as its row's preparation reads them, read here with the same text. */
+  readonly bodyBlocks: MarkdownBodyBlocks;
 }
 
 /**
@@ -71,7 +74,7 @@ const WINDOWED_BODY_MIN_CHARACTERS = 8_192;
 
 /** Renders a markdown body incrementally: settled blocks memoized, the tail parsed per frame. */
 export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Element {
-  const blocks = useMarkdownBodyBlocks(props.publishedText, props.isComplete);
+  const blocks = useMarkdownBodyBlocks(props.publishedText, props.isComplete, props.bodyBlocks);
   // An effect, not a render, so no render mutates a registry that two cards share.
   useFootnoteDefinitionRegistration(blocks, props.footnotes, props.sourceId);
   const viewport = useContext(TranscriptBodyViewportContext);
@@ -83,7 +86,7 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
     props.offersBlockCopy,
     viewport === undefined ? undefined : renderWindowedTable,
   );
-  useFirstDrawReport(blocks.settledBlocks.length > 0 || (blocks.tailNodes?.length ?? 0) > 0);
+  useFirstDrawReport(blocks.settledCount > 0 || (blocks.tailNodes?.length ?? 0) > 0);
 
   if (isWindowed) {
     return (
@@ -129,16 +132,16 @@ function WholeMarkdown(props: {
   );
   const wholeBody = (
     <div className="meridian-markdown" ref={flowTableBody?.attachBody}>
-      {blocks.settledBlocks.map((block, index) => (
-        <MarkdownBlockIndexContext key={block.key} value={index}>
+      {Array.from({ length: blocks.settledCount }, (_, index) => (
+        <MarkdownBlockIndexContext key={blocks.records.reactKeyAt(index)} value={index}>
           <SettledBlock
-            nodes={blocks.readBlockTree(block).root.children}
+            nodes={blocks.readBlockTree(index).root.children}
             context={contexts.settled}
           />
         </MarkdownBlockIndexContext>
       ))}
       {blocks.volatileTail === "" ? null : (
-        <MarkdownBlockIndexContext value={blocks.settledBlocks.length}>
+        <MarkdownBlockIndexContext value={blocks.settledCount}>
           <VolatileBlock nodes={blocks.tailNodes} context={contexts.volatile} />
         </MarkdownBlockIndexContext>
       )}

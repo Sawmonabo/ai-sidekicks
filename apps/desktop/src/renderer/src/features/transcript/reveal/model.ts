@@ -3,7 +3,7 @@
 // that only speaks the language never loads the scheduler.
 
 import { type RevealCommitMode } from "./gate.js";
-import { type PublishedText } from "./published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 
 /** The four states the engine reports. Closed, and derived into a union below. */
 export const REVEAL_ENGINE_STATES = ["idle", "streaming", "catching-up", "settled"] as const;

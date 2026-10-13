@@ -27,12 +27,9 @@ import {
 import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { FootnoteRegistry } from "#renderer/features/transcript/rows/markdown/footnotes/registry.js";
 import { prepareRowBodiesForTest } from "#renderer/features/transcript/rows/preparation.test-support.js";
-import {
-  publishedTextOf,
-  type PublishedText,
-} from "#renderer/features/transcript/reveal/published-text.js";
+import { publishedTextOf, type PublishedText } from "#renderer/lib/text/published.js";
 import { ManualClock } from "#renderer/lib/clock.js";
-import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
+import { measureUtf8ByteLength } from "#renderer/lib/text/utf8-byte-length.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
@@ -45,6 +42,7 @@ import { letFramesPassUntilStill } from "../../helpers/animation-frame.js";
 import { toolOutputEventAt } from "./colored-output-event.js";
 import { FEED_HEIGHT_PX, ROW_SELECTOR, mountTranscriptFeed } from "./long-tool-feed.js";
 import { settleFrames } from "./windowed/reply.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 
 const SCROLLER_HEIGHT_PX = 600;
 const PRINTED_LINE_COUNT = 120;
@@ -187,7 +185,7 @@ function HeldToolOutput(props: {
   return (
     <PreparedBodiesContext value={prepared.bodies}>
       <ToolOutput
-        content={{ status: "available", body: props.body }}
+        content={projectedContentOf({ status: "available", body: props.body })}
         {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
         sourceId={rowKey}
         footnotes={new FootnoteRegistry()}

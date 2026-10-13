@@ -6,7 +6,7 @@ import { TOKEN_ALIASES } from "#renderer/styles/palette.js";
 import { contrastRatio, oklchToSrgb } from "#shared/color.js";
 import { COLOR_SCHEMES } from "#shared/color-scheme.js";
 import { APPEARANCE_THEMES, THEME_PALETTES } from "#shared/theme/registry.js";
-import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
+import { publishedTextOf, type PublishedText } from "#renderer/lib/text/published.js";
 import { RevealTextRope } from "../../reveal/text-rope.js";
 
 /** Built from their code points: a raw control byte in source is invisible in a diff. */

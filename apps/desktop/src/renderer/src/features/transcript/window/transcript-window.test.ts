@@ -7,7 +7,6 @@
 // store let go, which a whole derivation of the log alone cannot see; must not change what they
 // published before; and must keep an unchanged row's object while giving a changed row a new one.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import { describe, expect, it } from "vitest";
 
@@ -24,7 +23,10 @@ import {
   startedAtMs,
 } from "#fixtures/scenarios/transcript-states.js";
 import { ScenarioTurnAttribution } from "#renderer/services/daemon/scenario/turn-attribution.fixture.js";
-import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import {
+  type ProjectedSessionEvent,
+  type ProjectedTranscriptRow,
+} from "#renderer/store/session/entities/vocabulary.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import { type WaitingOnPersonRecords } from "#renderer/store/session/waiting-on-person/register.js";
 import { DrawnRowFilter } from "../feed/drawn-rows.js";
@@ -67,7 +69,7 @@ const LONG_RUN_REWIND_POSITION = 2;
 const FIND_QUERIES = ["read", "4 ms"] as const;
 
 /** A stand-in renderer that draws nothing for two wire types, one of them a system message. */
-function drawsBody(row: TranscriptEventRow): boolean {
+function drawsBody(row: ProjectedTranscriptRow): boolean {
   return row.type !== "run.starting" && row.type !== "usage.context_compacted";
 }
 
@@ -558,7 +560,7 @@ function startsWith(
   return log.length >= prefix.length && prefix.every((event, index) => log[index] === event);
 }
 
-function rowRunId(row: TranscriptEventRow): string {
+function rowRunId(row: ProjectedTranscriptRow): string {
   return row.kind === "general" ? "" : row.runId;
 }
 

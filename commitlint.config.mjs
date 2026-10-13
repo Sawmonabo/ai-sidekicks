@@ -16,6 +16,7 @@ export default {
         "client-sdk",
         "search-index",
         "search-ranking",
+        "compression",
         "daemon",
         "control-plane",
         "desktop",

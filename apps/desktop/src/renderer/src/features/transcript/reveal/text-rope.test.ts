@@ -1,10 +1,11 @@
 // The rope's claims that matter: the cursor only moves forward, across chunk boundaries and never
-// past the source, and a read of the revealed text through the rope returns exactly the
-// characters revealed, wherever a range falls against the chunks.
+// past the source; a read of the revealed text through the rope returns exactly the characters
+// revealed, wherever a range falls against the chunks; and a commit extends the source as the
+// source is held, a lone surrogate read as the replacement character it is held as.
 
 import { describe, expect, it } from "vitest";
 
-import { REVEAL_TEXT_CHUNK_CHARACTERS } from "./caps.js";
+import { PACKED_CHUNK_MAX_BYTES } from "#renderer/lib/text/compression.js";
 import { RevealTextRope } from "./text-rope.js";
 
 function fedWith(appends: readonly string[]): RevealTextRope {
@@ -77,30 +78,40 @@ describe("the reveal text rope", () => {
     expect(rope.isPrefixOf("The run starved at noon, and ended")).toBe(false);
     expect(rope.isPrefixOf("The run started at dusk, and ended")).toBe(false);
   });
+
+  it("reads a lone surrogate as the replacement character it is held as", () => {
+    expect(fedWith(["one \uD800 two"]).isPrefixOf("one \uD800 two three")).toBe(true);
+    // A high surrogate the source ends on waits for its other half.
+    expect(fedWith(["ab\uD83D"]).isPrefixOf("ab\uD83D\uDE00 and more")).toBe(true);
+    // A pair across the source's end is one character the source does not hold, though its first
+    // half alone would read as the replacement the source's lone low surrogate is held as.
+    expect(fedWith(["ab\uDC00"]).isPrefixOf("ab\uD83D\uDE00")).toBe(false);
+  });
 });
 
 describe("the reveal text rope — reading across chunk boundaries", () => {
   it("reads every range exactly, with no character lost or repeated at a chunk edge", () => {
     // Appends of odd sizes, so the last chunk is refilled across appends and the edges fall
     // inside appends rather than between them.
-    const source = Array.from({ length: 2_000 }, (_, index) => `${String(index)}|`).join("");
-    expect(source.length).toBeGreaterThan(REVEAL_TEXT_CHUNK_CHARACTERS * 3);
+    const source = Array.from({ length: 12_000 }, (_, index) => `${String(index)}|`).join("");
+    expect(source.length).toBeGreaterThan(PACKED_CHUNK_MAX_BYTES * 3);
     const rope = new RevealTextRope("lane-1");
     for (let start = 0; start < source.length; start += 337) {
       rope.append(source.slice(start, start + 337));
     }
-    const revealedLength = REVEAL_TEXT_CHUNK_CHARACTERS * 3 - 5;
+    // One byte a character, so a chunk edge falls every `PACKED_CHUNK_MAX_BYTES` characters.
+    const revealedLength = PACKED_CHUNK_MAX_BYTES * 3 - 5;
     rope.advance(revealedLength);
     const revealed = source.slice(0, revealedLength);
 
     expect(rope.slice(0)).toBe(revealed);
-    expect(rope.chunks().join("")).toBe(revealed);
-    for (const edge of [REVEAL_TEXT_CHUNK_CHARACTERS, REVEAL_TEXT_CHUNK_CHARACTERS * 2]) {
+    expect([...rope.chunks()].join("")).toBe(revealed);
+    for (const edge of [PACKED_CHUNK_MAX_BYTES, PACKED_CHUNK_MAX_BYTES * 2]) {
       for (const [start, end] of [
         [edge - 1, edge + 1],
         [edge, edge + 3],
         [edge - 3, edge],
-        [edge - 2, edge + REVEAL_TEXT_CHUNK_CHARACTERS + 2],
+        [edge - 2, edge + PACKED_CHUNK_MAX_BYTES + 2],
       ] as const) {
         expect(rope.slice(start, end)).toBe(revealed.slice(start, end));
       }
@@ -139,11 +150,11 @@ describe("the reveal text rope — a frame never cuts a character in half", () =
   });
 
   it("snaps across a chunk edge, where the halves arrived in separate appends", () => {
-    // The leading half ends one chunk and the trailing half opens the next, so the check reads
-    // the pair from two chunks, as it does a pair split across two appends.
-    const opening = "a".repeat(REVEAL_TEXT_CHUNK_CHARACTERS - 1);
+    // The leading half arrives where a chunk ends and the trailing half in a later append, so the
+    // check reads the pair across the chunk edge it was held over.
+    const opening = "a".repeat(PACKED_CHUNK_MAX_BYTES - 1);
     const rope = fedWith([opening, GRINNING_FACE.slice(0, 1), `${GRINNING_FACE.slice(1)}cd`]);
-    expect(rope.advance(REVEAL_TEXT_CHUNK_CHARACTERS)).toBe(REVEAL_TEXT_CHUNK_CHARACTERS + 1);
+    expect(rope.advance(PACKED_CHUNK_MAX_BYTES)).toBe(PACKED_CHUNK_MAX_BYTES + 1);
     expect(rope.slice(0)).toBe(`${opening}${GRINNING_FACE}`);
   });
 

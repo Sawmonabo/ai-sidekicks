@@ -8,8 +8,8 @@
 import Anser from "anser";
 
 import { srgbToOklab, type OklabColor } from "#shared/color.js";
-import { type PublishedText } from "../../reveal/published-text.js";
-import { joinPieces } from "#renderer/lib/text-pieces.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
+import { joinPieces } from "#renderer/lib/text/pieces.js";
 import { EscapeSequenceStripper, withoutResidualEscapes } from "./escape-sequences.js";
 
 /**

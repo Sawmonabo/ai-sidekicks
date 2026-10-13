@@ -27,18 +27,15 @@ import { useClipboardCopy } from "#renderer/services/platform/hooks/useClipboard
 import { MarkdownFirstDrawContext } from "./bodies/markdown-first-draw.js";
 import { MessageContent } from "./bodies/MessageContent.js";
 import { RecordedBodyLine } from "./RecordedBodyLine.js";
-import { UserBody } from "./bodies/UserBody.js";
+import { PreparedMarkdown } from "./bodies/PreparedMarkdown.js";
 import { userMessageTextOf } from "./user-message.js";
 import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
 import { replyClipboardContent } from "../copy/clipboard-flavors.js";
 import { COPY_FLAVOR_ATTRIBUTE } from "../copy/conversation-selection.js";
 import { replyCopyFlavorOf } from "../copy/drawn-reply-text.js";
 import { useReplyText } from "../copy/hooks/useReplyText.js";
-import {
-  piecedTextOfPublished,
-  publishedTextOf,
-  type PublishedText,
-} from "../reveal/published-text.js";
+import { joinIntoPieces } from "#renderer/lib/text/pieces.js";
+import { publishedTextOf, type PublishedText } from "#renderer/lib/text/published.js";
 
 /** What a mount hands a message card, beyond the row itself. */
 export interface MessageRowProps extends TranscriptCardProps {
@@ -67,21 +64,21 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
   const payload = projectedPayload(props.row);
   // Read once for both readers below: the body's renderer and the receipt's own line.
   const assistantMediaType = readWireString(payload["contentType"]);
-  // The text a Copy takes, as a handle: a stored string is read through one made once per string,
-  // and the whole text is built only when Copy is pressed.
-  const storedText = isUser
-    ? userMessageTextOf(props.row)
-    : rowKind.kind === "thinking" || props.liveText !== undefined
-      ? undefined
-      : props.row.content?.status === "available"
-        ? props.row.content.body
-        : undefined;
-  const storedCopyText = useMemo(
-    () => (storedText === undefined ? undefined : publishedTextOf(storedText)),
-    [storedText],
+  // The text a Copy takes, as a handle: a person's message is read through one made once per
+  // string, a stored reply through its packed holder, and the whole text is built only when Copy is
+  // pressed.
+  const userMessage = isUser ? userMessageTextOf(props.row) : undefined;
+  const userMessageText = useMemo(
+    () => (userMessage === undefined ? undefined : publishedTextOf(userMessage)),
+    [userMessage],
   );
-  const copyText: PublishedText | undefined =
-    isUser || rowKind.kind === "thinking" ? storedCopyText : (props.liveText ?? storedCopyText);
+  const storedReplyText =
+    props.row.content?.status === "available" ? props.row.content.body : undefined;
+  const copyText: PublishedText | undefined = isUser
+    ? userMessageText
+    : rowKind.kind === "thinking"
+      ? undefined
+      : (props.liveText ?? storedReplyText);
   // A reply drawn as markdown copies as markdown with a formatted flavor beside it; the person's
   // own message, and a reply drawn as text, copy as plain text and nothing else.
   const copyFlavor: CopyFlavor =
@@ -105,7 +102,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
   );
   const clipboardCopy = useClipboardCopy(() => {
     if (!isReply) {
-      return copyText === undefined ? { text: "" } : { text: piecedTextOfPublished(copyText) };
+      return copyText === undefined ? { text: "" } : { text: joinIntoPieces(copyText.chunks()) };
     }
     const wholeReply = replyText.read();
     return replyText.flavor === "markdown"
@@ -149,7 +146,12 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
         {/* The body alone is what a selection in the conversation copies out of this row. */}
         <div className="meridian-message-card__body" {...{ [COPY_FLAVOR_ATTRIBUTE]: copyFlavor }}>
           {isUser ? (
-            <UserBody row={props.row} footnotes={props.footnotes} />
+            // A person types markdown, so a message is drawn as a reply is, without block copies.
+            <PreparedMarkdown
+              sourceId={props.row.id}
+              footnotes={props.footnotes}
+              offersBlockCopy={false}
+            />
           ) : rowKind.kind === "thinking" ? (
             props.thinkingRow
           ) : (

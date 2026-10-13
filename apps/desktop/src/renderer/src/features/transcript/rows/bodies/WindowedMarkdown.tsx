@@ -7,7 +7,7 @@ import { useMemo } from "react";
 
 import { type MarkdownRenderContexts } from "./hooks/useMarkdownRenderContexts.js";
 import { useBlockWindow } from "./hooks/useBlockWindow.js";
-import { type MarkdownBodyBlocksSnapshot } from "../markdown/body-blocks.js";
+import { type MarkdownBodyBlocksSnapshot } from "../markdown/body-blocks/snapshot.js";
 import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import {
   MARKDOWN_BLOCK_INDEX_ATTRIBUTE,
@@ -50,7 +50,6 @@ export function WindowedMarkdown(props: WindowedMarkdownProps): React.JSX.Elemen
           if (row.kind === "spacer") {
             return <div key={row.key} aria-hidden="true" style={{ height: `${row.heightPx}px` }} />;
           }
-          const block = blocks.settledBlocks[row.index];
           return (
             <div
               key={row.key}
@@ -59,13 +58,13 @@ export function WindowedMarkdown(props: WindowedMarkdownProps): React.JSX.Elemen
               {...(row.isFinal ? { [MARKDOWN_FINAL_BLOCK_ATTRIBUTE]: "" } : {})}
             >
               <MarkdownBlockIndexContext value={row.index}>
-                {block === undefined ? (
-                  <VolatileBlock nodes={blocks.tailNodes} context={contexts.volatile} />
-                ) : (
+                {row.index < blocks.settledCount ? (
                   <SettledBlock
-                    nodes={blocks.readBlockTree(block).root.children}
+                    nodes={blocks.readBlockTree(row.index).root.children}
                     context={contexts.settled}
                   />
+                ) : (
+                  <VolatileBlock nodes={blocks.tailNodes} context={contexts.volatile} />
                 )}
               </MarkdownBlockIndexContext>
             </div>

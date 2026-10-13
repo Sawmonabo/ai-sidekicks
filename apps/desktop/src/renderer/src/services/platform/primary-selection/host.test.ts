@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
-import { piecedTextOf, TEXT_PIECE_LENGTH } from "#renderer/lib/text-pieces.js";
+import { piecedTextOf, TEXT_PIECE_LENGTH } from "#renderer/lib/text/pieces.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import type { PlatformBridge } from "../bridge.js";
 import { createFixtureBridge } from "../bridge.fixture.js";

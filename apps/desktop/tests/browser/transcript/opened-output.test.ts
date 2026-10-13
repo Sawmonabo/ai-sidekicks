@@ -19,6 +19,7 @@ import {
 } from "#renderer/features/transcript/logs.test-support.js";
 import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 
 /** The session's log, a few screens of messages over the two calls near its tail. */
 const LOG_ROW_COUNT = 120;
@@ -61,7 +62,7 @@ function eventAt(index: number): ProjectedSessionEvent {
     },
     content: isLarge
       ? { status: "large", contentLength }
-      : { status: "available", body: PRINTED_OUTPUT },
+      : projectedContentOf({ status: "available", body: PRINTED_OUTPUT }),
   };
 }
 

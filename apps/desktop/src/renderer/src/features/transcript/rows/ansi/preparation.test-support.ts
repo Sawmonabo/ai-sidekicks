@@ -1,7 +1,7 @@
 // A row's command output prepared as the feed prepares it, for a test that draws the output's box
 // outside a feed.
 
-import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
+import { publishedTextOf, type PublishedText } from "#renderer/lib/text/published.js";
 import { PreparedBodies } from "../prepared-bodies.js";
 import { AnsiOutputPreparation } from "./preparation.js";
 

@@ -14,14 +14,14 @@
 // A command output is parsed only while its row is within the drawn band's reach, which the
 // viewport hands over each time it walks the band with the rows in view, and only while its call is
 // open. A row leaving the reach lets its parse go, and the viewport mounts a row coming into it
-// only once its output is parsed whole again. A row that has never been listed is within reach as
-// the listed row it joins after is; one outside is listed at once, unparsed. A folded call opens
-// once its output is parsed whole, so it draws formatted on the frame it opens. The feed is first
-// shown only once no row held until its output parses would join beside a row in view, so a
-// session opens with each output it shows formatted where it stays.
+// only once its output is parsed whole again, its markdown body can draw rather than mount blank
+// and its drawn blocks are read, which a row outside the reach goes on doing behind the rows within
+// it. A row that has never been listed is within reach as the listed row it joins after is; one
+// outside is listed at once, unparsed. A folded call opens once its output is parsed whole, so it
+// draws formatted on the frame it opens. The feed is first shown only once no held row would join
+// the rows drawn, so a session opens with each row it shows formatted where it stays.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 import { type OutputReach } from "../rows/ansi/preparation.js";
 import {
   type TranscriptRowPreparation,
@@ -67,10 +67,10 @@ export class PreparedRowGate {
    * row held out before the first listed one.
    */
   #listedKeysBeforeHeldRows: ReadonlySet<string | undefined> = new Set<string | undefined>();
-  /** The listed rows the last pass held a row out next to until its output parses, either side. */
-  #listedKeysBesideUnparsedRows: ReadonlySet<string> = new Set<string>();
-  /** The rows in view as the viewport last walked the band, by key. */
-  #viewRowKeys: ReadonlySet<string> = new Set<string>();
+  /** The listed rows the last pass held a row out next to, either side. */
+  #listedKeysBesideHeldRows: ReadonlySet<string> = new Set<string>();
+  /** The rows within the drawn band's reach as the viewport last walked it, by key. */
+  #bandRowKeys: ReadonlySet<string> = new Set<string>();
   /** Every row's preparation the window holds, listed or held, by row id. */
   readonly #preparations = new Map<string, HeldPreparation>();
   /**
@@ -125,12 +125,17 @@ export class PreparedRowGate {
     this.#listedKeysBeforeHeldRows.has(rowKey);
 
   /**
-   * Whether the last pass held a row out beside a row in view until its output parses, so it would
-   * join between rows on screen: what the feed's first frame waits on.
+   * Whether a row would still join the rows drawn: one the last pass held out beside a row within
+   * the drawn band's reach, or any while it lists no row at all. A row joining the band moves the
+   * rows on screen whenever the rows above them cannot take its height, as while they do not fill
+   * the view. What the feed's first frame waits on.
    */
-  public readonly holdsUnparsedRowInView = (): boolean => {
-    for (const rowKey of this.#listedKeysBesideUnparsedRows) {
-      if (this.#viewRowKeys.has(rowKey)) {
+  public readonly holdsRowJoiningView = (): boolean => {
+    if (this.#heldOutRowIds.size > 0 && this.#listedRowIds.size === 0) {
+      return true;
+    }
+    for (const rowKey of this.#listedKeysBesideHeldRows) {
+      if (this.#bandRowKeys.has(rowKey)) {
         return true;
       }
     }
@@ -154,7 +159,7 @@ export class PreparedRowGate {
     rowKeys: ReadonlySet<string>,
     viewRowKeys: ReadonlySet<string>,
   ): void => {
-    this.#viewRowKeys = viewRowKeys;
+    this.#bandRowKeys = rowKeys;
     for (const rowId of this.#reachByRowId.keys()) {
       // A row still held out keeps what its pass decided.
       if (!rowKeys.has(rowId) && !this.#heldOutRowIds.has(rowId)) {
@@ -167,12 +172,13 @@ export class PreparedRowGate {
   };
 
   /**
-   * Whether a row's command output, if it draws one, is parsed whole as the row would draw now: a
-   * row the viewport mounts only once it is.
+   * Whether a row's command output, if it draws one, is parsed whole, its markdown body can draw
+   * and its drawn blocks are read, as the row would draw now: a row the viewport mounts only once
+   * it is.
    */
-  public readonly isOutputParsed = (rowKey: string): boolean => {
+  public readonly isRowParsed = (rowKey: string): boolean => {
     const held = this.#preparations.get(rowKey);
-    return held === undefined || (held.drawn ?? held).preparation.isOutputReady;
+    return held === undefined || (held.drawn ?? held).preparation.isParsed;
   };
 
   /**
@@ -249,25 +255,25 @@ export class PreparedRowGate {
     const sources = this.#rowSourcesOf(feedSources);
     this.#reachUnlistedRows(model.rows);
     const viewportRows: ViewportRow[] = [];
-    const rows: TranscriptEventRow[] = [];
+    const rows: ProjectedTranscriptRow[] = [];
     const preparingRows: ViewportRow[] = [];
     const listedRowIds = new Set<string>();
     const heldRowIds = new Set<string>();
     const heldOutRowIds = new Set<string>();
     const listedKeysBeforeHeldRows = new Set<string | undefined>();
-    const listedKeysBesideUnparsedRows = new Set<string>();
-    // Whether a row held out until its output parses waits for the next listed row as its neighbor.
-    let isAfterUnparsedRow = false;
+    const listedKeysBesideHeldRows = new Set<string>();
+    // Whether a row held out waits for the next listed row as its neighbor.
+    let isAfterHeldRow = false;
     const list = (identity: ViewportRow): void => {
       viewportRows.push(identity);
-      if (isAfterUnparsedRow) {
-        listedKeysBesideUnparsedRows.add(identity.key);
-        isAfterUnparsedRow = false;
+      if (isAfterHeldRow) {
+        listedKeysBesideHeldRows.add(identity.key);
+        isAfterHeldRow = false;
       }
     };
     // What each row is listed as, its last version while a change of it is prepared.
-    const listedRowById = new Map<string, TranscriptEventRow | undefined>();
-    const lastVersionById = new Map<string, TranscriptEventRow>();
+    const listedRowById = new Map<string, ProjectedTranscriptRow | undefined>();
+    const lastVersionById = new Map<string, ProjectedTranscriptRow>();
     for (const row of model.rows) {
       listedRowById.set(row.id, this.#listedRowOf(row, prepareRow, sources));
     }
@@ -300,12 +306,10 @@ export class PreparedRowGate {
         heldOutRowIds.add(row.id);
         const listedKeyBefore = viewportRows.at(-1)?.key;
         listedKeysBeforeHeldRows.add(listedKeyBefore);
-        if (!this.isOutputParsed(row.id)) {
-          if (listedKeyBefore !== undefined) {
-            listedKeysBesideUnparsedRows.add(listedKeyBefore);
-          }
-          isAfterUnparsedRow = true;
+        if (listedKeyBefore !== undefined) {
+          listedKeysBesideHeldRows.add(listedKeyBefore);
         }
+        isAfterHeldRow = true;
       }
     }
     // A row the window let go is withdrawn: it is prepared again if it returns.
@@ -317,7 +321,7 @@ export class PreparedRowGate {
     this.#listedRowIds = listedRowIds;
     this.#heldOutRowIds = heldOutRowIds;
     this.#listedKeysBeforeHeldRows = listedKeysBeforeHeldRows;
-    this.#listedKeysBesideUnparsedRows = listedKeysBesideUnparsedRows;
+    this.#listedKeysBesideHeldRows = listedKeysBesideHeldRows;
     const output: PreparedRows =
       preparingRows.length === 0 && lastVersionById.size === 0
         ? { window: model, preparingRows: NO_ROWS }
@@ -391,7 +395,7 @@ export class PreparedRowGate {
    * joins after is, or above every listed row, as the first of them is. With none listed, the
    * feed is opening at its tail, and every row is.
    */
-  #reachUnlistedRows(rows: readonly TranscriptEventRow[]): void {
+  #reachUnlistedRows(rows: readonly ProjectedTranscriptRow[]): void {
     const firstListedRow = rows.find((row) => this.#listedRowIds.has(row.id));
     let isWithinReach = firstListedRow === undefined || this.#reachByRowId.has(firstListedRow.id);
     for (const row of rows) {
@@ -455,8 +459,8 @@ export class PreparedRowGate {
    * rather than between rows on screen.
    */
   #lastHeldBeforeListedRows(
-    rows: readonly TranscriptEventRow[],
-    listedRowById: ReadonlyMap<string, TranscriptEventRow | undefined>,
+    rows: readonly ProjectedTranscriptRow[],
+    listedRowById: ReadonlyMap<string, ProjectedTranscriptRow | undefined>,
   ): string | undefined {
     let lastHeldRowId: string | undefined;
     for (const row of rows) {
@@ -477,10 +481,10 @@ export class PreparedRowGate {
    * listed row is still being prepared.
    */
   #listedRowOf(
-    row: TranscriptEventRow,
+    row: ProjectedTranscriptRow,
     prepareRow: TranscriptRowPreparer,
     sources: TranscriptRowSources,
-  ): TranscriptEventRow | undefined {
+  ): ProjectedTranscriptRow | undefined {
     const wasListed = this.#listedRowIds.has(row.id);
     const held = this.#preparations.get(row.id);
     if (held?.row === row) {
@@ -530,7 +534,7 @@ export class PreparedRowGate {
   }
 
   /** What a row held since the last pass is listed as, letting its last version go once whole. */
-  #settledRowOf(held: HeldPreparation, wasListed: boolean): TranscriptEventRow | undefined {
+  #settledRowOf(held: HeldPreparation, wasListed: boolean): ProjectedTranscriptRow | undefined {
     if (held.drawn === undefined) {
       return wasListed || this.#isListable(held.row.id, held.preparation) ? held.row : undefined;
     }
@@ -558,7 +562,7 @@ export class PreparedRowGate {
 
 /** One row's preparation, the row object it was started for, and the version drawn meanwhile. */
 interface HeldPreparation {
-  readonly row: TranscriptEventRow;
+  readonly row: ProjectedTranscriptRow;
   readonly preparation: TranscriptRowPreparation;
   /** The row's last listed version, drawn while this changed one is prepared. */
   readonly drawn: HeldPreparation | undefined;

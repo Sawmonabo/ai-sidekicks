@@ -1,26 +1,37 @@
 // A cache bounded in bytes, not entries: cached bodies range from one line to a pasted file.
-// The key (the source text) is always charged, and the value too when the caller can measure it.
+// The key (a source text, or a hash standing in for one) is always charged, and the value too when
+// the caller can measure it.
 // Eviction is least-recently-used, using `Map` insertion order. An entry a caller holds is kept
 // whatever its size and charged like any other, so while it is held the rest give way to it. The
 // entries no one holds are kept in their own order too, so passing the cap visits only those it
-// evicts, however many entries are held.
+// evicts, however many entries are held. A value whose size changes while kept, such as one packed
+// after it was stored, is charged its new size when its owner says so.
 
-import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
+import { measureUtf8ByteLength } from "#renderer/lib/text/utf8-byte-length.js";
 
 /** Content-addressed LRU cache with a byte cap; an entry larger than the cap is not stored. */
 export class ByteBoundedCache<TValue> {
   readonly #byteCap: number;
   readonly #measureValueBytes: ((value: TValue) => number) | undefined;
+  readonly #hearRemoved: ((value: TValue) => void) | undefined;
   readonly #entriesByKey = new Map<string, CacheEntry<TValue>>();
   /** The entries no one holds, least recently used first: the ones eviction may take. */
   readonly #unheldEntriesByKey = new Map<string, CacheEntry<TValue>>();
 
   #retainedByteCount = 0;
 
-  /** `measureValueBytes`, where given, adds each value's own bytes to its key's. */
-  public constructor(byteCap: number, measureValueBytes?: (value: TValue) => number) {
+  /**
+   * `measureValueBytes`, where given, adds each value's own bytes to its key's; `hearRemoved` hears
+   * each stored value that leaves: evicted, replaced under its key, or cleared.
+   */
+  public constructor(
+    byteCap: number,
+    measureValueBytes?: (value: TValue) => number,
+    hearRemoved?: (value: TValue) => void,
+  ) {
     this.#byteCap = byteCap;
     this.#measureValueBytes = measureValueBytes;
+    this.#hearRemoved = hearRemoved;
   }
 
   /** The value for this key, or `undefined`; a hit moves the entry to most recently used. */
@@ -37,7 +48,7 @@ export class ByteBoundedCache<TValue> {
   }
 
   /**
-   * Store a value under its own source text.
+   * Store a value under its key.
    *
    * An entry larger than the whole cap is dropped, not stored: storing it would evict every
    * other entry for something the next insert removes again.
@@ -83,8 +94,29 @@ export class ByteBoundedCache<TValue> {
     }
   }
 
+  /**
+   * Charges the entry under `key` what its value measures now, as one whose size changed while
+   * kept, and evicts down to the cap if it grew; nothing when no entry is kept under it.
+   */
+  public recharge(key: string): void {
+    const entry = this.#entriesByKey.get(key);
+    if (entry === undefined) {
+      return;
+    }
+    const byteLength = measureUtf8ByteLength(key) + (this.#measureValueBytes?.(entry.value) ?? 0);
+    this.#retainedByteCount += byteLength - entry.byteLength;
+    entry.byteLength = byteLength;
+    this.#evictToCap();
+  }
+
   /** Forget everything. The cap survives — it is how the cache was built. */
   public clear(): void {
+    const hearRemoved = this.#hearRemoved;
+    if (hearRemoved !== undefined) {
+      for (const entry of this.#entriesByKey.values()) {
+        hearRemoved(entry.value);
+      }
+    }
     this.#entriesByKey.clear();
     this.#unheldEntriesByKey.clear();
     this.#retainedByteCount = 0;
@@ -95,6 +127,7 @@ export class ByteBoundedCache<TValue> {
     if (existing !== undefined) {
       this.#retainedByteCount -= existing.byteLength;
       this.#unheldEntriesByKey.delete(key);
+      this.#hearRemoved?.(existing.value);
     }
     const entry = { value, byteLength, holdCount };
     this.#entriesByKey.set(key, entry);
@@ -113,6 +146,7 @@ export class ByteBoundedCache<TValue> {
       this.#unheldEntriesByKey.delete(key);
       this.#entriesByKey.delete(key);
       this.#retainedByteCount -= entry.byteLength;
+      this.#hearRemoved?.(entry.value);
     }
   }
 }
@@ -120,6 +154,6 @@ export class ByteBoundedCache<TValue> {
 /** One cached value, its charge, and how many holders keep it from eviction. */
 interface CacheEntry<TValue> {
   readonly value: TValue;
-  readonly byteLength: number;
+  byteLength: number;
   holdCount: number;
 }

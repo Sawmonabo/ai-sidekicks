@@ -5,7 +5,8 @@
 // The app takes the daemon's stamps rather than projecting them: a row of a run carries its turn
 // position, epoch and superseded marker onto the event as its run stamp, exactly as a stream change
 // carries the stamp the daemon gave it, so a row read and a row streamed say the same thing. The
-// row's body rides onto the event too, so a reply read from history draws its text. The decode is
+// row's body rides onto the event too, packed, so a reply read from history draws its text and
+// the reply's string of it is let go with the reply. The decode is
 // total: every member the log holds is required on the row except an optional `actor`, so no row
 // is dropped. Whether more rows lie beyond the window is the reply's `hasMore`, never
 // inferred from a short page. The facts of the runs the rows name ride with the page verbatim.
@@ -16,6 +17,7 @@ import type {
 } from "@ai-sidekicks/contracts/transcript/operations";
 import type { TranscriptReadRow, TranscriptRunStamp } from "@ai-sidekicks/contracts/transcript/row";
 
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import type { TranscriptWindowPage } from "#renderer/store/session/transcript-window.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -53,7 +55,8 @@ export function readTranscriptPage(response: TranscriptReadResponse): Transcript
 /**
  * Reads one projected row back as the log entry it came from, at the cursor the row was stored
  * at, so a link naming the message by its cursor finds it. `type` becomes `kind` and
- * `timestamp` becomes `occurredAt`; `actor` carries to `actorId`, and its absence stays absence.
+ * `timestamp` becomes `occurredAt`; `actor` carries to `actorId`, and its absence stays absence;
+ * `content` is held packed.
  * `payload` is spread, not carried by reference, because the rollback arm's payload is a typed
  * event while the store's log holds a keyed record.
  */
@@ -69,7 +72,7 @@ function readTranscriptReadRowAsEvent(row: TranscriptReadRow): ProjectedSessionE
     ...(row.actor === undefined ? {} : { actorId: row.actor }),
     payload: { ...row.payload },
     ...(runStamp === undefined ? {} : { runStamp }),
-    content: row.content,
+    content: projectedContentOf(row.content),
   };
 }
 

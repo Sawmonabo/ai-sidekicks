@@ -1,8 +1,7 @@
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 // How one derivation's input moved since its last pass, read off the two arrays by identity, and
 // where a row sits in a list kept in log order. A stage that can apply only what moved asks these
 // first and derives whole when the answer is anything but growth at the end.
-
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 /** How a row list grew: rows replaced in place by a same-id object, and the rows appended. */
 export interface RowGrowth {
@@ -52,16 +51,16 @@ export function holdsSameObjects<TItem>(left: readonly TItem[], right: readonly 
  * with another id. A row replaced by a new object of its id is a row projected again.
  */
 export function rowGrowthOf(
-  previous: readonly TranscriptEventRow[],
-  next: readonly TranscriptEventRow[],
+  previous: readonly ProjectedTranscriptRow[],
+  next: readonly ProjectedTranscriptRow[],
 ): RowGrowth | undefined {
   if (next.length < previous.length) {
     return undefined;
   }
   const replacedPositions: number[] = [];
   for (let index = 0; index < previous.length; index += 1) {
-    const previousRow = previous[index] as TranscriptEventRow;
-    const nextRow = next[index] as TranscriptEventRow;
+    const previousRow = previous[index] as ProjectedTranscriptRow;
+    const nextRow = next[index] as ProjectedTranscriptRow;
     if (previousRow !== nextRow) {
       if (previousRow.id !== nextRow.id) {
         return undefined;
@@ -77,8 +76,8 @@ export function rowGrowthOf(
  * binary search finds it; one it does not find there is looked for in every position.
  */
 export function positionOfRow(
-  rows: readonly TranscriptEventRow[],
-  row: TranscriptEventRow,
+  rows: readonly ProjectedTranscriptRow[],
+  row: ProjectedTranscriptRow,
 ): number {
   const position = sequenceInsertionPosition(rows, row.sequence);
   return rows[position] === row ? position : rows.indexOf(row);
@@ -89,14 +88,14 @@ export function positionOfRow(
  * is not below `sequence`: where a row of that sequence goes to keep the list in log order.
  */
 export function sequenceInsertionPosition(
-  rows: readonly TranscriptEventRow[],
+  rows: readonly ProjectedTranscriptRow[],
   sequence: number,
 ): number {
   let low = 0;
   let high = rows.length;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if ((rows[middle] as TranscriptEventRow).sequence < sequence) {
+    if ((rows[middle] as ProjectedTranscriptRow).sequence < sequence) {
       low = middle + 1;
     } else {
       high = middle;

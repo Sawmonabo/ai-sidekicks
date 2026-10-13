@@ -5,7 +5,7 @@
 // last chunk, so no revision copies the spans of the chunks before it. The text is read a piece of
 // whole lines at a time while the caller's slice has time, so a long output is parsed in slices.
 
-import { type PublishedText } from "#renderer/features/transcript/reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import { AnsiSpanParser, type AnsiSpan } from "../spans.js";
 
 /** One chunk of an output's lines, as its window draws it. */

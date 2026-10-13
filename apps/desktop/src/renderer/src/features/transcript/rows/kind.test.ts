@@ -7,14 +7,15 @@ import { describe, expect, it } from "vitest";
 
 import { classifyTranscriptRow, toolResultState } from "./kind.js";
 import { sampleGeneralRow, sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 
-const AVAILABLE_BODY: HydratedSessionEventContent = { status: "available", body: "done" };
-const TRUNCATED_BODY: HydratedSessionEventContent = {
+const AVAILABLE_BODY = projectedContentOf({ status: "available", body: "done" });
+const TRUNCATED_BODY = projectedContentOf({
   status: "available",
   body: "don",
   contentLength: 4096,
   contentTruncated: true,
-};
+});
 /** A cut output too large to travel with its row, as almost every cut one is. */
 const LARGE_TRUNCATED_BODY: TranscriptLargeBody = {
   status: "large",

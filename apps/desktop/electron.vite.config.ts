@@ -133,8 +133,9 @@ const MARKDOWN_WORKER_ENTRY = "components/Markdown/worker/entry.ts";
 
 /**
  * The worker Sätteri's browser build names for work it runs off its caller's thread. The markdown
- * worker runs every parse on its own thread and never starts one, so it is built as one line that
- * throws (`parserThreadWorkerPlugin`) rather than the 202 kB the parser's thread runtime takes.
+ * worker and the page's parser run every parse on their own thread and never start one, so it is
+ * built as one line that throws (`parserThreadWorkerPlugin`) rather than the 202 kB the parser's
+ * thread runtime takes, in the page's bundle as in the workers'.
  */
 const PARSER_THREAD_WORKER_ENTRY = "@bruits/satteri-wasm32-wasi/wasi-worker-browser.mjs";
 
@@ -208,8 +209,8 @@ function workerPackageBuildsPlugin(): Plugin {
 
 /**
  * Builds Sätteri's thread worker as a module that throws as it loads, so a parse that ever started
- * a thread fails the parse and reaches the markdown worker's error path instead of waiting on a
- * worker that never answers.
+ * a thread fails the parse and reaches its parser's error path instead of waiting on a worker that
+ * never answers.
  */
 function parserThreadWorkerPlugin(): Plugin {
   return {
@@ -333,6 +334,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ command, 
         iconCompilationPlugin(),
         overlayScrollbarBundlePlugin(),
         devContentSecurityPolicyPlugin(),
+        parserThreadWorkerPlugin(),
         ...thirdPartyNoticesPlugins(() => "renderer"),
       ],
       // Workers are modules: merman's WebAssembly glue and the markdown worker's parser load with
@@ -380,9 +382,11 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ command, 
       build: {
         outDir: "out/renderer",
         sourcemap: "hidden",
-        // A font is always its own file: the policy's `font-src 'self'` blocks a `data:` face, and
-        // Vite inlines any asset under 4 KiB (one of KaTeX's faces is).
-        assetsInlineLimit: (filePath) => (FONT_EXTENSIONS.test(filePath) ? false : undefined),
+        // A font or a WebAssembly module is always its own file, though Vite inlines any asset
+        // under 4 KiB (one of KaTeX's faces is): the policy's `font-src 'self'` blocks a `data:`
+        // face, and a module compiled from a `data:` address is refused by the page's policy.
+        assetsInlineLimit: (filePath) =>
+          FONT_EXTENSIONS.test(filePath) || filePath.endsWith(".wasm") ? false : undefined,
         // Minified, because electron-vite is not Vite here. Vite's production default is `minify:
         // "oxc"`; electron-vite overrides it to `false` for every target on the reasoning that a
         // desktop bundle loads from disk. Unminified, the bundle carries the renderer's source

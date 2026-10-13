@@ -6,12 +6,15 @@ import { DiagramPictures, DiagramPicturesContext } from "./diagram/pictures.js";
 import { FakeDiagramWorkers } from "./diagram/worker/connection.test-support.js";
 import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { MarkdownNodes } from "./MarkdownNodes.js";
+import { appPageParser } from "./parse/page-parser.js";
 import { piecedRowsOf } from "./parse/pieced-table.js";
 import { MarkdownTrees, type MarkdownParseOutcome } from "./parse/trees.js";
 import { parseTree } from "./parse/trees.test-support.js";
 import type { MarkdownTableOffer } from "./table-offer.js";
 import { MarkdownWorkerConnection } from "./worker/connection.js";
 import { InThreadMarkdownWorkers } from "./worker/connection.test-support.js";
+import { appTextCompression } from "#renderer/lib/text/compression.js";
+import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 
 /** Leaves the renderer's caches alone: no case here shows enough pictures to empty them for. */
 const keepUnusedMemory = (): void => undefined;
@@ -142,9 +145,14 @@ describe("a long table offered to a body that draws its rows", () => {
   });
 
   it("reads only the rows the body draws, so its pieces let go stay let go", () => {
+    // Every slice has time, so the pieces' trees are handed over in the task they land in.
+    giveEverySliceTime();
     const workers = new InThreadMarkdownWorkers();
     // Room for about two pieces' trees, so the first pieces are let go as the last land.
-    const trees = new MarkdownTrees(new MarkdownWorkerConnection(workers.start, window), 1_000_000);
+    const trees = new MarkdownTrees(
+      new MarkdownWorkerConnection(workers.start, window, appPageParser, appTextCompression),
+      1_000_000,
+    );
     const rows = Array.from(
       { length: 5_000 },
       (_, index) => `| lane-${String(index)} | **${String(index)}** | \`code ${String(index)}\` |`,

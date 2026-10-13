@@ -47,7 +47,7 @@ import {
   type TranscriptRunFacts,
 } from "@ai-sidekicks/contracts/transcript/run-facts";
 
-import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
+import { measureUtf8ByteLength } from "#renderer/lib/text/utf8-byte-length.js";
 import { isWireRecord } from "#renderer/lib/wire/record.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { mergeStandingEvents } from "#renderer/store/session/standing-events.js";

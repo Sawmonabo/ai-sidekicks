@@ -5,36 +5,34 @@
 // `MessageContent` and `ToolOutput` differ only in how a body's shape is read and in that a
 // call's output is cut at a share of the visible flow until opened, a large one opened by the
 // press that reads it, so it draws whole once read. A live body is read through its lane's
-// handle and a stored one through a handle over its string, so neither is copied whole on a frame.
+// handle and a stored one through its packed holder, so neither is copied whole on a frame.
 // What the body draws, the row's preparation readied: an output's lines and a reply's markdown,
 // stripped of escapes there, so a body is drawn only inside the feed that prepares it.
 
 import "./MachineBody.css";
 
-import { useContext, useEffect, useMemo, useSyncExternalStore } from "react";
-
-import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
+import { useContext, useEffect, useSyncExternalStore } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { byteFigurePart } from "#renderer/lib/figure-sentence.js";
 import { LARGE_BODY_ATTRIBUTE } from "../../copy/conversation-selection.js";
-import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import { AnsiOutput } from "../ansi/AnsiOutput.js";
-import { PreparedBodiesContext } from "../prepared-bodies.js";
 import { FullBodyReadsContext, type FullBodyReads } from "../full-body-reads.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { FullOutputControl } from "./FullOutputControl.js";
+import { PreparedMarkdown } from "./PreparedMarkdown.js";
 import { type OutputOpening } from "./OutputHeightCut.js";
 import { type OutputKind } from "./output-kinds.js";
-import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { TruncationNotice } from "./TruncationNotice.js";
 import { UnavailableBody } from "./UnavailableBody.js";
 import { useLiveOutputByteLength } from "./hooks/useLiveOutputByteLength.js";
+import { type ProjectedRowContent } from "#renderer/store/session/entities/vocabulary.js";
 
 /** What a machine-authored body is drawn from, and how its shape is read. */
 export interface MachineBodyProps {
   /** The body the row carries, or `undefined` when the row was streamed without one. */
-  readonly content: TranscriptRowContent | undefined;
+  readonly content: ProjectedRowContent | undefined;
   /**
    * Text the reveal engine is publishing while the body streams, as the lane's handle. It takes
    * precedence over `content`, because a live body has no stored copy yet and nothing has been
@@ -62,16 +60,8 @@ export const UNREAD_BODY_TITLE = "This body has not been read.";
 
 /** A machine-authored body: markdown, plain text or command output, as `readOutputKind` says. */
 export function MachineBody(props: MachineBodyProps): React.JSX.Element {
-  const storedBody =
-    props.liveText === undefined && props.content?.status === "available"
-      ? props.content.body
-      : undefined;
-  // One handle per stored string, so the segmenter sees the same text across renders.
-  const storedText = useMemo(
-    () => (storedBody === undefined ? undefined : publishedTextOf(storedBody)),
-    [storedBody],
-  );
-  const bodyText = props.liveText ?? storedText;
+  const bodyText =
+    props.liveText ?? (props.content?.status === "available" ? props.content.body : undefined);
   const kind = bodyText === undefined ? undefined : props.readOutputKind(bodyText);
 
   const fullBodyReads = useContext(FullBodyReadsContext);
@@ -100,14 +90,14 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
   }
 
   if (props.liveText !== undefined || props.content?.status !== "available") {
-    return renderBodyText(props, kind, false, liveByteLength);
+    return renderBodyText(props, kind, liveByteLength);
   }
   return (
     <div className="meridian-machine-body">
-      {renderBodyText(props, kind, true, undefined)}
+      {renderBodyText(props, kind, undefined)}
       {props.content.contentTruncated === true ? (
         <TruncationNotice
-          storedBody={props.content.body}
+          storedByteLength={props.content.body.byteLength}
           preTruncationLength={props.content.contentLength}
         />
       ) : null}
@@ -165,16 +155,12 @@ function LargeBody(props: LargeBodyProps): React.JSX.Element {
 function renderBodyText(
   props: MachineBodyProps,
   kind: OutputKind,
-  isComplete: boolean,
   liveByteLength: number | undefined,
 ): React.JSX.Element {
   if (kind === "prose") {
+    // Only an agent's reply is drawn as prose here; a tool's output never is.
     return (
-      <ReplyMarkdown
-        sourceId={props.sourceId}
-        footnotes={props.footnotes}
-        isComplete={isComplete}
-      />
+      <PreparedMarkdown sourceId={props.sourceId} footnotes={props.footnotes} offersBlockCopy />
     );
   }
   // The row's preparation parsed the text into lines, past what it already parsed. Plain text is
@@ -188,43 +174,6 @@ function renderBodyText(
       rowKey={props.sourceId}
       opening={props.opening}
       liveByteLength={liveByteLength}
-    />
-  );
-}
-
-/** Which reply's markdown to draw, and how. */
-interface ReplyMarkdownProps {
-  readonly sourceId: string;
-  readonly footnotes: FootnoteRegistry;
-  readonly isComplete: boolean;
-}
-
-/**
- * A reply's markdown, as its row's preparation stripped and published it; empty while none is
- * published. Throws outside a feed, where nothing prepares it.
- */
-function ReplyMarkdown(props: ReplyMarkdownProps): React.JSX.Element | null {
-  const preparedBodies = useContext(PreparedBodiesContext);
-  if (preparedBodies === undefined) {
-    throw new Error(
-      "A reply's markdown is drawn only inside a transcript feed, which prepares it.",
-    );
-  }
-  const { sourceId } = props;
-  const markdownText = useSyncExternalStore(preparedBodies.subscribe, () =>
-    preparedBodies.markdownTextOf(sourceId),
-  );
-  if (markdownText === undefined) {
-    return null;
-  }
-  return (
-    <StreamingMarkdown
-      publishedText={markdownText}
-      sourceId={sourceId}
-      footnotes={props.footnotes}
-      isComplete={props.isComplete}
-      // Only an agent's reply is drawn as prose here; a tool's output never is.
-      offersBlockCopy
     />
   );
 }

@@ -6,7 +6,8 @@
 // row in the page read, as the daemon serves history, and the reply is prepared from it before it
 // is listed. The pictures' decodes are held too, so a reply whose picture is drawn but not decoded
 // is seen still out of the list. A session opening on calls whose colored output stands in the box
-// is first shown with each output formatted where it stays.
+// is first shown with each row where it stays and each output formatted, its messages held until
+// the output beside them is ready, then joining between rows on screen.
 
 import { act, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +16,7 @@ import { CONTENT_PAYLOAD_PLAINTEXT_MAX } from "@ai-sidekicks/contracts/event/dec
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { DiagramPictures } from "#renderer/components/Markdown/diagram/pictures.js";
+import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
 import {
   startDiagramWorker,
   type DiagramWorkerPort,
@@ -265,6 +267,51 @@ function openingEventAt(index: number): ProjectedSessionEvent {
   return length === undefined ? pagedSessionEventAt(index) : coloredOutputEventAt(index, length);
 }
 
+/**
+ * Holds where every body's blocks end, the page's cut or the worker's, until `release`, then asks
+ * for each held cut as the body asked for it. The case restores the spy.
+ */
+function holdBodyCuts(): { readonly heldCount: () => number; readonly release: () => void } {
+  const requestCut = appMarkdownTrees.requestCut.bind(appMarkdownTrees);
+  const held: (() => void)[] = [];
+  let isHeld = true;
+  vi.spyOn(appMarkdownTrees, "requestCut").mockImplementation((source, isFinal, listener) => {
+    if (!isHeld) {
+      return requestCut(source, isFinal, listener);
+    }
+    let isListening = true;
+    let stop = (): void => undefined;
+    held.push(() => {
+      if (isListening) {
+        stop = requestCut(source, isFinal, listener);
+      }
+    });
+    return () => {
+      isListening = false;
+      stop();
+    };
+  });
+  return {
+    heldCount: () => held.length,
+    release: () => {
+      isHeld = false;
+      for (const ask of held.splice(0)) {
+        ask();
+      }
+    },
+  };
+}
+
+/** Whether the output on row `rowId` is drawn formatted, whether or not the feed is shown yet. */
+function isOutputFormatted(rowId: string): boolean {
+  const output = document.querySelector(`[data-row-id="${rowId}"] .meridian-ansi__body`);
+  return (
+    output !== null &&
+    output.querySelector("span[class], span[style]") !== null &&
+    !output.textContent.includes(ESCAPE)
+  );
+}
+
 /** What one shown frame of the opening paints: where each row stands, and the outputs formatted. */
 interface OpeningFrame {
   readonly rowTops: ReadonlyMap<string, number>;
@@ -288,21 +335,13 @@ function readOpeningFrame(): OpeningFrame | undefined {
   const rowTops = rowsOnScreen(scrollContainer);
   const formattedOutputIds = [...OPENING_OUTPUT_LENGTHS.keys()]
     .map((index) => transcriptFixtureEventId(index))
-    .filter((rowId) => {
-      const output = scrollContainer.querySelector(`[data-row-id="${rowId}"] .meridian-ansi__body`);
-      return (
-        rowTops.has(rowId) &&
-        output !== null &&
-        output.querySelector("span[class], span[style]") !== null &&
-        !output.textContent.includes(ESCAPE)
-      );
-    });
+    .filter((rowId) => rowTops.has(rowId) && isOutputFormatted(rowId));
   return { rowTops, formattedOutputIds };
 }
 
 describe("a session opening on command outputs", () => {
   it(
-    "is first shown with each output in the box formatted where it stays",
+    "is first shown with each row where it stays, each output in the box formatted",
     { timeout: CASE_TIMEOUT_MS },
     async () => {
       const painted: OpeningFrame[] = [];
@@ -319,21 +358,34 @@ describe("a session opening on command outputs", () => {
       // The faces in first, as a session switched to finds them, so the rows show once committed.
       installMeridianTokens(document);
       await document.fonts.ready;
+      // The messages wait on their cut, however warm the parser is, while the outputs get ready;
+      // then they join between rows too short to take their height without moving them.
+      const cuts = holdBodyCuts();
       await mountFeed(
         undefined,
         pictures,
         undefined,
         openPagedSessionStore(0, LOG_ROW_COUNT - 1, undefined, openingEventAt),
       );
+      const outputIds = [...OPENING_OUTPUT_LENGTHS.keys()].map((index) =>
+        transcriptFixtureEventId(index),
+      );
+      // The log's last output is drawn formatted, the messages beside it still held.
+      await waitFor(
+        () => {
+          expect(isOutputFormatted(transcriptFixtureEventId(LOG_ROW_COUNT - 2))).toBe(true);
+        },
+        { timeout: CASE_TIMEOUT_MS / 2 },
+      );
+      await letFramesPass(2);
+      expect(cuts.heldCount()).toBeGreaterThan(0);
+      cuts.release();
       await waitFor(() => {
         expect(painted.length).toBeGreaterThan(0);
       });
       await letFramesPass(10);
       frames.stop();
 
-      const outputIds = [...OPENING_OUTPUT_LENGTHS.keys()].map((index) =>
-        transcriptFixtureEventId(index),
-      );
       const [first] = painted;
       for (const frame of painted) {
         expect(frame.formattedOutputIds).toEqual(outputIds);

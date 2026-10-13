@@ -5,7 +5,6 @@
 
 import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-run-summary";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
 // The one open-payload reader; it answers the `rollback_boundary` arm's typed payload with an
@@ -13,6 +12,7 @@ import { readWireString } from "#renderer/lib/wire/strings.js";
 import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
 import { PublishedKeyedList } from "../window/published-keyed-list.js";
 import { SubagentAnchorIndex } from "./subagent-anchors.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
  * The wire types that mean work changed hands: a child run taking a piece of it. Typed as the
@@ -77,7 +77,7 @@ export class ChildRunIndex {
   );
 
   /** Fold one row in, after every row admitted before it. */
-  public admit(row: TranscriptEventRow): void {
+  public admit(row: ProjectedTranscriptRow): void {
     this.#subagentAnchors.admit(row);
     this.#admitChildRunSummary(row);
     this.#admitHandoff(row);
@@ -88,7 +88,7 @@ export class ChildRunIndex {
    * of its id admitted before. The child's entry takes the summary when `next` is the newest row
    * summarizing it.
    */
-  public replaceRow(next: TranscriptEventRow): void {
+  public replaceRow(next: ProjectedTranscriptRow): void {
     const summary = next.childRunSummary;
     const position =
       summary === undefined
@@ -119,7 +119,7 @@ export class ChildRunIndex {
 
   // The member is on `TranscriptEventRowBase`, so this reads it without narrowing on `kind`:
   // dropping a child run on a `general` row would hide background work.
-  #admitChildRunSummary(row: TranscriptEventRow): void {
+  #admitChildRunSummary(row: ProjectedTranscriptRow): void {
     const summary = row.childRunSummary;
     if (summary === undefined) {
       return;
@@ -150,7 +150,7 @@ export class ChildRunIndex {
   // handoff, since the projection decides the set. A `subagent.started` and its
   // `subagent.completed` are one handoff observed twice; the anchor index picks the row it is
   // drawn at, and a row naming no subagent draws its own entry.
-  #admitHandoff(row: TranscriptEventRow): void {
+  #admitHandoff(row: ProjectedTranscriptRow): void {
     // `some` rather than `includes`: `type` is the free-form contract string, the table is the
     // narrowed union.
     if (
@@ -163,7 +163,7 @@ export class ChildRunIndex {
 }
 
 /** One handoff row's entry, its members read off the payload and rendered verbatim. */
-function handoffEntryOf(row: TranscriptEventRow): HandoffEntry {
+function handoffEntryOf(row: ProjectedTranscriptRow): HandoffEntry {
   const payload = projectedPayload(row);
   return {
     rowId: row.id,
@@ -181,6 +181,6 @@ function handoffEntryOf(row: TranscriptEventRow): HandoffEntry {
  * payload member. Neither falls back to the row's own `runId`, which is the parent: that would
  * thread a handoff to the run group it already sits in.
  */
-function childRunIdOf(row: TranscriptEventRow): string | undefined {
+function childRunIdOf(row: ProjectedTranscriptRow): string | undefined {
   return row.childRunSummary?.runId ?? readWireString(projectedPayload(row)["childRunId"]);
 }

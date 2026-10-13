@@ -198,18 +198,18 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Priority: `P3`
 - Owner: `unassigned`
 - References: [Desktop App Implementation Notes §Console Libraries](./architecture/desktop-implementation-notes.md#console-libraries) (the Streaming markdown row), [bruits/satteri#329](https://github.com/bruits/satteri/pull/329) (the change)
-- Summary: `patches/@bruits__satteri-wasm32-wasi@0.10.5.patch` makes the WebAssembly build's browser loader use the parser module the first markdown worker compiled, which each later worker is handed, instead of fetching and compiling its own. bruits/satteri#329 adds the same thing upstream under the global `__SATTERI_WASM_MODULE__`.
+- Summary: `patches/@bruits__satteri-wasm32-wasi@0.10.5.patch` makes the WebAssembly build's browser loader use the parser module the first markdown worker compiled, read from the global `satteriWasmModule`, instead of fetching and compiling its own. Each later worker is handed that module, and the page sets the same global to the module the worker posts to it before it loads its own parser ([ADR-043](./decisions/043-long-replies-parsed-on-screen-and-held-packed.md)). bruits/satteri#329 adds the same thing upstream under the global `__SATTERI_WASM_MODULE__`.
 - V1 Release Impact: none; the patch carries the behavior until a release does.
 - Named gate: a Sätteri release carrying bruits/satteri#329.
-- Exit Criteria: that release is taken; the patch and its `patchedDependencies` entry are deleted; `apps/desktop/src/renderer/src/components/Markdown/worker/entry.ts` hands the module under `__SATTERI_WASM_MODULE__` in place of `satteriWasmModule`; this entry is deleted.
+- Exit Criteria: that release is taken; the patch and its `patchedDependencies` entry are deleted; `apps/desktop/src/renderer/src/components/Markdown/worker/entry.ts` and the page's parser loader, `apps/desktop/src/renderer/src/components/Markdown/parse/page-parser.ts`, hand the module under `__SATTERI_WASM_MODULE__` in place of `satteriWasmModule`, and `apps/desktop/tests/e2e/webassembly-worker-policy.test.ts` waits for it under that name; this entry is deleted.
 
-## BL-172: Sätteri exporting its tree reader and materializer on their own
+## BL-172: Sätteri exporting its tree reader, materializer and walk on their own
 
 - Status: `blocked` (external-world wait — a Sätteri release carrying the exports)
 - Priority: `P3`
 - Owner: `unassigned`
 - References: [Desktop App Implementation Notes §Console Libraries](./architecture/desktop-implementation-notes.md#console-libraries) (the Streaming markdown row), [bruits/satteri#330](https://github.com/bruits/satteri/pull/330) (the change)
-- Summary: `patches/satteri@0.10.5.patch` exports the `satteri/mdast-reader` and `satteri/mdast-materializer` subpaths, which the page reads the worker's binary trees with, without loading the parser itself. bruits/satteri#330 adds the same exports upstream.
+- Summary: `patches/satteri@0.10.5.patch` exports the `satteri/mdast-reader` and `satteri/mdast-materializer` subpaths, which the page reads the worker's binary trees with: the streaming tail, a long table's pieces, and a block too long for the page to parse. The page also runs its own parser, loaded on its own lazy chunk at idle; through the subpaths, reading a worker's tree needs neither that chunk nor the parser, so it works before the page's parser is ready ([ADR-043](./decisions/043-long-replies-parsed-on-screen-and-held-packed.md)). The patch also exports `walkMdastHandle` from the package's main entry, which the parser's cut reads each top-level block's position with, on the page or in the markdown worker, without copying the whole tree out. bruits/satteri#330 adds the subpath exports and the `walkMdastHandle` export upstream.
 - V1 Release Impact: none; the patch carries the exports until a release does.
 - Named gate: a Sätteri release carrying bruits/satteri#330.
 - Exit Criteria: that release is taken; the patch and its `patchedDependencies` entry are deleted; this entry is deleted.

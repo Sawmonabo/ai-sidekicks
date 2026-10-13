@@ -14,9 +14,11 @@ import { FASTEST_FLICK_SPEED, touchFling } from "../touch-fling.js";
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
+import { appPageParser } from "#renderer/components/Markdown/parse/page-parser.js";
 import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
+import { bodyBlocksForTest } from "#renderer/features/transcript/rows/markdown/body-blocks/reader.test-support.js";
 import { COPY_FLAVOR_ATTRIBUTE } from "#renderer/features/transcript/copy/conversation-selection.js";
-import { publishedTextOf } from "#renderer/features/transcript/reveal/published-text.js";
+import { publishedTextOf } from "#renderer/lib/text/published.js";
 import { StreamingMarkdown } from "#renderer/features/transcript/rows/bodies/StreamingMarkdown.js";
 import {
   SuiteWindowViewportProvider,
@@ -66,7 +68,7 @@ const UNFORMATTED_RUNS = ["**", "```", "| ---", "## ", "[^"] as const;
  * it: a blank box, or a body's text with markdown's syntax still in it. `undefined` for a frame
  * that shows neither.
  */
-export function unformattedDraw(): string | undefined {
+function unformattedDraw(): string | undefined {
   for (const drawn of drawnDocuments()) {
     const blank = [...drawn.querySelectorAll(BLANK_BLOCK_SELECTOR)].find(
       (element) => element.getBoundingClientRect().height > 0,
@@ -104,18 +106,28 @@ export async function letFramePaint(): Promise<void> {
 }
 
 /**
- * Lets frames paint until every tree the bodies ask for has landed and drawn, a tree that lands
- * asking for the next included, failing on the first frame that draws a block before its tree.
- * The parse worker answers in the order it is asked, so the answer to one more text means every
- * text asked before it has its tree; a round in which the bodies asked for none is the last.
+ * Lets frames paint until the page's parser is ready and every cut and tree the bodies ask the
+ * worker for has landed and drawn, one that lands asking for the next included, failing on the
+ * first frame that draws a block before its tree. The worker answers in the order it is asked,
+ * so the answer to one more text means every text and cut asked before it has landed; a round in
+ * which the bodies asked for none is the last.
  */
 export async function settleFrames(): Promise<void> {
   // A case that already stands in for the parser keeps its own stand-in, which this one reuses.
   const wasStoodIn = vi.isMockFunction(markdownWorker.parse);
   const asks = vi.spyOn(markdownWorker, "parse");
+  const cuts = vi.spyOn(markdownWorker, "cut");
   try {
+    // The page's parser starts once the worker has loaded it, which no body may have asked for yet.
+    markdownWorker.wake();
+    while (appPageParser.state !== "ready") {
+      if (appPageParser.state === "failed") {
+        throw new Error("the page's markdown parser failed to start");
+      }
+      await letFramePaint();
+    }
     for (let round = 0; round < SETTLE_ROUND_CAP; round += 1) {
-      const asksBefore = asks.mock.calls.length;
+      const asksBefore = asks.mock.calls.length + cuts.mock.calls.length;
       for (let frame = 0; frame < 4; frame += 1) {
         await letFramePaint();
       }
@@ -125,12 +137,13 @@ export async function settleFrames(): Promise<void> {
       for (let frame = 0; frame < 4; frame += 1) {
         await letFramePaint();
       }
-      if (asks.mock.calls.length === asksBefore + 1) {
+      if (asks.mock.calls.length + cuts.mock.calls.length === asksBefore + 1) {
         return;
       }
     }
     throw new Error(`the bodies still asked for trees after ${String(SETTLE_ROUND_CAP)} rounds`);
   } finally {
+    cuts.mockRestore();
     if (!wasStoodIn) {
       asks.mockRestore();
     }
@@ -196,6 +209,9 @@ export async function mountBodies(
   const drawnSources = new DrawnWindowSources();
   const Wrapper = liveBridgeWrapper();
 
+  // One reader for each body, as each row's preparation holds its own.
+  const windowedBlocks = bodyBlocksForTest();
+  const flowBlocks = bodyBlocksForTest();
   function Bodies(): React.JSX.Element {
     const [text, setText] = useState(initialText);
     handle.setText = setText;
@@ -239,6 +255,7 @@ export async function mountBodies(
                       footnotes={new FootnoteRegistry()}
                       isComplete={options.isComplete}
                       offersBlockCopy
+                      bodyBlocks={windowedBlocks}
                     />
                   </DrawnWindowSourcesContext>
                 </SuiteWindowViewportProvider>
@@ -254,6 +271,7 @@ export async function mountBodies(
                   footnotes={new FootnoteRegistry()}
                   isComplete={options.isComplete}
                   offersBlockCopy
+                  bodyBlocks={flowBlocks}
                 />
               </div>
             </div>

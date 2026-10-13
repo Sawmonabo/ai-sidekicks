@@ -8,10 +8,14 @@
 //   - Projections never persist. `persistence/` holds UI state only, and every entity here is
 //     re-derived from the daemon on reconnect.
 import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
-import type { TranscriptRunStamp } from "@ai-sidekicks/contracts/transcript/row";
+import type {
+  TranscriptEventRow,
+  TranscriptRunStamp,
+} from "@ai-sidekicks/contracts/transcript/row";
 import type { TranscriptRunFactsFold } from "@ai-sidekicks/contracts/transcript/run-facts";
 
 import { ENTITY_KINDS, type EntityKind, type EntityRef } from "#renderer/lib/entity-kinds.js";
+import type { StoredText } from "#renderer/lib/text/published.js";
 
 /**
  * The base every stored entity carries: identity and the wire-verbatim fields every view reads.
@@ -101,11 +105,32 @@ export interface ProjectedSessionEvent {
    */
   readonly runStamp?: TranscriptRunStamp;
   /**
-   * The event's body as a `transcript.read` row brought it, a large one as its size; absent on an
-   * event the stream delivered, which carries no body.
+   * The event's body as a `transcript.read` row brought it, its text packed, a large one as its
+   * size; absent on an event the stream delivered, which carries no body.
    */
-  readonly content?: TranscriptRowContent;
+  readonly content?: ProjectedRowContent;
 }
+
+/**
+ * A row's body as the console holds it: the wire's arms, the `available` one's text packed and
+ * sealed as it is admitted, so no string of it is kept beside the holder.
+ */
+export type ProjectedRowContent =
+  | (Omit<AvailableRowContent, "body"> & { readonly body: StoredText })
+  | Exclude<TranscriptRowContent, AvailableRowContent>;
+
+/** A large body read in full as the console holds it: available, packed, or unavailable. */
+export type ProjectedFullBody = Exclude<ProjectedRowContent, { readonly status: "large" }>;
+
+/**
+ * A transcript row as the console consumes it: the contract's row, discriminated on `kind`, with
+ * its body held as {@link ProjectedRowContent}. The contract's own row is read only at the wire.
+ */
+export type ProjectedTranscriptRow = TranscriptEventRow extends infer Row
+  ? Row extends TranscriptEventRow
+    ? Omit<Row, "content"> & { readonly content?: ProjectedRowContent }
+    : never
+  : never;
 
 /**
  * Turns one event into entity mutations. Registered per event kind, so a feature owns the
@@ -127,3 +152,6 @@ export function emptyPartitions(): Record<EntityKind, Readonly<Record<string, St
   }
   return partitions;
 }
+
+/** The wire's `available` arm, which carries a body's text as a string. */
+type AvailableRowContent = Extract<TranscriptRowContent, { readonly status: "available" }>;

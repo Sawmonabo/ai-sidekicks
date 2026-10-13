@@ -38,6 +38,7 @@ import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers
 import { collectGarbage } from "#test/helpers/garbage-collection.js";
 import { sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
 import { SCROLLER_HEIGHT_PX, settleFrames } from "./reply.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 
 const ESCAPE = String.fromCodePoint(0x1b);
 const ROW_KEY = "output";
@@ -352,7 +353,7 @@ describe("browser — a long command output drawn as a window over its lines", (
         }}
       >
         <ToolOutput
-          content={{ status: "available", body }}
+          content={projectedContentOf({ status: "available", body })}
           sourceId={ROW_KEY}
           footnotes={new FootnoteRegistry()}
           label={LABEL}

@@ -1,7 +1,7 @@
 // Which renderer an agent's reply or a tool's result takes: its producer's declared media
 // type first, then its bytes.
 
-import { type PublishedText } from "../../reveal/published-text.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 import { carriesAnsiEscapes } from "../ansi/escape-sequences.js";
 
 /**

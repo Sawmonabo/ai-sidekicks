@@ -3,7 +3,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { publishedTextOf } from "#renderer/features/transcript/reveal/published-text.js";
+import { publishedTextOf } from "#renderer/lib/text/published.js";
 import { AnsiOutputPreparation } from "#renderer/features/transcript/rows/ansi/preparation.js";
 import { PreparedBodies } from "#renderer/features/transcript/rows/prepared-bodies.js";
 

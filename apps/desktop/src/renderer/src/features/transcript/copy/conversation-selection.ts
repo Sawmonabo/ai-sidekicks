@@ -25,7 +25,7 @@ import {
   type DrawnPartCopy,
   type MarkdownWorkerConnection,
 } from "#renderer/components/Markdown/worker/connection.js";
-import type { PiecedText } from "#renderer/lib/text-pieces.js";
+import type { PiecedText } from "#renderer/lib/text/pieces.js";
 import { resolveRowTextPosition } from "../viewport/selection/preservation.js";
 import { type RowSelection } from "../viewport/selection/record.js";
 import { type DrawnWindowSource } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
@@ -119,9 +119,8 @@ export function readSelectedPart(
 /**
  * One row's part of a selection across the conversation's rows: an end row's selected part as it
  * was drawn, as `readSelectedPart` reads it, any other row's whole text, `undefined` for a row with
- * none. An end that lies outside
- * the scroller takes its row whole, and so does an end row with no drawing kept or a message row
- * whose part reaches its large body.
+ * none. An end that lies outside the scroller takes its row whole, and so does an end row with no
+ * drawing kept or a message row whose part reaches its large body.
  */
 export function readRowPart(
   span: RowSpanSelection,

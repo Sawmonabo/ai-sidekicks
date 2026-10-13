@@ -4,14 +4,13 @@
 // edit control. The contract carries only the row and its superseded ranking, no caller or
 // run state: whether a person may edit is a daemon predicate, not something computed here.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { SingleEntryRegistry } from "#renderer/lib/single-entry-registry.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** What the transcript hands a row footer. */
 export interface TranscriptRowFooterRendererProps {
   /** The projected row, wire-verbatim, as `@ai-sidekicks/contracts` defines it. */
-  readonly row: TranscriptEventRow;
+  readonly row: ProjectedTranscriptRow;
   /**
    * Whether a rollback boundary later in the list supersedes this row. A ranking over the rows
    * around this one, which no single row carries; a control that rewinds needs it.

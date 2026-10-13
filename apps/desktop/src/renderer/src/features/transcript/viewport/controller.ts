@@ -28,7 +28,7 @@ import { type MessageLink, ViewportLanding } from "./landing.js";
 import { ViewportPruneCycle } from "./prune-cycle.js";
 import { ViewportPublication } from "./publication.js";
 import { ViewportReaderInput } from "./reader-input.js";
-import { ViewportRowReach, type RowOutputParses } from "./row-reach.js";
+import { ViewportRowReach, type RowParses } from "./row-reach.js";
 import { rowKeyOf } from "./selection/record.js";
 import { ViewportSelectionTracker } from "./selection/tracker.js";
 import {
@@ -85,8 +85,11 @@ export interface ViewportControllerOptions {
   readonly holdsRowAfter?: ((rowKey: string | undefined) => boolean) | undefined;
   /** Hear each time any row's work lands, so a waiting landing asks again. */
   readonly subscribeToRowWork?: ((listener: () => void) => Unsubscribe) | undefined;
-  /** The feed's parses of its rows' command outputs, which the drawn band's reach drives. */
-  readonly rowOutputs?: RowOutputParses | undefined;
+  /**
+   * The feed's parses of its rows' command outputs and reads of their drawn blocks, which the drawn
+   * band's reach drives.
+   */
+  readonly rowParses?: RowParses | undefined;
   /**
    * Whether the feed is still revealing a row's text, which a follower glides along rather than
    * jumps to and whose growth moves no estimate until it settles; none when omitted.
@@ -174,7 +177,7 @@ export class ViewportController {
     this.rowWindow = new TranscriptWindow();
     this.#rowReach = new ViewportRowReach({
       rowKeyAt: (index) => this.#rowKeys[index],
-      outputs: options.rowOutputs,
+      parses: options.rowParses,
       subscribeToRowWork: options.subscribeToRowWork ?? NO_ROW_WORK,
       redrawBand: () => {
         this.virtualizerOptions.redrawBand();

@@ -5,9 +5,12 @@
 // launched app can catch it. Each worker is started in the console document, as the app starts
 // it: the diagram worker is asked for one drawing, shown as an image the way a diagram block shows
 // it, and the markdown worker compiles the parser, which the page hands a second worker to parse
-// with, as the app hands it to every worker after the first.
+// with, as the app hands it to every worker after the first. The page itself never compiles, but
+// it runs the modules the markdown worker compiled: the app hands the parser to the page's parser,
+// which must instantiate it and parse with nothing refused, and the compression module to the
+// page's text codec, which must instantiate it and pack and unpack a chunk with nothing refused.
 
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -63,6 +66,23 @@ interface ParsingResult {
   readonly refusals: readonly string[];
 }
 
+/** What the page's own parser made of a reply, and what the page's policy refused meanwhile. */
+interface PageParseResult {
+  /** The type of the reply's first node, or why the page could not parse it. */
+  readonly parsed: string;
+  readonly refusals: readonly string[];
+}
+
+/** What the page's own run of the worker's compression module made of a chunk. */
+interface PageCodecResult {
+  /** The chunk's packed size and the text it unpacked to, or why the page could not run it. */
+  readonly roundTrip: { readonly packedLength: number; readonly unpacked: string } | string;
+  readonly refusals: readonly string[];
+}
+
+/** Text that packs: one line many times over, multibyte characters among it. */
+const PACKED_TEXT = "Café — 漢字 🙂 a line that repeats\n".repeat(200);
+
 /** A short reply holding a formula, which the markdown worker parses. */
 const PARSED_REPLY = "A **bold** word and $x^2$, which costs $5.";
 
@@ -74,6 +94,27 @@ function workerScriptPathOf(bundleName: string): string {
   expect(workerScripts).toHaveLength(1);
   return `/assets/${workerScripts[0] ?? ""}`;
 }
+
+/**
+ * The served path of the parse module the page's parser loads: the one script the page's own
+ * chunks import it as, which the markdown worker's bundle does not.
+ */
+function pageParserScriptPath(): string {
+  const assets = join(PACKAGE_ROOT, "out", "renderer", "assets");
+  const imported = readdirSync(assets)
+    .filter((fileName) => fileName.endsWith(".js") && !isWebAssemblyWorkerScript(fileName))
+    .flatMap((fileName) =>
+      Array.from(
+        readFileSync(join(assets, fileName), "utf8").matchAll(PARSE_MODULE_IMPORT),
+        (match) => match[1],
+      ),
+    );
+  expect(new Set(imported).size).toBe(1);
+  return `/assets/${imported[0] ?? ""}`;
+}
+
+/** A built chunk's dynamic import of the parse module, by its hashed file name. */
+const PARSE_MODULE_IMPORT = /import\(`\.\/(serialized-tree-[\w-]+\.js)`\)/gu;
 
 describe.skipIf(!bundleIsBuilt)(
   "end-to-end — the WebAssembly workers under the app's policy",
@@ -205,7 +246,7 @@ describe.skipIf(!bundleIsBuilt)(
                   }
                 });
                 const messages: MarkdownWorkerMessage[] = [
-                  { kind: "load", parser },
+                  { kind: "load", parser, shouldCompileTextCompression: false },
                   { kind: "parse", requestId: 1, source },
                 ];
                 for (const message of messages) {
@@ -236,6 +277,120 @@ describe.skipIf(!bundleIsBuilt)(
         expect(result.parses.map((parse) => typeof parse)).toStrictEqual(["number", "number"]);
         expect(result.parses.every((parse) => typeof parse === "number" && parse > 0)).toBe(true);
         expect(result.refusals).toStrictEqual([]);
+      });
+    });
+
+    it("instantiates the markdown worker's parser and text codec on the page, nothing refused", async () => {
+      const loaderPath = pageParserScriptPath();
+      const workerScriptPath = workerScriptPathOf(MARKDOWN_WORKER_BUNDLE_NAME);
+      await withLaunchedApp({ scenarioId: FIRST_RUN_SCENARIO.id }, async (appUnderTest) => {
+        const page = appUnderTest.consolePage;
+        // What the page's policy refuses from here on, kept in the page while the app runs.
+        const refusals = await page.evaluateHandle(() => {
+          const noted: string[] = [];
+          document.addEventListener("securitypolicyviolation", (event) => {
+            noted.push(`${event.effectiveDirective} ${event.blockedURI}`);
+          });
+          return noted;
+        });
+        // The app starts its page parser once the worker it wakes at start sends back the module
+        // it compiled, setting the module where the parse module's loader reads it.
+        const isHanded = await page.evaluate(async (waitMs) => {
+          const scope = globalThis as { satteriWasmModule?: WebAssembly.Module };
+          const deadline = performance.now() + waitMs;
+          while (scope.satteriWasmModule === undefined && performance.now() < deadline) {
+            await new Promise((resolve) => {
+              setTimeout(resolve, 50);
+            });
+          }
+          return scope.satteriWasmModule !== undefined;
+        }, appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS));
+        expect(isHanded).toBe(true);
+        // The page's own parse module, the instance its parser loaded. Written as a string: the
+        // test runner rewrites a dynamic import inside a function it hands the page.
+        const loader = await page.evaluateHandle(`import(${JSON.stringify(loaderPath)})`);
+        const result = await page.evaluate(
+          ([parseModule, noted, source]): PageParseResult => {
+            const parse = parseModule as {
+              readonly parseMarkdownTree: (text: string) => {
+                readonly children: readonly { readonly type: string }[];
+              };
+            };
+            return {
+              parsed: parse.parseMarkdownTree(source).children[0]?.type ?? "no node",
+              refusals: [...noted],
+            };
+          },
+          [loader, refusals, PARSED_REPLY] as const,
+        );
+
+        expect(result).toStrictEqual({ parsed: "paragraph", refusals: [] });
+
+        // The codec the worker compiles apart from the parser when asked, run on the page as the
+        // app's text codec runs it: instantiated with nothing imported, a chunk packed and unpacked
+        // in its memory.
+        const codec = await page.evaluate(
+          async ([scriptPath, noted, text, waitMs]): Promise<PageCodecResult> => {
+            const worker = new Worker(scriptPath, { type: "module", name: "markdown" });
+            try {
+              const compiled = await new Promise<MarkdownWorkerReply>((resolve, reject) => {
+                const wait = setTimeout(() => {
+                  reject(new Error("the worker never answered"));
+                }, waitMs);
+                worker.addEventListener("message", (event: MessageEvent<MarkdownWorkerReply>) => {
+                  if (event.data.status === "text-compression") {
+                    clearTimeout(wait);
+                    resolve(event.data);
+                  }
+                });
+                const load: MarkdownWorkerMessage = {
+                  kind: "load",
+                  parser: undefined,
+                  shouldCompileTextCompression: true,
+                };
+                worker.postMessage(load);
+              });
+              if (compiled.status !== "text-compression") {
+                return { roundTrip: JSON.stringify(compiled), refusals: [...noted] };
+              }
+              if (compiled.textCompression.status !== "compiled") {
+                return { roundTrip: compiled.textCompression.reason, refusals: [...noted] };
+              }
+              const instance = new WebAssembly.Instance(compiled.textCompression.module, {});
+              const codec = instance.exports as {
+                readonly memory: WebAssembly.Memory;
+                readonly plain_ptr: () => number;
+                readonly packed_ptr: () => number;
+                readonly compress: (length: number) => number;
+                readonly decompress: (length: number) => number;
+              };
+              const bytes = new TextEncoder().encode(text);
+              new Uint8Array(codec.memory.buffer, codec.plain_ptr(), bytes.length).set(bytes);
+              const packedLength = codec.compress(bytes.length);
+              new Uint8Array(codec.memory.buffer, codec.plain_ptr(), bytes.length).fill(0);
+              const unpackedLength = codec.decompress(packedLength);
+              const unpacked = new TextDecoder().decode(
+                new Uint8Array(codec.memory.buffer, codec.plain_ptr(), unpackedLength),
+              );
+              return { roundTrip: { packedLength, unpacked }, refusals: [...noted] };
+            } finally {
+              worker.terminate();
+            }
+          },
+          [
+            workerScriptPath,
+            refusals,
+            PACKED_TEXT,
+            appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+          ] as const,
+        );
+
+        expect(codec.refusals).toStrictEqual([]);
+        const roundTrip =
+          typeof codec.roundTrip === "string" ? expect.fail(codec.roundTrip) : codec.roundTrip;
+        expect(roundTrip.unpacked).toBe(PACKED_TEXT);
+        expect(roundTrip.packedLength).toBeGreaterThan(0);
+        expect(roundTrip.packedLength).toBeLessThan(new TextEncoder().encode(PACKED_TEXT).length);
       });
     });
   },

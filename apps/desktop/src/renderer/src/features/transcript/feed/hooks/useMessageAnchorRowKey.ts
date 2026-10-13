@@ -6,10 +6,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
-import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import {
+  type ProjectedSessionEvent,
+  type ProjectedTranscriptRow,
+} from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";
 import { type RunGroup } from "../../runs/groups.js";
@@ -30,7 +31,7 @@ export interface MessageAnchorRowKeyInputs {
   /** The window the viewport draws: folded by run group, its lists holding only drawn rows. */
   readonly transcriptWindow: TranscriptWindowModel;
   /** Whether the feed draws a row at all. */
-  readonly drawsRow: (row: TranscriptEventRow) => boolean;
+  readonly drawsRow: (row: ProjectedTranscriptRow) => boolean;
   /** Open one run group, if it is folded. */
   readonly openRunGroup: (runGroupKey: string) => void;
 }
@@ -181,7 +182,7 @@ function landingRowKeyFor(
   rowKey: string | undefined,
   unfurledWindow: TranscriptWindowModel,
   transcriptWindow: TranscriptWindowModel,
-  drawsRow: (row: TranscriptEventRow) => boolean,
+  drawsRow: (row: ProjectedTranscriptRow) => boolean,
 ): string | undefined {
   // `rowsByKey` still joins a row the feed draws nothing for, so it says only what the fold kept.
   const row = rowKey === undefined ? undefined : transcriptWindow.rowsByKey.get(rowKey);
@@ -191,7 +192,7 @@ function landingRowKeyFor(
   if (drawsRow(row)) {
     return row.id;
   }
-  const isOnScreen = (candidate: TranscriptEventRow): boolean =>
+  const isOnScreen = (candidate: ProjectedTranscriptRow): boolean =>
     transcriptWindow.rowsByKey.has(candidate.id) && drawsRow(candidate);
   const logRows = unfurledWindow.rows;
   const position = logRows.findIndex((candidate) => candidate.id === row.id);

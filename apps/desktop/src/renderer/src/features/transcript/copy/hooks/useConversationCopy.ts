@@ -5,7 +5,7 @@ import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
-import type { PiecedText } from "#renderer/lib/text-pieces.js";
+import type { PiecedText } from "#renderer/lib/text/pieces.js";
 import { startSlice } from "#renderer/lib/work-slices.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";

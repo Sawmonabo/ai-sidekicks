@@ -3,10 +3,9 @@
 // and each run and epoch keeps its own, so a helper's reply or a rewound one never joins another.
 // The reply's foot, with its Copy of the whole reply, sits on its last reply row.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { PublishedKeyedList } from "./published-keyed-list.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
  * Each reply's rows over one log, kept across the log's appended stretches: a row joins the reply
@@ -25,7 +24,7 @@ export class ReplyIndex {
   readonly #grownReplies = new Set<OpenReply>();
 
   /** Fold one row in, after every row admitted before it. */
-  public admit(row: TranscriptEventRow): void {
+  public admit(row: ProjectedTranscriptRow): void {
     const kind = classifyTranscriptRow(row)?.kind;
     if (kind === "user-message") {
       // The person's message starts the next turn for every agent it may reach. A grown reply
@@ -96,7 +95,7 @@ export class ReplyIndex {
 
 /** Each reply's rows by its foot row, for a caller that reads a log once. */
 export function replyRowIdsByFootRowId(
-  rows: readonly TranscriptEventRow[],
+  rows: readonly ProjectedTranscriptRow[],
 ): ReadonlyMap<string, readonly string[]> {
   const replyIndex = new ReplyIndex();
   for (const row of rows) {

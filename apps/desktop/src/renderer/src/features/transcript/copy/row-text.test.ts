@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
 
-import { TEXT_PIECE_LENGTH } from "#renderer/lib/text-pieces.js";
+import { TEXT_PIECE_LENGTH } from "#renderer/lib/text/pieces.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
-import { publishedTextOf } from "../reveal/published-text.js";
+import { publishedTextOf } from "#renderer/lib/text/published.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 import { UNAVAILABLE_BODY_TITLE } from "../rows/bodies/UnavailableBody.js";
 import { type RowRevealContextValue } from "../reveal/components/RowRevealProvider.js";
 import { type TranscriptWindowModel } from "../window/transcript-window.js";
@@ -54,11 +55,12 @@ describe("a whole row's copied text", () => {
   it("copies the body the log stores for a row, or the sentence it draws for none", async () => {
     const reply = {
       ...sampleRunRow({ id: "event-02", type: "assistant.message" }),
-      content: { status: "available", body: "The **stored** reply." },
+      content: projectedContentOf({ status: "available", body: "The **stored** reply." }),
     } as const;
     expect(readRowText(reply.id, sourcesHolding(reply))).toStrictEqual({
       flavor: "markdown",
       text: "The **stored** reply.",
+      pieces: ["The **stored** reply."],
     });
     const toolRow = {
       ...sampleRunRow({
@@ -66,7 +68,11 @@ describe("a whole row's copied text", () => {
         type: "tool.result",
         payload: { toolName: "read_file", [CONTENT_LENGTH_PAYLOAD_KEY]: 12 },
       }),
-      content: { status: "available", body: "stored lines", contentTruncated: true },
+      content: projectedContentOf({
+        status: "available",
+        body: "stored lines",
+        contentTruncated: true,
+      }),
     } as const;
     // The heading reads its result from the stored body, as the card's does.
     expect((await readRowText(toolRow.id, sourcesHolding(toolRow, "expanded")))?.text).toMatch(

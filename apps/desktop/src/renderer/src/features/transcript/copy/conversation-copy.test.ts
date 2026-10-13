@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
-import { type PiecedText } from "#renderer/lib/text-pieces.js";
+import { type PiecedText } from "#renderer/lib/text/pieces.js";
 import { ConversationCopyBuild, type ConversationCopyRows } from "./conversation-copy.js";
 import { piecesJoinedOf, windowCuttingEveryPart } from "./conversation-copy.test-support.js";
 import { type SelectedPart } from "./conversation-selection.js";
@@ -44,7 +44,9 @@ function rowsReading(
     endRowElement: () => undefined,
     rowText: (rowKey, fullBodyOf) => {
       const fullBody = fullBodyOf(LARGE_BODY_ROW_ID);
-      return ROW_TEXT[rowKey]?.(fullBody?.status === "available" ? fullBody.body : undefined);
+      return ROW_TEXT[rowKey]?.(
+        fullBody?.status === "available" ? fullBody.body.slice(0) : undefined,
+      );
     },
     rowBodyText: () => expect.fail("no row is drawn"),
     drawnSourceOf: () => expect.fail("no row is drawn"),

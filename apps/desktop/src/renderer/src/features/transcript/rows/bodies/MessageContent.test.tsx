@@ -2,7 +2,7 @@ import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/
 import { render, type RenderResult } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { publishedTextOf } from "../../reveal/published-text.js";
+import { publishedTextOf } from "#renderer/lib/text/published.js";
 import { PreparedBodiesContext } from "../prepared-bodies.js";
 import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { prepareRowBodiesForTest } from "../preparation.test-support.js";
@@ -37,7 +37,7 @@ function renderBody(
       }
     >
       <MessageContent
-        content={content}
+        content={row.content}
         {...(liveText === undefined ? {} : { liveText })}
         {...(overrides.contentType === undefined ? {} : { contentType: overrides.contentType })}
         sourceId={row.id}

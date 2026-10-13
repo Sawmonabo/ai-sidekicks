@@ -3,18 +3,29 @@
 // view has its diagram drawn ahead of one outside the drawn band; a new palette withdraws the
 // asks made under the old one and the row waits on the new ones alone; a
 // listed reply whose live text settles a diagram has the picture asked for before anything mounts
-// it; a reply's stored body takes over from its retired lane, settling its last block; and a
+// it; a reply's stored body takes over from its retired lane, settling its last block; a row out
+// of view reads its blocks in its turn, waiting on them, and a row in view reads them at once; a
 // streaming formula or diagram fence starts its typesetter or worker once it names its language,
-// while a fence of code starts neither.
+// while a fence of code starts neither; and a row whose body cannot draw yet, its landed cut still
+// recorded in turn or its block's tree still out with the worker, is not parsed until it can, or
+// until the worker fails and the body draws its failure. Each case but the first of those gives
+// every slice time.
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { RESOLVED_SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import { DiagramPictures } from "#renderer/components/Markdown/diagram/pictures.js";
+import {
+  appMarkdownTrees,
+  PAGE_PARSE_MAX_CHARACTERS,
+} from "#renderer/components/Markdown/parse/trees.js";
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { FakeDiagramWorkers } from "#renderer/components/Markdown/diagram/worker/connection.test-support.js";
 import { typesetterLoadFor } from "#renderer/components/Markdown/typesetter/load.js";
+import { appMarkdownWorkers } from "#test/helpers/markdown-worker.js";
+import { endEverySliceAtOnce, giveEverySliceTime } from "#test/helpers/slice-clock.js";
+import { SteppedTasks } from "#test/helpers/stepped-tasks.js";
+import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { userMessageRow } from "../event-rows.test-support.js";
 import { transcriptReadRowAt } from "../logs.test-support.js";
 import { RevealTextRope } from "../reveal/text-rope.js";
@@ -23,6 +34,8 @@ import { PreparedBodies } from "./prepared-bodies.js";
 import { prepareTranscriptRow } from "./preparation.js";
 import { OffListTables } from "./markdown/table-window/off-list.js";
 import { type TranscriptRowSources } from "./renderer.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 
 /** A share far larger than these cases draw. */
 const CACHE_BYTE_CAP = 16 * 1024 * 1024;
@@ -53,7 +66,7 @@ function diagramMessageRow(
   id: string,
   sequence: number,
   sources: readonly string[],
-): TranscriptEventRow {
+): ProjectedTranscriptRow {
   return userMessageRow({
     id,
     sequence,
@@ -76,10 +89,14 @@ function sentSources(workers: FakeDiagramWorkers): string[] {
 }
 
 /** A reply row, with the stored body `content` when given. */
-function replyRow(content?: TranscriptEventRow["content"]): TranscriptEventRow {
+function replyRow(content?: ProjectedTranscriptRow["content"]): ProjectedTranscriptRow {
   const message = transcriptReadRowAt(0);
   return message.kind === "general"
-    ? { ...message, type: "assistant.message", ...(content === undefined ? {} : { content }) }
+    ? {
+        ...message,
+        type: "assistant.message",
+        content: content ?? projectedContentOf(message.content),
+      }
     : expect.fail("a message row is a general row");
 }
 
@@ -92,6 +109,8 @@ function freshWindow(): Window {
 }
 
 describe("a message row's preparation", () => {
+  beforeEach(giveEverySliceTime);
+
   it("lets the row go once its diagram's drawing fails, into the failure the body draws", async () => {
     const workers = new FakeDiagramWorkers();
     const pictures = new DiagramPictures(CACHE_BYTE_CAP, workers.start, () => undefined);
@@ -124,6 +143,11 @@ describe("a message row's preparation", () => {
       ["near", "view"],
     ]);
     const sources = sourcesWith(pictures, undefined, (rowId) => reaches.get(rowId) ?? "outside");
+    // The far row reads its blocks in its turn, a task the window runs at once.
+    vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
     const farDiagram = "flowchart LR\n  far --> away";
     const nearDiagram = "flowchart LR\n  near --> here";
 
@@ -191,7 +215,8 @@ describe("a message row's preparation", () => {
     await Promise.resolve();
     expect(sentSources(workers)).toEqual([]);
 
-    // The fence settles once the blocks after it are complete past the segmenter's lag.
+    // The fence settles once the blocks after it are complete past the cut's lag.
+    const pageParses = vi.spyOn(appMarkdownTrees, "parseSettledBlockNow");
     revealInto(
       laneText,
       `\`\`\`mermaid\n${SETTLED_DIAGRAM}\n\`\`\`\n\nFirst step.\n\nSecond step.\n\nThird step.\n\n`,
@@ -202,6 +227,11 @@ describe("a message row's preparation", () => {
       expect(sentSources(workers)).toEqual([SETTLED_DIAGRAM]);
     });
     expect(preparation?.isReady).toBe(false);
+    // Only the block that could hold a diagram is parsed for what the row waits on, and once.
+    expect(pageParses.mock.calls.map(([source]) => source)).toStrictEqual([
+      `\`\`\`mermaid\n${SETTLED_DIAGRAM}\n\`\`\`\n\n`,
+    ]);
+    pageParses.mockRestore();
   });
 
   it("reads a reply's stored body once its lane retires, settling the diagram that ends it", async () => {
@@ -211,7 +241,7 @@ describe("a message row's preparation", () => {
     let laneText: RevealTextRope | undefined = new RevealTextRope("reply");
     revealInto(laneText, body);
     const preparation = prepareTranscriptRow(
-      replyRow({ status: "available", body }),
+      replyRow(projectedContentOf({ status: "available", body })),
       sourcesWith(pictures, () => laneText),
       () => undefined,
     );
@@ -226,6 +256,46 @@ describe("a message row's preparation", () => {
       expect(sentSources(workers)).toEqual([SETTLED_DIAGRAM]);
     });
     expect(preparation?.isReady).toBe(false);
+  });
+
+  it("reads its blocks in turn out of view, holding the row, and at once in view", async () => {
+    const tasks = new SteppedTasks();
+    const pictures = new DiagramPictures(CACHE_BYTE_CAP, new FakeDiagramWorkers().start, () => {
+      return undefined;
+    });
+    const reaches = new Map<string, OutputReach>([
+      ["in-turn", "band"],
+      ["into-view", "band"],
+    ]);
+    const sources = {
+      ...sourcesWith(pictures, undefined, (rowId) => reaches.get(rowId) ?? "outside"),
+      ownerWindow: tasks.window,
+    };
+    // Each block holds a dollar, so each is parsed for a formula.
+    const message = ["One costs $5.", "Two cost $6.", "Three cost $7."].join("\n\n");
+    const [inTurn, intoView] = ["in-turn", "into-view"].map(
+      (id, sequence) =>
+        prepareTranscriptRow(userMessageRow({ id, sequence, message }), sources, () => {
+          return undefined;
+        }) ?? expect.fail("a message row is prepared"),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Within the band, out of view: the blocks wait their turn, and each row waits on them.
+    for (const preparation of [inTurn, intoView]) {
+      expect(preparation?.isParsed).toBe(false);
+      expect(preparation?.isReady).toBe(false);
+    }
+    // A refresh that reads a row in view reads its blocks in that task.
+    reaches.set("into-view", "view");
+    intoView?.refresh();
+    expect(intoView?.isParsed).toBe(true);
+    expect(intoView?.isReady).toBe(true);
+    // The other's turn reads its blocks in the tasks after.
+    while (inTurn?.isParsed === false) {
+      expect(await tasks.runNext()).toBe(true);
+    }
+    expect(inTurn?.isReady).toBe(true);
   });
 
   it("starts the typesetter and the diagram worker once a streaming fence names its language", () => {
@@ -269,5 +339,67 @@ describe("a message row's preparation", () => {
 
     expect(typesetterLoadFor(ownerWindow.document).isStarted).toBe(false);
     expect(workers.started).toHaveLength(0);
+  });
+});
+
+describe("a message row whose body cannot draw yet", () => {
+  it("is not parsed until its cut's turn has recorded every block", async () => {
+    endEverySliceAtOnce();
+    const tasks = new SteppedTasks();
+    const pictures = new DiagramPictures(CACHE_BYTE_CAP, new FakeDiagramWorkers().start, () => {
+      return undefined;
+    });
+    const sources = {
+      ...sourcesWith(pictures, undefined, () => "band"),
+      ownerWindow: tasks.window,
+    };
+    const preparation =
+      prepareTranscriptRow(
+        userMessageRow({ id: "message", sequence: 0, message: "One.\n\nTwo.\n\nThree." }),
+        sources,
+        () => undefined,
+      ) ?? expect.fail("a message row is prepared");
+
+    // The slice the cut lands in records its first block; the rest wait their turn, and so does the
+    // row, which the drawn band would otherwise mount before its body can draw.
+    expect(preparation.isParsed).toBe(false);
+    expect(preparation.isReady).toBe(false);
+    while (!preparation.isParsed) {
+      expect(await tasks.runNext()).toBe(true);
+    }
+    expect(preparation.isReady).toBe(true);
+  });
+
+  it("is not parsed while its block's tree is out, and is once the worker fails", async () => {
+    giveEverySliceTime();
+    markdownWorker.wake();
+    const worker = appMarkdownWorkers.latest();
+    worker.hold();
+    const askedBefore = worker.requests.length;
+    const pictures = new DiagramPictures(CACHE_BYTE_CAP, new FakeDiagramWorkers().start, () => {
+      return undefined;
+    });
+    const onReady = vi.fn();
+    // One block too long for the page, so the worker cuts the body and parses the block.
+    const message = `${"word ".repeat(PAGE_PARSE_MAX_CHARACTERS / 4)}end.`;
+    const preparation =
+      prepareTranscriptRow(
+        userMessageRow({ id: "message", sequence: 0, message }),
+        sourcesWith(pictures),
+        onReady,
+      ) ?? expect.fail("a message row is prepared");
+
+    expect(worker.requests.slice(askedBefore).map((request) => request.source)).toStrictEqual([
+      message,
+    ]);
+    expect(preparation.isParsed).toBe(false);
+    expect(preparation.isReady).toBe(false);
+    // The failed parse is the body's failure, which it draws, so the row no longer waits.
+    worker.failParser("the parser broke");
+    await vi.waitFor(() => {
+      expect(onReady).toHaveBeenCalledOnce();
+    });
+    expect(preparation.isParsed).toBe(true);
+    expect(preparation.isReady).toBe(true);
   });
 });

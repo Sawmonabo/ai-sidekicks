@@ -22,7 +22,7 @@ import {
   type DrawnTree,
 } from "#renderer/components/Markdown/drawn-text.js";
 import { passRowsInSlices } from "#renderer/components/Markdown/parse/table-rows.js";
-import { joinPieces, piecesOf, type PiecedText } from "#renderer/lib/text-pieces.js";
+import { joinPieces, piecesOf, type PiecedText } from "#renderer/lib/text/pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
 
 /** A drawn part's tree with its undrawn items made ready to read. */

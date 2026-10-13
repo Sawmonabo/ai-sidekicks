@@ -283,7 +283,7 @@ describe("the virtualizer options — a row whose output parses after the band r
     const unparsedRowKeys = new Set<string>();
     const rowWorkListeners = new Set<() => void>();
     const subject = mountViewport("tail", undefined, {
-      isRowOutputParsed: (rowKey) => !unparsedRowKeys.has(rowKey),
+      isRowParsed: (rowKey) => !unparsedRowKeys.has(rowKey),
       subscribeToRowWork: (listener) => {
         rowWorkListeners.add(listener);
         return () => rowWorkListeners.delete(listener);

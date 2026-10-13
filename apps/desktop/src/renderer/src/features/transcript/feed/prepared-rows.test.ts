@@ -10,8 +10,6 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-
 import { useReleaseOutsideWindow } from "../history/hooks/useReleaseOutsideWindow.js";
 import { type TranscriptHistory } from "../history/hooks/useTranscriptHistory.js";
 import {
@@ -19,7 +17,7 @@ import {
   transcriptFixtureEventId,
   transcriptReadRowAt,
 } from "../logs.test-support.js";
-import { publishedTextOf } from "../reveal/published-text.js";
+import { publishedTextOf } from "#renderer/lib/text/published.js";
 import { RevealTextRope } from "../reveal/text-rope.js";
 import { AnsiLineChunks, chunkTextOf, type AnsiLineChunkList } from "../rows/ansi/lines/chunks.js";
 import { PreparedBodies } from "../rows/prepared-bodies.js";
@@ -36,6 +34,8 @@ import { type ViewportSnapshot } from "../viewport/snapshot.js";
 import { type PruneOutcome } from "../viewport/window-cap.js";
 import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
 import { PreparedRowGate, type FeedRowSources } from "./prepared-rows.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
+import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 
 /** The gate never reads these: the stand-in preparation below decides every row itself. */
 const SOURCES: FeedRowSources = {
@@ -59,7 +59,7 @@ class HeldPreparations {
   readonly releasedRowIds: string[] = [];
 
   public readonly prepareRow = (
-    row: TranscriptEventRow,
+    row: ProjectedTranscriptRow,
     _sources: TranscriptRowSources,
     onReady: () => void,
   ): TranscriptRowPreparation => {
@@ -75,7 +75,7 @@ class HeldPreparations {
       get isReady() {
         return isReady;
       },
-      isOutputReady: true,
+      isParsed: true,
       refresh: () => {
         this.refreshedRowIds.push(row.id);
       },
@@ -98,19 +98,21 @@ function keysOf(rows: readonly { readonly key: string }[]): string[] {
 const ESCAPE = String.fromCodePoint(0x1b);
 
 /** A tool's result row, as the store's first row stands, with the stored body `body` if given. */
-function toolRow(body?: string): TranscriptEventRow {
+function toolRow(body?: string): ProjectedTranscriptRow {
   const row = transcriptReadRowAt(0);
   return row.kind === "general"
     ? {
         ...row,
         type: "tool.result",
-        ...(body === undefined ? {} : { content: { status: "available", body } }),
+        content: projectedContentOf(
+          body === undefined ? row.content : { status: "available", body },
+        ),
       }
     : expect.fail("the store's first row is a general row");
 }
 
 /** The store's window of its first row alone, standing as `row`. */
-function windowOf(row: TranscriptEventRow): TranscriptWindowModel {
+function windowOf(row: ProjectedTranscriptRow): TranscriptWindowModel {
   const snapshot = openPagedSessionStore(0, 0).snapshot();
   const model = deriveTranscriptWindow(snapshot.transcript, snapshot.partitions.run);
   expect(keysOf(model.viewportRows)).toEqual([row.id]);
@@ -410,7 +412,7 @@ describe("PreparedRowGate over a command output", () => {
     // Within the band, out of view: parsed whole in turn, then listed.
     gate.filter(window, prepareTranscriptRow, sources);
     gate.observeReach(new Set([row.id]), new Set());
-    while (!gate.isOutputParsed(row.id)) {
+    while (!gate.isRowParsed(row.id)) {
       expect(await tasks.runNext()).toBe(true);
     }
     expect(gate.filter(window, prepareTranscriptRow, sources).window.rows).toEqual([row]);
@@ -420,11 +422,11 @@ describe("PreparedRowGate over a command output", () => {
     liveText.rebase(rewrittenLines, 0);
     liveText.advance(rewrittenLines.length);
     gate.refresh();
-    expect(gate.isOutputParsed(row.id)).toBe(false);
+    expect(gate.isRowParsed(row.id)).toBe(false);
 
     // The walk that brings it into view parses it whole, so the row is drawn in that walk.
     gate.observeReach(new Set([row.id]), new Set([row.id]));
-    expect(gate.isOutputParsed(row.id)).toBe(true);
+    expect(gate.isRowParsed(row.id)).toBe(true);
     const drawn = preparedBodies.chunksOf(row.id) ?? expect.fail("an output is drawn");
     expect(chunksTextOf(drawn)).toBe(
       chunksTextOf(new AnsiLineChunks().read(publishedTextOf(rewrittenLines), () => true).chunks),
@@ -497,7 +499,7 @@ async function openFortyRowFeed(): Promise<{
     isRowHeldOut: gate.isHeldOut,
     holdsRowAfter: gate.holdsRowAfter,
     subscribeToRowWork: gate.subscribeToWork,
-    rowOutputs: gate,
+    rowParses: gate,
   });
   controller.attach(createCountingScrollContainer({ clientHeight: 400, scrollHeight: 10_000 }));
   controller.reconcile({ rows: model.viewportRows, ...CALM }, NO_LINK);

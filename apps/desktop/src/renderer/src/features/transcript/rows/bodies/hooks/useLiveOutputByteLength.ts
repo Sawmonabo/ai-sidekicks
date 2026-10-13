@@ -4,8 +4,8 @@
 
 import { useState } from "react";
 
-import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
-import { type PublishedText } from "#renderer/features/transcript/reveal/published-text.js";
+import { measureUtf8ByteLength } from "#renderer/lib/text/utf8-byte-length.js";
+import { type PublishedText } from "#renderer/lib/text/published.js";
 
 /** The UTF-8 bytes `liveText` holds now, or `undefined` for an output that is not arriving. */
 export function useLiveOutputByteLength(liveText: PublishedText | undefined): number | undefined {
