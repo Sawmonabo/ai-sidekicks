@@ -85,6 +85,7 @@ pub struct ConsoleReading {
 /// that comes before the loop waits is kept until it does.
 #[derive(Clone)]
 pub struct TerminalWaker {
+    /// The poller the loop's wait blocks on, which a wake interrupts.
     pub(crate) poller: Arc<Poller>,
     /// Set by each wake and cleared by the wait that answers it, since a poller's own wake carries
     /// no event to tell it apart from a wait that found nothing.

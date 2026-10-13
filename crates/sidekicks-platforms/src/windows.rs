@@ -1,5 +1,5 @@
-//! The Windows side of the interface: `ConPTY` through `alacritty_terminal`, a `polling` wait on each
-//! shell's own thread, `taskkill.exe` for a process tree and the console helper's calls.
+//! The Windows side of the interface: `ConPTY` through `alacritty_terminal`, a `polling` wait on
+//! each shell's own thread, `taskkill.exe` for a process tree and the console helper's calls.
 
 use std::collections::HashMap;
 use std::env;
@@ -179,7 +179,8 @@ pub fn restrict_library_search() -> io::Result<()> {
 /// argument quoted by the C runtime's rules, since each is its own string.
 #[expect(
     clippy::implicit_hasher,
-    reason = "the map goes straight into alacritty_terminal's options, which take the default hasher"
+    reason = "the map goes straight into alacritty_terminal's options, which take the default \
+              hasher"
 )]
 pub fn terminal_options(
     shell: tty::Shell,

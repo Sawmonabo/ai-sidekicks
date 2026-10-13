@@ -102,7 +102,8 @@ pub fn restrict_library_search() -> io::Result<()> {
 /// `working_directory` with `environment` added, its output not drained once it exits.
 #[expect(
     clippy::implicit_hasher,
-    reason = "the map goes straight into alacritty_terminal's options, which take the default hasher"
+    reason = "the map goes straight into alacritty_terminal's options, which take the default \
+              hasher"
 )]
 pub fn terminal_options(
     shell: tty::Shell,
@@ -149,7 +150,11 @@ pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
     }
     // The program is left unreaped, so its id stays its own until the drop below reaps it.
     if let Err(error) = wait_without_reaping(process_id) {
-        tracing::error!(process_id, %error, "a released terminal's program could not be waited for");
+        tracing::error!(
+            process_id,
+            %error,
+            "a released terminal's program could not be waited for"
+        );
     }
     mark_exited();
     // The drop's own hangup reaches the exited, unreaped program, then the drop reaps it.
@@ -198,7 +203,10 @@ impl TerminalWatch {
             Ok(poller) => poller,
             Err(error) => {
                 if let Err(deregister_error) = pty.deregister(&waker.poller) {
-                    tracing::warn!(error = %deregister_error, "a terminal's watch could not be undone");
+                    tracing::warn!(
+                        error = %deregister_error,
+                        "a terminal's watch could not be undone"
+                    );
                 }
                 return Err((error, pty));
             }
