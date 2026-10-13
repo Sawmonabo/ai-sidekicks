@@ -10,11 +10,10 @@ export default {
       1,
       "always",
       [
-        // Per-package nouns
+        // Package and crate nouns
         "contracts",
-        "crypto-paseto",
         "client-sdk",
-        "search-index",
+        "search",
         "search-ranking",
         "compression",
         "markdown-parser",
@@ -22,8 +21,8 @@ export default {
         "control-plane",
         "desktop",
         "cli",
-        "sidecar-rust-pty",
-        "pty-sidecar-publishing",
+        "terminal",
+        "platforms",
         // Cross-cutting nouns
         "repo",
         "deps",
