@@ -11,6 +11,7 @@ import { createMdastHandle, dropHandle, serializeHandle, type Features } from "s
 import { MdastReader, NodeType } from "satteri/mdast-reader";
 
 import { isPandocFormula } from "../math-syntax.js";
+import { parseLeadOf } from "./byte-order-mark.js";
 import { materializeMarkdownTree } from "./materialized-tree.js";
 
 /** One text's tree as the worker sends it: its buffer, and the stand-in its dollars took, if any. */
@@ -71,10 +72,11 @@ const WARM_UP_TEXT = [
 /**
  * `source` parsed, positions included, as a buffer the page can take whole. A NUL becomes U+FFFD
  * first, as commonmark requires, and each dollar read as text a stand-in; neither moves an offset.
- * A text holding every stand-in keeps the formulas the parser reads.
+ * A text holding every stand-in keeps the formulas the parser reads. A byte order mark `source`
+ * opens on is read as text, behind its parse lead, which every offset in the buffer counts.
  */
 export function serializeMarkdownTree(source: string): SerializedTree {
-  let parsedText = withoutNul(source);
+  let parsedText = parseLeadOf(source) + withoutNul(source);
   let dollarStandIn: string | undefined;
   for (;;) {
     const bytes = serializedBytesOf(parsedText);
@@ -103,7 +105,10 @@ export function warmUpMarkdownParser(): void {
   serializeMarkdownTree(WARM_UP_TEXT);
 }
 
-/** `source` parsed and read into the tree the screen draws, on the thread that calls it. */
+/**
+ * `source` parsed and read into the tree the screen draws, on the thread that calls it, a byte
+ * order mark it opens on read as text.
+ */
 export function parseMarkdownTree(source: string): Root {
   const { buffer, dollarStandIn } = serializeMarkdownTree(source);
   return materializeMarkdownTree(buffer, source, dollarStandIn);

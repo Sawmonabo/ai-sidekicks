@@ -1,7 +1,9 @@
 // A body whose cut failed: it fails on every read until the worker has started again, then asks for
 // the cut once more. A cut recorded a few blocks a slice records exactly the blocks one pass does,
 // is asked for once while it records, and draws nothing until every block is recorded; closed
-// part-way, it forgets what it recorded and records the same blocks when asked for again.
+// part-way, it forgets what it recorded and records the same blocks when asked for again. A body
+// opening on a byte order mark starts its first block past the mark, so the block reads as a whole
+// parse of the body reads it, behind the body's definitions too.
 
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
@@ -149,5 +151,24 @@ describe("a cut recorded a slice at a time", () => {
     closed.requestReads();
     expect(cuts).toHaveBeenCalledTimes(3);
     expect(recordsOf(closed.read(text, true).records)).toStrictEqual(recordsOf(whole.records));
+  });
+});
+
+describe("a body opening on a byte order mark", () => {
+  it("starts its first block past the mark, read as a whole parse reads it behind its definitions", () => {
+    const trees = new MarkdownTrees(inThreadMarkdownWorker(window));
+    const blocks = bodyBlocksForTest(trees);
+    const text = publishedTextOf("\uFEFF# Title [x]\n\n[x]: <https://example.com>\n\nAfter.\n");
+    blocks.read(text, true);
+    blocks.requestReads();
+    blocks.read(text, true);
+    blocks.requestReads();
+
+    const drawn = blocks.read(text, true);
+    expect(drawn.records.startOf(0)).toBe(1);
+    expect(drawn.readDefinitionPreamble(0)).not.toBe("");
+    expect(drawn.readBlockTree(0).root.children.map((node) => node.type)).toStrictEqual([
+      "heading",
+    ]);
   });
 });

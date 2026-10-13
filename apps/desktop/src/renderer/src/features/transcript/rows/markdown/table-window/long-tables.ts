@@ -4,6 +4,8 @@
 
 import type { Nodes, Table } from "mdast";
 
+import { lineEndOf } from "#renderer/components/Markdown/parse/line-endings.js";
+
 /**
  * The most body rows a table is drawn whole with; a longer one draws only its rows near the
  * viewport. Measured, a table of agent-style rows drawn whole at this count takes about five
@@ -25,19 +27,17 @@ export function longTablesOf(node: Nodes): Table[] {
  * hold one never has its tree walked for it; one that passes may still hold none.
  */
 export function mayHoldLongTable(source: string): boolean {
+  // From each divider to the next one after its line, so the text is read once.
   let lineCount = 0;
-  let lineStart = 0;
-  while (lineStart < source.length) {
-    const lineEnd = source.indexOf("\n", lineStart);
-    const end = lineEnd === -1 ? source.length : lineEnd;
-    const divider = source.indexOf("|", lineStart);
-    if (divider !== -1 && divider < end) {
-      lineCount += 1;
-      if (lineCount > WHOLE_TABLE_MAX_BODY_ROWS + 2) {
-        return true;
-      }
+  for (
+    let divider = source.indexOf("|");
+    divider !== -1;
+    divider = source.indexOf("|", lineEndOf(source, divider))
+  ) {
+    lineCount += 1;
+    if (lineCount > WHOLE_TABLE_MAX_BODY_ROWS + 2) {
+      return true;
     }
-    lineStart = end + 1;
   }
   return false;
 }

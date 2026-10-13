@@ -138,8 +138,9 @@ export interface MarkdownWorkerMade {
  * What the worker says: the parser it compiled, which the page keeps for later workers; the
  * compression module it compiled, or why it compiled none, which the page's codec takes; the
  * trees of the texts it parsed since it last sent trees, and where the blocks of the texts it cut
- * since it last sent cuts end, each sent together so the page lands them in one pass; that the
- * parser failed to load or failed on a text, after which the page ends this worker; or, about one
+ * since it last sent cuts end, each sent together so the page lands them in one pass; that a cut
+ * failed, which fails that cut alone; that the parser failed to load or failed on a text, after
+ * which the page ends this worker; or, about one
  * request to make, an ask for body rows `firstIndex` to `lastIndex` of the table `tableKey` names,
  * what it made, or why it made nothing. A request has one ask unanswered at most.
  */
@@ -151,6 +152,7 @@ export type MarkdownWorkerReply =
     }
   | { readonly status: "parsed"; readonly trees: readonly SerializedMarkdownTree[] }
   | { readonly status: "cut"; readonly cuts: readonly MarkdownBlockEnds[] }
+  | { readonly status: "cut-failed"; readonly requestId: number; readonly reason: string }
   | { readonly status: "load-failed"; readonly reason: string }
   | { readonly status: "parser-failed"; readonly reason: string }
   | {

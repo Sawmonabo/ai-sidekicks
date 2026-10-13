@@ -1,6 +1,8 @@
 // What the parser parses a text into: a formula between single dollars only where Pandoc reads one,
 // a price or a shell variable left as the words it is whatever symbols the text holds, and one
-// alone between double dollars a display formula; and what the worker transfers to the page, a
+// alone between double dollars a display formula; a text opening on a byte order mark read with the
+// mark as text, every offset counted in it, so a price and a single tilde there stay the words they
+// are; and what the worker transfers to the page, a
 // plain buffer of the tree's bytes alone. A shared buffer cannot be posted on a page that is not
 // cross-origin isolated, and a pooled one would hand the page other bytes besides.
 
@@ -26,11 +28,20 @@ describe("mathematics between dollars", () => {
       "Run echo $PATH and $HOME.\n",
       // The symbols a dollar read as text could stand as first, written by the author.
       "Pay ¢5, £5, ¤5 or $5 and $10, ¥ and ¦ as written.\n",
+      // A byte order mark ahead counts in every offset the dollars are read at.
+      "\uFEFFPay $5 and $10 today.\n",
     ]) {
       expect(formulasIn(words), words).toStrictEqual([]);
       expect(textOf(parseMarkdownTree(words)), words).toBe(words.trimEnd());
     }
     expect(formulasIn("Pay $5 and $10, then $x^2$ holds.\n")).toStrictEqual(["inlineMath x^2"]);
+  });
+});
+
+describe("a text opening on a byte order mark", () => {
+  it("reads the mark as text, and a single tilde after it as the words it is", () => {
+    const words = "\uFEFFsay ~hi~ there\n";
+    expect(textOf(parseMarkdownTree(words))).toBe(words.trimEnd());
   });
 });
 

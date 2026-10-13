@@ -26,6 +26,8 @@ it.each([
   { kind: "a line over 65,535 characters", text: "z".repeat(70_000), heightPx: 33_612 },
   // One empty line, and half a line below it.
   { kind: "an empty block", text: "", heightPx: 36 },
+  // 3 lines ended by a carriage return alone, and half a line below: 3.5 lines.
+  { kind: "lines ending in a carriage return", text: "a\rb\rc\r\r", heightPx: 84 },
 ])("estimates $kind from its recorded line lengths", ({ text, heightPx }) => {
   const records = new BlockRecords();
   records.append(0, 1, "before");

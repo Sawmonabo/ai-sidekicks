@@ -2,6 +2,7 @@
 // could define a footnote or a link, or open a formula or a diagram. A definition line is found in
 // one pass over the text, however many lines open on a bracket.
 
+import { CARRIAGE_RETURN, LINE_FEED } from "#renderer/components/Markdown/parse/line-endings.js";
 import { DEFERRED_FENCE_KINDS } from "#renderer/components/Markdown/rules.js";
 import { hashOf } from "#renderer/lib/text/hash.js";
 
@@ -175,8 +176,6 @@ function isDigit(unit: number): boolean {
 const MAX_LIST_NUMBER_DIGITS = 9;
 
 const TAB = 0x09;
-const LINE_FEED = 0x0a;
-const CARRIAGE_RETURN = 0x0d;
 const SPACE = 0x20;
 const ASTERISK = 0x2a;
 const PLUS = 0x2b;

@@ -8,13 +8,14 @@
 // page for a long table's undrawn rows as it reads them. The trees, and the cuts, of texts that
 // arrive together are sent together, so the page lands a screen of them in one pass. When the
 // parser fails to load, or fails on a text, the reply says so and the page ends this worker; a text
-// it cannot make into a copy is answered with the reason, and the worker goes on with the rest.
+// it cannot cut, or make into a copy, is answered with the reason, and the worker goes on with the
+// rest.
 
 import parserModuleUrl from "@bruits/satteri-wasm32-wasi/satteri_napi.wasm32-wasi.wasm?url";
 import textCompressionModuleUrl from "@ai-sidekicks/compression/lz4.wasm?url";
 
 import { describeFailure } from "#shared/failure-message.js";
-import { BlockCut, MARKDOWN_SETTLE_LAG_BLOCKS } from "../parse/block-cut.js";
+import { BlockCut, MARKDOWN_SETTLE_LAG_BLOCKS, StalledBlockCutError } from "../parse/block-cut.js";
 import { loadMarkdownParserCalls, type MarkdownParserCalls } from "../parse/parser-calls.js";
 import { MarkdownWorkerAnswers, type MarkdownTreeParser } from "./answer.js";
 import type {
@@ -199,7 +200,13 @@ workerScope.addEventListener("message", (event) => {
           blockEnds: await cutInTurns(message, parser),
         });
       } catch (error: unknown) {
-        workerScope.postMessage({ status: "parser-failed", reason: describeFailure(error) }, []);
+        // A cut that stalls fails that text alone; the parser itself is sound.
+        workerScope.postMessage(
+          error instanceof StalledBlockCutError
+            ? { status: "cut-failed", requestId: message.requestId, reason: error.message }
+            : { status: "parser-failed", reason: describeFailure(error) },
+          [],
+        );
       }
     });
     return;

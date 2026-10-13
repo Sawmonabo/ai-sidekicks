@@ -4,7 +4,8 @@
 // is final, a module handed again starting nothing; and when its worker fails, a worker that stops
 // fails every text it holds with the reason, so a copy waiting on it says it could not copy, and
 // the next text starts a new worker that answers; a worker asking for rows the copy holds no table
-// for fails the copy.
+// for fails the copy; a cut the worker could not make fails that cut alone, and the worker goes on
+// with the texts it holds.
 
 import type { Table, TableCell } from "mdast";
 import { expect, it, vi } from "vitest";
@@ -16,6 +17,8 @@ import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { PageParser } from "../parse/page-parser.js";
 import { loadMarkdownParserCalls } from "../parse/parser-calls.js";
 import type {
+  MarkdownCutAnswer,
+  MarkdownParseAnswer,
   MarkdownWorkerMessage,
   MarkdownWorkerReply,
   MarkdownWorkerRequest,
@@ -235,6 +238,32 @@ it("fails every text when its worker stops, and starts a new one for the next", 
   expect(request?.kind === "html" ? decodeTextPieces(request.markdown) : request).toBe("# three");
   workers[1]?.answer("<h1>three</h1>");
   expect((await third).text).toBe("<h1>three</h1>");
+});
+
+it("fails only a cut the worker could not make, and keeps the worker for the texts it holds", () => {
+  const worker = new StandInWorker();
+  const connection = new MarkdownWorkerConnection(
+    () => worker,
+    TASKS_AT_ONCE,
+    new PageParser(loadMarkdownParserCalls),
+    appTextCompression,
+  );
+  const cuts: MarkdownCutAnswer[] = [];
+  const parses: MarkdownParseAnswer[] = [];
+  connection.cut("a\n\nb\n", true, (answer) => cuts.push(answer));
+  connection.parse("a\n", (answer) => parses.push(answer));
+
+  worker.say({ status: "cut-failed", requestId: 1, reason: "no block ended past 0" });
+  expect(cuts).toStrictEqual([
+    { status: "failed", reason: "The markdown block cut failed: no block ended past 0" },
+  ]);
+  expect(worker.isEnded).toBe(false);
+  const buffer = new ArrayBuffer(8);
+  worker.say({
+    status: "parsed",
+    trees: [{ requestId: 2, buffer, dollarStandIn: undefined }],
+  });
+  expect(parses).toStrictEqual([{ status: "parsed", buffer, dollarStandIn: undefined }]);
 });
 
 it.each([

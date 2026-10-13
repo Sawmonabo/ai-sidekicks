@@ -16,6 +16,13 @@ import {
   settledBlockEndsOf,
   type TopLevelChildren,
 } from "#renderer/components/Markdown/parse/block-cut.js";
+import {
+  LINE_ENDING,
+  lineEndingLengthAt,
+  lineEndOf,
+  lineStartOf,
+} from "#renderer/components/Markdown/parse/line-endings.js";
+import type { Point, Position } from "#renderer/components/Markdown/parse/position.js";
 import { isReadInPieces } from "#renderer/components/Markdown/parse/pieced-table.js";
 import type {
   MarkdownParseOutcome,
@@ -78,6 +85,9 @@ const FENCE_LINE = /^ {0,3}(?:`{3,}|~{3,})/u;
  * plain text; `"text-only"` would drop the link text mid-stream and bring it back later.
  */
 const REMEND_OPTIONS = { inlineKatex: false, linkMode: "protocol" } as const;
+
+/** A carriage return no line feed follows: a line ending of its own. */
+const LONE_CARRIAGE_RETURN = /\r(?!\n)/gu;
 
 /**
  * What the tail shows: its tree and the tail that tree answers, as `update` was given it, or why
@@ -337,7 +347,16 @@ const NO_HOLD: Unsubscribe = () => undefined;
 export function mendVolatileTail(tailSource: string): string {
   // `remend` runs on the tail only: on a settled block it would rewrite finished text, and on the
   // whole message it would rewrite the committed prefix every frame.
-  return remend(tailSource, REMEND_OPTIONS);
+  if (!tailSource.includes("\r")) {
+    return remend(tailSource, REMEND_OPTIONS);
+  }
+  // `remend` ends lines at a line feed only, so it reads a line ended by a carriage return alone as
+  // running on. It reads a copy with each such return a line feed, which ends the same lines at
+  // the same offsets, and the tail keeps its own characters wherever `remend` left the copy as is.
+  const lineFed = tailSource.replace(LONE_CARRIAGE_RETURN, "\n");
+  const mended = remend(lineFed, REMEND_OPTIONS);
+  const unchangedLength = commonPrefixLength(mended, lineFed);
+  return tailSource.slice(0, unchangedLength) + mended.slice(unchangedLength);
 }
 
 /** A tail asked for: its order among the asks, and what it parses to with its closers. */
@@ -460,11 +479,15 @@ function extendOpenFence({ lastParse, lastText, appended }: TextGrowth): Root | 
     return undefined;
   }
   // With no line ending after the opener yet, the slice is the whole text, which no value matches.
-  const contentStart = lastText.indexOf("\n", (start.offset ?? 0) - preambleLength) + 1;
+  const openerEnd = lineEndOf(lastText, (start.offset ?? 0) - preambleLength);
+  const contentStart =
+    openerEnd === lastText.length ? 0 : openerEnd + lineEndingLengthAt(lastText, openerEnd);
   if (code.value !== openFenceValueOf(lastText.slice(contentStart))) {
     return undefined;
   }
-  const openLines = (lastText.slice(lastText.lastIndexOf("\n") + 1) + appended).split("\n");
+  const openLines = (lastText.slice(lineStartOf(lastText, lastText.length)) + appended).split(
+    LINE_ENDING,
+  );
   if (openLines.some((line) => FENCE_LINE.test(line))) {
     return undefined;
   }
@@ -501,7 +524,7 @@ function extendTrailingText({ lastParse, lastText, appended }: TextGrowth): Root
   if (
     text.position?.end.offset !== preambleLength + lastText.length ||
     !PLAIN_CHARACTER.test(lastText.charAt(lastText.length - 1)) ||
-    !DECIDED_LINE.test(lastText.slice(lastText.lastIndexOf("\n") + 1)) ||
+    !DECIDED_LINE.test(lastText.slice(lineStartOf(lastText, lastText.length))) ||
     (paragraph !== undefined && lastText.charAt(paragraphStart) === "[") ||
     LINKABLE_OR_ENCODED.test(lastWordOf(lastText) + appended)
   ) {
@@ -572,12 +595,6 @@ function lastWordOf(text: string): string {
   }
   return text.slice(start);
 }
-
-/** Where a node sits in the parsed text, as the parser types it. */
-type Position = NonNullable<Nodes["position"]>;
-
-/** One end of a `Position`. */
-type Point = Position["start"];
 
 /** A position whose end moved past `appended`; a node without a position keeps none. */
 function withEndAdvanced(position: Position | undefined, appended: string): Position | undefined {

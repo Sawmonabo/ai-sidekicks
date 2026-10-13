@@ -6,6 +6,8 @@
 
 import type { Nodes, Parents, RootContent, Text } from "mdast";
 
+import type { Point } from "./position.js";
+
 /**
  * `tree` with every strikethrough a single tilde opened, and every literal autolink GFM does not
  * allow, made the text it was parsed from, and each `dollarStandIn` a dollar. `parsedText` is the
@@ -211,6 +213,3 @@ function joinedText(first: Text, second: Text): Text {
 function shiftedPoint(point: Point, by: number): Point {
   return { line: point.line, column: point.column + by, offset: (point.offset ?? 0) + by };
 }
-
-/** One end of a node's place in the parsed text, as the parser types it. */
-type Point = NonNullable<Nodes["position"]>["start"];
