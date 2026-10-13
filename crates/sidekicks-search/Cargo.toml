@@ -24,6 +24,7 @@ writeable = { workspace = true, optional = true }
 # The case fold the index's fold is held equal to.
 caseless.workspace = true
 rstest.workspace = true
+tempfile.workspace = true
 
 # The index reads by a memory map on macOS, where it measures the smaller footprint.
 [target.'cfg(target_os = "macos")'.dependencies]

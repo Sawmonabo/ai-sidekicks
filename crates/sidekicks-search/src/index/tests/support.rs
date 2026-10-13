@@ -2,9 +2,9 @@
 //! rankings built in a line.
 
 use std::collections::HashMap;
-use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+
+use tempfile::TempDir;
 
 use crate::index::collector::{PreparedQuery, score_every_session};
 use crate::index::directory::ReadMode;
@@ -26,36 +26,30 @@ pub(super) const TEST_OPTIONS: SearchIndexOptions = SearchIndexOptions {
 /// How many sessions a test search first ranks; a ranking orders sessions the same at any size.
 pub(super) const FIRST_RANKED_SESSIONS: usize = 16;
 
-static NEXT_FOLDER: AtomicU64 = AtomicU64::new(0);
-
-/// A fresh folder under the system's temporary folder, removed when dropped.
+/// A folder the index creates inside a fresh temporary folder, both removed when dropped.
 pub(super) struct ScratchFolder {
+    // Held so the temporary folder lives as long as the test.
+    _parent: TempDir,
     path: PathBuf,
 }
 
 impl ScratchFolder {
-    /// A folder named for `name`, this process and a counter; the index creates it.
+    /// A folder named for `name` that does not exist yet; the index creates it.
     pub(super) fn new(name: &str) -> ScratchFolder {
-        let unique = NEXT_FOLDER.fetch_add(1, Ordering::Relaxed);
-        let folder = format!("search-index-{name}-{}-{unique}", std::process::id());
+        let parent = tempfile::Builder::new()
+            .prefix("search-index-")
+            .tempdir()
+            .expect("the temporary folder is writable");
+        let path = parent.path().join(name);
         ScratchFolder {
-            path: std::env::temp_dir().join(folder),
+            _parent: parent,
+            path,
         }
     }
 
     /// Where the folder is.
     pub(super) fn path(&self) -> &Path {
         &self.path
-    }
-}
-
-impl Drop for ScratchFolder {
-    fn drop(&mut self) {
-        if let Err(error) = std::fs::remove_dir_all(&self.path)
-            && error.kind() != io::ErrorKind::NotFound
-        {
-            eprintln!("left {} behind: {error}", self.path.display());
-        }
     }
 }
 
