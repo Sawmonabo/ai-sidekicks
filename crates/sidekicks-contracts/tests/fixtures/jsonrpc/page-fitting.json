@@ -1,0 +1,65 @@
+[
+  {
+    "note": "an empty list fits nothing",
+    "candidates": [],
+    "maxCount": 10,
+    "budgetBytes": 100,
+    "fitted": 0
+  },
+  {
+    "note": "every entry fits",
+    "candidates": ["a", "b", "c"],
+    "maxCount": 10,
+    "budgetBytes": 100,
+    "fitted": 3
+  },
+  {
+    "note": "the row limit stops first",
+    "candidates": ["a", "b", "c"],
+    "maxCount": 2,
+    "budgetBytes": 100,
+    "fitted": 2
+  },
+  {
+    "note": "the budget stops first",
+    "candidates": ["aaaa", "bbbb", "cccc"],
+    "maxCount": 10,
+    "budgetBytes": 15,
+    "fitted": 2
+  },
+  {
+    "note": "exactly at the budget",
+    "candidates": ["aaaa", "bbbb"],
+    "maxCount": 10,
+    "budgetBytes": 15,
+    "fitted": 2
+  },
+  {
+    "note": "a lone entry over the budget still rides",
+    "candidates": ["aaaaaaaaaaaa", "b"],
+    "maxCount": 10,
+    "budgetBytes": 5,
+    "fitted": 1
+  },
+  {
+    "note": "multi-byte text counts its bytes",
+    "candidates": ["😀😀", "é"],
+    "maxCount": 10,
+    "budgetBytes": 13,
+    "fitted": 1
+  },
+  {
+    "note": "a row limit of zero fits nothing",
+    "candidates": [
+      {
+        "a": 1
+      },
+      {
+        "b": 2
+      }
+    ],
+    "maxCount": 0,
+    "budgetBytes": 100,
+    "fitted": 0
+  }
+]
