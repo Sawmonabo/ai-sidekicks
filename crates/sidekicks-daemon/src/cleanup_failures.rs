@@ -11,7 +11,7 @@ pub(crate) struct CleanupFailures<Original, Cleanup = Original> {
     #[source]
     original: Original,
     /// The cleanups' own failures, each kept whole.
-    cleanups: Vec<Cleanup>,
+    failures: Vec<Cleanup>,
     operation: &'static str,
 }
 
@@ -25,7 +25,7 @@ impl<Original, Cleanup> CleanupFailures<Original, Cleanup> {
     ) -> Self {
         Self {
             original,
-            cleanups: cleanup_failures,
+            failures: cleanup_failures,
             operation,
         }
     }
@@ -37,21 +37,21 @@ impl<Original, Cleanup> CleanupFailures<Original, Cleanup> {
 
     /// The failures of cleaning up after it, in the order they came; empty when cleanup succeeded.
     pub(crate) fn cleanup_failures(&self) -> &[Cleanup] {
-        &self.cleanups
+        &self.failures
     }
 }
 
 impl<Original: Display, Cleanup: Display> Display for CleanupFailures<Original, Cleanup> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}", self.original)?;
-        if self.cleanups.is_empty() {
+        if self.failures.is_empty() {
             return Ok(());
         }
         write!(
             formatter,
             "; cleaning up after {} failed too: {}",
             self.operation,
-            DescribeEach(&self.cleanups)
+            DescribeEach(&self.failures)
         )
     }
 }

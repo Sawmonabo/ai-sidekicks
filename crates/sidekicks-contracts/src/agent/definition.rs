@@ -209,7 +209,7 @@ pub fn plugin_name_matches_origin<T>(
 
 /// Whether a listed entry names its plugin and its project exactly where its origin and scope
 /// say. Listed agents and skills share the rule.
-pub fn entry_names_its_plugin_and_project<T>(
+pub(crate) fn entry_names_its_plugin_and_project<T>(
     origin: AgentDefinitionOrigin,
     plugin_name: Option<&T>,
     scope: AgentDefinitionScope,
