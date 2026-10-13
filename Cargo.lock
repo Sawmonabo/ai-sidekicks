@@ -8033,6 +8033,7 @@ dependencies = [
 name = "sidekicks-platforms"
 version = "0.0.0"
 dependencies = [
+ "alacritty_terminal",
  "apple-native-keyring-store",
  "async-io",
  "command-fds",
