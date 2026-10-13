@@ -1,9 +1,11 @@
 // The parity corpus holds every input the Zod schemas these checks replace met in this package's
 // tests, with Zod's verdict. Each module's generated check must give the same verdict, except on
 // the inputs the corpus lists as expected differences, each with its reason.
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 
 import { expect, it } from "vitest";
 
@@ -15,121 +17,118 @@ const MODULE_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const QUOTED_INPUT_LENGTH = 300;
 
 /**
- * An input as the corpus writes it: the JSON value, or, where that value holds a lone surrogate,
- * which serde_json refuses to read, its JSON text.
+ * One corpus line: the JSON value as `input`, or, where that value holds a lone surrogate, which
+ * serde_json refuses to read, its JSON text as `inputText`.
  */
-type CorpusInput = { readonly input: unknown } | { readonly inputText: string };
-
-type CorpusEntry = CorpusInput & {
+type CorpusEntry = ({ readonly input: unknown } | { readonly inputText: string }) & {
   readonly schema: string;
   readonly accepted: boolean;
   readonly note?: string;
 };
 
-type ExpectedDifference = CorpusInput & {
+/** A listed difference, naming its input by the SHA-256 of the input's JSON text. */
+interface ExpectedDifference {
   readonly schema: string;
   readonly side: "ajv" | "rust";
   readonly reason: string;
-};
-
-function inputOf(entry: CorpusInput): unknown {
-  return "inputText" in entry ? JSON.parse(entry.inputText) : entry.input;
+  readonly inputSha256: string;
 }
 
-/** JSON with every object's keys sorted, so two equal inputs compare equal as text. */
-function canonicalJson(value: unknown): string {
-  const sorted = (node: unknown): unknown =>
-    Array.isArray(node)
-      ? node.map(sorted)
-      : node !== null && typeof node === "object"
-        ? Object.fromEntries(
-            Object.keys(node)
-              .sort()
-              .map((key) => [key, sorted((node as Record<string, unknown>)[key])]),
-          )
-        : node;
-  return JSON.stringify(sorted(value));
+/** The input's JSON text exactly as the corpus line holds it. */
+function inputTextOf(entry: CorpusEntry): string {
+  return "inputText" in entry ? entry.inputText : JSON.stringify(entry.input);
+}
+
+function readJson<T>(name: string): T {
+  return JSON.parse(readFileSync(join(CORPUS_ROOT, name), "utf8")) as T;
 }
 
 function corpusFiles(folder: string): string[] {
   return readdirSync(folder, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory()
       ? corpusFiles(join(folder, entry.name))
-      : entry.name.endsWith(".jsonl")
+      : entry.name.endsWith(".jsonl.gz")
         ? [join(folder, entry.name)]
         : [],
   );
 }
 
 /** The generated check a corpus key names: `<module>#<Name>Schema` is `validate<Name>`. */
-function checkNameOf(
-  exportName: string,
-  renames: Readonly<Record<string, string>>,
-  key: string,
-): string {
-  const typeName = renames[key] ?? exportName.replace(/Schema$/u, "");
+function checkNameOf(key: string, renames: Readonly<Record<string, string>>): string {
+  const typeName = renames[key] ?? key.slice(key.indexOf("#") + 1).replace(/Schema$/u, "");
   return `validate${typeName[0]!.toUpperCase()}${typeName.slice(1)}`;
 }
 
 it("gives Zod's verdict on every parity corpus input", async () => {
-  const expected = JSON.parse(
-    readFileSync(join(CORPUS_ROOT, "expected-differences.json"), "utf8"),
-  ) as ExpectedDifference[];
-  const renames = JSON.parse(readFileSync(join(CORPUS_ROOT, "check-names.json"), "utf8")) as Record<
-    string,
-    string
-  >;
+  const expected = readJson<ExpectedDifference[]>("expected-differences.json");
+  const renames = readJson<Record<string, string>>("check-names.json");
+  const aliases = readJson<Record<string, string[]>>("aliases.json");
   const unmatched = new Map(
     expected
       .filter((difference) => difference.side === "ajv")
-      .map((difference) => [
-        `${difference.schema} ${canonicalJson(inputOf(difference))}`,
-        difference,
-      ]),
+      .map((difference) => [`${difference.schema} ${difference.inputSha256}`, difference]),
   );
-  const entriesByModule = new Map<string, CorpusEntry[]>();
+
+  // Every key with its inputs: a schema's own, and each alias export reading the same inputs.
+  const entriesByKey = new Map<string, CorpusEntry[]>();
   for (const file of corpusFiles(CORPUS_ROOT)) {
-    const module = relative(CORPUS_ROOT, file).replace(/(?:\.\d+)?\.jsonl$/u, "");
-    const entries = readFileSync(file, "utf8")
-      .split("\n")
-      .filter((line) => line !== "")
-      .map((line) => JSON.parse(line) as CorpusEntry);
-    entriesByModule.set(module, [...(entriesByModule.get(module) ?? []), ...entries]);
+    const module = relative(CORPUS_ROOT, file).replace(/\.jsonl\.gz$/u, "");
+    for (const line of gunzipSync(readFileSync(file)).toString("utf8").split("\n")) {
+      if (line === "") {
+        continue;
+      }
+      const entry = JSON.parse(line) as CorpusEntry;
+      for (const key of [
+        `${module}#${entry.schema}`,
+        ...(aliases[`${module}#${entry.schema}`] ?? []),
+      ]) {
+        const entries = entriesByKey.get(key) ?? [];
+        entries.push(entry);
+        entriesByKey.set(key, entries);
+      }
+    }
   }
 
   const faults: string[] = [];
+  const modules = new Map<string, Record<string, unknown> | undefined>();
   let checkedInputs = 0;
-  for (const [module, entries] of entriesByModule) {
-    let generated: Record<string, unknown>;
-    try {
-      generated = (await import(join(MODULE_ROOT, `${module}.ts`))) as Record<string, unknown>;
-    } catch (error) {
-      faults.push(`${module}: the generated module does not load: ${String(error)}`);
+  for (const [key, entries] of entriesByKey) {
+    const module = key.slice(0, key.indexOf("#"));
+    if (!modules.has(module)) {
+      try {
+        modules.set(
+          module,
+          (await import(join(MODULE_ROOT, `${module}.ts`))) as Record<string, unknown>,
+        );
+      } catch (error) {
+        modules.set(module, undefined);
+        faults.push(`${module}: the generated module does not load: ${String(error)}`);
+      }
+    }
+    const generated = modules.get(module);
+    if (generated === undefined) {
       continue;
     }
-    const missing = new Set<string>();
+    const name = checkNameOf(key, renames);
+    const check = generated[name];
+    if (typeof check !== "function") {
+      faults.push(`${key}: ${module} has no check ${name}`);
+      continue;
+    }
     for (const entry of entries) {
-      const key = `${module}#${entry.schema}`;
-      const name = checkNameOf(entry.schema, renames, key);
-      const check = generated[name];
-      if (typeof check !== "function") {
-        missing.add(`${key}: ${module} has no check ${name}`);
-        continue;
-      }
       checkedInputs++;
-      const input = inputOf(entry);
-      if ((check as (value: unknown) => boolean)(input) === entry.accepted) {
+      const text = inputTextOf(entry);
+      if ((check as (value: unknown) => boolean)(JSON.parse(text)) === entry.accepted) {
         continue;
       }
-      const differenceKey = `${key} ${canonicalJson(input)}`;
-      if (!unmatched.delete(differenceKey)) {
+      const digest = createHash("sha256").update(text).digest("hex");
+      if (!unmatched.delete(`${key} ${digest}`)) {
         faults.push(
           `${key}: Zod ${entry.accepted ? "accepts" : "refuses"} and the check does not: ` +
-            JSON.stringify(input).slice(0, QUOTED_INPUT_LENGTH),
+            text.slice(0, QUOTED_INPUT_LENGTH),
         );
       }
     }
-    faults.push(...missing);
   }
   for (const difference of unmatched.values()) {
     faults.push(
@@ -137,6 +136,6 @@ it("gives Zod's verdict on every parity corpus input", async () => {
     );
   }
 
-  expect(checkedInputs).toBeGreaterThan(0);
   expect(faults).toEqual([]);
+  expect(checkedInputs).toBeGreaterThan(0);
 });
