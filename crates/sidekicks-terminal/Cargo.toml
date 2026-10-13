@@ -1,0 +1,23 @@
+[package]
+name = "sidekicks-terminal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The PTY each shell runs in, inside the daemon, and the screen copy of its output."
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+alacritty_terminal.workspace = true
+bytes.workspace = true
+sidekicks-platforms.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+vte.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,48 @@
+[package]
+name = "sidekicks-search"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The session search index on Tantivy and the one fuzzy matcher."
+license.workspace = true
+publish.workspace = true
+
+[lib]
+# The matcher's WebAssembly build for the renderer, made with the `index` feature off.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+icu_casemap.workspace = true
+lru = { workspace = true, optional = true }
+tantivy = { workspace = true, optional = true }
+# Tantivy's own bit set, at the version Tantivy builds with, so the two crates share the type.
+tantivy-common = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+unicode-normalization = { workspace = true, optional = true }
+unicode-properties = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The case fold the index's fold is held equal to.
+caseless.workspace = true
+rstest.workspace = true
+
+# The index reads by a memory map on macOS, where it measures the smaller footprint.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = { workspace = true, optional = true }
+tantivy = { workspace = true, features = ["mmap"], optional = true }
+
+[features]
+# The index, which only the daemon builds.
+index = [
+  "dep:lru",
+  "dep:tantivy",
+  "dep:tantivy-common",
+  "dep:thiserror",
+  "dep:unicode-normalization",
+  "dep:unicode-properties",
+]
+# The index's budget measurements, compiled into the tests only when asked for.
+measurements = ["dep:libc", "index"]
+
+[lints]
+workspace = true

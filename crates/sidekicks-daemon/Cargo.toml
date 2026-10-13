@@ -1,0 +1,209 @@
+[package]
+name = "sidekicks-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The daemon: sessions with Claude Code and Codex, git worktrees, terminals and the SQLite store."
+license.workspace = true
+publish.workspace = true
+
+[package.metadata.cargo-shear]
+ignored = [
+  # The loopback listener for the agents' tool servers, the telemetry receiver and a machine's
+  # shared ports.
+  "axum",
+  # The command channel the daemon shares with its command wrapper and askpass modes.
+  "chacha20poly1305",
+  "hkdf",
+  "x25519-dalek",
+  # The browser tools and Preview's pages over DevTools.
+  "chromiumoxide_cdp",
+  "psl",
+  # Crash reports of the daemon and its modes.
+  "crash-handler",
+  "minidumper",
+  # A workflow schedule's next run in its time zone.
+  "croner",
+  # The workflow step that parses CSV.
+  "csv",
+  # Laying out a workflow an agent wrote with no layout of its own.
+  "dugong",
+  # The machine's identity key and the statements it signs.
+  "ed25519-dalek",
+  # An attachment's picture, its first page and its covered copy.
+  "fast_image_resize",
+  "image",
+  "pdfium-render",
+  "webp",
+  # The Windows half's channel to the daemon in WSL.
+  "h2",
+  # The Standard Webhooks signature on a run's web address calls.
+  "hmac",
+  "standardwebhooks",
+  # Sealing a push notice to a linked device's push key, and the linking digits.
+  "hpke",
+  "sha2",
+  "web-push-native",
+  "x-wing",
+  # A machine's certificate and the forward to its shared ports.
+  "hyper-util",
+  "instant-acme",
+  "tokio-rustls",
+  # A workflow's expressions.
+  "jsonata-core",
+  # The MCP sign-in's keys, thumbprints and proofs.
+  "jwt-simple",
+  "p256",
+  # The email digest of what needs the person's attention.
+  "lettre",
+  # The passkey statement checks.
+  "llrt_buffer",
+  "llrt_crypto",
+  # The token prices read from what the providers report.
+  "opentelemetry-proto",
+  # The passkey relying party's and the relay channel's tokens.
+  "pasetors",
+  # The redaction set built from each secret of a run.
+  "form_urlencoded",
+  "percent-encoding",
+  # The daemon's own tool server and its connections to a session's tool servers.
+  "rmcp",
+  "sse-stream",
+  # The relay channel: its Noise sessions and the relay's certificate check.
+  "rustls-platform-verifier",
+  "snow",
+  # The workflow agent tools' input schemas.
+  "schemars",
+  # YAML front matter, skills and the workflow step that parses YAML, read and edited in place.
+  "serde-saphyr",
+  "yaml-edit",
+  # Fetching and unpacking the tools a workflow code step runs on.
+  "tar",
+  "zip",
+  # Reading and editing the providers' and tool servers' TOML settings.
+  "toml",
+  "toml_edit",
+  # Wiping the command channel's keys.
+  "zeroize",
+]
+
+[dependencies]
+anyhow.workspace = true
+axum = { workspace = true, features = ["http1", "tokio"] }
+base64.workspace = true
+blake3.workspace = true
+bytes.workspace = true
+cedar-policy.workspace = true
+chacha20poly1305.workspace = true
+chromiumoxide_cdp.workspace = true
+clap.workspace = true
+crash-handler.workspace = true
+croner.workspace = true
+csv.workspace = true
+diffy.workspace = true
+dugong.workspace = true
+ed25519-dalek.workspace = true
+fast_image_resize.workspace = true
+ferriki.workspace = true
+flate2.workspace = true
+flexi_logger.workspace = true
+form_urlencoded.workspace = true
+futures.workspace = true
+h2.workspace = true
+hkdf.workspace = true
+hmac.workspace = true
+hpke.workspace = true
+hyper-util.workspace = true
+icu_collator.workspace = true
+ignore.workspace = true
+image.workspace = true
+instant-acme.workspace = true
+interprocess.workspace = true
+jiff.workspace = true
+jsonata-core.workspace = true
+jsonc-parser.workspace = true
+jwt-simple.workspace = true
+lettre.workspace = true
+# Its version is the one `rusqlite` bundles, whose SQLite the vendored shell is checked against.
+libsqlite3-sys.workspace = true
+llrt_abort.workspace = true
+llrt_buffer.workspace = true
+llrt_crypto.workspace = true
+llrt_exceptions.workspace = true
+llrt_stream_web.workspace = true
+llrt_timers.workspace = true
+llrt_util.workspace = true
+lru.workspace = true
+minidumper.workspace = true
+notify.workspace = true
+opentelemetry-proto.workspace = true
+p256.workspace = true
+pasetors.workspace = true
+pdfium-render.workspace = true
+percent-encoding.workspace = true
+process-wrap.workspace = true
+psl.workspace = true
+pulldown-cmark.workspace = true
+quick_cache.workspace = true
+reflink-copy.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+rmcp.workspace = true
+rquickjs.workspace = true
+rusqlite.workspace = true
+rustls-platform-verifier.workspace = true
+schemars.workspace = true
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_json_canonicalizer.workspace = true
+serde_path_to_error.workspace = true
+serde-saphyr.workspace = true
+serde_with.workspace = true
+sha2.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-platforms.workspace = true
+sidekicks-search = { workspace = true, features = ["index"] }
+sidekicks-terminal.workspace = true
+snow.workspace = true
+sse-stream.workspace = true
+subtle.workspace = true
+sysinfo.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tokio-tungstenite.workspace = true
+tokio-util.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+typed-path.workspace = true
+unicode-segmentation.workspace = true
+url.workspace = true
+uuid.workspace = true
+web-push-native.workspace = true
+webp.workspace = true
+x25519-dalek.workspace = true
+yaml-edit.workspace = true
+zeroize.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+dhat.workspace = true
+insta.workspace = true
+mockall.workspace = true
+proptest.workspace = true
+rstest.workspace = true
+standardwebhooks.workspace = true
+x-wing.workspace = true
+
+[build-dependencies]
+# The SQLite shell, compiled from its vendored source after its hash is checked.
+cc.workspace = true
+sha3.workspace = true
+
+[lints]
+workspace = true

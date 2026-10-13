@@ -1,0 +1,47 @@
+[package]
+name = "sidekicks-contracts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The wire's serde types and garde checks, from which the TypeScript contracts are generated."
+license.workspace = true
+publish.workspace = true
+
+[package.metadata.cargo-shear]
+ignored = [
+  # The workflow builder's WebAssembly build of the workflow checks.
+  "wasm-bindgen",
+]
+
+[dependencies]
+base64.workspace = true
+bytes.workspace = true
+ed25519-dalek.workspace = true
+garde.workspace = true
+icu_casemap.workspace = true
+jiff.workspace = true
+p256.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_json_canonicalizer.workspace = true
+serde_path_to_error.workspace = true
+serde_with.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio-util.workspace = true
+url.workspace = true
+uuid.workspace = true
+wasm-bindgen = { workspace = true, optional = true }
+
+[dev-dependencies]
+insta.workspace = true
+proptest.workspace = true
+rstest.workspace = true
+
+[features]
+# The WebAssembly exports the workflow builder loads.
+wasm = ["dep:wasm-bindgen"]
+
+[lints]
+workspace = true

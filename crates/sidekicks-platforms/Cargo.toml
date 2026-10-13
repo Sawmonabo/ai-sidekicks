@@ -1,0 +1,83 @@
+[package]
+name = "sidekicks-platforms"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "All operating-system code behind one interface: macOS, Windows and Linux."
+license.workspace = true
+publish.workspace = true
+
+[package.metadata.cargo-shear]
+ignored = [
+  # Claude Code's token pipe and the background browser's DevTools pipe on fixed descriptors.
+  "command-fds",
+  # The machine's hour cycle for the email digest on Linux.
+  "icu_datetime",
+  "icu_locale_core",
+  # The link to an agent's memory folder on Windows.
+  "junction",
+  # Keeping the machine awake while work runs.
+  "keepawake",
+  # The machine's hour cycle for the email digest on macOS.
+  "objc2-core-foundation",
+  # The wake helper's status, read through the system's service management.
+  "objc2-foundation",
+  "objc2-service-management",
+  # Windows notifications.
+  "windows",
+  # The systemd scope, the wake timer and the battery state on Linux.
+  "zbus",
+]
+
+[dependencies]
+interprocess.workspace = true
+keepawake.workspace = true
+keyring-core.workspace = true
+process-wrap = { workspace = true, features = ["creation-flags", "process-session"] }
+sysinfo.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+libmimalloc-sys.workspace = true
+mimalloc.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+icu_datetime.workspace = true
+icu_locale_core.workspace = true
+secret-service.workspace = true
+zbus.workspace = true
+zbus-secret-service-keyring-store.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store.workspace = true
+objc2-core-foundation.workspace = true
+objc2-foundation.workspace = true
+objc2-service-management.workspace = true
+security-framework.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+async-io.workspace = true
+junction.workspace = true
+polling.workspace = true
+tokio-util = { workspace = true, features = ["compat"] }
+uds_windows.workspace = true
+windows = { workspace = true, features = ["UI_Notifications"] }
+windows-native-keyring-store.workspace = true
+windows-sys = {
+  workspace = true,
+  features = [
+    "Win32_Foundation",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+  ]
+}
+
+[target."cfg(unix)".dependencies]
+command-fds.workspace = true
+libc.workspace = true
+nix.workspace = true
+
+[lints]
+workspace = true
