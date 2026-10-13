@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for every AI coding tool working in this repo (Claude Code, Codex, Cursor, Copilot, Aider). Claude Code reads it through `CLAUDE.md`, which imports this file and adds only what is specific to Claude Code. This file holds what applies everywhere; [`packages/AGENTS.md`](packages/AGENTS.md) and [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md) add only what is specific to their areas, so read the one for the code you touch.
+Instructions for every AI coding tool working in this repo (Claude Code, Codex, Cursor, Copilot, Aider). Claude Code reads it through `CLAUDE.md`, which imports this file and adds only what is specific to Claude Code. This file holds what applies everywhere; [`packages/AGENTS.md`](packages/AGENTS.md), [`crates/AGENTS.md`](crates/AGENTS.md) and [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md) add only what is specific to their areas, so read the one for the code you touch.
 
 ## What this is
 
