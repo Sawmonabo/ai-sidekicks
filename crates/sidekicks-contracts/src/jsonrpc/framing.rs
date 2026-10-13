@@ -23,6 +23,9 @@ ts_constants! {
     /// The most bytes of attachments one message carries, each attachment's 4-byte length
     /// included.
     pub const MAX_ATTACHMENT_BYTES: usize = 4 * 1024 * 1024;
+    /// The most bytes one attachment carries: a message's whole attachment budget less the one
+    /// 4-byte length its bytes are written after.
+    pub const MAX_ONE_ATTACHMENT_BYTES: usize = MAX_ATTACHMENT_BYTES - LENGTH_PREFIX_BYTES;
 }
 
 /// The bytes of each length prefix in a message: the JSON's and each attachment's.
