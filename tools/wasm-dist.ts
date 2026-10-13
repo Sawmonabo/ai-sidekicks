@@ -24,6 +24,33 @@ const LICENSES_FOLDER = "THIRD_PARTY_LICENSES";
 /** A project's legal files, by the names projects ship them under (`LICENSE-MIT`, `COPYING`, …). */
 const LEGAL_FILE_NAME = /^(licen[cs]e|copying|notice)/i;
 
+/**
+ * Crates, by name and version, that declare MIT but whose authors published no license text, in
+ * the crate or in its repository at the commit it was published from. Each ships the standard MIT
+ * text with its authors, or its repository's owner, as the copyright holder, and the notices say
+ * so; every other crate without a license text fails the build.
+ */
+const MIT_CRATES_WITHOUT_TEXT: ReadonlySet<string> = new Set([
+  // Its repository holds no license file at the commit it was published from, nor at any later one.
+  "json-escape-simd 3.1.1",
+]);
+
+/** The MIT license's text as the SPDX License List gives it, after its copyright line. */
+const MIT_LICENSE_TERMS = [
+  "Permission is hereby granted, free of charge, to any person obtaining a copy of this software " +
+    'and associated documentation files (the "Software"), to deal in the Software without ' +
+    "restriction, including without limitation the rights to use, copy, modify, merge, publish, " +
+    "distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the " +
+    "Software is furnished to do so, subject to the following conditions:",
+  "The above copyright notice and this permission notice shall be included in all copies or " +
+    "substantial portions of the Software.",
+  'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING ' +
+    "BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND " +
+    "NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, " +
+    "DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, " +
+    "OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+];
+
 /** What one package's `dist/` is laid out from. */
 export interface WasmDistSource {
   /** The package whose `dist/` is written. */
@@ -65,6 +92,7 @@ interface CratePackage {
   readonly id: string;
   readonly name: string;
   readonly version: string;
+  readonly authors: readonly string[];
   readonly license: string | null;
   readonly repository: string | null;
   readonly manifest_path: string;
@@ -93,14 +121,15 @@ interface CarriedProject {
   readonly license: string | null;
   readonly repository: string | null;
   readonly legalDirectory: string;
-  /** The commit the legal files were fetched from, when the published project ships none. */
-  readonly legalFilesCommit?: string;
+  /** Where the legal files came from, said in the notices, when the published project ships none. */
+  readonly legalFilesOrigin?: string;
 }
 
 /**
  * Empties the package's `dist/` and writes the module and `THIRD_PARTY_NOTICES.md` into it. Throws
  * when Cargo's build failed or wrote no module for the crate, or when no license file can be found
- * for a carried project, in what it publishes or in its repository.
+ * for a carried project, in what it publishes or in its repository, unless it is a listed crate
+ * that declares MIT.
  */
 export function writeWasmDist(source: WasmDistSource): void {
   const messages = source.buildMessages
@@ -170,7 +199,8 @@ export function writeWasmDist(source: WasmDistSource): void {
  * platform. A procedural macro runs in the compiler and links nothing, so neither it nor what it
  * depends on is kept. The crate itself is kept when it is third-party. Sorted by name and version.
  * A crate of the build's own workspace that ships no license file of its own is under the
- * workspace's; any other crate that ships none takes the files from its repository.
+ * workspace's; a listed crate that declares MIT and publishes no text takes the standard MIT text;
+ * any other crate that ships none takes the files from its repository.
  */
 function linkedCratesOf(
   crateId: string,
@@ -224,6 +254,9 @@ function linkedCratesOf(
       if (metadata.workspace_members.includes(crate.id)) {
         return { ...project, legalDirectory: metadata.workspace_root };
       }
+      if (MIT_CRATES_WITHOUT_TEXT.has(`${crate.name} ${crate.version}`)) {
+        return { ...project, ...writeDeclaredMitLicense(crate, scratchDirectory) };
+      }
       return { ...project, ...repositories.fetchLegalFiles(crate, crateDirectory) };
     });
 }
@@ -249,7 +282,7 @@ class SourceRepositories {
   fetchLegalFiles(
     crate: CratePackage,
     crateDirectory: string,
-  ): { legalDirectory: string; legalFilesCommit: string } {
+  ): { legalDirectory: string; legalFilesOrigin: string } {
     const vcsInfoPath = path.join(crateDirectory, ".cargo_vcs_info.json");
     if (crate.repository === null || !existsSync(vcsInfoPath)) {
       throw new Error(
@@ -285,7 +318,10 @@ class SourceRepositories {
             execFileSync("git", ["--git-dir", gitDirectory, "cat-file", "blob", file.objectId]),
           );
         }
-        return { legalDirectory, legalFilesCommit: commit };
+        return {
+          legalDirectory,
+          legalFilesOrigin: `from its source at commit ${commit}; the published crate ships none`,
+        };
       }
     }
     throw new Error(
@@ -327,6 +363,40 @@ class SourceRepositories {
     this.#fetchedDirectories.set(key, gitDirectory);
     return gitDirectory;
   }
+}
+
+/**
+ * Writes the standard MIT text for a listed crate, with its authors as the copyright holder, or
+ * its repository's owner when it names none. Throws when it does not declare MIT.
+ */
+function writeDeclaredMitLicense(
+  crate: CratePackage,
+  scratchDirectory: string,
+): { legalDirectory: string; legalFilesOrigin: string } {
+  if (crate.license !== "MIT") {
+    throw new Error(
+      `${crate.name} ${crate.version} is listed as declaring MIT, but declares ${String(crate.license)}`,
+    );
+  }
+  const copyrightHolders =
+    crate.authors.length > 0
+      ? crate.authors.join(", ")
+      : crate.repository === null
+        ? undefined
+        : new URL(crate.repository).pathname.split("/")[1];
+  if (copyrightHolders === undefined || copyrightHolders === "") {
+    throw new Error(`${crate.name} ${crate.version} names no authors and no repository`);
+  }
+  const legalDirectory = path.join(scratchDirectory, `${crate.name}-${crate.version}`);
+  mkdirSync(legalDirectory);
+  writeFileSync(
+    path.join(legalDirectory, "LICENSE"),
+    ["MIT License", `Copyright (c) ${copyrightHolders}`, ...MIT_LICENSE_TERMS].join("\n\n") + "\n",
+  );
+  return {
+    legalDirectory,
+    legalFilesOrigin: "the author published no license text; the crate declares MIT",
+  };
 }
 
 /** The npm package in `packageDirectory`, read from its manifest. */
@@ -382,10 +452,9 @@ function copyNoticeOf(project: CarriedProject, distDirectory: string): string {
     [
       `- License: ${project.license ?? "not declared"}`,
       `- Source: ${project.repository ?? "not declared"}`,
-      project.legalFilesCommit === undefined
+      project.legalFilesOrigin === undefined
         ? "- License files:"
-        : `- License files, from its source at commit ${project.legalFilesCommit}, as the ` +
-          "published crate ships none:",
+        : `- License files (${project.legalFilesOrigin}):`,
       ...legalFiles.map((file) => `  - [\`${copiedFolder}/${file}\`](${copiedFolder}/${file})`),
     ].join("\n"),
   ].join("\n\n");
