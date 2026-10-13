@@ -4,7 +4,7 @@
 // which fails every text it holds and is replaced on the next one.
 
 import type { Root, Table } from "mdast";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MarkdownWorkerConnection, type MarkdownWorkerStart } from "../worker/connection.js";
 import { InThreadMarkdownWorkers } from "../worker/connection.test-support.js";
@@ -14,6 +14,7 @@ import { parseMarkdownTree } from "./serialized-tree.js";
 import { piecedRowsOf } from "./pieced-table.js";
 import { MarkdownTrees, type MarkdownParseOutcome } from "./trees.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
+import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 
 /** Trees of their own, parsed by stand-in workers that `start` starts and the app's page parser. */
 function treesOn(start: MarkdownWorkerStart): MarkdownTrees {
@@ -57,6 +58,10 @@ function settledTreeOf(trees: MarkdownTrees, source: string, definitionPreamble 
   });
   return outcome?.status === "parsed" ? outcome.root : expect.fail("the block was parsed");
 }
+
+// Every slice has time, so the trees a stand-in worker answers with are handed over in the task
+// they land in, and a case reads them right after it asks, on any machine.
+beforeEach(giveEverySliceTime);
 
 describe("a settled block", () => {
   it("is parsed once and shared, and two different blocks are two different trees", () => {

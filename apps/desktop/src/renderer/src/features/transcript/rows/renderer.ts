@@ -97,9 +97,9 @@ export interface TranscriptRowPreparation {
   /** Whether every piece of work started so far has landed or failed. */
   readonly isReady: boolean;
   /**
-   * Whether the row's command output, if it draws one, is parsed whole, its body's landed cut is
-   * recorded, and its drawn blocks are read for what they wait on: what the drawn band waits on
-   * before it mounts the row.
+   * Whether the row's command output, if it draws one, is parsed whole, its markdown body can draw
+   * rather than mount blank, cut and parsed or failed, and its drawn blocks are read for what they
+   * wait on: what the drawn band waits on before it mounts the row.
    */
   readonly isParsed: boolean;
   /**

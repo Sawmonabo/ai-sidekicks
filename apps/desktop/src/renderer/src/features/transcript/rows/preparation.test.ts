@@ -6,16 +6,23 @@
 // it; a reply's stored body takes over from its retired lane, settling its last block; a row out
 // of view reads its blocks in its turn, waiting on them, and a row in view reads them at once; a
 // streaming formula or diagram fence starts its typesetter or worker once it names its language,
-// while a fence of code starts neither; and a row whose landed cut is still recorded in turn is
-// parsed only once every block is recorded. Each case but the last gives every slice time.
+// while a fence of code starts neither; and a row whose body cannot draw yet, its landed cut still
+// recorded in turn or its block's tree still out with the worker, is not parsed until it can, or
+// until the worker fails and the body draws its failure. Each case but the first of those gives
+// every slice time.
 
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { RESOLVED_SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import { DiagramPictures } from "#renderer/components/Markdown/diagram/pictures.js";
-import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
+import {
+  appMarkdownTrees,
+  PAGE_PARSE_MAX_CHARACTERS,
+} from "#renderer/components/Markdown/parse/trees.js";
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { FakeDiagramWorkers } from "#renderer/components/Markdown/diagram/worker/connection.test-support.js";
 import { typesetterLoadFor } from "#renderer/components/Markdown/typesetter/load.js";
+import { appMarkdownWorkers } from "#test/helpers/markdown-worker.js";
 import { endEverySliceAtOnce, giveEverySliceTime } from "#test/helpers/slice-clock.js";
 import { SteppedTasks } from "#test/helpers/stepped-tasks.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
@@ -335,8 +342,8 @@ describe("a message row's preparation", () => {
   });
 });
 
-describe("a message row whose landed cut outlasts its slice", () => {
-  it("is not parsed until its turn has recorded every block", async () => {
+describe("a message row whose body cannot draw yet", () => {
+  it("is not parsed until its cut's turn has recorded every block", async () => {
     endEverySliceAtOnce();
     const tasks = new SteppedTasks();
     const pictures = new DiagramPictures(CACHE_BYTE_CAP, new FakeDiagramWorkers().start, () => {
@@ -360,6 +367,39 @@ describe("a message row whose landed cut outlasts its slice", () => {
     while (!preparation.isParsed) {
       expect(await tasks.runNext()).toBe(true);
     }
+    expect(preparation.isReady).toBe(true);
+  });
+
+  it("is not parsed while its block's tree is out, and is once the worker fails", async () => {
+    giveEverySliceTime();
+    markdownWorker.wake();
+    const worker = appMarkdownWorkers.latest();
+    worker.hold();
+    const askedBefore = worker.requests.length;
+    const pictures = new DiagramPictures(CACHE_BYTE_CAP, new FakeDiagramWorkers().start, () => {
+      return undefined;
+    });
+    const onReady = vi.fn();
+    // One block too long for the page, so the worker cuts the body and parses the block.
+    const message = `${"word ".repeat(PAGE_PARSE_MAX_CHARACTERS / 4)}end.`;
+    const preparation =
+      prepareTranscriptRow(
+        userMessageRow({ id: "message", sequence: 0, message }),
+        sourcesWith(pictures),
+        onReady,
+      ) ?? expect.fail("a message row is prepared");
+
+    expect(worker.requests.slice(askedBefore).map((request) => request.source)).toStrictEqual([
+      message,
+    ]);
+    expect(preparation.isParsed).toBe(false);
+    expect(preparation.isReady).toBe(false);
+    // The failed parse is the body's failure, which it draws, so the row no longer waits.
+    worker.failParser("the parser broke");
+    await vi.waitFor(() => {
+      expect(onReady).toHaveBeenCalledOnce();
+    });
+    expect(preparation.isParsed).toBe(true);
     expect(preparation.isReady).toBe(true);
   });
 });

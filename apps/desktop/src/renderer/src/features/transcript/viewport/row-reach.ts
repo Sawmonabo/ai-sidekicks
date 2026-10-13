@@ -12,8 +12,8 @@ export interface RowParses {
   /** Hands over the rows within the band's reach and, among them, the rows in view, by key. */
   observeReach(rowKeys: ReadonlySet<string>, viewRowKeys: ReadonlySet<string>): void;
   /**
-   * Whether a row's command output, if it draws one, is parsed whole, its body's landed cut is
-   * recorded, and its drawn blocks are read for what they wait on.
+   * Whether a row's command output, if it draws one, is parsed whole, its markdown body can draw
+   * rather than mount blank, and its drawn blocks are read for what they wait on.
    */
   isRowParsed(rowKey: string): boolean;
 }

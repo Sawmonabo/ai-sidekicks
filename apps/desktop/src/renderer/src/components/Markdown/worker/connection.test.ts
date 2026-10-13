@@ -10,7 +10,7 @@ import type { Table, TableCell } from "mdast";
 import { expect, it, vi } from "vitest";
 
 import { decodeTextPieces, encodeTextPieces } from "#renderer/lib/text/pieces.js";
-import { SLICE_MS } from "#renderer/lib/work-slices.js";
+import { stopSliceClock } from "#test/helpers/slice-clock.js";
 import { SteppedTasks } from "#test/helpers/stepped-tasks.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { PageParser } from "../parse/page-parser.js";
@@ -168,6 +168,7 @@ it("reports a page parser that fails to start as failed for good, while the work
 });
 
 it("hands over an answer's trees a slice at a time, in the order the texts were sent", async () => {
+  const spendSlice = stopSliceClock();
   const tasks = new SteppedTasks();
   const worker = new StandInWorker();
   const connection = new MarkdownWorkerConnection(
@@ -180,8 +181,8 @@ it("hands over an answer's trees a slice at a time, in the order the texts were 
   for (const source of ["first", "second", "third"]) {
     connection.parse(source, () => {
       handed.push(source);
-      // Handing the first tree over runs the slice out.
-      for (const start = performance.now(); performance.now() - start <= SLICE_MS; );
+      // Handing a tree over runs the slice out.
+      spendSlice();
     });
   }
   const treeOf = (requestId: number): SerializedMarkdownTree => ({

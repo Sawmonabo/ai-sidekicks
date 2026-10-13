@@ -14,6 +14,7 @@ import type { MarkdownTableOffer } from "./table-offer.js";
 import { MarkdownWorkerConnection } from "./worker/connection.js";
 import { InThreadMarkdownWorkers } from "./worker/connection.test-support.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
+import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 
 /** Leaves the renderer's caches alone: no case here shows enough pictures to empty them for. */
 const keepUnusedMemory = (): void => undefined;
@@ -144,6 +145,8 @@ describe("a long table offered to a body that draws its rows", () => {
   });
 
   it("reads only the rows the body draws, so its pieces let go stay let go", () => {
+    // Every slice has time, so the pieces' trees are handed over in the task they land in.
+    giveEverySliceTime();
     const workers = new InThreadMarkdownWorkers();
     // Room for about two pieces' trees, so the first pieces are let go as the last land.
     const trees = new MarkdownTrees(

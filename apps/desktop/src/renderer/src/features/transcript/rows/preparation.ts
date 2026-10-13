@@ -149,8 +149,8 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   }
 
   public get isParsed(): boolean {
-    // A cut still recorded in turn has blocks no walk has seen, so the body cannot draw them yet.
-    return this.#output.isReady && !this.#blocks.isRecordingCut && this.#drawnBlockWaits.isRead;
+    // A body still waiting on its cut, the cut's recording or a tree would mount blank.
+    return this.#output.isReady && this.#bodyDrawn === undefined && this.#drawnBlockWaits.isRead;
   }
 
   public refresh(): void {
