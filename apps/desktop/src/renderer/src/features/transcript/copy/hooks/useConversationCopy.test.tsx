@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ClipboardContent, TextClipboardContent } from "#shared/preload-api.js";
 import { piecedTextOf, TEXT_PIECE_LENGTH, type PiecedText } from "#renderer/lib/text/pieces.js";
+import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { inThreadMarkdownWorker } from "#renderer/components/Markdown/worker/connection.test-support.js";
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
@@ -190,10 +191,13 @@ function renderSession(rows = ROWS): {
   readonly box: HTMLTextAreaElement;
   readonly sessionDocument: Document;
 } {
+  // Every slice has time, so each row's landed cut is recorded before the row mounts and a copy is
+  // built within the slice ⌘C starts it in, on any machine.
+  giveEverySliceTime();
   const sessionWindow =
     document.body.appendChild(document.createElement("iframe")).contentWindow ??
     expect.fail("the frame has a window");
-  // happy-dom schedules no tasks; a copy that outlasts the slice it starts in builds on in them.
+  // happy-dom schedules no tasks; the work a copy does in tasks of its own runs in these at once.
   Object.defineProperty(sessionWindow, "scheduler", { value: TASKS_AT_ONCE.scheduler });
   const sessionDocument = sessionWindow.document;
   const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
@@ -309,8 +313,6 @@ describe("⌘C in a session", () => {
 
   it("sends a copy built at once but longer than one piece to main in pieces", async () => {
     const { native, copied, sessionDocument } = renderSession(LONG_MESSAGE_ROWS);
-    // Every slice has time, so the copy is built within the slice ⌘C starts it in.
-    vi.spyOn(performance, "now").mockReturnValue(0);
     const pieceLengths: number[] = [];
     const sendPiece = native.sendClipboardPiece.bind(native);
     vi.spyOn(native, "sendClipboardPiece").mockImplementation(async (piece) => {
@@ -335,8 +337,6 @@ describe("⌘C in a session", () => {
 
   it("writes a long part's text at once, and adds its formatting unless a newer copy took over", async () => {
     const { copied, formatted, sessionDocument } = renderSession(LONG_ROWS);
-    // Every slice has time, so the short copy is built within the slice ⌘C starts it in.
-    vi.spyOn(performance, "now").mockReturnValue(0);
     const workerAnswers: ((html: PiecedText) => void)[] = [];
     vi.spyOn(markdownWorker, "html").mockImplementation(
       () => new Promise((resolve) => workerAnswers.push(resolve)),

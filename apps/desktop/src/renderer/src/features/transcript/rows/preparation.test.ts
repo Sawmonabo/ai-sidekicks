@@ -4,17 +4,19 @@
 // asks made under the old one and the row waits on the new ones alone; a
 // listed reply whose live text settles a diagram has the picture asked for before anything mounts
 // it; a reply's stored body takes over from its retired lane, settling its last block; a row out
-// of view reads its blocks in its turn, waiting on them, and a row in view reads them at once; and
-// a streaming formula or diagram fence starts its typesetter or worker once it names its language,
-// while a fence of code starts neither.
+// of view reads its blocks in its turn, waiting on them, and a row in view reads them at once; a
+// streaming formula or diagram fence starts its typesetter or worker once it names its language,
+// while a fence of code starts neither; and a row whose landed cut is still recorded in turn is
+// parsed only once every block is recorded. Each case but the last gives every slice time.
 
-import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { RESOLVED_SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import { DiagramPictures } from "#renderer/components/Markdown/diagram/pictures.js";
 import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
 import { FakeDiagramWorkers } from "#renderer/components/Markdown/diagram/worker/connection.test-support.js";
 import { typesetterLoadFor } from "#renderer/components/Markdown/typesetter/load.js";
+import { endEverySliceAtOnce, giveEverySliceTime } from "#test/helpers/slice-clock.js";
 import { SteppedTasks } from "#test/helpers/stepped-tasks.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { userMessageRow } from "../event-rows.test-support.js";
@@ -100,6 +102,8 @@ function freshWindow(): Window {
 }
 
 describe("a message row's preparation", () => {
+  beforeEach(giveEverySliceTime);
+
   it("lets the row go once its diagram's drawing fails, into the failure the body draws", async () => {
     const workers = new FakeDiagramWorkers();
     const pictures = new DiagramPictures(CACHE_BYTE_CAP, workers.start, () => undefined);
@@ -328,5 +332,34 @@ describe("a message row's preparation", () => {
 
     expect(typesetterLoadFor(ownerWindow.document).isStarted).toBe(false);
     expect(workers.started).toHaveLength(0);
+  });
+});
+
+describe("a message row whose landed cut outlasts its slice", () => {
+  it("is not parsed until its turn has recorded every block", async () => {
+    endEverySliceAtOnce();
+    const tasks = new SteppedTasks();
+    const pictures = new DiagramPictures(CACHE_BYTE_CAP, new FakeDiagramWorkers().start, () => {
+      return undefined;
+    });
+    const sources = {
+      ...sourcesWith(pictures, undefined, () => "band"),
+      ownerWindow: tasks.window,
+    };
+    const preparation =
+      prepareTranscriptRow(
+        userMessageRow({ id: "message", sequence: 0, message: "One.\n\nTwo.\n\nThree." }),
+        sources,
+        () => undefined,
+      ) ?? expect.fail("a message row is prepared");
+
+    // The slice the cut lands in records its first block; the rest wait their turn, and so does the
+    // row, which the drawn band would otherwise mount before its body can draw.
+    expect(preparation.isParsed).toBe(false);
+    expect(preparation.isReady).toBe(false);
+    while (!preparation.isParsed) {
+      expect(await tasks.runNext()).toBe(true);
+    }
+    expect(preparation.isReady).toBe(true);
   });
 });

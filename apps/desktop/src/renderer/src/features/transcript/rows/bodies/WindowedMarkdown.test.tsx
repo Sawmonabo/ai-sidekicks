@@ -4,7 +4,7 @@
 // or could not start.
 
 import { act, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { appPageParser, PageParser } from "#renderer/components/Markdown/parse/page-parser.js";
 import { startPageParser } from "#renderer/components/Markdown/parse/page-parser.test-support.js";
@@ -18,6 +18,7 @@ import {
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "../markdown/block-window/markers.js";
 import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { type MarkdownBodyBlocks } from "../markdown/body-blocks/reader.js";
@@ -44,6 +45,10 @@ interface MountedWindow {
   /** Scrolls to `scrollTop`; `whileScrolling` reads the page right after the scroll event. */
   readonly scrollTo: (scrollTop: number, whileScrolling?: () => void) => void;
 }
+
+// A body here mounts outside a feed, which mounts one only once its landed cut is recorded; every
+// slice has time, so the cut is recorded in the task it lands in, on any machine.
+beforeEach(giveEverySliceTime);
 
 const teardowns: (() => void)[] = [];
 

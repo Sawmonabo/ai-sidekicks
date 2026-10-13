@@ -1,12 +1,13 @@
 import { act, render, screen, type RenderResult } from "@testing-library/react";
 import { useLayoutEffect, useRef } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { definitionPreambleOf } from "#renderer/components/Markdown/parse/definition-preamble.js";
 import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { appMarkdownWorkers } from "#test/helpers/markdown-worker.js";
 import { duplicateKeyReports, reportsWhileReactRan } from "#test/helpers/react-reports.js";
+import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { windowedBlockKeyOf } from "../markdown/block-window/layout.js";
@@ -28,6 +29,10 @@ const REPEATED_BLOCKS_SETTLED = "same\n\nsame\n\nc\n\nd\n\ne\n\nf";
 const REBASED_BLOCKS = "other\n\nwords\n\nx\n\ny\n\nz\n\nw";
 
 const PARAGRAPH_SELECTOR = ".meridian-markdown__paragraph";
+
+// A body here mounts outside a feed, which mounts one only once its landed cut is recorded; every
+// slice has time, so the cut is recorded in the task it lands in, on any machine.
+beforeEach(giveEverySliceTime);
 
 afterEach(() => {
   vi.restoreAllMocks();

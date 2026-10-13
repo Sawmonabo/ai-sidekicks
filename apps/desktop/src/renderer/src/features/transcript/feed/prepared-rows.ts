@@ -14,12 +14,12 @@
 // A command output is parsed only while its row is within the drawn band's reach, which the
 // viewport hands over each time it walks the band with the rows in view, and only while its call is
 // open. A row leaving the reach lets its parse go, and the viewport mounts a row coming into it
-// only once its output is parsed whole again and its drawn blocks are read, which a row outside the
-// reach goes on reading behind the rows within it. A row that has never been listed is within reach
-// as the listed row it joins after is; one outside is listed at once, unparsed. A folded call opens
-// once its output is parsed whole, so it draws formatted on the frame it opens. The feed is first
-// shown only once no held row would join the rows drawn, so a session opens with each row it shows
-// formatted where it stays.
+// only once its output is parsed whole again, its body's landed cut is recorded and its drawn
+// blocks are read, which a row outside the reach goes on doing behind the rows within it. A row
+// that has never been listed is within reach as the listed row it joins after is; one outside is
+// listed at once, unparsed. A folded call opens once its output is parsed whole, so it draws
+// formatted on the frame it opens. The feed is first shown only once no held row would join the
+// rows drawn, so a session opens with each row it shows formatted where it stays.
 
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 import { type OutputReach } from "../rows/ansi/preparation.js";
@@ -172,8 +172,9 @@ export class PreparedRowGate {
   };
 
   /**
-   * Whether a row's command output, if it draws one, is parsed whole and its drawn blocks are read,
-   * as the row would draw now: a row the viewport mounts only once it is.
+   * Whether a row's command output, if it draws one, is parsed whole, its body's landed cut is
+   * recorded and its drawn blocks are read, as the row would draw now: a row the viewport mounts
+   * only once it is.
    */
   public readonly isRowParsed = (rowKey: string): boolean => {
     const held = this.#preparations.get(rowKey);

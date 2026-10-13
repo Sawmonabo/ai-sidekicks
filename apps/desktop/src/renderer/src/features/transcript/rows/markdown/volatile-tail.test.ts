@@ -9,7 +9,7 @@ import type { Root } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseTree } from "#renderer/components/Markdown/parse/trees.test-support.js";
 import { definitionPreambleOf } from "#renderer/components/Markdown/parse/definition-preamble.js";
@@ -21,6 +21,7 @@ import {
   MarkdownWorkerConnection,
 } from "#renderer/components/Markdown/worker/connection.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
+import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 import { mendVolatileTail, VolatileTailParser, type VolatileTailView } from "./volatile-tail.js";
 
 /** A tail parser on its own trees, and the stand-in workers those trees parse with. */
@@ -132,6 +133,10 @@ const TAIL_CASES = TRICKY_TAILS.flatMap((tail) =>
     },
   ].map((definitions) => ({ ...definitions, tail, opening: tail.slice(0, 24) })),
 );
+
+// Every slice has time, so the trees the stand-in workers answer with are handed over in the task
+// they land in, and a tail reads its tree right after it is asked, on any machine.
+beforeEach(giveEverySliceTime);
 
 describe("a streaming tail parsed frame after frame", () => {
   it.each(TAIL_CASES)(

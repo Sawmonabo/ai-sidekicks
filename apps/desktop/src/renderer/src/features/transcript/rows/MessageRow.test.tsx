@@ -18,6 +18,7 @@ import type { ClipboardContent } from "#shared/preload-api.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { TEXT_PIECE_LENGTH } from "#renderer/lib/text/pieces.js";
+import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { MessageRow } from "./MessageRow.js";
 import { PreparedBodiesContext } from "./prepared-bodies.js";
@@ -222,6 +223,8 @@ describe("a message's Copy", () => {
   });
 
   it("gives each code block in a reply its own Copy, which copies that block alone", async () => {
+    // Every slice has time, so the reply's landed cut is recorded before it mounts.
+    giveEverySliceTime();
     const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const copied: ClipboardContent[] = [];
     vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
