@@ -14,11 +14,11 @@ use crate::session::controls::methods::SessionAddressedRequest;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
-use crate::wire::percent::Percent;
-use crate::wire::text::{ComposedText, Text};
+use crate::wire::number::Percent;
+use crate::wire::text::{BoundedText, ComposedText};
 
 /// A path the daemon composed, held to the longest path the wire carries.
-type ComposedPath = Text<1, FILE_PATH_MAX_LEN>;
+type ComposedPath = BoundedText<1, FILE_PATH_MAX_LEN>;
 
 /// Where the session compacts and the slider's range. The top stop is the provider's own compaction
 /// point on this window; the bottom stop is the session's fixed start plus a tenth of the window,

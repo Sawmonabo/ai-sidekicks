@@ -5,15 +5,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::color::HexColor;
-use crate::jsonrpc::framing::MAX_ATTACHMENT_BYTES;
+use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::preview::page::{PreviewAddress, PreviewPageId};
 use crate::session::id::SessionId;
 use crate::wire::True;
 use crate::wire::attachment::Bytes;
-use crate::wire::bounded_text::BoundedText;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
 use crate::wire::number::{NonNegativeNumber, Number};
+use crate::wire::text::BoundedText;
 
 /// The longest note a comment or a box carries.
 pub const PREVIEW_MARK_NOTE_MAX_LEN: usize = 4096;
@@ -145,7 +145,7 @@ pub struct PreviewMarksPicture {
     /// The image's media type.
     pub media_type: PreviewPictureMediaType,
     /// The image.
-    pub data: Bytes<1, MAX_ATTACHMENT_BYTES>,
+    pub data: Bytes<1, MAX_ONE_ATTACHMENT_BYTES>,
     /// Its width in pixels.
     pub width: SafeInt<1>,
     /// Its height in pixels.

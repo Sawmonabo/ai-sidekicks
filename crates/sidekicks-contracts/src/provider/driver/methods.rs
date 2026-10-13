@@ -6,7 +6,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::internal::branded::ClientUuid;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::driver::capabilities::{DriverCapabilities, ProviderMode, ProviderModel};
@@ -19,6 +18,7 @@ use crate::provider::name::ProviderName;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::id::ClientUuid;
 use crate::wire::text::FreeFormText;
 
 ts_constants! {

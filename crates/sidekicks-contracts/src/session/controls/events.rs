@@ -48,8 +48,9 @@ pub struct RunStepLimitReachedPayload {
     pub count: SafeInt<1>,
 }
 
-/// The `session.spend_limit_reached` payload: the session's spend passed its `Spend limit`, so every
-/// running turn in it stopped. `spend_limit_usd_micros` is the limit, drawn beside `Raise limit`.
+/// The `session.spend_limit_reached` payload: the session's spend passed its `Spend limit`, so
+/// every running turn in it stopped. `spend_limit_usd_micros` is the limit, drawn beside `Raise
+/// limit`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionSpendLimitReachedPayload {

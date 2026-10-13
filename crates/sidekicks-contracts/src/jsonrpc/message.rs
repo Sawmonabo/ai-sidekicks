@@ -12,6 +12,7 @@ use serde_json::value::RawValue;
 use crate::jsonrpc::error_code::JsonRpcErrorCode;
 use crate::jsonrpc::negotiation::DAEMON_HELLO_METHOD;
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::schema::doc_description;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire;
 use crate::wire::integer::{BoundedInt, MAX_SAFE_INTEGER};
@@ -317,8 +318,8 @@ struct OutgoingEnvelope<'a> {
     protocol_version: Option<&'a str>,
 }
 
-/// Declares the JSON Schema of each kind of message, for TypeScript's types; each type stands in
-/// for its kind and is never a value.
+/// Declares the JSON Schema of each kind of message, for TypeScript's types; each type is only
+/// its kind's schema and is never a value.
 macro_rules! message_kind_schemas {
     ($(
         $(#[doc = $doc:literal])+
@@ -336,7 +337,7 @@ macro_rules! message_kind_schemas {
                 let mut schema = json_schema!($schema);
                 schema.insert(
                     "description".into(),
-                    wire::text::doc_description(concat!($($doc, "\n"),+)).into(),
+                    doc_description(concat!($($doc, "\n"),+)).into(),
                 );
                 schema
             }

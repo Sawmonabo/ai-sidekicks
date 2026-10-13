@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::artifacts::id::ArtifactId;
 use crate::artifacts::ingest::ARTIFACT_CHUNK_MAX_BYTES;
 use crate::artifacts::manifest::ArtifactManifest;
-use crate::jsonrpc::framing::MAX_ATTACHMENT_BYTES;
+use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -212,7 +212,7 @@ artifact_read_arm! {
         #[schemars(with = "String")]
         pub payload_handle: Option<String>,
         /// The bytes.
-        pub payload: Bytes<0, MAX_ATTACHMENT_BYTES>,
+        pub payload: Bytes<0, MAX_ONE_ATTACHMENT_BYTES>,
     }
 }
 

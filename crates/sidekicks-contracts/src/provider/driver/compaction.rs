@@ -1,4 +1,4 @@
-//! The result of a provider's compaction, which the daemon composes from the wait's own end.
+//! The result of a provider's compaction, composed by the daemon from the wait's own end.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -60,7 +60,7 @@ pub enum DriverCompactionResult {
 /// The TypeScript module of a compaction's result.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/driver/compaction",
-    doc: "The result of a provider's compaction, which the daemon composes from the wait's own end.",
+    doc: "The result of a provider's compaction, composed by the daemon from the wait's own end.",
     definitions: &[Definition::read::<DriverCompactionResult>().checked()],
     constants: &[],
     method_tables: &[],

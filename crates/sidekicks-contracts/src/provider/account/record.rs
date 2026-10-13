@@ -11,11 +11,10 @@ use serde_json::Value;
 
 use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::bounded_text::branded_text;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::number::NonNegativeNumber;
-use crate::wire::text::{FreeFormText, is_ecmascript_whitespace};
+use crate::wire::text::{FreeFormText, branded_text, is_ecmascript_whitespace};
 
 pub mod readiness;
 
@@ -158,7 +157,7 @@ pub enum ProviderAccountUsageWindowSource {
 branded_text! {
     /// The daemon-minted opaque id of one account, not a UUID and never derived from a
     /// credential, an email or a path, since those rotate and the id keys historical spend.
-    ProviderAccountId, 1, PROVIDER_ACCOUNT_ID_MAX_LEN
+    pub struct ProviderAccountId(1..=PROVIDER_ACCOUNT_ID_MAX_LEN);
 }
 
 /// A counter that starts at [`CREDENTIAL_GENERATION_MIN`] and rises at each credential-home

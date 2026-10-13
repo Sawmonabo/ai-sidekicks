@@ -15,12 +15,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FILE_PATH_MAX_LEN;
-use crate::internal::branded::{ClientUuid, branded_uuid_id};
+use crate::internal::branded::branded_uuid_id;
 use crate::method::methods;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::record::JsonRecord;
 use crate::wire::text::{BoundedText, FreeFormText};

@@ -11,10 +11,11 @@ use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::session::methods::{SearchMatchRange, require_match_ranges_in_order_within};
 use crate::transcript::limits::{TRANSCRIPT_READ_LIMIT_MAX, TRANSCRIPT_SEARCH_TEXT_MAX_LEN};
-use crate::transcript::operations::{BoolLiteral, TranscriptReadLimit};
+use crate::transcript::operations::TranscriptReadLimit;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::BoolLiteral;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{FreeFormText, Text};
+use crate::wire::text::{BoundedText, FreeFormText};
 
 /// Searches one session. Hits come newest first; `beforeCursor` continues from the previous page's
 /// `nextCursor`.
@@ -55,7 +56,7 @@ pub struct TranscriptSearchHit {
     /// The row's position, which a `transcript.read` around it loads from.
     pub cursor: EventCursor,
     /// The line the match sits in.
-    pub snippet: Text<1, TRANSCRIPT_SEARCH_TEXT_MAX_LEN>,
+    pub snippet: BoundedText<1, TRANSCRIPT_SEARCH_TEXT_MAX_LEN>,
     /// The matched stretches to mark.
     #[garde(length(min = 1), dive)]
     #[garde(custom(|match_ranges: &Vec<SearchMatchRange>, (): &()| {

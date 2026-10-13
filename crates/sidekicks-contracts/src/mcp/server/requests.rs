@@ -5,7 +5,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::internal::branded::ClientUuid;
 use crate::mcp::server::config::{
     MCP_REQUEST_TEXT_MAX_LEN, McpRequestText, McpServerAddress, McpServerConfigInput,
     is_request_address,
@@ -17,10 +16,10 @@ use crate::mcp::server::inventory::{
 use crate::mcp::server::{McpApplicationGrade, McpToolName, binding_addressed};
 use crate::provider::driver::length_limits::DRIVER_BINDING_ID_MAX_LEN;
 use crate::session::id::SessionId;
-use crate::wire::bounded_text::BoundedText;
+use crate::web_address::WebAddress;
+use crate::wire::id::ClientUuid;
 use crate::wire::literal;
-use crate::wire::text::FreeFormText;
-use crate::wire::web_address::WebAddress;
+use crate::wire::text::{BoundedText, FreeFormText};
 
 /// Text with at least one character and no other rule, as the registry and the daemon fill it.
 pub type McpNonEmptyText = BoundedText<1, { usize::MAX }>;

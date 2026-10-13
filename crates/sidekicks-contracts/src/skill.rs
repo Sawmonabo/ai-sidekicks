@@ -13,9 +13,10 @@ use crate::agent::definition::{
     add_project_scope_rule, plugin_name_matches_origin, project_matches_scope,
 };
 use crate::free_form_string::FILE_PATH_MAX_LEN;
-use crate::internal::branded::{UuidTextForm, branded_uuid_id};
+use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
+use crate::project::ProjectId;
 use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
 use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -147,8 +148,8 @@ pub struct SkillListEntry {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "UuidTextForm")]
-    pub project_id: Option<UuidTextForm>,
+    #[schemars(with = "ProjectId")]
+    pub project_id: Option<ProjectId>,
     /// The folder, or for an orphaned record the last path it was known at.
     pub folder_path: SkillFolderPath,
     /// Every file in the folder; empty for an orphaned record.
@@ -308,8 +309,8 @@ pub struct SkillCreateRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "UuidTextForm")]
-    pub project_id: Option<UuidTextForm>,
+    #[schemars(with = "ProjectId")]
+    pub project_id: Option<ProjectId>,
 }
 
 /// `skill.update`: the folder saved whole, applied together or not at all, and the same result
@@ -371,8 +372,8 @@ pub struct SkillCallFormReadRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "UuidTextForm")]
-    pub project_id: Option<UuidTextForm>,
+    #[schemars(with = "ProjectId")]
+    pub project_id: Option<ProjectId>,
     /// The folder being edited.
     #[serde(
         default,

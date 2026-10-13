@@ -13,7 +13,7 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::attachment::Bytes;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{NonEmptyText, Text};
+use crate::wire::text::{BoundedText, NonEmptyText};
 
 ts_constants! {
     /// The most bytes one artifact chunk carries, either way: a chunk a caller streams in, and a
@@ -39,7 +39,7 @@ pub struct AttachmentIngestInitRequest {
     #[schemars(with = "RunId")]
     pub run_id: Option<RunId>,
     /// The file's name.
-    pub file_name: Text<1, FILE_PATH_MAX_LEN>,
+    pub file_name: BoundedText<1, FILE_PATH_MAX_LEN>,
     /// The caller's guess at the media type; never sent empty.
     #[serde(
         default,
@@ -105,7 +105,7 @@ pub struct AttachmentIngestCompleteResponse {
     /// The payload's SHA-256, the manifest's `digest`.
     pub content_hash: NonEmptyText,
     /// The file's name as stored.
-    pub normalized_name: Text<1, FILE_PATH_MAX_LEN>,
+    pub normalized_name: BoundedText<1, FILE_PATH_MAX_LEN>,
     /// The media type read from the bytes.
     pub derived_media_type: NonEmptyText,
     /// The size measured from the bytes.

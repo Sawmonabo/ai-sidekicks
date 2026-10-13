@@ -14,13 +14,13 @@ use crate::artifacts::attachment_reference::AttachmentReferenceList;
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::internal::branded::branded_text_id;
 use crate::method::methods;
-use crate::session::draft::ClientUuid;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{FreeFormText, NonEmptyText, Text};
+use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText};
 
 /// The longest snapshot id the daemon accepts, in code points.
 pub const SNAPSHOT_ID_MAX_LEN: usize = 256;
@@ -34,7 +34,7 @@ branded_text_id! {
 }
 
 /// A path an undo names, held to the longest path the wire carries.
-type RestorePath = Text<1, FILE_PATH_MAX_LEN>;
+type RestorePath = BoundedText<1, FILE_PATH_MAX_LEN>;
 
 /// Asks for a session's snapshots. A chat session has none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -8,10 +8,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::event::envelope::{
-    EventCategory, SOURCE_EPOCH_PAYLOAD_KEY, SOURCE_POSITION_PAYLOAD_KEY,
+    EventCategory, SOURCE_EPOCH_PAYLOAD_KEY, SOURCE_POSITION_PAYLOAD_KEY, SourceEpoch,
+    SourcePosition,
 };
 use crate::event::registry::{
-    INTERACTIVE_REQUEST_EVENT_TYPES, RUN_LIFECYCLE_EVENT_TYPES, TOOL_ACTIVITY_EVENT_TYPES,
+    INTERACTIVE_REQUEST_EVENT_TYPES, RUN_LIFECYCLE_EVENT_TYPES, SessionEventType,
+    TOOL_ACTIVITY_EVENT_TYPES,
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::free_form_string::FILE_PATH_MAX_LEN;
@@ -40,32 +42,34 @@ ts_constants! {
 /// The `interactive_request` types whose payload does not always name a run: queue events, a
 /// person's message (accepted before any run exists) and a question a workflow step asks. The
 /// rest of the category is run-scoped, so a newly added type defaults to run-scoped.
-const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: [&str; 7] = [
-    "queue_item.created",
-    "queue_item.admitted",
-    "queue_item.superseded",
-    "queue_item.canceled",
-    "queue_item.not_delivered",
-    "user.message",
-    "question.asked",
+const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: [SessionEventType; 7] = [
+    SessionEventType::QueueItemCreated,
+    SessionEventType::QueueItemAdmitted,
+    SessionEventType::QueueItemSuperseded,
+    SessionEventType::QueueItemCanceled,
+    SessionEventType::QueueItemNotDelivered,
+    SessionEventType::UserMessage,
+    SessionEventType::QuestionAsked,
 ];
 
 /// The `usage_telemetry` types whose payload requires `runId`, listed positively because the
 /// category's shared shape leaves it optional: a session-scoped budget warning is a real row.
-const USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN: [&str; 2] =
-    ["usage.context_compacted", "usage.model_rerouted"];
+const USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN: [SessionEventType; 2] = [
+    SessionEventType::UsageContextCompacted,
+    SessionEventType::UsageModelRerouted,
+];
 
 /// The `approval_flow` types whose payload requires `runId`: an ask, its answer and its end belong
 /// to the run that raised it. `approval.rule_revoked` is decided per row by its payload.
-const APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN: [&str; 8] = [
-    "approval.requested",
-    "approval.approved",
-    "approval.rejected",
-    "approval.canceled",
-    "approval.remembered",
-    "approval.reviewer_denied",
-    "moderation.review_flagged",
-    "plan.proposed",
+const APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN: [SessionEventType; 8] = [
+    SessionEventType::ApprovalRequested,
+    SessionEventType::ApprovalApproved,
+    SessionEventType::ApprovalRejected,
+    SessionEventType::ApprovalCanceled,
+    SessionEventType::ApprovalRemembered,
+    SessionEventType::ApprovalReviewerDenied,
+    SessionEventType::ModerationReviewFlagged,
+    SessionEventType::PlanProposed,
 ];
 
 /// Every event type whose payload always names a run, built from the run-scoped categories so a
@@ -80,7 +84,7 @@ pub fn transcript_run_scoped_event_types() -> Vec<&'static str> {
         }))
         .chain(&USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN)
         .chain(&APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN)
-        .copied()
+        .map(|event_type| event_type.as_str())
         .collect()
 }
 
@@ -91,7 +95,7 @@ pub fn transcript_run_scoped_event_types() -> Vec<&'static str> {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SupersededMarker {
     /// The rewind cutoff.
-    pub target_position: SafeInt<0>,
+    pub target_position: SourcePosition,
 }
 
 /// One file whose patch a tool call's row left out, and the patch's size in bytes;
@@ -126,15 +130,15 @@ pub enum RollbackBoundaryType {
 /// Refuses a marker that does not supersede its row: the row's position must exceed the marker's
 /// cutoff. Epoch is not compared; this ordering is the whole in-row rule.
 fn require_marker_to_outrank_row(
-    position: SafeInt<0>,
+    position: SourcePosition,
     superseded: Option<&SupersededMarker>,
 ) -> garde::Result {
     match superseded {
         Some(marker) if position <= marker.target_position => Err(garde::Error::new(format!(
             "a superseded row ranks above the rewind cutoff: position {} does not exceed \
              targetPosition {}",
-            position.get(),
-            marker.target_position.get()
+            position.0.get(),
+            marker.target_position.0.get()
         ))),
         _ => Ok(()),
     }
@@ -278,13 +282,13 @@ transcript_row_arm! {
         /// The run the row belongs to.
         pub run_id: RunId,
         /// The row's originating turn position; above any superseded marker's cutoff.
-        #[garde(custom(|position: &SafeInt<0>, (): &()| {
+        #[garde(custom(|position: &SourcePosition, (): &()| {
             require_marker_to_outrank_row(*position, self.superseded.as_ref())
         }))]
         #[schemars(extend("exclusiveMinimum" = { "$data": "1/superseded/targetPosition" }))]
-        pub position: SafeInt<0>,
+        pub position: SourcePosition,
         /// The row's execution epoch.
-        pub epoch: SafeInt<0>,
+        pub epoch: SourceEpoch,
         /// Present exactly when the row's turn is superseded.
         #[serde(
             default,
@@ -332,8 +336,8 @@ impl RunScopedTranscriptEntry {
             }
         }
         for (payload_key, outer) in [
-            (SOURCE_EPOCH_PAYLOAD_KEY, self.epoch),
-            (SOURCE_POSITION_PAYLOAD_KEY, self.position),
+            (SOURCE_EPOCH_PAYLOAD_KEY, self.epoch.0),
+            (SOURCE_POSITION_PAYLOAD_KEY, self.position.0),
         ] {
             if let Some(echoed) = payload.get(payload_key)
                 && !is_same_number(echoed, outer)
@@ -364,13 +368,13 @@ transcript_row_arm! {
         /// The run the rollback rewound.
         pub run_id: RunId,
         /// The boundary row's own originating position, the confirmed rewind floor.
-        #[garde(custom(|position: &SafeInt<0>, (): &()| {
+        #[garde(custom(|position: &SourcePosition, (): &()| {
             require_marker_to_outrank_row(*position, self.superseded.as_ref())
         }))]
         #[schemars(extend("exclusiveMinimum" = { "$data": "1/superseded/targetPosition" }))]
-        pub position: SafeInt<0>,
+        pub position: SourcePosition,
         /// The epoch the rollback rewound.
-        pub epoch: SafeInt<0>,
+        pub epoch: SourceEpoch,
         /// Present when a later, lower rollback superseded the boundary row itself.
         #[serde(
             default,
@@ -401,7 +405,7 @@ impl TranscriptRollbackBoundary {
         if payload.session_id != self.session_id {
             return Err(garde::Error::new("sessionId must equal payload.sessionId"));
         }
-        if payload.target_position != self.position {
+        if payload.target_position != self.position.0 {
             return Err(garde::Error::new(
                 "position must equal payload.targetPosition",
             ));
@@ -454,13 +458,13 @@ impl TranscriptReadRow {
 #[garde(allow_unvalidated)]
 pub struct TranscriptRunStamp {
     /// The turn position.
-    #[garde(custom(|position: &SafeInt<0>, (): &()| {
+    #[garde(custom(|position: &SourcePosition, (): &()| {
         require_marker_to_outrank_row(*position, self.superseded.as_ref())
     }))]
     #[schemars(extend("exclusiveMinimum" = { "$data": "1/superseded/targetPosition" }))]
-    pub position: SafeInt<0>,
+    pub position: SourcePosition,
     /// The execution epoch.
-    pub epoch: SafeInt<0>,
+    pub epoch: SourceEpoch,
     /// Present when the turn was rolled back.
     #[serde(
         default,

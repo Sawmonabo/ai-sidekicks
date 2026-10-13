@@ -13,10 +13,10 @@ use crate::provider::account::record::{
 };
 use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::web_address::HttpsAddress;
 use crate::wire::Never;
 use crate::wire::instant::WireInstant;
 use crate::wire::text::FreeFormText;
-use crate::wire::web_address::HttpsAddress;
 
 ts_constants! {
     /// The longest provider verification address, carried verbatim.

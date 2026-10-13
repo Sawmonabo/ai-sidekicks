@@ -26,7 +26,7 @@ use crate::provider::name::ProviderName;
 use crate::repo::mount::ExecutionMode;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
-use crate::wire::integer::BoundedInt;
+use crate::wire::integer::Port;
 use crate::wire::text::{BoundedText, FreeFormText, NulFreeText, pattern_text};
 use crate::wire::{NullableSchema, nullable};
 
@@ -254,8 +254,8 @@ pub struct EmailDigestSettings {
     pub mail_server: Option<FreeFormText<MAIL_SERVER_MAX_LEN>>,
     /// The mail server's port.
     #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<BoundedInt<1, 65_535>>")]
-    pub port: Option<BoundedInt<1, 65_535>>,
+    #[schemars(with = "NullableSchema<Port>")]
+    pub port: Option<Port>,
     /// The user name the server signs in with.
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<FreeFormText<EMAIL_ADDRESS_MAX_LEN>>")]

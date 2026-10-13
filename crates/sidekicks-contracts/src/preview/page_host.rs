@@ -13,11 +13,11 @@ use crate::method::methods;
 use crate::preview::page::{PreviewAddress, PreviewPageId};
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::True;
-use crate::wire::bounded_text::BoundedText;
 use crate::wire::integer::{BoundedInt, MAX_SAFE_INTEGER, SafeInt};
 use crate::wire::list::BoundedVec;
 use crate::wire::number::Number;
 use crate::wire::record::JsonRecord;
+use crate::wire::text::BoundedText;
 
 /// A whole number JavaScript holds exactly, of either sign: a debug-protocol id or error code.
 pub type PreviewDebuggerInteger =

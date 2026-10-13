@@ -27,7 +27,8 @@ const DNS_NAME_MAX_LEN: usize = 253;
 
 /// A challenge record's name: `_acme-challenge.` and then a lower-case domain of two labels or
 /// more. Rust's `regex` and ECMAScript read it alike.
-const CHALLENGE_NAME_PATTERN: &str = "^_acme-challenge\\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+\
+const CHALLENGE_NAME_PATTERN: &str = "^_acme-challenge\\.\
+                                      (?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+\
                                       [a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$";
 
 /// A challenge record's value: the 43 base64url characters of a SHA-256 digest.

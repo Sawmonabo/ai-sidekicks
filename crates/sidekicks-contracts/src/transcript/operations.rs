@@ -4,11 +4,10 @@
 //! which a client needs to open the live stream from exactly there. The reasoning read names no
 //! principal: the caller is the authenticated connection.
 
-use std::borrow::Cow;
 use std::collections::HashSet;
 
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::jsonrpc::byte_length::json_utf8_byte_length;
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
@@ -21,46 +20,10 @@ use crate::transcript::limits::TRANSCRIPT_READ_LIMIT_MAX;
 use crate::transcript::row::TranscriptReadRow;
 use crate::transcript::run_facts::TranscriptRunFacts;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::BoolLiteral;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt};
 use crate::wire::text::FreeFormText;
-
-/// A member whose one value is the boolean `VALUE`: a page's `hasMore`, or a mark that is `true`
-/// when present.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct BoolLiteral<const VALUE: bool>;
-
-impl<const VALUE: bool> Serialize for BoolLiteral<VALUE> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_bool(VALUE)
-    }
-}
-
-impl<'de, const VALUE: bool> Deserialize<'de> for BoolLiteral<VALUE> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        if bool::deserialize(deserializer)? == VALUE {
-            Ok(Self)
-        } else {
-            Err(serde::de::Error::custom(format!(
-                "this member is always `{VALUE}`"
-            )))
-        }
-    }
-}
-
-impl<const VALUE: bool> JsonSchema for BoolLiteral<VALUE> {
-    fn inline_schema() -> bool {
-        true
-    }
-
-    fn schema_name() -> Cow<'static, str> {
-        format!("BoolLiteral{VALUE}").into()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({ "type": "boolean", "const": VALUE })
-    }
-}
 
 /// Refuses entries that go backwards in sequence: a page runs oldest to newest, nondecreasing.
 fn require_nondecreasing_sequence<T>(

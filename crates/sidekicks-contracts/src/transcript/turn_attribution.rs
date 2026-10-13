@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::event::envelope::{
-    EventCategory, SOURCE_EPOCH_PAYLOAD_KEY, SOURCE_POSITION_PAYLOAD_KEY,
+    EventCategory, SOURCE_EPOCH_PAYLOAD_KEY, SOURCE_POSITION_PAYLOAD_KEY, SourceEpoch,
+    SourcePosition,
 };
 use crate::run::id::RunId;
 use crate::transcript::row::{SupersededMarker, TranscriptRunStamp};
@@ -27,9 +28,9 @@ pub const TOOL_CALL_OPENING_EVENT_TYPE: &str = "tool.invoked";
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpochPosition {
     /// The execution epoch: `0` before any rollback.
-    pub epoch: SafeInt<0>,
+    pub epoch: SourceEpoch,
     /// The turn position within the epoch.
-    pub position: SafeInt<0>,
+    pub position: SourcePosition,
 }
 
 /// The first epoch, and the position before a run's first turn.
@@ -37,8 +38,8 @@ const ZERO: SafeInt<0> = SafeInt::new(0).expect("0 lies in the range");
 
 /// Where every run starts: the first epoch, before its first turn.
 pub const RUN_START_POSITION: EpochPosition = EpochPosition {
-    epoch: ZERO,
-    position: ZERO,
+    epoch: SourceEpoch(ZERO),
+    position: SourcePosition(ZERO),
 };
 
 /// One epoch's cut: the point its turns above are superseded from.
@@ -46,9 +47,9 @@ pub const RUN_START_POSITION: EpochPosition = EpochPosition {
 #[serde(rename_all = "camelCase")]
 pub struct SupersedingCut {
     /// The epoch the rollback rewound.
-    pub source_epoch: SafeInt<0>,
+    pub source_epoch: SourceEpoch,
     /// The point its turns above are superseded from.
-    pub point: SafeInt<0>,
+    pub point: SourcePosition,
 }
 
 /// A run's superseded turns: one cut per epoch an accepted rollback rewound, oldest first. The
@@ -64,8 +65,8 @@ pub struct SupersededTurns {
 
 /// Adds the run's next accepted rollback, which rewound epoch `turns.cuts.len()` to `point`. An
 /// earlier epoch's point drops to it when it lies lower.
-pub fn add_superseding_cut(turns: &SupersededTurns, point: SafeInt<0>) -> SupersededTurns {
-    let next_epoch = SafeInt::new(turns.cuts.len() as u64).unwrap_or(ZERO);
+pub fn add_superseding_cut(turns: &SupersededTurns, point: SourcePosition) -> SupersededTurns {
+    let next_epoch = SourceEpoch(SafeInt::new(turns.cuts.len() as u64).unwrap_or(ZERO));
     let mut cuts: Vec<SupersedingCut> = turns
         .cuts
         .iter()
@@ -90,7 +91,7 @@ pub fn transcript_run_stamp_at(
     turns: &SupersededTurns,
     source: EpochPosition,
 ) -> TranscriptRunStamp {
-    let superseded = usize::try_from(source.epoch.get())
+    let superseded = usize::try_from(source.epoch.0.get())
         .ok()
         .and_then(|epoch| turns.cuts.get(epoch))
         .filter(|cut| source.position > cut.point)
@@ -111,8 +112,8 @@ pub fn standing_after_turn_started(
 ) -> EpochPosition {
     let supplied = payload.get("position").and_then(whole_number_of);
     let position = supplied
-        .or_else(|| SafeInt::new(standing.position.get() + 1))
-        .unwrap_or(standing.position);
+        .or_else(|| SafeInt::new(standing.position.0.get() + 1))
+        .map_or(standing.position, SourcePosition);
     EpochPosition {
         epoch: standing.epoch,
         position,
@@ -122,10 +123,10 @@ pub fn standing_after_turn_started(
 /// Where an accepted rollback to `target_position` moves its run: the next epoch, at that turn.
 pub fn standing_after_rollback(
     standing: EpochPosition,
-    target_position: SafeInt<0>,
+    target_position: SourcePosition,
 ) -> EpochPosition {
     EpochPosition {
-        epoch: SafeInt::new(standing.epoch.get() + 1).unwrap_or(standing.epoch),
+        epoch: SafeInt::new(standing.epoch.0.get() + 1).map_or(standing.epoch, SourceEpoch),
         position: target_position,
     }
 }
@@ -134,12 +135,16 @@ pub fn standing_after_rollback(
 /// in time, which carries neither.
 pub fn stamped_source_of(payload: &Map<String, Value>) -> Option<EpochPosition> {
     Some(EpochPosition {
-        epoch: payload
-            .get(SOURCE_EPOCH_PAYLOAD_KEY)
-            .and_then(whole_number_of)?,
-        position: payload
-            .get(SOURCE_POSITION_PAYLOAD_KEY)
-            .and_then(whole_number_of)?,
+        epoch: SourceEpoch(
+            payload
+                .get(SOURCE_EPOCH_PAYLOAD_KEY)
+                .and_then(whole_number_of)?,
+        ),
+        position: SourcePosition(
+            payload
+                .get(SOURCE_POSITION_PAYLOAD_KEY)
+                .and_then(whole_number_of)?,
+        ),
     })
 }
 
@@ -187,29 +192,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 
 #[cfg(test)]
 mod tests {
-    /// The cases, one per line.
-    const CASES: &str = r#"[
-{"step":"addSupersedingCut","note":"the first rollback cuts epoch 0","turns":{"runId":"0190f2a0-0000-7000-8000-000000000001","cuts":[]},"point":2,"expected":{"runId":"0190f2a0-0000-7000-8000-000000000001","cuts":[{"sourceEpoch":0,"point":2}]}},
-{"step":"addSupersedingCut","note":"a later cut below an earlier epoch's point lowers that point","turns":{"runId":"0190f2a0-0000-7000-8000-000000000001","cuts":[{"sourceEpoch":0,"point":4},{"sourceEpoch":1,"point":6}]},"point":3,"expected":{"runId":"0190f2a0-0000-7000-8000-000000000001","cuts":[{"sourceEpoch":0,"point":3},{"sourceEpoch":1,"point":3},{"sourceEpoch":2,"point":3}]}},
-{"step":"addSupersedingCut","note":"a later cut above an earlier epoch's point leaves it","turns":{"runId":"0190f2a0-0000-7000-8000-000000000001","cuts":[{"sourceEpoch":0,"point":1}]},"point":5,"expected":{"runId":"0190f2a0-0000-7000-8000-000000000001","cuts":[{"sourceEpoch":0,"point":1},{"sourceEpoch":1,"point":5}]}},
-{"step":"transcriptRunStampAt","note":"a turn above its epoch's cut is superseded","turns":{"runId":"0190f2a0-0000-7000-8000-000000000001","cuts":[{"sourceEpoch":0,"point":2}]},"source":{"epoch":0,"position":3},"expected":{"position":3,"epoch":0,"superseded":{"targetPosition":2}}},
-{"step":"transcriptRunStampAt","note":"a turn at its epoch's cut stands","turns":{"runId":"0190f2a0-0000-7000-8000-000000000001","cuts":[{"sourceEpoch":0,"point":2}]},"source":{"epoch":0,"position":2},"expected":{"position":2,"epoch":0}},
-{"step":"transcriptRunStampAt","note":"a turn of an epoch no rollback rewound stands","turns":{"runId":"0190f2a0-0000-7000-8000-000000000001","cuts":[{"sourceEpoch":0,"point":2}]},"source":{"epoch":1,"position":9},"expected":{"position":9,"epoch":1}},
-{"step":"standingAfterTurnStarted","note":"the provider's position wins","standing":{"epoch":1,"position":2},"payload":{"position":7},"expected":{"epoch":1,"position":7}},
-{"step":"standingAfterTurnStarted","note":"no position moves to the next","standing":{"epoch":1,"position":2},"payload":{},"expected":{"epoch":1,"position":3}},
-{"step":"standingAfterTurnStarted","note":"a negative position moves to the next","standing":{"epoch":0,"position":2},"payload":{"position":-1},"expected":{"epoch":0,"position":3}},
-{"step":"standingAfterTurnStarted","note":"a fractional position moves to the next","standing":{"epoch":0,"position":2},"payload":{"position":1.5},"expected":{"epoch":0,"position":3}},
-{"step":"standingAfterTurnStarted","note":"a text position moves to the next","standing":{"epoch":0,"position":2},"payload":{"position":"4"},"expected":{"epoch":0,"position":3}},
-{"step":"standingAfterRollback","note":"a rollback opens the next epoch at its point","standing":{"epoch":1,"position":6},"targetPosition":2,"expected":{"epoch":2,"position":2}},
-{"step":"stampedSourceOf","note":"a late row carries both stamps","payload":{"sourceEpoch":1,"sourcePosition":4,"text":"late"},"expected":{"epoch":1,"position":4}},
-{"step":"stampedSourceOf","note":"a row delivered in time carries neither","payload":{"text":"on time"},"expected":null},
-{"step":"stampedSourceOf","note":"one stamp alone is no source","payload":{"sourceEpoch":1},"expected":null},
-{"step":"transcriptToolCallIdOf","note":"a tool row belongs to its call","category":"tool_activity","payload":{"toolCallId":"call-1"},"expected":"call-1"},
-{"step":"transcriptToolCallIdOf","note":"a row of another category belongs to no call","category":"run_lifecycle","payload":{"toolCallId":"call-1"},"expected":null},
-{"step":"transcriptToolCallIdOf","note":"a tool row with no call id belongs to no call","category":"tool_activity","payload":{"toolCallId":7},"expected":null},
-{"step":"transcriptToolCallIdOf","note":"a row with no category belongs to no call","category":null,"payload":{"toolCallId":"call-1"},"expected":null}
-]"#;
-
     use serde::Deserialize;
     use serde_json::{Map, Value};
 
@@ -218,9 +200,11 @@ mod tests {
         standing_after_rollback, standing_after_turn_started, transcript_run_stamp_at,
         transcript_tool_call_id_of,
     };
-    use crate::event::envelope::EventCategory;
+    use crate::event::envelope::{EventCategory, SourcePosition};
     use crate::transcript::row::TranscriptRunStamp;
-    use crate::wire::integer::SafeInt;
+
+    /// The table the client's stamping suite reads too.
+    const CASES: &str = include_str!("../../tests/fixtures/transcript/turn-attribution.json");
 
     /// The step a case takes, as the cases write it.
     #[derive(Deserialize)]
@@ -233,7 +217,7 @@ mod tests {
         AddSupersedingCut {
             note: String,
             turns: SupersededTurns,
-            point: SafeInt<0>,
+            point: SourcePosition,
             expected: SupersededTurns,
         },
         TranscriptRunStampAt {
@@ -251,7 +235,7 @@ mod tests {
         StandingAfterRollback {
             note: String,
             standing: EpochPosition,
-            target_position: SafeInt<0>,
+            target_position: SourcePosition,
             expected: EpochPosition,
         },
         StampedSourceOf {

@@ -11,9 +11,8 @@ use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::bounded_text::branded_text;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{FreeFormText, branded_text};
 
 ts_constants! {
     /// The longest import id.
@@ -33,7 +32,7 @@ type ImportReason = FreeFormText<PROVIDER_IMPORT_REASON_MAX_LEN>;
 
 branded_text! {
     /// The daemon-minted id of one import, opaque to every client.
-    ProviderImportId, 1, PROVIDER_IMPORT_ID_MAX_LEN
+    pub struct ProviderImportId(1..=PROVIDER_IMPORT_ID_MAX_LEN);
 }
 
 /// A request naming the provider whose conversations are imported.

@@ -13,7 +13,7 @@ use crate::method_descriptor::EmptyPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{SafeInt, SafeSignedInt};
-use crate::wire::text::Text;
+use crate::wire::text::BoundedText;
 
 /// The longest each text of an app diagnostic record may be, in code points; a sender that cuts a
 /// text to the bound in UTF-16 code units stays within it.
@@ -117,7 +117,7 @@ pub enum AppErrorThrownKind {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AppErrorSource {
     /// The script's address, without its query or fragment.
-    pub address: Text<0, 2048>,
+    pub address: BoundedText<0, 2048>,
     /// The line.
     pub line: SafeInt<0>,
     /// The column.
@@ -138,14 +138,14 @@ pub struct AppErrorThrown {
     pub role: AppDiagnosticRole,
     /// The error's name, or `null` for a thrown value that is no error.
     #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<Text<0, 128>>")]
-    pub name: Option<Text<0, 128>>,
+    #[schemars(with = "crate::wire::NullableSchema<BoundedText<0, 128>>")]
+    pub name: Option<BoundedText<0, 128>>,
     /// Its message, with every quoted run taken out.
-    pub message: Text<0, 1024>,
+    pub message: BoundedText<0, 1024>,
     /// Its stack frames, one per line, or `null` where it has none.
     #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<Text<0, 8192>>")]
-    pub stack: Option<Text<0, 8192>>,
+    #[schemars(with = "crate::wire::NullableSchema<BoundedText<0, 8192>>")]
+    pub stack: Option<BoundedText<0, 8192>>,
     /// Where it was thrown, or `null` where that is not known.
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<AppErrorSource>")]
@@ -174,11 +174,11 @@ pub struct AppCapturedDiagnostic {
     /// How bad it is.
     pub severity: AppDiagnosticSeverity,
     /// The module that captured it.
-    pub source: Text<0, 128>,
+    pub source: BoundedText<0, 128>,
     /// What kind of line it is, in that module's own words.
-    pub captured_kind: Text<0, 128>,
+    pub captured_kind: BoundedText<0, 128>,
     /// What happened, with every quoted run taken out.
-    pub detail: Text<0, 1024>,
+    pub detail: BoundedText<0, 1024>,
 }
 
 /// The word `renderer-gone`.
@@ -201,7 +201,7 @@ pub struct AppRendererGone {
     #[garde(dive)]
     pub at: WireInstant,
     /// Why it went, in Electron's own word.
-    pub reason: Text<0, 64>,
+    pub reason: BoundedText<0, 64>,
     /// Its exit code.
     pub exit_code: SafeSignedInt,
 }

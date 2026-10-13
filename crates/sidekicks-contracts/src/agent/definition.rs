@@ -10,18 +10,19 @@ use std::collections::BTreeMap;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::free_form_string::FILE_PATH_MAX_LEN;
-use crate::internal::branded::{UuidText, branded_uuid_id};
+use crate::internal::branded::branded_uuid_id;
+use crate::project::ProjectId;
 use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
+use crate::schema::{push_all_of, required_member};
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::bounded_text::BoundedText;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
 use crate::wire::record::JsonRecord;
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{BoundedText, FreeFormText};
 
 pub mod binding;
 pub mod refusal;
@@ -210,7 +211,7 @@ pub enum AgentDefinitionOrigin {
 /// absent scope is global. Saved agents and skills share the rule.
 pub fn project_matches_scope(
     scope: Option<AgentDefinitionScope>,
-    project_id: Option<&UuidText>,
+    project_id: Option<&ProjectId>,
 ) -> garde::Result {
     if (scope == Some(AgentDefinitionScope::Project)) == project_id.is_some() {
         Ok(())
@@ -236,17 +237,6 @@ pub fn plugin_name_matches_origin<T>(
     }
 }
 
-/// Appends `rule` to `schema`'s `allOf`.
-pub(crate) fn push_all_of(schema: &mut Schema, rule: Value) {
-    let all_of = schema
-        .ensure_object()
-        .entry("allOf")
-        .or_insert_with(|| Value::Array(Vec::new()));
-    if let Value::Array(rules) = all_of {
-        rules.push(rule);
-    }
-}
-
 /// Appends to `schema`'s `allOf` the rule that `member` is present exactly when `discriminant`
 /// is `value`.
 pub(crate) fn add_present_exactly_when(
@@ -267,11 +257,6 @@ pub(crate) fn add_present_exactly_when(
             "else": { "not": required_member(member) },
         }),
     );
-}
-
-/// The schema of an object that holds `member`, defined in place for Ajv's strict mode.
-pub(crate) fn required_member(member: &str) -> Value {
-    json!({ "type": "object", "properties": { member: {} }, "required": [member] })
 }
 
 /// The schema twin of [`project_matches_scope`], for a schema's `transform`.
@@ -378,8 +363,8 @@ definition_record! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "UuidText")]
-        pub project_id: Option<UuidText>,
+        #[schemars(with = "ProjectId")]
+        pub project_id: Option<ProjectId>,
         /// The record's file, or for an orphaned record the last path it was known at; shown,
         /// never a capability.
         pub source_path: FreeFormText<FILE_PATH_MAX_LEN>,

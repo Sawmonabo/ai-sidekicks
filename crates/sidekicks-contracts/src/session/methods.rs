@@ -27,12 +27,12 @@ use crate::session::search::{
     SESSION_SEARCH_HIT_LINE_MAX_LEN, SESSION_SEARCH_PAGE_LIMIT_MAX, SESSION_SEARCH_QUERY_MAX_LEN,
 };
 use crate::tag::TagList;
-use crate::transcript::operations::BoolLiteral;
 use crate::transcript::row::TranscriptRunStamp;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::BoolLiteral;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt};
-use crate::wire::text::{FreeFormText, NulFreeText, Text};
+use crate::wire::text::{BoundedText, FreeFormText, NulFreeText};
 
 /// Where a session is in its lifecycle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -393,7 +393,7 @@ pub struct SessionSearchHit {
     /// The message's position.
     pub cursor: EventCursor,
     /// The line the match sits in.
-    pub line: Text<0, SESSION_SEARCH_HIT_LINE_MAX_LEN>,
+    pub line: BoundedText<0, SESSION_SEARCH_HIT_LINE_MAX_LEN>,
     /// The matched stretches.
     #[garde(length(min = 1), dive)]
     #[garde(custom(|match_ranges: &Vec<SearchMatchRange>, (): &()| {
@@ -498,14 +498,14 @@ pub struct SessionFileSearchRequest {
 #[garde(allow_unvalidated)]
 pub struct SessionFileSearchResponse {
     /// The paths, best first.
-    #[garde(custom(|paths: &Vec<Text<1, FILE_PATH_MAX_LEN>>, (): &()| {
+    #[garde(custom(|paths: &Vec<BoundedText<1, FILE_PATH_MAX_LEN>>, (): &()| {
         if u64::try_from(paths.len()).is_ok_and(|count| count <= self.searched_file_count.get()) {
             Ok(())
         } else {
             Err(garde::Error::new("a file search cannot match more files than it searched"))
         }
     }))]
-    pub paths: Vec<Text<1, FILE_PATH_MAX_LEN>>,
+    pub paths: Vec<BoundedText<1, FILE_PATH_MAX_LEN>>,
     /// How many files the query was matched against.
     pub searched_file_count: SafeInt<0>,
 }

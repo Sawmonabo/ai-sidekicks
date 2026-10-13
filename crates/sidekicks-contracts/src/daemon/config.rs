@@ -11,12 +11,12 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::schema::doc_description;
 use crate::session::cost::{TokensPerRun, UsdMicros};
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::id::doc_description;
 use crate::wire::instant::WireInstant;
-use crate::wire::integer::{BoundedInt, SafeInt};
-use crate::wire::text::Text;
+use crate::wire::integer::{Port, SafeInt};
+use crate::wire::text::BoundedText;
 
 /// Declares a whole number that takes one of a fixed list of steps, as its own definition.
 macro_rules! step_set {
@@ -79,7 +79,7 @@ step_set! {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DaemonConfig {
     /// The port a workflow started by a web request listens on.
-    pub workflow_listener_port: BoundedInt<1, 65_535>,
+    pub workflow_listener_port: Port,
     /// `Stop a run after`; `null` is `No limit`.
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<RunTimeLimitMinutes>")]
@@ -115,7 +115,7 @@ pub struct DaemonConfig {
     /// Whether this operating system lets the service enforce the memory cap.
     pub tool_memory_cap_enforceable: bool,
     /// The folder raw provider messages are written to.
-    pub provider_messages_path: Text<1, FILE_PATH_MAX_LEN>,
+    pub provider_messages_path: BoundedText<1, FILE_PATH_MAX_LEN>,
 }
 
 /// `daemon.configUpdate`: exactly one setting, as `{"<setting>": value}`; a nullable setting's
@@ -124,7 +124,7 @@ pub struct DaemonConfig {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum DaemonConfigUpdateRequest {
     /// The port a workflow started by a web request listens on.
-    WorkflowListenerPort(BoundedInt<1, 65_535>),
+    WorkflowListenerPort(Port),
     /// `Stop a run after`; `null` is `No limit`.
     RunTimeLimitMinutes(Option<RunTimeLimitMinutes>),
     /// `Ask me after one start leads to`; `null` is `Never ask`.

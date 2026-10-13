@@ -8,11 +8,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::web_address::HttpsAddress;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::record::Record;
 use crate::wire::text::{BoundedText, pattern_text};
-use crate::wire::url::HttpsUrl;
 
 ts_constants! {
     /// The longest release version accepted.
@@ -37,7 +37,7 @@ pattern_text! {
 #[serde(deny_unknown_fields)]
 pub struct ReleaseManifestArtifact {
     /// Where to fetch it.
-    pub url: HttpsUrl<RELEASE_MANIFEST_FIELD_MAX_LEN>,
+    pub url: HttpsAddress<RELEASE_MANIFEST_FIELD_MAX_LEN>,
     /// The SHA-256 of its bytes.
     pub sha256: Sha256Hex,
 }

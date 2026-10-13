@@ -13,12 +13,11 @@ use super::{
     AgentMemoryScope, ToolName, add_project_scope_rule, project_matches_scope,
 };
 use crate::free_form_string::FILE_PATH_MAX_LEN;
-use crate::internal::branded::UuidText;
+use crate::project::ProjectId;
 use crate::wire::True;
-use crate::wire::bounded_text::BoundedText;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{BoundedText, FreeFormText};
 
 /// The request of `agent.definitionList` and `agent.definitionSubscribe`, which take no members.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -181,8 +180,8 @@ definition_write! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "UuidText")]
-        pub project_id: Option<UuidText>,
+        #[schemars(with = "ProjectId")]
+        pub project_id: Option<ProjectId>,
     }
 }
 

@@ -17,12 +17,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::color::HexColor;
 use crate::command::ExitCode;
-use crate::internal::branded::ClientUuid;
 use crate::jsonrpc::streaming::{STREAM_FRAME_MAX_CHANGES, SubscribeAckResponse, SubscriptionId};
 use crate::method::methods;
 use crate::method_descriptor::NullPayload;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::id::ClientUuid;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::{BoundedVec, unique_by};
 use crate::wire::text::{BoundedText, branded_text};

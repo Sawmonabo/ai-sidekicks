@@ -4,11 +4,11 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::internal::branded::ClientUuid;
 use crate::provider::driver::length_limits::DRIVER_FALLBACK_ACTION_MAX_LEN;
 use crate::provider::driver::methods::DRIVER_WIRE_REASON_MAX_LEN;
 use crate::run::id::RunId;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::id::ClientUuid;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
 

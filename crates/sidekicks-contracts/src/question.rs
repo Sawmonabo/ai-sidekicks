@@ -11,12 +11,13 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::internal::branded::{UuidTextForm, branded_uuid_id};
+use crate::internal::branded::branded_uuid_id;
 use crate::method::methods;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::Never;
+use crate::wire::id::UuidTextForm;
 use crate::wire::list::BoundedVec;
 use crate::wire::text::BoundedText;
 

@@ -294,16 +294,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 
 #[cfg(test)]
 mod tests {
-    /// The cases, one per line.
-    const CASES: &str = r#"[
-{"note":"no events leave the facts unfolded","beats":[],"facts":{"isRewound":false,"foldedThroughSequence":-1},"state":null,"headerState":null,"isEnded":false},
-{"note":"the creation names the account, the first actor wins, the newest state stands","beats":[{"type":"run.queued","sequence":1,"actor":null,"payload":{"admittedProviderAccountId":"acct-1"}},{"type":"run.running","sequence":2,"actor":"agent-a","payload":{"newState":"running"}},{"type":"assistant.message","sequence":3,"actor":"agent-b","payload":{}},{"type":"run.completed","sequence":4,"actor":null,"payload":{"newState":"completed"}}],"facts":{"actor":"agent-a","admittedProviderAccountId":"acct-1","stateEventType":"run.completed","isRewound":false,"foldedThroughSequence":4},"state":"completed","headerState":"run.completed","isEnded":true},
-{"note":"a rewind hides the header word and the end, and the next state ends the rewind","beats":[{"type":"run.completed","sequence":5,"actor":null,"payload":{"newState":"completed"}},{"type":"run.rolled_back","sequence":6,"actor":null,"payload":{}}],"facts":{"stateEventType":"run.completed","isRewound":true,"foldedThroughSequence":6},"state":"completed","headerState":null,"isEnded":false},
-{"note":"a state change whose payload names another state sets nothing","beats":[{"type":"run.running","sequence":2,"actor":null,"payload":{"newState":"running"}},{"type":"run.failed","sequence":3,"actor":null,"payload":{"newState":"running"}}],"facts":{"stateEventType":"run.running","isRewound":false,"foldedThroughSequence":2},"state":"running","headerState":"run.running","isEnded":false},
-{"note":"a person's message and an event already folded change nothing","beats":[{"type":"run.running","sequence":4,"actor":null,"payload":{"newState":"running"}},{"type":"user.message","sequence":5,"actor":"person","payload":{}},{"type":"run.failed","sequence":3,"actor":"late","payload":{"newState":"failed"}}],"facts":{"stateEventType":"run.running","isRewound":false,"foldedThroughSequence":4},"state":"running","headerState":"run.running","isEnded":false},
-{"note":"only the creation names the account, and a malformed one is not taken","beats":[{"type":"run.queued","sequence":1,"actor":null,"payload":{"admittedProviderAccountId":""}},{"type":"run.running","sequence":2,"actor":null,"payload":{"newState":"running","admittedProviderAccountId":"acct-2"}}],"facts":{"stateEventType":"run.running","isRewound":false,"foldedThroughSequence":2},"state":"running","headerState":"run.running","isEnded":false}
-]"#;
-
     use serde::Deserialize;
     use serde_json::{Map, Value};
 
@@ -314,6 +304,9 @@ mod tests {
     };
     use crate::run::state::RunState;
     use crate::transcript::run_facts::RunStateEventType;
+
+    /// The table the client's run-facts suite reads too.
+    const CASES: &str = include_str!("../../tests/fixtures/transcript/run-facts.json");
 
     /// One event of a case, as the cases write it.
     #[derive(Deserialize)]
@@ -326,8 +319,7 @@ mod tests {
         payload: Option<Map<String, Value>>,
     }
 
-    /// One case: the beats folded in order onto
-    /// unfolded facts, and what the facts then read.
+    /// One case: the beats folded in order onto unfolded facts, and what the facts then read.
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct RunFactsCase {

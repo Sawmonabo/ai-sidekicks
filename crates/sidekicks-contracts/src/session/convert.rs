@@ -7,12 +7,12 @@ use serde::{Deserialize, Serialize};
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::jsonrpc::page::fits_one_page;
 use crate::repo::mount::RepoMountId;
-use crate::session::draft::ClientUuid;
 use crate::session::id::SessionId;
-use crate::transcript::operations::BoolLiteral;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::BoolLiteral;
+use crate::wire::id::ClientUuid;
 use crate::wire::integer::{BoundedInt, SafeInt};
-use crate::wire::text::{FreeFormText, Text};
+use crate::wire::text::{BoundedText, FreeFormText};
 
 /// Converts a chat to a project. `path` is the folder the person typed; it travels as data and the
 /// daemon checks it, reusing the machine's mount for that folder or attaching one, and refusing a
@@ -47,7 +47,7 @@ pub enum SessionConvertSkipReason {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionConvertSkippedFile {
     /// The path; any name the filesystem holds, a name of spaces alone included.
-    pub path: Text<1, FILE_PATH_MAX_LEN>,
+    pub path: BoundedText<1, FILE_PATH_MAX_LEN>,
     /// Why it was not copied.
     pub reason: SessionConvertSkipReason,
 }
@@ -170,7 +170,10 @@ pub struct SessionConvertSkippedFileListRequest {
 #[garde(allow_unvalidated)]
 pub struct SessionConvertSkippedFilesContinuing {
     /// The files, in path order.
-    #[garde(length(min = 1, max = SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX), custom(fits_one_page))]
+    #[garde(
+        length(min = 1, max = SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX),
+        custom(fits_one_page)
+    )]
     #[schemars(length(min = 1, max = 256))]
     pub files: Vec<SessionConvertSkippedFile>,
     /// More files follow.

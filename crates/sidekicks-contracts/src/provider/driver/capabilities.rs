@@ -8,7 +8,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::provider::driver::methods::{
     DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN, DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN,
 };
@@ -207,51 +207,6 @@ pub struct DriverCapabilities {
     pub contract_version: FreeFormText<DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN>,
 }
 
-/// A file path: at most [`FILE_PATH_MAX_LEN`] code points and no NUL. Blank stays legal, since a
-/// folder may be named with a single space.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-#[serde(transparent)]
-pub struct FilesystemPath(String);
-
-impl FilesystemPath {
-    /// `path` when it is non-empty, within the cap and holds no NUL, else `None`.
-    pub fn new(path: String) -> Option<Self> {
-        let is_within_cap = !path.is_empty() && path.chars().nth(FILE_PATH_MAX_LEN).is_none();
-        (is_within_cap && !path.contains('\0')).then_some(Self(path))
-    }
-
-    /// The path.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for FilesystemPath {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(String::deserialize(deserializer)?)
-            .ok_or_else(|| D::Error::custom("a path is 1 to 4096 code points with no NUL"))
-    }
-}
-
-impl JsonSchema for FilesystemPath {
-    fn inline_schema() -> bool {
-        true
-    }
-
-    fn schema_name() -> Cow<'static, str> {
-        "FilesystemPath".into()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({
-            "type": "string",
-            "minLength": 1,
-            "maxLength": FILE_PATH_MAX_LEN,
-            "pattern": "^[^\\x00]*$",
-        })
-    }
-}
-
 /// The name of the credential deny list handed to the provider, a reference so the list itself is
 /// never embedded.
 pub type CredentialPolicyRef = FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>;
@@ -327,7 +282,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderMode>(),
         Definition::read::<DriverCapabilityFlag>(),
         Definition::read::<DriverCapabilities>(),
-        Definition::read::<FilesystemPath>(),
         Definition::read::<ExecutionPosture>().checked(),
     ],
     constants: TS_CONSTANTS,

@@ -86,44 +86,54 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 
 #[cfg(test)]
 mod tests {
-    use super::{EventCursor, MAX_SAFE_INTEGER, decode_event_cursor, encode_event_cursor};
+    use serde::Deserialize;
+
+    use super::{EventCursor, decode_event_cursor, encode_event_cursor};
+
+    /// The table the client's cursor codec suite reads too.
+    const CASES: &str = include_str!("../../tests/fixtures/event-cursor.json");
+
+    /// A position and the one cursor that names it, or `null` when none does.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct EncodeCase {
+        position: i64,
+        cursor: Option<String>,
+    }
+
+    /// A cursor and the position it names, or `null` when it names none.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct DecodeCase {
+        cursor: String,
+        position: Option<i64>,
+    }
+
+    /// The table: what each position writes and what each cursor reads back.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct CursorCases {
+        encode: Vec<EncodeCase>,
+        decode: Vec<DecodeCase>,
+    }
 
     #[test]
     fn the_codec_writes_one_spelling_per_position_and_refuses_every_other() {
-        let max = i64::try_from(MAX_SAFE_INTEGER).expect("2^53 - 1 fits an i64");
-        for (position, cursor) in [
-            (-1, Some("-1")),
-            (0, Some("0")),
-            (max, Some("9007199254740991")),
-            (-2, None),
-            (max + 1, None),
-        ] {
-            let written = encode_event_cursor(position).ok();
+        let cases: CursorCases = serde_json::from_str(CASES).expect("the cases read");
+        for case in cases.encode {
+            let written = encode_event_cursor(case.position).ok();
             assert_eq!(
                 written.as_ref().map(EventCursor::as_str),
-                cursor,
-                "position {position}"
+                case.cursor.as_deref(),
+                "position {}",
+                case.position
             );
         }
-        for (cursor, position) in [
-            ("-1", Some(-1)),
-            ("0", Some(0)),
-            ("9007199254740991", Some(max)),
-            ("abc", None),
-            ("-2", None),
-            ("1.5", None),
-            ("007", None),
-            ("+1", None),
-            ("1e3", None),
-            ("-0", None),
-            (" 1", None),
-            ("9007199254740992", None),
-            ("99999999999999999999", None),
-        ] {
-            let cursor = EventCursor::new(cursor.to_owned()).expect("a cursor within bounds");
+        for case in cases.decode {
+            let cursor = EventCursor::new(case.cursor).expect("a cursor within bounds");
             assert_eq!(
                 decode_event_cursor(&cursor).ok(),
-                position,
+                case.position,
                 "cursor {cursor:?}"
             );
         }

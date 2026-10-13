@@ -44,3 +44,44 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: &[],
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+    use serde_json::{Map, Value};
+
+    use super::{transcript_own_run_id_of, transcript_run_id_of};
+
+    /// The table the client's run-attribution suite reads too.
+    const CASES: &str = include_str!("../../tests/fixtures/transcript/run-attribution.json");
+
+    /// One case: a payload, the run it is filed under and the run it names as its own.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct AttributionCase {
+        note: String,
+        payload: Option<Map<String, Value>>,
+        run_id: Option<String>,
+        own_run_id: Option<String>,
+    }
+
+    #[test]
+    fn a_payload_names_its_run_as_the_client_reads_it() {
+        let cases: Vec<AttributionCase> = serde_json::from_str(CASES).expect("the cases read");
+        for case in cases {
+            let payload = case.payload.as_ref();
+            assert_eq!(
+                transcript_run_id_of(payload),
+                case.run_id.as_deref(),
+                "{}",
+                case.note
+            );
+            assert_eq!(
+                transcript_own_run_id_of(payload),
+                case.own_run_id.as_deref(),
+                "{}",
+                case.note
+            );
+        }
+    }
+}

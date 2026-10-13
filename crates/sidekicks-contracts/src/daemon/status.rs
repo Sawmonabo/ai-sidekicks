@@ -17,8 +17,8 @@ use crate::release_manifest::ReleaseVersion;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::percent::Percent;
-use crate::wire::text::Text;
+use crate::wire::number::Percent;
+use crate::wire::text::BoundedText;
 
 /// The longest free-form text the status carries, in code points.
 pub const DAEMON_STATUS_TEXT_MAX_LEN: usize = 4_096;
@@ -27,10 +27,10 @@ pub const DAEMON_STATUS_TEXT_MAX_LEN: usize = 4_096;
 pub const CRASH_REPORT_STACK_MAX_FRAMES: usize = 256;
 
 /// A text the status carries.
-type StatusText = Text<1, DAEMON_STATUS_TEXT_MAX_LEN>;
+type StatusText = BoundedText<1, DAEMON_STATUS_TEXT_MAX_LEN>;
 
 /// A path the status carries.
-type StatusPath = Text<1, FILE_PATH_MAX_LEN>;
+type StatusPath = BoundedText<1, FILE_PATH_MAX_LEN>;
 
 /// Where the service is in its own life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

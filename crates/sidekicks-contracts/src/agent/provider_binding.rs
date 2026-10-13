@@ -7,10 +7,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::agent::definition::binding::{AgentProviderBinding, ProviderToken};
-use crate::agent::definition::{AgentId, add_present_exactly_when, push_all_of};
+use crate::agent::definition::{AgentId, add_present_exactly_when};
 use crate::provider::account::record::ProviderAccountId;
 use crate::provider::driver::declared_loss::DeclaredLossKind;
 use crate::provider::name::ProviderName;
+use crate::schema::push_all_of;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};

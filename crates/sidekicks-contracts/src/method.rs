@@ -90,10 +90,6 @@ pub trait SubscriptionMethod: Method {
 ///
 /// A subscription adds `emission: Type,` after its result; a table whose TypeScript type name is
 /// not derived from its own name writes it after the name (`pub const NAME: "TypeName" = [`).
-#[expect(
-    unused_macros,
-    reason = "the contract modules declare their methods with it"
-)]
 macro_rules! methods {
     (@procedure query) => { $crate::method::ProcedureType::Query };
     (@procedure mutation) => { $crate::method::ProcedureType::Mutation };
@@ -160,8 +156,4 @@ macro_rules! methods {
     };
 }
 
-#[expect(
-    unused_imports,
-    reason = "the contract modules declare their methods with it"
-)]
 pub(crate) use methods;

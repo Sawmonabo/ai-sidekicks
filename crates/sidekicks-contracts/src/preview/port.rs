@@ -9,21 +9,18 @@ use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::web_address::HttpsAddress;
 use crate::wire::True;
-use crate::wire::bounded_text::BoundedText;
 use crate::wire::instant::WireInstant;
-use crate::wire::integer::BoundedInt;
-use crate::wire::web_address::HttpsAddress;
-
-/// A TCP port on this machine's loopback.
-pub type PreviewPort = BoundedInt<1, 65_535>;
+use crate::wire::integer::Port;
+use crate::wire::text::BoundedText;
 
 /// The details both port refusals carry: the port the request named.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewPortRefusalDetails {
     /// The port.
-    pub port: PreviewPort,
+    pub port: Port,
 }
 
 /// One shared port with what the machine knows of it: the framework discovery named, `null` where
@@ -34,7 +31,7 @@ pub struct PreviewPortRefusalDetails {
 #[garde(allow_unvalidated)]
 pub struct PreviewSharedPort {
     /// The port.
-    pub port: PreviewPort,
+    pub port: Port,
     /// The framework discovery named.
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<BoundedText<1, { usize::MAX }>>")]
@@ -61,7 +58,7 @@ pub struct PreviewPortShareListFrame {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewPortRequest {
     /// The port.
-    pub port: PreviewPort,
+    pub port: Port,
 }
 
 /// The port now shared, and when.
@@ -70,7 +67,7 @@ pub struct PreviewPortRequest {
 #[garde(allow_unvalidated)]
 pub struct PreviewPortShareAddResponse {
     /// The port.
-    pub port: PreviewPort,
+    pub port: Port,
     /// When it was shared.
     #[garde(dive)]
     pub added_at: WireInstant,
@@ -82,7 +79,7 @@ pub struct PreviewPortShareAddResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewPortShareRemoveResponse {
     /// The port.
-    pub port: PreviewPort,
+    pub port: Port,
     /// Always `true`.
     pub removed: True,
 }

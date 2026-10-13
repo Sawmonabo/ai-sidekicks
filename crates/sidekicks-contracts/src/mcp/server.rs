@@ -18,11 +18,9 @@ use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::provider::driver::length_limits::{
     DRIVER_MCP_SERVER_NAME_MAX_LEN, DRIVER_TOOL_NAME_MAX_LEN,
 };
-use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::bounded_text::BoundedText;
 use crate::wire::literal;
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{BoundedText, FreeFormText};
 
 pub mod config;
 pub mod inventory;
@@ -84,9 +82,6 @@ pub type McpToolName = FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>;
 
 /// The root folder of the project a `project` or `local` binding applies in.
 pub type McpProjectRoot = BoundedText<1, FILE_PATH_MAX_LEN>;
-
-/// The name of the installed plugin that carries a `plugin` binding's server.
-pub type McpPluginName = FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>;
 
 /// When and where a mutation took effect: in the live sessions now, in the provider's config store
 /// for later runs, in the next run's composed config, or at the daemon's decision layer at once.
@@ -239,7 +234,7 @@ macro_rules! binding_addressed {
                 /// The provider.
                 provider: $crate::provider::name::ProviderName,
                 /// The plugin's name.
-                scope_ref: $crate::mcp::server::McpPluginName,
+                scope_ref: $crate::plugin::PluginToken,
                 /// The server's name.
                 server_name: $crate::mcp::server::McpServerName,
                 $($extra)*

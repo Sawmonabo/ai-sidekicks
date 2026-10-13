@@ -17,9 +17,8 @@ use crate::provider::account::record::ProviderAccountId;
 use crate::provider::name::ProviderName;
 use crate::repo::mount::RepoMountId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::bounded_text::branded_text;
 use crate::wire::integer::{BoundedInt, SafeInt};
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{FreeFormText, branded_text};
 
 ts_constants! {
     /// The longest provider command version, as the command reports it.
@@ -410,7 +409,7 @@ pub struct ProviderProtectedPathListResponse {
 branded_text! {
     /// The daemon-minted id of one standing rule, derived from where the rule sits and what it
     /// says.
-    ProviderStandingRuleId, 1, PROVIDER_STANDING_RULE_ID_MAX_LEN
+    pub struct ProviderStandingRuleId(1..=PROVIDER_STANDING_RULE_ID_MAX_LEN);
 }
 
 /// Where a standing rule holds: one account's home, or one attached project.

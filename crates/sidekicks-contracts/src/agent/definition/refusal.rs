@@ -98,11 +98,6 @@ macro_rules! agent_resolution_refused_details {
     };
 }
 
-#[expect(
-    unused_imports,
-    reason = "the workflow document's resolution refusal, whose definition may be null, declares \
-              its details with it"
-)]
 pub(crate) use agent_resolution_refused_details;
 
 agent_resolution_refused_details! {

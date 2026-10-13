@@ -17,15 +17,15 @@ use crate::jsonrpc::byte_length::json_utf8_byte_length;
 use crate::jsonrpc::page::fits_one_page;
 use crate::session::id::SessionId;
 use crate::transcript::limits::TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
-use crate::transcript::operations::BoolLiteral;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::BoolLiteral;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{FreeFormText, Text};
+use crate::wire::text::{BoundedText, FreeFormText};
 
 /// Refuses a body whose JSON takes more than [`TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES`] bytes: it
 /// belongs on the `large` arm.
 fn fits_with_its_row(
-    body: &Text<0, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES>,
+    body: &BoundedText<0, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES>,
     (): &(),
 ) -> garde::Result {
     let byte_length = json_utf8_byte_length(&body.as_str())
@@ -55,7 +55,7 @@ pub enum TranscriptRowContent {
     Available {
         /// The body; a prefix when `contentTruncated` is `true`.
         #[garde(custom(fits_with_its_row))]
-        body: Text<0, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES>,
+        body: BoundedText<0, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES>,
         /// The whole body's UTF-8 byte length, echoed from the stored payload.
         #[serde(
             default,
@@ -156,7 +156,7 @@ pub fn transcript_row_content_of(
     if let Some(body) = stored.body.filter(|body| {
         json_utf8_byte_length(body)
             .is_ok_and(|length| length <= TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES)
-    }) && let Ok(body) = Text::new(body.to_owned())
+    }) && let Some(body) = BoundedText::new(body.to_owned())
     {
         return TranscriptRowContent::Available {
             body,
@@ -299,3 +299,65 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: &[],
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+    use serde_json::{Map, Value};
+
+    use super::{
+        StoredRowBody, TranscriptBodyReadResponse, TranscriptRowContent, stored_body_content_of,
+        transcript_row_content_of,
+    };
+    use crate::wire::integer::SafeInt;
+
+    /// The table the client's content readers' suite reads too.
+    const CASES: &str = include_str!("../../tests/fixtures/transcript/stored-body.json");
+
+    /// What a case finds stored: the body's UTF-8 size, and its text when it was read.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct StoredCase {
+        byte_length: SafeInt<0>,
+        body: Option<String>,
+    }
+
+    /// One case: the stored event's payload and body, and what each read answers.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct BodyCase {
+        note: String,
+        payload: Option<Map<String, Value>>,
+        stored: Option<StoredCase>,
+        body_read: TranscriptBodyReadResponse,
+        row_content: TranscriptRowContent,
+    }
+
+    #[test]
+    fn a_stored_body_reads_as_the_client_reads_it() {
+        let cases: Vec<BodyCase> = serde_json::from_str(CASES).expect("the cases read");
+        for case in cases {
+            let payload = case.payload.as_ref();
+            let body = case
+                .stored
+                .as_ref()
+                .and_then(|stored| stored.body.as_deref());
+            assert_eq!(
+                stored_body_content_of(payload, body),
+                case.body_read,
+                "{}",
+                case.note
+            );
+            let stored = case.stored.as_ref().map(|stored| StoredRowBody {
+                byte_length: stored.byte_length,
+                body: stored.body.as_deref(),
+            });
+            assert_eq!(
+                transcript_row_content_of(payload, stored),
+                case.row_content,
+                "{}",
+                case.note
+            );
+        }
+    }
+}

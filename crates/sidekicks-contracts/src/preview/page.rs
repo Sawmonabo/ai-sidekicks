@@ -10,22 +10,21 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::jsonrpc::framing::MAX_ATTACHMENT_BYTES;
-use crate::preview::port::PreviewPort;
+use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::session::id::SessionId;
 use crate::web_address::WebAddressFault;
 use crate::wire::True;
 use crate::wire::attachment::Bytes;
-use crate::wire::bounded_text::{BoundedText, branded_text};
-use crate::wire::integer::{BoundedInt, MAX_SAFE_INTEGER, SafeInt};
+use crate::wire::integer::{BoundedInt, MAX_SAFE_INTEGER, Port, SafeInt};
 use crate::wire::number::UnitFraction;
+use crate::wire::text::{BoundedText, branded_text};
 
 /// The longest page id the daemon mints.
 pub const PREVIEW_PAGE_ID_MAX_LEN: usize = 256;
 
 branded_text! {
     /// The daemon's own handle for one page. Opaque to every client.
-    PreviewPageId, 1, PREVIEW_PAGE_ID_MAX_LEN
+    pub struct PreviewPageId(1..=PREVIEW_PAGE_ID_MAX_LEN);
 }
 
 /// The longest address Preview takes: Chromium's own limit on a URL's length.
@@ -136,7 +135,7 @@ pub struct PreviewFavicon {
     /// The image's media type.
     pub media_type: PreviewImageMediaType,
     /// The image.
-    pub data: Bytes<1, MAX_ATTACHMENT_BYTES>,
+    pub data: Bytes<1, MAX_ONE_ATTACHMENT_BYTES>,
 }
 
 /// Where a page's load stands, tagged on `kind`: loading, with the fraction the engine reports or
@@ -242,7 +241,7 @@ pub enum PreviewPageTarget {
     /// A discovered dev server.
     DevServer {
         /// Its port.
-        port: PreviewPort,
+        port: Port,
     },
 }
 
@@ -267,8 +266,8 @@ pub struct PreviewPageOpenResponse {
     /// The dev server's own port where the page loads on another one because that port was
     /// taken on the side the page runs; `null` where the port did not move.
     #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<PreviewPort>")]
-    pub moved_from: Option<PreviewPort>,
+    #[schemars(with = "crate::wire::NullableSchema<Port>")]
+    pub moved_from: Option<Port>,
 }
 
 /// Names one page of one session: close it, or make it the one the pane shows.
@@ -360,8 +359,8 @@ pub struct PreviewNavigateResponse {
     pub address: PreviewAddress,
     /// The dev server's own port where the page loads on another; `null` where it did not move.
     #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<PreviewPort>")]
-    pub moved_from: Option<PreviewPort>,
+    #[schemars(with = "crate::wire::NullableSchema<Port>")]
+    pub moved_from: Option<Port>,
     /// How far its history reaches back.
     pub back_depth: SafeInt<0>,
     /// How far its history reaches forward.

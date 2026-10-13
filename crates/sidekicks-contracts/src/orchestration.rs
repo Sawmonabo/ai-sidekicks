@@ -50,7 +50,7 @@ pub enum InterruptReason {
 /// A run's own limits: `tokenLimit` is its `Tokens per run`, input and output together, absent
 /// meaning unlimited. A request's override, and the value admission resolves and keeps on the
 /// run's creation record.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OrchestrationRunConfig {
     /// The run's token limit.

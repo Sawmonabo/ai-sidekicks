@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentDefinitionId;
 use crate::agent::methods::AgentListEntry;
+use crate::event::envelope::{SourceEpoch, SourcePosition};
 use crate::machine_settings::MACHINE_SETTINGS_NAME_MAX_LEN;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
@@ -17,7 +18,6 @@ use crate::session::methods::{SessionShape, SessionState};
 use crate::session::name::SESSION_NAME_MAX_LEN;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
-use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
 
 /// The session a fork was taken from, and the message it was taken at.
@@ -236,8 +236,8 @@ pub struct SessionProviderStatusPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "SafeInt<0>")]
-    #[garde(custom(|epoch: &Option<SafeInt<0>>, (): &()| {
+    #[schemars(with = "SourceEpoch")]
+    #[garde(custom(|epoch: &Option<SourceEpoch>, (): &()| {
         if epoch.is_some() != self.source_position.is_some() {
             Err(garde::Error::new("sourceEpoch and sourcePosition come together"))
         } else if epoch.is_some() && self.run_id.is_none() {
@@ -246,15 +246,15 @@ pub struct SessionProviderStatusPayload {
             Ok(())
         }
     }))]
-    pub source_epoch: Option<SafeInt<0>>,
+    pub source_epoch: Option<SourceEpoch>,
     /// The turn position the row occupies within its epoch; comes with `source_epoch`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "SafeInt<0>")]
-    pub source_position: Option<SafeInt<0>>,
+    #[schemars(with = "SourcePosition")]
+    pub source_position: Option<SourcePosition>,
 }
 
 /// The module's TypeScript face.

@@ -24,11 +24,11 @@ use crate::trust_statement::{
     TrustStatement, TrustStatementHash,
 };
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::web_address::HttpsAddress;
 use crate::wire::base64::{Base64Array, Base64UrlText};
 use crate::wire::instant::WireInstant;
 use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
-use crate::wire::url::HttpsUrl;
 use crate::wire::{AnyValue, NullableSchema, nullable};
 
 ts_constants! {
@@ -447,7 +447,7 @@ pub enum DevicePushAddressSetRequest {
     /// A Web Push endpoint.
     WebPush {
         /// The endpoint.
-        address: HttpsUrl<PUSH_ADDRESS_MAX_LEN>,
+        address: HttpsAddress<PUSH_ADDRESS_MAX_LEN>,
     },
 }
 

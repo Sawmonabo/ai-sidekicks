@@ -7,12 +7,12 @@ use serde_json::{Map, Value};
 
 use crate::artifacts::id::ArtifactId;
 use crate::artifacts::manifest::{ArtifactManifest, ArtifactState, ArtifactType, Extensible};
-use crate::jsonrpc::framing::MAX_ATTACHMENT_BYTES;
+use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::attachment::Bytes;
-use crate::wire::record::Record;
+use crate::wire::record::JsonRecord;
 use crate::wire::text::NonEmptyText;
 
 /// Publishes one artifact in a single call. The daemon hashes the payload's bytes, so the digest
@@ -34,7 +34,7 @@ pub struct ArtifactPublishRequest {
     /// The artifact's kind.
     pub artifact_type: ArtifactType,
     /// The payload's bytes.
-    pub payload: Bytes<0, MAX_ATTACHMENT_BYTES>,
+    pub payload: Bytes<0, MAX_ONE_ATTACHMENT_BYTES>,
     /// The caller's media type for the payload.
     pub media_type: NonEmptyText,
     /// The artifact's freeform provenance.
@@ -43,8 +43,8 @@ pub struct ArtifactPublishRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "Record<Value>")]
-    pub metadata: Option<Record<Value>>,
+    #[schemars(with = "JsonRecord")]
+    pub metadata: Option<JsonRecord>,
 }
 
 /// The published artifact's manifest: its id is the artifact id, its digest the content hash.

@@ -7,7 +7,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::agent::definition::{AgentProviderBinding, ProviderToken};
+use crate::agent::definition::binding::{AgentProviderBinding, ProviderToken};
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::jsonrpc::page::fits_one_page;
 use crate::jsonrpc::streaming::{SubscribeAckResponse, SubscriptionId};
@@ -17,7 +17,6 @@ use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
 use crate::provider::name::ProviderName;
 use crate::repo::mount::ExecutionMode;
 use crate::session::convert::{SessionConvertRequest, SessionConvertResponse};
-use crate::session::draft::ClientUuid;
 use crate::session::event_cursor::EventCursor;
 use crate::session::groups::SessionGroupId;
 use crate::session::id::SessionId;
@@ -27,6 +26,7 @@ use crate::session::methods::{
 use crate::session::name::SESSION_NAME_MAX_LEN;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::Never;
+use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
@@ -79,8 +79,9 @@ pub fn session_activity_as_of(
     }
 }
 
-/// An instant's milliseconds since the Unix epoch, its fraction past the ninth digit dropped first
-/// since a timestamp holds nanoseconds; `None` where it does not parse, as `Date.parse` answers NaN.
+/// An instant's milliseconds since the Unix epoch, its fraction past the ninth digit dropped
+/// first since a timestamp holds nanoseconds; `None` where it does not parse, as `Date.parse`
+/// answers NaN.
 fn renewed_at_ms(instant: &str) -> Option<i64> {
     let fraction_start = instant.find('.').map(|dot| dot + 1);
     let trimmed = match fraction_start {
@@ -703,3 +704,38 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: &[],
     method_tables: &[&SESSION_DIRECTORY_METHOD_DESCRIPTORS],
 };
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+
+    use super::{SessionActivity, session_activity_as_of};
+    use crate::wire::instant::WireInstant;
+
+    /// The table the client's directory suite reads too.
+    const CASES: &str = include_str!("../../tests/fixtures/session/activity.json");
+
+    /// One case: a published reading, when it was renewed, the reader's clock and what it shows.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct ActivityCase {
+        note: String,
+        activity: SessionActivity,
+        activity_renewed_at: WireInstant,
+        now_ms: i64,
+        expected: SessionActivity,
+    }
+
+    #[test]
+    fn a_stale_reading_ages_into_idle_as_the_client_ages_it() {
+        let cases: Vec<ActivityCase> = serde_json::from_str(CASES).expect("the cases read");
+        for case in cases {
+            assert_eq!(
+                session_activity_as_of(case.activity, &case.activity_renewed_at, case.now_ms),
+                case.expected,
+                "{}",
+                case.note
+            );
+        }
+    }
+}

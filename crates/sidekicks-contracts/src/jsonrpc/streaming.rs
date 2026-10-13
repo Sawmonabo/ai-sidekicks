@@ -82,14 +82,10 @@ pub struct SubscriptionNotifyParams<T> {
 ///
 /// ```ignore
 /// stream_frame! {
-///     /// One `run.queueSubscribe` emission.
+///     /// One `run.subscribeQueue` emission.
 ///     pub struct RunQueueStreamFrame(RunQueueChange);
 /// }
 /// ```
-#[expect(
-    unused_macros,
-    reason = "the run queue, run state and session streams declare their frames with it"
-)]
 macro_rules! stream_frame {
     ($($(#[doc = $doc:literal])+ pub struct $name:ident($change:ty);)+) => {$(
         $(#[doc = $doc])+
@@ -113,10 +109,6 @@ macro_rules! stream_frame {
     )+};
 }
 
-#[expect(
-    unused_imports,
-    reason = "the run queue, run state and session streams declare their frames with it"
-)]
 pub(crate) use stream_frame;
 
 /// The params of a cancel call. It is a request, so the client learns from its result whether it

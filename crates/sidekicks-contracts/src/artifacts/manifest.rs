@@ -15,7 +15,7 @@ use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::record::Record;
+use crate::wire::record::JsonRecord;
 
 /// The kind of an artifact: a file, a diff, a summary, a log, a design, or the output of one
 /// workflow phase.
@@ -110,7 +110,7 @@ pub struct ArtifactManifest {
     /// Where the manifest is in its life.
     pub state: Extensible<ArtifactState>,
     /// The artifact's freeform provenance.
-    pub metadata: Record<Value>,
+    pub metadata: JsonRecord,
     /// When the manifest was written.
     #[garde(dive)]
     pub created_at: WireInstant,

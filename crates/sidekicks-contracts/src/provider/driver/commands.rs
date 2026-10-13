@@ -12,8 +12,7 @@ use crate::provider::name::ProviderName;
 use crate::run::id::RunId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::Never;
-use crate::wire::bounded_text::BoundedText;
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{BoundedText, FreeFormText};
 
 /// The binding a command list was read under: the routing pair a group and each of its entries
 /// carry. `providerAccountId` is `null` when the session bound no account, and `null` matches

@@ -181,8 +181,8 @@ macro_rules! lifecycle_payload {
                 skip_serializing_if = "Option::is_none",
                 deserialize_with = "crate::wire::present"
             )]
-            #[schemars(with = "crate::internal::branded::UuidTextForm")]
-            pub worktree_id: Option<$crate::internal::branded::UuidTextForm>,
+            #[schemars(with = "crate::wire::id::UuidTextForm")]
+            pub worktree_id: Option<$crate::wire::id::UuidTextForm>,
             /// The subject's state after the transition.
             pub state: $state,
             /// The envelope's actor, repeated; a system event sends `null` or leaves it out.

@@ -6,13 +6,8 @@
 //! daemon when it is staged and kept outside the checkout; from then on it is addressed by its
 //! artifact id and its original path is never read again.
 
-use std::borrow::Cow;
-use std::sync::LazyLock;
-
-use regex::Regex;
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::de::Error as _;
-use serde::{Deserialize, Deserializer, Serialize};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::artifacts::id::ArtifactId;
 use crate::free_form_string::FILE_PATH_MAX_LEN;
@@ -21,58 +16,10 @@ use crate::mcp::server::McpServerName;
 use crate::method::methods;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{NonEmptyText, Text};
-
-/// A client-minted UUID: versions 1 to 8 in either letter case, or the Nil or Max UUID in lower
-/// case.
-const CLIENT_UUID_PATTERN: &str = "^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}\
-                                   -[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\
-                                   |00000000-0000-0000-0000-000000000000\
-                                   |ffffffff-ffff-ffff-ffff-ffffffffffff)$";
-
-/// [`CLIENT_UUID_PATTERN`], compiled once.
-static CLIENT_UUID: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(CLIENT_UUID_PATTERN).expect("the client UUID is a valid regex"));
-
-/// A UUID a client mints, such as a staging id or an idempotency key, that no brand names.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-#[serde(transparent)]
-pub struct ClientUuid(String);
-
-impl ClientUuid {
-    /// Checks `text`; refuses anything but a client UUID.
-    pub fn new(text: String) -> Option<Self> {
-        CLIENT_UUID.is_match(&text).then_some(Self(text))
-    }
-
-    /// The UUID's text as received.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for ClientUuid {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(String::deserialize(deserializer)?)
-            .ok_or_else(|| D::Error::custom("Invalid UUID"))
-    }
-}
-
-impl JsonSchema for ClientUuid {
-    fn inline_schema() -> bool {
-        true
-    }
-
-    fn schema_name() -> Cow<'static, str> {
-        "ClientUuid".into()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({ "type": "string", "pattern": CLIENT_UUID_PATTERN })
-    }
-}
+use crate::wire::text::{BoundedText, NonEmptyText};
 
 /// Saves a session's draft. `text` is the whole draft and replaces the one held; an empty string
 /// clears it, which is what Send does. The text has no length limit of its own: a message's limit
@@ -107,7 +54,7 @@ pub struct SessionAttachmentSummary {
     /// The staged file's artifact.
     pub artifact_id: ArtifactId,
     /// The name the daemon stored it under.
-    pub file_name: Text<1, FILE_PATH_MAX_LEN>,
+    pub file_name: BoundedText<1, FILE_PATH_MAX_LEN>,
     /// The media type read from its bytes.
     pub mime_type: NonEmptyText,
     /// Its size in bytes, as measured.
@@ -130,7 +77,7 @@ pub enum SessionAttachmentItem {
         /// The client's id for this one item, so a retried stage never stages it twice.
         client_staging_id: ClientUuid,
         /// The file's path.
-        path: Text<1, FILE_PATH_MAX_LEN>,
+        path: BoundedText<1, FILE_PATH_MAX_LEN>,
     },
     /// A resource a tool server publishes.
     McpResource {

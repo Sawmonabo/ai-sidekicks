@@ -3,12 +3,12 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::jsonrpc::framing::MAX_ATTACHMENT_BYTES;
+use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::preview::page::PreviewPageId;
 use crate::session::id::SessionId;
 use crate::wire::attachment::Bytes;
-use crate::wire::bounded_text::BoundedText;
 use crate::wire::number::{NonNegativeNumber, Number, PositiveNumber};
+use crate::wire::text::BoundedText;
 
 /// The page whose live picture another device watches while it has the pane open.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -52,7 +52,7 @@ pub struct PreviewScreencastFrame {
     /// The page.
     pub page_id: PreviewPageId,
     /// The JPEG.
-    pub image_data: Bytes<1, MAX_ATTACHMENT_BYTES>,
+    pub image_data: Bytes<1, MAX_ONE_ATTACHMENT_BYTES>,
     /// What maps its pixels back to the page.
     pub metadata: PreviewScreencastFrameMetadata,
     /// The token that acknowledges it.

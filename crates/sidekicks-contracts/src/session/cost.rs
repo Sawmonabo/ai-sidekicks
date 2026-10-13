@@ -19,12 +19,12 @@ use crate::wire::named_scalar;
 
 named_scalar! {
     /// A cost in whole micro-dollars, the one money unit on the wire.
-    UsdMicros(SafeInt<0>)
+    UsdMicros(SafeInt<0>), Copy
 }
 
 named_scalar! {
     /// A `Tokens per run` limit: input and output tokens together, for one run; at least one.
-    TokensPerRun(SafeInt<1>)
+    TokensPerRun(SafeInt<1>), Copy
 }
 
 /// One agent's spend in the session's tree, the lead included: `own_usd_micros` is what its own

@@ -1,17 +1,14 @@
 //! A server's declaration: as the person submits it, values included, and as the daemon reads it
 //! back, with every credential-bearing value reduced to its name.
 
-use std::cmp::Ordering;
-
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::wire::bounded_text::BoundedText;
+use crate::web_address::WebAddress;
 use crate::wire::literal;
 use crate::wire::number::PositiveNumber;
 use crate::wire::record::Record;
-use crate::wire::text::FreeFormText;
-use crate::wire::web_address::WebAddress;
+use crate::wire::text::{BoundedText, FreeFormText};
 
 /// The longest command, argument, name, value, address or search text an `mcp.*` request carries.
 pub const MCP_REQUEST_TEXT_MAX_LEN: usize = 8192;
@@ -42,32 +39,8 @@ pub(crate) fn is_request_address(address: &McpServerAddress, _: &()) -> garde::R
     }
 }
 
-/// The name in a submitted map: an environment variable's or a header's.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(transparent)]
-#[schemars(transparent)]
-pub struct McpTextMapName(McpRequestText);
-
-impl Ord for McpTextMapName {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.as_str().cmp(other.0.as_str())
-    }
-}
-
-impl PartialOrd for McpTextMapName {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl AsRef<str> for McpTextMapName {
-    fn as_ref(&self) -> &str {
-        self.0.as_str()
-    }
-}
-
 /// A submitted map of names to values: an environment, or headers.
-pub type McpTextMap = Record<McpTextMapName, McpRequestValue>;
+pub type McpTextMap = Record<McpRequestText, McpRequestValue>;
 
 /// How a remote server is reached.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

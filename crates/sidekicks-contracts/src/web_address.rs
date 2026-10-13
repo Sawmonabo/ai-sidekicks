@@ -115,7 +115,7 @@ const HTTP_START_PATTERN: &str = "^[\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200
 
 /// An `http:` or `https:` address, written with its `//`. The schema states the scheme only; the
 /// Rust parser also refuses an address the URL standard cannot parse.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct WebAddress(String);
 

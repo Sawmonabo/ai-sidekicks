@@ -373,3 +373,50 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+
+    use super::{DaemonRepairProgress, DaemonRepairingLinePart, describe_daemon_repairing_line};
+
+    /// The table the client's repair-line suite reads too.
+    const CASES: &str = include_str!("../../tests/fixtures/repairing-line.json");
+
+    /// One part as the table writes it: words, or `{ "count": n }`.
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum PartCase {
+        Words(String),
+        Count { count: u64 },
+    }
+
+    /// One case: the repair's count, or `null` while it has none, and the line's parts.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct LineCase {
+        progress: Option<DaemonRepairProgress>,
+        parts: Vec<PartCase>,
+    }
+
+    #[test]
+    fn the_repair_line_reads_as_the_client_draws_it() {
+        let cases: Vec<LineCase> = serde_json::from_str(CASES).expect("the cases read");
+        for case in cases {
+            let expected: Vec<DaemonRepairingLinePart> = case
+                .parts
+                .into_iter()
+                .map(|part| match part {
+                    PartCase::Words(words) => DaemonRepairingLinePart::Words(words),
+                    PartCase::Count { count } => DaemonRepairingLinePart::Count(count),
+                })
+                .collect();
+            assert_eq!(
+                describe_daemon_repairing_line(case.progress),
+                expected,
+                "{:?}",
+                case.progress
+            );
+        }
+    }
+}

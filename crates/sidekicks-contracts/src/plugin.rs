@@ -19,9 +19,9 @@ use crate::provider::account::record::ProviderAccountId;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::web_address::HttpsAddress;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::{BoundedText, FreeFormText};
-use crate::wire::url::HttpsUrl;
 use crate::wire::{NullableSchema, True, literal, nullable};
 
 /// A token in a provider's own plugin vocabulary: a plugin id, a name, a marketplace.
@@ -323,7 +323,7 @@ pub struct PluginAppAccountLink {
     /// Whether the app is linked on it.
     pub linked: bool,
     /// The app's page on the provider's site.
-    pub connect_url: HttpsUrl<{ usize::MAX }>,
+    pub connect_url: HttpsAddress<{ usize::MAX }>,
 }
 
 /// One app a plugin carries, and its link on each Codex account.

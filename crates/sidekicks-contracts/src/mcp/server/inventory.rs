@@ -5,17 +5,17 @@ use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::agent::definition::{push_all_of, required_member};
 use crate::mcp::server::config::McpServerConfigView;
 use crate::mcp::server::{
     McpApprovalMode, McpProjectRoot, McpServerStatus, McpToolName, binding_addressed,
 };
+use crate::schema::{push_all_of, required_member};
 use crate::session::id::SessionId;
 use crate::wire::True;
-use crate::wire::bounded_text::BoundedText;
 use crate::wire::instant::WireInstant;
 use crate::wire::list::BoundedVec;
 use crate::wire::literal;
+use crate::wire::text::BoundedText;
 
 /// The runtime binding one live session's observation came from, not the config binding.
 pub type McpRuntimeBindingId = BoundedText<1, { usize::MAX }>;

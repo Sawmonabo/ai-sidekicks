@@ -3,9 +3,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::preview::port::PreviewPort;
 use crate::session::id::SessionId;
-use crate::wire::bounded_text::BoundedText;
+use crate::wire::integer::Port;
+use crate::wire::text::BoundedText;
 
 /// The session whose project's dev servers a `preview.devServerList` subscription streams.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -21,7 +21,7 @@ pub struct PreviewDevServerListRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewDevServer {
     /// Its port.
-    pub port: PreviewPort,
+    pub port: Port,
     /// The name it gave.
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<BoundedText<1, { usize::MAX }>>")]

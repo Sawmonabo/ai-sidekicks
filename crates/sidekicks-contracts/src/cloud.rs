@@ -13,10 +13,10 @@ use crate::method::methods;
 use crate::provider::name::ProviderName;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::web_address::HttpsAddress;
 use crate::wire::integer::BoundedInt;
 use crate::wire::literal;
 use crate::wire::text::{BoundedText, FreeFormText, NonBlankText, branded_text};
-use crate::wire::url::HttpsUrl;
 use crate::wire::{NullableSchema, nullable};
 
 ts_constants! {
@@ -191,7 +191,7 @@ pub struct CloudSession {
     /// Always `submitted`.
     pub state: CloudSessionState,
     /// Its address on the provider's site.
-    pub url: HttpsUrl<{ usize::MAX }>,
+    pub url: HttpsAddress<{ usize::MAX }>,
 }
 
 /// One piece of a session's cloud work, with only the state its provider reported.
