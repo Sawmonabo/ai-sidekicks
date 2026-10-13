@@ -29,7 +29,7 @@ Binding for every change under `crates/`, on top of the [root `AGENTS.md`](../AG
 
 - rustfmt with `style_edition = "2024"` and its defaults: 100 columns, 4-space indent. Comments wrap at 100 by hand. Imports sit in three groups (std, other crates, this crate), a blank line between.
 - Clippy `pedantic` is on, with `must_use_candidate`, `missing_errors_doc`, `missing_panics_doc`, `too_many_lines` and `similar_names` allowed. Also on: `unwrap_used`, `panic`, `exit`, `todo`, `unimplemented`, `dbg_macro`, `print_stdout`, `print_stderr`, `allow_attributes`, `allow_attributes_without_reason`, `let_underscore_must_use`, `map_err_ignore`, `unused_result_ok`, `wildcard_enum_match_arm`, `mod_module_files`, `undocumented_unsafe_blocks`, `redundant_clone`, and `missing_docs_in_private_items` limited to `pub(crate)` items. Off on purpose: `expect_used` and `indexing_slicing` (they force branches for proven invariants) and `module_name_repetitions` (it flags `DaemonProcess`).
-- rustc: `unsafe_code` denied; `missing_docs`, `unreachable_pub`, `dead_code_pub_in_binary`, `unused_lifetimes`, `redundant_lifetimes` and `unit_bindings` warn.
+- rustc: `unsafe_code` denied; `missing_docs`, `unreachable_pub`, `dead_code_pub_in_binary`, `unused_lifetimes`, `redundant_lifetimes` and `unit_bindings` warn. `dead_code_pub_in_binary` is set in each program's `main.rs` (`#![warn(…)]`), never in the workspace table: rustc builds every library's unit tests as a program, where it would report each `pub` item the tests leave unused.
 - **A suppression is `#[expect(lint, reason = "…")]`, never `#[allow]`;** the reason says why in plain words. One that no longer fires fails the build, so it is removed.
 
 ## Code
