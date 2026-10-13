@@ -166,6 +166,7 @@ pub const MCP_TOOL_OVERRIDE_FACETS: [McpToolOverrideFacet; 3] = [
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[schemars(inline)]
 pub enum McpToolSetting<OverrideValue, ServerValue> {
     /// The server's own value.
     Server {

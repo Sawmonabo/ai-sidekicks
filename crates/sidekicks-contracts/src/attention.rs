@@ -609,6 +609,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AttentionDeliveryChannel>(),
         Definition::read::<AttentionDeliveryResult>(),
         Definition::read::<AttentionDeliveryOutcome>(),
+        Definition::read::<AttentionWebAddressDelivery>(),
+        Definition::read::<AttentionEmailDigestDelivery>(),
         Definition::read::<AttentionDeliveryReadResponse>().checked(),
         Definition::read::<AttentionDeliveryTestRequest>(),
         Definition::read::<AttentionDeliveryTestResponse>(),

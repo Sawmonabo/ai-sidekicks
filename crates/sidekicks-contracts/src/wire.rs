@@ -257,8 +257,8 @@ pub(crate) use inline_scalar_definition;
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "internal/wire-scalars",
     doc: "The scalars every contract module shares: an instant and a calendar date on the wire, a \
-          count, the text the daemon composes, a port and the placeholder a byte member is written \
-          as.",
+          count, the text the daemon composes, text that is not blank, a port and the placeholder \
+          a byte member is written as.",
     definitions: &[
         Definition::read::<instant::WireInstant>().checked(),
         Definition::read::<date::WireDate>(),
@@ -272,6 +272,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
             "ComposedText",
             "Text the daemon composed: a path, a provider's words, a name; never empty."
         ),
+        Definition::read::<text::NonBlankText>(),
         Definition::read::<integer::Port>(),
         Definition::read::<attachment::BytesPlaceholder>(),
     ],

@@ -10,7 +10,7 @@ use crate::preview::dev_server::{
 };
 use crate::preview::marks::{
     PreviewMark, PreviewMarkElement, PreviewMarksPicture, PreviewMarksSendRequest,
-    PreviewMarksSendResponse, PreviewPoint, PreviewRect,
+    PreviewMarksSendResponse, PreviewPictureMediaType, PreviewPoint, PreviewRect,
 };
 use crate::preview::page::{
     PreviewAddressRefusedDetails, PreviewAddressRefusedReason, PreviewFavicon,
@@ -164,6 +164,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PreviewRect>(),
         Definition::read::<PreviewMarkElement>(),
         Definition::read::<PreviewMark>(),
+        Definition::read::<PreviewPictureMediaType>(),
         Definition::read::<PreviewMarksPicture>(),
         Definition::read::<PreviewMarksSendRequest>().checked(),
         Definition::read::<PreviewMarksSendResponse>().checked(),
