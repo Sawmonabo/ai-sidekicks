@@ -21,9 +21,12 @@ const PACKED_CAPACITY: usize = lz4_flex::block::get_maximum_output_size(PLAIN_CA
 /// What `compress` and `decompress` return when they fail.
 const FAILED: u32 = u32::MAX;
 
+/// The plain buffer: a chunk before `compress` packs it, or after `decompress` unpacks it.
 static mut PLAIN: [u8; PLAIN_CAPACITY] = [0; PLAIN_CAPACITY];
+/// The packed buffer: what `compress` writes and `decompress` reads.
 static mut PACKED: [u8; PACKED_CAPACITY] = [0; PACKED_CAPACITY];
 
+/// Traps the module on a panic, which the page sees as a failed call.
 #[cfg(target_arch = "wasm32")]
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -49,12 +52,16 @@ pub extern "C" fn packed_ptr() -> *mut u8 {
 pub extern "C" fn compress(length: u32) -> u32 {
     // SAFETY: one call runs at a time, so nothing else reads or writes either buffer while these
     // references live.
-    let (plain, packed) = unsafe { (&*(&raw const PLAIN), &mut *(&raw mut PACKED)) };
+    let (plain, packed) = unsafe {
+        (
+            core::slice::from_raw_parts(plain_ptr(), PLAIN_CAPACITY),
+            core::slice::from_raw_parts_mut(packed_ptr(), PACKED_CAPACITY),
+        )
+    };
     let Some(input) = plain.get(..length as usize) else {
         return FAILED;
     };
-    lz4_flex::block::compress_into(input, packed)
-        .map_or(FAILED, |packed_length| packed_length as u32)
+    lz4_flex::block::compress_into(input, packed).map_or(FAILED, wire_length)
 }
 
 /// Unpacks the first `length` bytes of the packed buffer into the plain buffer and returns the
@@ -64,12 +71,22 @@ pub extern "C" fn compress(length: u32) -> u32 {
 pub extern "C" fn decompress(length: u32) -> u32 {
     // SAFETY: one call runs at a time, so nothing else reads or writes either buffer while these
     // references live.
-    let (packed, plain) = unsafe { (&*(&raw const PACKED), &mut *(&raw mut PLAIN)) };
+    let (packed, plain) = unsafe {
+        (
+            core::slice::from_raw_parts(packed_ptr(), PACKED_CAPACITY),
+            core::slice::from_raw_parts_mut(plain_ptr(), PLAIN_CAPACITY),
+        )
+    };
     let Some(input) = packed.get(..length as usize) else {
         return FAILED;
     };
-    lz4_flex::block::decompress_into(input, plain)
-        .map_or(FAILED, |plain_length| plain_length as u32)
+    lz4_flex::block::decompress_into(input, plain).map_or(FAILED, wire_length)
+}
+
+/// A length one of the buffers holds, as the page reads it; both buffers are far below
+/// `u32::MAX`, so the conversion never fails and `FAILED` stays out of reach.
+fn wire_length(length: usize) -> u32 {
+    u32::try_from(length).unwrap_or(FAILED)
 }
 
 #[cfg(test)]
@@ -117,7 +134,7 @@ mod tests {
         assert_eq!(chunk.len(), PLAIN_CAPACITY);
 
         plain_buffer().copy_from_slice(&chunk);
-        let packed_length = compress(chunk.len() as u32) as usize;
+        let packed_length = compress(u32::try_from(chunk.len()).unwrap()) as usize;
         assert!(
             packed_length < chunk.len(),
             "packed to {packed_length} bytes"
@@ -131,7 +148,7 @@ mod tests {
 
         plain_buffer().fill(0);
         packed_buffer()[..packed_length].copy_from_slice(&packed);
-        assert_eq!(decompress(packed_length as u32) as usize, chunk.len());
+        assert_eq!(decompress(wire_length(packed_length)) as usize, chunk.len());
         assert_eq!(
             std::str::from_utf8(plain_buffer()).unwrap(),
             std::str::from_utf8(&chunk).unwrap()
@@ -141,8 +158,8 @@ mod tests {
     #[test]
     fn fails_on_a_length_past_its_buffer_or_bytes_that_are_no_chunk() {
         let _buffers = hold_buffers();
-        assert_eq!(compress(PLAIN_CAPACITY as u32 + 1), u32::MAX);
-        assert_eq!(decompress(PACKED_CAPACITY as u32 + 1), u32::MAX);
+        assert_eq!(compress(wire_length(PLAIN_CAPACITY) + 1), u32::MAX);
+        assert_eq!(decompress(wire_length(PACKED_CAPACITY) + 1), u32::MAX);
 
         // A literal run that says 15 bytes follow, and none do.
         packed_buffer()[0] = 0xF0;
@@ -153,6 +170,6 @@ mod tests {
         let mut packed = vec![0; lz4_flex::block::get_maximum_output_size(oversized.len())];
         let packed_length = lz4_flex::block::compress_into(&oversized, &mut packed).unwrap();
         packed_buffer()[..packed_length].copy_from_slice(&packed[..packed_length]);
-        assert_eq!(decompress(packed_length as u32), u32::MAX);
+        assert_eq!(decompress(wire_length(packed_length)), u32::MAX);
     }
 }
