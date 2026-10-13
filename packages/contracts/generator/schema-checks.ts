@@ -124,6 +124,11 @@ function replaceOutsideStrings(code: string, replace: (part: string) => string):
 const AJV_FUNCTION_HEAD =
   /^function (validate\d+)\(data, \{instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors=\{\}\}=\{\}\)\{/u;
 const AJV_RUNTIME = /^const (func\d+) = require\("ajv\/dist\/runtime\/([a-z0-9_]+)"\)\.default;$/u;
+/** The Ajv run-time helpers the checks call, by Ajv's file name, as `schema-check` exports them. */
+const RUNTIME_HELPERS: Readonly<Record<string, string>> = {
+  ucs2length: "ucs2length",
+  equal: "deepEqual",
+};
 const AJV_EXPORT = /^export const (\w+) = (validate\d+);$/u;
 
 /**
@@ -175,12 +180,12 @@ export function generateChecks(
   const rewritten = used.flatMap((statement): string[] => {
     const runtime = AJV_RUNTIME.exec(statement);
     if (runtime !== null) {
-      const helper = runtime[2]!.replace(/_([a-z])/gu, (_match, letter: string) =>
-        letter.toUpperCase(),
-      );
-      const localName = `ajvRuntime${helper[0]!.toUpperCase()}${helper.slice(1)}`;
-      imports.addDefault(`ajv/dist/runtime/${runtime[2]!}.js`, localName);
-      return [`const ${runtime[1]!}: any = ${localName}.default;`];
+      const helper = RUNTIME_HELPERS[runtime[2]!];
+      if (helper === undefined) {
+        throw new Error(`${module.path}: Ajv calls its helper ${runtime[2]!}, which has no import`);
+      }
+      imports.addFromModule(SCHEMA_CHECK_MODULE, helper, "value");
+      return [`const ${runtime[1]!} = ${helper};`];
     }
     if (statement.includes("require(")) {
       throw new Error(
