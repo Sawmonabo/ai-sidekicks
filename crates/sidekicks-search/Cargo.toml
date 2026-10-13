@@ -12,14 +12,17 @@ publish.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-icu_casemap.workspace = true
+icu_casemap = { workspace = true, optional = true }
 lru = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 tantivy = { workspace = true, optional = true }
 # Tantivy's own bit set, at the version Tantivy builds with, so the two crates share the type.
 tantivy-common = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 unicode-normalization = { workspace = true, optional = true }
 unicode-properties = { workspace = true, optional = true }
+writeable = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The case fold the index's fold is held equal to.
@@ -34,12 +37,16 @@ tantivy = { workspace = true, features = ["mmap"], optional = true }
 [features]
 # The index, which only the daemon builds.
 index = [
+  "dep:icu_casemap",
   "dep:lru",
+  "dep:serde",
+  "dep:serde_json",
   "dep:tantivy",
   "dep:tantivy-common",
   "dep:thiserror",
   "dep:unicode-normalization",
   "dep:unicode-properties",
+  "dep:writeable",
 ]
 # The index's budget measurements, compiled into the tests only when asked for.
 measurements = ["dep:libc", "index"]

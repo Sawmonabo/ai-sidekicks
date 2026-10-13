@@ -246,6 +246,7 @@ unicode-properties = {
 }
 unicode-segmentation = "1.13.3"
 webp = "0.3.1"
+writeable = { version = "0.6.4", default-features = false }
 yaml-edit = "0.3.2"
 
 # The JavaScript engines: QuickJS and the web APIs the bundled modules call, held at the commit

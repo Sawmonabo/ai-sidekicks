@@ -8075,11 +8075,14 @@ dependencies = [
  "libc",
  "lru 0.18.5",
  "rstest",
+ "serde",
+ "serde_json",
  "tantivy",
  "tantivy-common",
  "thiserror 2.0.21",
  "unicode-normalization",
  "unicode-properties",
+ "writeable",
 ]
 
 [[package]]

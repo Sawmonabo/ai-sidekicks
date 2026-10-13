@@ -1,0 +1,200 @@
+//! A search's point-in-time view: the version it opened on, the query prepared against it, and the
+//! session order computed as far as its pages have asked.
+
+use std::sync::Arc;
+
+use crate::index::collector::{
+    FULL_PASS_BELOW, PreparedQuery, ScoredSessions, SessionSet, score_every_session, top_sessions,
+};
+use crate::index::directory::{ReadCache, ReadCaches};
+use crate::index::engine::SearchIndex;
+use crate::index::phrase::query_phrases;
+use crate::index::tags::TaggedSessions;
+use crate::index::version::IndexVersion;
+use crate::index::{SearchIndexError, SearchQuery};
+
+/// A search held open over one version of the index: every page of it reads the index as it was
+/// when it opened, and dropping it lets go of that version and its read cache.
+pub struct HeldSearch {
+    version: Arc<IndexVersion>,
+    search: Search,
+    read_cache: Arc<ReadCache>,
+}
+
+// What a search ranks: words, limited to the tagged sessions when it names tags; tags alone; or
+// nothing a row can match.
+enum Search {
+    Words {
+        query: PreparedQuery,
+        within: Option<SessionSet>,
+        /// How many sessions the first pruned ranking holds; a page past them doubles it.
+        first_ranked: usize,
+        order: SessionOrder,
+    },
+    Tags {
+        tags: TaggedSessions,
+        /// The tagged sessions most recently active first.
+        order: Vec<u64>,
+    },
+    Empty,
+}
+
+enum SessionOrder {
+    NotRanked,
+    /// Every matching session, with every one's hits.
+    Whole(ScoredSessions),
+    /// The best `k` sessions; fewer than `k` means the order is complete.
+    Top {
+        k: usize,
+        sessions: Vec<u64>,
+    },
+}
+
+impl HeldSearch {
+    /// Prepares the search against `index`'s current version, its phrase counts and tagged
+    /// sessions read now. With `tag_folds`, only the sessions carrying each tag or one nested under
+    /// it count: ranked by `query` when it is given, most recently active first when it is not. A
+    /// ranking first holds `first_ranked` sessions, so a page that reads no further ranks once.
+    /// Fails when Tantivy fails a read.
+    pub(crate) fn open(
+        index: &SearchIndex,
+        query: Option<&SearchQuery>,
+        tag_folds: Vec<String>,
+        first_ranked: usize,
+    ) -> tantivy::Result<HeldSearch> {
+        let version = index.current_version();
+        let read_cache = Arc::new(ReadCaches::open_cache(index.read_caches()));
+        let _reading = ReadCache::enter(&read_cache);
+        let tags = if tag_folds.is_empty() {
+            None
+        } else {
+            Some(TaggedSessions::read(&version, tag_folds)?)
+        };
+        let search = match (query, tags) {
+            (None, None) => Search::Empty,
+            (None, Some(tags)) => {
+                let order = tags.by_activity();
+                Search::Tags { tags, order }
+            }
+            (Some(query), tags) => {
+                let within =
+                    tags.map(|tags| SessionSet::new(&tags.sessions(), &version.membership));
+                let prepared = if within.as_ref().is_some_and(SessionSet::is_empty) {
+                    None
+                } else {
+                    PreparedQuery::prepare(&version, query_phrases(query))?
+                };
+                match prepared {
+                    Some(query) => Search::Words {
+                        query,
+                        within,
+                        first_ranked,
+                        order: SessionOrder::NotRanked,
+                    },
+                    None => Search::Empty,
+                }
+            }
+        };
+        Ok(HeldSearch {
+            version,
+            search,
+            read_cache,
+        })
+    }
+
+    /// The sessions ranked `from` to `from + count - 1`, best first; fewer past the end. Fails with
+    /// `SearchIndexError::Index` when Tantivy fails a read.
+    pub fn sessions_at(&mut self, from: usize, count: usize) -> Result<Vec<u64>, SearchIndexError> {
+        let end = from.saturating_add(count);
+        let (query, within, first_ranked, order) = match &mut self.search {
+            Search::Empty => return Ok(Vec::new()),
+            Search::Tags { order, .. } => return Ok(page_of(order, from, end)),
+            Search::Words {
+                query,
+                within,
+                first_ranked,
+                order,
+            } => (&*query, within.as_ref(), *first_ranked, order),
+        };
+        let _reading = ReadCache::enter(&self.read_cache);
+        loop {
+            match &*order {
+                SessionOrder::Whole(scored) => return Ok(page_of(&scored.order, from, end)),
+                SessionOrder::Top { k, sessions }
+                    if end <= sessions.len() || sessions.len() < *k =>
+                {
+                    return Ok(page_of(sessions, from, end));
+                }
+                SessionOrder::Top { .. } | SessionOrder::NotRanked => {}
+            }
+            *order = rank(&self.version, query, within, order, first_ranked, end)?;
+        }
+    }
+
+    /// Each named session's matching row keys, best first, in the order the sessions are named; a
+    /// search by tags alone gives each session's matching tag rows by key. Fails with
+    /// `SearchIndexError::Index` when Tantivy fails a read.
+    pub fn hits_of(&self, session_keys: &[u64]) -> Result<Vec<Vec<u64>>, SearchIndexError> {
+        let _reading = ReadCache::enter(&self.read_cache);
+        match &self.search {
+            Search::Empty => Ok(vec![Vec::new(); session_keys.len()]),
+            Search::Tags { tags, .. } => Ok(tags.hits_of(&self.version, session_keys)?),
+            Search::Words {
+                order: SessionOrder::Whole(scored),
+                ..
+            } => Ok(hits_in_order(scored, session_keys)),
+            Search::Words { query, .. } => {
+                let wanted = SessionSet::new(session_keys, &self.version.membership);
+                let scored = score_every_session(&self.version, query, Some(&wanted))?;
+                Ok(hits_in_order(&scored, session_keys))
+            }
+        }
+    }
+
+    /// The bytes this search's read cache holds, and the bytes of the ranges its cap kept out.
+    #[cfg(all(test, feature = "measurements"))]
+    pub(crate) fn read_cache_bytes(&self) -> (usize, usize) {
+        self.read_cache.held_and_refused_bytes()
+    }
+}
+
+fn hits_in_order(scored: &ScoredSessions, sessions: &[u64]) -> Vec<Vec<u64>> {
+    sessions
+        .iter()
+        .map(|session| scored.hits.get(session).cloned().unwrap_or_default())
+        .collect()
+}
+
+fn page_of(order: &[u64], from: usize, end: usize) -> Vec<u64> {
+    order[from.min(order.len())..end.min(order.len())].to_vec()
+}
+
+// A narrow query, and one within sessions whose own rows are few, score every matching row once
+// and keep every hit; a broad one ranks the best k sessions, first `first_ranked`, then k doubled,
+// raised to the page's end each time a page runs past them.
+fn rank(
+    version: &IndexVersion,
+    query: &PreparedQuery,
+    within: Option<&SessionSet>,
+    order: &SessionOrder,
+    first_ranked: usize,
+    end: usize,
+) -> tantivy::Result<SessionOrder> {
+    let mut fewest_rows = query.fewest_rows();
+    if let Some(set) = within {
+        fewest_rows = fewest_rows.min(set.estimated_rows(version)?);
+    }
+    if fewest_rows < FULL_PASS_BELOW {
+        return Ok(SessionOrder::Whole(score_every_session(
+            version, query, within,
+        )?));
+    }
+    let k = match order {
+        SessionOrder::Top { k, .. } => (k * 2).max(end),
+        SessionOrder::NotRanked | SessionOrder::Whole(_) => first_ranked.max(end),
+    };
+    Ok(SessionOrder::Top {
+        k,
+        sessions: top_sessions(version, query, k, within)?,
+    })
+}
