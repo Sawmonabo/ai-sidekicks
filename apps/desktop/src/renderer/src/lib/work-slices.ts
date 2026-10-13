@@ -38,5 +38,8 @@ export function startSlice(): () => boolean {
   return () => performance.now() < sliceEnd;
 }
 
+/** A slice with no end: for work that must finish in the task it is asked in. */
+export const WHOLE_SLICE = (): boolean => true;
+
 /** The most one slice works, in milliseconds by the wall clock: well inside a frame. */
 export const SLICE_MS = 4;

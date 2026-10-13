@@ -71,11 +71,7 @@ export function mountViewport(
   rememberedRowHeights?: RememberedRowHeights,
   feed?: Pick<
     UseTranscriptViewportOptions,
-    | "isRowPrepared"
-    | "subscribeToRowWork"
-    | "isRowOutputParsed"
-    | "isRowRevealing"
-    | "frameScheduler"
+    "isRowPrepared" | "subscribeToRowWork" | "isRowParsed" | "isRowRevealing" | "frameScheduler"
   >,
 ): MountedViewport {
   const resizeObserver = installFakeResizeObserver();

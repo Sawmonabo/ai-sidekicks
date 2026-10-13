@@ -24,7 +24,7 @@ export interface PreparedRowsBinding
       | "holdsRowAfter"
       | "subscribeToWork"
       | "observeReach"
-      | "isOutputParsed"
+      | "isRowParsed"
       | "toggleCall"
       | "holdsRowJoiningView"
     > {}
@@ -80,7 +80,7 @@ export function usePreparedRows(
       holdsRowAfter: gate.holdsRowAfter,
       subscribeToWork: gate.subscribeToWork,
       observeReach: gate.observeReach,
-      isOutputParsed: gate.isOutputParsed,
+      isRowParsed: gate.isRowParsed,
       toggleCall: gate.toggleCall,
       holdsRowJoiningView: gate.holdsRowJoiningView,
     };

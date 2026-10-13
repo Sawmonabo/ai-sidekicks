@@ -1,18 +1,21 @@
 // The rows within the drawn band's reach, handed to the feed, which parses the command outputs of
-// those rows alone, at once for the rows in view. Each walk of the band hands over the rows it
-// reached. A landing waiting for its screen adds the rows it will show, which stay within reach
-// until the band next walks after the landing ends, by then over the rows it landed on. A walk that
-// left a row coming into the band undrawn until its output is parsed is walked again once a row's
-// work lands.
+// those rows alone, and reads their drawn blocks ahead of the rest, at once for the rows in view.
+// Each walk of the band hands over the rows it reached. A landing waiting for its screen adds the
+// rows it will show, which stay within reach until the band next walks after the landing ends, by
+// then over the rows it landed on. A walk that left a row coming into the band undrawn until its
+// output is parsed and its drawn blocks read is walked again once a row's work lands.
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 
-/** What the feed answers the band about its rows' command outputs. */
-export interface RowOutputParses {
+/** What the feed answers the band about its rows' command outputs and drawn blocks. */
+export interface RowParses {
   /** Hands over the rows within the band's reach and, among them, the rows in view, by key. */
   observeReach(rowKeys: ReadonlySet<string>, viewRowKeys: ReadonlySet<string>): void;
-  /** Whether a row's command output, if it draws one, is parsed whole. */
-  isOutputParsed(rowKey: string): boolean;
+  /**
+   * Whether a row's command output, if it draws one, is parsed whole, and its drawn blocks are
+   * read for what they wait on.
+   */
+  isRowParsed(rowKey: string): boolean;
 }
 
 /** Dependencies of a `ViewportRowReach`. */
@@ -20,7 +23,7 @@ export interface ViewportRowReachOptions {
   /** The key of the row at an index of the rows the viewport holds. */
   readonly rowKeyAt: (index: number) => string | undefined;
   /** The feed's answers; a frame given none parses nothing and draws every row it reaches. */
-  readonly outputs: RowOutputParses | undefined;
+  readonly parses: RowParses | undefined;
   /** Hear each time any row's work lands. Returns the unsubscribe. */
   readonly subscribeToRowWork: (listener: () => void) => Unsubscribe;
   /** Walk the band again on the next render, which mounts the rows whose work landed. */
@@ -30,7 +33,7 @@ export interface ViewportRowReachOptions {
 /** What the band and a waiting landing reach, handed to the feed as one set of rows. */
 export class ViewportRowReach {
   readonly #rowKeyAt: (index: number) => string | undefined;
-  readonly #outputs: RowOutputParses | undefined;
+  readonly #parses: RowParses | undefined;
   readonly #subscribeToRowWork: (listener: () => void) => Unsubscribe;
   readonly #redrawBand: () => void;
   #bandRowKeys: ReadonlySet<string> = new Set<string>();
@@ -41,15 +44,15 @@ export class ViewportRowReach {
 
   public constructor(options: ViewportRowReachOptions) {
     this.#rowKeyAt = options.rowKeyAt;
-    this.#outputs = options.outputs;
+    this.#parses = options.parses;
     this.#subscribeToRowWork = options.subscribeToRowWork;
     this.#redrawBand = options.redrawBand;
   }
 
-  /** Whether the command output of the row at an index, if it draws one, is parsed whole. */
-  public isOutputParsedAt(index: number): boolean {
+  /** Whether the row at an index is parsed as `RowParses.isRowParsed` says. */
+  public isRowParsedAt(index: number): boolean {
     const rowKey = this.#rowKeyAt(index);
-    return rowKey === undefined || this.#outputs?.isOutputParsed(rowKey) !== false;
+    return rowKey === undefined || this.#parses?.isRowParsed(rowKey) !== false;
   }
 
   /** One walk of the band: the indexes of the rows within its reach, and of the rows in view. */
@@ -98,7 +101,7 @@ export class ViewportRowReach {
   }
 
   #handOver(): void {
-    this.#outputs?.observeReach(
+    this.#parses?.observeReach(
       this.#landingRowKeys.length === 0
         ? this.#bandRowKeys
         : new Set([...this.#bandRowKeys, ...this.#landingRowKeys]),

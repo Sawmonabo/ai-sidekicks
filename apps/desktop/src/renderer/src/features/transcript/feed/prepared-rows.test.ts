@@ -75,7 +75,7 @@ class HeldPreparations {
       get isReady() {
         return isReady;
       },
-      isOutputReady: true,
+      isParsed: true,
       refresh: () => {
         this.refreshedRowIds.push(row.id);
       },
@@ -412,7 +412,7 @@ describe("PreparedRowGate over a command output", () => {
     // Within the band, out of view: parsed whole in turn, then listed.
     gate.filter(window, prepareTranscriptRow, sources);
     gate.observeReach(new Set([row.id]), new Set());
-    while (!gate.isOutputParsed(row.id)) {
+    while (!gate.isRowParsed(row.id)) {
       expect(await tasks.runNext()).toBe(true);
     }
     expect(gate.filter(window, prepareTranscriptRow, sources).window.rows).toEqual([row]);
@@ -422,11 +422,11 @@ describe("PreparedRowGate over a command output", () => {
     liveText.rebase(rewrittenLines, 0);
     liveText.advance(rewrittenLines.length);
     gate.refresh();
-    expect(gate.isOutputParsed(row.id)).toBe(false);
+    expect(gate.isRowParsed(row.id)).toBe(false);
 
     // The walk that brings it into view parses it whole, so the row is drawn in that walk.
     gate.observeReach(new Set([row.id]), new Set([row.id]));
-    expect(gate.isOutputParsed(row.id)).toBe(true);
+    expect(gate.isRowParsed(row.id)).toBe(true);
     const drawn = preparedBodies.chunksOf(row.id) ?? expect.fail("an output is drawn");
     expect(chunksTextOf(drawn)).toBe(
       chunksTextOf(new AnsiLineChunks().read(publishedTextOf(rewrittenLines), () => true).chunks),
@@ -499,7 +499,7 @@ async function openFortyRowFeed(): Promise<{
     isRowHeldOut: gate.isHeldOut,
     holdsRowAfter: gate.holdsRowAfter,
     subscribeToRowWork: gate.subscribeToWork,
-    rowOutputs: gate,
+    rowParses: gate,
   });
   controller.attach(createCountingScrollContainer({ clientHeight: 400, scrollHeight: 10_000 }));
   controller.reconcile({ rows: model.viewportRows, ...CALM }, NO_LINK);

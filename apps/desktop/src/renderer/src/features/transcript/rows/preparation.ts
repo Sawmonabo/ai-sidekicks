@@ -11,9 +11,10 @@
 // A typesetter, diagram or table failure counts as landed: the body draws its error state.
 
 import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
-import { readWireString } from "#renderer/lib/wire/strings.js";
-import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
 import { publishedTextOf, type PublishedText } from "#renderer/lib/text/published.js";
+import { readWireString } from "#renderer/lib/wire/strings.js";
+import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
+import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
 import { StrippedText } from "./ansi/escape-sequences.js";
 import { AnsiOutputPreparation } from "./ansi/preparation.js";
 import { outputKindOf } from "./bodies/output-kinds.js";
@@ -27,7 +28,6 @@ import {
   type TranscriptRowPreparer,
   type TranscriptRowSources,
 } from "./renderer.js";
-import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
  * Starts what a transcript row's first frame waits on: a message row's body, its finished formulas
@@ -102,7 +102,12 @@ class MessageRowPreparation implements TranscriptRowPreparation {
         }
       },
     );
-    this.#drawnBlockWaits = new DrawnBlockWaits(row.id, sources, () => this.#startWaiting());
+    this.#drawnBlockWaits = new DrawnBlockWaits(
+      row.id,
+      sources,
+      () => this.#startWaiting(),
+      () => this.#readCurrentBlocks(),
+    );
     this.#withdrawals.push(
       this.#blocks.subscribe(() => {
         if (this.#isReading) {
@@ -131,8 +136,8 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     return this.#pendingCount === 0 && this.#output.isReady;
   }
 
-  public get isOutputReady(): boolean {
-    return this.#output.isReady;
+  public get isParsed(): boolean {
+    return this.#output.isReady && this.#drawnBlockWaits.isRead;
   }
 
   public refresh(): void {
@@ -146,7 +151,9 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     } finally {
       this.#isReading = false;
     }
-    this.#output.read(this.#outputText, this.#sources.reachOf(this.#row.id));
+    const reach = this.#sources.reachOf(this.#row.id);
+    this.#output.read(this.#outputText, reach);
+    this.#drawnBlockWaits.readOn(reach);
     this.#drawnBlockWaits.askForDiagrams();
   }
 
@@ -168,13 +175,16 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   #readNewBlocks(): void {
     const body = this.#readMarkdownBody();
     this.#publishBody(body);
+    if (body === undefined) {
+      this.#drawnBlockWaits.read(undefined);
+      return;
+    }
     const last = this.#readBody;
     if (
-      body === undefined ||
-      (body.text === last?.text &&
-        body.text.revision === last.revision &&
-        body.isComplete === last.isComplete &&
-        this.#blocks.readRevision() === last.blocksRevision)
+      body.text === last?.text &&
+      body.text.revision === last.revision &&
+      body.isComplete === last.isComplete &&
+      this.#blocks.readRevision() === last.blocksRevision
     ) {
       return;
     }
@@ -190,6 +200,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     } catch {
       // A parse or a cut the body needs failed: the body throws it for its row's error boundary,
       // and the row waits on nothing more to draw that.
+      this.#drawnBlockWaits.read(undefined);
       this.#landBodyDrawn();
       return;
     }
@@ -208,6 +219,12 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     this.#blocks.requestReads();
   }
 
+  /** The body's blocks as its body reads them now, for a later task; throws as the reader does. */
+  #readCurrentBlocks(): MarkdownBodyBlocksSnapshot | undefined {
+    const body = this.#readBody;
+    return body === undefined ? undefined : this.#blocks.read(body.text, body.isComplete);
+  }
+
   #landBodyDrawn(): void {
     const landed = this.#bodyDrawn;
     this.#bodyDrawn = undefined;
@@ -224,7 +241,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     }
     const liveText = this.#sources.publishedTextFor(this.#row.id);
     if (liveText !== undefined) {
-      const text = this.#proseOf(liveText);
+      const text = this.#proseOf(liveText, false);
       return text === undefined ? undefined : { text, isComplete: false };
     }
     // Once the lane retires the stored body takes over; it extends the lane's text, so the blocks
@@ -234,18 +251,19 @@ class MessageRowPreparation implements TranscriptRowPreparation {
       this.#outputText = undefined;
       return undefined;
     }
-    return this.#settledBodyOf(content.body, () => this.#proseOf(content.body));
+    return this.#settledBodyOf(content.body, () => this.#proseOf(content.body, true));
   }
 
   /**
    * A reply's text as its body draws it as markdown, or `undefined` for any other kind; a text
    * drawn as an output is kept for its output box's parse. Command output keeps its escapes, which
-   * the parse reads its styling from; the other kinds are drawn stripped.
+   * the parse reads its styling from; the other kinds are drawn stripped. `isSettled` says the text
+   * never changes again.
    */
-  #proseOf(text: PublishedText): PublishedText | undefined {
+  #proseOf(text: PublishedText, isSettled: boolean): PublishedText | undefined {
     const contentType = readWireString(projectedPayload(this.#row)["contentType"]);
     const kind = outputKindOf(text, contentType);
-    const drawnText = kind === "command-output" ? text : this.#strippedText.read(text);
+    const drawnText = kind === "command-output" ? text : this.#strippedText.read(text, isSettled);
     this.#outputText = kind === "prose" ? undefined : drawnText;
     return kind === "prose" ? drawnText : undefined;
   }
@@ -325,7 +343,7 @@ class ToolRowPreparation implements TranscriptRowPreparation {
     return this.#output.isReady;
   }
 
-  public get isOutputReady(): boolean {
+  public get isParsed(): boolean {
     return this.#output.isReady;
   }
 

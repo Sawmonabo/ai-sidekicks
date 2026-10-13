@@ -3,17 +3,20 @@
 // view has its diagram drawn ahead of one outside the drawn band; a new palette withdraws the
 // asks made under the old one and the row waits on the new ones alone; a
 // listed reply whose live text settles a diagram has the picture asked for before anything mounts
-// it; a reply's stored body takes over from its retired lane, settling its last block; and a
-// streaming formula or diagram fence starts its typesetter or worker once it names its language,
+// it; a reply's stored body takes over from its retired lane, settling its last block; a row out
+// of view reads its blocks in its turn, waiting on them, and a row in view reads them at once; and
+// a streaming formula or diagram fence starts its typesetter or worker once it names its language,
 // while a fence of code starts neither.
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { RESOLVED_SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import { DiagramPictures } from "#renderer/components/Markdown/diagram/pictures.js";
 import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
 import { FakeDiagramWorkers } from "#renderer/components/Markdown/diagram/worker/connection.test-support.js";
 import { typesetterLoadFor } from "#renderer/components/Markdown/typesetter/load.js";
+import { SteppedTasks } from "#test/helpers/stepped-tasks.js";
+import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { userMessageRow } from "../event-rows.test-support.js";
 import { transcriptReadRowAt } from "../logs.test-support.js";
 import { RevealTextRope } from "../reveal/text-rope.js";
@@ -129,6 +132,11 @@ describe("a message row's preparation", () => {
       ["near", "view"],
     ]);
     const sources = sourcesWith(pictures, undefined, (rowId) => reaches.get(rowId) ?? "outside");
+    // The far row reads its blocks in its turn, a task the window runs at once.
+    vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
     const farDiagram = "flowchart LR\n  far --> away";
     const nearDiagram = "flowchart LR\n  near --> here";
 
@@ -237,6 +245,46 @@ describe("a message row's preparation", () => {
       expect(sentSources(workers)).toEqual([SETTLED_DIAGRAM]);
     });
     expect(preparation?.isReady).toBe(false);
+  });
+
+  it("reads its blocks in turn out of view, holding the row, and at once in view", async () => {
+    const tasks = new SteppedTasks();
+    const pictures = new DiagramPictures(CACHE_BYTE_CAP, new FakeDiagramWorkers().start, () => {
+      return undefined;
+    });
+    const reaches = new Map<string, OutputReach>([
+      ["in-turn", "band"],
+      ["into-view", "band"],
+    ]);
+    const sources = {
+      ...sourcesWith(pictures, undefined, (rowId) => reaches.get(rowId) ?? "outside"),
+      ownerWindow: tasks.window,
+    };
+    // Each block holds a dollar, so each is parsed for a formula.
+    const message = ["One costs $5.", "Two cost $6.", "Three cost $7."].join("\n\n");
+    const [inTurn, intoView] = ["in-turn", "into-view"].map(
+      (id, sequence) =>
+        prepareTranscriptRow(userMessageRow({ id, sequence, message }), sources, () => {
+          return undefined;
+        }) ?? expect.fail("a message row is prepared"),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Within the band, out of view: the blocks wait their turn, and each row waits on them.
+    for (const preparation of [inTurn, intoView]) {
+      expect(preparation?.isParsed).toBe(false);
+      expect(preparation?.isReady).toBe(false);
+    }
+    // A refresh that reads a row in view reads its blocks in that task.
+    reaches.set("into-view", "view");
+    intoView?.refresh();
+    expect(intoView?.isParsed).toBe(true);
+    expect(intoView?.isReady).toBe(true);
+    // The other's turn reads its blocks in the tasks after.
+    while (inTurn?.isParsed === false) {
+      expect(await tasks.runNext()).toBe(true);
+    }
+    expect(inTurn?.isReady).toBe(true);
   });
 
   it("starts the typesetter and the diagram worker once a streaming fence names its language", () => {

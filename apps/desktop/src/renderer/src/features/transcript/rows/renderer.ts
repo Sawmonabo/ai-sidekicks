@@ -84,8 +84,8 @@ export interface TranscriptRowSources {
   /** Where a row's command output is parsed before it is listed, and drawn from after. */
   readonly preparedBodies: PreparedBodies;
   /**
-   * How near the viewport a row stands, which decides when its command output is parsed; a row
-   * outside the drawn band's reach waits on its parse again.
+   * How near the viewport a row stands, which decides when its command output is parsed and its
+   * drawn blocks read; a row outside the drawn band's reach waits on its parse again.
    */
   readonly reachOf: (rowId: string) => OutputReach;
   /** Whether a call is folded, so its output is not drawn and waits on no parse. */
@@ -96,8 +96,11 @@ export interface TranscriptRowSources {
 export interface TranscriptRowPreparation {
   /** Whether every piece of work started so far has landed or failed. */
   readonly isReady: boolean;
-  /** Whether the row's command output, if it draws one, is parsed whole. */
-  readonly isOutputReady: boolean;
+  /**
+   * Whether the row's command output, if it draws one, is parsed whole, and its drawn blocks are
+   * read for what they wait on: what the drawn band waits on before it mounts the row.
+   */
+  readonly isParsed: boolean;
   /**
    * Reads the row's text again and starts what its newly finished blocks wait on. A text that did
    * not change costs nothing, and a grown one costs its growth.

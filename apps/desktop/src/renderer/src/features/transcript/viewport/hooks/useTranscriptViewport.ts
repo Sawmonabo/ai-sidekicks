@@ -29,7 +29,7 @@ import { type AnimationFrameScheduler } from "../../animation-frame-scheduler.js
 import { type RowHeightKind } from "../../rows/height-kind.js";
 import { ViewportController, type ViewportControllerOptions } from "../controller.js";
 import { type MessageReadBack } from "../landing.js";
-import { type RowOutputParses } from "../row-reach.js";
+import { type RowParses } from "../row-reach.js";
 import { type ViewportSelectionTracker } from "../selection/tracker.js";
 import {
   shouldHoldPlaceInsideRow,
@@ -183,11 +183,11 @@ export interface UseTranscriptViewportOptions extends ViewportConditions {
   readonly holdsRowAfter?: ((rowKey: string | undefined) => boolean) | undefined;
   readonly subscribeToRowWork?: ((listener: () => void) => Unsubscribe) | undefined;
   /**
-   * The feed's parses of its rows' command outputs: where the rows within the drawn band's reach
-   * are handed, and whether a row's output is parsed; see `ViewportControllerOptions.rowOutputs`.
+   * The feed's parses of its rows: where the rows within the drawn band's reach are handed, and
+   * whether a row is parsed; see `ViewportControllerOptions.rowParses`.
    */
-  readonly observeRowReach?: RowOutputParses["observeReach"] | undefined;
-  readonly isRowOutputParsed?: RowOutputParses["isOutputParsed"] | undefined;
+  readonly observeRowReach?: RowParses["observeReach"] | undefined;
+  readonly isRowParsed?: RowParses["isRowParsed"] | undefined;
   /** Whether the feed is still revealing a row's text; see `ViewportControllerOptions`. */
   readonly isRowRevealing?: ((rowKey: string) => boolean) | undefined;
   /**
@@ -502,7 +502,7 @@ function mintViewportController(
     | "isRowHeldOut"
     | "holdsRowAfter"
     | "subscribeToRowWork"
-    | "rowOutputs"
+    | "rowParses"
     | "isRowRevealing"
   >,
   latestOptions: React.RefObject<UseTranscriptViewportOptions>,
@@ -518,11 +518,11 @@ function mintViewportController(
     holdsRowAfter: (rowKey) => latestOptions.current.holdsRowAfter?.(rowKey) ?? false,
     subscribeToRowWork: (listener) =>
       latestOptions.current.subscribeToRowWork?.(listener) ?? NO_UNSUBSCRIBE,
-    rowOutputs: {
+    rowParses: {
       observeReach: (rowKeys, viewRowKeys) => {
         latestOptions.current.observeRowReach?.(rowKeys, viewRowKeys);
       },
-      isOutputParsed: (rowKey) => latestOptions.current.isRowOutputParsed?.(rowKey) ?? true,
+      isRowParsed: (rowKey) => latestOptions.current.isRowParsed?.(rowKey) ?? true,
     },
     isRowRevealing: (rowKey) => latestOptions.current.isRowRevealing?.(rowKey) ?? false,
   });
