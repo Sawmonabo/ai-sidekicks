@@ -600,6 +600,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<AttentionTrigger>(),
         Definition::read::<AttentionSeverity>(),
+        Definition::read::<AttentionMomentTrigger>(),
+        Definition::read::<AttentionBannerSettledState>(),
         Definition::read::<AttentionBannerState>(),
         Definition::read::<AttentionWebAddressState>(),
         Definition::read::<AttentionItem>().checked(),

@@ -18,10 +18,11 @@ use crate::preview::page::{
     PreviewPageActivateResponse, PreviewPageCloseResponse, PreviewPageId, PreviewPageListFrame,
     PreviewPageListRequest, PreviewPageLoadState, PreviewPageOpenRequest, PreviewPageOpenResponse,
     PreviewPageReorderRequest, PreviewPageReorderResponse, PreviewPageRequest, PreviewPageTarget,
-    PreviewZoomFactor, PreviewZoomRequest, PreviewZoomResponse,
+    PreviewUnparsedAddress, PreviewZoomFactor, PreviewZoomRequest, PreviewZoomResponse,
 };
 use crate::preview::screencast::{
-    PreviewScreencastAckRequest, PreviewScreencastFrame, PreviewScreencastSubscribeRequest,
+    PreviewScreencastAckRequest, PreviewScreencastFrame, PreviewScreencastFrameMetadata,
+    PreviewScreencastSubscribeRequest,
 };
 use crate::preview::{marks, page};
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -137,6 +138,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<PreviewPageId>().checked(),
         Definition::read::<PreviewZoomFactor>(),
+        Definition::read::<PreviewUnparsedAddress>(),
         Definition::read::<PreviewAddressRefusedReason>(),
         Definition::read::<PreviewAddressRefusedDetails>().checked(),
         Definition::read::<PreviewFavicon>(),
@@ -169,6 +171,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PreviewMarksSendRequest>().checked(),
         Definition::read::<PreviewMarksSendResponse>().checked(),
         Definition::read::<PreviewScreencastSubscribeRequest>().checked(),
+        Definition::read::<PreviewScreencastFrameMetadata>(),
         Definition::read::<PreviewScreencastFrame>().checked(),
         Definition::read::<PreviewScreencastAckRequest>().checked(),
     ],

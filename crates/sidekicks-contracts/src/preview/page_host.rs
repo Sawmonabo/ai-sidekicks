@@ -350,10 +350,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The Preview page host's link between the daemon and the desktop's main process: debug \
           targets, debugger traffic, cookies and site data.",
     definitions: &[
+        Definition::read::<PreviewDebuggerError>(),
         Definition::read::<PreviewDebuggerMessage>(),
         Definition::read::<PreviewPageTargetReportRequest>().checked(),
         Definition::read::<PreviewPageDebuggerMessageRequest>().checked(),
         Definition::read::<PreviewReceivedResponse>().checked(),
+        Definition::read::<PreviewCookieSameSite>(),
         Definition::read::<PreviewCookie>(),
         Definition::read::<PreviewPageCookiesReadRequest>().checked(),
         Definition::read::<PreviewPageCookiesReadResponse>().checked(),
