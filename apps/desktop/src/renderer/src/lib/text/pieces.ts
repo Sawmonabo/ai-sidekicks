@@ -156,6 +156,11 @@ export function isHighSurrogate(codeUnit: number): boolean {
   return codeUnit >= 0xd800 && codeUnit <= 0xdbff;
 }
 
+/** Whether a UTF-16 code unit is the second half of a surrogate pair. */
+export function isLowSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xdc00 && codeUnit <= 0xdfff;
+}
+
 /** Stateless, so one encoder serves every caller. */
 const UTF8_ENCODER = new TextEncoder();
 

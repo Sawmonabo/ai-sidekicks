@@ -2,9 +2,10 @@
 // codec is the lz4 WebAssembly module the markdown worker compiles and posts; the page never
 // compiles, it instantiates the module the first time a full chunk needs packing, which costs the
 // module's fixed 128 KiB of memory. Full chunks are packed at idle moments, never while a body is
-// admitted, and a chunk whose packed form is no smaller stays plain. Until the module arrives, when
-// the worker could not compile it, or once it fails, every chunk stays plain UTF-8 and reads back
-// exactly the same.
+// admitted, and a chunk whose packed form is no smaller stays plain. Until a module arrives, while
+// no worker could compile one, or once the codec fails, every chunk stays plain UTF-8 and reads
+// back exactly the same. A codec that failed, to start or inside the module, stays failed; a
+// packed chunk the module cannot unpack throws rather than read as other text.
 
 import { recordRejectedRequest } from "../diagnostic-capture/rejected-request-record.js";
 import { queueIdleTaskIn } from "../idle-task.js";
@@ -20,14 +21,14 @@ export interface PackableText {
 }
 
 /**
- * Where the codec stands: no word yet from the worker, posted absent, handed but not started,
- * running, or failed to start or to pack.
+ * Where the codec stands: no word yet from a worker, posted absent until a later worker posts a
+ * module, handed but not started, running, or failed for good.
  */
 export type TextCompressionState = "waiting" | "absent" | "provided" | "running" | "failed";
 
 /**
- * The most UTF-8 bytes one chunk of a packed text holds: the size of the codec's plain buffer, which
- * the text-compression crate declares as 16 KiB.
+ * The most UTF-8 bytes one chunk of a packed text holds: the size of the codec's plain buffer,
+ * which the text-compression crate declares as 16 KiB.
  */
 export const TEXT_CHUNK_MAX_BYTES: number = 16 * 1024;
 
@@ -57,17 +58,22 @@ export class TextCompression {
     return this.#state;
   }
 
+  /** Whether the codec has no module in hand and has not failed: a worker compiles one for it. */
+  public get isModuleWanted(): boolean {
+    return this.#state === "waiting" || this.#state === "absent";
+  }
+
   /**
-   * Takes the module the markdown worker compiled, or its word that it compiled none, after which
-   * every chunk stays plain. A running codec keeps its own instance, whatever a later worker posts.
+   * Takes the module a markdown worker compiled, or its word that it compiled none, which leaves
+   * the chunks plain until a later worker posts one. A module in hand, started or not, is kept
+   * whatever a later worker posts, and a codec that failed stays failed.
    */
   public provide(module: WebAssembly.Module | undefined): void {
-    if (this.#state === "running") {
+    if (!this.isModuleWanted) {
       return;
     }
     if (module === undefined) {
       this.#state = "absent";
-      this.#waitingTexts = [];
       return;
     }
     this.#module = module;
@@ -77,14 +83,15 @@ export class TextCompression {
 
   /**
    * Asks for `text`'s full chunks to be packed at an idle moment; a text is asked for once until
-   * it answers that none is left. Nothing is packed while the codec is absent or failed.
+   * it answers that none is left. While no module is in hand the text waits, held weakly, for one;
+   * nothing is packed once the codec failed.
    */
   public queuePacking(text: PackableText): void {
-    if (this.#state === "absent" || this.#state === "failed") {
+    if (this.#state === "failed") {
       return;
     }
     this.#waitingTexts.push(new WeakRef(text));
-    if (this.#state === "waiting") {
+    if (this.isModuleWanted) {
       this.#sweepLetGoTexts();
       return;
     }
@@ -94,15 +101,22 @@ export class TextCompression {
   /**
    * `chunk`'s bytes packed, in a buffer of their own, or `undefined` when they would not be smaller
    * or the codec cannot run, so the chunk stays plain. Starts the codec on first need; a codec that
-   * fails is recorded and packs nothing more. A cached decode of `chunk` moves to the packed bytes.
+   * fails, an error answer or a trap in the module alike, is recorded and packs nothing more. A
+   * cached decode of `chunk` moves to the packed bytes.
    */
   public pack(chunk: Uint8Array): Uint8Array | undefined {
     const codec = this.#runningCodec();
     if (codec === undefined) {
       return undefined;
     }
-    codec.plainView(chunk.byteLength).set(chunk);
-    const packedLength = codec.exports.compress(chunk.byteLength) >>> 0;
+    let packedLength: number;
+    try {
+      codec.plainView(chunk.byteLength).set(chunk);
+      packedLength = codec.exports.compress(chunk.byteLength) >>> 0;
+    } catch (error: unknown) {
+      this.#fail(error);
+      return undefined;
+    }
     if (packedLength === CODEC_FAILED) {
       this.#fail(
         new Error(`The text codec could not pack a chunk of ${String(chunk.byteLength)} bytes`),
@@ -125,7 +139,7 @@ export class TextCompression {
    * The text a chunk holds, through the cache of the chunks read last: `bytes` holds its first
    * `byteLength` UTF-8 bytes plain, or holds them packed when `isPacked`. A chunk is the same
    * text for as long as its bytes and length are. Throws when packed bytes do not unpack to
-   * `byteLength`, which no chunk this codec packed does.
+   * `byteLength`, which no chunk this codec packed does, or when the module traps unpacking them.
    */
   public decodedChunk(bytes: Uint8Array, byteLength: number, isPacked: boolean): string {
     const cached = this.#decodedChunks.findIndex(
@@ -146,15 +160,32 @@ export class TextCompression {
 
   /** The text a chunk holds, decoded now and kept nowhere, as `decodedChunk` reads it. */
   public decode(bytes: Uint8Array, byteLength: number, isPacked: boolean): string {
+    return UTF8_DECODER.decode(this.plainBytesOf(bytes, byteLength, isPacked));
+  }
+
+  /**
+   * A chunk's plain UTF-8 bytes, as `decode` reads them: its own for a plain chunk, and for a
+   * packed one the codec's buffer it unpacks into, which the codec's next call overwrites. Throws
+   * as `decodedChunk` does.
+   */
+  public plainBytesOf(bytes: Uint8Array, byteLength: number, isPacked: boolean): Uint8Array {
     if (!isPacked) {
-      return UTF8_DECODER.decode(bytes.subarray(0, byteLength));
+      return bytes.subarray(0, byteLength);
     }
     const codec = this.#codec;
     if (codec === undefined) {
       throw new Error("A packed chunk was read with no text codec running");
     }
-    codec.packedView(bytes.byteLength).set(bytes);
-    const plainLength = codec.exports.decompress(bytes.byteLength) >>> 0;
+    let plainLength: number;
+    try {
+      codec.packedView(bytes.byteLength).set(bytes);
+      plainLength = codec.exports.decompress(bytes.byteLength) >>> 0;
+    } catch (error: unknown) {
+      this.#fail(error);
+      throw new Error(`A packed chunk of ${String(byteLength)} bytes could not be unpacked`, {
+        cause: error,
+      });
+    }
     if (plainLength !== byteLength) {
       throw new Error(
         `A packed chunk of ${String(byteLength)} bytes unpacked to ${
@@ -162,7 +193,7 @@ export class TextCompression {
         }`,
       );
     }
-    return UTF8_DECODER.decode(codec.plainView(plainLength));
+    return codec.plainView(plainLength);
   }
 
   /** Packs the waiting texts at the view's next idle moment, unless a pass is queued already. */
@@ -192,8 +223,8 @@ export class TextCompression {
         break;
       }
     }
+    // A codec that failed let go of every waiting text.
     if (this.#state === "failed") {
-      this.#waitingTexts = [];
       return;
     }
     this.#waitingTexts = this.#waitingTexts.slice(packedCount);
@@ -226,10 +257,18 @@ export class TextCompression {
     return this.#state === "running" ? this.#codec : undefined;
   }
 
-  /** Records why the codec failed and packs nothing more; packed chunks still read back. */
+  /**
+   * Records why the codec failed, the first time it does, and packs nothing more; packed chunks
+   * still read back.
+   */
   #fail(error: unknown): void {
+    if (this.#state === "failed") {
+      return;
+    }
     recordRejectedRequest(TEXT_COMPRESSION_SOURCE, "text-codec-failed", error);
     this.#state = "failed";
+    this.#module = undefined;
+    this.#waitingTexts = [];
   }
 }
 

@@ -1,6 +1,7 @@
 // The rope's claims that matter: the cursor only moves forward, across chunk boundaries and never
-// past the source, and a read of the revealed text through the rope returns exactly the
-// characters revealed, wherever a range falls against the chunks.
+// past the source; a read of the revealed text through the rope returns exactly the characters
+// revealed, wherever a range falls against the chunks; and a commit extends the source as the
+// source is held, a lone surrogate read as the replacement character it is held as.
 
 import { describe, expect, it } from "vitest";
 
@@ -76,6 +77,15 @@ describe("the reveal text rope", () => {
     expect(rope.isPrefixOf("The ran started at noon, and ended")).toBe(false);
     expect(rope.isPrefixOf("The run starved at noon, and ended")).toBe(false);
     expect(rope.isPrefixOf("The run started at dusk, and ended")).toBe(false);
+  });
+
+  it("reads a lone surrogate as the replacement character it is held as", () => {
+    expect(fedWith(["one \uD800 two"]).isPrefixOf("one \uD800 two three")).toBe(true);
+    // A high surrogate the source ends on waits for its other half.
+    expect(fedWith(["ab\uD83D"]).isPrefixOf("ab\uD83D\uDE00 and more")).toBe(true);
+    // A pair across the source's end is one character the source does not hold, though its first
+    // half alone would read as the replacement the source's lone low surrogate is held as.
+    expect(fedWith(["ab\uDC00"]).isPrefixOf("ab\uD83D\uDE00")).toBe(false);
   });
 });
 

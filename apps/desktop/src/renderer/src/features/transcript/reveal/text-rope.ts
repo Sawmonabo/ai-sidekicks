@@ -99,19 +99,12 @@ export class RevealTextRope implements PublishedText {
     );
   }
 
-  /** Whether this rope's source is a prefix of `candidate`, compared chunk by chunk. */
+  /**
+   * Whether this rope's source is a prefix of `candidate` as the source is held, a lone surrogate
+   * matching the U+FFFD it is held as; see `PackedText.isPrefixOf`.
+   */
   public isPrefixOf(candidate: string): boolean {
-    if (candidate.length < this.#source.length) {
-      return false;
-    }
-    let start = 0;
-    for (const chunk of this.#source.chunks()) {
-      if (!candidate.startsWith(chunk, start)) {
-        return false;
-      }
-      start += chunk.length;
-    }
-    return true;
+    return this.#source.isPrefixOf(candidate);
   }
 
   /** How many leading characters the revealed prefix shares with `candidate`. */

@@ -30,6 +30,8 @@ export class PageParser {
   readonly #changes = new Emitter<void>("page parser state");
   #state: PageParserState = "idle";
   #calls: MarkdownParserCalls | undefined;
+  /** Whether a start has run the loader, which the page's module map holds to what it met. */
+  #hasStarted = false;
 
   public constructor(loadCalls: () => Promise<MarkdownParserCalls>) {
     this.#loadCalls = loadCalls;
@@ -46,14 +48,16 @@ export class PageParser {
   }
 
   /**
-   * Starts the parser from the module the markdown worker compiled, and warms it up. Does nothing
-   * while it loads or once it is ready; from `failed` it tries again, as a worker that compiled
-   * the module again hands it over again. A start that fails is recorded and leaves it `failed`.
+   * Starts the parser from the module the markdown worker compiled, and warms it up, once: a second
+   * import would meet what the page's module map kept from the first, a failure or the module its
+   * loader first read. A start that fails is recorded and leaves it `failed` for good; a parser
+   * failed with the worker before any start still starts from a later worker's module.
    */
   public start(module: WebAssembly.Module): void {
-    if (this.#state === "loading" || this.#state === "ready") {
+    if (this.#hasStarted) {
       return;
     }
+    this.#hasStarted = true;
     this.#setState("loading");
     (globalThis as SatteriLoaderScope).satteriWasmModule = module;
     void this.#loadCalls().then(

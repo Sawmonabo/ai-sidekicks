@@ -72,19 +72,20 @@ export class EscapeSequenceStripper {
  * arrived since the last, a piece at a time, into a packed text of its own, so no read copies or
  * strips the whole text again and no second UTF-16 copy is held. A body carrying no escape is
  * answered as itself; a different handle, or a rewrite below what was read, is stripped again from
- * the start.
+ * the start into a new text, and a settled body's text is sealed, which trims and packs its end.
  */
 export class StrippedText {
-  readonly #text = new PackedText();
+  #text = new PackedText();
   #stripper = new EscapeSequenceStripper();
   /** The handle last read, at the revision and length it was read at. */
   #read: StrippedRead | undefined;
 
   /**
-   * `source` without escape sequences: `source` itself when it carries none, otherwise this text's
-   * one handle, whose revision changes whenever what it holds does.
+   * `source` without escape sequences: `source` itself when it carries none, otherwise a handle
+   * whose revision changes whenever what it holds does. `isSettled` says `source` never changes
+   * again, so its stripped text takes no more appends and is sealed.
    */
-  public read(source: PublishedText): PublishedText {
+  public read(source: PublishedText, isSettled: boolean): PublishedText {
     if (!carriesAnsiEscapes(source)) {
       return source;
     }
@@ -94,9 +95,14 @@ export class StrippedText {
         this.#append([source.slice(read.length)]);
       }
     } else {
-      this.#text.truncate(0);
+      // A new text rather than a cut: one sealed takes no cut, and a reader comparing the new text
+      // with the old keeps what they share.
+      this.#text = new PackedText();
       this.#stripper = new EscapeSequenceStripper();
       this.#append(source.chunks());
+    }
+    if (isSettled) {
+      this.#text.seal();
     }
     this.#read = { source, revision: source.revision, length: source.length };
     return this.#text;

@@ -149,18 +149,23 @@ describe("a text stripped a chunk at a time", () => {
     expect(strippedInChunks([...corpus])).toBe(kept);
 
     // A body growing a character at a time, read through one `StrippedText`, holds at each step
-    // what a strip of its text so far keeps; a rewrite below what was read strips from the start.
+    // what a strip of its text so far keeps; a rewrite below what was read strips from the start,
+    // and so does another body after a settled one, whose stripped text was sealed.
     const rope = new RevealTextRope("lane");
     rope.append(corpus);
     const stripped = new StrippedText();
     for (let grownTo = 1; grownTo <= corpus.length; grownTo += 1) {
       rope.advance(1);
-      expect(stripped.read(rope).slice(0), `grown to ${String(grownTo)}`).toBe(
+      expect(stripped.read(rope, false).slice(0), `grown to ${String(grownTo)}`).toBe(
         withoutResidualEscapes(corpus.slice(0, grownTo)),
       );
     }
     rope.rebase(`x${ESCAPE}[0my`, 0);
     rope.advance(rope.pendingCharacterCount);
-    expect(stripped.read(rope).slice(0)).toBe("xy");
+    expect(stripped.read(rope, false).slice(0)).toBe("xy");
+    const settled = publishedTextOf(corpus);
+    expect(stripped.read(settled, true).slice(0)).toBe(kept);
+    expect(stripped.read(settled, true).slice(0)).toBe(kept);
+    expect(stripped.read(rope, false).slice(0)).toBe("xy");
   });
 });

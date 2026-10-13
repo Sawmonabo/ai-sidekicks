@@ -1,11 +1,12 @@
 // A text held as UTF-8 bytes rather than as a string. The bytes sit in chunks of at most
 // `TEXT_CHUNK_MAX_BYTES`, each cut at a code-point boundary so it decodes alone, beside the UTF-16
 // offset each chunk starts at, so a read finds its chunks by binary search and decodes only those,
-// through the one cache of decoded chunks every packed text shares. Full chunks are packed by the
+// through the one cache of decoded chunks every packed text shares. Closed chunks are packed by the
 // page's codec at idle moments; a growing text's last chunk stays open, and a sealed text's packs
-// too. UTF-8 holds no half of a surrogate pair, so a high surrogate an append ends on waits as a
-// code unit of its own until the next append brings its other half; a lone surrogate anywhere else
-// is held as U+FFFD, as every UTF-8 encoder writes it.
+// too. A text held whole at once encodes a short last chunk straight into bytes of its own size, so
+// a short body takes no full chunk to trim. UTF-8 holds no half of a surrogate pair, so a high
+// surrogate an append ends on waits as a code unit of its own until the next append brings its
+// other half; a lone surrogate anywhere else is held as U+FFFD, as every UTF-8 encoder writes it.
 
 import {
   appTextCompression,
@@ -13,7 +14,7 @@ import {
   type PackableText,
   type TextCompression,
 } from "./compression.js";
-import { isHighSurrogate } from "./pieces.js";
+import { isHighSurrogate, isLowSurrogate } from "./pieces.js";
 import { ESCAPE, type StoredText } from "./published.js";
 
 /**
@@ -23,7 +24,7 @@ import { ESCAPE, type StoredText } from "./published.js";
  */
 export class PackedText implements StoredText, PackableText {
   readonly #compression: TextCompression;
-  /** The chunks, oldest first: every one but an open last one is full. */
+  /** The chunks, oldest first: every one but an open last one is closed. */
   readonly #chunks: HeldChunk[] = [];
   /** The UTF-16 offset each chunk starts at, by its index; grown by doubling. */
   #chunkStarts = new Uint32Array(INITIAL_CHUNK_CAPACITY);
@@ -39,7 +40,7 @@ export class PackedText implements StoredText, PackableText {
   /** The revision of the last cut; a reader older than it is told its prefix may have changed. */
   #truncationRevision = 0;
   #isSealed = false;
-  /** How many leading chunks were offered to the codec; the full ones after them wait. */
+  /** How many leading chunks were offered to the codec; the closed ones after them wait. */
   #offeredChunkCount = 0;
   #isWaitingToPack = false;
 
@@ -51,7 +52,7 @@ export class PackedText implements StoredText, PackableText {
   /** `text` held packed and sealed; the string can be let go once this returns. */
   public static of(text: string, compression: TextCompression = appTextCompression): PackedText {
     const packed = new PackedText(compression);
-    packed.append(text);
+    packed.#add(text, true);
     packed.seal();
     return packed;
   }
@@ -64,7 +65,9 @@ export class PackedText implements StoredText, PackableText {
     return this.#revision;
   }
 
-  /** How many bytes the text takes as UTF-8, a waiting high surrogate as the U+FFFD it encodes as. */
+  /**
+   * How many bytes the text takes as UTF-8, a waiting high surrogate as the U+FFFD it encodes as.
+   */
   public get byteLength(): number {
     return this.#chunkedByteLength + (this.#waitingHighSurrogate === "" ? 0 : REPLACEMENT_BYTES);
   }
@@ -81,15 +84,7 @@ export class PackedText implements StoredText, PackableText {
   /** Adds `text` at the end. Throws once the text is sealed. */
   public append(text: string): void {
     this.#refuseWhenSealed();
-    if (text === "") {
-      return;
-    }
-    if (this.#escapeIndex === -1) {
-      const escapeAt = text.indexOf(ESCAPE);
-      this.#escapeIndex = escapeAt === -1 ? -1 : this.length + escapeAt;
-    }
-    this.#hold(this.#waitingHighSurrogate + text);
-    this.#revision += 1;
+    this.#add(text, false);
   }
 
   /**
@@ -119,7 +114,7 @@ export class PackedText implements StoredText, PackableText {
     }
     this.#chunkedLength = chunkStart;
     this.#offeredChunkCount = Math.min(this.#offeredChunkCount, index);
-    this.#hold(keptText);
+    this.#hold(keptText, false);
   }
 
   /** Ends the text: its last chunk is trimmed and packs too, and it takes no more changes. */
@@ -190,9 +185,50 @@ export class PackedText implements StoredText, PackableText {
     return length <= this.length && revision >= this.#truncationRevision;
   }
 
+  /**
+   * Whether `text` starts with this text as it is held, a lone surrogate in `text` matching the
+   * U+FFFD it is held as. Compared as UTF-8 a chunk at a time against the bytes held, so no chunk
+   * is decoded and only a packed one is unpacked.
+   */
+  public isPrefixOf(text: string): boolean {
+    if (text.length < this.length) {
+      return false;
+    }
+    const encoded = new Uint8Array(TEXT_CHUNK_MAX_BYTES);
+    for (const [index, chunk] of this.#chunks.entries()) {
+      const start = this.#chunkStarts[index] ?? 0;
+      const end =
+        index === this.#chunks.length - 1
+          ? this.#chunkedLength
+          : (this.#chunkStarts[index + 1] ?? 0);
+      // A chunk ends on a whole character, so a pair `text` holds across the end differs from it.
+      if (isHighSurrogate(text.charCodeAt(end - 1)) && isLowSurrogate(text.charCodeAt(end))) {
+        return false;
+      }
+      const { read, written } = UTF8_ENCODER.encodeInto(text.slice(start, end), encoded);
+      if (read !== end - start || written !== chunk.byteLength) {
+        return false;
+      }
+      const held = this.#compression.plainBytesOf(
+        chunk.bytes,
+        chunk.byteLength,
+        chunk.state === "packed",
+      );
+      for (let offset = 0; offset < written; offset += 1) {
+        if (held[offset] !== encoded[offset]) {
+          return false;
+        }
+      }
+    }
+    return (
+      this.#waitingHighSurrogate === "" ||
+      text.charCodeAt(this.#chunkedLength) === this.#waitingHighSurrogate.charCodeAt(0)
+    );
+  }
+
   public packWhile(hasTime: () => boolean): boolean {
-    const fullChunkCount = this.#fullChunkCount();
-    while (this.#offeredChunkCount < fullChunkCount) {
+    const closedChunkCount = this.#closedChunkCount();
+    while (this.#offeredChunkCount < closedChunkCount) {
       const index = this.#offeredChunkCount;
       const chunk = this.#chunks[index];
       const packed = chunk === undefined ? undefined : this.#compression.pack(chunk.bytes);
@@ -204,15 +240,31 @@ export class PackedText implements StoredText, PackableText {
         break;
       }
     }
-    const isDone = this.#offeredChunkCount >= fullChunkCount;
+    const isDone = this.#offeredChunkCount >= closedChunkCount;
     if (isDone) {
       this.#isWaitingToPack = false;
     }
     return isDone;
   }
 
-  /** Encodes `text` at the end, holding back a high surrogate it ends on, and offers full chunks. */
-  #hold(text: string): void {
+  /** Adds `text` at the end, `isWhole` when nothing more will be added. */
+  #add(text: string, isWhole: boolean): void {
+    if (text === "") {
+      return;
+    }
+    if (this.#escapeIndex === -1) {
+      const escapeAt = text.indexOf(ESCAPE);
+      this.#escapeIndex = escapeAt === -1 ? -1 : this.length + escapeAt;
+    }
+    this.#hold(this.#waitingHighSurrogate + text, isWhole);
+    this.#revision += 1;
+  }
+
+  /**
+   * Encodes `text` at the end, holding back a high surrogate it ends on, and offers closed chunks.
+   * The rest of a whole text that surely fits one chunk is encoded into bytes of its exact size.
+   */
+  #hold(text: string, isWhole: boolean): void {
     let source = text;
     this.#waitingHighSurrogate = "";
     if (source !== "" && isHighSurrogate(source.charCodeAt(source.length - 1))) {
@@ -221,6 +273,18 @@ export class PackedText implements StoredText, PackableText {
     }
     let start = 0;
     while (start < source.length) {
+      const restLength = source.length - start;
+      if (
+        isWhole &&
+        this.#chunks.at(-1)?.state !== "open" &&
+        restLength * MAX_UTF8_BYTES_PER_CODE_UNIT <= TEXT_CHUNK_MAX_BYTES
+      ) {
+        const bytes = UTF8_ENCODER.encode(source.slice(start));
+        this.#addChunk({ bytes, byteLength: bytes.length, state: "plain" });
+        this.#chunkedByteLength += bytes.length;
+        this.#chunkedLength += restLength;
+        break;
+      }
       const open = this.#openChunk();
       // A chunk's room in bytes bounds the code units that fit, as each takes at least a byte. A
       // pair cut at the slice's end never splits: the lone half would take 3 bytes as U+FFFD,
@@ -244,17 +308,26 @@ export class PackedText implements StoredText, PackableText {
       this.#chunkedLength += read;
       start += read;
     }
-    if (this.#fullChunkCount() > this.#offeredChunkCount) {
+    if (this.#closedChunkCount() > this.#offeredChunkCount) {
       this.#queuePacking();
     }
   }
 
-  /** The last chunk while it is open, else a new open chunk, added at the end. */
+  /** The last chunk while it is open, else a new open chunk of the full size, added at the end. */
   #openChunk(): HeldChunk {
     const last = this.#chunks.at(-1);
     if (last?.state === "open") {
       return last;
     }
+    return this.#addChunk({
+      bytes: new Uint8Array(TEXT_CHUNK_MAX_BYTES),
+      byteLength: 0,
+      state: "open",
+    });
+  }
+
+  /** Adds `chunk` at the end, starting where the chunked text ends. */
+  #addChunk(chunk: HeldChunk): HeldChunk {
     const count = this.#chunks.length;
     if (count === this.#chunkStarts.length) {
       const grown = new Uint32Array(count * 2);
@@ -262,13 +335,8 @@ export class PackedText implements StoredText, PackableText {
       this.#chunkStarts = grown;
     }
     this.#chunkStarts[count] = this.#chunkedLength;
-    const open: HeldChunk = {
-      bytes: new Uint8Array(TEXT_CHUNK_MAX_BYTES),
-      byteLength: 0,
-      state: "open",
-    };
-    this.#chunks.push(open);
-    return open;
+    this.#chunks.push(chunk);
+    return chunk;
   }
 
   /** Closes an open last chunk into bytes of its own exact length. */
@@ -283,13 +351,13 @@ export class PackedText implements StoredText, PackableText {
     }
   }
 
-  /** How many leading chunks are full: every one but an open last one. */
-  #fullChunkCount(): number {
+  /** How many leading chunks are closed: every one but an open last one. */
+  #closedChunkCount(): number {
     return this.#chunks.at(-1)?.state === "open" ? this.#chunks.length - 1 : this.#chunks.length;
   }
 
   #queuePacking(): void {
-    if (!this.#isWaitingToPack && this.#fullChunkCount() > this.#offeredChunkCount) {
+    if (!this.#isWaitingToPack && this.#closedChunkCount() > this.#offeredChunkCount) {
       this.#isWaitingToPack = true;
       this.#compression.queuePacking(this);
     }
@@ -339,6 +407,9 @@ const INITIAL_CHUNK_CAPACITY = 4;
 
 /** The UTF-8 bytes of U+FFFD, which a lone surrogate encodes as. */
 const REPLACEMENT_BYTES = 3;
+
+/** The most UTF-8 bytes one UTF-16 code unit takes: 3, where a pair's two take 4. */
+const MAX_UTF8_BYTES_PER_CODE_UNIT = 3;
 
 /** Stateless, so one encoder serves every text. */
 const UTF8_ENCODER = new TextEncoder();

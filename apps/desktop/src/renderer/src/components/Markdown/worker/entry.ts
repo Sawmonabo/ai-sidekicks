@@ -1,14 +1,14 @@
 // The markdown worker: loads the parser, compiling it from the renderer's own origin when the page
-// hands it none and sending the compiled module back for later workers, with the text-compression
-// module compiled beside it for the page, which compiles nothing itself; and then, off the page's
-// thread, parses each text the page sends into the parser's binary tree, cuts each body's text the
-// page sends into blocks, makes each reply's markdown into HTML under the screen's policy, and
-// reads each drawn part back into the text it copies as, with its HTML when it is copied as
-// markdown, asking the page for a long table's undrawn rows as it reads them. The trees, and the
-// cuts, of texts that arrive together are sent together, so the page lands a screen of them in one
-// pass. When the parser fails to load, or fails on a text, the reply says so and the page ends this
-// worker; a text it cannot make into a copy is answered with the reason, and the worker goes on with
-// the rest.
+// hands it none and sending the compiled module back for later workers, and compiles the
+// text-compression module on its own for the page, which compiles nothing itself, whenever the
+// page's codec still wants it, sending what that came to; and then, off the page's thread, parses
+// each text the page sends into the parser's binary tree, cuts each body's text the page sends into
+// blocks, makes each reply's markdown into HTML under the screen's policy, and reads each drawn
+// part back into the text it copies as, with its HTML when it is copied as markdown, asking the
+// page for a long table's undrawn rows as it reads them. The trees, and the cuts, of texts that
+// arrive together are sent together, so the page lands a screen of them in one pass. When the
+// parser fails to load, or fails on a text, the reply says so and the page ends this worker; a text
+// it cannot make into a copy is answered with the reason, and the worker goes on with the rest.
 
 import parserModuleUrl from "@bruits/satteri-wasm32-wasi/satteri_napi.wasm32-wasi.wasm?url";
 import textCompressionModuleUrl from "@ai-sidekicks/text-compression/text-compression.wasm?url";
@@ -89,19 +89,12 @@ class AnswerOutbox<Answer> {
   }
 }
 
-/**
- * Loads the parser the page hands over, or compiles it, with the text-compression module beside
- * it, and warms it on a short reply.
- */
+/** Loads the parser the page hands over, or compiles it, and warms it on a short reply. */
 async function loadParser(load: MarkdownParserLoad): Promise<MarkdownParserCalls> {
   let parser = load.parser;
   if (parser === undefined) {
-    const [compiledParser, textCompression] = await Promise.all([
-      WebAssembly.compileStreaming(fetch(parserModuleUrl)),
-      compileTextCompression(),
-    ]);
-    parser = compiledParser;
-    workerScope.postMessage({ status: "compiled", parser, textCompression }, []);
+    parser = await WebAssembly.compileStreaming(fetch(parserModuleUrl));
+    workerScope.postMessage({ status: "compiled", parser }, []);
   }
   workerScope.satteriWasmModule = parser;
   return await loadMarkdownParserCalls();
@@ -147,6 +140,12 @@ const parserLoad = new Promise<MarkdownParserCalls | undefined>((resolve) => {
   workerScope.addEventListener("message", (event) => {
     if (event.data.kind !== "load") {
       return;
+    }
+    // Compiled apart from the parser, so a parser that fails to load leaves it to be sent.
+    if (event.data.shouldCompileTextCompression) {
+      void compileTextCompression().then((textCompression) => {
+        workerScope.postMessage({ status: "text-compression", textCompression }, []);
+      });
     }
     resolve(
       loadParser(event.data).catch((error: unknown) => {

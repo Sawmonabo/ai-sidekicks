@@ -47,11 +47,10 @@ export class InThreadMarkdownWorker implements MarkdownWorkerPort {
     if (message.kind === "load") {
       this.loads.push(message.parser);
       if (message.parser === undefined) {
-        this.#say({
-          status: "compiled",
-          parser: inThreadParserModule(),
-          textCompression: IN_THREAD_TEXT_COMPRESSION,
-        });
+        this.#say({ status: "compiled", parser: inThreadParserModule() });
+      }
+      if (message.shouldCompileTextCompression) {
+        this.#say({ status: "text-compression", textCompression: IN_THREAD_TEXT_COMPRESSION });
       }
       return;
     }
@@ -183,7 +182,7 @@ export function inThreadMarkdownWorker(view: Window): MarkdownWorkerConnection {
  * The codec a stand-in worker hands the page: none, since the tier grants no idle moments to pack
  * in, so every packed text there stays plain.
  */
-export const IN_THREAD_TEXT_COMPRESSION: CompiledTextCompression = {
+const IN_THREAD_TEXT_COMPRESSION: CompiledTextCompression = {
   status: "absent",
   reason: "The in-thread markdown worker compiles no text codec",
 };

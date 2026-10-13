@@ -1,6 +1,6 @@
 // What the page and the markdown worker say to each other: the parser the worker loads, and the
-// text-compression module it compiles beside it for the page's packed texts; a text to
-// parse and the trees the worker sends back as the parser's own binary buffers; a text to cut into
+// text-compression module it compiles on its own for the page's packed texts; a text to parse and
+// the trees the worker sends back as the parser's own binary buffers; a text to cut into
 // blocks and where each block ends; a reply's markdown asked for as HTML, or a drawn part asked for
 // as the text it copies as; the worker's asks for a long table's undrawn rows and the page's
 // answers; and the text the worker made, with its HTML for a part copied as markdown, or why it
@@ -16,16 +16,18 @@ import type { CopyFlavor, DrawnTree } from "../drawn-text.js";
 /**
  * What the page sends a worker first: the parser's WebAssembly module, which the app compiles once
  * and every later worker instantiates, or `undefined` when none is compiled yet, and the worker
- * compiles it and sends it back.
+ * compiles it and sends it back; and whether the page's text codec still wants its module, which
+ * the worker then compiles apart from the parser and sends.
  */
 export interface MarkdownParserLoad {
   readonly kind: "load";
   readonly parser: WebAssembly.Module | undefined;
+  readonly shouldCompileTextCompression: boolean;
 }
 
 /**
- * The text-compression module the worker compiled beside the parser, or why it compiled none: a
- * failure there never fails the parser, and the page then holds every text's chunks plain.
+ * The text-compression module the worker compiled, or why it compiled none: a failure there never
+ * fails the parser, and the page holds every text's chunks plain until a later worker compiles it.
  */
 export type CompiledTextCompression =
   | { readonly status: "compiled"; readonly module: WebAssembly.Module }
@@ -133,18 +135,18 @@ export interface MarkdownWorkerMade {
 }
 
 /**
- * What the worker says: the parser it compiled, which the page keeps for later workers, with the
- * text-compression module it compiled, which the page runs; the trees
- * of the texts it parsed since it last sent trees, and where the blocks of the texts it cut since it
- * last sent cuts end, each sent together so the page lands them in one pass; that the parser failed
- * to load or failed on a text, after which the page ends this worker; or, about one request to
- * make, an ask for body rows `firstIndex` to `lastIndex` of the table `tableKey` names, what it
- * made, or why it made nothing. A request has one ask unanswered at most.
+ * What the worker says: the parser it compiled, which the page keeps for later workers; the
+ * text-compression module it compiled, or why it compiled none, which the page's codec takes; the
+ * trees of the texts it parsed since it last sent trees, and where the blocks of the texts it cut
+ * since it last sent cuts end, each sent together so the page lands them in one pass; that the
+ * parser failed to load or failed on a text, after which the page ends this worker; or, about one
+ * request to make, an ask for body rows `firstIndex` to `lastIndex` of the table `tableKey` names,
+ * what it made, or why it made nothing. A request has one ask unanswered at most.
  */
 export type MarkdownWorkerReply =
+  | { readonly status: "compiled"; readonly parser: WebAssembly.Module }
   | {
-      readonly status: "compiled";
-      readonly parser: WebAssembly.Module;
+      readonly status: "text-compression";
       readonly textCompression: CompiledTextCompression;
     }
   | { readonly status: "parsed"; readonly trees: readonly SerializedMarkdownTree[] }

@@ -2,10 +2,10 @@
 // app will soon draw markdown or on the first request, and hands it the parser: the module the
 // first worker compiled and sent back, which every later worker only instantiates. That module is
 // handed to the page's own parser too, at an idle moment, which parses the blocks a body mounts,
-// and the text-compression module the worker compiled beside it goes to the page's text codec;
-// the worker parses what the page does not: a streaming tail, a block too long to parse on the
-// page, a long table's pieces, and every block while the page's parser could not start. It sends
-// each text to parse and hands back the parser's binary tree; a reply's markdown as the UTF-8
+// and the text-compression module a worker compiles while the page's text codec wants one goes to
+// that codec; the worker parses what the page does not: a streaming tail, a block too long to parse
+// on the page, a long table's pieces, and every block while the page's parser could not start. It
+// sends each text to parse and hands back the parser's binary tree; a reply's markdown as the UTF-8
 // bytes of its pieces, moved to the worker, or a drawn part's tree as a copy, to be made into what
 // it copies as; and it answers each of the worker's asks for a long table's undrawn rows from the
 // table the page drew, with the rows one slice writes, so no task on the page grows with a text or
@@ -116,6 +116,7 @@ export class MarkdownWorkerConnection {
   /** How many holds keep the worker up whatever its idle time, such as a turn that is running. */
   #holdCount = 0;
   #requestCount = 0;
+  #startCount = 0;
 
   /**
    * `view` is the window whose thread encodes and decodes the texts, a slice at a time, and starts
@@ -131,6 +132,14 @@ export class MarkdownWorkerConnection {
     this.#view = view;
     this.pageParser = pageParser;
     this.#textCompression = textCompression;
+  }
+
+  /**
+   * How many workers have started: a new count means one started since, which a read that failed
+   * with the last may try again under.
+   */
+  public get startCount(): number {
+    return this.#startCount;
   }
 
   /**
@@ -301,6 +310,7 @@ export class MarkdownWorkerConnection {
 
   #open(): MarkdownWorkerPort {
     const port = this.#startWorker();
+    this.#startCount += 1;
     port.onmessage = (event) => {
       this.#hear(port, event.data);
     };
@@ -312,7 +322,11 @@ export class MarkdownWorkerConnection {
     };
     this.#port = port;
     this.#armIdleCheck(port, MARKDOWN_WORKER_IDLE_STOP_MS);
-    port.postMessage({ kind: "load", parser: this.#parser });
+    port.postMessage({
+      kind: "load",
+      parser: this.#parser,
+      shouldCompileTextCompression: this.#textCompression.isModuleWanted,
+    });
     return port;
   }
 
@@ -324,6 +338,8 @@ export class MarkdownWorkerConnection {
       case "compiled":
         this.#parser = reply.parser;
         this.#handToPageParser(reply.parser);
+        return;
+      case "text-compression":
         this.#handToTextCompression(reply.textCompression);
         return;
       case "load-failed":
@@ -370,7 +386,8 @@ export class MarkdownWorkerConnection {
 
   /**
    * Hands the page's codec the text-compression module the worker compiled, or its word that it
-   * compiled none, which is recorded, and after which the page holds every chunk plain.
+   * compiled none, which is recorded, and after which the page holds every chunk plain until a
+   * later worker compiles one.
    */
   #handToTextCompression(textCompression: CompiledTextCompression): void {
     if (textCompression.status === "compiled") {

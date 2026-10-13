@@ -4,16 +4,17 @@
 // tree it sends must be a plain buffer; if a later Chromium gates making shared memory too, this
 // fails instead of every reply in the transcript. The worker makes the same HTML bytes the page
 // makes from the tree it sends the page, on the constructs whose meaning reaches across a text:
-// reference links and images, footnotes, a loose list beside a tight one, raw HTML and a table;
-// and reads a drawn part into the same text as the page, as plain text, and as markdown with its
-// HTML, a table's undrawn rows among it, and a text longer than one piece crosses whole. The page
-// runs the module the worker compiled into the same tree the worker makes, and runs the
-// text-compression module the worker compiled beside it to pack a text's chunks and unpack them
-// to the same text. The worker cuts a body
-// into exactly the top-level blocks one parse of the whole body reads, whole and as it streams in,
-// on the constructs a scan for blank lines cuts wrongly; holding back one block instead of two
-// splits a loose ordered list. A body no longer than a block the page parses is cut on the page,
-// whole and as it streams in, at the ends the worker cuts, with no cut sent to the worker.
+// reference links and images, footnotes, a loose list beside a tight one, raw HTML and a table; and
+// reads a drawn part into the same text as the page, as plain text, and as markdown with its HTML,
+// a table's undrawn rows among it, and a text longer than one piece crosses whole. The page runs
+// the module the worker compiled into the same tree the worker makes, and runs the text-compression
+// module the worker compiles on its own, even beside a parser that fails to load, to pack a text's
+// chunks and unpack them to the same text. The worker cuts a body into exactly the top-level blocks
+// one parse of the whole body reads, whole and as it streams in, on the constructs a scan for blank
+// lines cuts wrongly and on multibyte text, an emoji's halves either side of a window's edge among
+// it; holding back one block instead of two splits a loose ordered list. A body no longer than a
+// block the page parses is cut on the page, whole and as it streams in, at the ends the worker
+// cuts, with no cut sent to the worker.
 
 import { fromDom } from "hast-util-from-dom";
 import type { Root } from "mdast";
@@ -54,11 +55,11 @@ import type {
   MarkdownWorkerReply,
 } from "#renderer/components/Markdown/worker/messages.js";
 import { longReplyMarkdown } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
+import { TEXT_CHUNK_MAX_BYTES, TextCompression } from "#renderer/lib/text/compression.js";
+import { PackedText } from "#renderer/lib/text/packed.js";
 import { TEXT_PIECE_LENGTH } from "#renderer/lib/text/pieces.js";
 import { endWorkersWithTest } from "../helpers/worker-start.js";
 import cutCases from "./markdown-cut-cases.json" with { type: "json" };
-import { TEXT_CHUNK_MAX_BYTES, TextCompression } from "#renderer/lib/text/compression.js";
-import { PackedText } from "#renderer/lib/text/packed.js";
 
 /** A reply whose parts each read something defined elsewhere in it, or as markup. */
 const REPLY = [
@@ -102,7 +103,7 @@ it("compiles the parser, and moves a tree to the page as a plain buffer", async 
   expect(globalThis.crossOriginIsolated).toBe(false);
   const worker = endWorkersWithTest(startMarkdownWorker)();
   const replies = repliesOf(worker);
-  worker.postMessage({ kind: "load", parser: undefined });
+  worker.postMessage({ kind: "load", parser: undefined, shouldCompileTextCompression: false });
   worker.postMessage({
     kind: "parse",
     requestId: 1,
@@ -219,6 +220,24 @@ it("packs and unpacks a chunk on the page with the worker's text-compression mod
   );
 });
 
+it("compiles the text-compression module apart from a parser that fails to load", async () => {
+  const worker = endWorkersWithTest(startMarkdownWorker)();
+  const replies = repliesOf(worker);
+  // A module with nothing in it, which the parser's loader cannot run.
+  const emptyModule = new WebAssembly.Module(
+    new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]),
+  );
+  worker.postMessage({ kind: "load", parser: emptyModule, shouldCompileTextCompression: true });
+
+  const heard = [await replies.next(), await replies.next()];
+  expect(heard.map((reply) => reply.status).sort()).toStrictEqual([
+    "load-failed",
+    "text-compression",
+  ]);
+  const codec = heard.find((reply) => reply.status === "text-compression");
+  expect(codec?.status === "text-compression" && codec.textCompression.status).toBe("compiled");
+});
+
 it("cuts a body into the top-level blocks one parse of the whole body reads", async () => {
   const { connection, pageParser } = await pageAndWorker();
   for (const [name, text] of Object.entries(CUT_TEXTS)) {
@@ -293,10 +312,32 @@ it("cuts a body no longer than a page-parsed block on the page, where the worker
   }
 });
 
-/** The hand cases a scan for blank lines cuts wrongly, and a long reply of every kind of block. */
+/**
+ * `MULTIBYTE_TEXT`'s lines as paragraphs, so a block starts after each line's multibyte text, where
+ * an offset in UTF-8 bytes would run past the line the block starts on.
+ */
+const MULTIBYTE_PARAGRAPHS = MULTIBYTE_TEXT.replaceAll(/^\d+\. /gmu, "").replaceAll("\n", "\n\n");
+
+/**
+ * ASCII paragraphs up to a line whose emoji has its two halves either side of 65,536 code units,
+ * where the cut's first window would end were it not cut back to whole lines.
+ */
+const EMOJI_AT_WINDOW_EDGE = ((): string => {
+  const paragraphs = `${"a".repeat(99)}\n\n`.repeat(648);
+  const lead = "b".repeat(65_535 - paragraphs.length);
+  return `${paragraphs}${lead}\u{1F600} after the edge\n\n${"c".repeat(40)}\n\n- an item\n`;
+})();
+
+/**
+ * The hand cases a scan for blank lines cuts wrongly, a long reply of every kind of block, and
+ * multibyte text, whose code units and UTF-8 bytes place each block apart.
+ */
 const CUT_TEXTS: Readonly<Record<string, string>> = {
   ...cutCases,
   "a long reply": longReplyMarkdown(80_000),
+  "multibyte lines": MULTIBYTE_TEXT,
+  "multibyte paragraphs": MULTIBYTE_PARAGRAPHS,
+  "an emoji across a window's edge": EMOJI_AT_WINDOW_EDGE,
 };
 
 /** A connection to a markdown worker, whose page parser is never started. */

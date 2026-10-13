@@ -246,7 +246,7 @@ describe.skipIf(!bundleIsBuilt)(
                   }
                 });
                 const messages: MarkdownWorkerMessage[] = [
-                  { kind: "load", parser },
+                  { kind: "load", parser, shouldCompileTextCompression: false },
                   { kind: "parse", requestId: 1, source },
                 ];
                 for (const message of messages) {
@@ -326,8 +326,9 @@ describe.skipIf(!bundleIsBuilt)(
 
         expect(result).toStrictEqual({ parsed: "paragraph", refusals: [] });
 
-        // The codec the worker compiles beside the parser, run on the page as the app's text codec
-        // runs it: instantiated with nothing imported, a chunk packed and unpacked in its memory.
+        // The codec the worker compiles apart from the parser when asked, run on the page as the
+        // app's text codec runs it: instantiated with nothing imported, a chunk packed and unpacked
+        // in its memory.
         const codec = await page.evaluate(
           async ([scriptPath, noted, text, waitMs]): Promise<PageCodecResult> => {
             const worker = new Worker(scriptPath, { type: "module", name: "markdown" });
@@ -337,15 +338,19 @@ describe.skipIf(!bundleIsBuilt)(
                   reject(new Error("the worker never answered"));
                 }, waitMs);
                 worker.addEventListener("message", (event: MessageEvent<MarkdownWorkerReply>) => {
-                  if (event.data.status === "compiled" || event.data.status === "load-failed") {
+                  if (event.data.status === "text-compression") {
                     clearTimeout(wait);
                     resolve(event.data);
                   }
                 });
-                const load: MarkdownWorkerMessage = { kind: "load", parser: undefined };
+                const load: MarkdownWorkerMessage = {
+                  kind: "load",
+                  parser: undefined,
+                  shouldCompileTextCompression: true,
+                };
                 worker.postMessage(load);
               });
-              if (compiled.status !== "compiled") {
+              if (compiled.status !== "text-compression") {
                 return { roundTrip: JSON.stringify(compiled), refusals: [...noted] };
               }
               if (compiled.textCompression.status !== "compiled") {
