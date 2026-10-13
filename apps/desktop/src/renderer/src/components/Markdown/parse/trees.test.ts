@@ -1,6 +1,7 @@
 // The app's markdown trees: a settled block against the whole body's definitions, parsed by the
-// worker or on the page, the cache that shares a worker's tree and keeps none of the page's, a long table read in pieces as its whole parse reads it, and a worker that
-// fails or stops answering, which fails every text it holds and is replaced on the next one.
+// worker or on the page, the cache that shares a worker's tree and keeps none of the page's, a long
+// table read in pieces as its whole parse reads it, and a worker that fails or stops answering,
+// which fails every text it holds and is replaced on the next one.
 
 import type { Root, Table } from "mdast";
 import { describe, expect, it, vi } from "vitest";

@@ -20,8 +20,8 @@ import {
   MARKDOWN_WORKER_IDLE_STOP_MS,
   MarkdownWorkerConnection,
 } from "#renderer/components/Markdown/worker/connection.js";
-import { mendVolatileTail, VolatileTailParser, type VolatileTailView } from "./volatile-tail.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
+import { mendVolatileTail, VolatileTailParser, type VolatileTailView } from "./volatile-tail.js";
 
 /** A tail parser on its own trees, and the stand-in workers those trees parse with. */
 function tailParser(): {

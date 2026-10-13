@@ -1,9 +1,10 @@
-// A long reply drawn as a window over its blocks, against the same reply drawn whole, in the
-// engine that lays them out. The claims are about where text lands, how many elements stay
-// mounted, what a selection keeps, where the reader's block stays when the text size changes,
-// what a far jump into a long table or a block too long for the page draws, and what each painted
-// frame shows while the worker answers late, none of which a DOM shim can answer. Every frame a case lets pass is checked for a block drawn before its tree: an empty box
-// where a block belongs, or markdown's own syntax as text.
+// A long reply drawn as a window over its blocks, against the same reply drawn whole, in the engine
+// that lays them out. The claims are about where text lands, how many elements stay mounted, what a
+// selection keeps, where the reader's block stays when the text size changes, what a far jump into
+// a long table or a block too long for the page draws, and what each painted frame shows while the
+// worker answers late, none of which a DOM shim can answer. Every frame a case lets pass is checked
+// for a block drawn before its tree: an empty box where a block belongs, or markdown's own syntax
+// as text.
 
 import { act } from "@testing-library/react";
 import { fromDom } from "hast-util-from-dom";

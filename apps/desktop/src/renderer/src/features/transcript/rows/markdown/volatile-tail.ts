@@ -195,6 +195,16 @@ export class VolatileTailParser {
   }
 
   /**
+   * Forgets a whole parse that failed: the tail shows the last tree that landed again, or nothing,
+   * and the next `update` parses its tail anew.
+   */
+  public forgetFailure(): void {
+    if (this.#view?.status === "failed") {
+      this.#view = this.#shown === undefined ? undefined : viewOf(this.#shown);
+    }
+  }
+
+  /**
    * Stop listening for the parse in flight, and let go of the tree on screen, as the tail leaves
    * the screen; the tree stays shown here.
    */

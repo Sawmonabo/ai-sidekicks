@@ -69,7 +69,9 @@ function rootChildrenOf(rootMatch: Uint8Array): RootChildren {
   return { ids, types: rootMatch.slice(typesAt, typesAt + count) };
 }
 
-/** Where each child in `ids` starts and ends, from a walk that matched every node of their types. */
+/**
+ * Where each child in `ids` starts and ends, from a walk that matched every node of their types.
+ */
 function positionsOf(ids: Uint32Array, childMatches: Uint8Array): TopLevelChildren {
   const placeOf = new Map<number, number>();
   for (const [index, id] of ids.entries()) {

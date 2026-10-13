@@ -1,5 +1,6 @@
 // A cache bounded in bytes, not entries: cached bodies range from one line to a pasted file.
-// The key (the source text) is always charged, and the value too when the caller can measure it.
+// The key (a source text, or a hash standing in for one) is always charged, and the value too when
+// the caller can measure it.
 // Eviction is least-recently-used, using `Map` insertion order. An entry a caller holds is kept
 // whatever its size and charged like any other, so while it is held the rest give way to it. The
 // entries no one holds are kept in their own order too, so passing the cap visits only those it
@@ -37,7 +38,7 @@ export class ByteBoundedCache<TValue> {
   }
 
   /**
-   * Store a value under its own source text.
+   * Store a value under its key.
    *
    * An entry larger than the whole cap is dropped, not stored: storing it would evict every
    * other entry for something the next insert removes again.

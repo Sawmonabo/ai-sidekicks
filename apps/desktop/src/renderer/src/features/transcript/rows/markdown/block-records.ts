@@ -1,16 +1,18 @@
 // One generation of a body's blocks as compact records, in typed arrays that grow by doubling and
 // are never copied per frame, filled from where the cut says each block ends: where each block
-// starts, its text's hash, what its text may hold, and its lines' lengths, which the window's
-// estimates read. A block's text is read once, as it is appended, and never kept; a key, a
-// fingerprint or a flag is read from the arrays on demand.
+// starts, its text's hash, what its text may hold, its lines' lengths, which the window's
+// estimates read, and the keys of the labels it may reference a definition by. A block's text is
+// read once, as it is appended, and never kept; a key, a fingerprint or a flag is read from the
+// arrays on demand.
 
+import { readReferenceKeys } from "#renderer/components/Markdown/parse/definition-preamble.js";
+import { hashOf } from "#renderer/lib/text/hash.js";
 import { FENCE_OPENER, measureLineLengths } from "./block-window/estimate.js";
 import {
   DEFERRED_FENCE_OPENER,
   fingerprintFrom,
-  FOOTNOTE_DEFINITION_LINE,
-  hashOf,
-  LINK_DEFINITION_LINE,
+  mayDefineFootnote,
+  mayDefineLink,
 } from "./settled-block.js";
 import { mayHoldLongTable } from "./table-window/long-tables.js";
 
@@ -51,6 +53,10 @@ export class BlockRecords {
   #lineStarts = new Uint32Array(INITIAL_BLOCK_CAPACITY + 1);
   /** Every block's line lengths, one after another; 32-bit, since a line can pass 65,535. */
   #lineLengths = new Uint32Array(INITIAL_LINE_CAPACITY);
+  /** Where each block's reference keys start in `#referenceKeys`, and after the last their end. */
+  #referenceStarts = new Uint32Array(INITIAL_BLOCK_CAPACITY + 1);
+  /** Every block's reference keys, one after another, as `readReferenceKeys` reads them. */
+  #referenceKeys = new Uint32Array(INITIAL_REFERENCE_CAPACITY);
   #isReplaced = false;
 
   /** How many blocks are recorded. */
@@ -113,6 +119,17 @@ export class BlockRecords {
     );
   }
 
+  /**
+   * The keys of the labels block `index` may reference a definition by, as `readReferenceKeys`
+   * reads them, as a view of the records' own array.
+   */
+  public referenceKeysOf(index: number): Uint32Array {
+    return this.#referenceKeys.subarray(
+      this.#referenceStarts[index] ?? 0,
+      this.#referenceStarts[index + 1] ?? 0,
+    );
+  }
+
   /** Records the block cut from `start` to `end`, whose text is `text`, after the last one. */
   public append(start: number, end: number, text: string): void {
     const index = this.#count;
@@ -132,6 +149,15 @@ export class BlockRecords {
       lineEnd += 1;
     });
     this.#lineStarts[index + 1] = lineEnd;
+    let referenceEnd = this.#referenceStarts[index] ?? 0;
+    readReferenceKeys(text, (key) => {
+      if (referenceEnd === this.#referenceKeys.length) {
+        this.#referenceKeys = grown(this.#referenceKeys);
+      }
+      this.#referenceKeys[referenceEnd] = key;
+      referenceEnd += 1;
+    });
+    this.#referenceStarts[index + 1] = referenceEnd;
     this.#count = index + 1;
   }
 
@@ -140,7 +166,7 @@ export class BlockRecords {
     this.#count = Math.min(this.#count, count);
   }
 
-  /** Marks the generation replaced: its blocks take a replaced generation's window keys from now. */
+  /** Marks the generation replaced: its blocks take a replaced generation's window keys. */
   public markReplaced(): void {
     this.#isReplaced = true;
   }
@@ -150,12 +176,14 @@ export class BlockRecords {
     this.#hashes = grown(this.#hashes);
     this.#flags = grown(this.#flags);
     this.#lineStarts = grown(this.#lineStarts);
+    this.#referenceStarts = grown(this.#referenceStarts);
   }
 }
 
-/** How many blocks and lines the records hold room for before they first grow. */
+/** How many blocks, lines and reference keys the records hold room for before they first grow. */
 const INITIAL_BLOCK_CAPACITY = 16;
 const INITIAL_LINE_CAPACITY = 64;
+const INITIAL_REFERENCE_CAPACITY = 16;
 
 /** `array` copied into one twice its length. */
 function grown<TArray extends Uint8Array | Uint32Array>(array: TArray): TArray {
@@ -170,10 +198,10 @@ function flagsOf(text: string): number {
   if (FENCE_OPENER.test(text)) {
     flags |= BlockFlag.Fence;
   }
-  if (FOOTNOTE_DEFINITION_LINE.test(text)) {
+  if (mayDefineFootnote(text)) {
     flags |= BlockFlag.MayDefineFootnote;
   }
-  if (LINK_DEFINITION_LINE.test(text)) {
+  if (mayDefineLink(text)) {
     flags |= BlockFlag.MayDefineLink;
   }
   if (DEFERRED_FENCE_OPENER.test(text)) {

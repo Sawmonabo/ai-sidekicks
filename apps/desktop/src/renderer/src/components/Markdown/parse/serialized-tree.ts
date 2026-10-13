@@ -3,8 +3,8 @@
 // math between dollars, and no front matter. A formula between single dollars keeps Pandoc's rule
 // (`math-syntax.ts`): where the parser reads one that breaks it, the opening dollar becomes a
 // stand-in character the parse reads as text and the text is parsed again, so the words after it
-// read as they would with no formula there. Both threads load it: the markdown worker, and the page,
-// which parses a block as it mounts, each from the module the worker compiled.
+// read as they would with no formula there. Both threads load it: the markdown worker, and the
+// page, which parses a block as it mounts, each from the module the worker compiled.
 
 import type { Root } from "mdast";
 import { createMdastHandle, dropHandle, serializeHandle, type Features } from "satteri";

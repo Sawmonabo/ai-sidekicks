@@ -530,7 +530,9 @@ export class BlockWindowLayout implements TableBodyPlacement {
         };
   }
 
-  /** The React key block `index` is drawn under: a settled block's place and text, or the tail's. */
+  /**
+   * The React key block `index` is drawn under: a settled block's place and text, or the tail's.
+   */
   #reactKeyOf(index: number): string {
     return index < this.#blocks.settledCount
       ? this.#blocks.records.reactKeyAt(index)

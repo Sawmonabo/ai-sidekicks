@@ -1,9 +1,11 @@
 // What one generation of a body's blocks defines, and the preamble each block is parsed after. A
 // block that could define a footnote or a link is read alone, once, for the footnote identifiers
-// and link reference definitions it holds; the tail is read as it grows. Every block is parsed
-// after every footnote identifier the body declares and every link label's first definition in the
-// body's order, as a whole-document parse resolves them, less the labels whose first definition is
-// in the block itself, which its own text defines.
+// and link reference definitions it holds; the tail is read as it grows. A settled block is parsed
+// after the footnote identifiers the body declares and the link labels' first definitions in the
+// body's order that its own labels may reference, as a whole-document parse resolves them, less
+// the labels whose first definition is in the block itself, which its own text defines. The tail,
+// parsed again as it grows, is parsed after every one of them, so its preamble holds while it
+// streams.
 
 import type { Definition, Root } from "mdast";
 
@@ -11,7 +13,9 @@ import { collectFootnoteDefinitions } from "#renderer/components/Markdown/footno
 import {
   definitionPreambleOf,
   linkDefinitionsOf,
+  referenceKeyOf,
 } from "#renderer/components/Markdown/parse/definition-preamble.js";
+import { type BlockRecords } from "../block-records.js";
 
 /** What one block, or the tail, defines. */
 export interface ReadDefinitions {
@@ -29,7 +33,10 @@ export interface DefinitionsView {
   readonly definedFootnoteIdentifiers: ReadonlySet<string>;
   /** The settled blocks that define a footnote, ascending. */
   readonly definingBlocks: readonly number[];
-  /** The preamble a block defining none of the body's first link definitions is parsed after. */
+  /**
+   * Every definition the body declares, restated: the preamble the tail is parsed after while it
+   * defines no label first, and a string that changes whenever any definition does.
+   */
   readonly commonPreamble: string;
   /** The preamble the tail is parsed after: without the labels the tail defines first. */
   readonly tailPreamble: string;
@@ -42,11 +49,17 @@ export interface DefinitionsView {
  * and the views the tail's definitions make with them.
  */
 export class BodyDefinitions {
+  /** The generation's blocks, whose reference keys pick each block's definitions. */
+  readonly #records: BlockRecords;
   /** What each read block that defines anything defines, by its index. */
   readonly #byBlock = new Map<number, ReadDefinitions>();
   readonly #unread = new Set<number>();
   #settled: SettledDefinitions | undefined;
   #view: { readonly tailKey: string; readonly view: DefinitionsView } | undefined;
+
+  public constructor(records: BlockRecords) {
+    this.#records = records;
+  }
 
   /** The settled blocks that could define something and are not read yet. */
   public get unread(): ReadonlySet<number> {
@@ -93,7 +106,7 @@ export class BodyDefinitions {
     if (held !== undefined && held.view === settled.lastView && held.tailKey === tailKey) {
       return held.view;
     }
-    const view = viewOf(settled, tail);
+    const view = viewOf(settled, tail, this.#records);
     settled.lastView = view;
     this.#view = { tailKey, view };
     return view;
@@ -166,7 +179,11 @@ function settledDefinitionsOf(byBlock: ReadonlyMap<number, ReadDefinitions>): Se
   };
 }
 
-function viewOf(settled: SettledDefinitions, tail: ReadDefinitions): DefinitionsView {
+function viewOf(
+  settled: SettledDefinitions,
+  tail: ReadDefinitions,
+  records: BlockRecords,
+): DefinitionsView {
   const tailOnlyFootnotes = [...tail.footnoteIdentifiers].filter(
     (identifier) => !settled.footnoteIdentifiers.has(identifier),
   );
@@ -185,6 +202,12 @@ function viewOf(settled: SettledDefinitions, tail: ReadDefinitions): Definitions
   }
   const allLinks = [...settledLinks, ...tailFirstLinks];
   const commonPreamble = definitionPreambleOf(definedFootnoteIdentifiers, allLinks);
+  const footnoteKeys = [...definedFootnoteIdentifiers].map(
+    (identifier) => [identifier, referenceKeyOf(`^${identifier}`)] as const,
+  );
+  const linkKeys = allLinks.map(
+    (definition) => [definition, referenceKeyOf(definition.identifier)] as const,
+  );
   const blockPreambles = new Map<number, string>();
   return {
     definedFootnoteIdentifiers,
@@ -195,15 +218,22 @@ function viewOf(settled: SettledDefinitions, tail: ReadDefinitions): Definitions
         ? commonPreamble
         : definitionPreambleOf(definedFootnoteIdentifiers, settledLinks),
     preambleOf: (index) => {
-      const ownLabels = settled.firstLabelsByBlock.get(index);
-      if (ownLabels === undefined) {
-        return commonPreamble;
+      if (commonPreamble === "") {
+        return "";
       }
       let preamble = blockPreambles.get(index);
       if (preamble === undefined) {
+        const references = new Set(records.referenceKeysOf(index));
+        const ownLabels = settled.firstLabelsByBlock.get(index);
         preamble = definitionPreambleOf(
-          definedFootnoteIdentifiers,
-          allLinks.filter((definition) => !ownLabels.has(definition.identifier)),
+          new Set(
+            footnoteKeys.filter(([, key]) => references.has(key)).map(([identifier]) => identifier),
+          ),
+          linkKeys
+            .filter(
+              ([definition, key]) => references.has(key) && !ownLabels?.has(definition.identifier),
+            )
+            .map(([definition]) => definition),
         );
         blockPreambles.set(index, preamble);
       }

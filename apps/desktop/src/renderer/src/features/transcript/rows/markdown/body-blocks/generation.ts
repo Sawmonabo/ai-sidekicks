@@ -1,7 +1,7 @@
 // One generation of a body's blocks: the text they are cut from, read through its handle and never
-// copied whole; where each block sits and what its text may hold; what they define; the trees parsed
-// on the page for the blocks mounted, kept only while they are; and the worker's trees, held for the
-// blocks the page does not parse. A generation lasts while the body's text only grows.
+// copied whole; where each block sits and what its text may hold; what they define; the trees
+// parsed on the page for the blocks mounted, kept only while they are; and the worker's trees, held
+// for the blocks the page does not parse. A generation lasts while the body's text only grows.
 
 import {
   PAGE_PARSE_MAX_CHARACTERS,
@@ -32,7 +32,7 @@ export class BlockGeneration {
   /** Counts the generations a body has had: a new number means its text was replaced. */
   public readonly number: number;
   public readonly records: BlockRecords = new BlockRecords();
-  public readonly definitions: BodyDefinitions = new BodyDefinitions();
+  public readonly definitions: BodyDefinitions = new BodyDefinitions(this.records);
   /** Each worker tree the body holds, by the block's index. */
   public readonly workerTrees: Map<number, HeldBlockTree> = new Map<number, HeldBlockTree>();
   /** Stops listening for each block's read for its definitions the worker is answering. */

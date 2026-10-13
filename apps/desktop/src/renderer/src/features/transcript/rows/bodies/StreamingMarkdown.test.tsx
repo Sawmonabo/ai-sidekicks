@@ -335,7 +335,7 @@ describe("a footnote whose definition settles in another block", () => {
     expect(marker.getAttribute("data-defined")).toBe("true");
   });
 
-  it("parses each settled block once on the page, against the definitions its tail holds", () => {
+  it("parses each settled block once on the page, against the tail's definitions it cites", () => {
     const bodyBlocks = bodyBlocksForTest();
     const asked = (): string[] =>
       appMarkdownWorkers.started.flatMap((worker) =>
@@ -346,7 +346,7 @@ describe("a footnote whose definition settles in another block", () => {
     renderInWindow(
       <StreamingMarkdown
         publishedText={publishedTextOf(
-          "first filler\n\nsecond filler\n\nthird filler\n\nIt cites a note[^1].\n\n[^1]: the note",
+          "first filler[^1]\n\nsecond filler\n\nthird filler\n\nIt cites a note[^1].\n\n[^1]: the note",
         )}
         sourceId="event-31"
         footnotes={new FootnoteRegistry()}
@@ -356,17 +356,23 @@ describe("a footnote whose definition settles in another block", () => {
       />,
     );
 
-    // The tail is read alone for its definitions and drawn against them; the settled block is
-    // parsed on the page once, against them too, and never asked of the worker.
-    expect(pageParses.mock.calls.filter(([source]) => source === "first filler\n\n")).toStrictEqual(
-      [["first filler\n\n", definitionPreambleOf(new Set(["1"]), [])]],
-    );
+    // The tail is read alone for its definitions and drawn against them; a settled block is
+    // parsed on the page once, against the ones it cites, and never asked of the worker.
+    const citing = "first filler[^1]\n\n";
+    expect(pageParses.mock.calls.filter(([source]) => source === citing)).toStrictEqual([
+      [citing, definitionPreambleOf(new Set(["1"]), [])],
+    ]);
+    expect(
+      pageParses.mock.calls.filter(([source]) => source === "second filler\n\n"),
+    ).toStrictEqual([["second filler\n\n", ""]]);
     expect(
       asked()
         .slice(askedBefore)
-        .filter((source) => source.endsWith("first filler\n\n")),
+        .filter((source) => source.endsWith(citing)),
     ).toEqual([]);
-    expect(screen.getByLabelText("Footnote 1").getAttribute("data-defined")).toBe("true");
+    for (const marker of screen.getAllByLabelText("Footnote 1")) {
+      expect(marker.getAttribute("data-defined")).toBe("true");
+    }
   });
 });
 

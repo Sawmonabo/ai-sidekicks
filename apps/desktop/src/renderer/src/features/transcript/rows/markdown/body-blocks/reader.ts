@@ -1,12 +1,14 @@
-// One markdown body's blocks, as its renderer keys, windows, resolves and draws them. The worker
-// cuts the body's text where the parser's own top-level blocks start: a whole text at once, and a
-// streaming one first up to its last few blocks, then from the parse of its tail, which settles
-// every block but its last two. Each block is recorded once, as it settles, and its text cut again
-// from the body's text when it is read, so a long reply is held once. A block that could define a
-// footnote or a link is read alone, once, for what it defines. A mounted block is parsed on the
-// page the frame it mounts, against the definitions the whole body declares, and its tree kept only
-// while it is mounted; the worker parses a block too long for the page, held while the body lives,
-// the tail as it grows, and every block while the page's parser could not start.
+// One markdown body's blocks, as its renderer keys, windows, resolves and draws them. The parser
+// cuts the body's text where its own top-level blocks start, on the page for a text no longer than
+// a block the page parses and in the worker for a longer one: a whole text at once, and a streaming
+// one first up to its last few blocks, then from the parse of its tail, which settles every block
+// but its last two. Each block is recorded once, as it settles, and its text cut again from the
+// body's text when it is read, so the body's text is held once, by its handle. A block that could
+// define a footnote or a link is read alone, once, for what it defines. A mounted block is parsed
+// on the page the frame it mounts, against the definitions it may reference, and its tree kept
+// only while it is mounted; the worker parses a block too long for the page, held while the body
+// lives, the tail as it grows, and every block while the page's parser could not start. A parse or
+// a cut that failed is asked for again by a read after the worker has started again since.
 //
 // What is drawn moves in one step. A body's first draw waits until its text is cut, the page's
 // parser can parse (or failed to start), the body's definitions are read, and every tree the worker
@@ -24,20 +26,21 @@ import type {
   MarkdownTrees,
   ParsedMarkdown,
 } from "#renderer/components/Markdown/parse/trees.js";
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { Emitter } from "#renderer/lib/emitter.js";
-import { startSlice } from "#renderer/lib/work-slices.js";
-import type { Unsubscribe } from "#shared/preload-api.js";
 import type { PublishedText } from "#renderer/lib/text/published.js";
-import { VolatileTailParser } from "../parse/volatile-tail.js";
-import { LINK_DEFINITION_LINE } from "../settled-block.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { mayDefineLink } from "../settled-block.js";
+import { VolatileTailParser } from "../volatile-tail.js";
 import {
   definitionsOf,
   NO_DEFINITIONS,
   type DefinitionsView,
   type ReadDefinitions,
 } from "./definitions.js";
-import { BlockGeneration, NO_STOP, type HeldBlockTree } from "./generation.js";
+import { BlockGeneration } from "./generation.js";
 import { type MarkdownBodyBlocksSnapshot } from "./snapshot.js";
+import { BlockWorkerTrees, isParsedByWorker, type ParseMode } from "./worker-trees.js";
 
 /**
  * Holds one body's cut, reading and drawing across frames. A block is recorded when it settles and
@@ -66,14 +69,14 @@ export class MarkdownBodyBlocks {
   #replaced: DrawnGeneration | undefined;
   /** How many blocks are drawn on their own; the rest wait inside the drawn tail. */
   #drawnCount = 0;
-  /** How far the worker's trees were asked for, and against which definitions and mode. */
-  #treesAsked: TreesAsked | undefined;
+  readonly #workerTrees: BlockWorkerTrees;
   /** The mode the last read parsed in. */
   #mode: ParseMode = "waiting";
   /** Counts the changes a landed parse or cut made, which a snapshot is read against. */
   #revision = 0;
   #last: LastRead | undefined;
-  #failure: string | undefined;
+  /** Why a parse or a cut the body needs failed, and how many times the worker had started then. */
+  #failure: { readonly reason: string; readonly workerStartCount: number } | undefined;
   /** The tail's tree its definitions were last read from, and what it defines. */
   #tailDefinitions: TailDefinitions = { root: undefined, read: NO_DEFINITIONS, footnotes: [] };
   /** The drawn blocks that define a footnote, as last cut from the definitions' list. */
@@ -100,9 +103,17 @@ export class MarkdownBodyBlocks {
   public constructor(trees: MarkdownTrees) {
     this.#trees = trees;
     this.#tailDefinitionParser = new VolatileTailParser(trees);
-    this.#tailDefinitionParser.subscribe(() => {
-      this.#changed();
-    });
+    this.#hearTailParser(this.#tailDefinitionParser);
+    this.#workerTrees = new BlockWorkerTrees(
+      trees,
+      () => {
+        this.#changed();
+      },
+      (reason) => {
+        this.#fail(reason);
+        this.#changed();
+      },
+    );
     this.#generation = new BlockGeneration(0);
     this.#drawnTail = this.#holdTailParser();
   }
@@ -111,11 +122,15 @@ export class MarkdownBodyBlocks {
    * The body's blocks for its text as it stands, finished when `isComplete`; the last snapshot
    * again for the same text while nothing has landed since. What can be read at once is: a body
    * whose tail another holds draws in the commit it mounts. Throws when a parse or a cut this body
-   * needed failed.
+   * needed failed, until the worker has started again since: then what failed is asked for again.
    */
   public read(text: PublishedText, isComplete: boolean): MarkdownBodyBlocksSnapshot {
-    if (this.#failure !== undefined) {
-      throw new Error(this.#failure);
+    const failure = this.#failure;
+    if (failure !== undefined) {
+      if (failure.workerStartCount === this.#trees.workerStartCount) {
+        throw new Error(failure.reason);
+      }
+      this.#readPastFailure();
     }
     const last = this.#last;
     if (
@@ -131,7 +146,7 @@ export class MarkdownBodyBlocks {
     const generation = this.#generation;
     const tail = this.#tailOf(text, cutState);
     this.#readDefinitionsNow(mode);
-    const couldTailDefine = LINK_DEFINITION_LINE.test(tail);
+    const couldTailDefine = mayDefineLink(tail);
     if (couldTailDefine) {
       this.#tailDefinitionParser.showKept(tail, "");
     }
@@ -142,7 +157,7 @@ export class MarkdownBodyBlocks {
       (!couldTailDefine || this.#tailDefinitionParser.read() !== undefined);
     const canDraw = cutState !== "cutting" && mode !== "waiting";
     if (canDraw && areDefinitionsRead && !this.#isTailDrawn) {
-      this.#readKeptBlockTrees(mode, definitions);
+      this.#workerTrees.readKept(generation, mode, definitions, this.#drawnCount);
       if (tail !== "") {
         this.#drawnTail.parser.showKept(tail, definitions.tailPreamble);
       }
@@ -150,17 +165,16 @@ export class MarkdownBodyBlocks {
     const drawnTail = canDraw
       ? this.#drawWhatLanded(mode, definitions, areDefinitionsRead, tail)
       : this.#tailWhileCutting(tail);
+    // A failed tail view is the body's failure, recorded as it failed and thrown by the next read.
     const tailView = this.#drawnTail.parser.read();
-    if (tailView?.status === "failed") {
-      throw new Error(tailView.reason);
-    }
+    const tailTree = tailView?.status === "parsed" ? tailView : undefined;
     const current: DrawnGeneration = {
       generation,
       view: definitions,
       drawnCount: this.#drawnCount,
       volatileTail: drawnTail,
-      tailNodes: drawnTail === "" || !this.#isTailDrawn ? undefined : tailView?.root.children,
-      tailPreamble: tailView?.status === "parsed" ? tailView.definitionPreamble : undefined,
+      tailNodes: drawnTail === "" || !this.#isTailDrawn ? undefined : tailTree?.root.children,
+      tailPreamble: tailTree?.definitionPreamble,
     };
     const snapshot = this.#snapshotOf(this.#replaced ?? current, definitions, tailDefinitions);
     this.#last = {
@@ -200,14 +214,14 @@ export class MarkdownBodyBlocks {
       this.#requestCut(generation, last.text, last.isComplete);
     }
     for (const index of [...generation.definitions.unread]) {
-      if (this.#needsWorker(generation, index, mode) && !generation.definitionReads.has(index)) {
+      if (isParsedByWorker(generation, index, mode) && !generation.definitionReads.has(index)) {
         this.#requestDefinitions(generation, index);
       }
     }
     if (cutState === "cutting") {
       return;
     }
-    if (LINK_DEFINITION_LINE.test(last.tail)) {
+    if (mayDefineLink(last.tail)) {
       this.#tailDefinitionParser.update(last.tail, "");
     }
     const definitions = last.current.view;
@@ -220,7 +234,7 @@ export class MarkdownBodyBlocks {
     if (!last.areDefinitionsRead) {
       return;
     }
-    this.#requestWorkerTrees(generation, mode, definitions);
+    this.#workerTrees.request(generation, mode, definitions);
     if (!this.#isTailDrawn || this.#drawnCount === generation.records.count) {
       return;
     }
@@ -247,7 +261,7 @@ export class MarkdownBodyBlocks {
     this.#drawnTail.parser.close();
     this.#generation.stopAsks();
     this.#replaced?.generation.stopAsks();
-    this.#treesAsked = undefined;
+    this.#workerTrees.forgetAsks();
     this.letPageTreesGo();
   }
 
@@ -257,14 +271,7 @@ export class MarkdownBodyBlocks {
     const mode: ParseMode = state === "ready" ? "page" : state === "failed" ? "worker" : "waiting";
     if (mode === "page" && this.#mode === "worker") {
       // The page parses what the worker parsed for it while it could not.
-      const generation = this.#generation;
-      for (const [index, held] of generation.workerTrees) {
-        if (!generation.isOverPageCap(index)) {
-          held.stop();
-          held.letLandedGo();
-          generation.workerTrees.delete(index);
-        }
-      }
+      this.#workerTrees.dropPageParsed(this.#generation);
     }
     this.#mode = mode;
     return mode;
@@ -351,7 +358,7 @@ export class MarkdownBodyBlocks {
     this.#generation = new BlockGeneration(previous.number + 1);
     this.#drawnCount = 0;
     this.#isTailDrawn = false;
-    this.#treesAsked = undefined;
+    this.#workerTrees.forgetAsks();
     this.#dropNextTail();
     this.#drawnTail.stop();
     this.#drawnTail = this.#holdTailParser();
@@ -363,7 +370,7 @@ export class MarkdownBodyBlocks {
       return;
     }
     this.#drawnCount = Math.min(this.#drawnCount, count);
-    this.#treesAsked = undefined;
+    this.#workerTrees.forgetAsks();
     this.#isTailDrawn = false;
     this.#dropNextTail();
     this.#drawnTail.stop();
@@ -389,7 +396,7 @@ export class MarkdownBodyBlocks {
       const tailView = this.#drawnTail.parser.read();
       if (
         areDefinitionsRead &&
-        this.#haveBlockTreesLanded(mode, definitions) &&
+        this.#workerTrees.haveLanded(generation, mode, definitions, this.#drawnCount) &&
         (tail === "" ||
           (tailView?.status === "parsed" &&
             tailView.definitionPreamble === definitions.tailPreamble))
@@ -414,27 +421,14 @@ export class MarkdownBodyBlocks {
       : generation.tailFrom(generation.records.startOf(this.#drawnCount));
   }
 
-  /** Whether every block not yet drawn that the worker parses has its tree against its preamble. */
-  #haveBlockTreesLanded(mode: ParseMode, definitions: DefinitionsView): boolean {
-    const generation = this.#generation;
-    for (let index = this.#drawnCount; index < generation.records.count; index += 1) {
-      if (
-        this.#needsWorker(generation, index, mode) &&
-        generation.workerTrees.get(index)?.landedPreamble !== definitions.preambleOf(index)
-      ) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   /**
    * Whether every waiting block's tree has landed against its preamble, and the shorter tail's
    * tree reaches at least as far into the text as the drawn tail's: measured from the text's end,
    * it leaves no more characters undrawn.
    */
   #haveWaitingBlocksLanded(mode: ParseMode, definitions: DefinitionsView, tail: string): boolean {
-    if (!this.#haveBlockTreesLanded(mode, definitions)) {
+    const generation = this.#generation;
+    if (!this.#workerTrees.haveLanded(generation, mode, definitions, this.#drawnCount)) {
       return false;
     }
     if (tail === "") {
@@ -445,18 +439,12 @@ export class MarkdownBodyBlocks {
     if (next?.status !== "parsed" || drawn?.status !== "parsed") {
       return false;
     }
-    const generation = this.#generation;
     const drawnTail = generation.tailFrom(generation.records.startOf(this.#drawnCount));
     return (
       tail.startsWith(next.tailSource) &&
       drawnTail.startsWith(drawn.tailSource) &&
       tail.length - next.tailSource.length <= drawnTail.length - drawn.tailSource.length
     );
-  }
-
-  /** Whether the worker parses block `index`: one too long for the page, or every one in `worker`. */
-  #needsWorker(generation: BlockGeneration, index: number, mode: ParseMode): boolean {
-    return mode === "worker" || generation.isOverPageCap(index);
   }
 
   /** Reads each block not yet read for its definitions that the page parses, or the cache keeps. */
@@ -476,11 +464,9 @@ export class MarkdownBodyBlocks {
 
   /** The tail's definitions from the tree its parser shows, read again only when that changes. */
   #readTailDefinitions(): TailDefinitions {
+    // A failed view throws in `read`, as the failure it reported.
     const view = this.#tailDefinitionParser.read();
-    if (view?.status === "failed") {
-      throw new Error(view.reason);
-    }
-    if (view === undefined) {
+    if (view?.status !== "parsed") {
       return NO_TAIL_DEFINITIONS;
     }
     if (view.root !== this.#tailDefinitions.root) {
@@ -491,133 +477,6 @@ export class MarkdownBodyBlocks {
       };
     }
     return this.#tailDefinitions;
-  }
-
-  /**
-   * Takes the tree the shared trees keep of each block not drawn that the worker parses and not
-   * yet asked for against its preamble; `requestReads` asks for it, and holds it, as for any other.
-   */
-  #readKeptBlockTrees(mode: ParseMode, definitions: DefinitionsView): void {
-    const generation = this.#generation;
-    for (let index = this.#drawnCount; index < generation.records.count; index += 1) {
-      if (!this.#needsWorker(generation, index, mode)) {
-        continue;
-      }
-      const preamble = definitions.preambleOf(index);
-      const held = generation.workerTrees.get(index);
-      if (held?.askedPreamble === preamble || held?.landedPreamble === preamble) {
-        continue;
-      }
-      const kept = this.#trees.readSettledBlock(generation.readBlockSource(index), preamble);
-      if (kept === undefined) {
-        continue;
-      }
-      if (held === undefined) {
-        generation.workerTrees.set(index, {
-          askedPreamble: undefined,
-          landedPreamble: preamble,
-          tree: kept,
-          stop: NO_STOP,
-          letLandedGo: NO_STOP,
-        });
-      } else {
-        held.tree = kept;
-        held.landedPreamble = preamble;
-      }
-    }
-  }
-
-  /**
-   * Asks for each tree the worker parses not yet asked for against its preamble, from where the
-   * last ask stopped, so a frame costs the blocks settled since; and for a slice at most once one
-   * is waiting: the tree that lands asks for the next slice, so a long reply read back asks for its
-   * trees across tasks.
-   */
-  #requestWorkerTrees(
-    generation: BlockGeneration,
-    mode: ParseMode,
-    definitions: DefinitionsView,
-  ): void {
-    const asked = this.#treesAsked;
-    let askedCount =
-      asked?.generation === generation && asked.view === definitions && asked.mode === mode
-        ? asked.count
-        : 0;
-    const hasTime = startSlice();
-    let isWaiting = false;
-    for (; askedCount < generation.records.count; askedCount += 1) {
-      if (isWaiting && !hasTime()) {
-        break;
-      }
-      if (!this.#needsWorker(generation, askedCount, mode)) {
-        continue;
-      }
-      const preamble = definitions.preambleOf(askedCount);
-      if (generation.workerTrees.get(askedCount)?.askedPreamble !== preamble) {
-        isWaiting = this.#requestBlockTree(generation, askedCount, preamble) || isWaiting;
-      }
-    }
-    this.#treesAsked = { generation, view: definitions, mode, count: askedCount };
-  }
-
-  /** Asks for block `index`'s tree against `preamble`; answers whether the ask is waiting. */
-  #requestBlockTree(generation: BlockGeneration, index: number, preamble: string): boolean {
-    const held: HeldBlockTree = generation.workerTrees.get(index) ?? {
-      askedPreamble: preamble,
-      landedPreamble: undefined,
-      tree: undefined,
-      stop: NO_STOP,
-      letLandedGo: NO_STOP,
-    };
-    held.stop();
-    held.stop = NO_STOP;
-    held.askedPreamble = preamble;
-    generation.workerTrees.set(index, held);
-    let answeredAtOnce: MarkdownParseOutcome | undefined;
-    let isAsking = true;
-    const letGo = this.#trees.holdSettledBlock(
-      generation.readBlockSource(index),
-      preamble,
-      (outcome) => {
-        if (isAsking) {
-          answeredAtOnce = outcome;
-          return;
-        }
-        this.#landBlockTree(held, preamble, outcome, letGo);
-      },
-    );
-    isAsking = false;
-    // A kept tree, or a stand-in parser's, is answered before the ask returns.
-    if (answeredAtOnce === undefined) {
-      held.stop = letGo;
-      return true;
-    }
-    this.#landBlockTree(held, preamble, answeredAtOnce, letGo);
-    return false;
-  }
-
-  /** Takes a block's landed tree, held in the shared trees in place of its last one. */
-  #landBlockTree(
-    held: HeldBlockTree,
-    preamble: string,
-    outcome: MarkdownParseOutcome,
-    letGo: Unsubscribe,
-  ): void {
-    held.stop = NO_STOP;
-    if (outcome.status === "failed") {
-      this.#failure = outcome.reason;
-      this.#changed();
-      return;
-    }
-    held.letLandedGo();
-    held.letLandedGo = letGo;
-    // The tree a read drew from the shared trees, now held, changes nothing drawn.
-    if (held.tree === outcome && held.landedPreamble === preamble) {
-      return;
-    }
-    held.tree = outcome;
-    held.landedPreamble = preamble;
-    this.#changed();
   }
 
   /** Asks the worker for block `index`'s tree alone, for what it defines. */
@@ -650,7 +509,7 @@ export class MarkdownBodyBlocks {
   ): void {
     generation.definitionReads.delete(index);
     if (outcome.status === "failed") {
-      this.#failure = outcome.reason;
+      this.#fail(outcome.reason);
     } else {
       generation.definitions.read(index, outcome.root);
     }
@@ -667,7 +526,7 @@ export class MarkdownBodyBlocks {
       isLanded = true;
       generation.cutInFlight = undefined;
       if (answer.status === "failed") {
-        this.#failure = answer.reason;
+        this.#fail(answer.reason);
       } else if (generation.cutEnd === from) {
         generation.appendBlocks(
           Array.from(answer.blockEnds, (end) => from + end),
@@ -784,9 +643,7 @@ export class MarkdownBodyBlocks {
   /** A new tail parser whose every change is this body's. */
   #holdTailParser(): HeldTailParser {
     const parser = new VolatileTailParser(this.#trees);
-    const unsubscribe = parser.subscribe(() => {
-      this.#changed();
-    });
+    const unsubscribe = this.#hearTailParser(parser);
     return {
       parser,
       stop: () => {
@@ -796,17 +653,48 @@ export class MarkdownBodyBlocks {
     };
   }
 
+  /** Hears each change of `parser` as this body's, a failed parse as the body's failure. */
+  #hearTailParser(parser: VolatileTailParser): Unsubscribe {
+    return parser.subscribe(() => {
+      const view = parser.read();
+      if (view?.status === "failed") {
+        this.#fail(view.reason);
+      }
+      this.#changed();
+    });
+  }
+
+  /**
+   * Records why a parse or a cut the body needs failed, which `read` throws until the worker has
+   * started again since.
+   */
+  #fail(reason: string): void {
+    this.#failure = { reason, workerStartCount: this.#trees.workerStartCount };
+    recordRejectedRequest(
+      "features/transcript/rows/markdown/body-blocks",
+      "markdown-body-read-failed",
+      new Error(reason),
+    );
+  }
+
+  /**
+   * Forgets the failure, once the worker has started again since, so the next asks take up what
+   * failed: the cut and the definitions reads stand unanswered, a failed tree stands unasked, and
+   * each tail parser shows its last tree and parses its tail again.
+   */
+  #readPastFailure(): void {
+    this.#failure = undefined;
+    this.#workerTrees.forgetAsks();
+    this.#tailDefinitionParser.forgetFailure();
+    this.#drawnTail.parser.forgetFailure();
+    this.#nextTail?.parser.forgetFailure();
+  }
+
   #changed(): void {
     this.#revision += 1;
     this.#changes.emit();
   }
 }
-
-/**
- * How a body's blocks are parsed: on the page; by the worker, every one, while the page's parser
- * could not start; or not yet, while the page's parser loads.
- */
-type ParseMode = "page" | "worker" | "waiting";
 
 /**
  * Where a body's cut stands: waiting on the worker's cut; streaming, its tail cut from the tail's
@@ -840,14 +728,6 @@ interface LastRead {
   /** The text past the blocks cut, which the tail parses. */
   readonly tail: string;
   readonly areDefinitionsRead: boolean;
-}
-
-/** How far the worker's trees were asked for, and against what. */
-interface TreesAsked {
-  readonly generation: BlockGeneration;
-  readonly view: DefinitionsView;
-  readonly mode: ParseMode;
-  readonly count: number;
 }
 
 /** A tail parser this body holds, and the stop that lets it go. */
