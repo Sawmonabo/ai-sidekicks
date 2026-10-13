@@ -1,8 +1,11 @@
 //! A server's declaration: as the person submits it, values included, and as the daemon reads it
 //! back, with every credential-bearing value reduced to its name.
 
-use schemars::{JsonSchema, Schema};
-use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+
+use schemars::{JsonSchema, Schema, SchemaGenerator};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
 
 use crate::provider::name::ProviderName;
@@ -21,22 +24,52 @@ pub type McpRequestText = FreeFormText<MCP_REQUEST_TEXT_MAX_LEN>;
 /// An argument or a value an `mcp.*` request carries; it may be empty.
 pub type McpRequestValue = BoundedText<0, MCP_REQUEST_TEXT_MAX_LEN>;
 
-/// An `http:` or `https:` server address, taken as typed, a user name or password in it included;
-/// `http:` is legal because a server may listen on loopback.
-pub type McpServerAddress = WebAddress;
+/// An `http:` or `https:` server address of at most [`MCP_REQUEST_TEXT_MAX_LEN`] code points as
+/// sent, taken as typed, a user name or password in it included; `http:` is legal because a
+/// server may listen on loopback.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub struct McpServerAddress(WebAddress);
 
-/// Whether an address keeps the request text's cap.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-pub(crate) fn is_request_address(address: &McpServerAddress, (): &()) -> garde::Result {
-    if is_within_length(address.as_str(), 0, MCP_REQUEST_TEXT_MAX_LEN) {
-        Ok(())
-    } else {
-        Err(garde::Error::new(
-            "the address is longer than the request text cap",
-        ))
+impl McpServerAddress {
+    /// `text` as kept when it is within the request text's cap as sent and is a web address, else
+    /// `None`; the cap counts the text before it is trimmed.
+    pub fn new(text: &str) -> Option<Self> {
+        if !is_within_length(text, 0, MCP_REQUEST_TEXT_MAX_LEN) {
+            return None;
+        }
+        WebAddress::new(text).map(Self)
+    }
+
+    /// The address as kept.
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl<'de> Deserialize<'de> for McpServerAddress {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(&String::deserialize(deserializer)?).ok_or_else(|| {
+            D::Error::custom(format!(
+                "not an http: or https: address of at most {MCP_REQUEST_TEXT_MAX_LEN} code points"
+            ))
+        })
+    }
+}
+
+impl JsonSchema for McpServerAddress {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        "McpServerAddress".into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        let mut schema = WebAddress::json_schema(generator);
+        schema.insert("maxLength".into(), MCP_REQUEST_TEXT_MAX_LEN.into());
+        schema
     }
 }
 
@@ -154,8 +187,6 @@ server_config! {
         }
         remote {
             /// Its address.
-            #[garde(custom(is_request_address))]
-            #[schemars(extend("maxLength" = MCP_REQUEST_TEXT_MAX_LEN))]
             url: McpServerAddress,
             /// Headers sent with each request, values included.
             #[serde(

@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FilesystemPath;
 use crate::mcp::server::config::{
-    MCP_REQUEST_TEXT_MAX_LEN, McpRequestText, McpServerAddress, McpServerConfigInput,
-    add_provider_config_rules, is_request_address,
+    McpRequestText, McpServerAddress, McpServerConfigInput, add_provider_config_rules,
 };
 use crate::mcp::server::inventory::{
     McpRuntimeBindingId, McpServerInventoryEntry, McpServerLegStatus, McpToolOverride,
@@ -150,8 +149,6 @@ pub struct McpOauthLogoutRequest {
     /// The press's key; a retry reuses it.
     pub client_idempotency_key: ClientUuid,
     /// The server's address.
-    #[garde(custom(is_request_address))]
-    #[schemars(extend("maxLength" = MCP_REQUEST_TEXT_MAX_LEN))]
     pub server_id: McpServerAddress,
 }
 
@@ -474,4 +471,46 @@ pub struct McpRegistrySearchResponse {
     )]
     #[schemars(with = "NonEmptyText")]
     pub next_cursor: Option<NonEmptyText>,
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::{McpOauthLogoutRequest, McpUpsertServerRequest};
+    use crate::wire::attachment::{ReceivedError, parse_received};
+
+    const KEY: &str = "00000000-0000-4000-8000-000000000000";
+
+    /// An address whose kept form is short but whose text as sent is past the request text's cap.
+    #[rstest]
+    #[case::spaces(format!("{}https://example.com/", " ".repeat(8190)))]
+    #[case::line_breaks(format!("https://example.com/a{}b", "\n".repeat(8180)))]
+    fn a_server_address_is_capped_as_sent(#[case] padded: String) {
+        let upsert = |url: &str| {
+            serde_json::json!({
+                "scope": "user",
+                "provider": "claude",
+                "serverName": "s",
+                "clientIdempotencyKey": KEY,
+                "config": { "transport": "http", "url": url },
+            })
+            .to_string()
+        };
+        let logout = |url: &str| {
+            serde_json::json!({ "clientIdempotencyKey": KEY, "serverId": url }).to_string()
+        };
+        parse_received::<McpUpsertServerRequest>(upsert("https://example.com/").as_bytes(), vec![])
+            .expect("an address within the cap is read");
+        parse_received::<McpOauthLogoutRequest>(logout("https://example.com/").as_bytes(), vec![])
+            .expect("an address within the cap is read");
+        assert!(matches!(
+            parse_received::<McpUpsertServerRequest>(upsert(&padded).as_bytes(), vec![]),
+            Err(ReceivedError::Attachment(_))
+        ));
+        assert!(matches!(
+            parse_received::<McpOauthLogoutRequest>(logout(&padded).as_bytes(), vec![]),
+            Err(ReceivedError::Attachment(_))
+        ));
+    }
 }
