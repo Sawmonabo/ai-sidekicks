@@ -154,14 +154,18 @@ fn core_share(
     reading: ProcessorReading,
     run_time: Duration,
 ) -> Option<f64> {
-    let (used, over) = match last {
-        // A lower total means the pid now names a new process, read as a first reading.
-        Some(last) if reading.accumulated_cpu_time >= last.accumulated_cpu_time => (
-            reading.accumulated_cpu_time - last.accumulated_cpu_time,
-            reading.read_at.saturating_duration_since(last.read_at),
-        ),
-        Some(_) | None => (reading.accumulated_cpu_time, run_time),
-    };
+    // A lower total means the pid now names a new process, read as a first reading.
+    let (used, over) = last
+        .and_then(|last| {
+            let used = reading
+                .accumulated_cpu_time
+                .checked_sub(last.accumulated_cpu_time)?;
+            Some((
+                used,
+                reading.read_at.saturating_duration_since(last.read_at),
+            ))
+        })
+        .unwrap_or((reading.accumulated_cpu_time, run_time));
     if over.is_zero() {
         None
     } else {

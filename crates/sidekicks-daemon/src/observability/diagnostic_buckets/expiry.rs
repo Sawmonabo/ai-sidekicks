@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime};
 use crate::daemon::service_log::is_service_log_file_name;
 
 /// How often the expiry runs: hourly, so no log outlives its bound by more than an hour.
-pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_secs(60 * 60);
+pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_hours(1);
 
 /// Deletes each service log file in `logs_folder` last written before `now` less `keep`, except
 /// `live_file`, the one the service log holds open. Never fails: a missing folder or file is

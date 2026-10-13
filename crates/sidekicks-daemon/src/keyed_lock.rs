@@ -277,7 +277,7 @@ mod tests {
         assert!(!lock.is_held_here());
         assert!(lock.lock_queues().is_empty());
 
-        let mut dropped = Box::pin(lock.run("session", || std::future::pending::<()>()));
+        let mut dropped = Box::pin(lock.run("session", std::future::pending::<()>));
         assert!(poll!(dropped.as_mut()).is_pending());
         drop(dropped);
         assert!(lock.lock_queues().is_empty());

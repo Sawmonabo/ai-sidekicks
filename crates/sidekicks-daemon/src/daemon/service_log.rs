@@ -530,7 +530,7 @@ mod tests {
             file_name.to_str().expect("an ASCII file name")
         ));
         let files = ServiceLogFiles {
-            sides: service_log.sides.clone(),
+            sides: service_log.sides,
         };
         assert_eq!(files.live_file(), Some(entries[0].path()));
         let text = std::fs::read_to_string(entries[0].path()).expect("the file reads");

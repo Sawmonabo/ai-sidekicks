@@ -218,10 +218,9 @@ mod tests {
             streamed.append("message", "turn", delta, start);
         }
         let interval_end = start + STREAMED_TEXT_PIECE_INTERVAL;
-        assert!(
-            streamed
-                .due(interval_end - STREAMED_TEXT_PIECE_INTERVAL / 2)
-                .is_empty()
+        assert_eq!(
+            streamed.due(interval_end - STREAMED_TEXT_PIECE_INTERVAL / 2),
+            Vec::new()
         );
         pieces.extend(
             streamed

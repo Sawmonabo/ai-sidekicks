@@ -10,7 +10,8 @@ use crate::settle_all::DescribeEach;
 pub(crate) struct CleanupFailures<Original, Cleanup = Original> {
     #[source]
     original: Original,
-    cleanup_failures: Vec<Cleanup>,
+    /// The cleanups' own failures, each kept whole.
+    cleanups: Vec<Cleanup>,
     operation: &'static str,
 }
 
@@ -24,7 +25,7 @@ impl<Original, Cleanup> CleanupFailures<Original, Cleanup> {
     ) -> Self {
         Self {
             original,
-            cleanup_failures,
+            cleanups: cleanup_failures,
             operation,
         }
     }
@@ -36,21 +37,21 @@ impl<Original, Cleanup> CleanupFailures<Original, Cleanup> {
 
     /// The failures of cleaning up after it, in the order they came; empty when cleanup succeeded.
     pub(crate) fn cleanup_failures(&self) -> &[Cleanup] {
-        &self.cleanup_failures
+        &self.cleanups
     }
 }
 
 impl<Original: Display, Cleanup: Display> Display for CleanupFailures<Original, Cleanup> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}", self.original)?;
-        if self.cleanup_failures.is_empty() {
+        if self.cleanups.is_empty() {
             return Ok(());
         }
         write!(
             formatter,
             "; cleaning up after {} failed too: {}",
             self.operation,
-            DescribeEach(&self.cleanup_failures)
+            DescribeEach(&self.cleanups)
         )
     }
 }
