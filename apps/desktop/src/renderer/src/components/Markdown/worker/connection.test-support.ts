@@ -1,9 +1,10 @@
 // Stand-ins for the markdown worker, for suites that run where no worker can. Each answers on the
-// test's own thread as the worker answers: a text to parse through the worker's own serializer,
-// which Sätteri's Node build backs here, before `postMessage` returns unless a test holds those
-// answers to release them in an order of its choosing; a text to cut through the worker's own cut,
-// every window at once, before `postMessage` returns; and a copy to make a microtask later, each
-// message copied and its buffers moved, as a message between threads is.
+// test's own thread as the worker answers: a load with the app's compiled parser; a text to parse
+// through the worker's own serializer, which Sätteri's Node build backs here with that parser,
+// before `postMessage` returns unless a test holds those answers to release them in an order of its
+// choosing; a text to cut through the worker's own cut, every window at once, before `postMessage`
+// returns; and a copy to make a microtask later, each message copied and its buffers moved, as a
+// message between threads is.
 
 import { expect } from "vitest";
 
@@ -195,12 +196,13 @@ const IN_THREAD_TEXT_COMPRESSION: CompiledTextCompression = {
 };
 
 /**
- * The module a stand-in worker compiles and hands the page: an empty one, which Sätteri's Node
- * build, which parses wherever no worker runs, never reads.
+ * The module a stand-in worker compiles and hands the page: the app's compiled parser, which the
+ * tier's setup put on the global Sätteri's loaders read, and which its Node build runs. Fails the
+ * test when no setup put it there.
  */
 export function inThreadParserModule(): WebAssembly.Module {
-  return new WebAssembly.Module(EMPTY_WEBASSEMBLY_MODULE);
+  return (
+    (globalThis as { satteriWasmModule?: WebAssembly.Module }).satteriWasmModule ??
+    expect.fail("a setup file compiled the markdown parser")
+  );
 }
-
-/** The smallest valid WebAssembly binary: its magic number and version, and no sections. */
-const EMPTY_WEBASSEMBLY_MODULE = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);

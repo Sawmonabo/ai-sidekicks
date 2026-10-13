@@ -187,7 +187,7 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Priority: `P3`
 - Owner: `unassigned`
 - References: [Desktop App Implementation Notes §Console Libraries](./architecture/desktop-implementation-notes.md#console-libraries) (the Streaming markdown row), [bruits/satteri#326](https://github.com/bruits/satteri/issues/326) (the seven cases), [bruits/satteri#327](https://github.com/bruits/satteri/pull/327) (the fix)
-- Summary: The app parses replies with Sätteri 0.10.5, the published release. Seven cases parse differently from CommonMark and remark-gfm: emphasis flanking, task lists, footnotes and autolinks. A reply holding one of them can draw differently from how another CommonMark renderer draws it. The app takes no fork and no local rebuild; it waits for a release.
+- Summary: The app parses replies with Sätteri 0.10.5, built from the release's source with one fix of the app's own ([BL-174](#bl-174-sätteri-keeping-an-indented-code-block-whole-after-the-line-that-closed-a-list)). Seven cases parse differently from CommonMark and remark-gfm: emphasis flanking, task lists, footnotes and autolinks. A reply holding one of them can draw differently from how another CommonMark renderer draws it. The app carries no change for them; it waits for a release.
 - V1 Release Impact: the seven cases draw as Sätteri 0.10.5 reads them until a release carries the fix.
 - Named gate: a Sätteri release carrying bruits/satteri#327.
 - Exit Criteria: that release is taken; the seven cases of bruits/satteri#326 parse as CommonMark and remark-gfm do; this entry is deleted.
@@ -198,10 +198,10 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Priority: `P3`
 - Owner: `unassigned`
 - References: [Desktop App Implementation Notes §Console Libraries](./architecture/desktop-implementation-notes.md#console-libraries) (the Streaming markdown row), [bruits/satteri#329](https://github.com/bruits/satteri/pull/329) (the change)
-- Summary: `patches/@bruits__satteri-wasm32-wasi@0.10.5.patch` makes the WebAssembly build's browser loader use the parser module the first markdown worker compiled, read from the global `satteriWasmModule`, instead of fetching and compiling its own. Each later worker is handed that module, and the page sets the same global to the module the worker posts to it before it loads its own parser ([ADR-043](./decisions/043-long-replies-parsed-on-screen-and-held-packed.md)). bruits/satteri#329 adds the same thing upstream under the global `__SATTERI_WASM_MODULE__`.
+- Summary: `patches/@bruits__satteri-wasm32-wasi@0.10.5.patch` makes the WebAssembly build's browser loader use the parser module the first markdown worker compiled, read from the global `satteriWasmModule`, instead of fetching and compiling its own. Each later worker is handed that module, and the page sets the same global to the module the worker posts to it before it loads its own parser ([ADR-043](./decisions/043-long-replies-parsed-on-screen-and-held-packed.md)). bruits/satteri#329 adds the same thing upstream under the global `__SATTERI_WASM_MODULE__`. The same patch makes the Node loader, which the renderer's unit tests run, take its module from that global too; that half carries the app's own parser build ([BL-174](#bl-174-sätteri-keeping-an-indented-code-block-whole-after-the-line-that-closed-a-list)), which bruits/satteri#329 does not touch.
 - V1 Release Impact: none; the patch carries the behavior until a release does.
 - Named gate: a Sätteri release carrying bruits/satteri#329.
-- Exit Criteria: that release is taken; the patch and its `patchedDependencies` entry are deleted; `apps/desktop/src/renderer/src/components/Markdown/worker/entry.ts` and the page's parser loader, `apps/desktop/src/renderer/src/components/Markdown/parse/page-parser.ts`, hand the module under `__SATTERI_WASM_MODULE__` in place of `satteriWasmModule`, and `apps/desktop/tests/e2e/webassembly-worker-policy.test.ts` waits for it under that name; this entry is deleted.
+- Exit Criteria: that release is taken; the browser loader's half of the patch is deleted, and the patch and its `patchedDependencies` entry with it once BL-174 has closed; `apps/desktop/src/renderer/src/components/Markdown/worker/entry.ts` and the page's parser loader, `apps/desktop/src/renderer/src/components/Markdown/parse/page-parser.ts`, hand the module under `__SATTERI_WASM_MODULE__` in place of `satteriWasmModule`, and `apps/desktop/tests/e2e/webassembly-worker-policy.test.ts` waits for it under that name; this entry is deleted.
 
 ## BL-172: Sätteri exporting its tree reader, materializer and walk on their own
 
@@ -224,3 +224,14 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - V1 Release Impact: none; the patch carries the behavior until a release does.
 - Named gate: an `@xterm/xterm` release whose DOM renderer draws block elements, box drawing and the Powerline symbols itself.
 - Exit Criteria: that release is taken; the patch and its `patchedDependencies` entry are deleted; `apps/desktop/tests/browser/terminal-pane/grid.test.ts` still passes drawn by the DOM renderer, and a Powerline prompt drawn by it shows no missing-glyph box; this entry is deleted.
+
+## BL-174: Sätteri keeping an indented code block whole after the line that closed a list
+
+- Status: `blocked` (external-world wait — a Sätteri release carrying the fix)
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Desktop App Implementation Notes §Console Libraries](./architecture/desktop-implementation-notes.md#console-libraries) (the Streaming markdown row)
+- Summary: Sätteri 0.10.5 ends an indented code block after its first line when an earlier line closed a list item or a blockquote and held another block, so `- a\n\n\n***\n    code\n\n    more\n` parses as two code blocks where CommonMark reads one. `packages/markdown-parser` builds the parser's WebAssembly module from the release's source archive, checked against a pinned SHA-256, with `indented-code-block.patch` applied, and the markdown worker compiles that module in place of the npm package's. `patches/@bruits__satteri-wasm32-wasi@0.10.5.patch` makes the Node loader read the same module from `satteriWasmModule`, and the renderer's unit tier forces that loader over the native build, so no test parses with the release's module. No upstream change carries the fix yet; whether to send one is the person's call.
+- V1 Release Impact: none; the package carries the fix until a release does.
+- Named gate: a Sätteri release carrying the fix.
+- Exit Criteria: that release is taken; `packages/markdown-parser`, its CI toolchain steps and its desktop dependency are deleted, and the markdown worker compiles the npm package's module again; the Node loader's half of the Sätteri patch, `apps/desktop/tests/helpers/markdown-parser-module.ts`, the global `apps/desktop/tests/helpers/markdown-worker.ts` sets and the renderer tier's `NAPI_RS_FORCE_WASI` are deleted; this entry is deleted.

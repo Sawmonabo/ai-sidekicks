@@ -1,0 +1,105 @@
+// Builds Sätteri's markdown parser as a WebAssembly module from its released source with our fix:
+// downloads the release's source archive, refuses it unless it matches the pinned hash, unpacks it
+// into `satteri/`, applies `indented-code-block.patch`, and compiles the parser as the release does,
+// with the Rust its `rust-toolchain.toml` pins. `dist/` then holds the module and the notices of
+// everything compiled into it, and `satteri/` stays, so a crate can take the fixed parser by path.
+
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdirSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { writeWasmDist } from "../../tools/wasm-dist.ts";
+
+/** The released source: the archive of Sätteri's `satteri-v0.10.5` tag, and its SHA-256. */
+const SOURCE_ARCHIVE_URL =
+  "https://github.com/bruits/satteri/archive/refs/tags/satteri-v0.10.5.tar.gz";
+const SOURCE_ARCHIVE_SHA256 = "2193132300046ebacdc791d757986741e86abbb6306068dff39d2e4fada68db3";
+
+const PACKAGE_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
+const SOURCE_DIRECTORY = path.join(PACKAGE_DIRECTORY, "satteri");
+/** Sätteri's npm package, where its release runs the parser's build. */
+const NPM_PACKAGE_DIRECTORY = path.join(SOURCE_DIRECTORY, "packages", "satteri");
+const WASM_TARGET = "wasm32-wasip1-threads";
+
+const require = createRequire(import.meta.url);
+
+const response = await fetch(SOURCE_ARCHIVE_URL);
+if (!response.ok) {
+  throw new Error(`Downloading ${SOURCE_ARCHIVE_URL} answered ${String(response.status)}`);
+}
+const archive = Buffer.from(await response.arrayBuffer());
+const archiveSha256 = createHash("sha256").update(archive).digest("hex");
+if (archiveSha256 !== SOURCE_ARCHIVE_SHA256) {
+  throw new Error(
+    `${SOURCE_ARCHIVE_URL} hashes to ${archiveSha256}, not the pinned ${SOURCE_ARCHIVE_SHA256}`,
+  );
+}
+
+rmSync(SOURCE_DIRECTORY, { recursive: true, force: true });
+mkdirSync(SOURCE_DIRECTORY);
+execFileSync("tar", ["-xzf", "-", "--strip-components=1", "-C", SOURCE_DIRECTORY], {
+  input: archive,
+  stdio: ["pipe", "inherit", "inherit"],
+});
+// Applied as to a folder outside any repository: inside this one, `git apply` would read the
+// patch's paths from the repository's root and skip every file without failing.
+execFileSync(
+  "git",
+  ["apply", "--verbose", path.join(PACKAGE_DIRECTORY, "indented-code-block.patch")],
+  {
+    cwd: SOURCE_DIRECTORY,
+    env: { ...process.env, GIT_CEILING_DIRECTORIES: PACKAGE_DIRECTORY },
+    stdio: "inherit",
+  },
+);
+
+// The Rust the source's `rust-toolchain.toml` pins, and its WebAssembly target, unless installed.
+execFileSync("rustup", ["toolchain", "install"], { cwd: SOURCE_DIRECTORY, stdio: "inherit" });
+execFileSync("rustup", ["target", "add", WASM_TARGET], { cwd: SOURCE_DIRECTORY, stdio: "inherit" });
+
+// The release's own build command, plus Cargo's JSON messages on standard output, which name the
+// crates compiled in, and `--locked`, which holds Cargo to the source's lockfile. Cargo builds into
+// this package's `target/`, so a rebuild after the source is unpacked again recompiles only what
+// changed.
+const napiManifest = require("@napi-rs/cli/package.json") as { readonly bin: { napi: string } };
+const buildMessages = execFileSync(
+  process.execPath,
+  [
+    path.join(path.dirname(require.resolve("@napi-rs/cli/package.json")), napiManifest.bin.napi),
+    "build",
+    "--manifest-path",
+    "../../crates/satteri-napi-binding/Cargo.toml",
+    "--output-dir",
+    ".",
+    "--platform",
+    "--release",
+    "--esm",
+    "--strip",
+    "--target",
+    WASM_TARGET,
+    "--",
+    "--locked",
+    "--message-format=json-render-diagnostics",
+  ],
+  {
+    cwd: NPM_PACKAGE_DIRECTORY,
+    env: { ...process.env, CARGO_TARGET_DIR: path.join(PACKAGE_DIRECTORY, "target") },
+    encoding: "utf8",
+    maxBuffer: Infinity,
+    stdio: ["ignore", "pipe", "inherit"],
+  },
+);
+
+writeWasmDist({
+  packageDirectory: PACKAGE_DIRECTORY,
+  workspaceDirectory: SOURCE_DIRECTORY,
+  buildMessages,
+  crateLibraryName: "satteri_napi",
+  moduleFile: "satteri.wasm",
+  builtModulePath: path.join(NPM_PACKAGE_DIRECTORY, "satteri_napi.wasm32-wasi.wasm"),
+  // napi's build links emnapi's compiled Node-API layer into the module.
+  linkedPackageDirectories: [path.dirname(require.resolve("emnapi/package.json"))],
+});

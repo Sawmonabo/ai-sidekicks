@@ -1,5 +1,5 @@
 diff --git a/satteri_napi.wasi-browser.js b/satteri_napi.wasi-browser.js
-index 9610aa4d0404bed84a5661566f1e3beb31f5e63f..034be3b4de438a2525364fdc7920d70d80fed610 100644
+index 9610aa4d0404bed84a5661566f1e3beb31f5e63f..cbbbbe0ad7c3f1ad59ec4548271138eb1f28265e 100644
 --- a/satteri_napi.wasi-browser.js
 +++ b/satteri_napi.wasi-browser.js
 @@ -11,7 +11,6 @@ const __wasi = new __WASI({
@@ -24,3 +24,34 @@ index 9610aa4d0404bed84a5661566f1e3beb31f5e63f..034be3b4de438a2525364fdc7920d70d
  
  const {
    instance: __napiInstance,
+diff --git a/satteri_napi.wasi.cjs b/satteri_napi.wasi.cjs
+index 203f564faa41ad4b05e3c0b5a3997f71406ecfca..0557d7fd47116213363643ec2beddc637c580466 100644
+--- a/satteri_napi.wasi.cjs
++++ b/satteri_napi.wasi.cjs
+@@ -32,20 +32,14 @@ const __sharedMemory = new WebAssembly.Memory({
+   shared: true,
+ })
+ 
+-let __wasmFilePath = __nodePath.join(__dirname, 'satteri_napi.wasm32-wasi.wasm')
+-const __wasmDebugFilePath = __nodePath.join(__dirname, 'satteri_napi.wasm32-wasi.debug.wasm')
+-
+-if (__nodeFs.existsSync(__wasmDebugFilePath)) {
+-  __wasmFilePath = __wasmDebugFilePath
+-} else if (!__nodeFs.existsSync(__wasmFilePath)) {
+-  try {
+-    __wasmFilePath = require.resolve('@bruits/satteri-wasm32-wasi/satteri_napi.wasm32-wasi.wasm')
+-  } catch {
+-    throw new Error('Cannot find satteri_napi.wasm32-wasi.wasm file, and @bruits/satteri-wasm32-wasi package is not installed.')
+-  }
++// The compiled parser, set by the code that loads this file before it requires it, as the browser
++// loader reads it, so this build runs the same parser and never the module beside this file.
++const __wasmFile = globalThis.satteriWasmModule
++if (!(__wasmFile instanceof WebAssembly.Module)) {
++  throw new TypeError('globalThis.satteriWasmModule holds no compiled parser')
+ }
+ 
+-const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
++const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__wasmFile, {
+   context: __emnapiContext,
+   asyncWorkPoolSize: (function() {
+     const threadsSizeFromEnv = Number(process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE)

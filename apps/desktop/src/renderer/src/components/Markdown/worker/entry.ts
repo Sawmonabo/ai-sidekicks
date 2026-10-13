@@ -11,7 +11,7 @@
 // it cannot cut, or make into a copy, is answered with the reason, and the worker goes on with the
 // rest.
 
-import parserModuleUrl from "@bruits/satteri-wasm32-wasi/satteri_napi.wasm32-wasi.wasm?url";
+import parserModuleUrl from "@ai-sidekicks/markdown-parser/satteri.wasm?url";
 import textCompressionModuleUrl from "@ai-sidekicks/compression/lz4.wasm?url";
 
 import { describeFailure } from "#shared/failure-message.js";

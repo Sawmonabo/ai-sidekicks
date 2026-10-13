@@ -1,0 +1,29 @@
+{
+  "name": "@ai-sidekicks/markdown-parser",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sätteri's markdown parser as a WebAssembly module, built from its released source with our fix applied.",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24.21.0"
+  },
+  "exports": {
+    "./satteri.wasm": "./dist/satteri.wasm"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node --experimental-strip-types build.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint build.ts",
+    "test": "cd satteri && cargo test --locked -p satteri-pulldown-cmark --target-dir ../target"
+  },
+  "devDependencies": {
+    "@emnapi/core": "1.11.1",
+    "@emnapi/runtime": "1.11.1",
+    "@napi-rs/cli": "3.7.2",
+    "emnapi": "1.11.1"
+  }
+}
