@@ -157,7 +157,8 @@ impl JsonSchema for WebAddress {
     }
 
     fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({ "type": "string", "pattern": HTTP_START_PATTERN })
+        // The pattern holds the start; the `web-url` format, the parse JavaScript's `URL` runs.
+        json_schema!({ "type": "string", "format": "web-url", "pattern": HTTP_START_PATTERN })
     }
 }
 
