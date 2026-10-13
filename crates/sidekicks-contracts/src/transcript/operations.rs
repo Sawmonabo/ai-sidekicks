@@ -9,8 +9,8 @@ use std::collections::HashSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::jsonrpc::byte_length::json_utf8_byte_length;
-use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_budget, fits_one_page};
+use crate::jsonrpc::byte_length::{fits_budget, json_utf8_byte_length};
+use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::run::id::RunId;
 use crate::run::state::RunState;
 use crate::session::event_cursor::EventCursor;

@@ -3,12 +3,15 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 
 /// One thing a transcript operation could not carry. A new kind is a deliberate addition; an empty
 /// list claims nothing was dropped, so a driver that does not know what it lost may not send one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum DeclaredLossKind {
     /// The provider's private reasoning, which neither provider lets travel and which is never
@@ -29,14 +32,7 @@ pub enum DeclaredLossKind {
 
 ts_constants! {
     /// Every declared loss kind.
-    pub const DECLARED_LOSS_KINDS: [DeclaredLossKind; 6] = [
-        DeclaredLossKind::ProviderPrivateReasoning,
-        DeclaredLossKind::ContextTruncated,
-        DeclaredLossKind::ToolCallHistoryRepaired,
-        DeclaredLossKind::ConversationHistorySummarized,
-        DeclaredLossKind::TurnContentUnavailable,
-        DeclaredLossKind::TurnContentTruncated,
-    ];
+    DECLARED_LOSS_KINDS = DeclaredLossKind::VARIANTS;
 }
 
 /// The TypeScript module of the declared losses.

@@ -172,7 +172,13 @@ pub struct CommandBackgroundResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[garde(custom(write_carries_something))]
+#[garde(custom(|request: &Self, (): &()| {
+    if request.text.is_some() || request.end_of_input == Some(true) {
+        Ok(())
+    } else {
+        Err(garde::Error::new("a write carries text, the end of input, or both"))
+    }
+}))]
 #[schemars(transform = add_write_carries_something_rule)]
 pub struct CommandWriteRequest {
     /// The session.
@@ -195,20 +201,6 @@ pub struct CommandWriteRequest {
     )]
     #[schemars(with = "bool")]
     pub end_of_input: Option<bool>,
-}
-
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn write_carries_something(request: &CommandWriteRequest, (): &()) -> garde::Result {
-    if request.text.is_some() || request.end_of_input == Some(true) {
-        Ok(())
-    } else {
-        Err(garde::Error::new(
-            "a write carries text, the end of input, or both",
-        ))
-    }
 }
 
 /// States in the schema that a write carries text, the end of input, or both.

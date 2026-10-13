@@ -123,7 +123,9 @@ pub(crate) fn add_model_move_window_rule(schema: &mut Schema) {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[garde(custom(target_names_window_on_model_move))]
+#[garde(custom(|target: &Self, (): &()| {
+    model_move_names_window(target.model_id.as_ref(), target.larger_window.as_ref())
+}))]
 #[schemars(transform = add_model_move_window_rule)]
 pub struct AgentBindingSwitchTarget {
     /// The provider.
@@ -174,15 +176,6 @@ pub struct AgentBindingSwitchTarget {
     )]
     #[schemars(with = "crate::wire::NullableSchema<SafeInt<1>>")]
     pub larger_window: Option<Option<SafeInt<1>>>,
-}
-
-/// Whether a target names its window on a model move.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn target_names_window_on_model_move(target: &AgentBindingSwitchTarget, (): &()) -> garde::Result {
-    model_move_names_window(target.model_id.as_ref(), target.larger_window.as_ref())
 }
 
 literal! {
@@ -419,7 +412,9 @@ fn settled_switch_states_its_rules(
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[garde(custom(changed_payload_losses_match))]
+#[garde(custom(|payload: &Self, (): &()| {
+    declared_losses_match(payload.continuity, &payload.declared_losses)
+}))]
 #[schemars(transform = add_declared_losses_rule)]
 pub struct AgentProviderBindingChangedPayload {
     /// The switch.
@@ -443,25 +438,15 @@ pub struct AgentProviderBindingChangedPayload {
     pub landed_provider_account_id: ProviderAccountId,
 }
 
-/// Whether a changed payload's losses agree with its continuity.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn changed_payload_losses_match(
-    payload: &AgentProviderBindingChangedPayload,
-    (): &(),
-) -> garde::Result {
-    declared_losses_match(payload.continuity, &payload.declared_losses)
-}
-
 /// The payload of [`AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT`]: an accepted switch that could
 /// not be applied. The agent stays on `from`; exactly one of the two events ends every switch not
 /// replaced.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[garde(custom(failed_payload_states_its_account))]
+#[garde(custom(|payload: &Self, (): &()| {
+    account_state_matches_reason(payload.reason, payload.account_state)
+}))]
 #[schemars(transform = add_account_state_rule)]
 pub struct AgentProviderBindingChangeFailedPayload {
     /// The switch.
@@ -487,18 +472,6 @@ pub struct AgentProviderBindingChangeFailedPayload {
     /// What the switch tried to move.
     #[garde(dive)]
     pub attempted: AgentBindingSwitchTarget,
-}
-
-/// Whether a failed payload states its account exactly on an account failure.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn failed_payload_states_its_account(
-    payload: &AgentProviderBindingChangeFailedPayload,
-    (): &(),
-) -> garde::Result {
-    account_state_matches_reason(payload.reason, payload.account_state)
 }
 
 /// The TypeScript module of the binding switch.

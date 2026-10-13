@@ -5,10 +5,11 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::agent::definition::AgentResolvedConfiguration;
 use crate::artifacts::id::ArtifactId;
-use crate::jsonrpc::byte_length::json_utf8_byte_length;
+use crate::jsonrpc::byte_length::fits_budget;
 use crate::provider::account::record::{PROVIDER_ACCOUNT_LABEL_MAX_LEN, ProviderAccountId};
 use crate::provider::name::ProviderName;
 use crate::question::QuestionId;
@@ -30,33 +31,7 @@ ts_constants! {
     /// payload is stored as an artifact and referenced, and the panel says which.
     pub const WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP: usize = 64 * 1024;
     /// How a person answers a step that waited on them.
-    pub const WORKFLOW_STEP_RESOLUTION_KINDS: [WorkflowStepResolutionKind; 4] = [
-        WorkflowStepResolutionKind::Approved,
-        WorkflowStepResolutionKind::Rejected,
-        WorkflowStepResolutionKind::Answered,
-        WorkflowStepResolutionKind::Declined,
-    ];
-}
-
-/// A garde check refusing a value whose JSON takes more than `CAP` UTF-8 bytes; its schema twin is
-/// the `maxJsonBytes` keyword with the same cap.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-pub(crate) fn fits_json_byte_cap<const CAP: usize, T: Serialize>(
-    value: &T,
-    (): &(),
-) -> garde::Result {
-    let byte_length = json_utf8_byte_length(value)
-        .map_err(|error| garde::Error::new(format!("the value does not serialize: {error}")))?;
-    if byte_length > CAP {
-        Err(garde::Error::new(format!(
-            "the value's JSON takes {byte_length} bytes, over the cap of {CAP}"
-        )))
-    } else {
-        Ok(())
-    }
+    WORKFLOW_STEP_RESOLUTION_KINDS = WorkflowStepResolutionKind::VARIANTS;
 }
 
 /// A step payload by reference: inline items up to the cap, an artifact above it, which names how
@@ -75,7 +50,9 @@ pub enum WorkflowPayloadRef {
     Inline {
         /// The items.
         #[schemars(extend("maxJsonBytes" = WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP))]
-        #[garde(dive, custom(fits_json_byte_cap::<WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP, _>))]
+        #[garde(dive, custom(|items: &Vec<WorkflowItem>, (): &()| {
+            fits_budget(items, WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP)
+        }))]
         items: Vec<WorkflowItem>,
     },
     /// An artifact holding the items.
@@ -141,7 +118,9 @@ pub struct WorkflowStepQuestion {
 
 /// How a person answered a step that waited on them. `declined` is the `Decline` on a command
 /// step's own approval card, which fails that step.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowStepResolutionKind {
     /// Approved.

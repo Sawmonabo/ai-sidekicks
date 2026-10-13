@@ -13,26 +13,13 @@ use crate::event::declared_variants::{
 use crate::event::envelope::HydratedContentUnavailableReason;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
-use crate::jsonrpc::byte_length::json_utf8_byte_length;
-use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_budget, fits_one_page};
+use crate::jsonrpc::byte_length::{fits_budget, json_utf8_byte_length};
+use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::session::id::SessionId;
 use crate::transcript::limits::TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::{BoundedText, FreeFormText};
 use crate::wire::{BoolLiteral, True};
-
-/// Refuses a body whose JSON takes more than [`TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES`] bytes: it
-/// belongs on the `large` arm.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn fits_with_its_row(
-    body: &BoundedText<0, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES>,
-    (): &(),
-) -> garde::Result {
-    fits_budget(body, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES)
-}
 
 /// A stored body: at most [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points, the cap its event's
 /// payload holds it to.
@@ -51,8 +38,11 @@ pub type StoredBodyText = BoundedText<0, CONTENT_PAYLOAD_PLAINTEXT_MAX>;
 pub enum TranscriptRowContent {
     /// The body travels with its row.
     Available {
-        /// The body; a prefix when `contentTruncated` is `true`.
-        #[garde(custom(fits_with_its_row))]
+        /// The body; a prefix when `contentTruncated` is `true`. A body whose JSON takes more than
+        /// [`TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES`] bytes belongs on the `large` arm.
+        #[garde(custom(|body: &BoundedText<0, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES>, (): &()| {
+            fits_budget(body, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES)
+        }))]
         body: BoundedText<0, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES>,
         /// The whole body's UTF-8 byte length, echoed from the stored payload.
         #[serde(
@@ -213,10 +203,10 @@ pub fn transcript_row_content_of(
         };
     };
     let (content_length, content_truncated) = echoed_body_facts_of(payload);
-    if let Some(body) = stored.body.filter(|body| {
-        json_utf8_byte_length(body)
-            .is_ok_and(|length| length <= TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES)
-    }) && let Some(body) = BoundedText::new(body.to_owned())
+    if let Some(body) = stored
+        .body
+        .filter(|body| fits_budget(body, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES).is_ok())
+        && let Some(body) = BoundedText::new(body.to_owned())
     {
         return TranscriptRowContent::Available {
             body,

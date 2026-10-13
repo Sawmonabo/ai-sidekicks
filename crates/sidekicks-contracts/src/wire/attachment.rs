@@ -106,24 +106,28 @@ pub enum ReceivedError {
     /// The message passed its schema but its attachments do not match it.
     #[error(transparent)]
     Attachment(#[from] AttachmentError),
+    /// The message was read but breaks a rule no schema shape holds, a repeated list key among
+    /// them.
+    #[error(transparent)]
+    Rule(#[from] garde::Report),
 }
 
 /// Parses a message a server received, a request's or a notification's params or an attachment
-/// message's body: the JSON is checked against `T`'s schema before serde reads it, since serde
-/// alone reads a JSON array where an object belongs. Refuses what [`parse`] refuses, and any JSON
-/// the schema refuses.
-pub fn parse_received<T: DeserializeOwned + JsonSchema + 'static>(
-    json: &[u8],
-    attachments: Vec<ByteBuffer>,
-) -> Result<T, ReceivedError> {
+/// message's body: the JSON is checked against `T`'s schema, then read by serde, then held to
+/// `T`'s garde rules, since serde alone reads a JSON array where an object belongs. Refuses what
+/// [`parse`] refuses, any JSON the schema refuses, and a value a garde rule refuses.
+pub fn parse_received<T>(json: &[u8], attachments: Vec<ByteBuffer>) -> Result<T, ReceivedError>
+where
+    T: DeserializeOwned + JsonSchema + garde::Validate<Context = ()> + 'static,
+{
     let check = received_check::<T>()?;
     let value: serde_json::Value = serde_json::from_slice(json)?;
     check
         .validate(&value)
         .map_err(|error| ReceivedError::Shape(Box::new(error.to_owned())))?;
-    Ok(read_with_attachments(attachments, || {
-        T::deserialize(value)
-    })?)
+    let received = read_with_attachments(attachments, || T::deserialize(value))?;
+    received.validate()?;
+    Ok(received)
 }
 
 /// Runs `read` with `attachments` as the thread's attachment context, then refuses an attachment
@@ -285,6 +289,10 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     use super::{AttachmentError, Bytes, ReceivedError, parse, parse_received, write};
+    use crate::artifacts::ingest::AttachmentIngestChunkRequest;
+    use crate::preview::page::{PreviewPageOpenRequest, PreviewPageTarget};
+    use crate::session::links::SessionLinkRequest;
+    use crate::tag::TagList;
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -350,22 +358,28 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Deserialize, JsonSchema)]
+    #[derive(Debug, Deserialize, JsonSchema, garde::Validate)]
     #[serde(deny_unknown_fields)]
     struct Leaf {
+        #[garde(skip)]
         x: u8,
     }
 
-    #[derive(Debug, Deserialize, JsonSchema)]
+    #[derive(Debug, Deserialize, JsonSchema, garde::Validate)]
     #[serde(tag = "kind", deny_unknown_fields)]
     enum Arm {
-        Holder { leaf: Leaf },
+        Holder {
+            #[garde(dive)]
+            leaf: Leaf,
+        },
     }
 
-    #[derive(Debug, Deserialize, JsonSchema)]
+    #[derive(Debug, Deserialize, JsonSchema, garde::Validate)]
     #[serde(deny_unknown_fields)]
     struct Received {
+        #[garde(dive)]
         leaf: Leaf,
+        #[garde(dive)]
         arm: Arm,
     }
 
@@ -394,5 +408,41 @@ mod tests {
         )
         .expect("the object form is read");
         assert_eq!((outer, inner), (1, 2));
+    }
+
+    #[test]
+    fn a_received_message_passes_its_schema_then_its_garde_rules() {
+        const SESSION: &str = "0192f0a0-0000-7000-8000-000000000001";
+        const OTHER: &str = "0192f0a0-0000-7000-8000-000000000002";
+        let link = format!(r#"{{"sessionId":"{SESSION}","targetSessionId":"{OTHER}"}}"#);
+        parse_received::<SessionLinkRequest>(link.as_bytes(), Vec::new())
+            .expect("a link between two sessions is read");
+        let self_link = format!(r#"{{"sessionId":"{SESSION}","targetSessionId":"{SESSION}"}}"#);
+        assert!(matches!(
+            parse_received::<SessionLinkRequest>(self_link.as_bytes(), Vec::new()),
+            Err(ReceivedError::Rule(_))
+        ));
+
+        let open =
+            format!(r#"{{"sessionId":"{SESSION}","target":{{"kind":"devServer","port":5173}}}}"#);
+        let open = parse_received::<PreviewPageOpenRequest>(open.as_bytes(), Vec::new())
+            .expect("a tagged arm is read");
+        assert!(matches!(open.target, PreviewPageTarget::DevServer { .. }));
+
+        let chunk = parse_received::<AttachmentIngestChunkRequest>(
+            br#"{"ingestId":"ingest","sequenceNumber":0,"chunk":{"$bytes":0}}"#,
+            vec![ByteBuffer::from_static(b"abc")],
+        )
+        .expect("a byte member is read from its attachment");
+        assert_eq!(chunk.chunk.as_bytes(), b"abc");
+
+        parse_received::<TagList>(br#"["Ops","dev"]"#, Vec::new()).expect("distinct tags are read");
+        assert!(
+            matches!(
+                parse_received::<TagList>(br#"["Ops","ops"]"#, Vec::new()),
+                Err(ReceivedError::Rule(_))
+            ),
+            "the schema passes a repeat in another case, and garde refuses it"
+        );
     }
 }

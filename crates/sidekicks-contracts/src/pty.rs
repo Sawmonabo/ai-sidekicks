@@ -29,7 +29,7 @@ use crate::wire::attachment::Bytes;
 use crate::wire::id::ClientUuid;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::{BoundedVec, ListKey, UniqueList};
-use crate::wire::text::{BoundedText, branded_text};
+use crate::wire::text::{BoundedText, NonEmptyText, branded_text};
 use crate::wire::{NullableSchema, True, nullable};
 use control::{
     LeaseVersion, PtyControlChangedPayload, PtyControlChangedReason, PtyControlHeldByOtherDetails,
@@ -90,7 +90,7 @@ pub enum PtyShellStatus {
     /// It could not start.
     DidNotStart {
         /// The daemon's words for why.
-        cause: BoundedText<1, { usize::MAX }>,
+        cause: NonEmptyText,
     },
 }
 

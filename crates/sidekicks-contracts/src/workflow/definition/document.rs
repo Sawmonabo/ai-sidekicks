@@ -12,6 +12,7 @@ use std::collections::HashSet;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::internal::branded::branded_uuid_id;
@@ -31,13 +32,7 @@ ts_constants! {
     /// The document schema version this contract reads and writes.
     WORKFLOW_DOCUMENT_SCHEMA_VERSION = WorkflowDocumentSchemaVersion::Value;
     /// Every way a `flow.merge` node joins its inputs.
-    pub const WORKFLOW_MERGE_MODES: [WorkflowMergeMode; 5] = [
-        WorkflowMergeMode::Append,
-        WorkflowMergeMode::CombineByField,
-        WorkflowMergeMode::CombineByPosition,
-        WorkflowMergeMode::ChooseBranch,
-        WorkflowMergeMode::FirstToArrive,
-    ];
+    WORKFLOW_MERGE_MODES = WorkflowMergeMode::VARIANTS;
 }
 
 branded_uuid_id! {
@@ -96,7 +91,9 @@ pub enum WorkflowNodeOnError {
 
 /// How a `flow.merge` node joins its inputs into its one output. `first-to-arrive` passes on the
 /// first input to succeed and cancels the branches still running.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum WorkflowMergeMode {
     /// Every input's items, one input after another.
@@ -761,17 +758,21 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     method_tables: &[],
 };
 
+/// A test node's JSON: `id` of `kind` at version 1, named by its id, with no params.
+#[cfg(test)]
+pub(crate) fn node(id: &str, kind: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": id, "kind": kind, "kindVersion": 1, "name": id, "order": 0, "params": {}
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use garde::Validate;
-    use serde_json::{Value, json};
+    use serde_json::json;
 
-    use super::WorkflowDocument;
+    use super::{WorkflowDocument, node};
     use crate::workflow::definition::refusals::WorkflowDefinitionFinding;
-
-    fn node(id: &str, kind: &str) -> Value {
-        json!({ "id": id, "kind": kind, "kindVersion": 1, "name": id, "order": 0, "params": {} })
-    }
 
     #[test]
     fn each_repeated_node_id_is_refused_at_its_own_place_with_its_finding() {

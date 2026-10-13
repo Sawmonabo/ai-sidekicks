@@ -5,6 +5,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::keychain::KeychainRefusalCause;
@@ -37,8 +38,7 @@ ts_constants! {
     /// names; a rename refuses on the same code.
     PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE = RefusalCode::ProvideraccountDisplayLabelTaken;
     /// Every way a cancel ends, in declaration order.
-    pub const PROVIDER_LOGIN_CANCEL_STATUSES: [ProviderLoginCancelStatus; 2] =
-        [ProviderLoginCancelStatus::Canceled, ProviderLoginCancelStatus::NotFound];
+    PROVIDER_LOGIN_CANCEL_STATUSES = ProviderLoginCancelStatus::VARIANTS;
     /// Wire members a request-logging transport redacts before writing a record, listed once so
     /// no transport derives the list again.
     pub const PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS: [&str; 1] = ["nonInteractiveToken"];
@@ -262,7 +262,9 @@ pub struct ProviderAccountLoginCancelRequest {
 
 /// How a cancel ended. `notFound` covers an attempt that already ended or never existed; it is
 /// no error, so a client racing a completion sees no refusal for losing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum ProviderLoginCancelStatus {
     /// The provider's sign-in was ended.

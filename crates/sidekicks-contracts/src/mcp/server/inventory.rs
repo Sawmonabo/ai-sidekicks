@@ -4,14 +4,13 @@
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use strum::VariantArray;
 
 use crate::free_form_string::FilesystemPath;
 use crate::mcp::server::config::McpServerConfigView;
-use crate::mcp::server::{
-    McpApprovalMode, McpClaudeProvider, McpServerStatus, McpToolName, binding_addressed,
-};
+use crate::mcp::server::{McpApprovalMode, McpServerStatus, McpToolName, binding_addressed};
 use crate::provider::driver::length_limits::DRIVER_BINDING_ID_MAX_LEN;
-use crate::provider::name::ProviderName;
+use crate::provider::name::{ClaudeProviderWord, ProviderName};
 use crate::schema::{push_all_of, required_member};
 use crate::session::id::SessionId;
 use crate::wire::instant::WireInstant;
@@ -129,14 +128,17 @@ fn override_sets_a_facet(tool_override: &McpToolOverride, (): &()) -> garde::Res
 
 /// The schema twin of [`override_sets_a_facet`].
 fn add_sets_a_facet_rule(schema: &mut Schema) {
-    push_all_of(
-        schema,
-        json!({ "anyOf": MCP_TOOL_OVERRIDE_FACETS.map(|facet| required_member(facet.as_str())) }),
-    );
+    let facets: Vec<_> = MCP_TOOL_OVERRIDE_FACETS
+        .iter()
+        .map(|facet| required_member(facet.as_str()))
+        .collect();
+    push_all_of(schema, json!({ "anyOf": facets }));
 }
 
 /// One facet of a tool override, as `mcp.clearToolOverride` names the one it clears.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum McpToolOverrideFacet {
     /// Whether the tool is on.
@@ -159,11 +161,7 @@ impl McpToolOverrideFacet {
 }
 
 /// Every tool override facet, in declaration order.
-pub const MCP_TOOL_OVERRIDE_FACETS: [McpToolOverrideFacet; 3] = [
-    McpToolOverrideFacet::Enabled,
-    McpToolOverrideFacet::ApprovalMode,
-    McpToolOverrideFacet::IdempotencyClass,
-];
+pub const MCP_TOOL_OVERRIDE_FACETS: &[McpToolOverrideFacet] = McpToolOverrideFacet::VARIANTS;
 
 /// One per-tool value in force, as the daemon resolved it, and where it came from. Under an
 /// override it also carries `serverValue`, the server's own value that clearing the override
@@ -306,7 +304,7 @@ macro_rules! inventory_entry {
 
         impl $name {
             /// Whether a failure reason sits only on a failed server.
-            fn keeps_failure_reason_on_failed(&self, _: &()) -> garde::Result {
+            fn keeps_failure_reason_on_failed(&self, (): &()) -> garde::Result {
                 let (Self::User { status, failed_reason, .. }
                 | Self::Project { status, failed_reason, .. }
                 | Self::Local { status, failed_reason, .. }
@@ -396,7 +394,7 @@ fn add_claude_enabled_rule(schema: &mut Schema) {
         json!({
             "if": {
                 "type": "object",
-                "properties": { "provider": { "const": McpClaudeProvider::TEXT } },
+                "properties": { "provider": { "const": ClaudeProviderWord::TEXT } },
                 "required": ["provider"],
             },
             "then": { "type": "object", "properties": { "enabled": false } },

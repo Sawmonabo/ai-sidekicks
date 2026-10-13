@@ -3,6 +3,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::agent::definition::AgentId;
 use crate::session::event_cursor::EventCursor;
@@ -13,31 +14,16 @@ use crate::workflow::run::id::WorkflowRunId;
 
 ts_constants! {
     /// Every way a run is started.
-    pub const WORKFLOW_RUN_MODES: [WorkflowRunMode; 7] = [
-        WorkflowRunMode::Manual,
-        WorkflowRunMode::Trigger,
-        WorkflowRunMode::Webhook,
-        WorkflowRunMode::Chat,
-        WorkflowRunMode::Agent,
-        WorkflowRunMode::Retry,
-        WorkflowRunMode::SubWorkflow,
-    ];
+    WORKFLOW_RUN_MODES = WorkflowRunMode::VARIANTS;
     /// Every trigger kind a run can be started by, in the order the runs table's filter lists
     /// them.
-    pub const WORKFLOW_TRIGGER_KINDS: [WorkflowTriggerKind; 8] = [
-        WorkflowTriggerKind::Manual,
-        WorkflowTriggerKind::Schedule,
-        WorkflowTriggerKind::FileWatch,
-        WorkflowTriggerKind::Webhook,
-        WorkflowTriggerKind::SessionEvent,
-        WorkflowTriggerKind::Chat,
-        WorkflowTriggerKind::SubWorkflow,
-        WorkflowTriggerKind::Error,
-    ];
+    WORKFLOW_TRIGGER_KINDS = WorkflowTriggerKind::VARIANTS;
 }
 
 /// How a run was started, which is a different question from who started it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum WorkflowRunMode {
     /// From Run now.
@@ -59,7 +45,9 @@ pub enum WorkflowRunMode {
 /// The kind of trigger node that started a run, which the runs table's trigger column and filter
 /// read. A retry keeps its source run's kind; a mode cannot carry this, because `trigger` covers a
 /// schedule, a file event, a session event and another workflow failing alike.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 pub enum WorkflowTriggerKind {
     /// Run manually.
     #[serde(rename = "trigger.manual")]

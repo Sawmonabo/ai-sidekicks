@@ -34,14 +34,16 @@ pub struct SessionCreatedParent {
 
 /// A session's birth, bringing in its lead as `main_agent`. `parent` is present exactly on a fork,
 /// and `scratch_for_definition_id` names the saved definition a scratch session tries.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionCreatedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The session's shape.
     pub shape: SessionShape,
     /// The session's lead.
+    #[garde(dive)]
     pub main_agent: AgentListEntry,
     /// The session forked from, on a fork.
     #[serde(

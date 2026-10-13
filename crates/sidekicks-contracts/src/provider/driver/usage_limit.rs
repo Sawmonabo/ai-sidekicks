@@ -5,6 +5,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
@@ -12,7 +13,9 @@ use crate::wire::instant::WireInstant;
 /// Why a provider refused for spend, on an axis apart from the recovery condition. Only the plan's
 /// allowance for a rolling window clears on its own; a spent credit balance, a payment fault or a
 /// spending ceiling needs a person, so such a turn ends on the driver's ordinary failure path.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProviderUsageLimitCause {
     /// The subscription's allowance for a rolling window is spent.
@@ -21,8 +24,7 @@ pub enum ProviderUsageLimitCause {
 
 ts_constants! {
     /// Every usage-limit cause.
-    pub const PROVIDER_USAGE_LIMIT_CAUSES: [ProviderUsageLimitCause; 1] =
-        [ProviderUsageLimitCause::PlanAllowanceExhausted];
+    PROVIDER_USAGE_LIMIT_CAUSES = ProviderUsageLimitCause::VARIANTS;
 }
 
 /// The instant the provider named for the spent window to reset.

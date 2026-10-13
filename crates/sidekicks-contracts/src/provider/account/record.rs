@@ -8,6 +8,7 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+use strum::VariantArray;
 
 use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -47,36 +48,19 @@ ts_constants! {
         + PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN
         + 2 * 3;
     /// Every account health state, in declaration order.
-    pub const PROVIDER_ACCOUNT_HEALTH_STATES: [ProviderAccountHealthState; 4] = [
-        ProviderAccountHealthState::Authenticated,
-        ProviderAccountHealthState::ReauthRequired,
-        ProviderAccountHealthState::HomeMissing,
-        ProviderAccountHealthState::Indeterminate,
-    ];
+    PROVIDER_ACCOUNT_HEALTH_STATES = ProviderAccountHealthState::VARIANTS;
     /// Every auth mode, in declaration order.
-    pub const PROVIDER_AUTH_MODES: [ProviderAuthMode; 6] = [
-        ProviderAuthMode::OauthSubscription,
-        ProviderAuthMode::OauthToken,
-        ProviderAuthMode::ApiKey,
-        ProviderAuthMode::External,
-        ProviderAuthMode::None,
-        ProviderAuthMode::Unknown,
-    ];
+    PROVIDER_AUTH_MODES = ProviderAuthMode::VARIANTS;
     /// Every source a quota reading comes from, in declaration order.
-    pub const PROVIDER_ACCOUNT_USAGE_WINDOW_SOURCES: [ProviderAccountUsageWindowSource; 2] =
-        [ProviderAccountUsageWindowSource::Probe, ProviderAccountUsageWindowSource::Run];
+    PROVIDER_ACCOUNT_USAGE_WINDOW_SOURCES = ProviderAccountUsageWindowSource::VARIANTS;
     /// The generation a newly registered account starts at.
     pub const CREDENTIAL_GENERATION_MIN: u64 = 1;
     /// The limit id a quota reading takes when it names none.
     pub const PROVIDER_QUOTA_DEFAULT_LIMIT_ID: &str = "default";
     /// Every way a brokered sign-in ends, in declaration order.
-    pub const PROVIDER_LOGIN_OUTCOMES: [ProviderLoginOutcome; 3] = [
-        ProviderLoginOutcome::Succeeded,
-        ProviderLoginOutcome::Failed,
-        ProviderLoginOutcome::Canceled,
-    ];
+    PROVIDER_LOGIN_OUTCOMES = ProviderLoginOutcome::VARIANTS;
     /// Every readiness state, in declaration order.
-    PROVIDER_READINESS_STATES = readiness::PROVIDER_READINESS_STATES;
+    PROVIDER_READINESS_STATES = readiness::ProviderReadinessState::VARIANTS;
 }
 
 /// How an account is charged. `unknown` means not known, never `metered`: it labels cost and
@@ -94,7 +78,9 @@ pub enum BillingMode {
 
 /// The stored outcome of an account's last validation. `indeterminate` means the probe could not
 /// decide or none has run; it counts as not authenticated, and a stored null is sent as it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderAccountHealthState {
     /// Signed in.
@@ -109,7 +95,9 @@ pub enum ProviderAccountHealthState {
 
 /// The authentication mode the provider's own status output reports for a home; never assumed or
 /// read from a credential file's shape. `unknown` is a mode this build does not recognize.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderAuthMode {
     /// A subscription sign-in.
@@ -145,7 +133,9 @@ pub fn normalize_observed_provider_auth_mode(reported: Option<&Value>) -> Option
 
 /// Which kind of reading produced a quota window: `probe` is the account's own limits read and
 /// replaces the stored set; `run` is the provider's push during a turn and is merged in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderAccountUsageWindowSource {
     /// The account's own limits read.
@@ -548,7 +538,9 @@ pub struct ProviderAccountListResponse {
 }
 
 /// How a brokered sign-in attempt ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderLoginOutcome {
     /// The provider's flow finished; the account's health is observed next.
@@ -622,7 +614,7 @@ pub enum ProviderAccountNotification {
 )]
 fn window_names_routed_account(
     notification: &ProviderAccountNotification,
-    _: &(),
+    (): &(),
 ) -> garde::Result {
     match notification {
         ProviderAccountNotification::UsageWindowUpdated { account_id, window }

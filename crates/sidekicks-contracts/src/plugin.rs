@@ -17,12 +17,12 @@ use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::method::methods;
 use crate::provider::account::record::ProviderAccountId;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
-use crate::provider::name::ProviderName;
+use crate::provider::name::{CodexProviderWord, ProviderName};
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::web_address::HttpsAddress;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText};
-use crate::wire::{NullableSchema, True, literal, nullable};
+use crate::wire::{NullableSchema, True, nullable};
 
 /// A token in a provider's own plugin vocabulary: a plugin id, a name, a marketplace.
 pub type PluginToken = FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>;
@@ -170,7 +170,15 @@ pub struct PluginCarriedItems {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[garde(custom(names_repository_and_commit_together))]
+#[garde(custom(|source: &Self, (): &()| {
+    if source.repository.is_some() == source.commit.is_some() {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "a plugin fetched from a repository names the repository and its commit together",
+        ))
+    }
+}))]
 #[schemars(extend("dependentRequired" = { "repository": ["commit"], "commit": ["repository"] }))]
 pub struct PluginSource {
     /// Its marketplace.
@@ -191,20 +199,6 @@ pub struct PluginSource {
     )]
     #[schemars(with = "PluginToken")]
     pub commit: Option<PluginToken>,
-}
-
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn names_repository_and_commit_together(source: &PluginSource, (): &()) -> garde::Result {
-    if source.repository.is_some() == source.commit.is_some() {
-        Ok(())
-    } else {
-        Err(garde::Error::new(
-            "a plugin fetched from a repository names the repository and its commit together",
-        ))
-    }
 }
 
 /// What one plugin carries, each item by name and description, and its source.
@@ -303,11 +297,6 @@ pub struct PluginMarketplaceRemoveResponse {
     pub removed: True,
 }
 
-literal! {
-    /// The one provider whose plugins carry apps.
-    pub enum PluginAppProvider = "codex";
-}
-
 /// `plugin.appList`: a Codex plugin's apps. An app is a tool server its provider hosts, reached
 /// through a Codex account's `ChatGPT` sign-in, so its link is kept per account and every linked
 /// app reaches every session on that account without loading anything.
@@ -315,8 +304,8 @@ literal! {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct PluginAppListRequest {
-    /// Always `codex`.
-    pub provider: PluginAppProvider,
+    /// Always `codex`, the one provider whose plugins carry apps.
+    pub provider: CodexProviderWord,
     /// The plugin.
     pub plugin_id: PluginToken,
 }

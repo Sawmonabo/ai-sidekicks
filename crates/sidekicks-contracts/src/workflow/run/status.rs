@@ -3,13 +3,16 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 
 /// A run's status; no screen shows any other. `waiting` covers a run held by a person, a chain's
 /// question or a spent provider account; it is never swept to `crashed` when the daemon starts and
 /// never pruned, so a waiting run survives a restart.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowRunStatus {
     /// Started, with no step run yet.
@@ -32,7 +35,9 @@ pub enum WorkflowRunStatus {
 /// person, a chain's question or a spent account; `waiting-memory` is a step the memory gate has
 /// not started yet, which needs nobody. `canceled` is a step that was running or waiting when its
 /// run ended failed or canceled, or a branch a first-to-arrive merge stopped.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum WorkflowStepStatus {
     /// Not started.
@@ -55,7 +60,9 @@ pub enum WorkflowStepStatus {
 
 /// What a waiting step waits on: a person's approval, form or chat reply, its chain's question, or
 /// a spent provider account. Only the account wait needs nobody.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowWaitCause {
     /// A person's approval.
@@ -72,15 +79,7 @@ pub enum WorkflowWaitCause {
 
 ts_constants! {
     /// Every run status, in the order a screen lists them.
-    pub const WORKFLOW_RUN_STATUSES: [WorkflowRunStatus; 7] = [
-        WorkflowRunStatus::New,
-        WorkflowRunStatus::Running,
-        WorkflowRunStatus::Waiting,
-        WorkflowRunStatus::Succeeded,
-        WorkflowRunStatus::Failed,
-        WorkflowRunStatus::Canceled,
-        WorkflowRunStatus::Crashed,
-    ];
+    WORKFLOW_RUN_STATUSES = WorkflowRunStatus::VARIANTS;
     /// The statuses of a run that is still going: new, running or waiting.
     pub const GOING_RUN_STATUSES: [WorkflowRunStatus; 3] = [
         WorkflowRunStatus::New,
@@ -88,24 +87,9 @@ ts_constants! {
         WorkflowRunStatus::Waiting,
     ];
     /// Every step status.
-    pub const WORKFLOW_STEP_STATUSES: [WorkflowStepStatus; 8] = [
-        WorkflowStepStatus::Pending,
-        WorkflowStepStatus::Running,
-        WorkflowStepStatus::Waiting,
-        WorkflowStepStatus::WaitingMemory,
-        WorkflowStepStatus::Succeeded,
-        WorkflowStepStatus::Failed,
-        WorkflowStepStatus::Skipped,
-        WorkflowStepStatus::Canceled,
-    ];
+    WORKFLOW_STEP_STATUSES = WorkflowStepStatus::VARIANTS;
     /// Every wait cause.
-    pub const WORKFLOW_WAIT_CAUSES: [WorkflowWaitCause; 5] = [
-        WorkflowWaitCause::Approval,
-        WorkflowWaitCause::Form,
-        WorkflowWaitCause::Reply,
-        WorkflowWaitCause::Account,
-        WorkflowWaitCause::Chain,
-    ];
+    WORKFLOW_WAIT_CAUSES = WorkflowWaitCause::VARIANTS;
 }
 
 /// The TypeScript module of the workflow statuses.

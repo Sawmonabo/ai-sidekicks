@@ -5,7 +5,6 @@
 //! [`compose_app_link`] writes and hands back nothing but a checked id.
 
 use schemars::JsonSchema;
-use serde::Deserialize;
 
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -18,7 +17,8 @@ ts_constants! {
 }
 
 /// What a `sidekicks://` link opens: a session, or a workflow run's page.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cfg_attr(test, derive(serde::Deserialize))]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",

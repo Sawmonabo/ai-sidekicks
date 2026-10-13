@@ -277,6 +277,7 @@ pub enum ChildRunLink {
     },
 }
 
+/// Refuses a run link whose child run is its own parent.
 #[expect(
     clippy::trivially_copy_pass_by_ref,
     reason = "garde passes a check's context by reference"
@@ -332,7 +333,13 @@ pub struct ChildRunRejection {
 )]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[garde(custom(counts_stay_within_the_total))]
+#[garde(custom(|counts: &Self, (): &()| {
+    if counts.live <= counts.total && counts.waiting <= counts.total {
+        Ok(())
+    } else {
+        Err(garde::Error::new("neither the live nor the waiting count exceeds the total"))
+    }
+}))]
 pub struct ChildRunCounts {
     /// The children running now.
     // `type` beside the reference keeps Ajv's strict types satisfied for `maximum`.
@@ -343,20 +350,6 @@ pub struct ChildRunCounts {
     /// The children waiting on an approval.
     #[schemars(extend("type" = "integer", "maximum" = { "$data": "1/total" }))]
     pub waiting: SafeInt<0>,
-}
-
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn counts_stay_within_the_total(counts: &ChildRunCounts, (): &()) -> garde::Result {
-    if counts.live <= counts.total && counts.waiting <= counts.total {
-        Ok(())
-    } else {
-        Err(garde::Error::new(
-            "neither the live nor the waiting count exceeds the total",
-        ))
-    }
 }
 
 /// The whole tree, the badge's figures, and the refused creates.

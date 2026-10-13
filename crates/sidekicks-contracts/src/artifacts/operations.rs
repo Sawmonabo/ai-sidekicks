@@ -151,7 +151,7 @@ macro_rules! artifact_read_arm {
             #[garde(dive)]
             pub manifest: ArtifactManifest,
             /// The version in view, from 1, oldest first; never above `versionCount`.
-            #[garde(custom(|number: &SafeInt<1>, _: &()| {
+            #[garde(custom(|number: &SafeInt<1>, (): &()| {
                 is_version_in_count(*number, self.version_count)
             }))]
             #[schemars(extend("maximum" = { "$data": "1/versionCount" }))]

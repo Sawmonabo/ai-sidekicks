@@ -87,7 +87,11 @@ fn binds_each_driver_once(
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[garde(custom(stored_bindings_bind_each_driver_once))]
+#[garde(custom(|bindings: &Self, (): &()| binds_each_driver_once(
+    std::iter::once(&bindings.default)
+        .chain(&bindings.overrides)
+        .map(|binding| Some(binding.driver_name)),
+)))]
 pub struct AgentDefinitionBindings {
     /// The default binding.
     pub default: AgentProviderBinding,
@@ -95,27 +99,15 @@ pub struct AgentDefinitionBindings {
     pub overrides: Vec<AgentProviderBinding>,
 }
 
-/// Whether stored bindings name each driver once.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn stored_bindings_bind_each_driver_once(
-    bindings: &AgentDefinitionBindings,
-    (): &(),
-) -> garde::Result {
-    binds_each_driver_once(
-        std::iter::once(&bindings.default)
-            .chain(&bindings.overrides)
-            .map(|binding| Some(binding.driver_name)),
-    )
-}
-
 /// A write's bindings: `overrides` may be left out, and is stored as an empty list.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[garde(custom(written_bindings_bind_each_driver_once))]
+#[garde(custom(|bindings: &Self, (): &()| binds_each_driver_once(
+    std::iter::once(&bindings.default)
+        .chain(bindings.overrides.iter().flatten())
+        .map(|binding| Some(binding.driver_name)),
+)))]
 pub struct AgentDefinitionBindingsDraft {
     /// The default binding.
     pub default: AgentProviderBinding,
@@ -127,22 +119,6 @@ pub struct AgentDefinitionBindingsDraft {
     )]
     #[schemars(with = "Vec<AgentProviderBinding>")]
     pub overrides: Option<Vec<AgentProviderBinding>>,
-}
-
-/// Whether written bindings name each driver once.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn written_bindings_bind_each_driver_once(
-    bindings: &AgentDefinitionBindingsDraft,
-    (): &(),
-) -> garde::Result {
-    binds_each_driver_once(
-        std::iter::once(&bindings.default)
-            .chain(bindings.overrides.iter().flatten())
-            .map(|binding| Some(binding.driver_name)),
-    )
 }
 
 /// Declares one arm of [`AgentListedProviderBinding`]: the provider member it names, then the
@@ -242,23 +218,14 @@ impl AgentListedProviderBinding {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[garde(custom(listed_bindings_bind_each_driver_once))]
+#[garde(custom(|bindings: &Self, (): &()| binds_each_driver_once(
+    std::iter::once(&bindings.default)
+        .chain(&bindings.overrides)
+        .map(AgentListedProviderBinding::driver_name),
+)))]
 pub struct AgentListedBindings {
     /// The default binding.
     pub default: AgentListedProviderBinding,
     /// One binding per further provider.
     pub overrides: Vec<AgentListedProviderBinding>,
-}
-
-/// Whether listed bindings name each driver the app runs once.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn listed_bindings_bind_each_driver_once(bindings: &AgentListedBindings, (): &()) -> garde::Result {
-    binds_each_driver_once(
-        std::iter::once(&bindings.default)
-            .chain(&bindings.overrides)
-            .map(AgentListedProviderBinding::driver_name),
-    )
 }

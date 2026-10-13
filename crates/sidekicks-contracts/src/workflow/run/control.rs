@@ -7,8 +7,10 @@ use std::collections::BTreeMap;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::free_form_string::FilesystemPath;
+use crate::jsonrpc::byte_length::fits_budget;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::method::methods;
 use crate::project::ProjectId;
@@ -23,8 +25,6 @@ use crate::workflow::definition::document::{
 };
 use crate::workflow::definition::item::WorkflowItem;
 use crate::workflow::run::id::WorkflowRunId;
-use crate::workflow::run::status::WorkflowRunStatus;
-use crate::workflow::run::step::record::fits_json_byte_cap;
 use crate::workflow::run::trigger::WorkflowRunMode;
 
 ts_constants! {
@@ -33,11 +33,9 @@ ts_constants! {
     /// in another.
     pub const WORKFLOW_CANCEL_REASON_BYTE_CAP: usize = 8 * 1024;
     /// What a node run covers.
-    pub const WORKFLOW_NODE_EXECUTE_SCOPES: [WorkflowNodeExecuteScope; 2] =
-        [WorkflowNodeExecuteScope::Node, WorkflowNodeExecuteScope::FromHere];
+    WORKFLOW_NODE_EXECUTE_SCOPES = WorkflowNodeExecuteScope::VARIANTS;
     /// Every reason a retry cannot be made.
-    pub const WORKFLOW_RETRY_UNAVAILABLE_REASONS: [WorkflowRetryUnavailableReason; 1] =
-        [WorkflowRetryUnavailableReason::SourceRunning];
+    WORKFLOW_RETRY_UNAVAILABLE_REASONS = WorkflowRetryUnavailableReason::VARIANTS;
     /// A start the policy check denied, or whose principal could not be resolved.
     WORKFLOW_START_DENIED_CODE = RefusalCode::WorkflowStartDenied;
     /// A start in a project session that names a project: the run works in that session's
@@ -82,7 +80,9 @@ const WORKFLOW_CANCEL_REASON_MAX_LEN: usize = WORKFLOW_CANCEL_REASON_BYTE_CAP - 
 #[serde(transparent)]
 #[garde(transparent)]
 pub struct WorkflowCancelReason(
-    #[garde(custom(fits_json_byte_cap::<WORKFLOW_CANCEL_REASON_BYTE_CAP, _>))]
+    #[garde(custom(|reason: &BoundedText<1, WORKFLOW_CANCEL_REASON_MAX_LEN>, (): &()| {
+        fits_budget(reason, WORKFLOW_CANCEL_REASON_BYTE_CAP)
+    }))]
     BoundedText<1, WORKFLOW_CANCEL_REASON_MAX_LEN>,
 );
 
@@ -223,15 +223,6 @@ pub enum WorkflowRunStartStatus {
     Running,
 }
 
-impl From<WorkflowRunStartStatus> for WorkflowRunStatus {
-    fn from(status: WorkflowRunStartStatus) -> Self {
-        match status {
-            WorkflowRunStartStatus::New => Self::New,
-            WorkflowRunStartStatus::Running => Self::Running,
-        }
-    }
-}
-
 /// The `workflow.runStart` result, which `workflow.runRerun` also answers with: the new run, the
 /// session it lives in, and its status.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -366,14 +357,6 @@ literal! {
     pub enum WorkflowRunCanceledStatus = "canceled";
 }
 
-impl From<WorkflowRunCanceledStatus> for WorkflowRunStatus {
-    fn from(status: WorkflowRunCanceledStatus) -> Self {
-        match status {
-            WorkflowRunCanceledStatus::Value => Self::Canceled,
-        }
-    }
-}
-
 /// The `workflow.runCancel` result. Cancel is offered on a new, running or waiting run, and on a
 /// failed run parked on its failed step; `alreadyCanceled` is true when the run was already
 /// canceled and this call returned the first cancel's saved result, `canceledEventId` naming the
@@ -429,15 +412,6 @@ pub enum WorkflowRunResumeStatus {
     Waiting,
 }
 
-impl From<WorkflowRunResumeStatus> for WorkflowRunStatus {
-    fn from(status: WorkflowRunResumeStatus) -> Self {
-        match status {
-            WorkflowRunResumeStatus::Running => Self::Running,
-            WorkflowRunResumeStatus::Waiting => Self::Waiting,
-        }
-    }
-}
-
 /// The `workflow.runResume` result. The two repinned ids are present only on an accepted re-pin,
 /// and then both.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -489,27 +463,18 @@ pub struct WorkflowRunRetryRequest {
     pub client_idempotency_key: ClientUuid,
 }
 
-/// Refuses a retry that answers with its own source run.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn is_a_new_run(response: &WorkflowRunRetryResponse, (): &()) -> garde::Result {
-    if response.workflow_run_id == response.source_workflow_run_id {
-        Err(garde::Error::new(
-            "a retry is a new run, never its own source",
-        ))
-    } else {
-        Ok(())
-    }
-}
-
 /// The `workflow.runRetry` result: a new run in `retry` mode; the source run stays readable. The
 /// new run is never its own source.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[garde(custom(is_a_new_run))]
+#[garde(custom(|response: &Self, (): &()| {
+    if response.workflow_run_id == response.source_workflow_run_id {
+        Err(garde::Error::new("a retry is a new run, never its own source"))
+    } else {
+        Ok(())
+    }
+}))]
 pub struct WorkflowRunRetryResponse {
     /// The new run; never the source.
     #[schemars(extend(
@@ -539,7 +504,9 @@ pub struct WorkflowRunRerunRequest {
 
 /// What a node run covers: the node alone (`Run this node`), or the node and its ancestors
 /// (`Run from here`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkflowNodeExecuteScope {
     /// The node alone.
@@ -648,7 +615,9 @@ pub struct WorkflowCodePackagesNotLockedDetails {
 }
 
 /// Why a retry cannot be made.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowRetryUnavailableReason {
     /// The source run is still going.

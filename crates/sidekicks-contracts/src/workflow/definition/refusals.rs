@@ -635,12 +635,8 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{WorkflowNodeHandles, check_workflow_graph};
-    use crate::workflow::definition::document::{WorkflowDraftDocument, WorkflowNode};
+    use crate::workflow::definition::document::{WorkflowDraftDocument, WorkflowNode, node};
     use crate::workflow::kind::WorkflowNodeKindCategory;
-
-    fn node(id: &str, kind: &str) -> Value {
-        json!({ "id": id, "kind": kind, "kindVersion": 1, "name": id, "order": 0, "params": {} })
-    }
 
     fn edge(source: &str, source_handle: &str, target: &str, target_handle: &str) -> Value {
         json!({

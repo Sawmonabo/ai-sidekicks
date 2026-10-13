@@ -11,11 +11,11 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use strum::VariantArray;
 
-use crate::jsonrpc::byte_length::json_utf8_byte_length;
+use crate::jsonrpc::byte_length::fits_budget;
 use crate::method::methods;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
-use crate::wire::text::BoundedText;
+use crate::wire::text::{BoundedText, NonEmptyText};
 
 /// One language the daemon can color.
 #[derive(
@@ -112,8 +112,10 @@ pub struct HighlightReadRequest {
     /// The language.
     pub language: HighlightLanguage,
     /// The source, at most [`HIGHLIGHT_SOURCE_MAX_BYTES`] as its JSON travels.
-    #[garde(custom(is_source_within_bound))]
-    pub source: BoundedText<1, { usize::MAX }>,
+    #[garde(custom(|source: &NonEmptyText, (): &()| {
+        fits_budget(source, HIGHLIGHT_SOURCE_MAX_BYTES)
+    }))]
+    pub source: NonEmptyText,
     /// The code block on screen this read is for, unique among the client's blocks; a newer read
     /// with the same block id on the same connection replaces this one while it waits.
     #[serde(
@@ -123,21 +125,6 @@ pub struct HighlightReadRequest {
     )]
     #[schemars(with = "BoundedText<1, HIGHLIGHT_BLOCK_ID_MAX_LENGTH>")]
     pub block_id: Option<BoundedText<1, HIGHLIGHT_BLOCK_ID_MAX_LENGTH>>,
-}
-
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn is_source_within_bound(source: &BoundedText<1, { usize::MAX }>, (): &()) -> garde::Result {
-    let bytes = json_utf8_byte_length(&source.as_str())
-        .map_err(|error| garde::Error::new(error.to_string()))?;
-    if bytes > HIGHLIGHT_SOURCE_MAX_BYTES {
-        return Err(garde::Error::new(format!(
-            "source is over the {HIGHLIGHT_SOURCE_MAX_BYTES}-byte bound"
-        )));
-    }
-    Ok(())
 }
 
 /// One color span: where it starts and how long it is, in UTF-16 code units, and its class.
@@ -224,6 +211,8 @@ impl JsonSchema for HighlightSpans {
     }
 }
 
+/// Refuses spans out of source order or overlapping, and spans whose flat list measures over
+/// [`HIGHLIGHT_SPANS_MAX_BYTES`] JSON bytes.
 #[expect(
     clippy::trivially_copy_pass_by_ref,
     reason = "garde passes a check's context by reference"
@@ -238,14 +227,7 @@ fn are_spans_paintable(spans: &Vec<HighlightSpan>, (): &()) -> garde::Result {
         }
         previous_end = span.offset.get() + span.length.get();
     }
-    let bytes = json_utf8_byte_length(&flat_spans(spans))
-        .map_err(|error| garde::Error::new(error.to_string()))?;
-    if bytes > HIGHLIGHT_SPANS_MAX_BYTES {
-        return Err(garde::Error::new(format!(
-            "spans measure {bytes} bytes, over the {HIGHLIGHT_SPANS_MAX_BYTES}-byte reply bound"
-        )));
-    }
-    Ok(())
+    fits_budget(&flat_spans(spans), HIGHLIGHT_SPANS_MAX_BYTES)
 }
 
 /// A source's color spans, in source order, never overlapping.

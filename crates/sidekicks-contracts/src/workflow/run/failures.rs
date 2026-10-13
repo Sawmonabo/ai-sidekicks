@@ -3,6 +3,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::provider::name::ProviderName;
@@ -11,7 +12,9 @@ use crate::wire::integer::SafeInt;
 use crate::wire::text::ComposedText;
 
 /// Which limit cut a step.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowStepTimedOutCause {
     /// The step's own `Timeout`.
@@ -31,7 +34,9 @@ pub struct WorkflowStepTimedOutDetails {
 }
 
 /// Why a quick step's engine failed: it was not ready 5 s after the step's start.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowStepThreadFailedReason {
     /// The step's engine was not ready 5 s after the step's start.
@@ -48,7 +53,9 @@ pub struct WorkflowStepThreadFailedDetails {
 
 /// Why a full-tier Code step's package install failed: too little disk to hold it, or any other
 /// install error, a stale lock included.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowCodeInstallFailedReason {
     /// Too little disk to hold the install.
@@ -83,21 +90,18 @@ ts_constants! {
     /// A step cut by a time limit: its own `Timeout`, or the run's cap.
     WORKFLOW_STEP_TIMED_OUT_CODE = RefusalCode::WorkflowStepTimedOut;
     /// Every limit that cuts a step.
-    pub const WORKFLOW_STEP_TIMED_OUT_CAUSES: [WorkflowStepTimedOutCause; 2] =
-        [WorkflowStepTimedOutCause::StepTimeout, WorkflowStepTimedOutCause::RunCap];
+    WORKFLOW_STEP_TIMED_OUT_CAUSES = WorkflowStepTimedOutCause::VARIANTS;
     /// A quick step's engine that did not start in time.
     WORKFLOW_STEP_THREAD_FAILED_CODE = RefusalCode::WorkflowStepThreadFailed;
     /// Every reason a quick step's engine fails.
-    pub const WORKFLOW_STEP_THREAD_FAILED_REASONS: [WorkflowStepThreadFailedReason; 1] =
-        [WorkflowStepThreadFailedReason::StartTimeout];
+    WORKFLOW_STEP_THREAD_FAILED_REASONS = WorkflowStepThreadFailedReason::VARIANTS;
     /// A full-tier Code step or a sandboxed shell step whose provider sandbox did not start; the
     /// step never runs unprotected instead.
     WORKFLOW_SANDBOX_UNAVAILABLE_CODE = RefusalCode::WorkflowSandboxUnavailable;
     /// A full-tier Code step whose package install did not finish.
     WORKFLOW_CODE_INSTALL_FAILED_CODE = RefusalCode::WorkflowCodeInstallFailed;
     /// Every reason a package install fails.
-    pub const WORKFLOW_CODE_INSTALL_FAILED_REASONS: [WorkflowCodeInstallFailedReason; 2] =
-        [WorkflowCodeInstallFailedReason::DiskSpace, WorkflowCodeInstallFailedReason::ToolError];
+    WORKFLOW_CODE_INSTALL_FAILED_REASONS = WorkflowCodeInstallFailedReason::VARIANTS;
     /// A Code step over its memory budget; a deadline cut is `workflow.step_timed_out` instead.
     WORKFLOW_CODE_OVER_BUDGET_CODE = RefusalCode::WorkflowCodeOverBudget;
 }

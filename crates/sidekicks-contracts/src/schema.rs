@@ -4,7 +4,7 @@
 
 use std::any::TypeId;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use schemars::generate::SchemaSettings;
 use schemars::transform::RecursiveTransform;
@@ -54,7 +54,8 @@ fn enum_of_documented_words(schema: &mut Schema) {
 }
 
 /// Names the tag of an internally tagged union, a `oneOf` whose every arm is an object requiring
-/// one member that holds a constant, as its `discriminator`, so Ajv picks the arm by the tag.
+/// one member that holds a constant, as its `discriminator`, so Ajv picks the arm by the tag. Only
+/// a tag whose every arm holds a different string qualifies, the one form Ajv compiles.
 fn discriminate_tagged_arms(schema: &mut Schema) {
     let Some(Value::Array(arms)) = schema.get("oneOf") else {
         return;
@@ -90,6 +91,20 @@ fn discriminate_tagged_arms(schema: &mut Schema) {
     let [tag] = shared.as_slice() else {
         return;
     };
+    // Ajv takes a discriminator only over string tags, each arm's its own.
+    let words: Option<Vec<&str>> = arms
+        .iter()
+        .map(|arm| arm.get("properties")?.get(tag)?.get("const")?.as_str())
+        .collect();
+    let Some(mut words) = words else {
+        return;
+    };
+    words.sort_unstable();
+    let arm_count = words.len();
+    words.dedup();
+    if words.len() != arm_count {
+        return;
+    }
     let tag = tag.clone();
     schema
         .ensure_object()
@@ -132,17 +147,18 @@ pub enum ReceivedCheckError {
 }
 
 /// The checks built so far, one per received type; bounded by the contract types, and an ordered
-/// map, so making it draws no randomness.
-static RECEIVED_CHECKS: Mutex<BTreeMap<TypeId, Arc<jsonschema::Validator>>> =
-    Mutex::new(BTreeMap::new());
+/// map, so making it draws no randomness. Reads share the lock; only a first build writes.
+static RECEIVED_CHECKS: RwLock<BTreeMap<TypeId, Arc<jsonschema::Validator>>> =
+    RwLock::new(BTreeMap::new());
 
 /// The check a received `T` passes before serde reads it: [`received_schema_for`] compiled on
-/// first use and held for the process's life. Fails where the schema does not build a check.
+/// first use and held for the process's life, the first one built kept when two race. Fails where
+/// the schema does not build a check.
 pub fn received_check<T: JsonSchema + 'static>()
 -> Result<Arc<jsonschema::Validator>, ReceivedCheckError> {
     let type_id = TypeId::of::<T>();
     let held = RECEIVED_CHECKS
-        .lock()
+        .read()
         .expect("no holder of the checks panics")
         .get(&type_id)
         .cloned();
@@ -155,7 +171,7 @@ pub fn received_check<T: JsonSchema + 'static>()
         source: Box::new(source),
     })?;
     let mut checks = RECEIVED_CHECKS
-        .lock()
+        .write()
         .expect("no holder of the checks panics");
     Ok(Arc::clone(
         checks.entry(type_id).or_insert_with(|| Arc::new(check)),

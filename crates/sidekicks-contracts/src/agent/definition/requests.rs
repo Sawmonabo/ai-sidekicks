@@ -141,7 +141,9 @@ definition_write! {
     /// A new definition. An omitted member is stored as its null state, so a definition never
     /// silently pins today's default; `scope` defaults to `global`, and a project scope names its
     /// project.
-    #[garde(custom(create_names_its_project))]
+    #[garde(custom(|request: &Self, (): &()| {
+        project_matches_scope(request.scope, request.project_id.as_ref())
+    }))]
     #[schemars(transform = add_project_scope_rule)]
     pub struct AgentDefinitionCreateRequest {
         /// The name.
@@ -166,15 +168,6 @@ definition_write! {
         #[schemars(with = "ProjectId")]
         pub project_id: Option<ProjectId>,
     }
-}
-
-/// Whether a create names its project exactly when its scope is a project.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn create_names_its_project(request: &AgentDefinitionCreateRequest, (): &()) -> garde::Result {
-    project_matches_scope(request.scope, request.project_id.as_ref())
 }
 
 /// The created definition, as the list serves it.

@@ -11,7 +11,7 @@ use strum::VariantArray;
 
 use crate::agent::definition::{
     AGENT_REASON_MAX_LEN, AgentDefinitionOrigin, AgentDefinitionScope, add_plugin_origin_rule,
-    add_project_scope_rule, plugin_name_matches_origin, project_matches_scope,
+    add_project_scope_rule, entry_names_its_plugin_and_project, project_matches_scope,
 };
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::internal::branded::branded_uuid_id;
@@ -108,7 +108,12 @@ pub struct SkillFile {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[garde(custom(entry_names_its_plugin_and_project))]
+#[garde(custom(|entry: &Self, (): &()| entry_names_its_plugin_and_project(
+    entry.origin,
+    entry.plugin_name.as_ref(),
+    entry.scope,
+    entry.project_id.as_ref(),
+)))]
 #[schemars(transform = add_plugin_origin_rule, transform = add_project_scope_rule)]
 pub struct SkillListEntry {
     /// The skill.
@@ -160,15 +165,6 @@ pub struct SkillListEntry {
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<FreeFormText<AGENT_REASON_MAX_LEN>>")]
     pub load_error: Option<FreeFormText<AGENT_REASON_MAX_LEN>>,
-}
-
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn entry_names_its_plugin_and_project(entry: &SkillListEntry, (): &()) -> garde::Result {
-    plugin_name_matches_origin(entry.origin, entry.plugin_name.as_ref())?;
-    project_matches_scope(Some(entry.scope), entry.project_id.as_ref())
 }
 
 /// Every skill folder across the four origins, orphaned records included. A file the daemon
@@ -561,7 +557,7 @@ pub struct SkillWriteRefusedDetails {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SkillNameTakenDetails {
     /// The folder.
-    pub folder_path: BoundedText<0, FILE_PATH_MAX_LEN>,
+    pub folder_path: FilesystemPath,
 }
 
 methods! {

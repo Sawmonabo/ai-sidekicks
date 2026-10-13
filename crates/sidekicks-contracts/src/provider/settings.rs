@@ -15,12 +15,11 @@ use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::account::record::ProviderAccountId;
-use crate::provider::name::ProviderName;
+use crate::provider::name::{ClaudeProviderWord, CodexProviderWord, ProviderName};
 use crate::repo::mount::RepoMountId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::{BoundedInt, SafeInt};
 use crate::wire::list::BoundedVec;
-use crate::wire::literal;
 use crate::wire::text::{FreeFormText, branded_text};
 
 ts_constants! {
@@ -293,13 +292,6 @@ pub struct ProviderListResponse {
     /// The sections.
     #[garde(dive)]
     pub providers: Vec<ProviderSettings>,
-}
-
-literal! {
-    /// The `claude` word, in a member only Claude Code may name.
-    pub enum ClaudeProviderWord = const ProviderName::Claude.as_str();
-    /// The `codex` word, in a member only Codex may name.
-    pub enum CodexProviderWord = const ProviderName::Codex.as_str();
 }
 
 /// Declares [`ProviderUpdateRequest`]: per provider, one closed arm for each knob every provider
@@ -671,6 +663,7 @@ mod tests {
     use rstest::rstest;
 
     use super::ProviderUpdateRequest;
+    use crate::wire::attachment::parse_received;
 
     #[rstest]
     #[case::claude_path_to_auto_detect(r#"{"provider":"claude","commandPath":null}"#, true)]
@@ -691,7 +684,7 @@ mod tests {
         #[case] request: &str,
         #[case] is_taken: bool,
     ) {
-        let parsed = serde_json::from_str::<ProviderUpdateRequest>(request);
+        let parsed = parse_received::<ProviderUpdateRequest>(request.as_bytes(), Vec::new());
         assert_eq!(parsed.is_ok(), is_taken, "{request}: {parsed:?}");
         if let Ok(parsed) = parsed {
             let written = serde_json::to_value(&parsed).expect("an update request serializes");

@@ -550,6 +550,7 @@ approval_projection_row! {
     ],
 }
 
+/// Refuses a row that offers the project scope without a standing allow beside it.
 #[expect(
     clippy::trivially_copy_pass_by_ref,
     reason = "garde passes a check's context by reference"

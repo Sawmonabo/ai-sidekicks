@@ -29,7 +29,7 @@ pub struct SessionTagRequest {
 #[garde(allow_unvalidated)]
 pub struct SessionTagListResponse {
     /// The tags.
-    #[garde(custom(fits_one_page))]
+    #[garde(dive, custom(fits_one_page))]
     pub tags: TagList,
 }
 

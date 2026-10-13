@@ -12,6 +12,7 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use strum::VariantArray;
 
 use crate::event::registry::SessionEventType;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
@@ -29,7 +30,7 @@ const RUN_STATE_EVENT_TYPE_DOC: &str =
     "An event type that moves a run into a state: `run.<state>`, one per state.";
 
 /// An event type that moves a run into a state, written as the [`SessionEventType`] it maps to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, VariantArray)]
 #[serde(into = "SessionEventType", try_from = "SessionEventType")]
 pub enum RunStateEventType {
     /// The run is queued.
@@ -57,19 +58,7 @@ pub enum RunStateEventType {
 }
 
 /// Every `run.<state>` event type, in the order the states are declared.
-pub const RUN_STATE_EVENT_TYPES: [RunStateEventType; 11] = [
-    RunStateEventType::Queued,
-    RunStateEventType::Starting,
-    RunStateEventType::Running,
-    RunStateEventType::WaitingForApproval,
-    RunStateEventType::WaitingForInput,
-    RunStateEventType::Pausing,
-    RunStateEventType::Paused,
-    RunStateEventType::Completed,
-    RunStateEventType::Interrupted,
-    RunStateEventType::Stopped,
-    RunStateEventType::Failed,
-];
+pub const RUN_STATE_EVENT_TYPES: &[RunStateEventType] = RunStateEventType::VARIANTS;
 
 impl From<RunStateEventType> for SessionEventType {
     fn from(event_type: RunStateEventType) -> Self {
@@ -90,7 +79,8 @@ impl TryFrom<SessionEventType> for RunStateEventType {
 
     fn try_from(event_type: SessionEventType) -> Result<Self, Self::Error> {
         RUN_STATE_EVENT_TYPES
-            .into_iter()
+            .iter()
+            .copied()
             .find(|candidate| candidate.session_event_type() == event_type)
             .ok_or(NotARunStateEventType(event_type))
     }
@@ -201,20 +191,6 @@ pub struct TranscriptRunFacts {
     pub is_rewound: bool,
     /// The sequence the facts hold through: an event at or below it is already in them.
     pub folded_through_sequence: FoldedThroughSequence,
-}
-
-impl TranscriptRunFacts {
-    /// The facts of `run_id` a fold holds.
-    pub fn from_fold(run_id: RunId, fold: TranscriptRunFactsFold) -> Self {
-        Self {
-            run_id,
-            actor: fold.actor,
-            admitted_provider_account_id: fold.admitted_provider_account_id,
-            state_event_type: fold.state_event_type,
-            is_rewound: fold.is_rewound,
-            folded_through_sequence: fold.folded_through_sequence,
-        }
-    }
 }
 
 /// A run's facts while a fold holds them, keyed by the run outside them: [`TranscriptRunFacts`]

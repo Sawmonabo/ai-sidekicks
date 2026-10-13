@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
+use strum::VariantArray;
 
 use crate::free_form_string::FilesystemPath;
 use crate::provider::driver::methods::{
@@ -85,7 +86,18 @@ pub struct ProviderMode {
 /// One driver capability flag. The database's list and every map over the flags follow this
 /// order, and the daemon stores one row per flag.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum DriverCapabilityFlag {
@@ -126,24 +138,7 @@ pub enum DriverCapabilityFlag {
 
 ts_constants! {
     /// Every driver capability flag, in canonical order.
-    pub const DRIVER_CAPABILITY_FLAGS: [DriverCapabilityFlag; 16] = [
-        DriverCapabilityFlag::Resume,
-        DriverCapabilityFlag::Steer,
-        DriverCapabilityFlag::InteractiveRequests,
-        DriverCapabilityFlag::Mcp,
-        DriverCapabilityFlag::ToolCalls,
-        DriverCapabilityFlag::ReasoningStream,
-        DriverCapabilityFlag::ModelMutation,
-        DriverCapabilityFlag::StructuredOutput,
-        DriverCapabilityFlag::Rollback,
-        DriverCapabilityFlag::SessionFork,
-        DriverCapabilityFlag::SessionGoals,
-        DriverCapabilityFlag::CallbackTools,
-        DriverCapabilityFlag::Subagents,
-        DriverCapabilityFlag::ContextCompaction,
-        DriverCapabilityFlag::ProviderCommands,
-        DriverCapabilityFlag::OutputSpeed,
-    ];
+    pub const DRIVER_CAPABILITY_FLAGS: &[DriverCapabilityFlag] = DriverCapabilityFlag::VARIANTS;
 }
 
 /// Each capability flag's value: every flag present, no other member.

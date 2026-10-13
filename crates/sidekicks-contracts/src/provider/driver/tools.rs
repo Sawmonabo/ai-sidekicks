@@ -4,6 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use strum::VariantArray;
 
 use crate::provider::driver::length_limits::{
     DRIVER_TOOL_DESCRIPTION_MAX_LEN, DRIVER_TOOL_NAME_MAX_LEN,
@@ -13,7 +14,19 @@ use crate::wire::text::FreeFormText;
 
 /// A tool's declared idempotency: safe to repeat, undoable, or needing a person to reconcile. A
 /// daemon restart runs no call again, whatever its class.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum IdempotencyClass {
     /// Safe to repeat.
@@ -27,11 +40,7 @@ pub enum IdempotencyClass {
 
 ts_constants! {
     /// Every idempotency class, safest to repeat first.
-    pub const IDEMPOTENCY_CLASSES: [IdempotencyClass; 3] = [
-        IdempotencyClass::Idempotent,
-        IdempotencyClass::Compensable,
-        IdempotencyClass::ManualReconcileOnly,
-    ];
+    IDEMPOTENCY_CLASSES = IdempotencyClass::VARIANTS;
 }
 
 /// A tool a driver declares. An undeclared class reads as `manual_reconcile_only`, and unknown

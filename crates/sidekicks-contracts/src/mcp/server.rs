@@ -13,11 +13,11 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::provider::driver::length_limits::{
     DRIVER_MCP_SERVER_NAME_MAX_LEN, DRIVER_TOOL_NAME_MAX_LEN,
 };
-use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::literal;
 use crate::wire::text::FreeFormText;
@@ -54,19 +54,9 @@ ts_constants! {
         McpServerStatus::Connected,
     ];
     /// Every application grade, in declaration order.
-    pub const MCP_APPLICATION_GRADES: [McpApplicationGrade; 4] = [
-        McpApplicationGrade::LiveReconcile,
-        McpApplicationGrade::UserConfigWrite,
-        McpApplicationGrade::NextRun,
-        McpApplicationGrade::DaemonEnforced,
-    ];
+    MCP_APPLICATION_GRADES = McpApplicationGrade::VARIANTS;
     /// Every approval mode, in the order the per-tool control offers them.
-    pub const MCP_APPROVAL_MODES: [McpApprovalMode; 4] = [
-        McpApprovalMode::Auto,
-        McpApprovalMode::Prompt,
-        McpApprovalMode::Writes,
-        McpApprovalMode::Approve,
-    ];
+    MCP_APPROVAL_MODES = McpApprovalMode::VARIANTS;
     /// The longest command, argument, name, value, address or search text an `mcp.*` request
     /// carries.
     MCP_REQUEST_TEXT_MAX_LEN = config::MCP_REQUEST_TEXT_MAX_LEN;
@@ -83,7 +73,9 @@ pub type McpToolName = FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>;
 /// When and where a mutation took effect: in the live sessions now, in the provider's config store
 /// for later runs, in the next run's composed config, or at the daemon's decision layer at once.
 /// Always stated, never silent.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum McpApplicationGrade {
     /// Applied to the live sessions now.
@@ -109,7 +101,9 @@ impl McpApplicationGrade {
 }
 
 /// The normalized approval vocabulary a tool override may pin.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum McpApprovalMode {
     /// Every call runs without asking.
@@ -144,11 +138,6 @@ pub enum McpBindingScope {
     Connector,
     /// An organization's server.
     Managed,
-}
-
-literal! {
-    /// The provider of a binding only Claude Code has: a connector or an organization's server.
-    pub enum McpClaudeProvider = const ProviderName::Claude.as_str();
 }
 
 /// Declares a union tagged on `scope` whose arms are the binding scopes, each arm holding the
@@ -189,7 +178,7 @@ macro_rules! binding_addressed {
                 /// project only by the daemon's own switch, and given tool overrides.
                 Connector {
                     /// Always `claude`.
-                    provider: $crate::mcp::server::McpClaudeProvider,
+                    provider: $crate::provider::name::ClaudeProviderWord,
                     /// The provider account the connector belongs to.
                     scope_ref: $crate::provider::account::record::ProviderAccountId,
                     /// The name Claude Code reports for it, such as `claude.ai Slack`.
@@ -202,7 +191,7 @@ macro_rules! binding_addressed {
                 /// and given tool overrides.
                 Managed {
                     /// Always `claude`.
-                    provider: $crate::mcp::server::McpClaudeProvider,
+                    provider: $crate::provider::name::ClaudeProviderWord,
                     /// The server's name.
                     server_name: $crate::mcp::server::McpServerName,
                     $($extra)*

@@ -4,6 +4,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::command::ExitCode;
 use crate::event::envelope::SourcePosition;
@@ -52,7 +53,9 @@ branded_uuid_id! {
 
 /// Where an intervention stands, from request to outcome; each state has its own event. `failed`
 /// is a dispatch that threw, so a request never stays `accepted` for good.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum InterventionState {
     /// Asked for.
@@ -96,15 +99,7 @@ pub enum RunFailureCategory {
 
 ts_constants! {
     /// Every state an intervention passes through, `requested` first.
-    pub const INTERVENTION_STATES: [InterventionState; 7] = [
-        InterventionState::Requested,
-        InterventionState::Accepted,
-        InterventionState::Applied,
-        InterventionState::Rejected,
-        InterventionState::Degraded,
-        InterventionState::Expired,
-        InterventionState::Failed,
-    ];
+    INTERVENTION_STATES = InterventionState::VARIANTS;
     /// The code of a move the run's current state does not allow, such as a second or late answer
     /// to a choice the run already settled.
     RUN_INVALID_TRANSITION_CODE = RefusalCode::RunInvalidTransition;

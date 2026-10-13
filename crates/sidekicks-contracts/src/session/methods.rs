@@ -121,7 +121,7 @@ pub struct SessionRecord {
     /// holds for it, stable for its whole life.
     pub address: FilesystemPath,
     /// Its tags as first written, in the order of their case fold.
-    #[garde(custom(fits_one_page))]
+    #[garde(dive, custom(fits_one_page))]
     pub tags: TagList,
 }
 

@@ -199,26 +199,17 @@ pub struct ProviderAccountMovingSession {
 } } }]))]
 pub struct ProviderAccountSetCurrentResponse {
     /// The account now current, so it carries the default mark.
-    #[garde(dive, custom(is_default_account))]
+    #[garde(dive, custom(|account: &ProviderAccount, (): &()| {
+        if account.is_default() {
+            Ok(())
+        } else {
+            Err(garde::Error::new("the account made current must carry the default mark"))
+        }
+    }))]
     pub account: ProviderAccount,
     /// The sessions the switch is moving; empty when nothing ran on that provider or the account
     /// was already current.
     pub moving_sessions: Vec<ProviderAccountMovingSession>,
-}
-
-/// Whether the account carries the default mark.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn is_default_account(account: &ProviderAccount, (): &()) -> garde::Result {
-    if account.is_default() {
-        Ok(())
-    } else {
-        Err(garde::Error::new(
-            "the account made current must carry the default mark",
-        ))
-    }
 }
 
 /// The refused account's own remedy, so the refusal points at the one way back for it.

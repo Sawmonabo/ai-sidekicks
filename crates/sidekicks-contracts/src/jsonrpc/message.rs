@@ -467,11 +467,13 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     method_tables: &[],
 };
 
-/// The params of [`CANCEL_REQUEST_METHOD`]: the id of the call to stop.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// The params of [`CANCEL_REQUEST_METHOD`]: the id of the call to stop, read with
+/// [`crate::wire::attachment::parse_received`] like every other received message.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CancelRequestParams {
     /// The id of the request to stop.
+    #[garde(skip)]
     pub id: JsonRpcId,
 }
 

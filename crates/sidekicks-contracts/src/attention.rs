@@ -353,7 +353,13 @@ pub struct AttentionDeliveryOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[garde(custom(has_no_host_unless_saved))]
+#[garde(custom(|delivery: &Self, (): &()| {
+    if delivery.saved || delivery.host.is_none() {
+        Ok(())
+    } else {
+        Err(garde::Error::new("host is null when no address is saved"))
+    }
+}))]
 #[schemars(extend(
     "if" = {
         "type": "object",
@@ -374,18 +380,6 @@ pub struct AttentionWebAddressDelivery {
     #[schemars(with = "NullableSchema<AttentionDeliveryOutcome>")]
     #[garde(dive)]
     pub last_outcome: Option<AttentionDeliveryOutcome>,
-}
-
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn has_no_host_unless_saved(delivery: &AttentionWebAddressDelivery, (): &()) -> garde::Result {
-    if delivery.saved || delivery.host.is_none() {
-        Ok(())
-    } else {
-        Err(garde::Error::new("host is null when no address is saved"))
-    }
 }
 
 /// What the email digest last did; the mail password is never sent.

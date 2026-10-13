@@ -9,6 +9,7 @@ use std::fmt;
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use strum::VariantArray;
 
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
@@ -36,20 +37,7 @@ ts_constants! {
     /// A definition that exists but cannot produce a runnable agent now.
     AGENT_RESOLUTION_REFUSED_CODE = RefusalCode::AgentResolutionRefused;
     /// The agent hue wheel's twelve steps by token name, in wheel order.
-    pub const AGENT_ACCENT_HUES: [AgentAccentHue; 12] = [
-        AgentAccentHue::Hue00,
-        AgentAccentHue::Hue01,
-        AgentAccentHue::Hue02,
-        AgentAccentHue::Hue03,
-        AgentAccentHue::Hue04,
-        AgentAccentHue::Hue05,
-        AgentAccentHue::Hue06,
-        AgentAccentHue::Hue07,
-        AgentAccentHue::Hue08,
-        AgentAccentHue::Hue09,
-        AgentAccentHue::Hue10,
-        AgentAccentHue::Hue11,
-    ];
+    AGENT_ACCENT_HUES = AgentAccentHue::VARIANTS;
 }
 
 branded_uuid_id! {
@@ -102,7 +90,9 @@ pub enum AgentMemoryScope {
 }
 
 /// One step of the agent hue wheel.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 pub enum AgentAccentHue {
     /// Step 0.
     #[serde(rename = "hue-00")]
@@ -217,6 +207,18 @@ pub fn plugin_name_matches_origin<T>(
     }
 }
 
+/// Whether a listed entry names its plugin and its project exactly where its origin and scope
+/// say. Listed agents and skills share the rule.
+pub fn entry_names_its_plugin_and_project<T>(
+    origin: AgentDefinitionOrigin,
+    plugin_name: Option<&T>,
+    scope: AgentDefinitionScope,
+    project_id: Option<&ProjectId>,
+) -> garde::Result {
+    plugin_name_matches_origin(origin, plugin_name)?;
+    project_matches_scope(Some(scope), project_id)
+}
+
 /// Appends to `schema`'s `allOf` the rule that `member` is present exactly when `discriminant`
 /// is `value`.
 pub(crate) fn add_present_exactly_when(
@@ -320,7 +322,12 @@ definition_record! {
 definition_record! {
     /// One definition as the list serves it: the record, where it lives, and its provider facts,
     /// none excluding another, since an orphaned record can also carry a load error.
-    #[garde(custom(entry_names_its_plugin_and_project))]
+    #[garde(custom(|entry: &Self, (): &()| entry_names_its_plugin_and_project(
+        entry.origin,
+        entry.plugin_name.as_ref(),
+        entry.scope,
+        entry.project_id.as_ref(),
+    )))]
     #[schemars(transform = add_plugin_origin_rule)]
     #[schemars(transform = add_project_scope_rule)]
     pub struct AgentDefinitionListEntry {
@@ -358,16 +365,6 @@ definition_record! {
         #[schemars(with = "crate::wire::NullableSchema<FreeFormText<AGENT_REASON_MAX_LEN>>")]
         pub load_error: Option<FreeFormText<AGENT_REASON_MAX_LEN>>,
     }
-}
-
-/// Whether a list entry names its plugin and its project exactly where its origin and scope say.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn entry_names_its_plugin_and_project(entry: &AgentDefinitionListEntry, (): &()) -> garde::Result {
-    plugin_name_matches_origin(entry.origin, entry.plugin_name.as_ref())?;
-    project_matches_scope(Some(entry.scope), entry.project_id.as_ref())
 }
 
 /// What a running agent was started with, echoed on whichever reply started it: a record of the

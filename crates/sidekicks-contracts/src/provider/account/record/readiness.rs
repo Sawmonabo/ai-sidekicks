@@ -2,6 +2,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use super::ProviderAccountId;
 use crate::provider::name::ProviderName;
@@ -9,20 +10,12 @@ use crate::wire::instant::WireInstant;
 use crate::wire::list::BoundedVec;
 use crate::wire::literal;
 
-/// Every readiness state, in declaration order.
-pub const PROVIDER_READINESS_STATES: [ProviderReadinessState; 6] = [
-    ProviderReadinessState::Authenticated,
-    ProviderReadinessState::ReauthRequired,
-    ProviderReadinessState::HomeMissing,
-    ProviderReadinessState::Indeterminate,
-    ProviderReadinessState::NoAccount,
-    ProviderReadinessState::NoDefault,
-];
-
 /// The pre-computed answer to what run admission will ask. The first four are the resolved
 /// account's stored health state; `no_account` and `no_default` stand where resolution reached no
 /// account. It authorizes nothing: admission checks again.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderReadinessState {
     /// Signed in.

@@ -7,6 +7,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::command::ExitCode;
 use crate::method::methods;
@@ -37,7 +38,7 @@ pub struct AppDiagnosticTextBounds {
 /// Where in the app an error went unhandled: main; the hidden console document, which runs the
 /// code of every window, so its errors read here; or a window of session views or a pane's own
 /// window, for what that window's own objects raise.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, VariantArray)]
 #[serde(rename_all = "kebab-case")]
 pub enum AppDiagnosticRole {
     /// The main process.
@@ -51,7 +52,7 @@ pub enum AppDiagnosticRole {
 }
 
 /// How bad a captured line is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, VariantArray)]
 #[serde(rename_all = "kebab-case")]
 pub enum AppDiagnosticSeverity {
     /// An error.
@@ -87,18 +88,9 @@ ts_constants! {
         label: 128,
     };
     /// Every place an error can go unhandled, in order.
-    pub const APP_DIAGNOSTIC_ROLES: [AppDiagnosticRole; 4] = [
-        AppDiagnosticRole::Main,
-        AppDiagnosticRole::ConsoleDocument,
-        AppDiagnosticRole::ConsoleWindow,
-        AppDiagnosticRole::PaneWindow,
-    ];
+    APP_DIAGNOSTIC_ROLES = AppDiagnosticRole::VARIANTS;
     /// Every severity of a captured line, worst first.
-    pub const APP_DIAGNOSTIC_SEVERITIES: [AppDiagnosticSeverity; 3] = [
-        AppDiagnosticSeverity::Error,
-        AppDiagnosticSeverity::Warning,
-        AppDiagnosticSeverity::Notice,
-    ];
+    APP_DIAGNOSTIC_SEVERITIES = AppDiagnosticSeverity::VARIANTS;
 }
 
 /// An error's name.

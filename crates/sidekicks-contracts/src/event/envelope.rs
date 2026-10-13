@@ -10,7 +10,6 @@
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
-use regex::Regex;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -18,7 +17,7 @@ use serde_json::{Map, Value, json};
 use crate::event::version::{EVENT_FIELD_MAX_LEN, EventEnvelopeVersion};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::instant::WireInstant;
+use crate::wire::instant::calendar_date_pattern;
 use crate::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use crate::wire::text::FreeFormText;
 use crate::wire::{NullableSchema, True, named_scalar};
@@ -121,41 +120,142 @@ impl EventEnvelopeType {
     }
 }
 
-/// The pattern an [`EventOccurredAt`] adds to the instant's own: no non-zero fraction digit past
-/// the third, so the append path's millisecond form keeps the instant exactly.
-const OCCURRED_AT_MILLISECONDS_PATTERN: &str = "^[^.]*(?:\\.[0-9]{1,3}0*[^0-9][^.]*)?$";
+/// The schema's form of an `occurredAt`: a real calendar date, an uppercase `T`, a time whose
+/// seconds may be left out and whose fraction holds no non-zero digit past the third, then `Z` or
+/// an offset up to `23:59`.
+const OCCURRED_AT_PATTERN: &str = concat!(
+    "^",
+    calendar_date_pattern!(),
+    "T(?:[01][0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9](?:\\.[0-9]{1,3}0*)?)?\
+     (?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"
+);
 
-/// [`OCCURRED_AT_MILLISECONDS_PATTERN`], compiled once for the garde check.
-static OCCURRED_AT_MILLISECONDS_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(OCCURRED_AT_MILLISECONDS_PATTERN).expect("the occurred-at pattern is a valid regex")
-});
+/// Reads an `occurredAt` component by component, the instant it names in UTC to the millisecond;
+/// `None` where a part is missing, out of range or not a real date.
+fn parse_occurred_at(text: &str) -> Option<jiff::Timestamp> {
+    let mut rest = text.as_bytes();
+    let year = take_digits(&mut rest, 4)?;
+    take_byte(&mut rest, b'-')?;
+    let month = take_digits(&mut rest, 2)?;
+    take_byte(&mut rest, b'-')?;
+    let day = take_digits(&mut rest, 2)?;
+    take_byte(&mut rest, b'T')?;
+    let hour = take_digits(&mut rest, 2)?;
+    take_byte(&mut rest, b':')?;
+    let minute = take_digits(&mut rest, 2)?;
+    let mut second = 0;
+    let mut millisecond = 0;
+    if take_byte(&mut rest, b':').is_some() {
+        second = take_digits(&mut rest, 2)?;
+        if take_byte(&mut rest, b'.').is_some() {
+            let digit_count = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
+            let (fraction, after) = rest.split_at(digit_count);
+            // Trailing zeros fold away; any other digit past the millisecond would be lost.
+            if fraction.is_empty() || fraction.iter().skip(3).any(|digit| *digit != b'0') {
+                return None;
+            }
+            millisecond = fraction
+                .iter()
+                .chain(std::iter::repeat(&b'0'))
+                .take(3)
+                .fold(0, |value, digit| value * 10 + u32::from(digit - b'0'));
+            rest = after;
+        }
+    }
+    let offset_seconds = match rest {
+        [b'Z'] => 0,
+        [sign @ (b'+' | b'-'), offset @ ..] => {
+            let mut offset = offset;
+            let offset_hour = take_digits(&mut offset, 2)?;
+            take_byte(&mut offset, b':')?;
+            let offset_minute = take_digits(&mut offset, 2)?;
+            if !offset.is_empty() || offset_hour > 23 || offset_minute > 59 {
+                return None;
+            }
+            let seconds = i32::try_from(offset_hour * 3600 + offset_minute * 60).ok()?;
+            if *sign == b'-' { -seconds } else { seconds }
+        }
+        _ => return None,
+    };
+    if hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    let date = jiff::civil::Date::new(
+        i16::try_from(year).ok()?,
+        i8::try_from(month).ok()?,
+        i8::try_from(day).ok()?,
+    )
+    .ok()?;
+    let time = jiff::civil::Time::new(
+        i8::try_from(hour).ok()?,
+        i8::try_from(minute).ok()?,
+        i8::try_from(second).ok()?,
+        i32::try_from(millisecond * 1_000_000).ok()?,
+    )
+    .ok()?;
+    jiff::tz::Offset::from_seconds(offset_seconds)
+        .ok()?
+        .to_timestamp(date.to_datetime(time))
+        .ok()
+}
 
-/// Refuses an instant whose fraction holds a non-zero digit past the third.
+/// Takes `count` ASCII digits off the front of `rest` as their number.
+fn take_digits(rest: &mut &[u8], count: usize) -> Option<u32> {
+    let (digits, after) = rest.split_at_checked(count)?;
+    if !digits.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    *rest = after;
+    Some(
+        digits
+            .iter()
+            .fold(0, |value, digit| value * 10 + u32::from(digit - b'0')),
+    )
+}
+
+/// Takes `expected` off the front of `rest`, or leaves `rest` and answers `None`.
+fn take_byte(rest: &mut &[u8], expected: u8) -> Option<()> {
+    let (first, after) = rest.split_first()?;
+    if *first != expected {
+        return None;
+    }
+    *rest = after;
+    Some(())
+}
+
+/// Refuses an `occurredAt` [`parse_occurred_at`] does not read.
 #[expect(
     clippy::trivially_copy_pass_by_ref,
     reason = "garde passes a check's context by reference"
 )]
-fn holds_milliseconds_at_most(instant: &WireInstant, (): &()) -> garde::Result {
-    if OCCURRED_AT_MILLISECONDS_REGEX.is_match(instant.as_str()) {
-        Ok(())
-    } else {
-        Err(garde::Error::new(
-            "an occurredAt carries no non-zero fraction digit past the millisecond",
-        ))
+fn is_occurred_at(text: &str, (): &()) -> garde::Result {
+    match parse_occurred_at(text) {
+        Some(_) => Ok(()),
+        None => Err(garde::Error::new(
+            "an occurredAt is a real date and time with `Z` or an offset, and no non-zero \
+             fraction digit past the millisecond",
+        )),
     }
 }
 
-/// When an incoming event occurred: an instant as a peer sent it, whose fraction holds no non-zero
-/// digit past the third, since the append path stores it in UTC to the millisecond.
+/// When an incoming event occurred, as a peer sent it: its seconds may be left out, and its
+/// fraction holds no non-zero digit past the third, since the append path stores it in UTC to the
+/// millisecond.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, garde::Validate)]
 #[serde(transparent)]
 #[garde(transparent)]
-pub struct EventOccurredAt(#[garde(dive, custom(holds_milliseconds_at_most))] WireInstant);
+pub struct EventOccurredAt(#[garde(custom(is_occurred_at))] String);
 
 impl EventOccurredAt {
-    /// The instant as received.
-    pub fn as_instant(&self) -> &WireInstant {
+    /// The text as received.
+    pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// The instant, for the append path to store in UTC to the millisecond; `None` where the
+    /// text breaks the rule its garde check holds.
+    pub fn timestamp(&self) -> Option<jiff::Timestamp> {
+        parse_occurred_at(&self.0)
     }
 }
 
@@ -164,14 +264,13 @@ impl JsonSchema for EventOccurredAt {
         "EventOccurredAt".into()
     }
 
-    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
         json_schema!({
-            "description": "When an incoming event occurred: an instant whose fraction holds no \
-                            non-zero digit past the third.",
-            "allOf": [
-                generator.subschema_for::<WireInstant>(),
-                { "pattern": OCCURRED_AT_MILLISECONDS_PATTERN },
-            ],
+            "description": "When an incoming event occurred: a real date and time with `Z` or an \
+                            offset, its seconds optional, its fraction holding no non-zero digit \
+                            past the third.",
+            "type": "string",
+            "pattern": OCCURRED_AT_PATTERN,
         })
     }
 }
@@ -361,3 +460,43 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use garde::Validate as _;
+    use regex::Regex;
+    use rstest::rstest;
+
+    use super::{EventOccurredAt, OCCURRED_AT_PATTERN};
+
+    #[rstest]
+    #[case::three_zero_digits("2026-10-13T12:34:56.000Z", Some("2026-10-13T12:34:56Z"))]
+    #[case::one_digit("2026-10-13T12:34:56.5Z", Some("2026-10-13T12:34:56.5Z"))]
+    #[case::trailing_zeros("2026-10-13T12:34:56.5000Z", Some("2026-10-13T12:34:56.5Z"))]
+    #[case::an_offset("2026-10-13T14:34:56+02:00", Some("2026-10-13T12:34:56Z"))]
+    #[case::negative_zero_offset("2026-10-13T12:34:56-00:00", Some("2026-10-13T12:34:56Z"))]
+    #[case::omitted_seconds("2026-10-13T12:34Z", Some("2026-10-13T12:34:00Z"))]
+    #[case::a_digit_past_the_millisecond("2026-10-13T12:34:56.0001Z", None)]
+    #[case::a_lowercase_t("2026-10-13t12:34:56Z", None)]
+    #[case::a_leap_second("2016-12-31T23:59:60Z", None)]
+    fn an_occurred_at_is_read_component_by_component(
+        #[case] text: &str,
+        #[case] instant: Option<&str>,
+    ) {
+        let occurred_at: EventOccurredAt =
+            serde_json::from_value(text.into()).expect("any text deserializes");
+        let expected = instant.map(|instant| {
+            instant
+                .parse::<jiff::Timestamp>()
+                .expect("the expected instant parses")
+        });
+        assert_eq!(occurred_at.validate().is_ok(), expected.is_some(), "{text}");
+        assert_eq!(occurred_at.timestamp(), expected, "{text}");
+        let pattern = Regex::new(OCCURRED_AT_PATTERN).expect("the pattern compiles");
+        assert_eq!(
+            pattern.is_match(text),
+            expected.is_some(),
+            "the schema agrees on {text}"
+        );
+    }
+}

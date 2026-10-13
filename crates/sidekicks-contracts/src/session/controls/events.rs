@@ -10,7 +10,7 @@ use crate::command::ExitCode;
 use crate::free_form_string::FilesystemPath;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::{DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN};
-use crate::provider::name::ProviderName;
+use crate::provider::name::{ClaudeProviderWord, CodexProviderWord, ProviderName};
 use crate::provider::settings::PROVIDER_VERSION_MAX_LEN;
 use crate::run::id::RunId;
 use crate::session::controls::methods::{
@@ -103,10 +103,6 @@ pub struct RunSafetyBufferingUpdatedPayload {
 literal! {
     /// The `settings_ignored` notice kind.
     pub enum SettingsIgnoredKind = "settings_ignored";
-    /// Codex, as the provider of a `settings_ignored` notice.
-    pub enum CodexProvider = "codex";
-    /// Claude Code, as the provider of a `settings_ignored` notice.
-    pub enum ClaudeProvider = "claude";
 }
 
 /// Codex started without part of its settings: the file and the line it names.
@@ -119,7 +115,7 @@ pub struct CodexSettingsIgnoredNotice {
     /// Always `settings_ignored`.
     pub kind: SettingsIgnoredKind,
     /// Always `codex`.
-    pub provider: CodexProvider,
+    pub provider: CodexProviderWord,
     /// The settings file.
     pub file: FilesystemPath,
     /// The line in it.
@@ -138,7 +134,7 @@ pub struct ClaudeSettingsIgnoredNotice {
     /// Always `settings_ignored`.
     pub kind: SettingsIgnoredKind,
     /// Always `claude`.
-    pub provider: ClaudeProvider,
+    pub provider: ClaudeProviderWord,
     /// The settings file, where one is known.
     #[serde(
         default,

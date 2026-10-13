@@ -370,8 +370,8 @@ pub(crate) use pattern_text;
 ///
 /// ```ignore
 /// branded_text! {
-///     /// The id of one of the person's devices.
-///     pub struct DeviceId(1..=DEVICE_ID_MAX_LEN);
+///     /// The daemon-minted id of one shell in a session, opaque to every client.
+///     pub struct TerminalId(1..=TERMINAL_ID_MAX_LEN);
 /// }
 /// ```
 macro_rules! branded_text {

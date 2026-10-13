@@ -83,24 +83,15 @@ pub struct VoiceDictationStartRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct VoiceDictationWriteRequest {
     /// The frame; an odd length would end mid-sample.
-    #[garde(custom(holds_whole_samples))]
+    #[garde(custom(|audio: &Bytes<1, VOICE_DICTATION_FRAME_MAX_BYTES>, (): &()| {
+        if audio.as_bytes().len().is_multiple_of(2) {
+            Ok(())
+        } else {
+            Err(garde::Error::new("audio must hold whole 16-bit samples"))
+        }
+    }))]
     #[schemars(extend("evenBytes" = true))]
     pub audio: Bytes<1, VOICE_DICTATION_FRAME_MAX_BYTES>,
-}
-
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "garde passes a check's context by reference"
-)]
-fn holds_whole_samples(
-    audio: &Bytes<1, VOICE_DICTATION_FRAME_MAX_BYTES>,
-    (): &(),
-) -> garde::Result {
-    if audio.as_bytes().len().is_multiple_of(2) {
-        Ok(())
-    } else {
-        Err(garde::Error::new("audio must hold whole 16-bit samples"))
-    }
 }
 
 /// `voice.dictationStop`: stops the recording; `cancel` drops it, and its words with it.

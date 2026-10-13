@@ -4,6 +4,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::approval::ApprovalDecision;
 use crate::provider::account::record::ProviderAccountId;
@@ -21,8 +22,7 @@ use crate::workflow::run::step::record::{WorkflowCost, WorkflowPayloadRef, workf
 
 ts_constants! {
     /// Every reason a step is skipped.
-    pub const WORKFLOW_STEP_SKIP_REASONS: [WorkflowStepSkipReason; 2] =
-        [WorkflowStepSkipReason::NoItems, WorkflowStepSkipReason::Disabled];
+    WORKFLOW_STEP_SKIP_REASONS = WorkflowStepSkipReason::VARIANTS;
 }
 
 /// Declares a step event's payload struct: the step it names, by its session and the members its
@@ -263,7 +263,9 @@ workflow_step_event! {
 }
 
 /// Why a step was skipped: its input carried no items, or its node is disabled.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum WorkflowStepSkipReason {
     /// Its input carried no items.
