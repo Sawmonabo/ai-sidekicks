@@ -235,7 +235,11 @@ macro_rules! literal {
             }
 
             fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-                schemars::json_schema!({ "type": "string", "const": Self::TEXT })
+                schemars::json_schema!({
+                    "description": $crate::schema::doc_description(concat!($($doc, "\n"),+)),
+                    "type": "string",
+                    "const": Self::TEXT,
+                })
             }
         }
     )+};
