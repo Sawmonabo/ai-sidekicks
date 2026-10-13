@@ -627,7 +627,7 @@ pub enum MachineSettingsChange {
 #[serde(rename_all = "camelCase")]
 pub enum SettingsFileRepairCause {
     /// The file was not JSON.
-    Unparseable,
+    Unparsable,
     /// The file's JSON did not match its schema.
     SchemaRefused,
 }

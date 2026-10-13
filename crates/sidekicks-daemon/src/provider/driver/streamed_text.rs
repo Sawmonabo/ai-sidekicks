@@ -202,14 +202,14 @@ mod tests {
     use super::{STREAMED_TEXT_PIECE_INTERVAL, StreamedText, StreamedTextCompletion};
 
     #[rstest]
-    #[case::streamed_across_an_interval(&["Hel", "lo "], &["wor"], &["Hello ", "world"])]
-    #[case::nothing_streamed(&[], &[], &["Hello world"])]
+    #[case::streamed_across_an_interval(&["Good ", "day "], &["to"], &["Good day ", "to you"])]
+    #[case::nothing_streamed(&[], &[], &["Good day to you"])]
     fn pieces_joined_in_order_are_the_final_text(
         #[case] before_interval: &[&str],
         #[case] after_interval: &[&str],
         #[case] expected_pieces: &[&str],
     ) {
-        let final_text = "Hello world";
+        let final_text = "Good day to you";
         let start = Instant::now();
         let mut streamed = StreamedText::default();
         let mut pieces = Vec::new();

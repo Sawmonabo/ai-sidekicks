@@ -214,7 +214,7 @@ fn occurrences(text: &str, phrase: &Phrase) -> u32 {
 fn a_ranked_typed_word_counts_each_place_its_tokens_sit_in_order() {
     let mut rows: Vec<IndexRow> = Vec::new();
     generate(SIZE, |row| rows.push(row));
-    // Look-alikes the pair field also holds beside the words: `pushed` begins with `push`, `login`
+    // Near matches the pair field also holds beside the words: `pushed` begins with `push`, `login`
     // with `log`, `command` with `comm` and `файлы` with `файл`.
     let texts = [
         "git push origin",
