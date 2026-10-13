@@ -8,14 +8,27 @@ use regex::Regex;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
+/// A real calendar date, `YYYY-MM-DD`, leap days included, unanchored: the date part both the
+/// instant's and the calendar date's patterns share. Every class is spelled out, so Rust and
+/// ECMAScript read it alike.
+macro_rules! calendar_date_pattern {
+    () => {
+        "(?:(?:[0-9][0-9][2468][048]|[0-9][0-9][13579][26]|[0-9][0-9]0[48]|[02468][048]00\
+         |[13579][26]00)-02-29|[0-9]{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12][0-9]|3[01])\
+         |(?:0[469]|11)-(?:0[1-9]|[12][0-9]|30)|(?:02)-(?:0[1-9]|1[0-9]|2[0-8])))"
+    };
+}
+
+pub(crate) use calendar_date_pattern;
+
 /// The instant's pattern: a real calendar date, `T`, a time with seconds and any fraction, then
-/// `Z` or an offset up to `23:59`. Every class is spelled out, so Rust and ECMAScript read it alike.
-const INSTANT_PATTERN: &str = "^(?:(?:[0-9][0-9][2468][048]|[0-9][0-9][13579][26]|[0-9][0-9]0[48]\
-                               |[02468][048]00|[13579][26]00)-02-29|[0-9]{4}-(?:(?:0[13578]|1[02])\
-                               -(?:0[1-9]|[12][0-9]|3[01])|(?:0[469]|11)-(?:0[1-9]|[12][0-9]|30)\
-                               |(?:02)-(?:0[1-9]|1[0-9]|2[0-8])))T(?:(?:[01][0-9]|2[0-3])\
-                               :[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?(?:Z|([+-](?:[01][0-9]|2[0-3])\
-                               :[0-5][0-9])))$";
+/// `Z` or an offset up to `23:59`.
+const INSTANT_PATTERN: &str = concat!(
+    "^",
+    calendar_date_pattern!(),
+    "T(?:(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?\
+     (?:Z|([+-](?:[01][0-9]|2[0-3]):[0-5][0-9])))$"
+);
 
 /// [`INSTANT_PATTERN`], compiled once for the garde check.
 static INSTANT_REGEX: LazyLock<Regex> =

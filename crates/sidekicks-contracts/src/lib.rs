@@ -31,6 +31,7 @@ use crate::typescript::TypeScriptModule;
 pub fn typescript_modules() -> impl Iterator<Item = &'static TypeScriptModule> {
     [
         event::TYPESCRIPT_MODULES,
+        internal::TYPESCRIPT_MODULES,
         jsonrpc::TYPESCRIPT_MODULES,
         run::TYPESCRIPT_MODULES,
         wire::TYPESCRIPT_MODULES,

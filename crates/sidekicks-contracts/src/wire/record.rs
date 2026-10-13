@@ -1,0 +1,81 @@
+//! A record on the wire: an object whose members a peer names. It refuses the member `__proto__`,
+//! in its schema too, so no TypeScript reader meets a member that would replace an object's
+//! prototype.
+
+use std::borrow::Cow;
+use std::collections::BTreeMap;
+
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
+
+use crate::wire::AnyValue;
+
+/// The one member name a record refuses, since a JavaScript object reads it as its prototype.
+const PROTOTYPE_KEY: &str = "__proto__";
+
+/// An object whose member names are `K` and whose values are `V`, in key order; the member
+/// `__proto__` is refused.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct Record<K: Ord, V>(BTreeMap<K, V>);
+
+impl<K: Ord + AsRef<str>, V> Record<K, V> {
+    /// The record of `members`, or `None` when a member is named `__proto__`.
+    pub fn new(members: BTreeMap<K, V>) -> Option<Self> {
+        let is_prototype_free = !members.keys().any(|key| key.as_ref() == PROTOTYPE_KEY);
+        is_prototype_free.then_some(Self(members))
+    }
+}
+
+impl<K: Ord, V> Record<K, V> {
+    /// The members by name.
+    pub fn as_map(&self) -> &BTreeMap<K, V> {
+        &self.0
+    }
+
+    /// The members by name, consuming the record.
+    pub fn into_map(self) -> BTreeMap<K, V> {
+        self.0
+    }
+}
+
+impl<K: Ord, V> Default for Record<K, V> {
+    fn default() -> Self {
+        Self(BTreeMap::new())
+    }
+}
+
+impl<'de, K, V> Deserialize<'de> for Record<K, V>
+where
+    K: Ord + Deserialize<'de> + AsRef<str>,
+    V: Deserialize<'de>,
+{
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(BTreeMap::<K, V>::deserialize(deserializer)?)
+            .ok_or_else(|| D::Error::custom("a record never holds the member __proto__"))
+    }
+}
+
+impl<K: Ord + JsonSchema, V: JsonSchema> JsonSchema for Record<K, V> {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        format!("RecordOf{}To{}", K::schema_name(), V::schema_name()).into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "object",
+            "propertyNames": {
+                "allOf": [generator.subschema_for::<K>(), { "not": { "const": PROTOTYPE_KEY } }],
+            },
+            "additionalProperties": generator.subschema_for::<V>(),
+        })
+    }
+}
+
+/// An object of any members but `__proto__`, each read by a contract of its receiver's own.
+pub type JsonRecord = Record<String, AnyValue>;

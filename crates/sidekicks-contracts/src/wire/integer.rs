@@ -54,6 +54,9 @@ impl<const MIN: u64> JsonSchema for SafeInt<MIN> {
     }
 }
 
+/// A whole number of either sign within what a JavaScript number holds exactly, ±(2^53 − 1).
+pub type SafeSignedInt = BoundedInt<-9_007_199_254_740_991, 9_007_199_254_740_991>;
+
 /// A whole number from `MIN` to `MAX`, both inclusive.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
@@ -94,5 +97,37 @@ impl<const MIN: i64, const MAX: i64> JsonSchema for BoundedInt<MIN, MAX> {
 
     fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
         json_schema!({ "type": "integer", "minimum": MIN, "maximum": MAX })
+    }
+}
+
+/// A TCP port number, from 1 to 65535.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Port(BoundedInt<1, 65_535>);
+
+impl Port {
+    /// `number` when it lies in `1..=65535`, else `None`.
+    pub fn new(number: u16) -> Option<Self> {
+        BoundedInt::new(i64::from(number)).map(Self)
+    }
+
+    /// The port number.
+    pub fn get(self) -> u16 {
+        u16::try_from(self.0.get()).expect("a port lies within 1..=65535")
+    }
+}
+
+impl JsonSchema for Port {
+    fn schema_name() -> Cow<'static, str> {
+        "Port".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "A TCP port number: a whole number from 1 to 65535.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65_535,
+        })
     }
 }

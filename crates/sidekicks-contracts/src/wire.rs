@@ -14,15 +14,21 @@
 use std::borrow::Cow;
 use std::marker::PhantomData;
 
-use schemars::{JsonSchema, Schema, SchemaGenerator};
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::typescript::{Definition, TypeScriptModule};
 
 pub mod attachment;
+pub mod base64;
+pub mod date;
 pub mod handle_id;
+pub mod id;
 pub mod instant;
 pub mod integer;
+pub mod list;
+pub mod number;
+pub mod record;
 pub mod text;
 
 /// Reads a member that may be absent but is never `null`: a present value must parse as `T`.
@@ -90,18 +96,183 @@ impl JsonSchema for Never {
     }
 
     fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        Schema::from(false)
+        // `not: {}` refuses every value as `false` does, and still types as `never` when the
+        // member's doc comment wraps it in an object schema.
+        json_schema!({ "not": {}, "tsType": "never" })
     }
 }
 
-/// The TypeScript module of the scalars every contract shares: the instant and the byte
-/// attachment's placeholder.
+/// Any JSON value, which its receiver reads by a contract of its own; TypeScript reads it as
+/// `unknown`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AnyValue(pub serde_json::Value);
+
+impl JsonSchema for AnyValue {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        "AnyValue".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({ "tsType": "unknown" })
+    }
+}
+
+/// A member whose one value is the boolean `VALUE`: a page's `hasMore`, or a mark that is `true`
+/// when present.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct BoolLiteral<const VALUE: bool>;
+
+/// A member whose one value is `true`.
+pub type True = BoolLiteral<true>;
+
+/// A member whose one value is `false`.
+pub type False = BoolLiteral<false>;
+
+impl<const VALUE: bool> Serialize for BoolLiteral<VALUE> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bool(VALUE)
+    }
+}
+
+impl<'de, const VALUE: bool> Deserialize<'de> for BoolLiteral<VALUE> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        if bool::deserialize(deserializer)? == VALUE {
+            Ok(Self)
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "this member is always `{VALUE}`"
+            )))
+        }
+    }
+}
+
+impl<const VALUE: bool> JsonSchema for BoolLiteral<VALUE> {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        if VALUE { "True" } else { "False" }.into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({ "type": "boolean", "const": VALUE })
+    }
+}
+
+/// Declares a one-value string type, for a member that holds exactly one wire word:
+/// `literal! { /// doc \n pub enum DeviceLinkedKind = "device.linked"; }`.
+macro_rules! literal {
+    ($($(#[doc = $doc:literal])+ pub enum $name:ident = $value:literal;)+) => {$(
+        $(#[doc = $doc])+
+        #[derive(
+            Clone,
+            Copy,
+            Debug,
+            PartialEq,
+            Eq,
+            Hash,
+            serde::Serialize,
+            serde::Deserialize,
+            schemars::JsonSchema,
+        )]
+        #[schemars(inline)]
+        pub enum $name {
+            /// The one value.
+            #[serde(rename = $value)]
+            Value,
+        }
+    )+};
+}
+
+pub(crate) use literal;
+
+/// Declares a scalar a contract names as its own definition: `named_scalar! { /// doc \n
+/// UsdMicros(SafeInt<0>), Copy }` gives a newtype that reads, writes and checks as its inner
+/// scalar, with its own schema name and the doc as its description, so TypeScript gets a type and
+/// a check by that name. Traits listed after the type are derived too.
+macro_rules! named_scalar {
+    ($(#[doc = $doc:literal])+ $name:ident($inner:ty) $(, $derive:ident)* $(,)?) => {
+        $(#[doc = $doc])+
+        #[derive(
+            Clone,
+            Debug,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            serde::Serialize,
+            serde::Deserialize,
+            $($derive),*
+        )]
+        #[serde(transparent)]
+        pub struct $name(pub $inner);
+
+        impl schemars::JsonSchema for $name {
+            fn schema_name() -> std::borrow::Cow<'static, str> {
+                stringify!($name).into()
+            }
+
+            fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+                let mut schema = <$inner as schemars::JsonSchema>::json_schema(generator);
+                schema.insert(
+                    "description".into(),
+                    $crate::schema::doc_description(concat!($($doc, "\n"),+)).into(),
+                );
+                schema
+            }
+        }
+    };
+}
+
+pub(crate) use named_scalar;
+
+/// A checked definition for a scalar every member inlines: `name` with the scalar's own schema and
+/// `doc` as its description, so TypeScript gets the scalar's check without a type alias per member.
+macro_rules! inline_scalar_definition {
+    ($type:ty, $name:literal, $doc:literal) => {
+        $crate::typescript::Definition {
+            name: || std::borrow::Cow::Borrowed($name),
+            schema: |generator| {
+                let mut schema = <$type as schemars::JsonSchema>::json_schema(generator);
+                schema.insert("description".into(), $doc.into());
+                schema
+            },
+            contract: $crate::typescript::SchemaContract::Read,
+            is_checked: true,
+        }
+    };
+}
+
+pub(crate) use inline_scalar_definition;
+
+/// The TypeScript module of the scalars every contract shares: the instant, the calendar date, the
+/// count, composed text, the port and the byte attachment's placeholder.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "internal/wire-scalars",
-    doc: "The scalars every contract module shares: an instant on the wire and the placeholder a \
-          byte member is written as.",
+    doc: "The scalars every contract module shares: an instant and a calendar date on the wire, a \
+          count, the text the daemon composes, a port and the placeholder a byte member is written \
+          as.",
     definitions: &[
         Definition::read::<instant::WireInstant>().checked(),
+        Definition::read::<date::WireDate>(),
+        inline_scalar_definition!(
+            integer::SafeInt<0>,
+            "SafeInt0",
+            "A count of things, or a number of seconds or bytes: a whole number, zero or more."
+        ),
+        inline_scalar_definition!(
+            text::ComposedText,
+            "ComposedText",
+            "Text the daemon composed: a path, a provider's words, a name; never empty."
+        ),
+        Definition::read::<integer::Port>(),
         Definition::read::<attachment::BytesPlaceholder>(),
     ],
     constants: &[],

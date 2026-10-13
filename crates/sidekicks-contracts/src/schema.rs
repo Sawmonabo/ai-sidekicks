@@ -2,8 +2,8 @@
 //! refuses. The TypeScript checks and an agent tool's input schema both come from here.
 
 use schemars::generate::SchemaSettings;
-use schemars::{JsonSchema, SchemaGenerator};
-use serde_json::Value;
+use schemars::{JsonSchema, Schema, SchemaGenerator};
+use serde_json::{Value, json};
 
 use crate::typescript::SchemaContract;
 
@@ -24,6 +24,34 @@ pub fn closed_schema_for<T: JsonSchema>() -> serde_json::Result<Value> {
         serde_json::to_value(generator(SchemaContract::Read).into_root_schema_for::<T>())?;
     close_composite_objects(&mut schema);
     Ok(schema)
+}
+
+/// A doc comment as a schema's `description`, as schemars writes a derived type's: each line
+/// without the one space `///` leaves, joined, the whole trimmed.
+pub fn doc_description(doc: &str) -> String {
+    doc.lines()
+        .map(|line| line.strip_prefix(' ').unwrap_or(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned()
+}
+
+/// Appends `rule` to `schema`'s `allOf`, the place a rule no shape holds is stated beside the
+/// shape.
+pub(crate) fn push_all_of(schema: &mut Schema, rule: Value) {
+    let all_of = schema
+        .ensure_object()
+        .entry("allOf")
+        .or_insert_with(|| Value::Array(Vec::new()));
+    if let Value::Array(rules) = all_of {
+        rules.push(rule);
+    }
+}
+
+/// The schema of an object that holds `member`, its type stated in place for Ajv's strict mode.
+pub(crate) fn required_member(member: &str) -> Value {
+    json!({ "type": "object", "properties": { member: {} }, "required": [member] })
 }
 
 /// Restores the refusal of unknown members where schemars drops it: an object that pairs its own
