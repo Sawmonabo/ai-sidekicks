@@ -22,7 +22,7 @@ import {
   lineEndOf,
   lineStartOf,
 } from "#renderer/components/Markdown/parse/line-endings.js";
-import type { Point, Position } from "#renderer/components/Markdown/parse/materialized-tree.js";
+import type { Point, Position } from "#renderer/components/Markdown/parse/position.js";
 import { isReadInPieces } from "#renderer/components/Markdown/parse/pieced-table.js";
 import type {
   MarkdownParseOutcome,

@@ -22,12 +22,8 @@ import { hasPrefix } from "#renderer/lib/text/prefix.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import type { MarkdownParseAnswer } from "../worker/messages.js";
 import { mayHoldLiteralText, restoreLiteralText } from "./literal-text.js";
-import {
-  materializeMarkdownTree,
-  shiftPoint,
-  shiftPositions,
-  type Point,
-} from "./materialized-tree.js";
+import { materializeMarkdownTree, shiftPoint, shiftPositions } from "./materialized-tree.js";
+import type { Point } from "./position.js";
 import { offsetShiftOf, type TableCut, type TablePiece } from "./table-cut.js";
 
 declare module "mdast" {

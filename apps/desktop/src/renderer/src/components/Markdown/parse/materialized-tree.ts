@@ -11,12 +11,7 @@ import { MdastReader } from "satteri/mdast-reader";
 import { liftDisplayFormulas } from "../math-syntax.js";
 import { parseLeadOf } from "./byte-order-mark.js";
 import { restoreLiteralText } from "./literal-text.js";
-
-/** A node's place in the parsed text, as mdast types it. */
-export type Position = NonNullable<Root["position"]>;
-
-/** One end of a `Position`. */
-export type Point = Position["start"];
+import type { Point } from "./position.js";
 
 /**
  * The tree in `buffer`, parsed from `parsedText` with each dollar it read as text under
