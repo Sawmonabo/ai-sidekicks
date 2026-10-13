@@ -307,7 +307,7 @@ macro_rules! pattern_text {
                     regex::Regex::new($name::PATTERN).expect("the pattern is a valid regex")
                 });
                 let is_within_length = $crate::wire::text::pattern_text!(@max_length $($max)?)
-                    .is_none_or(|max| text.chars().nth(max).is_none());
+                    .is_none_or(|max| $crate::wire::text::is_within_length(&text, 0, max));
                 (is_within_length && PATTERN.is_match(&text)).then_some(Self(text))
             }
 

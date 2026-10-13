@@ -10,6 +10,8 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::wire::text::is_within_length;
+
 /// The RFC 9562 UUID text form, any version from 1 to 8 with the RFC variant, or the Nil or Max
 /// UUID, in either case. Each case is spelled out, so Rust and ECMAScript read it alike.
 pub const UUID_TEXT_FORM_PATTERN: &str = "^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-\
@@ -47,10 +49,10 @@ pub fn check_uuid_text(text: &str) -> Result<(), IdError> {
 
 /// Checks that `text` holds `1..=max` code points.
 pub fn check_bounded_text(text: &str, max: usize) -> Result<(), IdError> {
-    if text.is_empty() || text.chars().nth(max).is_some() {
-        Err(IdError::OutOfBounds { max })
-    } else {
+    if is_within_length(text, 1, max) {
         Ok(())
+    } else {
+        Err(IdError::OutOfBounds { max })
     }
 }
 
