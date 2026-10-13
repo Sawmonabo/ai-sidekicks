@@ -9,12 +9,11 @@ use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::ptr;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use alacritty_terminal::event::{OnResize, WindowSize};
-use alacritty_terminal::tty::{self, EventedReadWrite, Pty};
-use polling::{Event, Events, PollMode, Poller};
+use alacritty_terminal::tty::{self, ChildEvent, EventedPty, EventedReadWrite, Pty};
+use polling::{Event, Events, PollMode};
 use tokio::process::Command;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE, TRUE,
@@ -34,13 +33,13 @@ use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 use windows_sys::core::BOOL;
 use windows_sys::w;
 
+use crate::spawner::Spawner;
+#[cfg(any(test, feature = "test-support"))]
+use crate::terminal::{AbnormalExit, TestProgram};
 use crate::terminal::{
-    ConsoleReading, ProcessTreeEnd, TerminalSignal, TerminalSignalRoute, TerminalWake,
-    taskkill_arguments,
+    ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd, TerminalSignal, TerminalSignalRoute,
+    TerminalWake, TerminalWaker,
 };
-
-/// How long `taskkill.exe` may take to end a process tree.
-const TASKKILL_TIME_LIMIT: Duration = Duration::from_secs(5);
 
 /// How many process ids the first console process list read makes room for.
 const CONSOLE_PROCESS_LIST_START_LENGTH: usize = 16;
@@ -71,10 +70,11 @@ pub fn send_signal(_pid: u32, _signal: TerminalSignal) -> io::Result<()> {
 }
 
 /// Ends the process `pid` and every process it started with `taskkill.exe /T /F`, from the
-/// system's own folder. Fails with `NotFound` when `SystemRoot` is unset, `TimedOut` when the run
-/// takes over 5 s, and an error naming the exit code `taskkill.exe` answers with other than 0
-/// (ended) or 128 (no such process, [`ProcessTreeEnd::AlreadyGone`]).
-pub async fn end_process_tree(pid: u32) -> io::Result<ProcessTreeEnd> {
+/// system's own folder, started on `spawner`'s thread. Fails with `NotFound` when `SystemRoot` is
+/// unset, `TimedOut` past [`HELPER_PROGRAM_TIME_LIMIT`], and an error naming the exit code
+/// `taskkill.exe` answers with other than 0 (ended) or 128 (no such process,
+/// [`ProcessTreeEnd::AlreadyGone`]).
+pub async fn end_process_tree(spawner: &Spawner, pid: u32) -> io::Result<ProcessTreeEnd> {
     // Read at each call and never looked up on `PATH`, so no other `taskkill.exe` can run.
     let system_root = env::var_os("SystemRoot").ok_or_else(|| {
         io::Error::new(
@@ -87,10 +87,9 @@ pub async fn end_process_tree(pid: u32) -> io::Result<ProcessTreeEnd> {
             .join("System32")
             .join("taskkill.exe"),
     );
-    command.args(taskkill_arguments(pid));
-    let status = tokio::time::timeout(TASKKILL_TIME_LIMIT, command.status())
-        .await
-        .map_err(|elapsed| io::Error::new(ErrorKind::TimedOut, elapsed))??;
+    // `/T` walks the tree from the one root and `/F` ends each process outright.
+    command.args(["/T", "/F", "/PID", &pid.to_string()]);
+    let status = run_bounded(spawner, command).await?;
     match status.code() {
         Some(0) => Ok(ProcessTreeEnd::Ended),
         Some(128) => Ok(ProcessTreeEnd::AlreadyGone),
@@ -101,16 +100,18 @@ pub async fn end_process_tree(pid: u32) -> io::Result<ProcessTreeEnd> {
     }
 }
 
-/// Runs the console helper `program` with `arguments` and then `pid` in decimal, and waits for it.
-/// Fails when it cannot start, and with an error naming its exit code when it does not succeed.
+/// Runs the console helper `program` with `arguments` and then `pid` in decimal, started on
+/// `spawner`'s thread, and waits for it. Fails when it cannot start, with `TimedOut` past
+/// [`HELPER_PROGRAM_TIME_LIMIT`], and with an error naming its exit when it does not succeed.
 pub async fn run_console_helper(
+    spawner: &Spawner,
     program: &OsStr,
     arguments: &[OsString],
     pid: u32,
 ) -> io::Result<()> {
     let mut command = hidden_command(program);
     command.args(arguments).arg(pid.to_string());
-    let status = command.status().await?;
+    let status = run_bounded(spawner, command).await?;
     if status.success() {
         Ok(())
     } else {
@@ -118,6 +119,15 @@ pub async fn run_console_helper(
             "the console helper exited with {status}"
         )))
     }
+}
+
+/// Starts `command` on `spawner`'s thread and waits for its exit up to
+/// [`HELPER_PROGRAM_TIME_LIMIT`]; a run past it is ended as its child is dropped.
+async fn run_bounded(spawner: &Spawner, mut command: Command) -> io::Result<ExitStatus> {
+    let mut child = spawner.run(move || command.spawn()).await??;
+    tokio::time::timeout(HELPER_PROGRAM_TIME_LIMIT, child.wait())
+        .await
+        .map_err(|elapsed| io::Error::new(ErrorKind::TimedOut, elapsed))?
 }
 
 /// Sends a break to every process on the console of the process `pid`; run inside the console
@@ -190,20 +200,6 @@ pub fn child_process_id(pty: &Pty) -> Option<u32> {
     pty.child_watcher().pid().map(NonZeroU32::get)
 }
 
-/// Sets the terminal's window size to `rows` by `columns` cells; never fails on Windows.
-pub fn resize_terminal(pty: &mut Pty, rows: u16, columns: u16) -> io::Result<()> {
-    OnResize::on_resize(
-        pty,
-        WindowSize {
-            num_lines: rows,
-            num_cols: columns,
-            cell_width: 0,
-            cell_height: 0,
-        },
-    );
-    Ok(())
-}
-
 /// The signal that ended a process: always `None`, since a Windows exit carries no POSIX signal.
 pub fn exit_signal(_status: &ExitStatus) -> Option<i32> {
     None
@@ -223,34 +219,19 @@ pub fn run_terminal_loop(
     Ok(())
 }
 
-/// Wakes a terminal's read loop from any thread; it can be made before the loop runs, and a wake
-/// that comes before the loop waits is kept until it does.
-#[derive(Clone)]
-pub struct TerminalWaker {
-    poller: Arc<Poller>,
-}
-
-impl TerminalWaker {
-    /// Makes a waker with the poller its loop waits on. Fails when Windows cannot make the poller.
-    pub fn new() -> io::Result<Self> {
-        Ok(Self {
-            poller: Arc::new(Poller::new()?),
-        })
-    }
-
-    /// Wakes the loop, whose wait answers [`TerminalWake::Woken`]; a wake Windows refuses is
-    /// logged, since no caller waits on its answer.
-    pub fn wake(&self) {
-        if let Err(error) = self.poller.notify() {
-            tracing::warn!(error = %error, "the terminal's read loop could not be woken");
-        }
-    }
+/// Ends the program in `pty` and drops the PTY, which closes its console and so ends every process
+/// on it; `mark_exited` runs first, while the PTY's handle to the program still keeps its process
+/// id its own. Blocking, so it runs on a thread of its own.
+pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
+    mark_exited();
+    drop(pty);
 }
 
 /// What a terminal's read loop waits on: the terminal's output and input, the program's exit, its
 /// waker and a deadline.
 pub struct TerminalWatch {
-    poller: Arc<Poller>,
+    pty: Pty,
+    waker: TerminalWaker,
     events: Events,
     /// The interest the PTY is registered with, `None` before the first wait registers it.
     interest: Option<Event>,
@@ -260,12 +241,11 @@ pub struct TerminalWatch {
 }
 
 impl TerminalWatch {
-    /// Makes the watch woken by `waker`; called inside the read loop, since on macOS and Linux it
-    /// needs the runtime. [`Self::release`] must run before `pty` is dropped; never fails on
-    /// Windows.
-    pub fn new(_pty: &mut Pty, waker: &TerminalWaker) -> io::Result<Self> {
+    /// Makes the watch over `pty`, woken by `waker`; never fails on Windows.
+    pub fn new(pty: Pty, waker: &TerminalWaker) -> Result<Self, (io::Error, Pty)> {
         Ok(Self {
-            poller: Arc::clone(&waker.poller),
+            pty,
+            waker: waker.clone(),
             events: Events::new(),
             interest: None,
             is_child_event_pending: true,
@@ -275,7 +255,9 @@ impl TerminalWatch {
     /// Waits until the terminal has output for `read_into`, takes some of `write_from`, the
     /// program may have exited, the waker is woken or `deadline` passes, whichever is first.
     /// Reads only into a given buffer, writes only a given slice, and never answers `Read(0)` or
-    /// `Wrote(0)`; fails with the system's error from the registration, the I/O or the wait.
+    /// `Wrote(0)`; a refused write answers [`TerminalWake::WriteFailed`]. `ConPTY` reports no end
+    /// of output, since its pipe stays open until the PTY is dropped. Fails with the system's error
+    /// from the registration, a read or the wait.
     #[expect(
         clippy::unused_async,
         reason = "the wait blocks the shell's own thread on Windows, and keeps the signature the \
@@ -283,26 +265,25 @@ impl TerminalWatch {
     )]
     pub async fn wait(
         &mut self,
-        pty: &mut Pty,
         mut read_into: Option<&mut [u8]>,
         write_from: Option<&[u8]>,
         deadline: Option<Instant>,
     ) -> io::Result<TerminalWake> {
         // Registered before the first answer, so an exit after it posts an event.
-        self.register(
-            pty,
-            Event::new(0, read_into.is_some(), write_from.is_some()),
-        )?;
+        self.register(Event::new(0, read_into.is_some(), write_from.is_some()))?;
         if self.is_child_event_pending {
             self.is_child_event_pending = false;
             return Ok(TerminalWake::ChildEvent);
         }
-        if let Some(wake) = transfer(pty, read_into.as_deref_mut(), write_from)? {
+        if self.waker.take_wake() {
+            return Ok(TerminalWake::Woken);
+        }
+        if let Some(wake) = transfer(&mut self.pty, read_into.as_deref_mut(), write_from)? {
             return Ok(wake);
         }
         self.events.clear();
         let timeout = deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()));
-        match self.poller.wait(&mut self.events, timeout) {
+        match self.waker.poller.wait(&mut self.events, timeout) {
             Ok(_) => {}
             Err(error) if error.kind() == ErrorKind::Interrupted => return Ok(TerminalWake::Woken),
             Err(error) => return Err(error),
@@ -314,11 +295,14 @@ impl TerminalWatch {
         {
             return Ok(TerminalWake::ChildEvent);
         }
-        if let Some(wake) = transfer(pty, read_into, write_from)? {
+        if self.waker.take_wake() {
+            return Ok(TerminalWake::Woken);
+        }
+        if let Some(wake) = transfer(&mut self.pty, read_into, write_from)? {
             return Ok(wake);
         }
-        // One wait per call: a wake that came with nothing to do answers `Woken`, and the caller
-        // asks again.
+        // One wait per call: one that came with nothing to do answers `Woken`, and the caller asks
+        // again.
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             Ok(TerminalWake::Deadline)
         } else {
@@ -326,33 +310,53 @@ impl TerminalWatch {
         }
     }
 
-    /// Reads what the terminal holds without waiting, to drain it once the program has exited:
-    /// `Some(n)` bytes read, `None` when nothing is there, since `ConPTY` reports its end only
-    /// through the program's exit. Never fails on Windows.
-    pub fn try_read(&mut self, pty: &mut Pty, buffer: &mut [u8]) -> io::Result<Option<usize>> {
-        let count = pty.reader().read(buffer)?;
-        Ok((count > 0).then_some(count))
+    /// The program's status once it has exited; the PTY stays, since `ConPTY`'s output is still
+    /// read through it, and its handle keeps the program's id its own until it is dropped.
+    pub fn take_child_exit(&mut self) -> Option<Option<ExitStatus>> {
+        let ChildEvent::Exited(status) = self.pty.next_child_event()?;
+        Some(status)
     }
 
-    /// Ends the watch; called before the PTY is dropped, since the registration must not outlive
-    /// the PTY. Fails with the error the deregistration answers.
-    pub fn release(self, pty: &mut Pty) -> io::Result<()> {
-        if self.interest.is_some() {
-            pty.deregister(&self.poller)?;
-        }
+    /// Sets the terminal's window size to `rows` by `columns` cells, which must lie within
+    /// `ConPTY`'s `i16` range; never fails on Windows.
+    pub fn resize(&mut self, rows: u16, columns: u16) -> io::Result<()> {
+        OnResize::on_resize(
+            &mut self.pty,
+            WindowSize {
+                num_lines: rows,
+                num_cols: columns,
+                cell_width: 0,
+                cell_height: 0,
+            },
+        );
         Ok(())
     }
 
-    /// Registers `pty` with `interest` the first time and again whenever the interest changes.
-    fn register(&mut self, pty: &mut Pty, interest: Event) -> io::Result<()> {
+    /// Ends the watch and drops the PTY as [`release_terminal`] does, running `mark_exited` first.
+    pub fn release(mut self, mark_exited: impl FnOnce()) {
+        if self.interest.is_some()
+            && let Err(error) = self.pty.deregister(&self.waker.poller)
+        {
+            tracing::warn!(%error, "a terminal's watch could not be undone");
+        }
+        release_terminal(self.pty, mark_exited);
+    }
+
+    /// Registers the PTY with `interest` the first time and again whenever the interest changes.
+    fn register(&mut self, interest: Event) -> io::Result<()> {
         match self.interest {
             None => {
                 // SAFETY: the PTY outlives the registration, because `release` deregisters it
-                // before the PTY is dropped, a contract `new` states.
-                unsafe { pty.register(&self.poller, interest, PollMode::Level) }?;
+                // before the PTY is dropped.
+                unsafe {
+                    self.pty
+                        .register(&self.waker.poller, interest, PollMode::Level)
+                }?;
             }
             Some(registered) if registered == interest => return Ok(()),
-            Some(_) => pty.reregister(&self.poller, interest, PollMode::Level)?,
+            Some(_) => self
+                .pty
+                .reregister(&self.waker.poller, interest, PollMode::Level)?,
         }
         self.interest = Some(interest);
         Ok(())
@@ -360,7 +364,8 @@ impl TerminalWatch {
 }
 
 /// Reads into `read_into` and writes from `write_from` once each without waiting, answering the
-/// first that moved any bytes. `ConPTY`'s pipes answer 0 for nothing yet and for a full pipe.
+/// first that moved any bytes or a refused write. `ConPTY`'s pipes answer 0 for nothing yet and
+/// for a full pipe.
 fn transfer(
     pty: &mut Pty,
     read_into: Option<&mut [u8]>,
@@ -373,9 +378,10 @@ fn transfer(
         }
     }
     if let Some(bytes) = write_from {
-        let count = pty.writer().write(bytes)?;
-        if count > 0 {
-            return Ok(Some(TerminalWake::Wrote(count)));
+        match pty.writer().write(bytes) {
+            Ok(0) => {}
+            Ok(count) => return Ok(Some(TerminalWake::Wrote(count))),
+            Err(error) => return Ok(Some(TerminalWake::WriteFailed(error))),
         }
     }
     Ok(None)
@@ -477,6 +483,51 @@ fn console_input_mode() -> io::Result<CONSOLE_MODE> {
 }
 
 /// Answers every console control event as handled, so the helper outlives the break it sends.
-unsafe extern "system" fn ignore_console_control(_control_type: u32) -> BOOL {
+extern "system" fn ignore_console_control(_control_type: u32) -> BOOL {
     TRUE
+}
+
+/// The `shell-start` stand-in tests open shells through: `cmd.exe /d /c`, which runs the program
+/// after it with the environment it was given.
+#[cfg(any(test, feature = "test-support"))]
+pub fn pass_through_start() -> TestProgram {
+    TestProgram {
+        program: "cmd.exe".to_owned(),
+        arguments: vec!["/d".to_owned(), "/c".to_owned()],
+    }
+}
+
+/// A shell that prints `text` on a line of its own and exits with code 0.
+#[cfg(any(test, feature = "test-support"))]
+pub fn echo_program(text: &str) -> TestProgram {
+    shell_script(&format!("echo {text}"))
+}
+
+/// A shell that prints `ready`, waits for one input line, then prints the numbers from 0 below
+/// `line_count`, one a line, and exits with code 0.
+#[cfg(any(test, feature = "test-support"))]
+pub fn waiting_printer(line_count: usize) -> TestProgram {
+    let last = line_count.saturating_sub(1);
+    shell_script(&format!(
+        "echo ready& set /p line=& for /L %i in (0,1,{last}) do @echo %i"
+    ))
+}
+
+/// A shell that exits with an access violation's code, which the terminal reports as its unsigned
+/// value and no signal.
+#[cfg(any(test, feature = "test-support"))]
+pub fn abnormal_exit() -> AbnormalExit {
+    AbnormalExit {
+        program: shell_script("exit -1073741819"),
+        exit_code: 3_221_225_477,
+        signal_code: None,
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+fn shell_script(script: &str) -> TestProgram {
+    TestProgram {
+        program: "cmd.exe".to_owned(),
+        arguments: vec!["/d".to_owned(), "/c".to_owned(), script.to_owned()],
+    }
 }

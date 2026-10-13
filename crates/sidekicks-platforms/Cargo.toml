@@ -34,6 +34,7 @@ alacritty_terminal.workspace = true
 interprocess.workspace = true
 keepawake.workspace = true
 keyring-core.workspace = true
+polling.workspace = true
 process-wrap = { workspace = true, features = ["creation-flags", "process-session"] }
 sysinfo.workspace = true
 thiserror.workspace = true
@@ -61,7 +62,6 @@ security-framework.workspace = true
 [target.'cfg(target_os = "windows")'.dependencies]
 async-io.workspace = true
 junction.workspace = true
-polling.workspace = true
 tokio-util = { workspace = true, features = ["compat"] }
 uds_windows.workspace = true
 windows = { workspace = true, features = ["UI_Notifications"] }
@@ -83,6 +83,10 @@ windows-sys = {
 command-fds.workspace = true
 libc.workspace = true
 nix.workspace = true
+
+[features]
+# Helpers other crates' tests use: the per-platform programs a test runs in a terminal.
+test-support = []
 
 [lints]
 workspace = true
