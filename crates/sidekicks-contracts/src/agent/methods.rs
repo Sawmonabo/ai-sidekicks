@@ -6,23 +6,21 @@ use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::agent::definition::binding::{AgentProviderBinding, ProviderToken};
+use crate::agent::definition::binding::ProviderToken;
 use crate::agent::definition::requests::{
     AgentDefinitionCreateRequest, AgentDefinitionCreateResponse, AgentDefinitionDeleteRequest,
     AgentDefinitionDeleteResponse, AgentDefinitionExportRequest, AgentDefinitionExportResponse,
     AgentDefinitionImportRequest, AgentDefinitionImportResponse, AgentDefinitionListRequest,
     AgentDefinitionListResponse, AgentDefinitionUpdateRequest, AgentDefinitionUpdateResponse,
 };
-use crate::agent::definition::{AgentId, AgentResolvedConfiguration, ToolName, required_member};
+use crate::agent::definition::{AgentId, AgentResolvedConfiguration};
 use crate::agent::provider_binding::{
-    AgentBindingSwitchDisposition, AgentBindingSwitchPending, add_model_move_window_rule,
-    model_move_names_window,
+    AgentBindingSwitchDisposition, add_model_move_window_rule, model_move_names_window,
 };
-use crate::agent::tree::AgentTreeMember;
 use crate::jsonrpc::streaming::{SubscribeAckResponse, SubscriptionId};
 use crate::method::methods;
-use crate::provider::driver::output_speed::ProviderOutputSpeedState;
 use crate::provider::name::ProviderName;
+use crate::schema::required_member;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
@@ -36,47 +34,74 @@ pub struct AgentListRequest {
     pub session_id: SessionId,
 }
 
-/// One agent in the session.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct AgentListEntry {
-    /// The agent.
-    pub agent_id: AgentId,
-    /// Its name.
-    pub name: ToolName,
-    /// The binding it runs under now, never the pending one.
-    pub binding: AgentProviderBinding,
-    /// The speed the provider declared on the live binding; absent until it declares one.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "ProviderOutputSpeedState")]
-    pub observed_output_speed: Option<ProviderOutputSpeedState>,
-    /// Present exactly while a switch waits, so every client learns of it, after a restart too.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "AgentBindingSwitchPending")]
-    #[garde(dive)]
-    pub pending_switch: Option<AgentBindingSwitchPending>,
-    /// Present exactly when the agent started from a saved definition, which names it on screen.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "AgentResolvedConfiguration")]
-    pub resolved_configuration: Option<AgentResolvedConfiguration>,
-    /// From the lead down to this agent's parent; empty for the lead.
-    pub ancestry: Vec<AgentTreeMember>,
-    /// When it joined the session.
-    #[garde(dive)]
-    pub created_at: WireInstant,
+/// Declares a live agent's shape: the members every description of one carries, with its own
+/// `resolvedConfiguration` member between the pending switch and the ancestry.
+macro_rules! agent_entry {
+    ($(#[doc = $doc:literal])+ $name:ident { $($resolved_configuration:tt)* }) => {
+        $(#[doc = $doc])+
+        #[derive(
+            Clone,
+            Debug,
+            PartialEq,
+            Eq,
+            serde::Serialize,
+            serde::Deserialize,
+            schemars::JsonSchema,
+            garde::Validate,
+        )]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        #[garde(allow_unvalidated)]
+        pub struct $name {
+            /// The agent.
+            pub agent_id: $crate::agent::definition::AgentId,
+            /// Its name.
+            pub name: $crate::agent::definition::ToolName,
+            /// The binding it runs under now, never the pending one.
+            pub binding: $crate::agent::definition::binding::AgentProviderBinding,
+            /// The speed the provider declared on the live binding; absent until it declares one.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "crate::provider::driver::output_speed::ProviderOutputSpeedState")]
+            pub observed_output_speed:
+                Option<$crate::provider::driver::output_speed::ProviderOutputSpeedState>,
+            /// Present exactly while a switch waits, so every client learns of it, after a
+            /// restart too.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "crate::agent::provider_binding::AgentBindingSwitchPending")]
+            #[garde(dive)]
+            pub pending_switch: Option<$crate::agent::provider_binding::AgentBindingSwitchPending>,
+            $($resolved_configuration)*
+            /// From the lead down to this agent's parent; empty for the lead.
+            pub ancestry: Vec<$crate::agent::tree::AgentTreeMember>,
+            /// When it joined the session.
+            #[garde(dive)]
+            pub created_at: $crate::wire::instant::WireInstant,
+        }
+    };
+}
+
+pub(crate) use agent_entry;
+
+agent_entry! {
+    /// One agent in the session.
+    AgentListEntry {
+        /// Present exactly when the agent started from a saved definition, which names it on
+        /// screen.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "AgentResolvedConfiguration")]
+        pub resolved_configuration: Option<AgentResolvedConfiguration>,
+    }
 }
 
 /// `agent.list`'s acknowledgment: the subscription and the session's agents as they stand. Every

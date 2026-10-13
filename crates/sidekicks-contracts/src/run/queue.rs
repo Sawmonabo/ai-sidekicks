@@ -1,0 +1,585 @@
+//! The message queue: every message the person sends waits here until the agent takes it at its
+//! next step. The lead has one queue and each child its own; every queue verb but the send takes
+//! `childHandle` to reach a child's queue, whose messages arrive through `run.childSteer`. Also the
+//! `queue_item.*` event payloads and the frame `run.subscribeQueue` sends.
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use crate::agent::definition::binding::ProviderToken;
+use crate::agent::tree::ChildHandle;
+use crate::artifacts::attachment_reference::AttachmentReferenceList;
+use crate::event::version::EVENT_FIELD_MAX_LEN;
+use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::internal::branded::branded_uuid_id;
+use crate::jsonrpc::refusal::RefusalCode;
+use crate::jsonrpc::streaming::stream_frame;
+use crate::question::QuestionId;
+use crate::repo::mount::WorkspaceId;
+use crate::run::id::RunId;
+use crate::session::event_cursor::EventCursor;
+use crate::session::id::SessionId;
+use crate::trust_statement::DeviceId;
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::voice::MessageOrigin;
+use crate::wire::id::ClientUuid;
+use crate::wire::instant::WireInstant;
+use crate::wire::integer::SafeInt;
+use crate::wire::list::{BoundedVec, unique_by};
+use crate::wire::text::FreeFormText;
+use crate::wire::{Never, literal};
+
+branded_uuid_id! {
+    /// Identifies one queued message.
+    QueueItemId
+}
+
+/// Where a queued message stands: waiting, sent to the run, replaced, canceled, or never sent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueItemState {
+    /// Waiting for the agent's next step.
+    Queued,
+    /// Taken by the run.
+    Admitted,
+    /// Replaced by an edit or a retry.
+    Superseded,
+    /// Removed.
+    Canceled,
+    /// Taken but never delivered.
+    NotDelivered,
+}
+
+/// Why a taken message was never delivered: it waited past the daemon's own delivery timeout, or
+/// its delivery failed outright. Either way it can be sent again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueItemNotDeliveredReason {
+    /// It waited past the delivery timeout.
+    TimedOut,
+    /// Its delivery failed.
+    Failed,
+}
+
+/// The words of a message the person sends.
+pub type MessageContent = FreeFormText<{ usize::MAX }>;
+
+/// One skill a send picked: its front-matter name and its folder, as `skill.list` gives them. A
+/// Codex agent's skill input names the `SKILL.md` path Codex lists for that name in that folder.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QueuedSkillPick {
+    /// The skill's front-matter name.
+    pub name: FreeFormText<FILE_PATH_MAX_LEN>,
+    /// The skill's folder.
+    pub folder_path: FreeFormText<FILE_PATH_MAX_LEN>,
+}
+
+/// Sends one message to the lead, whether a turn is running or not (`run.queueCreate`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QueueItemCreateRequest {
+    /// The session.
+    pub session_id: SessionId,
+    /// Another session to deliver to instead; the message arrives there as its own row.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SessionId")]
+    pub to: Option<SessionId>,
+    /// Binds the run a send starts to its repository.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WorkspaceId")]
+    pub workspace_id: Option<WorkspaceId>,
+    /// A send again under the same key answers what the first saved. A retry's key is the failed
+    /// message's id, so a second press answers as the first did.
+    pub client_idempotency_key: ClientUuid,
+    /// The words.
+    pub content: MessageContent,
+    /// The message's files in staging order; one the daemon cannot deliver stays, marked.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "AttachmentReferenceList")]
+    pub attachments: Option<AttachmentReferenceList>,
+    /// Each skill picked from the composer's `/` and `$` list, in the order picked. The daemon
+    /// refuses a pick a Codex session's own list does not name in that folder.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Vec<QueuedSkillPick>")]
+    pub skills: Option<Vec<QueuedSkillPick>>,
+    /// Edits this waiting message in place: it keeps its place and the old item reads
+    /// `superseded`. Naming a message not delivered, with its own words, is a retry that queues
+    /// its words and files again as a new message at the queue's end.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "QueueItemId")]
+    pub replaces_queue_item_id: Option<QueueItemId>,
+    /// The question this send answers, one the agent does not wait for; the daemon copies it onto
+    /// the `user.message` row it writes, which marks the question answered.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "QuestionId")]
+    pub answers_question_id: Option<QuestionId>,
+    /// The output-speed level this send's turn alone runs at, the agent's own level staying as it
+    /// is: `Use standard` after a turn failed for want of flex capacity sends the standard level.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ProviderToken")]
+    pub output_speed_for_turn: Option<ProviderToken>,
+}
+
+/// The `user.message` payload: the person's message as a transcript row, written when the daemon
+/// accepts the send. `origin` marks the words a voice call heard, and `answers_question_id` is the
+/// answered mark of the question a message answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UserMessagePayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The queued message, where the send went through the queue.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "QueueItemId")]
+    pub queue_item_id: Option<QueueItemId>,
+    /// The run it was sent toward.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "RunId")]
+    pub run_id: Option<RunId>,
+    /// Repeats the envelope's actor.
+    pub actor: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// The device that sent it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "DeviceId")]
+    pub device_id: Option<DeviceId>,
+    /// The words.
+    pub message: MessageContent,
+    /// Where the words came from when no one typed them.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "MessageOrigin")]
+    pub origin: Option<MessageOrigin>,
+    /// The question it answers; absent on every other message.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "QuestionId")]
+    pub answers_question_id: Option<QuestionId>,
+}
+
+literal! {
+    /// The state `queue_item.created` records.
+    pub enum QueueItemQueuedState = "queued";
+    /// The state `queue_item.admitted` records.
+    pub enum QueueItemAdmittedState = "admitted";
+    /// The state `queue_item.superseded` records.
+    pub enum QueueItemSupersededState = "superseded";
+    /// The state `queue_item.canceled` records, and a removal answers.
+    pub enum QueueItemCanceledState = "canceled";
+    /// The state `queue_item.not_delivered` records.
+    pub enum QueueItemNotDeliveredState = "not_delivered";
+}
+
+/// Declares the payload of one `queue_item.*` event: the item, the state it entered, and the
+/// members that state adds. Each refuses another state and the members of another event.
+macro_rules! queue_item_event_payload {
+    ($($(#[doc = $doc:literal])+ $name:ident($state:ty) { $($members:tt)* })+) => {$(
+        $(#[doc = $doc])+
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        pub struct $name {
+            /// The session.
+            pub session_id: SessionId,
+            /// The item.
+            pub queue_item_id: QueueItemId,
+            /// The state the item entered.
+            pub state: $state,
+            $($members)*
+        }
+    )+};
+}
+
+queue_item_event_payload! {
+    /// The `queue_item.created` payload: a message entered the queue. The words stay on
+    /// `user.message`.
+    QueueItemCreatedPayload(QueueItemQueuedState) {}
+    /// The `queue_item.admitted` payload: the run that took the message, which can differ from the
+    /// run its `user.message` was sent toward.
+    QueueItemAdmittedPayload(QueueItemAdmittedState) {
+        /// The run that took it.
+        pub run_id: RunId,
+    }
+    /// The `queue_item.superseded` payload: the item that replaced the message.
+    QueueItemSupersededPayload(QueueItemSupersededState) {
+        /// The item that replaced it.
+        pub replaced_by_queue_item_id: QueueItemId,
+    }
+    /// The `queue_item.canceled` payload: the message was removed.
+    QueueItemCanceledPayload(QueueItemCanceledState) {}
+    /// The `queue_item.not_delivered` payload: the message was taken and never delivered, and why.
+    QueueItemNotDeliveredPayload(QueueItemNotDeliveredState) {
+        /// Why it was never delivered.
+        pub not_delivered_reason: QueueItemNotDeliveredReason,
+    }
+}
+
+/// Declares a queue item's view as a union on `state`: every arm repeats the given members, and
+/// only the `not_delivered` arm carries, and always carries, the daemon's reason.
+macro_rules! queue_item_by_state {
+    ($(#[doc = $doc:literal])+ $name:ident { $($members:tt)* }) => {
+        $(#[doc = $doc])+
+        #[derive(
+            Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+        )]
+        #[serde(
+            tag = "state",
+            rename_all = "snake_case",
+            rename_all_fields = "camelCase",
+            deny_unknown_fields
+        )]
+        #[garde(allow_unvalidated)]
+        pub enum $name {
+            /// Waiting for the agent's next step.
+            Queued {
+                $($members)*
+                /// Only a not-delivered item carries a reason.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "Never")]
+                not_delivered_reason: Option<Never>,
+            },
+            /// Taken by the run.
+            Admitted {
+                $($members)*
+                /// Only a not-delivered item carries a reason.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "Never")]
+                not_delivered_reason: Option<Never>,
+            },
+            /// Replaced by an edit or a retry.
+            Superseded {
+                $($members)*
+                /// Only a not-delivered item carries a reason.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "Never")]
+                not_delivered_reason: Option<Never>,
+            },
+            /// Removed.
+            Canceled {
+                $($members)*
+                /// Only a not-delivered item carries a reason.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "Never")]
+                not_delivered_reason: Option<Never>,
+            },
+            /// Taken and never delivered.
+            NotDelivered {
+                $($members)*
+                /// Why it was never delivered.
+                not_delivered_reason: QueueItemNotDeliveredReason,
+            },
+        }
+    };
+}
+
+queue_item_by_state! {
+    /// The queued message, as a send or a child's steer answers, and, when a send again under the
+    /// same key answers one whose delivery failed, the daemon's reason.
+    QueueItemCreateResponse {
+        /// The item.
+        queue_item_id: QueueItemId,
+        /// When it was queued.
+        #[garde(dive)]
+        created_at: WireInstant,
+    }
+}
+
+/// Reads a queue, the lead's or, with `child_handle`, a child's, in the daemon's order
+/// (`run.queueList`): the items in `state` when it is given, else every item waiting or not
+/// delivered.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QueueItemListRequest {
+    /// The session.
+    pub session_id: SessionId,
+    /// The child whose queue to read; absent for the lead's.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ChildHandle")]
+    pub child_handle: Option<ChildHandle>,
+    /// The state to read.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "QueueItemState")]
+    pub state: Option<QueueItemState>,
+}
+
+queue_item_by_state! {
+    /// One queued message, as a pending row draws it: its words and files, its place in its
+    /// queue's order (lowest first, an edit taking the place of the message it replaced), the
+    /// child whose queue holds it (absent on the lead's), and, once its delivery has failed, the
+    /// daemon's reason.
+    QueueItemSummary {
+        /// The item.
+        id: QueueItemId,
+        /// Its place in its queue's order, lowest first.
+        position: SafeInt<0>,
+        /// The words.
+        content: MessageContent,
+        /// The message's files in staging order.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "AttachmentReferenceList")]
+        attachments: Option<AttachmentReferenceList>,
+        /// The child whose queue holds it; absent on the lead's.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ChildHandle")]
+        child_handle: Option<ChildHandle>,
+        /// When it was queued.
+        #[garde(dive)]
+        created_at: WireInstant,
+        /// When it last changed.
+        #[garde(dive)]
+        updated_at: WireInstant,
+    }
+}
+
+/// A queue's items in the daemon's order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QueueItemListResponse {
+    /// The items.
+    #[garde(dive)]
+    pub items: Vec<QueueItemSummary>,
+}
+
+/// One change on a queue's stream: the item as it now stands, and the cursor of the
+/// `queue_item.*` event that changed it, or, for a reorder, which no event records, the session's
+/// newest cursor when the change went out.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunQueueStreamChange {
+    /// Where the change stands in the session's log.
+    #[garde(skip)]
+    pub cursor: EventCursor,
+    /// The item as it now stands.
+    #[garde(dive)]
+    pub item: QueueItemSummary,
+}
+
+stream_frame! {
+    /// One notify of `run.subscribeQueue`: the queue's changes since the previous frame.
+    pub struct RunQueueStreamFrame(RunQueueStreamChange);
+}
+
+/// Opens a queue's stream, the lead's or, with `child_handle`, a child's (`run.subscribeQueue`).
+/// With `after_cursor`, the stream first sends each item that changed after that cursor and every
+/// item still waiting, as it now stands, then follows live; without it, it follows from now.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunQueueSubscribeRequest {
+    /// The session.
+    pub session_id: SessionId,
+    /// The child whose queue to follow; absent for the lead's.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ChildHandle")]
+    pub child_handle: Option<ChildHandle>,
+    /// The cursor to catch up from.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "EventCursor")]
+    pub after_cursor: Option<EventCursor>,
+}
+
+/// Removes a waiting message, from the lead's queue or, with `child_handle`, a child's
+/// (`run.queueCancel`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QueueItemCancelRequest {
+    /// The item.
+    pub queue_item_id: QueueItemId,
+    /// The child whose queue holds it; absent for the lead's.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ChildHandle")]
+    pub child_handle: Option<ChildHandle>,
+}
+
+/// The canceled message.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QueueItemCancelResponse {
+    /// The item.
+    pub queue_item_id: QueueItemId,
+    /// Always `canceled`.
+    pub state: QueueItemCanceledState,
+}
+
+/// Puts a queue's waiting messages in a new order (`run.queueReorder`): the full order, naming
+/// each waiting item once. The daemon refuses a list that does not name exactly the items still
+/// waiting, and answers the queue in its new order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QueueReorderRequest {
+    /// The session.
+    #[garde(skip)]
+    pub session_id: SessionId,
+    /// The child whose queue to reorder; absent for the lead's.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ChildHandle")]
+    #[garde(skip)]
+    pub child_handle: Option<ChildHandle>,
+    /// The new order, each waiting item once.
+    #[garde(custom(unique_by(|queue_item_id: &QueueItemId| queue_item_id.clone())))]
+    #[schemars(extend("uniqueItems" = true))]
+    pub queue_item_ids: BoundedVec<QueueItemId, 1, { usize::MAX }>,
+}
+
+ts_constants! {
+    /// The refusal of a send while the daemon cannot store the queue: nothing is queued, and the
+    /// send can be made again once the store is back.
+    QUEUE_PERSISTENCE_UNAVAILABLE_CODE = RefusalCode::QueuePersistenceUnavailable;
+    /// The refusal of a send whose session's lead run started, ended or was continued between
+    /// each read and the write that sends into it, every time the daemon tried: nothing is queued.
+    QUEUE_RUN_CHANGED_CODE = RefusalCode::QueueRunChanged;
+    /// The refusal of a change naming a queue item the queue does not hold: an id it never stored,
+    /// an item of another session, or one of another queue than the change names.
+    QUEUE_ITEM_NOT_FOUND_CODE = RefusalCode::QueueItemNotFound;
+    /// The refusal of a change to a waiting message the agent has already taken or the provider
+    /// did not give back, a retry in other words than its own, or a reorder whose list is not
+    /// exactly the waiting items.
+    QUEUE_CHANGE_REFUSED_CODE = RefusalCode::QueueChangeRefused;
+}
+
+/// Why a change to a waiting message was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueChangeRefusedReason {
+    /// The agent has already taken the message.
+    AlreadyTaken,
+    /// The provider did not give the message back, which now reads not delivered.
+    NotDelivered,
+    /// The reorder's list is not exactly the waiting items.
+    OrderMismatch,
+}
+
+/// The details a `queue.change_refused` refusal carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QueueChangeRefusedDetails {
+    /// Why the change was refused.
+    pub reason: QueueChangeRefusedReason,
+}
+
+/// The TypeScript module of the message queue.
+pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
+    path: "run/queue",
+    doc: "The message queue: every message the person sends waits here until the agent takes it \
+          at its next step. Also the `queue_item.*` event payloads and the frame \
+          `run.subscribeQueue` sends.",
+    definitions: &[
+        Definition::read::<QueueItemId>().checked(),
+        Definition::read::<QueueItemState>().checked(),
+        Definition::read::<QueueItemNotDeliveredReason>(),
+        Definition::read::<QueuedSkillPick>(),
+        Definition::read::<QueueItemCreateRequest>().checked(),
+        Definition::read::<UserMessagePayload>().checked(),
+        Definition::read::<QueueItemCreatedPayload>().checked(),
+        Definition::read::<QueueItemAdmittedPayload>().checked(),
+        Definition::read::<QueueItemSupersededPayload>().checked(),
+        Definition::read::<QueueItemCanceledPayload>().checked(),
+        Definition::read::<QueueItemNotDeliveredPayload>().checked(),
+        Definition::read::<QueueItemCreateResponse>().checked(),
+        Definition::read::<QueueItemListRequest>().checked(),
+        Definition::read::<QueueItemSummary>().checked(),
+        Definition::read::<QueueItemListResponse>().checked(),
+        Definition::read::<RunQueueStreamChange>(),
+        Definition::read::<RunQueueStreamFrame>().checked(),
+        Definition::read::<RunQueueSubscribeRequest>().checked(),
+        Definition::read::<QueueItemCancelRequest>().checked(),
+        Definition::read::<QueueItemCancelResponse>().checked(),
+        Definition::read::<QueueReorderRequest>().checked(),
+        Definition::read::<QueueChangeRefusedReason>(),
+        Definition::read::<QueueChangeRefusedDetails>(),
+    ],
+    constants: TS_CONSTANTS,
+    method_tables: &[],
+};

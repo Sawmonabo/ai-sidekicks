@@ -1,0 +1,175 @@
+//! The `run.queued` payload: a run's creation, and the one durable record of how it came to be.
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use crate::agent::definition::{AgentId, AgentResolvedConfiguration};
+use crate::agent::methods::agent_entry;
+use crate::orchestration::OrchestrationRunConfig;
+use crate::provider::account::record::ProviderAccountId;
+use crate::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
+use crate::run::id::RunId;
+use crate::session::id::SessionId;
+use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::integer::SafeInt;
+use crate::wire::text::FreeFormText;
+use crate::wire::{Never, True, literal};
+
+/// How a child run was reached: a provider's own subagent, a run another agent asked for through
+/// the bridge, or a workflow step. Internal to the agent index; the screen never shows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChildRunProvenance {
+    /// A provider's own subagent.
+    ProviderSubagent,
+    /// A run another agent asked for through the bridge.
+    BridgeRun,
+    /// A workflow step.
+    WorkflowStep,
+}
+
+literal! {
+    /// The state a run is created in, which `run.queued` enters.
+    pub enum RunQueuedNewState = "queued";
+}
+
+agent_entry! {
+    /// An agent minted from a saved definition with the run that creates it: the one shape
+    /// `agent.list` describes an agent in, with the configuration it was resolved from always
+    /// named.
+    ResolvedAgent {
+        /// The configuration it was resolved from, whose definition it names.
+        pub resolved_configuration: AgentResolvedConfiguration,
+    }
+}
+
+/// Declares one arm of [`RunQueuedPayload`] with the members every arm repeats.
+macro_rules! run_queued_payload {
+    ($(#[doc = $doc:literal])+ $name:ident { $($agent:tt)* }) => {
+        $(#[doc = $doc])+
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        #[schemars(inline)]
+        #[garde(allow_unvalidated)]
+        pub struct $name {
+            /// The session.
+            pub session_id: SessionId,
+            /// The run.
+            pub run_id: RunId,
+            /// The run's version at creation.
+            pub run_version: SafeInt<0>,
+            /// Always `queued`.
+            pub new_state: RunQueuedNewState,
+            $($agent)*
+            /// The run this one is a child of.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "RunId")]
+            pub parent_run_id: Option<RunId>,
+            /// How the child was reached; present with `parent_run_id`.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "ChildRunProvenance")]
+            pub reached_by: Option<ChildRunProvenance>,
+            /// Marks a run whose one turn runs in a process of its own apart from the session's,
+            /// such as Claude Code's review of the staged set; never the session's lead run.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "True")]
+            pub is_apart: Option<True>,
+            /// The limits admission resolved, the request's own else the session's default, so a
+            /// rebuild restores them even if the defaults change mid-run.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "OrchestrationRunConfig")]
+            pub effective_run_config: Option<OrchestrationRunConfig>,
+            /// The model family as of admission, which derived pricing keys off.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>")]
+            pub admitted_model_family: Option<FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>>,
+            /// The account the run was admitted against.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "ProviderAccountId")]
+            pub admitted_provider_account_id: Option<ProviderAccountId>,
+        }
+    };
+}
+
+run_queued_payload! {
+    /// A run created for an agent already in the session; the lead's run names the session's lead
+    /// this way.
+    RunQueuedSessionAgentPayload {
+        /// The agent.
+        pub agent_id: AgentId,
+        /// Only a run for an agent resolved from a definition carries it.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub resolved_agent: Option<Never>,
+    }
+}
+
+run_queued_payload! {
+    /// A run created for an agent minted from a saved definition with this run.
+    RunQueuedResolvedAgentPayload {
+        /// The agent the run mints.
+        #[garde(dive)]
+        pub resolved_agent: ResolvedAgent,
+        /// Only a run for an agent already in the session names it by id.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub agent_id: Option<Never>,
+    }
+}
+
+/// A run created and placed in the queue. It names its agent exactly once: by id for an agent
+/// already in the session, or as the agent minted from a saved definition with this run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(untagged)]
+pub enum RunQueuedPayload {
+    /// For an agent already in the session.
+    SessionAgent(#[garde(dive)] RunQueuedSessionAgentPayload),
+    /// For an agent resolved from a definition.
+    ResolvedAgent(#[garde(dive)] RunQueuedResolvedAgentPayload),
+}
+
+/// The TypeScript module of a run's creation record.
+pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
+    path: "run/queued",
+    doc: "The `run.queued` payload: a run's creation, and the one durable record of how it came \
+          to be.",
+    definitions: &[
+        Definition::read::<ChildRunProvenance>(),
+        Definition::read::<ResolvedAgent>(),
+        Definition::read::<RunQueuedPayload>().checked(),
+    ],
+    constants: &[],
+    method_tables: &[],
+};
