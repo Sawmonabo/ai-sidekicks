@@ -456,6 +456,9 @@ refusal_codes! {
     WorkflowCodeOverBudget = "workflow.code_over_budget" (422);
     /// A start of a workflow version whose Code steps' packages are not locked.
     WorkflowCodePackagesNotLocked = "workflow.code_packages_not_locked" (409);
+    /// A `workflow.runList` or `workflow.stepRead` `cursor` the daemon did not write, or one past
+    /// the end of what it pages; nothing is read.
+    WorkflowCursorUnresolvable = "workflow.cursor_unresolvable" (400);
     /// A saved or imported document the daemon's own re-check refuses.
     WorkflowDefinitionRefused = "workflow.definition_refused" (422);
     /// An import whose schema version is unknown.
@@ -515,6 +518,9 @@ refusal_codes! {
     WorkflowStepTimedOut = "workflow.step_timed_out" (504);
     /// A trigger that cannot be armed.
     WorkflowTriggerUnarmable = "workflow.trigger_unarmable" (422);
+    /// A `workflow.versionDiffRead` naming two versions of different workflows; nothing is
+    /// compared.
+    WorkflowVersionDiffCrossWorkflow = "workflow.version_diff_cross_workflow" (422);
     /// A save against a stale definition version.
     WorkflowVersionStale = "workflow.version_stale" (409);
     /// A webhook call with the wrong token, or any call while no token exists.
