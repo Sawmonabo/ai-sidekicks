@@ -596,6 +596,8 @@ macro_rules! workflow_document {
             ) {
                 let mut trigger_path = || parent().join("trigger");
                 garde::Validate::validate_into(&self.trigger, context, &mut trigger_path, report);
+                let mut nodes_path = || parent().join("nodes");
+                garde::Validate::validate_into(&self.nodes, context, &mut nodes_path, report);
                 let mut pin_data_path = || parent().join("pin_data");
                 garde::Validate::validate_into(&self.pin_data, context, &mut pin_data_path, report);
                 let mut tags_path = || parent().join("tags");

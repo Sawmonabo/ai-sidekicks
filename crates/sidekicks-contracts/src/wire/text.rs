@@ -232,8 +232,8 @@ impl JsonSchema for ComposedText {
     }
 }
 
-/// Text with no NUL, possibly empty, of at most `MAX` code points: a query the person types, an
-/// environment value.
+/// Text with no NUL, possibly empty, of at most `MAX` code points (`usize::MAX` leaves it bounded
+/// only by the message cap): a query the person types, an environment value.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct NulFreeText<const MAX: usize>(String);
@@ -272,7 +272,9 @@ impl<const MAX: usize> JsonSchema for NulFreeText<MAX> {
     }
 
     fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({ "type": "string", "maxLength": MAX, "pattern": "^[^\\x00]*$" })
+        let mut schema = length_schema(0, MAX);
+        schema.insert("pattern".into(), "^[^\\x00]*$".into());
+        schema
     }
 }
 
