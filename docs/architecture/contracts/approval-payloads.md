@@ -5,9 +5,10 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 ## Plan-009 — Approvals Permissions And Trust Boundaries
 
 ```ts
-// Plan-009 shapes (D-009-1/D-009-3) — canonical origin
-// packages/contracts/src/approval.ts. PermissionCheck, whose two shapes live in the daemon
-// (`packages/runtime-daemon/src/policy/`, beside the permission check), is a daemon-internal API
+// Plan-009 shapes (D-009-1/D-009-3) — the Rust types live in
+// crates/sidekicks-contracts/src/approval.rs; the generated TypeScript keeps packages/contracts/src/approval.ts.
+// PermissionCheck, whose two shapes live in the daemon
+// (`crates/sidekicks-daemon/src/policy/`, beside the permission check), is a daemon-internal API
 // (Spec-010: "inside the local daemon"); it has no JSON-RPC method string and no
 // SDK surface in V1 (D-009-5; the in-process check is the composed enforcement
 // gate per D-009-18 — evaluate, then on an ask-policy outcome create the request
@@ -45,8 +46,8 @@ interface RememberedScope {
 type InvalidationTrigger = "explicit" | "session_end" | "server_removed";
 
 // approval_flow event payloads for six of the `approval.*` types — `requested`, `approved`, `rejected`,
-// `canceled`, `remembered`, `rule_revoked` (Spec-005 §Approval Flow; mirror of the canonical Zod
-// schemas in `packages/contracts/src/approval.ts`, one per type, each `.strict()`). The payloads
+// `canceled`, `remembered`, `rule_revoked` (Spec-005 §Approval Flow; mirror of the Rust types
+// in `crates/sidekicks-contracts/src/approval.rs`, one per type, each `deny_unknown_fields`). The payloads
 // carry the projection-rebuild fields (D-009-6 rebuild; D-009-7 events-canonical): `requested`
 // carries the request fields; the resolution events carry the answering device and the effective
 // scope; `remembered` carries the rule the answer handed to the provider (binding =
@@ -200,11 +201,11 @@ interface ApprovalResolveResponse {
 }
 
 // PermissionCheck (daemon-internal pre-execution gate — no wire method string, D-009-5/D-009-18;
-// both shapes are the daemon's own, in `packages/runtime-daemon/src/policy/permission-check.ts`)
+// both shapes are the daemon's own, in `crates/sidekicks-daemon/src/policy/permission_check.rs`)
 type PermissionCheckRequest =
-  // A provider's permission ask, under the id the daemon minted for it; `signal` aborts once the
+  // A provider's permission ask, under the id the daemon minted for it; `signal` is canceled once the
   // provider takes the ask back, and an ask taken back before its card is raised raises none.
-  | { kind: "provider_ask"; ask: ProviderPermissionAsk; askId: string; signal: AbortSignal }
+  | { kind: "provider_ask"; ask: ProviderPermissionAsk; askId: string; signal: CancellationToken } // tokio_util::sync::CancellationToken
   // A call of one of the app's own tools that its provider runs without asking first (Codex, with
   // the daemon's tool server set to approve): gated by the calling session's level alone.
   | { kind: "tool_call"; sessionId: SessionId; runId: RunId; toolName: string; toolCallId: string }
@@ -228,7 +229,7 @@ type PermissionCheckResponse =
 // - tool_call (no Cedar): policy_allow at `sandboxed` and `yolo`; pending_approval at `readonly`,
 //   `ask` and `reviewed`, the ordinary `tool_execution` card the caller waits on; denied for a run
 //   with no level to read.
-// - workflow_start (Cedar, `statefulIsAuthorized` over the resident policy set): policy_allow on a
+// - workflow_start (Cedar, `cedar_policy::Authorizer::is_authorized` over the resident policy set): policy_allow on a
 //   permit, denied on a forbid, an evaluation error, an owner that does not resolve, or an agent's
 //   start whose run has no posture to read; context = `{ posture }` of the asking run, `{}` for a
 //   trigger's start. No start waits on a card.
@@ -422,7 +423,7 @@ interface PlanResolveResponse {
 
 ## Approval Method-Name Registry
 
-Plan-009's approval surface is exposed as the `approval.*` methods below (D-009-5); `approval.requestCreate` is not one of them: the daemon raises it in process from a provider's callback, so it has no method string and no SDK method. Names register under the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out (`repo.*` precedent). These methods ride the **daemon JSON-RPC transport only** — approval state is daemon-local SQLite per ADR-016 (coordination-records-only Postgres; no control-plane approval storage or tRPC sibling exists in V1; the person's other devices reach these methods through Remote Control, over their own channel to the machine that runs the session, ADR-016 Option B). Method strings are imperative and disjoint-by-form from the past-participle Spec-005 `approval_flow` durable event names (`approval.resolve` method vs `approval.approved` event; `approval.ruleRevoke` vs `approval.rule_revoked` — the underscore event form is regex-invalid as a method name). `PermissionCheck` is deliberately **not** registered: it is the daemon-internal pre-execution gate (Spec-010: "inside the local daemon"), no V1 client consumes a wire preflight, and exposing one would invite stale-verdict (time-of-check/time-of-use) authorization against the security gate (D-009-5/D-009-18). The console has no approvals list of its own, so no plural list method exists: the one waiting request is a card on the composer.
+Plan-009's approval surface is exposed as the `approval.*` methods below (D-009-5); `approval.requestCreate` is not one of them: the daemon raises it in process from a provider's callback, so it has no method string and no SDK method. Names register under the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out (`repo.*` precedent). These methods ride the **daemon JSON-RPC transport only** — approval state is daemon-local SQLite per ADR-016 (coordination-records-only Postgres; no control-plane approval storage or route sibling exists in V1; the person's other devices reach these methods through Remote Control, over their own channel to the machine that runs the session, ADR-016 Option B). Method strings are imperative and disjoint-by-form from the past-participle Spec-005 `approval_flow` durable event names (`approval.resolve` method vs `approval.approved` event; `approval.ruleRevoke` vs `approval.rule_revoked` — the underscore event form is regex-invalid as a method name). `PermissionCheck` is deliberately **not** registered: it is the daemon-internal pre-execution gate (Spec-010: "inside the local daemon"), no V1 client consumes a wire preflight, and exposing one would invite stale-verdict (time-of-check/time-of-use) authorization against the security gate (D-009-5/D-009-18). The console has no approvals list of its own, so no plural list method exists: the one waiting request is a card on the composer.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -435,4 +436,4 @@ Plan-009's approval surface is exposed as the `approval.*` methods below (D-009-
 
 `plan` is a registered namespace root of its own, and this is the only verb in it: the plan verdict is one call, and a plan record is READ from the session's artifact list rather than through a namespace of its own, so no `plan.list` or `plan.read` exists to register. It rides the **daemon JSON-RPC transport only**, for the reason its siblings do — the held provider request the verdict answers is held by this daemon and by nothing else, so a control-plane sibling would place the mutation on a party that cannot answer it. A verdict against a record that is no longer waiting applies nothing and reads back the record's state, as `question.resolve` does, because the first answer settles the plan everywhere and the record is the receipt.
 
-Canonical Zod schemas live in `packages/contracts/src/approval.ts` per the api-payload-contracts.md §Source-of-Truth Policy.
+The Rust types live in `crates/sidekicks-contracts/src/approval.rs`; the generated TypeScript keeps `packages/contracts/src/approval.ts`, per the api-payload-contracts.md §Source-of-Truth Policy.

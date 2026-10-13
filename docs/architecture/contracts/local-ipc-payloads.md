@@ -4,7 +4,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ## Plan-005-Partial — Local IPC Daemon Control
 
-[Plan-005 Phase 3](../../plans/005-local-ipc-and-daemon-control.md) defines the JSON-RPC IPC surface served by the local runtime daemon to in-tree clients (CLI, desktop renderer). The subset of that surface built beside Plan-001's session-core types ([Plan-005 §Execution Windows (V1 Carve-Out)](../../plans/005-local-ipc-and-daemon-control.md#execution-windows-v1-carve-out)) is declared here: (1) the canonical method-name format that [Plan-005 §I-005-8](../../plans/005-local-ipc-and-daemon-control.md#i-005-8--method-names-conform-to-the-canonical-format-declared-in-api-payload-contractsmd) requires the registry to enforce mechanically at `register(method, ...)` call time and (2) the JSON-RPC handshake `protocolVersion` field type, an ISO 8601 `YYYY-MM-DD` date string with current value `"2026-05-01"` ([§JSON-RPC Handshake `protocolVersion` Field](#json-rpc-handshake-protocolversion-field) below). The rest of Plan-005's shapes are canonical elsewhere and not mirrored here: the `MethodRegistry` runtime shape in `packages/contracts/src/jsonrpc/registry.ts`; the `LocalSubscriptionProducer<T>` shape in `packages/contracts/src/jsonrpc/streaming.ts` (its client-side consumer `LocalSubscriptionConsumer<T>` lives in `packages/client-sdk/src/transport/subscription-consumer.ts`); and the JSON-RPC error envelope in [error-contracts.md §JSON-RPC Wire Mapping](./error-contracts.md#json-rpc-wire-mapping).
+[Plan-005 Phase 3](../../plans/005-local-ipc-and-daemon-control.md) defines the JSON-RPC IPC surface served by the local runtime daemon to in-tree clients (CLI, desktop renderer). The subset of that surface built beside Plan-001's session-core types ([Plan-005 §Execution Windows (V1 Carve-Out)](../../plans/005-local-ipc-and-daemon-control.md#execution-windows-v1-carve-out)) is declared here: (1) the canonical method-name format that [Plan-005 §I-005-8](../../plans/005-local-ipc-and-daemon-control.md#i-005-8--method-names-conform-to-the-canonical-format-declared-in-api-payload-contractsmd) requires the registry to enforce mechanically at `register(method, ...)` call time and (2) the JSON-RPC handshake `protocolVersion` field type, an ISO 8601 `YYYY-MM-DD` date string with current value `"2026-05-01"` ([§JSON-RPC Handshake `protocolVersion` Field](#json-rpc-handshake-protocolversion-field) below). The rest of Plan-005's shapes are canonical elsewhere and not mirrored here: the method table in `crates/sidekicks-contracts/src/jsonrpc/registry.rs`; the `LocalSubscriptionProducer<T>` shape in `crates/sidekicks-contracts/src/jsonrpc/streaming.rs` (its client-side consumer `LocalSubscriptionConsumer<T>` lives in `crates/sidekicks-client/src/transport/subscription_consumer.rs`); and the JSON-RPC error envelope in [error-contracts.md §JSON-RPC Wire Mapping](./error-contracts.md#json-rpc-wire-mapping).
 
 ### JSON-RPC Method-Name Registry
 
@@ -19,7 +19,7 @@ Every dot-delimited segment starts with a lowercase letter and may contain camel
 The regex accepts the registered surface and rejects:
 
 - `session/create` — slash-style (visually conflated with HTTP path segments; ambiguous in JSON-RPC contexts where method names appear in the JSON `method` field, not URLs).
-- `SessionCreate` — PascalCase (collides with the project's TypeScript type-name convention; `Session.create` is rejected on the same ground — the root widening admits an uppercase letter _inside_ a segment, never at its start; `SessionCreate` is already a request-payload type symbol per `packages/contracts/src/session/methods.ts`, so a string-form would be ambiguous at every call site).
+- `SessionCreate` — PascalCase (collides with the project's type-name convention; `Session.create` is rejected on the same ground — the root widening admits an uppercase letter _inside_ a segment, never at its start; `SessionCreate` is already a request-payload type symbol per `crates/sidekicks-contracts/src/session/methods.rs`, so a string-form would be ambiguous at every call site).
 - `sessionCreate` — bare camelCase without a namespace dot (cannot express the namespace/operation split without a convention-internal delimiter; doesn't scale to nested namespaces).
 
 **Method-name table** (Plan-005 Phase 3 surface):
@@ -30,7 +30,7 @@ The regex accepts the registered surface and rejects:
 | `session.read` | RPC (request/response) | Resolve session by id. |
 | `session.subscribe` | Long-lived (`SessionSubscribeResponse`, then `SessionStreamFrame` notifications) | Event stream that catches up, then follows. |
 
-**Cross-transport consistency**: This same `dotted-camelCase` format is used by Plan-025's tRPC HTTP procedures (per remote-control-payloads.md §Plan-025 — Remote Control Bootstrap). Both transport surfaces share the convention so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls.
+**Cross-transport consistency**: This same `dotted-camelCase` format is used by Plan-025's control-plane HTTP procedures (per remote-control-payloads.md §Plan-025 — Remote Control Bootstrap). Both transport surfaces share the convention so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls.
 
 **Register-time enforcement** ([Plan-005 §I-005-8](../../plans/005-local-ipc-and-daemon-control.md#i-005-8--method-names-conform-to-the-canonical-format-declared-in-api-payload-contractsmd)): the method registry's `register(method, handler)` call MUST evaluate `method` against this regex and throw on mismatch. This is mechanical validation, not human review — out-of-format names cannot reach the dispatcher.
 
@@ -45,21 +45,21 @@ function register(method: string, handler: Handler): void {
 }
 ```
 
-The runtime regex check is owed by the Plan-005 substrate at `packages/runtime-daemon/src/ipc/registry.ts#isCanonicalMethodName` (the `register()`-time guard), which imports the canonical regex as the `METHOD_NAME_FORMAT` constant exported from `packages/contracts/src/jsonrpc/registry.ts` (the single source — no per-package re-declaration); the `MethodRegistry` interface itself is likewise canonical in code there per the api-payload-contracts.md §Source-of-Truth Policy.
+The runtime regex check is owed by the Plan-005 substrate at `crates/sidekicks-daemon/src/ipc/registry.rs` (`isCanonicalMethodName`, the `register()`-time guard), which imports the canonical regex as the `METHOD_NAME_FORMAT` constant declared in `crates/sidekicks-contracts/src/jsonrpc/registry.rs` and generated into `packages/contracts/src/jsonrpc/registry.ts` (the single source — no per-package re-declaration); the `MethodRegistry` interface itself is likewise canonical in code there per the api-payload-contracts.md §Source-of-Truth Policy.
 
 ### JSON-RPC Handshake `protocolVersion` Field
 
-The field is carried across the [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) JSON-RPC handshake substrate (`packages/contracts/src/jsonrpc/message.ts`, `packages/contracts/src/jsonrpc/negotiation.ts`, `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`, and the client-SDK transport surface).
+The field is carried across the [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) JSON-RPC handshake substrate (`crates/sidekicks-contracts/src/jsonrpc/message.rs`, `crates/sidekicks-contracts/src/jsonrpc/negotiation.rs`, `crates/sidekicks-daemon/src/ipc/protocol_negotiation.rs`, and `crates/sidekicks-client`'s transport).
 
-**Canonical format**: ISO 8601 date-string in `YYYY-MM-DD` form. The substrate Zod schema at `packages/contracts/src/jsonrpc/negotiation.ts#ProtocolVersionSchema` MUST be:
+**Canonical format**: ISO 8601 date-string in `YYYY-MM-DD` form. The substrate's `ProtocolVersion` text newtype in `crates/sidekicks-contracts/src/jsonrpc/negotiation.rs` MUST carry, as its garde pattern and its JSON Schema pattern, the pattern:
 
-```ts
-const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+```text
+^[0-9]{4}-[0-9]{2}-[0-9]{2}$
 ```
 
-**Current value**: `"2026-05-01"` — the date string is the V1 protocol version. The supported set is one list, `SUPPORTED_PROTOCOL_VERSIONS` in `packages/contracts/src/jsonrpc/negotiation.ts`: the daemon accepts exactly it and a client offers exactly it in `daemon.hello`. It is `["2026-05-01"]` for V1; a later revision advances the date and appends it, keeping the version before it, so an app and a service one release apart agree.
+**Current value**: `"2026-05-01"` — the date string is the V1 protocol version. The supported set is one list, `SUPPORTED_PROTOCOL_VERSIONS` in `crates/sidekicks-contracts/src/jsonrpc/negotiation.rs`, written into the generated `packages/contracts/src/jsonrpc/negotiation.ts`: the daemon accepts exactly it and a client offers exactly it in `daemon.hello`. It is `["2026-05-01"]` for V1; a later revision advances the date and appends it, keeping the version before it, so an app and a service one release apart agree.
 
-**Ordering convention**: ISO 8601 date-strings are lexicographically equivalent to chronologically ordered. The `negotiateProtocol` algorithm uses string-sort() (`[...].sort.at(-1)!`) for max-version selection, with no separate semver parser. Floor / ceiling discrimination uses the same lex order against the daemon's supported set.
+**Ordering convention**: ISO 8601 date-strings are lexicographically equivalent to chronologically ordered. The protocol negotiation picks the greatest version by plain string order, with no separate semver parser. Floor / ceiling discrimination uses the same lex order against the daemon's supported set.
 
 **Rationale**: This project is an AI-agent IPC running `claude-driver` and `codex-driver` provider processes; the [Model Context Protocol (MCP) §Architecture overview](https://modelcontextprotocol.io/docs/learn/architecture) is the closest analog, and MCP uses date-string `protocolVersion` (e.g. `"2025-06-18"`) for the same handshake semantics. Date-strings encode release date inherently, dodge the semver "v1.5 with no v1.4" ambiguity, and are immediately readable in logs and error reports without a parser.
 
@@ -67,7 +67,7 @@ const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 ### JSON-RPC Request `id` Bound
 
-**Canonical bound**: a request `id` may not exceed `JSON_RPC_ID_MAX_BYTES` (256) bytes once JSON-encoded. The constant is declared at `packages/contracts/src/jsonrpc/message.ts` beside the frame's message-size limit and re-exported unchanged by `packages/runtime-daemon/src/ipc/local-gateway.ts`, which enforces it.
+**Canonical bound**: a request `id` may not exceed `JSON_RPC_ID_MAX_BYTES` (256) bytes once JSON-encoded. The constant is declared at `crates/sidekicks-contracts/src/jsonrpc/message.rs` beside the frame's message-size limit and used unchanged by the daemon's gateway, `crates/sidekicks-daemon/src/ipc/local_gateway.rs`, which enforces it.
 
 **Where it is enforced**: at the **request** boundary, before dispatch — an over-bound id refuses as `-32600 Invalid Request` with `data.type: "invalid_envelope"`, and that refusal carries `id: null` rather than echoing the offending value. Enforcement is two-sited and both sites are required: the envelope's id gate refuses the request, and the gateway's id-extraction helper — through which the `jsonrpc` and `method` gates build their error frames, and which answers _before_ the id gate — falls back to a null id, without which the one frame guaranteed to be small would be the one carrying the oversized echo.
 
@@ -82,7 +82,7 @@ const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 ```ts
 // JSON-RPC 2.0 method shapes
 
-// DaemonHello — `DaemonHello` and `DaemonHelloAck` in `packages/contracts/src/jsonrpc/negotiation.ts`.
+// DaemonHello — `DaemonHello` and `DaemonHelloAck` in `crates/sidekicks-contracts/src/jsonrpc/negotiation.rs`.
 // A protocol version is a `YYYY-MM-DD` date; each list holds at most 32 entries, and each free-form
 // string is 1 to 256 characters.
 interface DaemonHello {
@@ -114,7 +114,7 @@ interface DaemonHelloAck {
 }
 
 // DaemonStatusRead
-// A process as the system knows it (`packages/contracts/src/process-identity.ts`).
+// A process as the system knows it (`crates/sidekicks-contracts/src/process_identity.rs`).
 interface ProcessIdentity {
   processId: number; // the operating-system process id
   bootId: string; // the id of the boot it runs in: Linux's boot id, macOS's boot session id
@@ -299,4 +299,4 @@ interface LocalSubscriptionFrame {
 }
 ```
 
-The frame above is defined here because it is a cross-cutting wire primitive, the class api-payload-contracts.md §Source-of-Truth Policy keeps in this file; the producer that emits it, `LocalSubscriptionProducer<T>`, stays canonical in code at `packages/contracts/src/jsonrpc/streaming.ts` under that same policy, and the Zod schema there governs on any divergence. Nothing is minted for the batching: the frame rides the registered `$/subscription/notify` method, the repair is the `afterCursor` read this surface already takes, and no method name, error code, or setting is added. Producer side: [Plan-005 §Phase 2D](../../plans/005-local-ipc-and-daemon-control.md#phase-2d--substrate-supplement-the-subscription-frame-is-batched-carries-changes-only-and-never-waits-for-a-consumer). Consumer side: [Plan-020](../../plans/020-desktop-app-and-renderer.md)'s transcript frame, which repairs by snapshot on the `gap` flag.
+The frame above is defined here because it is a cross-cutting wire primitive, the class api-payload-contracts.md §Source-of-Truth Policy keeps in this file; the producer that emits it, `LocalSubscriptionProducer<T>`, stays canonical in code at `crates/sidekicks-contracts/src/jsonrpc/streaming.rs` under that same policy, and the Rust type there governs on any divergence. Nothing is minted for the batching: the frame rides the registered `$/subscription/notify` method, the repair is the `afterCursor` read this surface already takes, and no method name, error code, or setting is added. Producer side: [Plan-005 §Phase 2D](../../plans/005-local-ipc-and-daemon-control.md#phase-2d--substrate-supplement-the-subscription-frame-is-batched-carries-changes-only-and-never-waits-for-a-consumer). Consumer side: [Plan-020](../../plans/020-desktop-app-and-renderer.md)'s transcript frame, which repairs by snapshot on the `gap` flag.

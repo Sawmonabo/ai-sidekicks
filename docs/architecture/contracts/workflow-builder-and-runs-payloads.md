@@ -211,6 +211,7 @@ interface WorkflowStepTabArtifactCreateResponse {
 interface WorkflowRunRetryRequest {
   workflowRunId: WorkflowRunId;
   fromNodeId: WorkflowNodeId;
+  clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first retry's run, never a second
 }
 interface WorkflowRunRetryResponse {
   workflowRunId: WorkflowRunId; // the new run, never the source
@@ -220,11 +221,12 @@ interface WorkflowRunRetryResponse {
 
 // WorkflowRunRerun — workflow.runRerun. Re-run on a run's page: a NEW run of the named run's own pinned
 // version, with the input and the mode that run was started with, in the session that run lives in. The
-// daemon reads all three from the source run, so the request names only the run; the workflow's later
+// daemon reads all three from the source run, so the request names only the run and its key; the workflow's later
 // versions and current inputs play no part. It is the person's own start and passes no policy check, and
 // it is offered whatever state the source run is in. The answer is a start's answer.
 interface WorkflowRunRerunRequest {
   workflowRunId: WorkflowRunId; // the run to re-run
+  clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first re-run's run, never a second
 }
 // → WorkflowRunStartResponse, naming the new run
 
@@ -443,6 +445,19 @@ interface WorkflowPermissionLevelUpdateRequest {
 interface WorkflowPermissionLevelUpdateResponse {
   definitionId: WorkflowDefinitionId;
   level: PermissionLevel;
+}
+
+// WorkflowBackgroundBrowserUpdate — workflow.backgroundBrowserUpdate. Sets the workflow's background-browser
+// pick from the builder's browser pill; a new workflow reads `settings_default`. Every later run of the
+// workflow uses it, a live run keeping the browser it started with. The pick sits outside the hashed body,
+// so a change mints no version.
+interface WorkflowBackgroundBrowserUpdateRequest {
+  definitionId: WorkflowDefinitionId;
+  pick: "settings_default" | "sandboxed" | "not_sandboxed";
+}
+interface WorkflowBackgroundBrowserUpdateResponse {
+  definitionId: WorkflowDefinitionId;
+  pick: "settings_default" | "sandboxed" | "not_sandboxed";
 }
 
 // WorkflowPinDataSet — workflow.pinDataSet. Pins test data onto one node, or unpins it with `items: null`,

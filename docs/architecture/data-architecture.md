@@ -23,7 +23,7 @@ The product requires durable rebuild and recovery while keeping local execution 
 
 | Store | Responsibility |
 | --- | --- |
-| `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. V1 driver pin: `better-sqlite3` **13.0.3** exact (Node-API, per [ADR-021](../decisions/021-v1-toolchain-selection.md) and [Spec-013 §Driver Pin](../specs/013-persistence-and-recovery.md#driver-pin)) — on a single-writer worker thread (see [Spec-013 §Writer Concurrency](../specs/013-persistence-and-recovery.md#writer-concurrency)). |
+| `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. V1 driver pin: `rusqlite` **0.40.2** with `bundled` (per [ADR-021](../decisions/021-v1-toolchain-selection.md) and [Spec-013 §Driver Pin](../specs/013-persistence-and-recovery.md#driver-pin)) — writes go through one writer thread that owns the write connection, fed by a bounded channel, on `rusqlite` (bundled SQLite) (see [Spec-013 §Writer Concurrency](../specs/013-persistence-and-recovery.md#writer-concurrency)). |
 | `Shared Postgres Store` | The device registry, the signed statement chain and each machine's registration. No session record: a machine's service is its sessions' one store. |
 | `Artifact Storage` | Durable artifact payloads and manifests, held on the machine that runs the session. |
 | `Projection Layer` | Read-optimized materializations derived from canonical event streams and shared coordination records. |
@@ -50,7 +50,7 @@ V1 scopes event-sourcing to per-machine local event logs. Each session runs on o
 
 **Audit across machines (accepted trade-off).** No single query spans all of the person's machines: each machine answers for the sessions it runs, and an audit or export covering several machines reads each one. The control plane holds no event payloads, which is the cost of a relay that sees no session content.
 
-**Within-daemon ordering primitive.** For ordering events emitted by a single daemon across wall-clock discontinuities (NTP step, VM resume, a manual clock edit), the authoritative primitive is `session_events.monotonic_ns` — a BIGINT produced by `process.hrtime.bigint()` per [Spec-013 §Clock Handling](../specs/013-persistence-and-recovery.md#clock-handling). Its zero point is unspecified and resets on every daemon restart, so it is strictly a within-process ordering primitive, never a cross-daemon one.
+**Within-daemon ordering primitive.** For ordering events emitted by a single daemon across wall-clock discontinuities (NTP step, VM resume, a manual clock edit), the authoritative primitive is `session_events.monotonic_ns` — a BIGINT of nanoseconds since the daemon's start on `std::time::Instant`, per [Spec-013 §Clock Handling](../specs/013-persistence-and-recovery.md#clock-handling). Its zero point is the daemon's start and resets on every daemon restart, so it is strictly a within-process ordering primitive, never a cross-daemon one.
 
 ## Trust Boundaries
 

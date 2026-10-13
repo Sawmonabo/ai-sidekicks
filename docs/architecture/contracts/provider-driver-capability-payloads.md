@@ -9,7 +9,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // Code reports it on its `initialize` reply and again on each session handshake. A member here
 // would be a snapshot the next declaration makes stale, so the observation is binding-held state
 // instead; see `ProviderOutputSpeedState` below
-// (`packages/contracts/src/provider/driver/output-speed.ts`).
+// (`crates/sidekicks-contracts/src/provider/driver/output_speed.rs`).
 interface ProviderSessionHandle {
   providerSessionId: string;
   resumeHandle: string;
@@ -39,7 +39,7 @@ interface ProviderSessionHandle {
 // version skew — coercing it to `off` would fabricate exactly the false reading this member
 // exists to prevent. `reason` is the provider's own explanation, present only where the provider
 // supplied one; its absence means the provider gave no reason, never that there was none. Both
-// strings are provider-authored and `wireFreeFormString`-bounded per the head of provider-driver-payloads.md §Plan-003.
+// strings are provider-authored and `FreeFormText<MAX>`-bounded per the head of provider-driver-payloads.md §Plan-003.
 interface ProviderOutputSpeedState {
   declared: string;
   reason?: string;
@@ -108,7 +108,7 @@ interface SessionCallbackTool {
 // request (a tool call on the daemon's MCP `url` entry, from either provider), the driver translates the wire request
 // into a `CallbackToolInvocation`, invokes the injected dispatcher, and answers the provider with the
 // `CallbackToolResult` — no invocation is left unanswered, no approval bypass invented. The daemon-side
-// dispatcher is Plan-003's callback-tool host (`provider/callback-tool-host.ts`), routing every
+// dispatcher is Plan-003's callback-tool host (`crates/sidekicks-daemon/src/provider/callback_tool_host.rs`), routing every
 // invocation through Plan-009's approval pipeline by the daemon's own approval service — the
 // in-process request create that `approval.requestCreate` names, which the daemon raises from a
 // provider callback and no client calls (CP-003-5 covers driver-host permission callbacks) —
@@ -120,9 +120,9 @@ interface SessionCallbackTool {
 // + a DriverDiagnosticRecord — never `completed` without the approval service, never unanswered; the allow path
 // opens once Plan-009's approval service runs (CP-003-5).
 interface CallbackToolInvocation {
-  toolName: string; // untrusted provider output — wireFreeFormString-bounded (the trust-boundary header's string enumeration); resolved against the session's registered SessionCallbackTool set, and an UNKNOWN name answers `failed` without dispatch
+  toolName: string; // untrusted provider output — `FreeFormText<MAX>`-bounded (the trust-boundary header's string enumeration); resolved against the session's registered SessionCallbackTool set, and an UNKNOWN name answers `failed` without dispatch
   arguments: Record<string, unknown>; // validated against the registered tool's inputSchema BEFORE any Cedar round-trip — schema-invalid arguments answer `failed` without dispatch, so malformed provider output never reaches the approval pipeline
-  toolCallId: string; // untrusted provider correlation id — wireFreeFormString-bounded, copied verbatim onto the answered result (tool-event pairing is exact-string match)
+  toolCallId: string; // untrusted provider correlation id — `FreeFormText<MAX>`-bounded, copied verbatim onto the answered result (tool-event pairing is exact-string match)
   sessionId: SessionId;
   runId: RunId;
 }
@@ -142,7 +142,7 @@ type McpServerStatus = "unknown" | "starting" | "connected" | "needs-auth" | "fa
 // pre-binds the injected producer closure to the leg at spawn (sessionId + the store-minted bindingId,
 // pre-minted before the spawn per the relaunch write-seam pattern), so a driver cannot misattribute —
 // or spoof — another leg's rows, and the init census emitted DURING createSession needs no id the driver
-// does not have. `serverName` is untrusted provider/CLI output — wireFreeFormString-
+// does not have. `serverName` is untrusted provider/CLI output — `FreeFormText<MAX>`-
 // bounded at the driver normalization seam (the string enumeration at the head of provider-driver-payloads.md) before it reaches the
 // producer.
 interface McpServerStatusEmission {
@@ -225,7 +225,7 @@ type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 
 // INGRESS shape — what a provider driver DECLARES via `getCapabilities()`. `idempotency_class`
 // is OPTIONAL: a driver MAY omit it and an undeclared class is NOT a contract violation. Were the
-// field required here, Zod would reject a conformant-but-silent driver at ingress BEFORE the
+// field required here, the contract check would reject a conformant-but-silent driver at ingress BEFORE the
 // default could apply — defeating Spec-004 §idempotency_class. The daemon's capability-normalization seam
 // (Plan-003 T2.4 hydration) resolves an omitted class to `manual_reconcile_only` (the conservative
 // default per Spec-004 §idempotency_class), producing a `NormalizedProviderToolMetadata`.
@@ -248,7 +248,7 @@ interface NormalizedProviderToolMetadata {
 
 // CLI-version report: two facts. `rawVersion` is the verbatim provider-printed version string,
 // always present (untrusted provider output on the nominal `GetCapabilitiesResult` return — bounded at
-// the Plan-003 write seam like `contractVersion`, not the Zod trust boundary); `parsedVersion` is the
+// the Plan-003 write seam like `contractVersion`, not the contract-check trust boundary); `parsedVersion` is the
 // driver-parsed MAJOR.MINOR.PATCH, present only when the printed version parses. Nothing writes
 // `"unknown"` as a version. Every version runs, parsed or not; nothing refuses on it. Both values
 // are read from the version the SPAWNED process reports in-band, not from
@@ -258,8 +258,8 @@ interface DriverCliVersionReport {
   parsedVersion?: string;
 }
 
-// Zero-turn authentication probe result. Zod `.strict()` — a result
-// envelope rejecting unknown keys, correct for an internal owned contract paired with
+// Zero-turn authentication probe result. `deny_unknown_fields` — a result
+// envelope refusing unknown keys, correct for an internal owned contract paired with
 // contract versioning. The probe feeds the account's sign-in reading, never a check before a
 // session starts: a start runs, and a real sign-in failure arrives as the provider's own refusal.
 // `indeterminate` (probe surface unavailable or unparseable) stays distinguishable so the person
@@ -296,7 +296,7 @@ interface GetCapabilitiesResult {
   // reads as "cache reconstruction", never as "unknown provenance" — a consumer that needs
   // provenance re-reads the driver. Driver-side only: deliberately NOT carried on the client-facing
   // `driver.listCapabilities` payload, which this member does not widen. The client-facing `driver.*`
-  // set is the method table in `packages/contracts/src/provider/driver/methods.ts`: `driver.listModes`,
+  // set is the method table in `crates/sidekicks-contracts/src/provider/driver/methods.rs`: `driver.listModes`,
   // `driver.listModels`, `driver.listCapabilities`, `driver.interruptRun`,
   // `driver.applyIntervention` (an interrupt alone: a steer reaches a driver only from the run
   // queue's `run.queueCreate`, so the wire schema refuses one), `driver.compactContext` and

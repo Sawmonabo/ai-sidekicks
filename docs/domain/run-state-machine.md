@@ -221,14 +221,14 @@ The runtime adds no depth limit of its own to run nesting — how deep agents ma
 
 ## Implementation Note
 
-Implementation uses a hybrid approach: XState v5 for internal transition logic and guard validation (with Stately Studio visualization), TypeScript discriminated union for the public API (compile-time state narrowing).
+The run state is a Rust `enum` in the daemon, and one `match` over the transition table, with its guard functions, decides every transition. Its TypeScript union, which clients narrow on at compile time, is generated from the contracts.
 
 Validation against the complete transition table:
 
 - All transitions are deterministic: a given trigger combined with its guard condition produces exactly one target state. No ambiguous transitions exist.
 - Guards required: version checks for interventions (ensuring stale interventions do not apply), recovery eligibility checks (determining whether a stale run can be safely resumed or must fail), and child-run independence guards (ensuring no code path auto-propagates a parent state change to children — non-cascade per §Child-Run Behavior).
 - No self-transitions or history states are required. Every transition moves the run to a different state (an undo's conversation cut is not a transition — the position change rides the forward `run.rolled_back` event, §Rollback Transitions).
-- The complete transition table is expressible in both XState v5 (as an explicit transition map with guard functions) and as a TypeScript discriminated union (where each state variant enumerates its valid next states at compile time).
+- The complete transition table is expressible as one `match` on the state and the trigger, with a guard function where a transition needs one, and the generated TypeScript union names every state.
 
 ## Related Specs
 

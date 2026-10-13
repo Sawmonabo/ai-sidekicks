@@ -41,11 +41,14 @@ interface VoiceState {
 interface VoiceDictationStartRequest {
   sessionId: SessionId;
 }
-// One frame of the recording's audio: standard base64 of 16 kHz 16-bit mono PCM, at most 100 ms
-// (3,200 bytes) and whole 16-bit samples, because the local wire carries JSON and no binary member.
-// 600 frames a minute, about 32 KB a second.
+// One frame of the recording's audio: 16 kHz 16-bit mono PCM, at most 100 ms (3,200 bytes) and whole
+// 16-bit samples, sent as a `Bytes<2, 3200>` attachment beside the JSON. 600 frames a minute, about
+// 32 KB a second. `sequenceNumber` counts the recording's frames from 0. The recording is bound to its
+// session, not to the connection that started it, so after a reconnect the window's writes continue the
+// same recording, and a frame whose number the service already holds is dropped.
 interface VoiceDictationWriteRequest {
-  audio: string;
+  sequenceNumber: number;
+  audio: Uint8Array;
 }
 // Ends the recording. `cancel: true` is Escape's: the recording is dropped and its words with it.
 interface VoiceDictationStopRequest {

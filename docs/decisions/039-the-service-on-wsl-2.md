@@ -31,15 +31,15 @@ WSL 2 is a first-class place to run Claude Code and Codex, including keeping the
 
 ## Decision
 
-We will run one background service per Windows computer, on the side where Claude Code and Codex are installed — Windows or one WSL 2 distribution — and inside a distribution it will be the daemon plus the service's Windows half, a small native Windows program started by a per-user logon task, which holds one attached `wsl.exe` running the daemon, serves the one per-user named pipe by carrying each client as a stream on one HTTP/2 channel over that `wsl.exe`'s standard input and output, is the Windows arm of key custody, and does every Windows-only job; on native Windows the same program runs as the daemon's child, so each of those jobs has one implementation.
+We will run one background service per Windows computer, on the side where Claude Code and Codex are installed — Windows or one WSL 2 distribution — and inside a distribution it will be the daemon plus the service's Windows half, a small native Windows program started by a per-user logon task, which holds one attached `wsl.exe` running the daemon, serves the one per-user named pipe by carrying each client as a stream on one HTTP/2 channel over that `wsl.exe`'s standard input and output, is the Windows arm of key custody, and does every Windows-only job; on native Windows the daemon serves the pipe and does those jobs in its own process through the same `sidekicks-platforms` code the Windows half runs, so each of those jobs has one implementation.
 
 ### Thesis — Why This Option
 
 - **One service on the providers' side.** The providers run where they are installed, with the paths, sandbox and hooks their own documentation describes. One service keeps the computer one machine, with one identity key and one registration, which is what linked devices and the relay assume.
 - **Something on Windows must hold WSL open.** Microsoft states that systemd services do not keep a WSL instance alive, and the last client gone ends the instance. One attached `wsl.exe`, held for the service's whole life by a Windows process, keeps the distribution and the virtual machine running without editing the person's `.wslconfig`. Task Scheduler, not the app, is that process's parent, so a quit leaves the service running as it does everywhere else.
 - **One pipe, one transport, on both kinds of Windows computer.** Windows clients open the same `\\.\pipe\ai-sidekicks-<user SID>` whichever side runs the service, so a client never needs to know the side. ADR-008's OS-local default and its rejection of loopback hold unchanged; nothing listens on a port for the service's clients. The pipe fails closed: the server rejects remote clients, grants the person alone and refuses to serve when another program holds its name; the client opens at identification level and checks the pipe's owner before writing a byte.
-- **One channel, not a link per connection.** Every client is one stream on one HTTP/2 connection over the `wsl.exe` the Windows half already holds, so a new client costs no process and cannot hit the hang a new `wsl.exe` can meet after a sleep. HTTP/2 brings multiplexing, flow control and backpressure from maintained implementations — Node's own `http2.performServerHandshake` and the `h2` crate — rather than a framing of our own. Measured over a real child's standard streams: 50 MB up in 148 ms and 20 concurrent 1 MB downloads in 81 ms; a 50 MB echo fails at Node's default session memory and passes at 128 MB, which the channel sets.
-- **One implementation per Windows job.** The Windows half does custody, keep-awake, the wake timer and banner withdrawal on a WSL computer, and the same binary does them as the daemon's child on native Windows. It also serves the native daemon's pipe, because libuv's pipe server creates its pipe with a null security descriptor and without refusing remote clients.
+- **One channel, not a link per connection.** Every client is one stream on one HTTP/2 connection over the `wsl.exe` the Windows half already holds, so a new client costs no process and cannot hit the hang a new `wsl.exe` can meet after a sleep. HTTP/2 brings multiplexing, flow control and backpressure from a maintained implementation, `h2` 0.4.20 on both ends — the daemon serving it with `server::handshake` over `tokio::io::join(stdin, stdout)` — rather than a framing of our own. Measured over a real child's standard streams: 50 MB up in 148 ms and 20 concurrent 1 MB downloads in 81 ms; a 50 MB echo fails at the default session memory and passes at 128 MB, so each end sets `h2`'s `max_send_buffer_size` to 128 MB, with a stream window of 1 MiB and a connection window of 16 MiB.
+- **One implementation per Windows job.** Custody, keep-awake, the wake timer and banner withdrawal are `sidekicks-platforms` code: the Windows half runs it on a WSL computer, and the daemon runs it in its own process on native Windows, banner withdrawal through the `windows` crate's `UI_Notifications`, since `ToastNotificationHistory` is WinRT and `windows-sys` does not bind it. The per-user pipe is served by the same crate's pipe code on both kinds of computer: tokio's `ServerOptions` with `first_pipe_instance`, `reject_remote_clients` and an access list granting the person alone.
 - **No Windows path crosses for a dropped file.** Files dropped on the composer are staged to the daemon as bytes ([Spec-012 §Ingest Validation And Payload Bounds (V1)](../specs/012-artifacts-files-and-attachments.md#ingest-validation-and-payload-bounds-v1)), so no path crosses.
 - **Custody stays on Windows for both sides**: the daemon inside the distribution keeps its secrets in Windows' Credential Manager through the Windows half, so a Windows computer has one place for secrets on either side, the machine's identity and the store are the same on either side, and a move between sides is not a move between machines.
 
@@ -51,7 +51,7 @@ We will run one background service per Windows computer, on the side where Claud
 
 - **What:** One service per computer on the providers' side; on WSL, the daemon in the distribution plus the Windows half on Windows, a per-user logon task, one attached `wsl.exe`, one per-user named pipe served by the Windows half, and one HTTP/2 channel over that `wsl.exe`'s standard input and output.
 - **Steel man:** It keeps every existing local-transport rule, adds no listening port, survives a `wsl.exe` hang after sleep for every connection already open, gives each Windows job one implementation on both kinds of Windows computer, and keeps the computer one machine.
-- **Weaknesses:** It adds a Rust program to build, sign and ship for x64 and arm64. It adds a hop to every local call on a WSL computer, and on native Windows one small child process, whose cost is measured before build. It rests on `wsl.exe`'s standard streams carrying binary intact, which a probe checks before build. The WSL virtual machine stays up for the service's whole life, a cost the person pays for running their providers in WSL and which is measured and stated.
+- **Weaknesses:** It adds a Rust program to build, sign and ship for x64 and arm64. It adds a hop to every local call on a WSL computer, whose cost is measured before build. It rests on `wsl.exe`'s standard streams carrying binary intact, which a probe checks before build. The WSL virtual machine stays up for the service's whole life, a cost the person pays for running their providers in WSL and which is measured and stated.
 
 ### Option B: Loopback forwarding, with a standard-streams fallback (Rejected)
 
@@ -99,7 +99,7 @@ We will run one background service per Windows computer, on the side where Claud
 
 ## Reversibility Assessment
 
-- **Reversal cost:** Days. The Windows half's transport role sits behind the one pipe name and the client SDK's pipe client; replacing the channel changes the Windows half and the daemon's channel end, not the clients.
+- **Reversal cost:** Days. The Windows half's transport role sits behind the one pipe name and `sidekicks-client`'s pipe client; replacing the channel changes the Windows half and the daemon's channel end, not the clients.
 - **Blast radius:** The service's install, start and stop on Windows, the Windows pipe, custody's Windows arm, and the Windows-only jobs. Settings › Providers is the only screen that names the side.
 - **Migration path:** Replace the channel with another carrier between the same two ends; the stores, custody and pipe name are unchanged.
 - **Point of no return:** None for the transport. The one lasting commitment is custody on Windows for both sides, which a later design would keep.
@@ -116,8 +116,8 @@ We will run one background service per Windows computer, on the side where Claud
 ### Negative (accepted trade-offs)
 
 - One more signed native binary in the release, x64 and arm64.
-- One more hop for local calls on a WSL computer, and one small child process on native Windows.
-- The WSL virtual machine stays up while the service runs; its idle cost is measured and stated in [deployment-topology](../architecture/deployment-topology.md#local-daemon-memory-instrumentation-and-budget-triggers), and Runtime's figure counts only the service's own processes.
+- One more hop for local calls on a WSL computer.
+- The WSL virtual machine stays up while the service runs; its idle cost is measured and stated in [deployment-topology](../architecture/deployment-topology.md#local-daemon-memory-instrumentation-and-budget), and Runtime's figure counts only the service's own processes.
 - A WSL service stops when the person signs out of Windows unless the signed-out task works on this machine; where it does not, the product says so and names the Windows route.
 
 ### Unknowns
@@ -147,18 +147,16 @@ We will run one background service per Windows computer, on the side where Claud
 | SetThreadExecutionState | Documentation | `ES_CONTINUOUS` holds until the next call; it cannot stop a sleep the person asks for | https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate |
 | ToastNotificationHistory.Remove | Documentation | The remover must be part of the same app package as the poster | https://learn.microsoft.com/en-us/uwp/api/windows.ui.notifications.toastnotificationhistory.remove |
 | libuv | Source code | The Windows pipe server creates its pipe with a null descriptor and no remote-client refusal | github.com/libuv/libuv, 1.x branch, `src/win/pipe.c` |
-| Node.js `http2.performServerHandshake` | Documentation | Added in Node 20.12.0 and 21.7.0 | https://nodejs.org/docs/latest-v24.x/api/http2.html |
 | HTTP/2 over a child's standard streams | Primary research | 50 MB up in 148 ms; 20 concurrent 1 MB in 81 ms; a 50 MB echo fails at the default session memory and passes at 128 MB (Node 26.8.1, on a Mac) | measured in this project's design work |
 | `h2`, `windows`, `windows-native-keyring-store` | Package registry | 0.4.19, 0.62.2 and 1.1.0; the keyring store writes Enterprise persistence unless told `persistence=local` | https://crates.io |
 | `@napi-rs/keyring` 2.1.0 | Source code | Passes only the entry's target, so every entry is written at Enterprise persistence | github.com/Brooooooklyn/keyring-node at tag 2.1.0 |
 | Claude Code on WSL | Documentation | Sessions run in the distribution with native Linux paths; the distribution share is a network filesystem that breaks file watching | https://code.claude.com/docs/en/desktop-wsl |
 | Codex on Windows and WSL | Documentation | WSL 2 supported, WSL 1 not; `CODEX_HOME` shared between sides | https://learn.chatgpt.com/docs/windows/wsl |
 | Editors' WSL modes | Documentation | VS Code talks to its WSL server through `wsl.exe` and relies on WSL's port forwarding | https://code.visualstudio.com/docs/remote/wsl |
-| `vercel/pkg` | Repository metadata | Archived, last push January 3, 2024 | https://github.com/vercel/pkg |
 
 ### Related ADRs
 
 - [ADR-008](./008-default-transports-and-relay-boundaries.md) — the OS-local default and the rejection of loopback, which this decision keeps on a WSL computer.
-- [ADR-020](./020-cli-identity-key-storage-custody.md) — every daemon secret as its own credential-store item; this decision puts the Windows store's calls in the Windows half for both sides.
+- [ADR-020](./020-cli-identity-key-storage-custody.md) — every daemon secret as its own credential-store item; this decision puts the Windows store's calls in `sidekicks-platforms`, run by the daemon on native Windows and by the Windows half for a service in WSL 2.
 - [ADR-026](./026-provider-credential-custody-posture.md) — provider credentials; a move carries each account's sign-in file, moved and never copied.
 - [ADR-034](./034-embedded-browser-for-preview.md) — Preview; the Windows half carries a dev server's port when WSL cannot, the one listening port Preview opens.

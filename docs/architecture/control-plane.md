@@ -35,9 +35,9 @@ The Control Plane exists so a user's devices can reach the machine a session run
 
 ## Implementation Home
 
-- Primary implementation root: `packages/control-plane/`
-- Shared contracts consumed here: `packages/contracts/`
-- Shared client-facing transport types consumed here: `packages/client-sdk/`
+- Primary implementation root: `crates/sidekicks-control-plane/`
+- Shared contracts consumed here: `crates/sidekicks-contracts/` (its generated TypeScript in `packages/contracts/`)
+- Shared client-facing transport types consumed here: `crates/sidekicks-client/` (its addon package `packages/client-sdk/`)
 
 ## Data Flow
 

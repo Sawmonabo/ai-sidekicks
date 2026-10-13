@@ -137,7 +137,8 @@ interface SessionStreamFrame {
   // stamps a live change and a window row from one fold. A client marks the rows it already holds when
   // a `run.rolled_back` boundary arrives: a held row of that run at the rollback's epoch or an earlier
   // one is superseded above the lowest cut of every rollback of the run at its epoch or later, the rule
-  // the daemon's fold applies (`addSupersedingCut` in `packages/contracts/src/transcript/turn-attribution.ts`).
+  // the daemon's fold applies (on clients `addSupersedingCut` in `packages/contracts/src/transcript/turn-attribution.ts`,
+  // hand-written TypeScript held to the daemon's Rust fold by one shared case table).
   changes: Array<{ cursor: EventCursor; event: EventEnvelope; runStamp?: TranscriptRunStamp }>;
   dropped?: true;
   // Present only on the frame with no changes, which always carries `dropped`: the newest cursor the
@@ -665,7 +666,7 @@ interface SessionLinkRemoveRequest {
 
 // session.tagAdd / session.tagRemove — the `Tags` line on the inspector's Identity: `Add tag` and a
 // chip's remove control. A tag is matched ignoring case and nests with `/`; `tag` follows the one tag
-// rule (`TagSchema` in `packages/contracts/src/tag.ts`: never empty, no whitespace, no empty level
+// rule (the `Tag` newtype in `crates/sidekicks-contracts/src/tag.rs`: never empty, no whitespace, no empty level
 // around a `/`), so a tag it refuses is refused as invalid params with nothing written.
 interface SessionTagRequest {
   sessionId: SessionId;
@@ -679,7 +680,7 @@ interface SessionTagListResponse {
 
 ### Session Method-Name Registry
 
-The console's `session.*` operations beyond the [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase 3 rows registered in local-ipc-payloads.md §JSON-RPC Method-Name Registry, and beyond the lease verb and the flow-control signal registered in remote-control-payloads.md §Session Terminal-Control Method Registry. Names are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT`. These ride the **daemon JSON-RPC transport only**: a session's name, its working folder, its draft, its staged files and its mute are node-local state the terminal-owning daemon is the record authority for, so no control-plane tRPC sibling exists — the `repo.*` / `approval.*` posture. Method strings stay imperative and disjoint-by-form from the past-participle [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) durable event names (`session.renamed`, `session.goal_updated`, `session.muted`).
+The console's `session.*` operations beyond the [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase 3 rows registered in local-ipc-payloads.md §JSON-RPC Method-Name Registry, and beyond the lease verb and the flow-control signal registered in remote-control-payloads.md §Session Terminal-Control Method Registry. Names are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT`. These ride the **daemon JSON-RPC transport only**: a session's name, its working folder, its draft, its staged files and its mute are node-local state the terminal-owning daemon is the record authority for, so no control-plane route sibling exists — the `repo.*` / `approval.*` posture. Method strings stay imperative and disjoint-by-form from the past-participle [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) durable event names (`session.renamed`, `session.goal_updated`, `session.muted`).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |

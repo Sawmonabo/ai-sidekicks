@@ -16,6 +16,7 @@ One paragraph: what exists when this plan is done, and why it matters.
 
 ## Target areas
 
+- `crates/<crate>/src/<module>` — what changes here
 - `packages/<name>/src/<area>` — what changes here
 - `apps/desktop/src/<area>` — what changes here
 

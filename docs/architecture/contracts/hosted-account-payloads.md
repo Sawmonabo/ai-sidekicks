@@ -30,11 +30,11 @@ The hosted account's name read and update are exposed as `account.*` methods, be
 | `account.read`       | `query`        | `AccountReadRequest`       | `AccountReadResponse`       |
 | `account.nameUpdate` | `mutation`     | `AccountNameUpdateRequest` | `AccountNameUpdateResponse` |
 
-`account.read` returns the account's id and display name and carries no device presence. Which devices are connected is a fact of the device cards on the Devices page in Settings, which read each device's connected state and last-seen time from the live `device.list`, and each machine reports the devices connected to it through its own `presence.read {}` and `presence.subscribe {}`. `account.nameUpdate` is the one mutation. Every method's daemon-side responder is authored (T4.4) per the D-015-3 no-method-without-responder rule. Canonical Zod schemas live in `packages/contracts/` per the api-payload-contracts.md §Source-of-Truth Policy.
+`account.read` returns the account's id and display name and carries no device presence. Which devices are connected is a fact of the device cards on the Devices page in Settings, which read each device's connected state and last-seen time from the live `device.list`, and each machine reports the devices connected to it through its own `presence.read {}` and `presence.subscribe {}`. `account.nameUpdate` is the one mutation. Every method's daemon-side responder is authored (T4.4) per the D-015-3 no-method-without-responder rule. The Rust types live in `crates/sidekicks-contracts`, the generated TypeScript in `packages/contracts/`, per the api-payload-contracts.md §Source-of-Truth Policy.
 
 ## WebAuthn Ceremony Procedure Registry
 
-These are **control-plane tRPC procedures on the control plane's tRPC router** (remote-control-payloads.md §Plan-025 — Remote Control Bootstrap), not daemon JSON-RPC methods. Their callers are the web client, the phone apps and the device-code page, where the platform offers passkeys: the desktop app carries no WebAuthn, so no passkey is added or used from it. No method string is minted, and Plan-015's I-015-3 daemon-as-gateway rule is untouched. The table holds **the ceremony operations and the credential-lifecycle operation**.
+These are **control-plane HTTP procedures, routes served by `axum` on `worker`** (remote-control-payloads.md §Plan-025 — Remote Control Bootstrap), not daemon JSON-RPC methods. Their callers are the web client, the phone apps and the device-code page, where the platform offers passkeys: the desktop app carries no WebAuthn, so no passkey is added or used from it. No method string is minted, and Plan-015's I-015-3 daemon-as-gateway rule is untouched. The table holds **the ceremony operations and the credential-lifecycle operation**.
 
 | Operation | Procedure type | Authentication | Request schema | Response schema |
 | --- | --- | --- | --- | --- |
@@ -56,7 +56,7 @@ Refusals are `user.webauthn_challenge_invalid` (400) for an unknown, consumed, o
 
 ## Hosted Account Route Registry
 
-The control plane's account routes that `sidekicks sign-in`, `sidekicks sign-out` and `sidekicks delete-account` run, the service's token trade, and the reply the data export writes as `hosted-account.json`. They are control-plane routes, never daemon methods; the device-code sign-in follows the OAuth 2.0 Device Authorization Grant ([RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)). The shapes are in `packages/contracts/src/account.ts` and the unit's refusal codes in `packages/contracts/src/error.ts`, each landing with the task that builds it ([Plan-015](../../plans/015-hosted-account-and-identity.md) T5.4, T5.5).
+The control plane's account routes that `sidekicks sign-in`, `sidekicks sign-out` and `sidekicks delete-account` run, the service's token trade, and the reply the data export writes as `hosted-account.json`. They are control-plane routes, never daemon methods; the device-code sign-in follows the OAuth 2.0 Device Authorization Grant ([RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)). The shapes are in `crates/sidekicks-contracts/src/account.rs` and the unit's refusal codes in `crates/sidekicks-contracts/src/error.rs`, each landing with the task that builds it ([Plan-015](../../plans/015-hosted-account-and-identity.md) T5.4, T5.5).
 
 | Route | Caller | Authentication | Request | Reply |
 | --- | --- | --- | --- | --- |

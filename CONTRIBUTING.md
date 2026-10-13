@@ -4,11 +4,11 @@ How work lands (branches, squash-merge, what CI and review mean on `develop`, th
 
 ## Setup
 
-`pnpm install` compiles the daemon's SQLite shell (`packages/runtime-daemon/sqlite-shell/`) through `node-gyp`, so it needs what `node-gyp` needs: Python 3 and a C compiler, which is Xcode's Command Line Tools on macOS, `make` and `gcc` on Linux, and Visual Studio's C++ build tools on Windows. The first install in a worktree compiles it; later installs reuse it.
+Install rustup, which installs the toolchain `rust-toolchain.toml` pins, and a C compiler for the crates `cc` builds (the bundled SQLite and the daemon's SQLite shell among them): Xcode's Command Line Tools on macOS, `gcc` on Linux, and Visual Studio's C++ build tools on Windows. Then run `pnpm install`.
 
 ## Commits
 
-Conventional Commits: `type(scope): subject`. Types: `feat fix build chore ci docs perf refactor revert test`. The subject starts lowercase and the header is at most 72 characters. Scopes are package nouns (`contracts`, `crypto-paseto`, `client-sdk`, `search-index`, `search-ranking`, `compression`, `markdown-parser`, `daemon`, `control-plane`, `desktop`, `cli`, `sidecar-rust-pty`, `pty-sidecar-publishing`) or `repo`, `deps`, `ci`, `format`, `release`; the hook warns on anything else and does not block. Footers: `Refs: Plan-NNN` when the change belongs to a plan; `Co-Authored-By:` for AI-authored commits.
+Conventional Commits: `type(scope): subject`. Types: `feat fix build chore ci docs perf refactor revert test`. The subject starts lowercase and the header is at most 72 characters. Scopes are package and crate nouns (`contracts`, `client-sdk`, `search`, `search-ranking`, `compression`, `markdown-parser`, `daemon`, `control-plane`, `desktop`, `cli`, `terminal`, `platforms`) or `repo`, `deps`, `ci`, `format`, `release`; the hook warns on anything else and does not block. Footers: `Refs: Plan-NNN` when the change belongs to a plan; `Co-Authored-By:` for AI-authored commits.
 
 ## Branch names
 
@@ -16,7 +16,7 @@ Cut every branch from `develop` as `<type>/<topic>` in kebab-case, where `type` 
 
 ## Hooks
 
-`pnpm install` installs them. Pre-commit: lint-staged (ESLint fix, Prettier) then a secret scan (gitleaks); commit-msg: commitlint. Never `--no-verify`. The worktree hook needs `jq` and `python3`; the secret scan uses `gitleaks` and only warns when it is missing; `lychee` is optional locally (CI installs its own); Claude Code's TypeScript code intelligence runs the workspace's own TypeScript 7 server once `pnpm install` has run, and its Rust code intelligence needs the `rust-analyzer` rustup component. When several worktrees commit at once, a repository-wide lock (`tools/lefthook-worktree-lock.mjs`) serializes them.
+`pnpm install` installs them. Pre-commit: lint-staged (ESLint fix and Prettier, `rustfmt` on staged `*.rs`, `tombi format` on staged `*.toml`) then a secret scan (gitleaks); commit-msg: commitlint. Never `--no-verify`. The worktree hook needs `jq` and `python3`; the secret scan uses `gitleaks` and only warns when it is missing; `lychee` is optional locally (CI installs its own); Claude Code's TypeScript code intelligence runs the workspace's own TypeScript 7 server once `pnpm install` has run, and its Rust code intelligence needs the `rust-analyzer` rustup component. When several worktrees commit at once, a repository-wide lock (`tools/lefthook-worktree-lock.mjs`) serializes them.
 
 ## Pull requests
 

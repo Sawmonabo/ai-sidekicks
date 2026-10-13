@@ -8,7 +8,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // --- ArtifactManifest: the persisted manifest record — the OCI-inspired envelope (Spec-012
 //     §Interfaces And Contracts) plus the daemon-persisted `metadata` field (not in the spec envelope).
 //     Defined once here (the `ArtifactManifest` shape Plan-011 Task 1 mints in
-//     packages/contracts/src/artifacts/); ArtifactPublish returns it (Spec-012 §Interfaces And Contracts),
+//     crates/sidekicks-contracts/src/artifacts/); ArtifactPublish returns it (Spec-012 §Interfaces And Contracts),
 //     ArtifactRead returns it plus a payload handle/inline (same spec section). 1:1 with the
 //     `artifact_manifests` row's wire-shareable fields; the row's grouping keys (a chat file's path and
 //     version number, a plan's record id) reach the wire on the list entry and the read facts instead.
@@ -43,8 +43,8 @@ interface ArtifactPublishRequest {
   sessionId: SessionId;
   runId?: RunId;
   artifactType: ArtifactType; // discriminator — see ArtifactManifest.artifactType (Spec-012 §Interfaces And Contracts; D-011-3)
-  payload: string; // the artifact bytes — UTF-8 text verbatim, or base64 (RFC 4648 §4) under payloadEncoding "base64"; never a binary field, because the Spec-006 local wire is JSON-only. The daemon decodes per the discriminator BEFORE hashing: content_hash and size_bytes bind the DECODED bytes, so an encoded and an unencoded publish of identical content share one CAS entry. A boundary-crossing publish is single-call and the 4 MB frame ceiling binds the SERIALIZED frame: base64's fixed 4/3 expansion gives the predictable ≈3 MB raw ceiling, while a utf8 payload's JSON-escaped size is content-dependent (quotes/backslashes/control characters expand 2–6× under JSON.stringify), so near-ceiling callers publish base64; larger file bytes take the AttachmentIngest trio, and daemon-internal publishes never cross the wire (Spec-012 §Ingest Validation And Payload Bounds (V1))
-  payloadEncoding?: "utf8" | "base64"; // default "utf8" — the request-side encoding discriminator
+  payload: Uint8Array; // the artifact bytes, a `Bytes` attachment beside the JSON in the frame codec, bounded by the frame's 4 MiB attachment cap. The daemon hashes the bytes as sent: content_hash and size_bytes bind them, so two publishes of identical content share one CAS entry. A boundary-crossing publish is single-call; larger file bytes take the AttachmentIngest trio, and daemon-internal publishes never cross the wire (Spec-012 §Ingest Validation And Payload Bounds (V1))
+  clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first publish, never a second
   mediaType: string; // MIME type
   // `size`/`digest` are not here: the daemon derives size_bytes + content_hash from `payload`
   // (D-011-2).
@@ -68,7 +68,7 @@ interface ArtifactReadRequest {
   // - none: the handle only.
   // - whole: the bytes when they fit in one message, the handle otherwise.
   // - range: one window, `length` bytes from `offset` (counted from 0), at most ARTIFACT_CHUNK_MAX_BYTES
-  //   so its encoded bytes fit one message; a window reaching past the end answers the bytes up to the
+  //   so its bytes fit one message's attachment cap; a window reaching past the end answers the bytes up to the
   //   end. A payload too large for one message is read whole by asking for its windows in turn, so a
   //   text body, a picture or a PDF is never cut short.
   payloadSelection:
@@ -77,15 +77,14 @@ interface ArtifactReadRequest {
     | { kind: "range"; offset: number; length: number };
 }
 // Two arms, never three independent optional members, because only these two replies can be acted on:
-// a handle to fetch the bytes with, or the bytes with their encoding. A read that did not ask for the
-// payload lands on the handle arm, and so does one that asked but whose encoded payload would not fit in
-// one message: a served answer, not a refusal.
+// a handle to fetch the bytes with, or the bytes. A read that did not ask for the
+// payload lands on the handle arm, and so does one that asked but whose payload would not fit in
+// one message's attachment cap: a served answer, not a refusal.
 type ArtifactReadResponse =
   | (ArtifactReadFacts & { payloadHandle: string }) // CAS key or URL for deferred retrieval
   | (ArtifactReadFacts & {
       payloadHandle?: string; // allowed beside the bytes
-      payload: string; // the whole payload, or the window a `range` selection asked for: UTF-8 text verbatim or base64 per payloadEncoding
-      payloadEncoding: "utf8" | "base64"; // "utf8" only for byte-exact valid UTF-8 (which JSON round-trips losslessly), "base64" otherwise; callers switch on it, never sniff
+      payload: Uint8Array; // a `Bytes` attachment: the whole payload, or the window a `range` selection asked for, as raw bytes
     });
 interface ArtifactReadFacts {
   manifest: ArtifactManifest; // the version in view's own manifest, the same envelope ArtifactPublish embeds (Spec-012 §Interfaces And Contracts); its createdAt is when that version was written
@@ -128,18 +127,18 @@ interface ArtifactListResponse {
 // boundary-crossing publish arm). The other artifactType families are daemon- or engine-produced
 // in the common case and carry no untrusted-upload surface. Ingest is a THREE-CALL STREAM, not a
 // single payload-bearing call (Spec-012 §Ingest Validation And Payload Bounds (V1),
-// transport binding): the local IPC transport enforces a hard 4 MB per-frame ceiling on the declared
-// Content-Length BEFORE buffering the body (MAX_MESSAGE_BYTES, declared in
-// packages/contracts/src/jsonrpc/message.ts and enforced by
-// packages/runtime-daemon/src/ipc/local-gateway.ts, Spec-006 §Wire Format), so a payload
-// larger than one frame cannot cross it and a single-call shape would be
+// transport binding): the frame codec caps each message's JSON at MAX_MESSAGE_BYTES and its
+// attachments at 4 MiB, each checked from its declared length BEFORE the bytes are buffered (declared in
+// crates/sidekicks-contracts/src/jsonrpc/message.rs and enforced by
+// crates/sidekicks-daemon/src/ipc/local_gateway.rs, Spec-006 §Wire Format), so a payload
+// larger than one message cannot cross it and a single-call shape would be
 // un-implementable on this wire. Chunks spool to a daemon-held temporary file OUTSIDE the CAS until
-// Complete; the byte bound binds three times — the transport frame ceiling, Init's declared total, and
+// Complete; the byte bound binds three times — the message's attachment cap, Init's declared total, and
 // the spooled running count at every Chunk, whose first breach terminates the stream and deletes the
 // spool. An abandoned stream's spool is reaped by a daemon-local mtime-clocked reaper 48 h after
 // its last write. The stream is a PROTOCOL, not a loose call
 // sequence (Spec-012 stream protocol): Init, like a boundary-crossing publish before its payload is
-// decoded, is refused artifact.ingest_capacity_exhausted (429 — transient, retry later, no stream
+// stored, is refused artifact.ingest_capacity_exhausted (429 — transient, retry later, no stream
 // state created) at max_active_ingest_streams open uploads, streams and publishes counted together,
 // or when the spool's volume, its free space read at admission, has no room for the declaration
 // beside the open uploads' reservations; sequencing is retry-idempotent with violations terminal
@@ -154,12 +153,12 @@ interface ArtifactListResponse {
 // (`text/*`, `application/json` or `image/svg+xml`), and as `text/plain` when it is not or none was
 // declared; any other bytes naming no type are recorded `application/octet-stream`. A smaller actual SIZE resolves to the derived
 // value in the response — but the declaration is also the stream's
-// spool RESERVATION and per-stream ceiling: the running decoded count exceeding it
+// spool RESERVATION and per-stream ceiling: the running count exceeding it
 // refuses artifact.too_large (413) and deletes the spool, because admission against the disk's room
 // counts declared bytes and an unenforced declaration would make it gameable. The derived
 // values are what reach the manifest, the CAS key, and every downstream consumer.
-// EVERY call of the trio is retry-safe against a lost response, and no member of these shapes carries
-// idempotency state: a retried Chunk is acknowledged
+// EVERY call of the trio is retry-safe against a lost response, and only Init's `clientIdempotencyKey`
+// carries idempotency state: a retried Init answers the first `ingestId`, a retried Chunk is acknowledged
 // without re-appending, and a retried Complete returns the saved result, its original response
 // verbatim, from a completion record the daemon holds on the stream's own registry entry. A Complete
 // refused artifact.type_check_unavailable, a type check that could not run to an answer, leaves the
@@ -170,7 +169,7 @@ interface ArtifactListResponse {
 // contend. Admission is likewise a serialized reserve-then-install ledger over the open-upload count
 // and the reservation total against the disk's free space, so two concurrent Inits cannot both pass
 // one remaining slot's bound.
-// The trio's request shapes live in `packages/contracts/src/artifacts/`, beside `ArtifactListRequest`
+// The trio's request shapes live in `crates/sidekicks-contracts/src/artifacts/`, beside `ArtifactListRequest`
 // and `ArtifactReadRequest`. The trio has no abort call: Spec-012 names none, and an abandoned
 // stream's spool is reaped as above.
 interface AttachmentIngestInitRequest {
@@ -178,7 +177,8 @@ interface AttachmentIngestInitRequest {
   runId?: RunId;
   fileName: string; // caller-supplied; length/character-bounded before it is recorded, and NEVER a storage path component — CAS addressing keys the payload by its SHA-256 (Spec-012 §Implementation Notes)
   mediaType?: string; // ADVISORY and OPTIONAL — absent is a first-class state; the type read from the bytes is what the manifest records, a declared text type kept only for UTF-8 bytes that name no type, and no declaration refuses anything (Spec-012 pipeline step 1)
-  declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation: reserved against the spool volume's free space, read at admission (a declaration the free disk cannot hold even with no other stream open is refused artifact.too_large (413) up front, naming the file and the room the disk has, since waiting can never admit it), and enforced as the stream's per-stream spool ceiling — the running decoded count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
+  declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation: reserved against the spool volume's free space, read at admission (a declaration the free disk cannot hold even with no other stream open is refused artifact.too_large (413) up front, naming the file and the room the disk has, since waiting can never admit it), and enforced as the stream's per-stream spool ceiling — the running count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
+  clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first Init's `ingestId`, never a second stream
 }
 interface AttachmentIngestInitResponse {
   ingestId: string; // opaque single-use stream handle, session-bound and wall-clock-bounded by max_ingest_stream_lifetime from Init; scopes every subsequent Chunk/Complete call — each refused artifact.ingest_stream_invalid (409) once the stream is terminated, expired, or unknown, and every Chunk once it is completed. ONE carved exception: a retried Complete on a completed stream whose completion record still lives returns the saved result, the original response verbatim — see AttachmentIngestCompleteRequest
@@ -186,11 +186,11 @@ interface AttachmentIngestInitResponse {
 interface AttachmentIngestChunkRequest {
   ingestId: string;
   sequenceNumber: number; // 0-based, strictly consecutive. The daemon retains the last acknowledged sequence + the last appended chunk's SHA-256: an exact retry — same sequence, same bytes, the ordinary retry after a lost Chunk response — is acknowledged idempotently WITHOUT re-appending, so client retries are always safe; a same-sequence chunk with different bytes, a gap, or a regression terminates the stream (spool deleted) and refuses artifact.ingest_stream_invalid (409) — restart from Init
-  chunk: string; // base64 (RFC 4648 §4) of at most max_attachment_chunk_bytes = 512 KiB raw payload (Spec-012 §Bounds) — the Spec-006 wire is JSON with no binary serialization, so bytes ride encoded, sized so the 4/3 expansion plus envelope fits the frame ceiling by arithmetic; the spool append decodes, and every byte bound counts the DECODED bytes
+  chunk: Uint8Array; // a `Bytes<1, 524288>` attachment beside the JSON: at most max_attachment_chunk_bytes = 512 KiB of payload (Spec-012 §Bounds), raw bytes that every byte bound counts as sent
 }
 interface AttachmentIngestChunkResponse {
   ingestId: string;
-  receivedBytes: number; // spooled running total of DECODED bytes after this chunk — the enforced byte bound; exceeding the Init-declared total refuses with artifact.too_large (413) and deletes the spool
+  receivedBytes: number; // spooled running total of bytes after this chunk — the enforced byte bound; exceeding the Init-declared total refuses with artifact.too_large (413) and deletes the spool
 }
 interface AttachmentIngestCompleteRequest {
   ingestId: string; // the request's ONLY member — Complete runs the pipeline over the spooled bytes (type detection reads a bounded leading prefix); step 3's admitting CAS rename commits the payload — admission is the pipeline's final successful act (Spec-012 pipeline step 3). IDEMPOTENT within the stream's lifetime: the response is recorded on the stream's registry entry, stamped with the committed digest, so a retry after a lost response returns that saved response VERBATIM — same artifactId, same contentHash — re-running no gate and inserting no second manifest row. Because this request carries no member beyond the ingestId, a "divergent" Complete has no wire form; the digest stamp is a fail-closed defense-in-depth check against a state a daemon-minted single-use handle makes unreachable, not a caller-supplied discriminator. The record is held in memory for the entry's lifetime, at most 64 records at once with the oldest let go first, so past max_ingest_stream_lifetime or that bound the retry receives artifact.ingest_stream_invalid (409) and a re-ingest costs a second manifest row over one deduplicated CAS payload, never duplicated bytes

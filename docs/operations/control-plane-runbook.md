@@ -23,13 +23,13 @@ Recover the person's own control plane and relay, on their Cloudflare account or
 ## Preconditions
 
 - The `sidekicks` command line on one of the person's machines
-- For the Workers relay, the person's own Cloudflare account; for the Compose relay, a shell on the server that runs its `docker-compose.yml` (Node, Caddy and Postgres)
+- For the Workers relay, the person's own Cloudflare account; for the Compose relay, a shell on the server that runs its `docker-compose.yml` (`sidekicks-control-plane`'s native program, Caddy and Postgres)
 - A device already linked, or a passkey, to link a device again after a revoke
 
 ## Recovery Steps
 
 1. Run `sidekicks daemon status` on the machine and read the relay block against Detection.
-2. If the machine's own relay connection is down, check the machine's network, then the relay: the Worker's deployment in the Cloudflare account, or the containers on the Compose server. On the Compose server, bring Postgres back before restarting the Node service.
+2. If the machine's own relay connection is down, check the machine's network, then the relay: the Worker's deployment in the Cloudflare account, or the containers on the Compose server. On the Compose server, bring Postgres back before restarting the relay's service.
 3. If `sidekicks sign-in` fails, fix the relay first. Sign-in runs only while the service is stopped, so stop it (`sidekicks daemon stop`, or `Stop` on Settings › Runtime), run `sidekicks sign-in` on the machine, and start the service again (`sidekicks daemon start`).
 4. If a device card reads `Seen in two places at once`, its key is in two places. If that is not expected, revoke the device (`Revoke` on its card, or `sidekicks devices revoke <device>`) and link the real device again as a new one.
 5. If a device refuses a machine with `<machine> is using a new key, so it was not connected.`, the machine was reinstalled: remove it on Devices and link it again. Linked again, it mints a new identity key under its same machine id, and its new `runtimenode.added` moves every device's pin for that id; its store, sessions and id stay.

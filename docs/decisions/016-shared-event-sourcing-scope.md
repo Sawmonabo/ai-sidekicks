@@ -18,7 +18,7 @@ The system already has a two-store split per [ADR-004: SQLite Local State and Po
 - **Local SQLite store** — machine-scoped runtime truth owned by each daemon.
 - **Shared Postgres store** — coordination truth (sessions, the device registry, device-liveness history, each machine's registration) across all of the person's devices and machines.
 
-Per [ADR-010](./010-tokens-passkeys-and-the-remote-channel.md), each device reaches each machine over one channel of its own: the Noise Protocol Framework's `Noise_KK_25519_ChaChaPoly_SHA256` handshake and transport, with no construction of the project's own and a fresh handshake on every connection and every 10 minutes. With one person, every channel has two ends, one device and one machine, so there is no group to encrypt to. The relay is zero-knowledge: it sees the device and machine ids at connection, the channel version and profile, and frame sizes and times, never a method, a name or a byte of a session, and it has no ability to read, append to, or sequence session content. A machine's identity is its service's Ed25519 key (§Machine Identity And Reachability below).
+Per [ADR-010](./010-tokens-passkeys-and-the-remote-channel.md), each device reaches each machine over one channel of its own: the Noise Protocol Framework's `KK` handshake and transport under one of two profiles, `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second, with no construction of the project's own and a fresh handshake on every connection and every 10 minutes. With one person, every channel has two ends, one device and one machine, so there is no group to encrypt to. The relay is zero-knowledge: it sees the device and machine ids at connection, the channel version and profile, and frame sizes and times, never a method, a name or a byte of a session, and it has no ability to read, append to, or sequence session content. A machine's identity is its service's Ed25519 key (§Machine Identity And Reachability below).
 
 The schema is per-daemon: `session_events` is owned by Plan-001 in the Local SQLite schema, and `shared-postgres-schema.md` contains no `session_events_shared` or equivalent table. This record names that scope and bounds its trade-offs.
 
@@ -139,7 +139,7 @@ The Linear pattern stays on record as the counterexample for a server that may r
 ### Related ADRs
 
 - [ADR-004 — SQLite Local State And Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md) — establishes the two-store split this ADR scopes event-sourcing against.
-- [ADR-010 — Tokens, Passkeys And The Remote Channel](./010-tokens-passkeys-and-the-remote-channel.md) — the per-connection `Noise_KK_25519_ChaChaPoly_SHA256` channel between each device and each machine, and what the relay may see; also PASETO v4 tokens with a device-code sign-in for the control plane, and passkeys only in the web client, the phone apps and the device-code page.
+- [ADR-010 — Tokens, Passkeys And The Remote Channel](./010-tokens-passkeys-and-the-remote-channel.md) — the per-connection `Noise_KK` channel between each device and each machine, under `Noise_KK_25519_AESGCM_SHA256` or `Noise_KK_25519_ChaChaPoly_SHA256`, and what the relay may see; also PASETO v4 tokens with a device-code sign-in for the control plane, and passkeys only in the web client, the phone apps and the device-code page.
 - [ADR-014 — V1 Feature Scope Definition](./014-v1-feature-scope-definition.md) — the V1 feature scope this decision respects.
 
 ### Related Specs And Docs

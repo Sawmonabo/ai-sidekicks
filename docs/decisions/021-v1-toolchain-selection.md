@@ -11,21 +11,21 @@
 
 ## Context
 
-[Container Architecture §Implementation Topology](../architecture/container-architecture.md#implementation-topology) gives the workspace shape (`packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/`, and `apps/cli/`, which Plan-005 Phase R3 creates). [Plan-001](../plans/001-session-core.md) is the first plan built on the toolchain and owns the one schema of each database, the daemon's and the control plane's, to which Plans 004, 015, 019 and 025 add their tables and columns.
+[Container Architecture §Implementation Topology](../architecture/container-architecture.md#implementation-topology) gives the workspace shape: the Rust crates under `crates/` (`sidekicks-daemon`, `sidekicks-cli`, `sidekicks-contracts`, `sidekicks-client`, `sidekicks-control-plane`, `sidekicks-search`, `sidekicks-terminal`, `sidekicks-compression` and `sidekicks-platforms`), and the TypeScript that stays, `apps/desktop/` and the `packages/` that are each the TypeScript face of a crate (`contracts`, `client-sdk`, `compression`, `search-ranking`) plus `markdown-parser`. [Plan-001](../plans/001-session-core.md) is the first plan built on the toolchain and owns the one schema of each database, the daemon's and the control plane's, to which Plans 004, 015, 019 and 025 add their tables and columns.
 
 Constraints from accepted ADRs:
 
-- [ADR-015](./015-electron-desktop-app.md) — Electron 44.x, whose bundled Node (24.21) runs the app's main process and renderer.
+- [ADR-015](./015-electron-desktop-app.md) — Electron 44.x, whose bundled Node (24.21) runs the app's main process and renderer; the daemon client runs there as the Rust client's Node-API addon.
 - [ADR-004](./004-sqlite-local-state-and-postgres-control-plane.md) — SQLite for local execution (`session_events`, `session_snapshots`), Postgres for shared state.
-- [ADR-013](./013-control-plane-api.md) — tRPC v11 for the Control Plane.
-- [ADR-009](./009-json-rpc-ipc-wire-format.md) — JSON-RPC 2.0 with LSP-style framing for daemon IPC.
-- [ADR-017](./017-cross-version-compatibility.md) — semver `MAJOR.MINOR` versions, with the app and the service agreeing a version range at the handshake; `engines` declarations set the toolchain floors.
+- [ADR-013](./013-control-plane-api.md) — `axum` on `worker` for the Control Plane.
+- [ADR-009](./009-json-rpc-ipc-wire-format.md) — JSON-RPC 2.0 in the frame codec for daemon IPC.
+- [ADR-017](./017-cross-version-compatibility.md) — semver `MAJOR.MINOR` versions, with the app and the service agreeing a version range at the handshake; the toolchain pin and the `engines` declarations set the toolchain floors.
 
 The implementer is Claude Opus 4.7 (AI-implementation economics outweigh human-DX arguments). Multi-year maintenance horizon. Reversal cost is high once Plan-001 ships and later plans bind to the toolchain.
 
 ## Problem Statement
 
-What workspace, quality, and runtime-driver primitives should V1 use so Plan-001 implementation can begin against a decided toolchain — and so downstream plans (003/006/018/022 in particular) inherit a coherent build surface?
+What toolchain, workspace, quality and database-driver primitives should V1 use, for the Rust crates and for the TypeScript that stays, so Plan-001 implementation can begin against a decided toolchain — and so downstream plans (003/006/018/022 in particular) inherit a coherent build surface?
 
 ### Trigger
 
@@ -39,95 +39,114 @@ We will adopt the following V1 toolchain. Every choice is forward-declared as th
 
 | Primitive | Choice | Version |
 | --- | --- | --- |
-| Package manager | **pnpm** with `nodeLinker: isolated`, workspace catalogs, `allowBuilds` allowlist, and `minimumReleaseAge: 1440` as the supply-chain guard — a resolution-time filter over a package's published-at, so it refuses a freshly published version whether the spec is exact or a range | 10.33+ |
-| Build orchestrator | **Turborepo** with a remote cache backed by the GitHub Actions cache (`rharkor/caching-for-turbo`), signed artifacts, telemetry disabled. The cache is GitHub-hosted rather than self-hosted: what self-hosting bought was independence from a vendor who could relicense the service, and a GitHub Actions cache artifact is subject to no such relicensing, so the property is preserved by a different mechanism. | 2.11+ |
+| Rust toolchain | **One exact stable release**, pinned in the root `rust-toolchain.toml` (profile `minimal`, components `rustfmt` and `clippy`, target `wasm32-unknown-unknown` for `sidekicks-compression` and the WebAssembly builds), with `rust-version` naming the same release. CI runs `rustup toolchain install` with no arguments once, before any Turbo or Cargo step, so it installs what the file names, and sets `RUSTUP_AUTO_INSTALL=0`, so parallel Cargo runs never race to install it. Each new stable moves the pin in its own PR, which fixes every lint it brings | 1.99.0 |
+| Cargo workspace | **A virtual workspace**, `members = ["crates/*"]`, `resolver = "3"`; edition 2024, `rust-version`, license and `publish = false` in `[workspace.package]`; every dependency version once in `[workspace.dependencies]`, internal crates by path; lints once in `[workspace.lints]`, each crate writing `[lints] workspace = true`; `[profile.wasm-release]` (`panic = "abort"`, LTO, one codegen unit, `strip`) for the WebAssembly builds | edition 2024, resolver 3 |
+| Build orchestrator | **Turborepo**, driving Cargo through its Cargo support beside the pnpm packages: no `package.json` in any crate, no folder both a crate and a pnpm package, the root `Cargo.toml` naming the workspace `sidekicks-crates` in `[workspace.metadata]`, `$TURBO_DEFAULT$` in the shared `build` and `lint` inputs, `CARGO_BUILD_WARNINGS` in `globalEnv`, `"cache": false` on `sidekicks-crates#test`, and a crate a pnpm package compiles to WebAssembly carrying `"command": null`. A remote cache backed by the GitHub Actions cache (`rharkor/caching-for-turbo`), signed artifacts, telemetry disabled. The cache is GitHub-hosted rather than self-hosted: what self-hosting bought was independence from a vendor who could relicense the service, and a GitHub Actions cache artifact is subject to no such relicensing, so the property is preserved by a different mechanism | 2.11.7 exact |
+| Package manager | **pnpm** for the TypeScript that stays, with `nodeLinker: isolated`, workspace catalogs, `allowBuilds` allowlist, and `minimumReleaseAge: 1440` as the supply-chain guard — a resolution-time filter over a package's published-at, so it refuses a freshly published version whether the spec is exact or a range. Crates take the same one-day hold: every crate in the lock through Cargo's `registry.global-min-publish-age`, from the toolchain whose Cargo supports it, and a direct bump through Renovate's `minimumReleaseAge` | pnpm 10.33+ |
+| Formatters | **rustfmt** with `edition` and `style_edition = "2024"` and nothing else (100 columns, 4 spaces; imports in three groups by hand); `pnpm format` also runs `cargo fmt --all`. **Tombi** for TOML, `line-width = 100` | rustfmt from the pin; Tombi 1.8+ |
+| Rust lints | **Clippy** `pedantic` on, with `must_use_candidate`, `missing_errors_doc`, `missing_panics_doc`, `too_many_lines` and `similar_names` allowed, plus restriction lints matched to `AGENTS.md`'s rules (`wildcard_enum_match_arm`, `unwrap_used`, `allow_attributes_without_reason`, `mod_module_files`, `missing_docs_in_private_items` scoped to `pub(crate)` items, and the rest); `expect_used`, `indexing_slicing` and `module_name_repetitions` off on purpose. rustc: `unsafe_code` denied; `missing_docs`, `unreachable_pub` and `dead_code_pub_in_binary` warn. A suppression is `#[expect(lint, reason = "…")]`. CI sets `CARGO_BUILD_WARNINGS=deny` and runs each Cargo command with `--keep-going` | Clippy from the pin |
+| Errors and logs | **`thiserror`** in library code, **`anyhow`** only in a program's `main`; **`tracing`**, with the daemon's service log written by flexi_logger's `FileLogWriter` under one `tracing-subscriber` fmt layer that also writes to standard error | flexi_logger 0.31.10 |
+| Rust tests | **cargo-nextest** (no retries; a `ci` profile, and an `endurance` profile for the one endurance binary) plus `cargo test --doc`, which nextest does not run; unit tests in `#[cfg(test)] mod tests`, one integration binary per crate (`tests/it/main.rs`), `rstest` where cases share a body or a fixture, cross-crate helpers behind a `test-support` feature, `proptest` for parsers, wire decoding and crypto, `insta` only where the snapshot is the behavior, and `cargo mutants --in-diff` on a pull request | nextest 0.9.148+, rstest 0.27.0, cargo-mutants 27.1.0 |
+| Unused code, advisories, spelling | **rustc's `dead_code` lints plus `cargo-shear`** (unused and misplaced dependencies and source files no module links); **`cargo-deny`** running only `advisories`, `bans` and `sources`; **`typos`** on code, Rust and TypeScript, with `locale = "en-us"`, documents excluded | cargo-shear 1.14+, cargo-deny 0.20+, typos-cli 1.51+ |
+| SQLite binding | **`rusqlite`** with `bundled`, which builds SQLite from `libsqlite3-sys`, WAL at boot, prepared-statement caching for hot paths | 0.40.2 exact (SQLite 3.53.2) |
+| Postgres client | On the Worker, **`tokio-postgres`** with `default-features = false, features = ["js"]`, queries only through typed statements (`query_typed`, `execute_typed`, `query_typed_one`, `query_typed_opt`, `batch_execute`) through Hyperdrive, and the schema apply on a second, direct client; on the Compose relay's native program, **`deadpool-postgres`** | tokio-postgres 0.7.18 |
 | TypeScript compilation | **`tsc -b`** per package, emitting each package's `.js` and `.d.ts` together; `isolatedModules: true` and `isolatedDeclarations: true` per package | TypeScript 7.0+ |
-| Test runner | **Vitest** with `projects` configuration; **happy-dom + `@testing-library/react`** for renderer component tests (Browser Mode is reserved for assertions that need a real layout engine; Playwright stays the E2E vehicle through Electron's `_electron` harness) | 4.x |
-| Linter + formatter | **ESLint 10 flat-config + typescript-eslint + Prettier 3** for V1 | ESLint 10, TS-ESLint 8.71+, Prettier 3 |
-| SQLite binding | **better-sqlite3** with WAL at boot, prepared-statement caching for hot paths | 13.0.3 exact (Node-API; no 12.x ships an ABI-149 prebuild for Electron 44, and 13.0.0 / 13.0.1 abort under the daemon's worker-terminate shape, so the pin is exact rather than a caret) |
-| Postgres client | **pg** (`node-postgres`); `pg-listen` wrapper for LISTEN/NOTIFY | 8.23+ |
-| Node target | Node 24.21 or later for the daemon (the background service) and the CLI, and each package's `engines.node` floor is `>=24.21.0`: the memory gate reads `process.availableMemory()`, which on macOS sums free, inactive and purgeable pages only from 24.16.0; the Electron app runs the Node its Electron pin bundles, 24.21 on Electron 44, and the floor is that same release so the service, the CLI and the app share one Node | 24.21+ |
+| TypeScript test runner | **Vitest** with `projects` configuration; **happy-dom + `@testing-library/react`** for renderer component tests (Browser Mode is reserved for assertions that need a real layout engine; Playwright stays the E2E vehicle through Electron's `_electron` harness); the Worker's Durable Object and alarm tests under `@cloudflare/vitest-plugin` | 4.x |
+| TypeScript linter + formatter | **ESLint 10 flat-config + typescript-eslint + Prettier 3** | ESLint 10, TS-ESLint 8.71+, Prettier 3 |
+| Node target | Node 24.21 or later for the TypeScript that stays, and each package's `engines.node` floor is `>=24.21.0`: the Electron app runs the Node its Electron pin bundles, 24.21 on Electron 44, and the floor is that same release so the app and the packages share one Node. The daemon and the CLI are native programs and need no Node | 24.21+ |
 | TS settings | strict, ESM-first (`"type": "module"`), `module: nodenext`, `moduleResolution: nodenext`, `verbatimModuleSyntax: true`; `target: es2024` (Node 24) | TypeScript 7 for the typecheck; 6 for the tools that import it |
 
-Each package's `engines.node: ">=24.21.0"` states the Node floor, and the root's `packageManager` pin, `.nvmrc` and CI's Node version say which versions the repository runs on; the root carries no `engines` install gate.
+Each package's `engines.node: ">=24.21.0"` states the Node floor, and the root's `packageManager` pin, `.nvmrc`, `rust-toolchain.toml` and CI say which versions the repository runs on; the root carries no `engines` install gate.
+
+The CI jobs for `crates/`: `cargo fmt --all -- --check`; `CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --all-targets --all-features --locked --keep-going`; `cargo nextest run --workspace --locked --profile ci` and `cargo test --workspace --doc --locked`; `cargo doc --workspace --no-deps --locked`; `cargo deny check advisories bans sources`; `cargo shear --deny-warnings`; `typos`; `tombi format --check`; `cargo mutants --test-tool=nextest --in-diff` on a pull request; and the regeneration of the TypeScript contracts followed by `git diff --exit-code` after Prettier. Each native leg builds `sidekicks-daemon` with `--locked` for its target, with that target's C toolchain for the crates that compile C or assembly (`aws-lc-sys`, `ring`, `blake3`, `libsqlite3-sys`, `psm`, `rquickjs-sys` and, on macOS and Linux, `libmimalloc-sys`).
 
 ### Thesis — Why This Combination
 
-Three integration constraints make these choices reinforce each other rather than stand alone:
+Four integration constraints make these choices reinforce each other rather than stand alone:
 
-1. **Two-ABI native bindings.** The Electron app (Electron 44, ABI 149, Node 24.21) and the daemon (Node 24's own ABI) can need different compiled binaries of one native module. `better-sqlite3` avoids that through Node-API: since 13.0.0 one platform prebuild serves every Node and Electron version, so it needs no `pnpm rebuild` against Electron headers, and no 12.x release ships an ABI-149 prebuild. The isolated linker matters for any other per-ABI native module: pnpm's isolated linker is the only manager primitive that keeps each workspace's `node_modules` resolution-scoped, allowing a `pnpm rebuild --filter=@ai-sidekicks/desktop <module>` against Electron headers without disturbing the daemon's Node build (`pnpm/pnpm#9073`, `WiseLibs/better-sqlite3#1393`). Hoisted layouts (npm, Bun default, Yarn `node-modules`) put a single copy at `node_modules/<module>` and break one runtime or the other.
-2. **BLOB ergonomics.** better-sqlite3 returns BLOBs as Node `Buffer`; node:sqlite returns `Uint8Array`, requiring an extra `Buffer.from(view)` per read wherever the daemon handles a column as a `Buffer`. A rebuild reads the `content_payload` column on every pass, so this is allocation noise we eliminate by binding choice.
-3. **Single-toolchain renderer + Node coverage.** Vitest 4.x with `projects` is the only stable runner that handles Node-class packages, type-only packages, _and_ the React renderer in one toolchain — the renderer project running under a DOM shim (happy-dom), with Browser Mode (Playwright provider, stable since 4.0 / 2025-10-22) available in the same runner for any assertion that later needs a real layout engine. The load-bearing claim is `projects`, not the DOM implementation: one runner, one config, every package. Vitest runs on Vite 8, whose own Oxc transform strips each file's types, so every project's tests run from source with no build step and no separate TypeScript loader.
+1. **One toolchain, read from one file.** An exact pin makes local and CI runs identical: CI installs what `rust-toolchain.toml` names and nothing else, `rust-version` and Clippy's `msrv` follow it, and new lints arrive only in the PR that moves the pin, which fixes them. The `wasm32-unknown-unknown` target sits in the same file, so the WebAssembly builds need no extra step.
+2. **One task graph for two languages.** Turbo's Cargo support puts the crates in the same graph as the pnpm packages: a pnpm package that ships a crate's WebAssembly build depends on that crate's `build`, a binary's build and every lint replay from Turbo's cache, and `turbo run build lint test` covers both languages with no `package.json` in any crate.
+3. **Checks that are `AGENTS.md`'s rules.** Each repository rule has a standard tool behind it: `wildcard_enum_match_arm` makes a closed set name every arm, `missing_docs` and `missing_docs_in_private_items` hold the docstring rule, `#[expect]` with a reason fails once it stops firing, `cargo-shear` is knip's counterpart down to files no module links, and `typos` with `locale = "en-us"` holds American spelling in code. `CARGO_BUILD_WARNINGS=deny` fails CI on any warning, rustdoc's included, without discarding the build cache.
+4. **Tests that stay cheap.** nextest runs each test in its own process, so tests never coordinate global state, and runs with no retries, so a flaky test shows; one integration binary per crate links once instead of once per file, and `cargo test --doc` runs the doctests nextest skips.
 
-The pnpm + Turborepo combination is the empirical default among comparable TypeScript monorepos: vercel/turborepo itself runs `pnpm@10.28.0` + Turbo, trpc/trpc runs `pnpm@10.33.1` + Turbo with `engines.node: "^24.0.0"`, vercel/next.js runs pnpm + Turbo throughout (raw `package.json` reads, 2026-04-26). Adoption is corroborating evidence, not the primary justification, but it materially de-risks the integration paths we'll need (pnpm v10 lockfile parsing, `workspace:` protocol semantics, Turbo cache-key derivation).
+The TypeScript that stays keeps its toolchain as the root `package.json` names it. Vitest 4.x with `projects` is the one runner that handles Node-class packages, type-only packages, _and_ the React renderer in one toolchain — the renderer project running under a DOM shim (happy-dom), with Browser Mode (Playwright provider, stable since 4.0 / 2025-10-22) available in the same runner for any assertion that later needs a real layout engine. Vitest runs on Vite 8, whose own Oxc transform strips each file's types, so every project's tests run from source with no build step and no separate TypeScript loader.
+
+The pnpm + Turborepo combination is the empirical default among comparable TypeScript monorepos: vercel/turborepo itself runs `pnpm@10.28.0` + Turbo, trpc/trpc runs `pnpm@10.33.1` + Turbo with `engines.node: "^24.0.0"`, vercel/next.js runs pnpm + Turbo throughout (raw `package.json` reads, 2026-04-26). Among Rust workspaces, ruff, uv and oxc pin their toolchain to an exact release in `rust-toolchain.toml`. Adoption is corroborating evidence, not the primary justification, but it materially de-risks the integration paths we'll need (pnpm v10 lockfile parsing, `workspace:` protocol semantics, Turbo cache-key derivation).
 
 ### Antithesis — The Strongest Case Against
 
 A skeptical staff engineer would argue:
 
-- **Bun monorepo collapses the toolchain.** Bun 1.3 ships a runtime, package manager, test runner, transpiler, and bundler in one binary. Two-ABI bindings are addressable via `bun install --trust` allowlists; workspace install times beat pnpm in vendor benchmarks. For a greenfield project the simplest possible stack is Bun for everything, and we are over-architecting by stitching together pnpm + Turbo + Vitest.
+- **Bun monorepo collapses the TypeScript toolchain.** Bun 1.3 ships a runtime, package manager, test runner, transpiler, and bundler in one binary; workspace install times beat pnpm in vendor benchmarks. For the TypeScript that stays, the simplest possible stack is Bun for everything, and we are over-architecting by stitching together pnpm + Turbo + Vitest.
 - **Oxlint + tsgolint is the modern lint story.** tsgolint covers 59 of 61 typescript-eslint type-aware rules (`oxc.rs/docs/guide/usage/linter/type-aware.html`) at 50–100× ESLint speed. Oxfmt is at Prettier-100% conformance (beta). Choosing ESLint+Prettier in 2026 is the defensive call, not the principal-engineer call.
-- **Stay on Node 22.** Node 22 is in security support through 2027-04 and is already installed on more machines; raising the floor to 24.21 asks a person to update Node before the service and the CLI run.
-- **A fast transpiler for the `.js` emit.** esbuild or swc writes a package's `.js` in milliseconds by stripping types per file, while `tsc -b` checks the whole project before it emits; splitting the emit from the typecheck would make every build faster.
+- **Cargo needs no task runner.** Turbo's Cargo support is marked experimental, and its docs say it "can change at any time"; Cargo already builds the crates in dependency order, so running it directly keeps a moving dependency out of every build.
+- **The `stable` channel needs no bump PRs.** Pinning an exact release means a PR every six weeks; the `stable` channel takes each release as it ships.
 
 ### Synthesis — Why It Still Holds
 
 - **Bun rejected; re-evaluated on a named trigger.** Bun's official `bun.com/docs/pm/workspaces` page does not surface isolated installs as a primary workspace primitive — independent reporting places isolated-install support in 1.2.x as a CLI flag, but the absence from canonical docs is itself a maturity signal. Turborepo's first-class lockfile support targets pnpm v10/v11 (turbo canary 2.9.7 added pnpm v11 multi-document lockfile parsing) before equivalent Bun lockfile work. Multi-year ecosystem-bet risk on the first-class primitive is the wrong allocation. Re-evaluate when [Re-evaluation Triggers](#re-evaluation-triggers) item 3 fires. Bun as the runtime and package tool of a workflow Code step is a separate choice this does not touch.
 - **Oxlint+tsgolint rejected, named criterion documented.** tsgolint is alpha (`oxlint-tsgolint` 0.21.1, 2026-04-22). Oxfmt is beta. ESLint 10 flat-config (GA 2026-02-06) is mature and meets perf bar via `--cache` plus running type-aware rules in CI only (`typescript-eslint.io/troubleshooting/typed-linting/performance`). Migration trigger: when tsgolint reaches 1.0 stable AND Oxfmt reaches 1.0 stable, evaluate migration with `@oxlint/migrate`.
-- **One Node line, at 24.21.** The memory gate needs `process.availableMemory()` to count inactive and purgeable pages on macOS, which it does only from Node 24.16.0; on Node 22 it returns free pages alone, so a Mac with room reads as full and no step starts. The Electron app already runs Node 24 (Electron 44 bundles 24.21), so the whole workspace targets that release as its one line: one `engines.node` floor, one `target: es2024`, one CI matrix, and security support through 2028-04 against Node 22's 2027-04.
-- **One compiler builds every package.** Each package builds with `tsc -b` on TypeScript 7, which emits its `.js` and `.d.ts` together, so what the typecheck passes is what ships. `isolatedModules: true` and `isolatedDeclarations: true` stay on, constraining TS source to constructs a per-file emitter handles. The root `package.json` installs TypeScript 7 under the alias `@typescript/native` (`npm:typescript@^7.0.2`), whose `tsc` the builds and typechecks run, and keeps the name `typescript` on TypeScript 6 (`npm:@typescript/typescript6@^6.0.2`), which typescript-eslint and the other tools that import the compiler load.
+- **Turbo drives Cargo, pinned exactly.** A probe on this repository with turbo 2.11.7 put the crates in one graph beside the pnpm packages, ran a pnpm package's build after a crate's build, and replayed a binary's build and every lint from cache (library builds never cache, by design). Without it the WebAssembly packages would need a second runner to order their builds after the crates'. The experimental label is answered by pinning `turbo` exactly and bumping it in its own PR; if a release breaks the support, CI runs Cargo outside Turbo and the crates need no change.
+- **An exact pin, moved every release.** The `stable` channel lets a new release's lints land in an unrelated PR, on CI before anyone's machine; the pin makes each bump one PR that fixes what it brings. Cargo's one-day release-age hold for every crate comes with the toolchain whose Cargo supports it, taken by that bump.
+- **One compiler builds every TypeScript package.** Each package builds with `tsc -b` on TypeScript 7, which emits its `.js` and `.d.ts` together, so what the typecheck passes is what ships. `isolatedModules: true` and `isolatedDeclarations: true` stay on, constraining TS source to constructs a per-file emitter handles. The root `package.json` installs TypeScript 7 under the alias `@typescript/native` (`npm:typescript@^7.0.2`), whose `tsc` the builds and typechecks run, and keeps the name `typescript` on TypeScript 6 (`npm:@typescript/typescript6@^6.0.2`), which typescript-eslint and the other tools that import the compiler load.
 
 ---
 
 ## Alternatives Considered
 
-### Option A: pnpm + Turbo + Vitest + ESLint+Prettier + better-sqlite3 + pg + Node 24 (Chosen)
+### Option A: Rust 1.99.0 + Cargo workspace + Turbo + nextest + Clippy + `cargo-shear` + `rusqlite` + `tokio-postgres`; pnpm + Vitest + ESLint+Prettier for the TypeScript (Chosen)
 
 - **What:** Per [Decision](#decision) table.
-- **Steel man:** Reinforcing constraints (two-ABI bindings, BLOB `Buffer` ergonomics, single-runner browser+Node coverage) all push to the same combination. Adoption-validated by largest comparable TypeScript monorepos.
-- **Weaknesses:** Eight primitive choices to maintain; Turbo telemetry-on-by-default requires explicit opt-out plumbing; ESLint slower than Oxlint.
+- **Steel man:** Reinforcing constraints (one pinned toolchain, one task graph across Cargo and pnpm, a standard tool behind each repository rule, cheap tests) all push to the same combination. Adoption-validated by the largest comparable monorepos.
+- **Weaknesses:** Two languages' toolchains to maintain; Turbo's Cargo support is experimental; a bump PR every Rust release; ESLint slower than Oxlint.
 
-### Option B: Bun monorepo (Rejected)
+### Option B: Bun monorepo for the TypeScript (Rejected)
 
-- **What:** Bun 1.3 as runtime + package manager + test runner + bundler + transpiler. better-sqlite3 still as binding, not Bun-native `bun:sqlite`.
+- **What:** Bun 1.3 as runtime + package manager + test runner + bundler + transpiler for the TypeScript that stays.
 - **Steel man:** Single binary collapses 5 primitives into 1. Faster install, faster transpile, growing community. Vendor benchmarks beat pnpm cold install.
-- **Why rejected:** (a) Bun's isolated-install primitive is not a documented workspace setting on `bun.com/docs/pm/workspaces`, raising integration risk for two-ABI native bindings; (b) Turborepo's canonical lockfile support targets pnpm v10/v11 ahead of Bun (turbo 2.9.7 multi-doc lockfile support is pnpm-only); (c) Bun has no documented `catalog:` equivalent for workspace dependency unification; (d) Bun's transpiler doesn't emit `.d.ts`, so we'd still need tsc anyway. Multi-year ecosystem-bet risk too high for V1.
+- **Why rejected:** (a) Bun's isolated-install primitive is not a documented workspace setting on `bun.com/docs/pm/workspaces`; (b) Turborepo's canonical lockfile support targets pnpm v10/v11 ahead of Bun (turbo 2.9.7 multi-doc lockfile support is pnpm-only); (c) Bun has no documented `catalog:` equivalent for workspace dependency unification; (d) Bun's transpiler doesn't emit `.d.ts`, so we'd still need tsc anyway. Multi-year ecosystem-bet risk too high for V1.
 
-### Option C: Nx + ESLint + Vitest + better-sqlite3 + pg + Node 22 only (Rejected)
+### Option C: Nx in place of Turborepo (Rejected)
 
 - **What:** Nx 22.7 as build orchestrator (plugin ecosystem, generators, project-references auto-sync via `@nx/js`).
 - **Steel man:** Nx Cloud free Hobby tier (50k credits/mo, 50 contributors) + self-hosted remote caching is **explicitly free** per the official Nx Powerpack announcement (`nx.dev/blog/introducing-nx-powerpack`). Plugin ecosystem auto-syncs `references` arrays in tsconfig.json. Best built-in dependency graph viz.
-- **Why rejected:** Nx is heavier (100+ runtime deps vs Turbo's smaller surface) and pulls in opinionated scaffolders we don't need in a greenfield repo. The plugin advantage is real but maps to features (generators, schematics) our workflow doesn't consume. Turbo's smaller surface area + MIT license + open self-host posture are a better fit for a project where AI-implementation economics dominate.
+- **Why rejected:** Nx is heavier (100+ runtime deps vs Turbo's smaller surface) and pulls in opinionated scaffolders we don't need in a greenfield repo. The plugin advantage is real but maps to features (generators, schematics) our workflow doesn't consume. Turbo's smaller surface area + MIT license + open self-host posture, and its Cargo support probed on this repository, are a better fit for a project where AI-implementation economics dominate.
 
-### Option D: Oxlint + Oxfmt + tsgolint as the default (Rejected)
+### Option D: Oxlint + Oxfmt + tsgolint as the TypeScript default (Rejected)
 
 - **What:** Replace ESLint+Prettier with the OXC/VoidZero Rust toolchain.
 - **Steel man:** 50–100× ESLint speed; tsgolint covers 59/61 typescript-eslint type-aware rules; Oxfmt at 100% Prettier conformance. Single-binary deployment. AI-implementation economics favor the speed.
 - **Why rejected:** tsgolint is alpha (`oxlint-tsgolint` 0.21.1 / 2026-04-22); Oxfmt is beta (2026-02-24). A first-class dev-loop primitive on alpha + beta is the wrong risk allocation when ESLint+Prettier are mature and meet the perf bar via `--cache` and CI-only type-aware rules. Re-evaluated per [Re-evaluation Triggers](#re-evaluation-triggers) item 1.
 
-### Option E: Biome 2.4 as combined linter+formatter (Rejected)
+### Option E: Biome 2.4 as combined TypeScript linter+formatter (Rejected)
 
 - **What:** Single Rust binary linter + formatter, monorepo-aware, fast.
 - **Steel man:** Single tool replaces ESLint + typescript-eslint + Prettier. Subsecond performance on 10k files. GritQL plugins. v2.x ships type-aware rules.
 - **Why rejected:** Type-aware coverage is ~10 rules vs typescript-eslint's 61; flagship `noFloatingPromises` rule "detects ~75% of cases" (Biome's own claim). For a strict-mode TypeScript codebase doing TDD, accepting a 25% miss rate on the single best-supported type-aware rule is too steep. Biome 2026 roadmap (`biomejs.dev/blog/roadmap-2026/`) prioritizes embedded languages, HTML, SCSS, IDE LSP polish — not aggressive type-aware expansion. Plugin system is GritQL-pattern-match-only (no autofix). `useExhaustiveDependencies` rule has documented divergence from `react-hooks/exhaustive-deps` (`biomejs/biome#2149`), which the renderer needs.
 
-### Option F: node:sqlite instead of better-sqlite3 (Rejected)
+### Option F: `cargo-machete` or `cargo-udeps` in place of `cargo-shear` (Rejected)
 
-- **What:** Use the Node.js built-in `node:sqlite` module (added 22.5.0, RC in Node 25.7.0).
-- **Steel man:** Zero native binding to manage. No `electron-rebuild` step. Maintained by the Node.js core team. API parity with better-sqlite3 (synchronous, `prepare`, `function`, `aggregate`, `loadExtension`, sessions). Node 25.x adds `SQLTagStore` LRU.
-- **Why rejected:** (a) on Node 24, the line the service runs, its stability label is Release candidate (1.2) from 24.15.0, not yet Stable (2); (b) BLOB return type is `Uint8Array`, not Node-canonical `Buffer` — every BLOB read requires an extra wrap; (c) the SQG benchmark (2026-01-19, Node 22) shows better-sqlite3 ahead by 1.11×–1.67× across `getUserById`, `insertUser`, `updatePostViews`. Re-evaluate when node:sqlite reaches Stability 2 on a Node LTS line we actually run.
+- **What:** Another unused-dependency finder for the crates.
+- **Steel man:** `cargo-machete` is fast; `cargo-udeps` checks through compilation.
+- **Why rejected:** `cargo-machete` works "in a fast (yet imprecise) way", and `cargo-udeps` "needs Rust nightly to actually run". Neither reports source files no module links, which `cargo-shear` does, the counterpart of knip's unused-files report.
 
-### Option G: postgres.js (porsager) instead of pg (Rejected)
+### Option G: `cargo-audit` for advisories (Rejected)
 
-- **What:** `porsager/postgres` 3.4.9 with tagged-template SQL, automatic prepared-statement LRU, native LISTEN/NOTIFY auto-reconnect, built-in logical-replication subscribe.
-- **Steel man:** Tighter API. First-class TypeScript types. LISTEN/NOTIFY auto-reconnect solves the operational fragility that bites `pg` in production.
-- **Why rejected:** The performance argument is stale (porsager's benchmarks ran on Node 12.20.1; the 2026 dev.to benchmark on Node 22 shows pg slightly ahead with sub-µs gaps dominated by Postgres RTT — not a deciding axis). The deciding axes are maturity, ecosystem (BullMQ, pgBoss, Drizzle, Kysely, OpenTelemetry instrumentation all default to pg), and explicit prepared-statement control (postgres.js auto-caches every query, which is convenient until you need cache invalidation). LISTEN/NOTIFY operational concern addressed via `pg-listen` wrapper (`andywer/pg-listen`) — one extra dep is cheaper than rebuilding against a different driver.
+- **What:** RustSec advisories through `cargo-audit`.
+- **Steel man:** The RustSec project's own tool.
+- **Why rejected:** `cargo-deny`'s `advisories` check reads the same database, and `cargo-deny` already runs for `bans` and `sources`; two tools for one check is a defect.
 
-### Option H: Single Node 22 LTS target everywhere (Rejected)
+### Option H: Taplo for TOML (Rejected)
 
-- **What:** Pin every workspace to Node 22 Maintenance LTS for cognitive simplicity.
-- **Steel man:** One `engines.node` floor; one Docker base image; one `tsconfig.json` ladder; no split CI matrix.
-- **Why rejected:** The memory gate reads `process.availableMemory()`, which on macOS counts inactive and purgeable pages only from Node 24.16.0; on Node 22 it returns free pages alone, so a Mac with room reads as out of memory and no step starts. The service and the CLI therefore need 24.16 or later, and the Electron app already runs Node 24.21. One line at 24.21 keeps the simplicity this option wanted without its wrong memory reading.
+- **What:** Taplo as the TOML formatter.
+- **Steel man:** The longest-used TOML formatter in Rust projects.
+- **Why rejected:** Its author wrote in `tamasfe/taplo#715` that he cannot see himself returning to the project; Tombi is active, ships on npm, and has `tombi format --check` for CI.
+
+### Option I: `log`, or `tracing-appender` for the service log (Rejected)
+
+- **What:** The `log` facade in place of `tracing`, or `tracing-appender` writing the service log file.
+- **Steel man:** `log` is smaller; `tracing-appender` is the `tracing` project's own file writer.
+- **Why rejected:** `tracing` records spans with typed fields, which the service log and its diagnostics read. `tracing-appender` rotates by period only and prunes by count, with no size cap, where flexi_logger's `FileLogWriter` caps each file by size.
 
 ---
 
@@ -135,14 +154,16 @@ A skeptical staff engineer would argue:
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | pnpm 10's isolated linker handles two-ABI native bindings (Electron + Node) cleanly via per-workspace rebuild | `pnpm/pnpm#9073` (better-sqlite3 + native bindings interaction); `WiseLibs/better-sqlite3#1393` (NODE_MODULE_VERSION mismatch under Electron); pnpm.io/settings `nodeLinker: isolated` is the v10 default | Daemon and Electron both load incompatible native binaries; rebuilds break across tiers; we'd fall back to manual `node-gyp` rebuild scripts per tier |
+| 1 | Turbo's Cargo support keeps the crates and the pnpm packages in one task graph | Probed on this repository with turbo 2.11.7: one graph, a pnpm package's build after a crate's build, binary builds and lints replayed from cache; three settings required (`$TURBO_DEFAULT$` in the shared `build` and `lint` inputs, `CARGO_BUILD_WARNINGS` in `globalEnv`, `"cache": false` on `sidekicks-crates#test`), without which a crate's hash misses its own `Cargo.toml`, warnings pass, or tests replay | CI and local builds run Cargo outside Turbo; the WebAssembly packages order their builds by script; the crates need no change |
 | 2 | Turborepo's MIT license + open remote-cache HTTP API are durable | `github.com/vercel/turborepo/blob/main/LICENSE` (MIT, verified live 2026-04-26); HTTP API spec documented at `turborepo.dev/docs/core-concepts/remote-caching`; multiple self-host implementations exist (`ducktors/turborepo-remote-cache`, `brunojppb/turbo-cache-server`, `Tapico/tapico-turborepo-remote-cache`) | Vercel relicenses or closes the API. Because the cache is not self-hosted, the live exposure is the GitHub Actions cache backend — `rharkor/caching-for-turbo` going unmaintained, or Turborepo retiring the HTTP cache API the action implements. Either is answered by dropping back to local-only caching (a wall-clock loss, not a correctness one) or by standing up one of the self-host implementations named here. |
 | 3 | Vitest 4.x's `projects` config covers Node + browser packages in one toolchain | Vitest 4.0 release notes 2025-10-22 (Browser Mode stabilized); `vitest.dev/guide/projects` (replaced workspaces in 3.2 / June 2025); Browser Mode supports Playwright/WebDriverIO/preview providers. **Holds in the tree:** the `renderer` project runs happy-dom + `@testing-library/react` and the `main-unit` project runs Node, in one config | The `projects` mechanism itself regresses (the assumption's real subject) — split into per-package runner configs. A DOM-shim shortfall is NOT this failure: it escalates to Browser Mode in the same runner, no toolchain change |
-| 4 | better-sqlite3 13.x ships Node-API platform prebuilds (darwin / linux / linuxmusl / win32 × x64 / arm64) bundled in the npm tarball, ABI-independent across Node and Electron | The 12.x per-ABI prebuilds top out at ABI 148 (12.12.0, Electron 43), and **no 12.x release ships ABI 149** (Electron 44, per `releases.electronjs.org` `modules`); 13.0.0 (2026-07-21) refactored to `node-addon-api` and publishes its platform `.node` prebuilds inside the package with no `prebuild-install`; 13.0.3 (2026-08-05) is the pinned release; its `engines.node >= 22` overstates — the prebuilds are Node-API 10 (Node ≥ 22.14.0 / 23.6.0), and a Node-API-9 host segfaults at first open (measured) | A platform falls out of the bundled prebuild set; the package compiles from source at install on that platform (the 13.x documented fallback), which needs a C++ toolchain on that machine. A host below Node 22.14 cannot load the binding at all — observed here as a silent `SIGSEGV` at the first `new Database()`, where Node's documented refusal is a load-time `ThrowNodeApiVersionError` throw; both grades are stated in [Spec-013 §Driver Pin](../specs/013-persistence-and-recovery.md#driver-pin) — and the workspace's Node floor, 24.21, sits above it |
-| 5 | Node 24 receives security patches through 2028-04-30 | `endoflife.date/nodejs`: Node 24 Active LTS through 2026-10, then Maintenance through 2028-04-30 (the Node.js release schedule row under Research Conducted) | Node 24 EOL accelerates; move the floor to the next LTS line that keeps `process.availableMemory()`'s macOS reading, and the Electron pin to a release that bundles a supported Node |
+| 4 | `rusqlite`'s bundled SQLite builds on every V1 target with that target's C toolchain | `rusqlite` 0.40.2 with `bundled` builds SQLite 3.53.2 from `libsqlite3-sys` 0.38.2 through `cc`; each native CI leg builds `sidekicks-daemon` with `--locked` for its target | A leg without a C toolchain cannot build the daemon; that leg takes its target's toolchain (MSVC on Windows, clang-cl on Windows on ARM) |
+| 5 | Node 24 receives security patches through 2028-04-30 | `endoflife.date/nodejs`: Node 24 Active LTS through 2026-10, then Maintenance through 2028-04-30 (the Node.js release schedule row under Research Conducted) | Node 24 EOL accelerates; move the Electron pin to a release that bundles a supported Node, and the packages' floor with it |
 | 6 | `isolatedDeclarations: true` with `tsc -b` on TypeScript 7 emits each package's declarations correctly | TS 5.5 `isolatedDeclarations` proposal `microsoft/TypeScript#47947`; tsgo readme at `github.com/microsoft/typescript-go` documents `isolatedDeclarations`-friendly emit | a package's emitted declarations fail a consumer's typecheck; `pnpm typecheck` stops the change before it merges |
 | 7 | `require(esm)` is stable on Node 22.12+ | Joyee Cheung's primary-source post 2025-12-30 (Node TSC member); unflagged in Node 22.12.0 / 20.19.0 late 2025; formally Stable in Node 25.4.0 | Top-level-await ESM modules can't be `require()`'d (still true and acceptable — our code has no TLA) |
 | 8 | typescript-eslint 8.71+ type-aware rules meet our perf bar via `--cache` and CI-only execution under ESLint 10 | `typescript-eslint.io/troubleshooting/typed-linting/performance` (canonical perf guide); ESLint `--cache` cuts repeat runs to a fraction; type-aware rules can be config-gated to CI; `typescript-eslint.io/users/dependency-versions` confirms `^10.0.0` officially supported by typescript-eslint 8.x | Lint runtime exceeds tolerable CI minutes on a 50k-LOC monorepo; migrate to Oxlint+tsgolint ahead of Re-evaluation Trigger 1 |
+| 9 | `CARGO_BUILD_WARNINGS=deny` fails CI on any warning without discarding the build cache | Stabilized in Cargo 1.97; Clippy prefers it to `-D warnings` because it "has the benefit of not invalidating build caches"; it covers `cargo doc`, so an unresolved doc link fails it, even replayed from cache | Warnings pass CI; CI sets `-D warnings` through `RUSTFLAGS` and accepts the cache loss |
+| 10 | `tokio-postgres` with its `js` feature reaches Postgres from the Worker through Hyperdrive | Measured in the full Worker: typed (unnamed) statements through Hyperdrive with caching off for authentication reads; the schema apply on a second, direct client keeping `pg_advisory_xact_lock`, since Hyperdrive lists advisory locks unsupported | Named statements or a custom column type would make the driver prepare statements Hyperdrive supports only for other drivers; the queries stay on typed statements and built-in column types |
 
 ---
 
@@ -150,23 +171,25 @@ A skeptical staff engineer would argue:
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| The Electron or Node ABI drifts away from a bundled `better-sqlite3` prebuild on a release | Low | High | `require` of the binding fails, or resolves outside `prebuilds/` — 13.x's prebuilds are Node-API and version-independent, so a host the tarball does not cover is the failure, not a recompile: the package's build script is denied in `pnpm-workspace.yaml`, so no source compile can silently stand in | Pin `better-sqlite3` exact; the `native-prebuilds` CI matrix asserts on each of the five target platforms that the binding the daemon resolves is that platform's tarball prebuild and that `build/Release/` holds no `.node`; vendor the prebuild or hold the Electron pin if a target loses coverage |
+| A Turbo release changes or breaks its Cargo support | Med | Medium | `turbo run` fails, or a crate's hash misses its own `Cargo.toml` | `turbo` pinned exactly and bumped in its own PR; CI falls back to running Cargo outside Turbo |
+| A new Rust stable brings lints the workspace fails | High | Low | The bump PR's CI | The pin moves in its own PR, which fixes every lint it brings |
+| Parallel Cargo runs race to install the toolchain | Med | Low | Interleaved rustup installs in CI | `rustup toolchain install` runs once before any Cargo step, with `RUSTUP_AUTO_INSTALL=0` so a missing toolchain fails at once |
+| A crate that compiles C or assembly fails on one native leg | Med | Medium | That leg's `sidekicks-daemon` build | Each leg carries its target's C toolchain: MSVC and NASM (or `aws-lc-rs`' prebuilt NASM objects) on Windows, clang-cl on ARM64 |
+| A RustSec advisory lands on a crate the lock holds | Med | Medium–High | `cargo deny check advisories` in CI | Take the fixed release; a yanked crate is denied |
 | Turborepo retires the open remote-cache HTTP API | Low | Medium | Vercel announcement; `turbo.json` schema breaks; the `rharkor/caching-for-turbo` proxy stops serving | Fall back to local-only caching, or stand up `ducktors/turborepo-remote-cache`, or migrate to Nx self-host (also free per Powerpack announcement). |
 | Vitest 4.x renderer environment regresses (happy-dom shim or, where used, Browser Mode) | Med | Medium | Renderer test suite fails after a Vitest or happy-dom update | Pin Vitest and happy-dom minors; escalate the `renderer` project to Browser Mode (Playwright provider, already supported by the same runner) — or fall back to Playwright Component Testing if the `projects` mechanism itself is at fault |
 | typescript-eslint perf becomes intolerable | Med | Low–Medium | CI lint stage > 5 min; developer-feedback friction | Earlier migration to Oxlint + tsgolint (Re-evaluation Trigger 1); reduce type-aware rule set in interim |
-| Node 24 EOL accelerates ahead of 2028-04 | Low | High | nodejs/Release schedule update | Move the floor to the next supported LTS line, and the Electron pin to a release that bundles it |
-| better-sqlite3 maintenance lapses | Low | High | Issue tracker stale; release cadence drops | Switch to `node:sqlite` once it reaches Stability 2 on Node LTS we run; accept Uint8Array→Buffer wrap cost |
+| Node 24 EOL accelerates ahead of 2028-04 | Low | High | nodejs/Release schedule update | Move the Electron pin to a release that bundles the next supported LTS line, and the packages' floor with it |
 | ESM `require()` regresses on Node 24 | Very Low | High | `require(esm)` calls throw at runtime | Restore explicit dynamic `import()` pattern; bisect Node release |
-| pg LISTEN/NOTIFY drops in production | Med | Medium | Notification handler stops firing | `pg-listen` wrapper handles backoff + re-subscription; alert on subscription gaps |
 
 ---
 
 ## Reversibility Assessment
 
-- **Reversal cost:** Medium-to-high. Per-primitive switching cost varies: package-manager swap (≈ 1–2 days, lockfile + CI rewrite + binding rebuild), build-orchestrator swap (≈ 1 day, `turbo.json` → `nx.json`), test-runner swap (≈ 2–3 days, test-API rewrites), linter swap (≈ 1 day with migration tooling), SQLite binding swap (≈ 0.5 day for sync API → sync API; medium for sync → async), Postgres client swap (≈ 1–2 days, query-construction rewrites). The Node floor is one `engines.node` value and one `tsconfig` target (≈ minutes).
-- **Blast radius:** Every package, every CI pipeline, all dev environments, all `electron-rebuild` workflows, all release artifacts.
-- **Migration path:** Adopt new primitive in a feature branch; rebuild lockfile; rebuild bindings; swap CI. For the package manager and test runner specifically, the migration is invasive: every package's lockfile entries, scripts or tests move with it.
-- **Point of no return:** After Plan-001 lands and Plans 004, 015, 019 and 025 build on the one schema and the binding ABI. This ADR sets the floor before that boundary is crossed.
+- **Reversal cost:** Medium-to-high. Per-primitive switching cost varies: a Rust toolchain bump is one file and the lints it brings; build-orchestrator swap (≈ 1 day, `turbo.json` → `nx.json`, or Cargo run outside Turbo); test-runner swap for the TypeScript (≈ 2–3 days, test-API rewrites); linter swap (≈ 1 day with migration tooling); package-manager swap (≈ 1–2 days, lockfile + CI rewrite); SQLite or Postgres driver swap (the queries move with it, behind the daemon's and the control plane's own modules).
+- **Blast radius:** Every crate and package, every CI pipeline, all dev environments, all release artifacts.
+- **Migration path:** Adopt the new primitive in a feature branch; rebuild the lockfile; swap CI. For the package manager and the test runners specifically, the migration is invasive: every package's lockfile entries, scripts or tests move with it.
+- **Point of no return:** After Plan-001 lands and Plans 004, 015, 019 and 025 build on the one schema and the drivers. This ADR sets the floor before that boundary is crossed.
 
 ---
 
@@ -174,26 +197,30 @@ A skeptical staff engineer would argue:
 
 ### Positive
 
-- Reinforcing primitive choices: pnpm enables Turbo's first-class lockfile support, and `better-sqlite3` 13.x's bundled Node-API prebuilds need no per-ABI rebuild, so the daemon's binding needs no `allowBuilds` entry and Vitest's single-runner Node + browser coverage runs with no compile step.
+- One pinned toolchain, read by every machine and every CI job from one file, with each new release's lints fixed in one PR.
+- One task graph across Cargo and pnpm, so the WebAssembly packages build after their crates and lints replay from cache.
+- A standard tool behind each repository rule: Clippy for closed sets and docstrings, `cargo-shear` for unused code, `typos` for American spelling, `cargo-deny` for advisories and sources.
 - Empirical adoption-validated stack (pnpm + Turbo) confirmed in vercel/turborepo's own repo, trpc/trpc, vercel/next.js (raw `package.json` reads, 2026-04-26).
-- Strong type-aware lint coverage from day one (typescript-eslint full 61-rule set vs Biome's ~10).
-- BLOB ergonomics: `Buffer` end-to-end without per-read wrapping.
-- One Node line across the workspace, with security support through 2028-04 (Node 24) rather than 2027-04 (Node 22), and a memory reading on macOS that counts the pages the machine can reclaim.
-- `isolatedDeclarations: true` keeps every package's declarations emittable file by file, which is what lets TypeScript 7 emit them in parallel.
+- Strong type-aware lint coverage for the TypeScript from day one (typescript-eslint full 61-rule set vs Biome's ~10).
+- `rusqlite` builds SQLite from source into the daemon, so every platform runs the same SQLite release with no prebuilt binding to match to a runtime.
+- `isolatedDeclarations: true` keeps every TypeScript package's declarations emittable file by file, which is what lets TypeScript 7 emit them in parallel.
 
 ### Negative (accepted trade-offs)
 
+- Two languages' toolchains to maintain, and a Rust bump PR every release.
+- Turbo's Cargo support is experimental; the exact pin and a fallback to plain Cargo bound the exposure.
+- Every native CI leg needs its target's C toolchain for the crates that compile C or assembly.
 - ESLint runtime cost vs Oxlint speed (~45 s vs ~0.5 s on 10k files per pkgpulse 2026 benchmark; pinning ESLint 10 inherits the same general perf profile as ESLint 9). Mitigation: `--cache` for repeat runs; type-aware rules in CI only; the named migration trigger (Re-evaluation Trigger 1).
-- `isolatedDeclarations` refuses an exported value whose type must be inferred, so every exported Zod schema is typed first: a hand-written type beside it, the schema annotated with it (`z.ZodType<Type, Type>`), and the type kept exactly as wide as the schema, since the annotation checks only one way. Zod offers no lighter form for the setting ([`colinhacks/zod#3751`](https://github.com/colinhacks/zod/issues/3751) was closed by the stale bot without one), and the [TypeScript 5.5 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-5.html#isolated-declarations) state the setting's annotation rule.
 - pnpm symlink layout learning curve (`node_modules/.pnpm/<pkg>/`). Acceptable in an AI-implementer-led project where the model has high familiarity with isolated layouts.
 - Turbo telemetry-on-by-default requires explicit `TURBO_TELEMETRY_DISABLED=1` plumbing in CI and dev-env docs.
-- Apache-2.0 OSS posture (per [ADR-019](./019-v1-deployment-model-and-oss-license.md)) is compatible with all primitive licenses (MIT for pnpm/Turbo/Vitest/ESLint/Prettier/better-sqlite3/pg; ISC for npm; BSD-2 for Yarn — none are problematic).
+- Apache-2.0 OSS posture (per [ADR-019](./019-v1-deployment-model-and-oss-license.md)) is compatible with all primitive licenses (MIT for pnpm/Turbo/Vitest/ESLint/Prettier; MIT or Apache-2.0 for the Rust toolchain and the Cargo tools; MIT for `rusqlite` and `tokio-postgres`).
 
 ### Unknowns
 
-- When Oxlint + tsgolint reach 1.0 stable. The migration path is then `@oxlint/migrate` plus tsgolint config; until then the project lints with ESLint.
+- When Oxlint + tsgolint reach 1.0 stable. The migration path is then `@oxlint/migrate` plus tsgolint config; until then the TypeScript lints with ESLint.
 - When typescript-eslint and the other tools that import the compiler run on TypeScript 7, so the TypeScript 6 install they use can go (Re-evaluation Trigger 2).
 - Whether Bun closes the workspace-protocol and Turborepo lockfile parity gap. Bun's ecosystem velocity is high, and closing that gap would make it the right re-evaluation candidate.
+- When Turbo's Cargo support leaves its experimental label (Re-evaluation Trigger 6).
 
 ---
 
@@ -204,8 +231,8 @@ A skeptical staff engineer would argue:
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
 | A plan builds without integration friction across all primitives | Every acceptance criterion of the plan passes with the ADR-021 toolchain unchanged | Each task's acceptance in the plan | When each plan's last phase lands |
-| Hot-build under target (single-package change) | < 30 seconds from save to test result | Local `turbo watch` + Vitest watch latency | At each toolchain version change |
-| `better-sqlite3` installs from a bundled Node-API prebuild on every V1 platform | `pnpm install` on macOS x64/arm64, Linux x64/arm64, Windows x64 resolves a bundled `.node` for `better-sqlite3` 13.0.3 with no source compile, and the daemon suite passes on the Node floor (24.21) | CI matrix run | Each CI run |
+| Hot-build under target (single-package or single-crate change) | < 30 seconds from save to test result | Local `turbo watch` + Vitest watch, or `cargo nextest run` on the changed crate | At each toolchain version change |
+| `sidekicks-daemon` builds on every V1 platform | On macOS x64/arm64, Linux x64/arm64 (glibc and musl) and Windows x64/arm64, `sidekicks-daemon` builds with `--locked`, the bundled SQLite and its `.recover` shell included, and repairs the damaged-database fixture through its `sqlite-shell` mode | CI native-leg matrix | Each CI run |
 
 ---
 
@@ -216,10 +243,11 @@ Each of the following events triggers a re-evaluation of the named primitive:
 1. **Oxlint+tsgolint stabilization** — when tsgolint reaches 1.0 stable AND Oxfmt reaches 1.0 stable, evaluate ESLint+Prettier → Oxlint+Oxfmt+tsgolint migration with `@oxlint/migrate`.
 2. **TypeScript 7 for the tools** — when typescript-eslint and the other tools that import the compiler run on TypeScript 7, evaluate dropping the TypeScript 6 install they use, so one compiler serves the typecheck, the build and the tools.
 3. **Bun workspace + Turborepo lockfile parity** — when Bun publishes documented isolated-install workspace primitive AND Turborepo gains first-class Bun lockfile support (parity with current pnpm v10/v11 multi-document parsing), evaluate pnpm → Bun migration.
-4. **node:sqlite Stability 2 on Node LTS we run** — when `node:sqlite` reaches Stability 2 on the Node line the service runs (it is Release candidate from Node 24.15.0), evaluate better-sqlite3 → node:sqlite migration. BLOB ergonomics may still favor better-sqlite3, but the dependency-removal benefit becomes load-bearing.
-5. **pnpm 11.0 stable with `minimumReleaseAge` default** — upgrade from pnpm 10 to pnpm 11 as soon as the supply-chain default flips.
-6. **Node 26 ships under new release cadence** — Node 27 onwards (April 2027) every release becomes LTS-eligible per `nodejs.org/en/blog/announcements/evolving-the-nodejs-release-schedule`. Re-evaluate the Node floor under the new cadence.
-7. **Electron drops Chromium-based renderer or `contextBridge`** — separately re-evaluates ADR-015, but cascades to ADR-021 by changing the daemon-renderer ABI relationship and possibly Node target.
+4. **pnpm 11.0 stable with `minimumReleaseAge` default** — upgrade from pnpm 10 to pnpm 11 as soon as the supply-chain default flips.
+5. **A Rust release whose Cargo holds every crate a day** — Rust 1.100.0's Cargo is the first with `registry.global-min-publish-age`; the pin's bump to it turns the hold on for every crate in the lock.
+6. **Turbo's Cargo support leaves experimental, or breaks** — when Turborepo marks it stable, the exact `turbo` pin may loosen; when a release breaks it, evaluate running Cargo outside Turbo.
+7. **Node 26 ships under new release cadence** — Node 27 onwards (April 2027) every release becomes LTS-eligible per `nodejs.org/en/blog/announcements/evolving-the-nodejs-release-schedule`. Re-evaluate the TypeScript packages' Node floor under the new cadence.
+8. **Electron drops Chromium-based renderer or `contextBridge`** — separately re-evaluates ADR-015, but cascades to ADR-021 by changing the Node the desktop and the TypeScript packages run on.
 
 ---
 
@@ -232,20 +260,16 @@ Each of the following events triggers a re-evaluation of the named primitive:
 | pnpm settings reference | Documentation | `nodeLinker: isolated` (v10 default), `allowBuilds` allowlist (v10.26+) replaces deprecated `onlyBuiltDependencies`, `minimumReleaseAge` (v10.16+; default in v11 RC) | <https://pnpm.io/settings> |
 | pnpm catalogs | Documentation | `catalog:` protocol since v9.5; `catalogMode` v10.12; `cleanupUnusedCatalogs` v10.15 — workspace-wide dependency version unification | <https://pnpm.io/catalogs> |
 | pnpm releases | Documentation | pnpm 10.33.2 stable (verified 2026-04-26 via npm registry); pnpm 11.0.0-rc.5 (2026-04-21) defaults `minimumReleaseAge` and adds `blockExoticSubdeps` | <https://github.com/pnpm/pnpm/releases> |
-| `pnpm/pnpm#9073` | Issue tracker | Documented better-sqlite3 + Electron + pnpm pattern — isolated linker enables clean two-ABI rebuilds | <https://github.com/pnpm/pnpm/issues/9073> |
-| `WiseLibs/better-sqlite3#1393` | Issue tracker | `NODE_MODULE_VERSION` mismatch under Electron — confirms two-ABI binding constraint | <https://github.com/WiseLibs/better-sqlite3/issues/1393> |
 | Turborepo MIT license | Primary source | License confirmed MIT, read 2026-04-26 (not MPL); self-host posture is durable | <https://github.com/vercel/turborepo/blob/main/LICENSE> |
 | Turborepo remote caching | Documentation | Open HTTP API; `TURBO_REMOTE_CACHE_SIGNATURE_KEY` for HMAC-SHA256 signed artifacts | <https://turborepo.dev/docs/core-concepts/remote-caching> |
 | Turborepo telemetry | Documentation | On by default; opt-out via `TURBO_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1` | <https://turborepo.dev/docs/telemetry> |
 | `ducktors/turborepo-remote-cache` | Self-host implementation | Open-source S3-backed Turbo cache server; the fallback if the GitHub Actions cache backend is ever unavailable | <https://github.com/ducktors/turborepo-remote-cache> |
 | Nx Powerpack announcement | Vendor announcement | Confirms Nx self-hosted caching is explicitly free; Nx Cloud paid features are distributed-execution + AI-CI, not core caching | <https://nx.dev/blog/introducing-nx-powerpack> |
 | TypeScript project references | Documentation | `composite: true` + `tsc -b` for incremental builds; canonical types-emit path | <https://www.typescriptlang.org/docs/handbook/project-references.html> |
-| TypeScript native preview announcement | Vendor announcement | tsgo `@typescript/native-preview` is preview, not stable; targeted across 2026 | <https://devblogs.microsoft.com/typescript/announcing-typescript-native-previews/> |
 | `microsoft/typescript-go` repo | Repository status | Emit and project references "done"; watch mode still "prototype" with no incremental rechecking | <https://github.com/microsoft/typescript-go> |
 | esbuild content-types | Documentation | Confirms esbuild does NOT emit `.d.ts` files; tsc remains the type-emit tool | <https://esbuild.github.io/content-types/> |
 | `microsoft/TypeScript#47947` | Proposal | `isolatedDeclarations` flag (TS 5.5+) constrains exports to type-checker-independent shapes — prep for swc/esbuild/tsgo native `.d.ts` emit | <https://github.com/microsoft/TypeScript/issues/47947> |
 | TypeScript 5.5 release notes | Documentation | `isolatedDeclarations` reports an error on a file whose exports are not annotated enough to emit declarations without the type checker | <https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-5.html#isolated-declarations> |
-| `colinhacks/zod#3751` | Issue tracker | A request for lighter Zod type annotations under `isolatedDeclarations`, closed by the stale bot without one: an exported schema keeps an explicit type annotation | <https://github.com/colinhacks/zod/issues/3751> |
 | Vitest 4.0 announcement | Vendor announcement | Browser Mode stabilized 2025-10-22 (Playwright/WebDriverIO providers); v8 coverage with Istanbul-grade accuracy | <https://vitest.dev/blog/vitest-4> |
 | Vitest projects guide | Documentation | `projects` configuration (replaced `workspace` in 3.2) — single Vitest invocation across multi-package monorepo with merged coverage | <https://vitest.dev/guide/projects> |
 | Jest 30 release | Vendor announcement | 37% faster, 77% lower memory in one large TS app; JSDOM 26; native `.mts`/`.cts`; minimum TS 5.4 | <https://jestjs.io/blog/2025/06/04/jest-30/> |
@@ -259,18 +283,7 @@ Each of the following events triggers a re-evaluation of the named primitive:
 | ESLint v10.0.0 release announcement | Vendor announcement | GA 2026-02-06 (Nicholas C. Zakas, ESLint TSC); breaking changes: drops Node <20.19.0/21/23 support; `eslintrc` config system fully removed; flat-config-only — strictly aligns with §Decision row 5's flat-config posture | <https://eslint.org/blog/2026/02/eslint-v10.0.0-released/> |
 | typescript-eslint dependency-versions matrix | Documentation | typescript-eslint v8.x officially supports ESLint `^8.57.0 \|\| ^9.0.0 \|\| ^10.0.0` — confirms ESLint 10 / TS-ESLint 8.71+ pairing pinned in the workspace `package.json` is supported | <https://typescript-eslint.io/users/dependency-versions> |
 | typescript-eslint perf guide | Documentation | `--cache` plus type-aware rules in CI only is the canonical perf strategy for large TS monorepos | <https://typescript-eslint.io/troubleshooting/typed-linting/performance> |
-| `WiseLibs/better-sqlite3` releases | Repository | v12.9.0 (2026-04-12); per-ABI prebuild artifacts including `electron-v145` (Electron 41) and `node-v137`; embeds SQLite 3.53.0 | <https://github.com/WiseLibs/better-sqlite3/releases> |
-| better-sqlite3 worker-thread guidance | Documentation | Each worker opens its own `Database` instance in WAL read-only; never share `Database` across threads | <https://github.com/WiseLibs/better-sqlite3/blob/master/docs/threads.md> |
-| Node.js SQLite docs | Documentation | `node:sqlite` Stability 1.2 (Release candidate) from Node 24.15.0, the line the service runs; BLOB return type is `Uint8Array` | <https://nodejs.org/docs/latest-v24.x/api/sqlite.html> |
-| `electron/electron#45532` | Issue tracker | `node:sqlite` is on without a flag from Electron 35.0.2, which carries Node 22.14.0, so Electron adds no reason against it | <https://github.com/electron/electron/issues/45532> |
-| better-sqlite3 v13.0.0 release notes | Changelog | First N-API release: prebuilt binaries "should theoretically work across different versions of Node.js and Electron"; `prebuild-install` removed; prebuilds published inside the package; source compile at install as the fallback | <https://github.com/WiseLibs/better-sqlite3/releases/tag/v13.0.0> |
-| better-sqlite3 releases 12.9.0 → 12.12.0 | Registry | Per-ABI Electron prebuilds top out at `electron-v145` (12.9.0 / 12.10.x) and `electron-v148` (12.11.2 / 12.12.0); no release carries `electron-v149`; 13.x releases carry no per-ABI assets at all | <https://github.com/WiseLibs/better-sqlite3/releases> |
-| Electron releases feed | Registry | `modules` (Node ABI) 145 for 41.x, 146 for 42.x, 148 for 43.x, **149** for 44.x; 44.7.0, the exact pinned release, bundles Node 24.21.0 (measured on the installed binary 2026-10-11: Electron 44.7.0 / Chromium 152.0.7977.130 / Node 24.21.0) | <https://releases.electronjs.org/releases.json> |
-| SQG SQLite Driver Benchmark 2026-01-19 | Primary benchmark | better-sqlite3 ahead of node:sqlite by 1.11×–1.67× across `getUserById` / `insertUser` / `updatePostViews` on Node 22 | <https://sqg.dev/blog/sqlite-driver-benchmark/> |
 | SQLCipher project | Documentation | Whole-database single-master-key encryption; not used, since nothing in the daemon's database is encrypted by the app | <https://www.zetetic.net/sqlcipher/> |
-| `brianc/node-postgres` CHANGELOG | Repository | pg 8.20 (2026-02): `onConnect` pool callback; 8.16 added min pool size; 8.15 native ESM imports; 9.0 breaking-changes discussion open #3598 | <https://github.com/brianc/node-postgres/blob/master/CHANGELOG.md> |
-| `andywer/pg-listen` | Repository | Production-grade LISTEN/NOTIFY wrapper with auto-reconnect + backoff — addresses pg's idle-disconnect fragility | <https://github.com/andywer/pg-listen> |
-| dev.to Node 22 driver benchmark | Independent benchmark | pg-native > pg > postgres.js with sub-µs gaps on Node 22; performance is config-dominated, not driver-dominated | <https://dev.to/nigrosimone/benchmarking-postgresql-drivers-in-nodejs-node-postgres-vs-postgresjs-17kl> |
 | Node.js release schedule | Documentation | Node 22 Maintenance LTS through 2027-04-30; Node 24 Active LTS through 2026-10 then Maintenance through 2028-04-30 | <https://endoflife.date/nodejs> |
 | Evolving the Node.js Release Schedule | Vendor announcement | Node 26 ships April 2026 (last under legacy odd/even); from Node 27 (April 2027) every release is LTS-eligible | <https://nodejs.org/en/blog/announcements/evolving-the-nodejs-release-schedule> |
 | `require(esm)` stability (Joyee Cheung) | Primary source (Node TSC member) | Unflagged in Node 22.12.0 / 20.19.0 late 2025; formally Stable in Node 25.4.0; top-level-await ESM still requires dynamic `import()` | <https://joyeecheung.github.io/blog/2025/12/30/require-esm-in-node-js-from-experiment-to-stability/> |
@@ -279,15 +292,42 @@ Each of the following events triggers a re-evaluation of the named primitive:
 | Adoption-evidence: vercel/turborepo `package.json` | Primary source | `"packageManager": "pnpm@10.28.0"` + Turborepo as task runner | <https://raw.githubusercontent.com/vercel/turborepo/main/package.json> |
 | Adoption-evidence: trpc/trpc `package.json` | Primary source | `"packageManager": "pnpm@10.33.1"`, Turborepo, `"engines": { "node": "^24.0.0", "pnpm": "^10.33.1" }` | <https://raw.githubusercontent.com/trpc/trpc/main/package.json> |
 | Adoption-evidence: vercel/next.js `package.json` | Primary source | `pnpm` referenced throughout scripts; Turborepo as task runner | <https://raw.githubusercontent.com/vercel/next.js/canary/package.json> |
+| Rust 1.99.0 announcement | Vendor announcement | 1.99.0 is the stable release the toolchain pins | <https://blog.rust-lang.org/2026/10/01/Rust-1.99.0/> |
+| rustup overrides and profiles | Documentation | `rust-toolchain.toml` names the channel, profile, components and targets; the `minimal` profile installs rustc, rust-std and cargo | <https://rust-lang.github.io/rustup/overrides.html>, <https://rust-lang.github.io/rustup/concepts/profiles.html> |
+| Rust release notes | Changelog | Cargo 1.97 stabilizes `build.warnings`, "useful for enforcing a warning-free build in CI, replacing `-Dwarnings`" | <https://raw.githubusercontent.com/rust-lang/rust/master/RELEASES.md> |
+| Cargo configuration | Documentation | `build.warnings` = `deny` "emit[s] an error for a crate that has lint warnings", set through `CARGO_BUILD_WARNINGS` | <https://doc.rust-lang.org/cargo/reference/config.html> |
+| Cargo workspaces and resolver | Documentation | `[workspace.package]`, `[workspace.dependencies]` and `[workspace.lints]` inherited by members; resolver 3 is edition 2024's default and prefers versions whose `rust-version` the toolchain meets | <https://doc.rust-lang.org/cargo/reference/workspaces.html>, <https://doc.rust-lang.org/cargo/reference/resolver.html> |
+| rustfmt style editions | Documentation | `style_edition = "2024"`; `group_imports`, `imports_granularity` and `wrap_comments` are nightly-only | <https://doc.rust-lang.org/edition-guide/rust-2024/rustfmt-style-edition.html>, <https://raw.githubusercontent.com/rust-lang/rustfmt/main/Configurations.md> |
+| Clippy README | Documentation | `pedantic` is "rather strict or [has] occasional false positives"; restriction lints are picked one by one, never as a group; `CARGO_BUILD_WARNINGS` "has the benefit of not invalidating build caches" | <https://raw.githubusercontent.com/rust-lang/rust-clippy/master/README.md> |
+| Clippy lint list and configuration | Documentation | The restriction lints the workspace turns on; `missing-docs-in-crate-items = true` checks only items visible within the crate, such as `pub(crate)` items | <https://rust-lang.github.io/rust-clippy/stable/index.html>, <https://doc.rust-lang.org/clippy/lint_configuration.html> |
+| Turborepo's Rust guide | Documentation | Cargo support is "experimental and can change at any time"; `[workspace.metadata].name` gives the workspace its identity in the graph; library builds default to `cache: false`, and only `bin`, `cdylib` and `staticlib` outputs cache | <https://turborepo.dev/docs/guides/tools/rust> |
+| `vercel/turborepo#13283` | Pull request | Turborepo builds its own repository with its Cargo support | <https://github.com/vercel/turborepo/pull/13283> |
+| cargo-nextest | Documentation | Runs each test in its own process; configuration profiles; doctests are not run | <https://nexte.st/docs/design/why-process-per-test/>, <https://nexte.st/docs/configuration/> |
+| cargo-mutants | Documentation | `--in-diff` mutates only the lines a diff changes | <https://mutants.rs/in-diff.html> |
+| cargo-shear README | Repository | Finds unused and misplaced dependencies and source files no module links | <https://raw.githubusercontent.com/Boshen/cargo-shear/main/README.md> |
+| cargo-machete README | Repository | Works "in a fast (yet imprecise) way" | <https://raw.githubusercontent.com/bnjbvr/cargo-machete/main/README.md> |
+| cargo-udeps README | Repository | Needs Rust nightly to run | <https://raw.githubusercontent.com/est31/cargo-udeps/master/README.md> |
+| cargo-deny checks | Documentation | `advisories` reads the RustSec database; `bans` reports duplicate versions and wildcards; `sources` limits where crates come from | <https://embarkstudios.github.io/cargo-deny/cli/check.html> |
+| cargo-audit README | Repository | The RustSec project's advisory checker, reading the same database as cargo-deny's `advisories` | <https://raw.githubusercontent.com/rustsec/rustsec/main/cargo-audit/README.md> |
+| typos reference | Documentation | `locale = "en-us"` refuses British spellings | <https://raw.githubusercontent.com/crate-ci/typos/master/docs/reference.md> |
+| Tombi README | Repository | TOML formatter and linter with `tombi format --check` | <https://raw.githubusercontent.com/tombi-toml/tombi/main/README.md> |
+| `tamasfe/taplo#715` | Issue tracker | Taplo's author writes that he cannot see himself returning to the project | <https://github.com/tamasfe/taplo/issues/715> |
+| `rusqlite` 0.40.2 | Repository | The `bundled` feature compiles SQLite 3.53.2 from `libsqlite3-sys` | <https://raw.githubusercontent.com/rusqlite/rusqlite/v0.40.2/src/lib.rs> |
+| Hyperdrive with `tokio-postgres` | Documentation | `tokio-postgres` with the `js` feature connects from a Rust Worker through Hyperdrive | <https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-drivers-and-libraries/rust-postgres/> |
+| Hyperdrive supported features | Documentation | Advisory locks are listed as unsupported through the pooler | <https://developers.cloudflare.com/hyperdrive/reference/supported-databases-and-features/> |
+| thiserror, anyhow, tracing | Repository | `thiserror` derives library error types; `anyhow` carries errors in applications; `tracing` records spans with typed fields | <https://github.com/dtolnay/thiserror>, <https://github.com/dtolnay/anyhow>, <https://docs.rs/tracing/latest/tracing/> |
+| flexi_logger 0.31.10 | Repository | `FileLogWriter` rotates by size and by age | <https://static.crates.io/crates/flexi_logger/flexi_logger-0.31.10.crate> |
+| Adoption-evidence: ruff, uv and oxc toolchain files | Primary source | Each pins `channel = "1.99.0"` in `rust-toolchain.toml` | <https://raw.githubusercontent.com/astral-sh/ruff/main/rust-toolchain.toml>, <https://raw.githubusercontent.com/astral-sh/uv/main/rust-toolchain.toml>, <https://raw.githubusercontent.com/oxc-project/oxc/main/rust-toolchain.toml> |
+| Electron releases feed | Registry | Electron 44.7.0, the exact pinned release, bundles Node 24.21.0 | <https://releases.electronjs.org/releases.json> |
 
 ### Related ADRs
 
-- [ADR-015: Electron Desktop App](./015-electron-desktop-app.md) — sets the Electron pin whose bundled Node the app runs: V1 runs on Electron 44.x, whose bundled Node is 24.21. The packages' `engines.node` floor is `>=24.21.0`, that same bundled Node, which also meets the memory gate's `process.availableMemory()` reading (24.16 or later) and clears the `better-sqlite3` 13.x Node-API-10 prebuild's own floor (Node 22.14).
+- [ADR-015: Electron Desktop App](./015-electron-desktop-app.md) — sets the Electron pin whose bundled Node the app runs: V1 runs on Electron 44.x, whose bundled Node is 24.21. The packages' `engines.node` floor is `>=24.21.0`, that same bundled Node, which also meets the memory gate's `process.availableMemory()` reading (24.16 or later).
 - [ADR-004: SQLite Local State and Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md) — sets the SQLite + Postgres engine pair this ADR selects bindings for.
-- [ADR-013: tRPC Control Plane API](./013-control-plane-api.md) — the control plane RPC stack that consumes the package manager + monorepo + TS settings.
-- [ADR-009: JSON-RPC IPC Wire Format](./009-json-rpc-ipc-wire-format.md) — the daemon wire format whose contracts package consumes the toolchain.
-- [ADR-017: Cross-Version Compatibility](./017-cross-version-compatibility.md) — the version-floor enforcement model this ADR's `engines.*` declarations participate in.
-- [ADR-019: V1 Deployment Model and OSS License](./019-v1-deployment-model-and-oss-license.md) — Apache-2.0 posture that constrains primitive license compatibility (all selected primitives are MIT/ISC/BSD-2 compatible).
+- [ADR-013: Control Plane API](./013-control-plane-api.md) — the control plane's `axum` on `worker` stack, built by this toolchain's Cargo workspace.
+- [ADR-009: JSON-RPC IPC Wire Format](./009-json-rpc-ipc-wire-format.md) — the daemon wire format whose contracts crate and generated TypeScript the toolchain builds.
+- [ADR-017: Cross-Version Compatibility](./017-cross-version-compatibility.md) — the version-floor enforcement model this ADR's `engines.*` declarations and toolchain pin participate in.
+- [ADR-019: V1 Deployment Model and OSS License](./019-v1-deployment-model-and-oss-license.md) — Apache-2.0 posture that constrains primitive license compatibility (all selected primitives are MIT, Apache-2.0, ISC or BSD-2 compatible).
 
 ### Related Plans
 
@@ -295,4 +335,4 @@ Each of the following events triggers a re-evaluation of the named primitive:
 
 ### Related Architecture
 
-- [Container Architecture](../architecture/container-architecture.md) — the workspace topology (`packages/`/`apps/` tree).
+- [Container Architecture](../architecture/container-architecture.md) — the workspace topology (the `crates/`, `packages/` and `apps/` trees).
