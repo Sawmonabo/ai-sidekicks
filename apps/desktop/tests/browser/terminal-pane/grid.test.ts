@@ -27,12 +27,15 @@ const STACKED_BLOCK_COLUMN = 0;
 const STACKED_VERTICAL_COLUMN = 1;
 const LONE_BLOCK_COLUMN = 2;
 
+/** A full block, whose color drawn dim is the dim ink the dim glyphs are measured against. */
+const DIM_INK_GLYPH = "█";
+
 /**
- * A dim full block, whose color is the dim ink, then dim glyphs whose shapes meet or cross: box
- * joints, T junctions, a cross, rounded corners, a quadrant block, a diagonal cross, and the
- * Powerline right triangle, chevron and stroked semicircle, each drawn in layers one above another.
+ * Glyphs whose shapes meet or cross: box joints, T junctions, a cross, rounded corners, a quadrant
+ * block, a diagonal cross, and the Powerline right triangle, chevron and stroked semicircle, each
+ * drawn in layers one above another.
  */
-const DIM_GLYPHS = "█┌┬┐├┼┤└┴┘╭╮▙╳\uE0B0\uE0B1\uE0B5";
+const DIM_GLYPHS = "┌┬┐├┼┤└┴┘╭╮▙╳\uE0B0\uE0B1\uE0B5";
 
 /** The dim glyphs made of straight strokes, each read along its inkiest row and column. */
 const DIM_STRAIGHT_GLYPHS = "┌┬┐├┼┤└┴┘▙";
@@ -136,15 +139,9 @@ describe("browser — the terminal's grid", () => {
       const canvas = await paintedScreenAfter(
         adapter,
         mountElement,
-        `\u001b[?25l\u001b[2J\u001b[H\u001b[2m${DIM_GLYPHS}\u001b[0m`,
+        `\u001b[?25l\u001b[2J\u001b[H\u001b[2m${DIM_INK_GLYPH}${DIM_GLYPHS}\u001b[0m`,
       );
-      const [block, ...glyphs] = [...DIM_GLYPHS].map((glyph) => ({
-        glyph,
-        ...cellPixelsOf(glyph, mountElement),
-      }));
-      if (block === undefined) {
-        throw new Error("the dim row holds no full block");
-      }
+      const block = cellPixelsOf(DIM_INK_GLYPH, mountElement);
       const dimInk = channelsAt(
         canvas.pixels,
         canvas.width,
@@ -152,7 +149,8 @@ describe("browser — the terminal's grid", () => {
         canvas.height - 1 - middleOf(block.ys),
       );
 
-      for (const { glyph, xs, ys } of glyphs) {
+      for (const glyph of DIM_GLYPHS) {
+        const { xs, ys } = cellPixelsOf(glyph, mountElement);
         const inkAt = (x: number, y: number): number => inkShare(canvas, dimInk, x, y);
         const where = `${glyph} at text size ${String(textSize)}`;
         // No pixel holds more ink than the dim color: two layers over one pixel would.
