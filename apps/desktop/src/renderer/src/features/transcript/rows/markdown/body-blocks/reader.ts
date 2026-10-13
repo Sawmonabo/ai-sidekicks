@@ -3,12 +3,14 @@
 // a block the page parses and in the worker for a longer one: a whole text at once, and a streaming
 // one first up to its last few blocks, then from the parse of its tail, which settles every block
 // but its last two. Each block is recorded once, as it settles, and its text cut again from the
-// body's text when it is read, so the body's text is held once, by its handle. A block that could
-// define a footnote or a link is read alone, once, for what it defines. A mounted block is parsed
-// on the page the frame it mounts, against the definitions it may reference, and its tree kept
-// only while it is mounted; the worker parses a block too long for the page, held while the body
-// lives, the tail as it grows, and every block while the page's parser could not start. A parse or
-// a cut that failed is asked for again by a read after the worker has started again since.
+// body's text when it is read, so the body's text is held once, by its handle. A cut's blocks are
+// recorded as it lands for as long as a slice lasts, and the rest a slice at a time by `recordCut`;
+// the text counts as cut only once all are. A block that could define a footnote or a link is read
+// alone, once, for what it defines. A mounted block is parsed on the page the frame it mounts,
+// against the definitions it may reference, and its tree kept only while it is mounted; the worker
+// parses a block too long for the page, held while the body lives, the tail as it grows, and every
+// block while the page's parser could not start. A parse or a cut that failed is asked for again by
+// a read after the worker has started again since.
 //
 // What is drawn moves in one step. A body's first draw waits until its text is cut, the page's
 // parser can parse (or failed to start), the body's definitions are read, and every tree the worker
@@ -29,6 +31,7 @@ import type {
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import type { PublishedText } from "#renderer/lib/text/published.js";
+import { startSlice, WHOLE_SLICE } from "#renderer/lib/work-slices.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { mayDefineLink } from "../settled-block.js";
 import { VolatileTailParser } from "../volatile-tail.js";
@@ -192,6 +195,27 @@ export class MarkdownBodyBlocks {
     return snapshot;
   }
 
+  /** Whether a landed cut's blocks wait to be recorded, which `recordCut` records. */
+  public get isRecordingCut(): boolean {
+    return this.#generation.isRecordingCut;
+  }
+
+  /**
+   * Records the landed cut's next block, then more while `hasTime` answers true; answers whether
+   * every block is recorded, which changes the snapshot as a landed cut does.
+   */
+  public recordCut(hasTime: () => boolean): boolean {
+    const generation = this.#generation;
+    if (!generation.isRecordingCut) {
+      return true;
+    }
+    if (!generation.recordCut(hasTime)) {
+      return false;
+    }
+    this.#changed();
+    return true;
+  }
+
   /**
    * Ask for the cut and the parses the last snapshot is waiting on: the text's cut while it waits
    * on one; each block that could define something and the page does not read; the tail while it
@@ -210,7 +234,11 @@ export class MarkdownBodyBlocks {
     if (mode === "waiting" && this.#trees.pageParser.state === "idle") {
       this.#trees.wakeWorker();
     }
-    if (cutState === "cutting" && generation.cutInFlight === undefined) {
+    if (
+      cutState === "cutting" &&
+      generation.cutInFlight === undefined &&
+      !generation.isRecordingCut
+    ) {
       this.#requestCut(generation, last.text, last.isComplete);
     }
     for (const index of [...generation.definitions.unread]) {
@@ -322,7 +350,8 @@ export class MarkdownBodyBlocks {
       if (view?.status !== "parsed") {
         return;
       }
-      generation.appendBlocks(view.settledBlockEnds.map((end) => tailStart + end));
+      generation.takeCut(tailStart, view.settledBlockEnds, undefined);
+      generation.recordCut(WHOLE_SLICE);
     }
   }
 
@@ -516,10 +545,15 @@ export class MarkdownBodyBlocks {
     this.#changed();
   }
 
-  /** Asks the worker to cut the text past the blocks cut so far, as whole when `isComplete`. */
+  /**
+   * Asks the worker to cut the text past the blocks cut so far, as whole when `isComplete`, and
+   * records the blocks of the cut that lands for as long as one slice lasts.
+   */
   #requestCut(generation: BlockGeneration, text: PublishedText, isComplete: boolean): void {
     const from = generation.cutEnd;
     const source = text.slice(from);
+    // A number, so the listener keeps no hold on the text it sent.
+    const wholeLength = isComplete ? text.length : undefined;
     let isAsking = true;
     let isLanded = false;
     const stop = this.#trees.requestCut(source, isComplete, (answer) => {
@@ -528,10 +562,8 @@ export class MarkdownBodyBlocks {
       if (answer.status === "failed") {
         this.#fail(answer.reason);
       } else if (generation.cutEnd === from) {
-        generation.appendBlocks(
-          Array.from(answer.blockEnds, (end) => from + end),
-          isComplete ? from + source.length : undefined,
-        );
+        generation.takeCut(from, answer.blockEnds, wholeLength);
+        generation.recordCut(startSlice());
       }
       // A cut that lands while it is asked changes the snapshot the next read makes.
       if (!isAsking) {

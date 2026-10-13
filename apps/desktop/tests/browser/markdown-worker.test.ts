@@ -9,18 +9,20 @@
 // a table's undrawn rows among it, and a text longer than one piece crosses whole. The page runs
 // the module the worker compiled into the same tree the worker makes, and runs the compression
 // module the worker compiles on its own, even beside a parser that fails to load, to pack a text's
-// chunks and unpack them to the same text. The worker cuts a body into exactly the top-level blocks
-// one parse of the whole body reads, whole and as it streams in, on the constructs a scan for blank
-// lines cuts wrongly and on multibyte text, an emoji's halves either side of a window's edge among
-// it; holding back one block instead of two splits a loose ordered list. A body no longer than a
-// block the page parses is cut on the page, whole and as it streams in, at the ends the worker
-// cuts, with no cut sent to the worker.
+// chunks and unpack them to the same text, and a held tree too long for the page into chunks,
+// packed or kept plain where packing would not shrink them, that unpack to the same bytes and tree,
+// while a shorter held tree stays as it came. The worker cuts a body into exactly the top-level
+// blocks one parse of the whole body reads, whole and as it streams in, on the constructs a scan
+// for blank lines cuts wrongly and on multibyte text, an emoji's halves either side of a window's
+// edge among it; holding back one block instead of two splits a loose ordered list. A body no
+// longer than a block the page parses is cut on the page, whole and as it streams in, at the ends
+// the worker cuts, with no cut sent to the worker.
 
 import { fromDom } from "hast-util-from-dom";
 import type { Root } from "mdast";
 import { materializeMdastTree } from "satteri/mdast-materializer";
 import { MdastReader } from "satteri/mdast-reader";
-import { expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 
 import {
   drawnTreeMarkdown,
@@ -36,6 +38,7 @@ import {
   type TopLevelChildren,
 } from "#renderer/components/Markdown/parse/block-cut.js";
 import { definitionPreambleOf } from "#renderer/components/Markdown/parse/definition-preamble.js";
+import { PackedTreeBuffer } from "#renderer/components/Markdown/parse/packed-tree-buffer.js";
 import { PageParser } from "#renderer/components/Markdown/parse/page-parser.js";
 import { loadMarkdownParserCalls } from "#renderer/components/Markdown/parse/parser-calls.js";
 import {
@@ -51,11 +54,12 @@ import {
 } from "#renderer/components/Markdown/worker/connection.js";
 import type {
   MarkdownCutAnswer,
+  MarkdownParseAnswer,
   MarkdownWorkerMessage,
   MarkdownWorkerReply,
 } from "#renderer/components/Markdown/worker/messages.js";
 import { longReplyMarkdown } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
-import { TEXT_CHUNK_MAX_BYTES, TextCompression } from "#renderer/lib/text/compression.js";
+import { PACKED_CHUNK_MAX_BYTES, TextCompression } from "#renderer/lib/text/compression.js";
 import { PackedText } from "#renderer/lib/text/packed.js";
 import { TEXT_PIECE_LENGTH } from "#renderer/lib/text/pieces.js";
 import { endWorkersWithTest } from "../helpers/worker-start.js";
@@ -98,6 +102,15 @@ const MULTIBYTE_TEXT = Array.from(
   { length: 2_400 },
   (_, line) => `${String(line)}. Café — 漢字とかな 🙂 ok\n`,
 ).join("");
+
+/** One paragraph of inline constructs, too long for the page to parse. */
+const LONG_PARAGRAPH = `${Array.from({ length: 600 }, (_, index) => {
+  const line = String(index);
+  return (
+    `Line ${line} has *emphasis*, \`code ${line}\`, ` +
+    `[a link](https://example.org/${line}) and $x_${line}$.`
+  );
+}).join(" ")}\n`;
 
 it("compiles the parser, and moves a tree to the page as a plain buffer", async () => {
   expect(globalThis.crossOriginIsolated).toBe(false);
@@ -196,7 +209,7 @@ it("packs and unpacks a chunk on the page with the worker's compression module",
   });
 
   // A full chunk of whole multibyte characters, cut where the next one would not fit.
-  const plain = new Uint8Array(TEXT_CHUNK_MAX_BYTES);
+  const plain = new Uint8Array(PACKED_CHUNK_MAX_BYTES);
   const { written } = new TextEncoder().encodeInto(MULTIBYTE_TEXT, plain);
   const chunk = plain.slice(0, written);
   const packed = textCompression.pack(chunk) ?? expect.fail("the chunk packs smaller");
@@ -209,15 +222,55 @@ it("packs and unpacks a chunk on the page with the worker's compression module",
   // A text of several chunks packs each at an idle moment and reads back exactly, unpacked.
   const packing = vi.spyOn(textCompression, "pack");
   const text = PackedText.of(MULTIBYTE_TEXT, textCompression);
-  const chunkCount = Math.ceil(text.byteLength / TEXT_CHUNK_MAX_BYTES);
+  const chunkCount = Math.ceil(text.byteLength / PACKED_CHUNK_MAX_BYTES);
   await vi.waitFor(() => {
     expect(packing.mock.calls.length).toBeGreaterThanOrEqual(chunkCount);
   });
   expect(packing.mock.results.every((result) => result.value instanceof Uint8Array)).toBe(true);
   expect([...text.chunks()].join("")).toBe(MULTIBYTE_TEXT);
-  expect(text.slice(TEXT_CHUNK_MAX_BYTES - 7, TEXT_CHUNK_MAX_BYTES * 3)).toBe(
-    MULTIBYTE_TEXT.slice(TEXT_CHUNK_MAX_BYTES - 7, TEXT_CHUNK_MAX_BYTES * 3),
+  expect(text.slice(PACKED_CHUNK_MAX_BYTES - 7, PACKED_CHUNK_MAX_BYTES * 3)).toBe(
+    MULTIBYTE_TEXT.slice(PACKED_CHUNK_MAX_BYTES - 7, PACKED_CHUNK_MAX_BYTES * 3),
   );
+});
+
+it("packs a held tree too long for the page, and reads it back as the same tree", async () => {
+  const { connection, trees } = await pageAndWorker();
+  const compression = connection.textCompression;
+  await vi.waitFor(() => {
+    expect(compression.state).toBe("provided");
+  });
+
+  // Held by size: the long block's tree is packed at an idle moment, the short one's never.
+  const short = await heldTreeOf(trees, "A paragraph short enough for the page.\n");
+  const long = await heldTreeOf(trees, LONG_PARAGRAPH);
+  await vi.waitFor(() => {
+    expect(long.tree.treeByteCount).toBeLessThan(long.landedByteCount / 2);
+  });
+  expect(short.tree.treeByteCount).toBe(short.landedByteCount);
+
+  // A chunk at a time, the whole buffer is held until every chunk is offered; read back, the bytes
+  // and the tree they make are the ones the worker sent.
+  const answer = await new Promise<MarkdownParseAnswer>((resolve) => {
+    connection.parse(LONG_PARAGRAPH, resolve);
+  });
+  const sent = answer.status === "parsed" ? answer.buffer : expect.fail(JSON.stringify(answer));
+  const packed = new PackedTreeBuffer(sent.slice(0), compression);
+  expect(packed.packWhile(() => false)).toBe(false);
+  expect(packed.heldByteCount).toBeGreaterThan(sent.byteLength);
+  expect(packed.packWhile(() => true)).toBe(true);
+  expect(packed.heldByteCount).toBeLessThan(sent.byteLength / 2);
+  const read = packed.read();
+  expect(new Uint8Array(read)).toStrictEqual(new Uint8Array(sent));
+  expect(materializeMdastTree(new MdastReader(read))).toStrictEqual(
+    materializeMdastTree(new MdastReader(sent)),
+  );
+
+  // Bytes that pack no smaller are kept plain, and read back as they came.
+  const noise = crypto.getRandomValues(new Uint8Array(PACKED_CHUNK_MAX_BYTES + 3_000));
+  const kept = new PackedTreeBuffer(noise.slice().buffer, compression);
+  expect(kept.packWhile(() => true)).toBe(true);
+  expect(kept.heldByteCount).toBe(noise.byteLength);
+  expect(new Uint8Array(kept.read())).toStrictEqual(noise);
 });
 
 it("compiles the compression module apart from a parser that fails to load", async () => {
@@ -430,6 +483,24 @@ async function settledBlockOf(
       resolve(outcome);
     });
   });
+}
+
+/** A settled block's tree held in `trees`, and what it kept as it landed, in bytes. */
+async function heldTreeOf(
+  trees: MarkdownTrees,
+  source: string,
+): Promise<{ readonly tree: ParsedMarkdown; readonly landedByteCount: number }> {
+  const tree = await new Promise<ParsedMarkdown>((resolve, reject) => {
+    const letGo = trees.holdSettledBlock(source, "", (outcome) => {
+      if (outcome.status === "failed") {
+        reject(new Error(outcome.reason));
+        return;
+      }
+      resolve(outcome);
+    });
+    onTestFinished(letGo);
+  });
+  return { tree, landedByteCount: tree.treeByteCount };
 }
 
 /** A tree's nodes as plain data, without a table's mark of its pieces. */

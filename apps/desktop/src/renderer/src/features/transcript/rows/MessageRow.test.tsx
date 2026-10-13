@@ -38,7 +38,7 @@ import { useReveal } from "../reveal/hooks/useReveal.js";
 import { useAnimationFrameScheduler } from "../hooks/useAnimationFrameScheduler.js";
 import { replyRowIdsByFootRowId } from "../window/reply-rows.js";
 import { DrawnReplyText } from "../copy/drawn-reply-text.js";
-import { TEXT_CHUNK_MAX_BYTES } from "#renderer/lib/text/compression.js";
+import { PACKED_CHUNK_MAX_BYTES } from "#renderer/lib/text/compression.js";
 import { publishedTextOf } from "#renderer/lib/text/published.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
@@ -378,7 +378,7 @@ describe("a reply's foot", () => {
     const droppedReply = Array.from({ length: 5_000 }, (_, index) => `word${String(index)}`).join(
       " ",
     );
-    expect(droppedReply.length).toBeGreaterThan(TEXT_CHUNK_MAX_BYTES * 2);
+    expect(droppedReply.length).toBeGreaterThan(PACKED_CHUNK_MAX_BYTES * 2);
     const clock = new ManualClock();
     const reveal = renderHook(() =>
       useReveal({ frameScheduler: useAnimationFrameScheduler(clock), clock }),

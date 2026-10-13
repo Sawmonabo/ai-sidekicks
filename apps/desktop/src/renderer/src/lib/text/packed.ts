@@ -1,17 +1,17 @@
 // A text held as UTF-8 bytes rather than as a string. The bytes sit in chunks of at most
-// `TEXT_CHUNK_MAX_BYTES`, each cut at a code-point boundary so it decodes alone, beside the UTF-16
-// offset each chunk starts at, so a read finds its chunks by binary search and decodes only those,
-// through the one cache of decoded chunks every packed text shares. Closed chunks are packed by the
-// page's codec at idle moments; a growing text's last chunk stays open, and a sealed text's packs
-// too. A text held whole at once encodes a short last chunk straight into bytes of its own size, so
-// a short body takes no full chunk to trim. UTF-8 holds no half of a surrogate pair, so a high
-// surrogate an append ends on waits as a code unit of its own until the next append brings its
+// `PACKED_CHUNK_MAX_BYTES`, each cut at a code-point boundary so it decodes alone, beside the
+// UTF-16 offset each chunk starts at, so a read finds its chunks by binary search and decodes only
+// those, through the one cache of decoded chunks every packed text shares. Closed chunks are packed
+// by the page's codec at idle moments; a growing text's last chunk stays open, and a sealed text's
+// packs too. A text held whole at once encodes a short last chunk straight into bytes of its own
+// size, so a short body takes no full chunk to trim. UTF-8 holds no half of a surrogate pair, so a
+// high surrogate an append ends on waits as a code unit of its own until the next append brings its
 // other half; a lone surrogate anywhere else is held as U+FFFD, as every UTF-8 encoder writes it.
 
 import {
   appTextCompression,
-  TEXT_CHUNK_MAX_BYTES,
-  type PackableText,
+  PACKED_CHUNK_MAX_BYTES,
+  type PackableChunks,
   type TextCompression,
 } from "./compression.js";
 import { isHighSurrogate, isLowSurrogate } from "./pieces.js";
@@ -22,7 +22,7 @@ import { ESCAPE, type StoredText } from "./published.js";
  * sealed, after which it never changes; a body read from the log is sealed as it is admitted, so
  * the string it came as can be let go.
  */
-export class PackedText implements StoredText, PackableText {
+export class PackedText implements StoredText, PackableChunks {
   readonly #compression: TextCompression;
   /** The chunks, oldest first: every one but an open last one is closed. */
   readonly #chunks: HeldChunk[] = [];
@@ -194,7 +194,7 @@ export class PackedText implements StoredText, PackableText {
     if (text.length < this.length) {
       return false;
     }
-    const encoded = new Uint8Array(TEXT_CHUNK_MAX_BYTES);
+    const encoded = new Uint8Array(PACKED_CHUNK_MAX_BYTES);
     for (const [index, chunk] of this.#chunks.entries()) {
       const start = this.#chunkStarts[index] ?? 0;
       const end =
@@ -277,7 +277,7 @@ export class PackedText implements StoredText, PackableText {
       if (
         isWhole &&
         this.#chunks.at(-1)?.state !== "open" &&
-        restLength * MAX_UTF8_BYTES_PER_CODE_UNIT <= TEXT_CHUNK_MAX_BYTES
+        restLength * MAX_UTF8_BYTES_PER_CODE_UNIT <= PACKED_CHUNK_MAX_BYTES
       ) {
         const bytes = UTF8_ENCODER.encode(source.slice(start));
         this.#addChunk({ bytes, byteLength: bytes.length, state: "plain" });
@@ -289,7 +289,7 @@ export class PackedText implements StoredText, PackableText {
       // A chunk's room in bytes bounds the code units that fit, as each takes at least a byte. A
       // pair cut at the slice's end never splits: the lone half would take 3 bytes as U+FFFD,
       // more room than the units before it leave, so it is read with its other half next.
-      const end = Math.min(source.length, start + TEXT_CHUNK_MAX_BYTES - open.byteLength);
+      const end = Math.min(source.length, start + PACKED_CHUNK_MAX_BYTES - open.byteLength);
       const { read, written } = UTF8_ENCODER.encodeInto(
         source.slice(start, end),
         open.bytes.subarray(open.byteLength),
@@ -320,7 +320,7 @@ export class PackedText implements StoredText, PackableText {
       return last;
     }
     return this.#addChunk({
-      bytes: new Uint8Array(TEXT_CHUNK_MAX_BYTES),
+      bytes: new Uint8Array(PACKED_CHUNK_MAX_BYTES),
       byteLength: 0,
       state: "open",
     });

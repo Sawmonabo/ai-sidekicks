@@ -85,7 +85,7 @@ export class MarkdownWorkerConnection {
   /** The page's parser, which this connection hands the compiled module to. */
   public readonly pageParser: PageParser;
   /** The page's text codec, which this connection hands the compression module to. */
-  readonly #textCompression: TextCompression;
+  public readonly textCompression: TextCompression;
   readonly #startWorker: MarkdownWorkerStart;
   readonly #view: Window;
   /** Each request to make a copy sent and not answered, by its id. */
@@ -131,7 +131,7 @@ export class MarkdownWorkerConnection {
     this.#startWorker = startWorker;
     this.#view = view;
     this.pageParser = pageParser;
-    this.#textCompression = textCompression;
+    this.textCompression = textCompression;
   }
 
   /**
@@ -325,7 +325,7 @@ export class MarkdownWorkerConnection {
     port.postMessage({
       kind: "load",
       parser: this.#parser,
-      shouldCompileTextCompression: this.#textCompression.isModuleWanted,
+      shouldCompileTextCompression: this.textCompression.isModuleWanted,
     });
     return port;
   }
@@ -391,7 +391,7 @@ export class MarkdownWorkerConnection {
    */
   #handToTextCompression(textCompression: CompiledTextCompression): void {
     if (textCompression.status === "compiled") {
-      this.#textCompression.provide(textCompression.module);
+      this.textCompression.provide(textCompression.module);
       return;
     }
     recordRejectedRequest(
@@ -399,7 +399,7 @@ export class MarkdownWorkerConnection {
       "text-compression-not-compiled",
       new Error(textCompression.reason),
     );
-    this.#textCompression.provide(undefined);
+    this.textCompression.provide(undefined);
   }
 
   #landTrees(

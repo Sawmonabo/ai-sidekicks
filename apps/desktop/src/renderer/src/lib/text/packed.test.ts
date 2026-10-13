@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
-import { TEXT_CHUNK_MAX_BYTES, TextCompression } from "./compression.js";
+import { PACKED_CHUNK_MAX_BYTES, TextCompression } from "./compression.js";
 import { PackedText } from "./packed.js";
 import { measureUtf8ByteLength } from "./utf8-byte-length.js";
 
@@ -92,12 +92,12 @@ function expectReadsOf(text: PackedText, source: string): void {
 describe("a packed text", () => {
   it("reads every range exactly, across chunk edges, a pair split between appends, and cuts", () => {
     const compression = new TextCompression(IDLE_AT_ONCE);
-    expect(measureUtf8ByteLength(SOURCE)).toBeGreaterThan(TEXT_CHUNK_MAX_BYTES * 4);
+    expect(measureUtf8ByteLength(SOURCE)).toBeGreaterThan(PACKED_CHUNK_MAX_BYTES * 4);
 
     expectReadsOf(PackedText.of(SOURCE, compression), SOURCE);
     // A whole text's rest that surely fits a chunk is encoded at its own size: a short text, the
     // rest after full chunks, and a text ending on a high surrogate, which waits.
-    const afterFullChunks = `${"x".repeat(TEXT_CHUNK_MAX_BYTES * 2)}${SOURCE.slice(0, 900)}`;
+    const afterFullChunks = `${"x".repeat(PACKED_CHUNK_MAX_BYTES * 2)}${SOURCE.slice(0, 900)}`;
     for (const whole of ["", "a", "Café 🙂", afterFullChunks, `${afterFullChunks}\uD83D`]) {
       expectReadsOf(PackedText.of(whole, compression), whole);
     }
@@ -106,8 +106,8 @@ describe("a packed text", () => {
     expectReadsOf(grown, SOURCE);
 
     // A cut between a pair's halves keeps the first half waiting, then takes its other half.
-    const pairAt = SOURCE.indexOf("🙂", TEXT_CHUNK_MAX_BYTES * 2);
-    for (const cut of [pairAt + 1, pairAt, TEXT_CHUNK_MAX_BYTES * 3, 1, 0]) {
+    const pairAt = SOURCE.indexOf("🙂", PACKED_CHUNK_MAX_BYTES * 2);
+    for (const cut of [pairAt + 1, pairAt, PACKED_CHUNK_MAX_BYTES * 3, 1, 0]) {
       const revision = grown.revision;
       grown.truncate(cut);
       expect(grown.keepsPrefix(revision, cut)).toBe(false);

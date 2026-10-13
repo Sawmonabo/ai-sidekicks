@@ -1,7 +1,8 @@
 // One generation of a body's blocks: the text they are cut from, read through its handle and never
-// copied whole; where each block sits and what its text may hold; what they define; the trees
-// parsed on the page for the blocks mounted, kept only while they are; and the worker's trees, held
-// for the blocks the page does not parse. A generation lasts while the body's text only grows.
+// copied whole; where each block sits and what its text may hold, recorded a slice at a time as a
+// cut lands; what they define; the trees parsed on the page for the blocks mounted, kept only while
+// they are; and the worker's trees, held for the blocks the page does not parse. A generation lasts
+// while the body's text only grows.
 
 import {
   PAGE_PARSE_MAX_CHARACTERS,
@@ -39,7 +40,7 @@ export class BlockGeneration {
   public readonly definitionReads: Map<number, Unsubscribe> = new Map<number, Unsubscribe>();
   /** Stops listening for the cut in flight, while one is. */
   public cutInFlight: Unsubscribe | undefined;
-  /** Whether a cut of the body's text landed, so a streaming tail cuts the rest. */
+  /** Whether a cut of the body's text landed and is recorded, so a streaming tail cuts the rest. */
   public hasCut = false;
   /** Each mounted block's page tree, by the block's index. */
   readonly #pageTrees = new Map<number, PageTree>();
@@ -51,6 +52,8 @@ export class BlockGeneration {
   #wholeLength: number | undefined;
   /** How many of the last blocks that cut settled that a cut of a growing text holds back. */
   #wholeEndCount = 0;
+  /** The cut taken and not yet recorded whole, while one is. */
+  #takenCut: TakenCut | undefined;
 
   public constructor(number: number) {
     this.number = number;
@@ -75,6 +78,11 @@ export class BlockGeneration {
   /** Whether the text was cut whole at a length it has since outgrown, or while it still grows. */
   public get hasWholeCut(): boolean {
     return this.#wholeLength !== undefined;
+  }
+
+  /** Whether a cut was taken and its blocks are not all recorded yet. */
+  public get isRecordingCut(): boolean {
+    return this.#takenCut !== undefined;
   }
 
   /**
@@ -119,27 +127,56 @@ export class BlockGeneration {
   }
 
   /**
-   * Records the blocks a cut settled, from where the last one ends, each ending at the next of
-   * `blockEnds`; `wholeLength` says the cut took the text as whole at that length.
+   * Takes the blocks a cut settled, from where the last one ends, each ending `offset` past the
+   * next of `blockEnds`, for `recordCut` to record; `wholeLength` says the cut took the text as
+   * whole at that length. The text must not be cut again until they are recorded.
    */
-  public appendBlocks(blockEnds: ArrayLike<number>, wholeLength?: number): void {
-    const firstAppended = this.records.count;
-    let start = this.cutEnd;
-    for (let index = 0; index < blockEnds.length; index += 1) {
-      const end = blockEnds[index] ?? start;
+  public takeCut(
+    offset: number,
+    blockEnds: ArrayLike<number>,
+    wholeLength: number | undefined,
+  ): void {
+    this.#takenCut = {
+      offset,
+      blockEnds,
+      wholeLength,
+      firstIndex: this.records.count,
+      recordedCount: 0,
+    };
+  }
+
+  /**
+   * Records the taken cut's next block, then more while `hasTime` answers true, each as one pass
+   * over the cut would; answers whether every block is recorded. The cut counts as landed only
+   * then: until it does, the text is still being cut.
+   */
+  public recordCut(hasTime: () => boolean): boolean {
+    const cut = this.#takenCut;
+    if (cut === undefined) {
+      return true;
+    }
+    const { offset, blockEnds } = cut;
+    while (cut.recordedCount < blockEnds.length) {
+      const start = this.cutEnd;
+      const end = offset + (blockEnds[cut.recordedCount] ?? 0);
       this.records.append(start, end, this.#text.slice(start, end));
-      const blockIndex = this.records.count - 1;
-      if (this.records.flagsAt(blockIndex) & DEFINING_FLAGS) {
-        this.definitions.markUnread(blockIndex);
+      const index = this.records.count - 1;
+      if (this.records.flagsAt(index) & DEFINING_FLAGS) {
+        this.definitions.markUnread(index);
       }
-      start = end;
+      cut.recordedCount += 1;
+      if (cut.recordedCount < blockEnds.length && !hasTime()) {
+        return false;
+      }
     }
-    if (wholeLength === undefined) {
+    this.#takenCut = undefined;
+    if (cut.wholeLength === undefined) {
       this.hasCut = true;
-      return;
+    } else {
+      this.#wholeLength = cut.wholeLength;
+      this.#wholeEndCount = Math.min(MARKDOWN_SETTLE_LAG_BLOCKS, blockEnds.length);
     }
-    this.#wholeLength = wholeLength;
-    this.#wholeEndCount = Math.min(MARKDOWN_SETTLE_LAG_BLOCKS, this.records.count - firstAppended);
+    return true;
   }
 
   /**
@@ -150,26 +187,7 @@ export class BlockGeneration {
     const count = this.records.count - this.#wholeEndCount;
     this.#wholeLength = undefined;
     this.#wholeEndCount = 0;
-    this.records.truncate(count);
-    this.definitions.dropFrom(count);
-    for (const [index, held] of this.workerTrees) {
-      if (index >= count) {
-        held.stop();
-        held.letLandedGo();
-        this.workerTrees.delete(index);
-      }
-    }
-    for (const [index, stop] of this.definitionReads) {
-      if (index >= count) {
-        stop();
-        this.definitionReads.delete(index);
-      }
-    }
-    for (const index of [...this.#pageTrees.keys()]) {
-      if (index >= count) {
-        this.#pageTrees.delete(index);
-      }
-    }
+    this.#forgetBlocksFrom(count);
     return count;
   }
 
@@ -203,11 +221,17 @@ export class BlockGeneration {
 
   /**
    * Stops listening for every read in flight and lets go of the trees held in the shared trees,
-   * keeping each landed one here, so a body read again draws it and asks only for the rest.
+   * keeping each landed one here, so a body read again draws it and asks only for the rest. A cut
+   * not yet recorded whole is forgotten with the blocks recorded of it, so it is asked for again.
    */
   public stopAsks(): void {
     this.cutInFlight?.();
     this.cutInFlight = undefined;
+    const taken = this.#takenCut;
+    if (taken !== undefined) {
+      this.#takenCut = undefined;
+      this.#forgetBlocksFrom(taken.firstIndex);
+    }
     for (const stop of this.definitionReads.values()) {
       stop();
     }
@@ -231,6 +255,30 @@ export class BlockGeneration {
     this.workerTrees.clear();
     this.#pageTrees.clear();
   }
+
+  /** Forgets every block from `count` on, and lets go of what was read and held for them. */
+  #forgetBlocksFrom(count: number): void {
+    this.records.truncate(count);
+    this.definitions.dropFrom(count);
+    for (const [index, held] of this.workerTrees) {
+      if (index >= count) {
+        held.stop();
+        held.letLandedGo();
+        this.workerTrees.delete(index);
+      }
+    }
+    for (const [index, stop] of this.definitionReads) {
+      if (index >= count) {
+        stop();
+        this.definitionReads.delete(index);
+      }
+    }
+    for (const index of [...this.#pageTrees.keys()]) {
+      if (index >= count) {
+        this.#pageTrees.delete(index);
+      }
+    }
+  }
 }
 
 /** Lets go of nothing. */
@@ -243,6 +291,16 @@ export const NO_STOP: Unsubscribe = () => undefined;
  */
 export function withoutLeadingBlankLines(tail: string): string {
   return tail.replace(/^(?:[ \t]*\n)+/u, "");
+}
+
+/** A cut taken to record: where its blocks end, how many are recorded, and where they began. */
+interface TakenCut {
+  readonly offset: number;
+  readonly blockEnds: ArrayLike<number>;
+  readonly wholeLength: number | undefined;
+  /** The index its first block is recorded at. */
+  readonly firstIndex: number;
+  recordedCount: number;
 }
 
 /** A mounted block's tree as the page parsed it, and the text and preamble it was parsed from. */

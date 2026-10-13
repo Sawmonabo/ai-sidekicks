@@ -1,14 +1,15 @@
-// What a row's first frame waits on: in a message row, its body's blocks, cut by the parser and
-// read as its body reads them, through the one reader the row publishes to its body, until the body
-// can draw; then what its drawn blocks wait on (`DrawnBlockWaits`); in a reply or a tool's result
-// drawn as command output or plain text, its parse into lines, read in slices while the row is
-// within the drawn band's reach and, for a call, open. A reply's text is stripped of escapes here,
-// once, and handed to its body to draw. The feed lists a row that arrives (a page read, a jump, a
-// row read back) only once these have landed, and keeps every row it holds ready to scroll to by
-// reading each one's text again as it grows. A row's text is read as its body reads it: a person's
-// message, finished; a reply's live text, whose tail is still streaming and shows its source until
-// it settles, or a tool's; and, with no lane, or once its lane retires, the stored body, finished.
-// A typesetter, diagram or table failure counts as landed: the body draws its error state.
+// What a row's first frame waits on: in a message row, its body's blocks, cut by the parser,
+// recorded in turn with the feed's other parses, the rows nearest the view first, and read as its
+// body reads them, through the one reader the row publishes to its body, until the body can draw;
+// then what its drawn blocks wait on (`DrawnBlockWaits`); in a reply or a tool's result drawn as
+// command output or plain text, its parse into lines, read in slices while the row is within the
+// drawn band's reach and, for a call, open. A reply's text is stripped of escapes here, once, and
+// handed to its body to draw. The feed lists a row that arrives (a page read, a jump, a row read
+// back) only once these have landed, and keeps every row it holds ready to scroll to by reading
+// each one's text again as it grows. A row's text is read as its body reads it: a person's message,
+// finished; a reply's live text, whose tail is still streaming and shows its source until it
+// settles, or a tool's; and, with no lane, or once its lane retires, the stored body, finished. A
+// typesetter, diagram or table failure counts as landed: the body draws its error state.
 
 import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
 import { publishedTextOf, type PublishedText } from "#renderer/lib/text/published.js";
@@ -16,9 +17,10 @@ import { readWireString } from "#renderer/lib/wire/strings.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
 import { StrippedText } from "./ansi/escape-sequences.js";
-import { AnsiOutputPreparation } from "./ansi/preparation.js";
+import { AnsiOutputPreparation, type OutputReach } from "./ansi/preparation.js";
 import { outputKindOf } from "./bodies/output-kinds.js";
 import { DrawnBlockWaits } from "./drawn-block-waits.js";
+import { type RowParse } from "./prepared-bodies.js";
 import { classifyTranscriptRow, isFoldableCall } from "./kind.js";
 import { userMessageTextOf } from "./user-message.js";
 import { MarkdownBodyBlocks } from "./markdown/body-blocks/reader.js";
@@ -57,6 +59,16 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   readonly #sources: TranscriptRowSources;
   readonly #onReady: () => void;
   readonly #blocks = new MarkdownBodyBlocks(appMarkdownTrees);
+  /** Records the blocks of the body's landed cut a slice at a time, leaving its turn once done. */
+  readonly #cutRecording: RowParse = {
+    readInTurn: (hasTime) => {
+      if (!this.#blocks.recordCut(hasTime)) {
+        return false;
+      }
+      this.#sources.preparedBodies.leaveTurn(this.#cutRecording);
+      return true;
+    },
+  };
   readonly #strippedText = new StrippedText();
   /** The reply's body parsed into lines, while it is drawn as command output or plain text. */
   readonly #output: AnsiOutputPreparation;
@@ -152,6 +164,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
       this.#isReading = false;
     }
     const reach = this.#sources.reachOf(this.#row.id);
+    this.#recordCutInTurn(reach);
     this.#output.read(this.#outputText, reach);
     this.#drawnBlockWaits.readOn(reach);
     this.#drawnBlockWaits.askForDiagrams();
@@ -159,6 +172,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
 
   public release(): void {
     this.#isReleased = true;
+    this.#sources.preparedBodies.leaveTurn(this.#cutRecording);
     this.#output.release();
     this.#sources.preparedBodies.withdrawMarkdownBody(this.#row.id, this);
     for (const withdraw of this.#withdrawals) {
@@ -217,6 +231,20 @@ class MessageRowPreparation implements TranscriptRowPreparation {
       this.#landBodyDrawn();
     }
     this.#blocks.requestReads();
+  }
+
+  /**
+   * Puts the recording of the body's landed cut in turn while it waits: ahead of every parse while
+   * the row is within the drawn band's reach, and keeping its place while it is outside.
+   */
+  #recordCutInTurn(reach: OutputReach): void {
+    const preparedBodies = this.#sources.preparedBodies;
+    if (
+      this.#blocks.isRecordingCut &&
+      (reach !== "outside" || !preparedBodies.isInTurn(this.#cutRecording))
+    ) {
+      preparedBodies.parseInTurn(this.#cutRecording, this.#sources.ownerWindow);
+    }
   }
 
   /** The body's blocks as its body reads them now, for a later task; throws as the reader does. */

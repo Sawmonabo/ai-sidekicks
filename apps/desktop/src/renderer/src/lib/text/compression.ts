@@ -1,18 +1,21 @@
 // The page's text codec and the one cache of decoded chunks every packed text reads through. The
 // codec is the lz4 WebAssembly module the markdown worker compiles and posts; the page never
 // compiles, it instantiates the module the first time a full chunk needs packing, which costs the
-// module's fixed 128 KiB of memory. Full chunks are packed at idle moments, never while a body is
-// admitted, and a chunk whose packed form is no smaller stays plain. Until a module arrives, while
-// no worker could compile one, or once the codec fails, every chunk stays plain UTF-8 and reads
-// back exactly the same. A codec that failed, to start or inside the module, stays failed; a
-// packed chunk the module cannot unpack throws rather than read as other text.
+// module's fixed 128 KiB of memory. It packs a text's full chunks and a held tree's bytes at idle
+// moments, never while a body is admitted, and a chunk whose packed form is no smaller stays plain.
+// Until a module arrives, while no worker could compile one, or once the codec fails, every chunk
+// stays plain and reads back exactly the same. A codec that failed, to start or inside the module,
+// stays failed; a packed chunk the module cannot unpack throws rather than read as other bytes.
 
 import { recordRejectedRequest } from "../diagnostic-capture/rejected-request-record.js";
 import { queueIdleTaskIn } from "../idle-task.js";
 import { startSlice } from "../work-slices.js";
 
-/** A text whose full chunks wait to be packed, as its compression asks it at an idle moment. */
-export interface PackableText {
+/**
+ * Chunks that wait to be packed, a text's full ones or a held tree's, as the compression asks for
+ * them at an idle moment.
+ */
+export interface PackableChunks {
   /**
    * Packs at least one waiting chunk, then more while `hasTime` answers true, through this
    * compression's `pack`; answers whether none is left waiting.
@@ -27,22 +30,22 @@ export interface PackableText {
 export type TextCompressionState = "waiting" | "absent" | "provided" | "running" | "failed";
 
 /**
- * The most UTF-8 bytes one chunk of a packed text holds: the size of the codec's plain buffer,
- * which the compression crate declares as 16 KiB.
+ * The most bytes one packed chunk holds plain, a text's UTF-8 or a tree's: the size of the codec's
+ * plain buffer, which the compression crate declares as 16 KiB.
  */
-export const TEXT_CHUNK_MAX_BYTES: number = 16 * 1024;
+export const PACKED_CHUNK_MAX_BYTES: number = 16 * 1024;
 
 /**
- * The page's codec and decoded-chunk cache. `view` is the window whose idle moments pack the texts
+ * The page's codec and decoded-chunk cache. `view` is the window whose idle moments pack the chunks
  * that wait.
  */
 export class TextCompression {
   readonly #view: Window;
   /** The decoded chunks read last, newest first, at most `DECODED_CHUNK_CACHE_SIZE`. */
   readonly #decodedChunks: DecodedChunk[] = [];
-  /** The texts with full chunks waiting to be packed, oldest first, held weakly. */
-  #waitingTexts: WeakRef<PackableText>[] = [];
-  /** How many texts waited after the last sweep of those let go, which spaces the sweeps. */
+  /** What holds chunks waiting to be packed, oldest first, held weakly. */
+  #waiting: WeakRef<PackableChunks>[] = [];
+  /** How many waited after the last sweep of those let go, which spaces the sweeps. */
   #sweptWaitingCount = 0;
   #isPackingQueued = false;
   #state: TextCompressionState = "waiting";
@@ -82,17 +85,17 @@ export class TextCompression {
   }
 
   /**
-   * Asks for `text`'s full chunks to be packed at an idle moment; a text is asked for once until
-   * it answers that none is left. While no module is in hand the text waits, held weakly, for one;
-   * nothing is packed once the codec failed.
+   * Asks for `chunks` to be packed at an idle moment; they are asked for once until they answer
+   * that none is left. While no module is in hand they wait, held weakly, for one; nothing is
+   * packed once the codec failed.
    */
-  public queuePacking(text: PackableText): void {
+  public queuePacking(chunks: PackableChunks): void {
     if (this.#state === "failed") {
       return;
     }
-    this.#waitingTexts.push(new WeakRef(text));
+    this.#waiting.push(new WeakRef(chunks));
     if (this.isModuleWanted) {
-      this.#sweepLetGoTexts();
+      this.#sweepLetGo();
       return;
     }
     this.#queuePacking();
@@ -196,26 +199,24 @@ export class TextCompression {
     return codec.plainView(plainLength);
   }
 
-  /** Packs the waiting texts at the view's next idle moment, unless a pass is queued already. */
+  /** Packs what waits at the view's next idle moment, unless a pass is queued already. */
   #queuePacking(): void {
-    if (this.#isPackingQueued || this.#waitingTexts.length === 0) {
+    if (this.#isPackingQueued || this.#waiting.length === 0) {
       return;
     }
     this.#isPackingQueued = true;
     queueIdleTaskIn(this.#view, (deadline) => {
       this.#isPackingQueued = false;
-      this.#packWaitingTexts(
-        deadline.didTimeout ? startSlice() : () => deadline.timeRemaining() > 0,
-      );
+      this.#packWaiting(deadline.didTimeout ? startSlice() : () => deadline.timeRemaining() > 0);
     });
   }
 
-  /** Packs waiting texts, oldest first, while the idle moment lasts, and queues what is left. */
-  #packWaitingTexts(hasTime: () => boolean): void {
+  /** Packs what waits, oldest first, while the idle moment lasts, and queues what is left. */
+  #packWaiting(hasTime: () => boolean): void {
     let packedCount = 0;
-    for (const waiting of this.#waitingTexts) {
-      const text = waiting.deref();
-      if (text !== undefined && !text.packWhile(hasTime)) {
+    for (const waiting of this.#waiting) {
+      const chunks = waiting.deref();
+      if (chunks !== undefined && !chunks.packWhile(hasTime)) {
         break;
       }
       packedCount += 1;
@@ -223,24 +224,24 @@ export class TextCompression {
         break;
       }
     }
-    // A codec that failed let go of every waiting text.
+    // A codec that failed let go of everything waiting.
     if (this.#state === "failed") {
       return;
     }
-    this.#waitingTexts = this.#waitingTexts.slice(packedCount);
+    this.#waiting = this.#waiting.slice(packedCount);
     this.#queuePacking();
   }
 
   /**
-   * Drops the waiting texts that were let go once their count has doubled since the last sweep,
-   * so texts admitted while no word has come from the worker hold nothing they did not.
+   * Drops what waits and was let go once its count has doubled since the last sweep, so texts and
+   * trees admitted while no word has come from the worker hold nothing they did not.
    */
-  #sweepLetGoTexts(): void {
-    if (this.#waitingTexts.length < 2 * this.#sweptWaitingCount + SWEEP_FLOOR) {
+  #sweepLetGo(): void {
+    if (this.#waiting.length < 2 * this.#sweptWaitingCount + SWEEP_FLOOR) {
       return;
     }
-    this.#waitingTexts = this.#waitingTexts.filter((waiting) => waiting.deref() !== undefined);
-    this.#sweptWaitingCount = this.#waitingTexts.length;
+    this.#waiting = this.#waiting.filter((waiting) => waiting.deref() !== undefined);
+    this.#sweptWaitingCount = this.#waiting.length;
   }
 
   /** The running codec, started from the provided module on first need, or `undefined`. */
@@ -268,7 +269,7 @@ export class TextCompression {
     recordRejectedRequest(TEXT_COMPRESSION_SOURCE, "text-codec-failed", error);
     this.#state = "failed";
     this.#module = undefined;
-    this.#waitingTexts = [];
+    this.#waiting = [];
   }
 }
 
@@ -305,7 +306,7 @@ const DECODED_CHUNK_CACHE_SIZE = 4;
 /** What `compress` and `decompress` return, read unsigned, when they fail. */
 const CODEC_FAILED = 0xff_ff_ff_ff;
 
-/** The fewest waiting texts that start a sweep of those let go. */
+/** The fewest waiting entries that start a sweep of those let go. */
 const SWEEP_FLOOR = 64;
 
 /** Where a codec failure is recorded from in the window's diagnostics. */

@@ -2,24 +2,26 @@
 // once, by the page's parser, and kept by the body only while it is mounted; that parser also cuts
 // a body's text into blocks when the text is no longer than such a block. The app's one markdown
 // worker cuts every longer text and parses the rest: a streaming tail, a block too long for the
-// page, and every text while the page's parser could not start. A worker's tree is kept in a
-// cache bounded in bytes and shared by every body that asks for the same text, and a tree a body
-// holds stays kept while it is held, so a body mounted next draws it at once. The cache keys a
-// tree by a hash of its text and keeps no copy of that text: a kept tree is the worker's binary
-// tree, read into the mdast the screen draws when it is drawn, from the text its asker reads again
-// (a long reply's block, cut from the packed body by range), and that mdast is kept only while
-// something holds its nodes, such as a block on screen: a long reply keeps its blocks' buffers,
-// not their nodes or text, and a block scrolled back into view reads its buffer again in the frame
-// it mounts. A document read once is parsed each time it is asked for. A block is parsed against
-// the definitions its body declares, which the trees here are given as a preamble and returned
-// without. A text whose last block is one long table is parsed in pieces and the
-// table's rows read as they are held (`pieced-table.ts`), its pieces' trees kept in a cache of
-// their own; a text that continues the last one parsed in pieces, as a streaming table grows,
-// parses only the pieces it changed.
+// page, and every text while the page's parser could not start. A worker's tree is kept in a cache
+// bounded in bytes and shared by every body that asks for the same text, and a tree a body holds
+// stays kept while it is held, so a body mounted next draws it at once. The cache keys a tree by a
+// hash of its text and keeps no copy of that text: a kept tree is the worker's binary tree, read
+// into the mdast the screen draws when it is drawn, from the text its asker reads again (a long
+// reply's block, cut from the packed body by range), and that mdast is kept only while something
+// holds its nodes, such as a block on screen: a long reply keeps its blocks' buffers, not their
+// nodes or text, and a block scrolled back into view reads its buffer again in the frame it mounts.
+// A held block too long for the page has its buffer packed at idle moments, unpacked only when it
+// is read. A document read once is parsed each time it is asked for. A block is parsed against the
+// definitions its body declares, which the trees here are given as a preamble and returned without.
+// A text whose last block is one long table is parsed in pieces and the table's rows read as they
+// are held (`pieced-table.ts`), its pieces' trees kept in a cache of their own; a text that
+// continues the last one parsed in pieces, as a streaming table grows, parses only the pieces it
+// changed.
 
 import type { Root, RootContent } from "mdast";
 
 import { ByteBoundedCache } from "#renderer/lib/byte-bounded-cache.js";
+import type { TextCompression } from "#renderer/lib/text/compression.js";
 import { wideHashOf } from "#renderer/lib/text/hash.js";
 import { describeFailure } from "#shared/failure-message.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -27,6 +29,7 @@ import { markdownWorker, type MarkdownWorkerConnection } from "../worker/connect
 import type { MarkdownCutAnswer, MarkdownParseAnswer } from "../worker/messages.js";
 import { treeWithoutPreamble } from "./definition-preamble.js";
 import { materializeMarkdownTree } from "./materialized-tree.js";
+import { PackedTreeBuffer } from "./packed-tree-buffer.js";
 import type { PageParser } from "./page-parser.js";
 import {
   parsePiecedTable,
@@ -41,7 +44,10 @@ export type MarkdownParseOutcome =
   | {
       readonly status: "parsed";
       readonly root: Root;
-      /** What the tree keeps, in bytes, read whole or not: what the cache charges it. */
+      /**
+       * What the tree keeps now, in bytes, read whole or not and packed or not; the cache charges
+       * what it kept when stored.
+       */
       readonly treeByteCount: number;
     }
   | { readonly status: "failed"; readonly reason: string };
@@ -172,7 +178,8 @@ export class MarkdownTrees {
    * Ask for a settled block's tree as `requestSettledBlock` does, and hold it in the cache,
    * whatever its size, until the returned call lets it go; the body that draws the block next is
    * then answered at once. What bounds the held trees is their holders: a second call to let go
-   * does nothing, so no holder frees another's hold. A landed hold keeps only its key.
+   * does nothing, so no holder frees another's hold. A landed hold keeps only its key. The worker's
+   * tree of a block too long for the page is packed while it is kept.
    */
   public holdSettledBlock(
     blockSource: string,
@@ -181,8 +188,10 @@ export class MarkdownTrees {
     readSource: BlockSourceReader = () => blockSource,
   ): Unsubscribe {
     const key = settledBlockCacheKey(blockSource, definitionPreamble);
+    const isOverPageCap = blockSource.length > PAGE_PARSE_MAX_CHARACTERS;
     const kept = this.#settledBlocks.get(key);
     if (kept !== undefined && this.#settledBlocks.hold(key)) {
+      packOverPageCap(kept, isOverPageCap);
       listener(new KeptTreeView(kept, definitionPreamble, readSource));
       return letGoOf(this.#settledBlocks, { key, stopListening: NO_UNSUBSCRIBE });
     }
@@ -196,6 +205,7 @@ export class MarkdownTrees {
         if (!this.#settledBlocks.hold(key)) {
           this.#settledBlocks.setHeld(key, outcome);
         }
+        packOverPageCap(outcome, isOverPageCap);
         hold.key = key;
       }
       listener(answerOf(outcome, definitionPreamble, readSource));
@@ -364,7 +374,11 @@ export class MarkdownTrees {
    */
   #parseWhole(source: string, definitionPreamble: string, settle: KeptTreeListener): void {
     this.#worker.parse(definitionPreamble + source, (answer) => {
-      settle(answer.status === "failed" ? answer : new BufferedTree(answer, this.#rootsByNodes));
+      settle(
+        answer.status === "failed"
+          ? answer
+          : new BufferedTree(answer, this.#rootsByNodes, this.#worker.textCompression),
+      );
     });
   }
 }
@@ -417,10 +431,17 @@ function answerOf(
     : new KeptTreeView(outcome, definitionPreamble, readSource);
 }
 
-/** A hold on a settled block's tree: the key it is held under, once landed, and the ask in flight. */
+/** A hold on a settled block's tree: its key once landed, and its ask in flight. */
 interface SettledBlockHold {
   key: string | undefined;
   stopListening: Unsubscribe;
+}
+
+/** Packs `kept`'s buffer while it is kept, when its block is too long for the page. */
+function packOverPageCap(kept: KeptTree, isOverPageCap: boolean): void {
+  if (isOverPageCap && kept instanceof BufferedTree) {
+    kept.queuePacking();
+  }
 }
 
 /** Lets go of `hold` once: stops its ask in flight and releases its tree from `cache`. */
@@ -442,26 +463,37 @@ function letGoOf(cache: ByteBoundedCache<KeptTree>, hold: SettledBlockHold): Uns
  * One text's tree kept as the worker's binary buffer, about a quarter of the mdast it reads into,
  * and read into that mdast when asked for, from the text its asker reads again. The mdast is held
  * weakly: it lives while anything holds its nodes or its root, and once nothing does it is read
- * from the buffer again on the next ask, within that call.
+ * from the buffer again on the next ask, within that call, unpacking the buffer if it is packed.
  */
 class BufferedTree implements KeptTree {
   public readonly status = "kept";
-  /** The buffer's bytes: all the tree keeps. */
-  public readonly treeByteCount: number;
-  readonly #buffer: ArrayBuffer;
+  readonly #buffer: PackedTreeBuffer;
   readonly #dollarStandIn: string | undefined;
   readonly #rootsByNodes: WeakMap<readonly RootContent[], Root>;
   #root: WeakRef<Root> | undefined;
 
-  /** The tree in `answer`; each root read is kept in `rootsByNodes` while its nodes are held. */
+  /**
+   * The tree in `answer`, its buffer packed through `compression` once asked; each root read is
+   * kept in `rootsByNodes` while its nodes are held.
+   */
   public constructor(
     answer: Extract<MarkdownParseAnswer, { readonly status: "parsed" }>,
     rootsByNodes: WeakMap<readonly RootContent[], Root>,
+    compression: TextCompression,
   ) {
-    this.#buffer = answer.buffer;
+    this.#buffer = new PackedTreeBuffer(answer.buffer, compression);
     this.#dollarStandIn = answer.dollarStandIn;
     this.#rootsByNodes = rootsByNodes;
-    this.treeByteCount = answer.buffer.byteLength;
+  }
+
+  /** The buffer's bytes as held now, packed or not: all the tree keeps. */
+  public get treeByteCount(): number {
+    return this.#buffer.heldByteCount;
+  }
+
+  /** Packs the buffer at the codec's idle moments; a second ask does nothing. */
+  public queuePacking(): void {
+    this.#buffer.queuePacking();
   }
 
   /**
@@ -478,7 +510,11 @@ class BufferedTree implements KeptTree {
       return held;
     }
     const root = treeWithoutPreamble(
-      materializeMarkdownTree(this.#buffer, definitionPreamble + readSource(), this.#dollarStandIn),
+      materializeMarkdownTree(
+        this.#buffer.read(),
+        definitionPreamble + readSource(),
+        this.#dollarStandIn,
+      ),
       definitionPreamble.length,
     );
     this.#rootsByNodes.set(root.children, root);
