@@ -96,10 +96,12 @@ macro_rules! stream_frame {
             serde::Serialize,
             serde::Deserialize,
             schemars::JsonSchema,
+            garde::Validate,
         )]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
         pub struct $name {
             /// The changes, oldest first.
+            #[garde(dive)]
             pub changes: $crate::wire::list::BoundedVec<
                 $change,
                 1,
