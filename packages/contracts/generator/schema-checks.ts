@@ -8,7 +8,7 @@ import standaloneCode from "ajv/dist/standalone/index.js";
 import { MODULE_ID_SCHEME, type ContractModule } from "./emit-folder.ts";
 import type { ModuleImports } from "./module-imports.ts";
 
-/** The hand-written module every generated check imports its format rules and type from. */
+/** The hand-written module the generated checks import their type, formats and helpers from. */
 export const SCHEMA_CHECK_MODULE = "schema-check";
 
 /** The generated check's name for definition `name`. */
