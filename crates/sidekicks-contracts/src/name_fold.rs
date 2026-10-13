@@ -15,14 +15,20 @@ mod tests {
     use std::collections::HashMap;
 
     use serde::Deserialize;
+    use serde::de::IgnoredAny;
 
     use super::fold_name;
 
     /// Every code point whose fold is not itself, from the fold the desktop runs, and the code
-    /// points only its newer Unicode data folds.
+    /// points only its newer Unicode data folds. `note` and `unicodeVersion` say how the table was
+    /// made, for a person reading it; neither test reads them.
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct NameFoldTable {
+        #[serde(rename = "note")]
+        _note: IgnoredAny,
+        #[serde(rename = "unicodeVersion")]
+        _unicode_version: IgnoredAny,
         simple_folds: Vec<u32>,
         full_folds: Vec<Vec<u32>>,
         later_code_points: Vec<u32>,

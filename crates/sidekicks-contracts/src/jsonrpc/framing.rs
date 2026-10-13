@@ -352,11 +352,16 @@ mod tests {
             }),
             "a message past the window gets its partial bytes back before it stalls"
         );
-        lanes
+        let again = lanes
             .receive(data(1, false, &window))
             .expect("the returned credit is spent again");
+        assert_eq!(
+            again.credit, early.credit,
+            "each window of a message longer than several is returned, so it never stalls"
+        );
+        let past_the_credit = vec![0; window.len() + 1];
         assert!(matches!(
-            lanes.receive(data(1, false, &[0])),
+            lanes.receive(data(1, false, &past_the_credit)),
             Err(FramingError::DataBeyondCredit { lane: 1 })
         ));
 
@@ -407,8 +412,9 @@ mod tests {
             "a JSON length past the cap is refused before its bytes arrive"
         );
 
-        // A JSON length of 0, then zeros as one attachment section that keeps growing.
-        let chunk = vec![0; usize::try_from(MAX_CHUNK_BYTES).expect("fits")];
+        // A JSON length of 0, then zeros as one attachment section that keeps growing, in chunks
+        // that spend the window exactly, as a sender sizing each chunk to its credit does.
+        let chunk = vec![0; usize::try_from(INITIAL_LANE_CREDIT / 8).expect("fits")];
         let mut lanes = IncomingLanes::default();
         let chunks_past_the_cap = MAX_ATTACHMENT_BYTES / chunk.len() + 2;
         let outcome = (0..chunks_past_the_cap)
