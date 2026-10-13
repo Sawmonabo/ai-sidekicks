@@ -9,6 +9,11 @@ use futures::{StreamExt, stream};
 
 use crate::settle_all::{SettleFailures, settle_all};
 
+/// How many processors the daemon may use at once, or 1 when the system cannot say.
+pub(crate) fn processor_count() -> usize {
+    available_parallelism().map_or(1, NonZero::get)
+}
+
 /// Maps every item through `map`, at most one per processor at a time, and returns the results in
 /// the items' order. Every item settles before a failure is returned, the one failure or every one
 /// in [`SettleFailures`], so nothing still runs once the caller hears of it.
@@ -19,7 +24,7 @@ pub(crate) async fn map_with_processor_bound<Item, Output, Failure, Work>(
 where
     Work: Future<Output = Result<Output, Failure>>,
 {
-    let processors = available_parallelism().map_or(1, NonZero::get);
+    let processors = processor_count();
     let mut outcomes: Vec<(usize, Result<Output, Failure>)> =
         stream::iter(items.into_iter().enumerate())
             .map(|(index, item)| {

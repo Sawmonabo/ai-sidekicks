@@ -3,7 +3,7 @@
 
 /// A start's end when a stop came before it listened, naming the step the stop ended.
 #[derive(Debug, thiserror::Error)]
-#[error("A stop came while the start was {step}")]
+#[error("a stop came while the start was {step}")]
 pub(crate) struct DaemonStartStoppedError {
     /// What the start was doing when the stop came, such as `repairing the database file`.
     pub(crate) step: &'static str,

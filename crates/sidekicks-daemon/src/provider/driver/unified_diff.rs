@@ -36,20 +36,15 @@ mod tests {
     use super::{UnifiedDiffCounts, count_unified_diff};
 
     #[rstest]
-    #[case::header_before_any_hunk(
-        "--- a/file.txt\n+++ b/file.txt\n@@ -1,2 +1,2 @@\n-old\n+new\n same",
-        1,
-        1
-    )]
     #[case::removed_line_starting_with_two_dashes(
         "--- a/notes.md\n+++ b/notes.md\n@@ -1 +1 @@\n--- a rule\n+a heading",
         1,
         1
     )]
     #[case::lines_before_the_first_hunk(
-        "diff --git a/x b/x\n-not counted\n+not counted\n@@ -1 +1,2 @@\n+one\n+two",
-        2,
-        0
+        "diff --git a/x b/x\n-not counted\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n-old\n+new\n same",
+        1,
+        1
     )]
     #[case::two_hunks(
         "@@ -1,2 +1,1 @@\n-gone\n-also gone\n@@ -10 +9,2 @@\n context\n+added\n+added again\n-left",

@@ -1,10 +1,11 @@
 //! The service's one scheduler: every background job runs at a deadline on the monotonic clock, all
 //! of them behind one task's one timer, one job at a time in deadline order.
 //!
-//! - A deadline is kept on the monotonic clock and checked again each time the timer fires, so
-//!   setting the wall clock back or forward neither holds a job back nor runs it early. tokio's
-//!   clock stops while the machine sleeps, so time asleep does not count toward a deadline; the
-//!   wake signal tells the jobs that must catch up.
+//! - A deadline is kept on tokio's monotonic clock, the one its timer sleeps on, and checked again
+//!   each time the timer fires, so setting the wall clock back or forward neither holds a job back
+//!   nor runs it early. tokio's clock stops while the machine sleeps, so time asleep does not count
+//!   toward a deadline; the wake signal tells the jobs that must catch up. A test pauses and
+//!   advances tokio's clock, and stands a sleep in through the injected wall clock.
 //! - The wake signal: when more wall-clock time than the wake gap passed between arming the timer
 //!   and its firing, or the wall clock has moved that much further than the monotonic clock since
 //!   the last look, the machine slept (or its clock was set forward, or the runtime was held that
@@ -24,13 +25,13 @@ use tokio::task::{JoinError, JoinHandle};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-/// The longest the timer waits before the scheduler looks at the wall clock again, which bounds how
-/// late a wake is noticed: 15 seconds, so a wake is heard within moments at little cost.
-pub(crate) const WAKE_CHECK_INTERVAL: Duration = Duration::from_secs(15);
+// The longest the timer waits before the scheduler looks at the wall clock again, which bounds how
+// late a wake is noticed: 15 seconds, so a wake is heard within moments at little cost.
+const WAKE_CHECK_INTERVAL: Duration = Duration::from_secs(15);
 
-/// The wall-clock gap past which a wake is counted: one and a half wake checks, so a timer that
-/// fires a little late is not taken for a sleep.
-pub(crate) const WAKE_GAP_THRESHOLD: Duration = Duration::from_millis(22_500);
+// The wall-clock gap past which a wake is counted: one and a half wake checks, so a timer that
+// fires a little late is not taken for a sleep.
+const WAKE_GAP_THRESHOLD: Duration = Duration::from_millis(22_500);
 
 // Wakes a receiver may fall behind before it reads a lag; wakes are rare.
 const WAKE_SIGNAL_CAPACITY: usize = 16;
@@ -38,9 +39,9 @@ const WAKE_SIGNAL_CAPACITY: usize = 16;
 /// What one run of a job ends with; a failure is written to the service log.
 pub(crate) type ScheduledJobOutcome = Result<(), Box<dyn Error + Send + Sync>>;
 
-/// A job's work, given the token the scheduler's stop cancels, which a long job checks between
-/// its steps so the stop never waits on it for long.
-pub(crate) type ScheduledJobRun =
+// A job's work, given the token the scheduler's stop cancels, which a long job checks between its
+// steps so the stop never waits on it for long.
+type ScheduledJobRun =
     Box<dyn FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send>;
 
 /// One wake: when it was noticed and the wall-clock gap that marked it.
@@ -52,27 +53,13 @@ pub(crate) struct WakeSignal {
     pub(crate) away: Duration,
 }
 
-/// The clocks the scheduler runs on, injectable so a test can stand a sleep in.
-#[derive(Clone)]
-pub(crate) struct SchedulerClocks {
-    /// The wall clock; `SystemTime::now` by default.
-    pub(crate) wall_now: Arc<dyn Fn() -> SystemTime + Send + Sync>,
-    /// The monotonic clock deadlines are kept on; tokio's `Instant::now` by default.
-    pub(crate) monotonic_now: Arc<dyn Fn() -> Instant + Send + Sync>,
-}
-
-impl Default for SchedulerClocks {
-    fn default() -> Self {
-        Self {
-            wall_now: Arc::new(SystemTime::now),
-            monotonic_now: Arc::new(Instant::now),
-        }
-    }
-}
+/// The wall clock the scheduler compares with tokio's monotonic clock, injectable so a test can
+/// stand a sleep in; `SystemTime::now` in the daemon.
+pub(crate) type WallClock = Arc<dyn Fn() -> SystemTime + Send + Sync>;
 
 /// The refusal to schedule a job once the scheduler has stopped.
 #[derive(Debug, thiserror::Error)]
-#[error("The scheduler has stopped, so the job \"{job}\" cannot be scheduled")]
+#[error("the scheduler has stopped, so the job \"{job}\" cannot be scheduled")]
 pub(crate) struct SchedulerStoppedError {
     /// The job's name, as the service log names it.
     pub(crate) job: &'static str,
@@ -94,7 +81,7 @@ pub(crate) struct Scheduler {
 
 // What the scheduler's task and its callers share.
 struct SchedulerShared {
-    clocks: SchedulerClocks,
+    wall_now: WallClock,
     state: Mutex<SchedulerState>,
     // Told whenever the pending runs or the wake receivers change, so the task arms again.
     head_changed: Notify,
@@ -125,19 +112,20 @@ struct PendingRun {
 }
 
 impl Scheduler {
-    /// Starts the scheduler's one task on the current tokio runtime, which must be running.
-    pub(crate) fn start(clocks: SchedulerClocks) -> Self {
+    /// Starts the scheduler's one task on the running tokio runtime, comparing tokio's clock with
+    /// `wall_now`.
+    pub(crate) fn start(wall_now: WallClock) -> Self {
         let state = SchedulerState {
             pending: BTreeMap::new(),
             next_sequence: 0,
             next_job_id: 0,
             is_stopped: false,
             wake_sender: Some(broadcast::channel(WAKE_SIGNAL_CAPACITY).0),
-            last_wall_look: (clocks.wall_now)(),
-            last_monotonic_look: (clocks.monotonic_now)(),
+            last_wall_look: wall_now(),
+            last_monotonic_look: Instant::now(),
         };
         let shared = Arc::new(SchedulerShared {
-            clocks,
+            wall_now,
             state: Mutex::new(state),
             head_changed: Notify::new(),
             stop: CancellationToken::new(),
@@ -222,7 +210,7 @@ impl Scheduler {
         repeat_interval: Option<Duration>,
         run: ScheduledJobRun,
     ) -> Result<ScheduledJobHandle, SchedulerStoppedError> {
-        let run_at = (self.shared.clocks.monotonic_now)() + delay;
+        let run_at = Instant::now() + delay;
         let is_canceled = Arc::new(AtomicBool::new(false));
         let job_id = {
             let mut state = self.shared.lock_state();
@@ -297,7 +285,7 @@ impl SchedulerShared {
     async fn run(self: Arc<Self>) {
         loop {
             let deadline = self.next_deadline();
-            let armed_at_wall = (self.clocks.wall_now)();
+            let armed_at_wall = (self.wall_now)();
             let timer = async move {
                 match deadline {
                     Some(deadline) => tokio::time::sleep_until(deadline).await,
@@ -311,7 +299,7 @@ impl SchedulerShared {
                 () = timer => {}
             }
             // A wall clock set back reads as no gap.
-            let timer_gap = (self.clocks.wall_now)()
+            let timer_gap = (self.wall_now)()
                 .duration_since(armed_at_wall)
                 .unwrap_or_default();
             self.look_for_wake(timer_gap);
@@ -327,7 +315,7 @@ impl SchedulerShared {
             .wake_sender
             .as_ref()
             .is_some_and(|sender| sender.receiver_count() > 0);
-        let wake_check = (self.clocks.monotonic_now)() + WAKE_CHECK_INTERVAL;
+        let wake_check = Instant::now() + WAKE_CHECK_INTERVAL;
         match state.pending.first_key_value() {
             Some((&(run_at, _), _)) => Some(run_at.min(wake_check)),
             None if is_heard => Some(wake_check),
@@ -357,7 +345,7 @@ impl SchedulerShared {
             return None;
         }
         let (&(run_at, _), _) = state.pending.first_key_value()?;
-        if run_at > (self.clocks.monotonic_now)() {
+        if run_at > Instant::now() {
             return None;
         }
         state.pending.pop_first().map(|(_, due)| due)
@@ -369,7 +357,7 @@ impl SchedulerShared {
         let Some(interval) = due.repeat_interval else {
             return;
         };
-        let run_at = (self.clocks.monotonic_now)() + interval;
+        let run_at = Instant::now() + interval;
         let mut state = self.lock_state();
         if !state.is_stopped && !due.is_canceled.load(Ordering::Relaxed) {
             state.insert(run_at, due);
@@ -380,8 +368,8 @@ impl SchedulerShared {
     // never armed for longer than a wake check, so a gap past the threshold is time the process
     // missed.
     fn look_for_wake(&self, timer_gap: Duration) {
-        let wall_now = (self.clocks.wall_now)();
-        let monotonic_now = (self.clocks.monotonic_now)();
+        let wall_now = (self.wall_now)();
+        let monotonic_now = Instant::now();
         let mut state = self.lock_state();
         let monotonic_elapsed = monotonic_now.saturating_duration_since(state.last_monotonic_look);
         // A wall clock set back reads as no gap.
@@ -403,8 +391,6 @@ impl SchedulerShared {
             away,
         };
         // A send fails only when no receiver is attached, and then no one waits for the wake.
-        if sender.send(wake).is_err() {
-            tracing::debug!(away = ?away, "a wake was noticed with no one listening");
-        }
+        let _unheard = sender.send(wake);
     }
 }

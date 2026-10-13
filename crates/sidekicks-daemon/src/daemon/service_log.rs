@@ -2,26 +2,30 @@
 //! `logs/` in the data folder, `service-<local time begun, to the millisecond>.log`, so the log is
 //! kept whoever started the daemon and whatever they did with its streams.
 //!
-//! - A new file is begun at each start, when the local day turns and at 16 MiB, so a daemon that
-//!   runs for weeks leaves day-sized files the diagnostic-log expiry deletes whole. A name taken in
-//!   the same millisecond gets `.restart-0000`, which still sorts in order.
-//! - Lines are written straight to the file, never queued, so the last line before an end is kept.
-//!   Line times are UTC; file names are local time.
-//! - A folder or file that cannot be opened leaves standard error carrying the log, which says so
-//!   once; a standard error whose reader has gone leaves the file carrying it, which says so once.
-//!   Neither stops the daemon.
+//! - The first file opens at start. The log's own writer begins the next file when the local day
+//!   turns and before a line would take the file past 16 MiB, so a daemon that runs for weeks
+//!   leaves day-sized files the diagnostic-log expiry deletes whole. A turn in the same
+//!   millisecond as the file before it takes `.restart-0000`, which still sorts in order; a start
+//!   whose clock was set back onto an existing file's millisecond begins that file again.
+//! - Lines are written straight to both sides, never queued, so the last line before an end is
+//!   kept. Line times are UTC; file names are local time.
+//! - Every failure of the file, at start, at a turn or on a write, says so once on standard error,
+//!   which carries the log alone from then on; every failure of standard error says so once in the
+//!   file, which carries it alone. The file is never opened again, and neither stops the daemon.
+//! - Lines from the daemon's own crates are kept from info up, every other crate's from warn up.
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use flexi_logger::writers::{ArcFileLogWriter, FileLogWriter, FileLogWriterHandle};
-use flexi_logger::{Age, Cleanup, Criterion, FileSpec, FlexiLoggerError, Naming};
+use flexi_logger::{Cleanup, Criterion, FileSpec, FlexiLoggerError, Naming};
+use jiff::{Timestamp, Zoned};
 use tracing::Dispatch;
-use tracing_subscriber::filter::LevelFilter;
-use tracing_subscriber::fmt::writer::{MakeWriter, MakeWriterExt};
+use tracing_subscriber::filter::{LevelFilter, Targets};
+use tracing_subscriber::fmt::writer::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::{SubscriberInitExt, TryInitError};
 
@@ -36,36 +40,47 @@ const SERVICE_LOG_FILE_BYTE_CEILING: u64 = 16 * 1024 * 1024;
 const SERVICE_LOG_FILE_NAME_FORMAT: &str = "service-%Y-%m-%dT%H-%M-%S-%3f";
 
 // The names a service log file takes, `0` standing for any ASCII digit: one begun alone in its
-// millisecond, and one begun in the same millisecond as another.
+// millisecond, and one begun in the same millisecond as the file before it.
 const SERVICE_LOG_FILE_NAME_TEMPLATES: [&[u8]; 2] = [
     b"service-0000-00-00T00-00-00-000.log",
     b"service-0000-00-00T00-00-00-000.restart-0000.log",
 ];
 
-// The line the file gets once, when standard error's reader has gone.
+// The target prefix of the daemon's own crates, whose info lines the log keeps.
+const OWN_CRATES_TARGET_PREFIX: &str = "sidekicks_";
+
+// The line the file gets once, when standard error fails.
 const STANDARD_ERROR_GONE_NOTICE: &str =
-    "Standard error's reader is gone, so the service log goes to its file alone from here";
+    "Standard error failed, so the service log goes to its file alone from here";
+
+// The line standard error gets once, when the file fails.
+const FILE_GONE_NOTICE: &str =
+    "The service log file failed, so the service log goes to standard error alone from here";
 
 /// The service log built and not yet installed: `main` installs it with [`ServiceLog::install`]
 /// before anything else logs.
 pub struct ServiceLog {
     dispatch: Dispatch,
-    file: Result<ServiceLogFile, ServiceLogFileError>,
+    sides: Arc<ServiceLogSides>,
+    file_handle: Option<FileLogWriterHandle>,
+    open_failure: Option<ServiceLogFileError>,
 }
 
 /// What `main` keeps for the daemon's life once the service log is installed: dropping it shuts the
 /// file writer down.
 pub struct ServiceLogGuard {
-    file: Option<ServiceLogFile>,
+    file_writer: Option<ArcFileLogWriter>,
+    files: ServiceLogFiles,
+    _file_handle: Option<FileLogWriterHandle>,
 }
 
-// The open file writer and the handle whose drop shuts it down.
-struct ServiceLogFile {
-    writer: ArcFileLogWriter,
-    _handle: FileLogWriterHandle,
+/// A view of the service log's files, for the diagnostic-log expiry.
+#[derive(Clone)]
+pub struct ServiceLogFiles {
+    sides: Arc<ServiceLogSides>,
 }
 
-/// Why the service log file could not be opened, so the log goes to standard error alone.
+/// Why the service log file could not be opened at start, so the log goes to standard error alone.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ServiceLogFileError {
     /// The `logs/` folder could not be made, or made private.
@@ -77,14 +92,23 @@ pub(crate) enum ServiceLogFileError {
         #[source]
         source: io::Error,
     },
-    /// The first file in the folder could not be opened.
-    #[error("the service log file in {} could not be opened", .folder.display())]
-    File {
+    /// The file writer could not be built over the folder.
+    #[error("the service log writer for {} could not be built", .folder.display())]
+    Writer {
         /// The `logs/` folder.
         folder: PathBuf,
         /// The file writer's failure.
         #[source]
         source: FlexiLoggerError,
+    },
+    /// The first file in the folder could not be opened, or not found once opened.
+    #[error("the first service log file in {} could not be opened", .folder.display())]
+    Open {
+        /// The `logs/` folder.
+        folder: PathBuf,
+        /// The failure opening it.
+        #[source]
+        source: io::Error,
     },
 }
 
@@ -94,32 +118,52 @@ impl ServiceLog {
     /// logger is already installed.
     pub fn install(self) -> Result<ServiceLogGuard, TryInitError> {
         self.dispatch.try_init()?;
-        let file = match self.file {
-            Ok(file) => Some(file),
-            Err(failure) => {
-                tracing::warn!(
-                    error = &failure as &(dyn Error + 'static),
-                    "The service log file could not be opened, so the service log goes to \
-                     standard error alone from here"
-                );
-                None
-            }
-        };
-        Ok(ServiceLogGuard { file })
+        if let Some(failure) = &self.open_failure {
+            tracing::warn!(
+                error = failure as &(dyn Error + 'static),
+                "The service log file could not be opened, so the service log goes to standard \
+                 error alone from here"
+            );
+        }
+        let file_writer = self
+            .sides
+            .file
+            .as_ref()
+            .map(|file| lock(file).writer.clone());
+        Ok(ServiceLogGuard {
+            file_writer,
+            files: ServiceLogFiles { sides: self.sides },
+            _file_handle: self.file_handle,
+        })
     }
 }
 
 impl ServiceLogGuard {
-    /// A handle on the service log file's writer, for the panic hook to flush before the process
-    /// ends; `None` when the file could not be opened.
+    /// A handle on the service log file's writer, taken at install so the panic hook can flush it
+    /// without waiting on the log's own lock; `None` when the file could not be opened.
     pub fn file_writer(&self) -> Option<ArcFileLogWriter> {
-        self.file.as_ref().map(|file| file.writer.clone())
+        self.file_writer.clone()
+    }
+
+    /// The service log's files, for the diagnostic-log expiry.
+    pub fn files(&self) -> ServiceLogFiles {
+        self.files.clone()
+    }
+}
+
+impl ServiceLogFiles {
+    /// The file the service log holds open now, which the expiry never deletes; `None` once the
+    /// file has failed or when it never opened.
+    pub(crate) fn live_file(&self) -> Option<PathBuf> {
+        let file = lock(self.sides.file.as_ref()?);
+        file.is_open.then(|| file.live_file.clone())
     }
 }
 
 /// Builds the service log over `data_folder`'s `logs/`, which `create_private_folder` makes, with
-/// its parents, readable by the person alone. Never fails: a folder or file that cannot be opened
-/// leaves `standard_error` alone carrying the log, which [`ServiceLog::install`] says once.
+/// its parents, readable by the person alone, and opens its first file. Never fails: a folder or
+/// file that cannot be opened leaves `standard_error` alone carrying the log, which
+/// [`ServiceLog::install`] says once.
 pub fn open_service_log<StandardError>(
     data_folder: &Path,
     standard_error: StandardError,
@@ -129,20 +173,23 @@ where
     StandardError: Write + Send + 'static,
 {
     let folder = service_log_folder(data_folder);
-    match open_service_log_file(&folder, create_private_folder) {
-        Ok(file) => {
-            let file_for_lines = file.writer.clone();
-            let file_for_notice = file.writer.clone();
-            let standard_error = StandardErrorWriter::new(standard_error, Some(file_for_notice));
-            ServiceLog {
-                dispatch: service_log_dispatch(standard_error.and(move || file_for_lines.clone())),
-                file: Ok(file),
-            }
-        }
-        Err(failure) => ServiceLog {
-            dispatch: service_log_dispatch(StandardErrorWriter::new(standard_error, None)),
-            file: Err(failure),
-        },
+    let (file, file_handle, open_failure) =
+        match open_service_log_file(&folder, create_private_folder) {
+            Ok((file, handle)) => (Some(Mutex::new(file)), Some(handle), None),
+            Err(failure) => (None, None, Some(failure)),
+        };
+    let sides = Arc::new(ServiceLogSides {
+        standard_error: Mutex::new(StandardErrorSide {
+            writer: Box::new(standard_error),
+            is_open: true,
+        }),
+        file,
+    });
+    ServiceLog {
+        dispatch: service_log_dispatch(Arc::clone(&sides)),
+        sides,
+        file_handle,
+        open_failure,
     }
 }
 
@@ -171,15 +218,22 @@ fn fits_template(name: &[u8], template: &[u8]) -> bool {
         })
 }
 
+// Makes the folder, builds the file writer and opens the first file, so a file that cannot be
+// opened is known at start rather than at the first line.
 fn open_service_log_file(
     folder: &Path,
     create_private_folder: fn(&Path) -> io::Result<()>,
-) -> Result<ServiceLogFile, ServiceLogFileError> {
+) -> Result<(FileSide, FileLogWriterHandle), ServiceLogFileError> {
+    let open_failure = |source| ServiceLogFileError::Open {
+        folder: folder.to_path_buf(),
+        source,
+    };
     create_private_folder(folder).map_err(|source| ServiceLogFileError::Folder {
         folder: folder.to_path_buf(),
         source,
     })?;
-    let (writer, handle) = FileLogWriter::builder(
+    let names_before = service_log_file_names(folder).map_err(open_failure)?;
+    let (mut writer, handle) = FileLogWriter::builder(
         FileSpec::default()
             .directory(folder)
             .suppress_basename()
@@ -187,7 +241,9 @@ fn open_service_log_file(
             .suffix("log"),
     )
     .rotate(
-        Criterion::AgeOrSize(Age::Day, SERVICE_LOG_FILE_BYTE_CEILING),
+        // Past reach: the file side below turns the file itself, so a failed turn is said once
+        // rather than retried and printed on every later line.
+        Criterion::Size(u64::MAX),
         Naming::TimestampsCustomFormat {
             current_infix: None,
             format: SERVICE_LOG_FILE_NAME_FORMAT,
@@ -196,120 +252,253 @@ fn open_service_log_file(
         Cleanup::Never,
     )
     .try_build_with_handle()
-    .map_err(|source| ServiceLogFileError::File {
+    .map_err(|source| ServiceLogFileError::Writer {
         folder: folder.to_path_buf(),
         source,
     })?;
-    Ok(ServiceLogFile {
+    // The writer opens its file at its first write; `write_all` skips an empty one.
+    let _empty_write_count = Write::write(&mut writer, &[]).map_err(open_failure)?;
+    let live_file = newest_added_file(folder, &names_before).map_err(open_failure)?;
+    let next_day_at =
+        next_local_midnight().map_err(|failure| open_failure(io::Error::other(failure)))?;
+    let file = FileSide {
         writer,
-        _handle: handle,
-    })
+        folder: folder.to_path_buf(),
+        live_file,
+        next_day_at,
+        byte_count: 0,
+        is_open: true,
+    };
+    Ok((file, handle))
 }
 
-// One fmt layer, built with `fmt::layer()`, whose failed writes are dropped rather than printed:
-// the `fmt()` builder prints them with `eprintln!`, which panics on a closed standard error. Lines
-// below info, which libraries write in bulk, are left out.
-fn service_log_dispatch<Writers>(writers: Writers) -> Dispatch
-where
-    Writers: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
-{
+// One fmt layer, built with `fmt::layer()`, which drops a failed write rather than printing it as
+// the `fmt()` builder does with `eprintln!`; the writer itself never fails. The daemon's own crates
+// keep info lines; every other crate, whose info lines come in bulk, keeps warn and error.
+fn service_log_dispatch(sides: Arc<ServiceLogSides>) -> Dispatch {
+    let filter = Targets::new()
+        .with_target(OWN_CRATES_TARGET_PREFIX, LevelFilter::INFO)
+        .with_default(LevelFilter::WARN);
     Dispatch::new(
-        tracing_subscriber::registry().with(LevelFilter::INFO).with(
+        tracing_subscriber::registry().with(filter).with(
             tracing_subscriber::fmt::layer()
                 .with_ansi(false)
-                .with_writer(writers),
+                .with_writer(ServiceLogWriter(sides)),
         ),
     )
 }
 
-// Standard error for the service log. At its first `BrokenPipe` it stops writing there and writes
-// the one notice to the file; from then on it takes every line and writes none, so the file side
-// beside it keeps writing.
-struct StandardErrorWriter<StandardError> {
-    standard_error: Mutex<StandardError>,
-    is_open: AtomicBool,
-    file: Option<ArcFileLogWriter>,
+// Both sides of the log, each behind its own lock; neither lock is held while the other is taken.
+struct ServiceLogSides {
+    standard_error: Mutex<StandardErrorSide>,
+    file: Option<Mutex<FileSide>>,
 }
 
-impl<StandardError: Write> StandardErrorWriter<StandardError> {
-    fn new(standard_error: StandardError, file: Option<ArcFileLogWriter>) -> Self {
-        Self {
-            standard_error: Mutex::new(standard_error),
-            is_open: AtomicBool::new(true),
-            file,
-        }
+struct StandardErrorSide {
+    writer: Box<dyn Write + Send>,
+    is_open: bool,
+}
+
+// The file side: the file writer, the file it holds open, and when it turns next.
+struct FileSide {
+    writer: ArcFileLogWriter,
+    folder: PathBuf,
+    live_file: PathBuf,
+    // The next local midnight, when the next file is begun.
+    next_day_at: Timestamp,
+    byte_count: u64,
+    is_open: bool,
+}
+
+fn lock<Side>(side: &Mutex<Side>) -> MutexGuard<'_, Side> {
+    side.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl ServiceLogSides {
+    fn write_line(&self, line: &[u8]) {
+        self.write_standard_error(line);
+        self.write_file(line);
     }
 
-    fn lock_standard_error(&self) -> MutexGuard<'_, StandardError> {
-        self.standard_error
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+    // Writes to standard error while it is open. A failure closes it and says so once in the file.
+    fn write_standard_error(&self, bytes: &[u8]) {
+        let failure = {
+            let mut standard_error = lock(&self.standard_error);
+            if !standard_error.is_open {
+                return;
+            }
+            // `write_all` retries an interrupted write itself, so any failure here is final.
+            match standard_error.writer.write_all(bytes) {
+                Ok(()) => return,
+                Err(failure) => {
+                    standard_error.is_open = false;
+                    failure
+                }
+            }
+        };
+        self.write_file(notice_line(STANDARD_ERROR_GONE_NOTICE, &failure).as_bytes());
     }
 
-    // Marks standard error closed and, the first time only, writes the notice to the file in the
-    // shape the fmt layer gives a line.
-    fn close(&self, failure: &io::Error) -> io::Result<()> {
-        if !self.is_open.swap(false, Ordering::AcqRel) {
-            return Ok(());
+    // Writes to the file while it is open, turning it first when due. A failure closes it and says
+    // so once on standard error.
+    fn write_file(&self, bytes: &[u8]) {
+        let Some(file) = &self.file else {
+            return;
+        };
+        let failure = {
+            let mut file = lock(file);
+            if !file.is_open {
+                return;
+            }
+            match file.write_line(bytes) {
+                Ok(()) => return,
+                Err(failure) => {
+                    file.is_open = false;
+                    failure
+                }
+            }
+        };
+        self.write_standard_error(notice_line(FILE_GONE_NOTICE, &failure).as_bytes());
+    }
+
+    fn flush(&self) {
+        let standard_error_failure = {
+            let mut standard_error = lock(&self.standard_error);
+            match standard_error.writer.flush() {
+                Ok(()) => None,
+                Err(failure) if failure.kind() == io::ErrorKind::Interrupted => None,
+                Err(failure) => standard_error.is_open.then(|| {
+                    standard_error.is_open = false;
+                    failure
+                }),
+            }
+        };
+        if let Some(failure) = standard_error_failure {
+            self.write_file(notice_line(STANDARD_ERROR_GONE_NOTICE, &failure).as_bytes());
         }
         let Some(file) = &self.file else {
-            return Ok(());
+            return;
         };
-        let notice = format!(
-            "{}  WARN {}: {STANDARD_ERROR_GONE_NOTICE} error={failure}\n",
-            jiff::Timestamp::now().strftime("%Y-%m-%dT%H:%M:%S%.6fZ"),
-            module_path!(),
-        );
-        file.clone().write_all(notice.as_bytes())
+        let file_failure = {
+            let mut file = lock(file);
+            if !file.is_open {
+                return;
+            }
+            file.writer.flush().err().inspect(|_| file.is_open = false)
+        };
+        if let Some(failure) = file_failure {
+            self.write_standard_error(notice_line(FILE_GONE_NOTICE, &failure).as_bytes());
+        }
     }
 }
 
-impl<'writer, StandardError: Write + 'writer> MakeWriter<'writer>
-    for StandardErrorWriter<StandardError>
-{
-    type Writer = &'writer Self;
+impl FileSide {
+    // Turns the file when the local day has turned or the line would take it past the ceiling,
+    // then writes the whole line.
+    fn write_line(&mut self, line: &[u8]) -> io::Result<()> {
+        let line_length = u64::try_from(line.len()).unwrap_or(u64::MAX);
+        let is_full = self.byte_count > 0
+            && self.byte_count.saturating_add(line_length) > SERVICE_LOG_FILE_BYTE_CEILING;
+        if is_full || Timestamp::now() >= self.next_day_at {
+            self.turn()?;
+        }
+        self.writer.write_all(line)?;
+        self.byte_count = self.byte_count.saturating_add(line_length);
+        Ok(())
+    }
+
+    // Begins the next file and learns its name.
+    fn turn(&mut self) -> io::Result<()> {
+        let names_before = service_log_file_names(&self.folder)?;
+        self.writer.rotate().map_err(io::Error::other)?;
+        self.live_file = newest_added_file(&self.folder, &names_before)?;
+        self.next_day_at = next_local_midnight().map_err(io::Error::other)?;
+        self.byte_count = 0;
+        Ok(())
+    }
+}
+
+// The file just begun in `folder`: the newest name not listed before, or, when a start's clock was
+// set back onto an existing name, the newest name of all.
+fn newest_added_file(folder: &Path, names_before: &HashSet<String>) -> io::Result<PathBuf> {
+    let names = service_log_file_names(folder)?;
+    let newest = names
+        .iter()
+        .filter(|name| !names_before.contains(*name))
+        .max()
+        .or_else(|| names.iter().max())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "no service log file is in the folder after opening one",
+            )
+        })?;
+    Ok(folder.join(newest))
+}
+
+fn service_log_file_names(folder: &Path) -> io::Result<HashSet<String>> {
+    let mut names = HashSet::new();
+    for entry in std::fs::read_dir(folder)? {
+        // A name that is not UTF-8 is no service log file's.
+        if let Ok(name) = entry?.file_name().into_string()
+            && is_service_log_file_name(&name)
+        {
+            names.insert(name);
+        }
+    }
+    Ok(names)
+}
+
+fn next_local_midnight() -> Result<Timestamp, jiff::Error> {
+    Ok(Zoned::now().tomorrow()?.start_of_day()?.timestamp())
+}
+
+// A notice in the shape the fmt layer gives a line, written straight to the other side, since an
+// event from inside the writer would come back into it.
+fn notice_line(notice: &str, failure: &io::Error) -> String {
+    format!(
+        "{}  WARN {}: {notice} error={failure}\n",
+        Timestamp::now().strftime("%Y-%m-%dT%H:%M:%S%.6fZ"),
+        module_path!(),
+    )
+}
+
+// The fmt layer's writer: one line goes to both sides whole, and the writer never fails.
+struct ServiceLogWriter(Arc<ServiceLogSides>);
+
+impl<'writer> MakeWriter<'writer> for ServiceLogWriter {
+    type Writer = &'writer ServiceLogSides;
 
     fn make_writer(&'writer self) -> Self::Writer {
-        self
+        &self.0
     }
 }
 
-impl<StandardError: Write> Write for &StandardErrorWriter<StandardError> {
+impl Write for &ServiceLogSides {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        if !self.is_open.load(Ordering::Acquire) {
-            return Ok(buffer.len());
-        }
-        let written = self.lock_standard_error().write(buffer);
-        match written {
-            Ok(count) => Ok(count),
-            Err(failure) if failure.kind() == io::ErrorKind::BrokenPipe => {
-                self.close(&failure)?;
-                Ok(buffer.len())
-            }
-            Err(failure) => Err(failure),
-        }
+        self.write_line(buffer);
+        Ok(buffer.len())
+    }
+
+    fn write_all(&mut self, buffer: &[u8]) -> io::Result<()> {
+        self.write_line(buffer);
+        Ok(())
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        if !self.is_open.load(Ordering::Acquire) {
-            return Ok(());
-        }
-        let flushed = self.lock_standard_error().flush();
-        match flushed {
-            Ok(()) => Ok(()),
-            Err(failure) if failure.kind() == io::ErrorKind::BrokenPipe => self.close(&failure),
-            Err(failure) => Err(failure),
-        }
+        ServiceLogSides::flush(self);
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::{self, Write};
+    use std::io;
     use std::path::Path;
 
     use super::{
-        STANDARD_ERROR_GONE_NOTICE, is_service_log_file_name, open_service_log, service_log_folder,
+        STANDARD_ERROR_GONE_NOTICE, ServiceLogFiles, is_service_log_file_name, open_service_log,
+        service_log_folder,
     };
 
     fn create_folder(folder: &Path) -> io::Result<()> {
@@ -323,18 +512,13 @@ mod tests {
         // With the reader gone, each write to the pipe fails with `BrokenPipe`.
         drop(reader);
         let service_log = open_service_log(data_folder.path(), writer, create_folder);
-        let mut file = service_log
-            .file
-            .as_ref()
-            .expect("the file opens")
-            .writer
-            .clone();
+        assert!(service_log.open_failure.is_none());
 
         tracing::dispatcher::with_default(&service_log.dispatch, || {
             tracing::info!(reading = "processor", "the first line");
             tracing::info!(reading = "memory", "the second line");
         });
-        file.flush().expect("the file flushes");
+        service_log.sides.flush();
 
         let entries = std::fs::read_dir(service_log_folder(data_folder.path()))
             .expect("the logs folder lists")
@@ -345,6 +529,10 @@ mod tests {
         assert!(is_service_log_file_name(
             file_name.to_str().expect("an ASCII file name")
         ));
+        let files = ServiceLogFiles {
+            sides: service_log.sides.clone(),
+        };
+        assert_eq!(files.live_file(), Some(entries[0].path()));
         let text = std::fs::read_to_string(entries[0].path()).expect("the file reads");
         assert!(text.contains("the first line reading=\"processor\""));
         assert!(text.contains("the second line reading=\"memory\""));

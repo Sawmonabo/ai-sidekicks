@@ -1,10 +1,11 @@
 //! The diagnostic-log expiry: each pass deletes whole every service log file last written longer
-//! ago than the bound, so a log is kept as long as its newest line is young enough. The newest file
-//! by name, the one being written, is never deleted, and a file in the folder that is no service
-//! log file is never touched. A file that cannot be read or deleted is told in the service log and
+//! ago than the bound, so a log is kept as long as its newest line is young enough. The file the
+//! service log holds open is never deleted, and a file in the folder that is no service log file
+//! is never touched. A file that cannot be read or deleted is told in the service log and
 //! the pass goes on.
 
 use std::error::Error;
+use std::ffi::OsStr;
 use std::io;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
@@ -15,10 +16,15 @@ use crate::daemon::service_log::is_service_log_file_name;
 pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 /// Deletes each service log file in `logs_folder` last written before `now` less `keep`, except
-/// the newest by name. Never fails: a missing folder or file is skipped, and any other failure is
-/// written to the service log and the pass goes on.
-pub(crate) async fn expire_diagnostic_logs(logs_folder: &Path, keep: Duration, now: SystemTime) {
-    let mut names = match list_service_log_names(logs_folder).await {
+/// `live_file`, the one the service log holds open. Never fails: a missing folder or file is
+/// skipped, and any other failure is written to the service log and the pass goes on.
+pub(crate) async fn expire_diagnostic_logs(
+    logs_folder: &Path,
+    live_file: Option<&Path>,
+    keep: Duration,
+    now: SystemTime,
+) {
+    let names = match list_service_log_names(logs_folder).await {
         Ok(names) => names,
         Err(failure) if failure.kind() == io::ErrorKind::NotFound => return,
         Err(failure) => {
@@ -30,13 +36,15 @@ pub(crate) async fn expire_diagnostic_logs(logs_folder: &Path, keep: Duration, n
             return;
         }
     };
-    // Names sort by the time each file was begun, so the last is the file being written.
-    names.sort_unstable();
-    names.pop();
     let Some(cutoff) = now.checked_sub(keep) else {
         return;
     };
+    // Compared by name, so the folder may be spelled differently by the caller and the log.
+    let live_file_name = live_file.and_then(Path::file_name);
     for name in names {
+        if live_file_name == Some(OsStr::new(&name)) {
+            continue;
+        }
         let path = logs_folder.join(name);
         // A file deleted since the listing is already gone.
         if let Err(failure) = delete_if_written_before(&path, cutoff).await

@@ -2,11 +2,12 @@
 //! daemon's own process, its terminals, its providers and whatever they started.
 
 use std::collections::{HashMap, HashSet};
-use std::io;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+
+use crate::processor_bound::processor_count;
 
 /// One reading over a process and every process under it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -23,9 +24,6 @@ pub(crate) enum ProcessTreeUsageError {
     /// The blocking task that reads the tree ended before it gave a reading.
     #[error("the process tree reading ended before it finished")]
     Interrupted(#[source] tokio::task::JoinError),
-    /// The machine's processor count could not be read.
-    #[error("the processor count could not be read")]
-    ProcessorCount(#[source] io::Error),
 }
 
 /// Reads a process tree's processor and memory use when asked, each process's processor share
@@ -61,7 +59,7 @@ impl ProcessTreeUsageReader {
     }
 
     /// Reads `root_pid` and every process under it on a blocking thread. Fails when that thread
-    /// ends early or the processor count cannot be read.
+    /// ends early.
     pub(crate) async fn read(
         &self,
         root_pid: u32,
@@ -74,14 +72,12 @@ impl ProcessTreeUsageReader {
                 .read(Pid::from_u32(root_pid))
         })
         .await
-        .map_err(ProcessTreeUsageError::Interrupted)?
+        .map_err(ProcessTreeUsageError::Interrupted)
     }
 }
 
 impl ReaderState {
-    fn read(&mut self, root: Pid) -> Result<ProcessTreeUsage, ProcessTreeUsageError> {
-        let processor_count =
-            std::thread::available_parallelism().map_err(ProcessTreeUsageError::ProcessorCount)?;
+    fn read(&mut self, root: Pid) -> ProcessTreeUsage {
         // Pids and parents only, to find the tree; then processor and memory for the tree alone.
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::All,
@@ -119,11 +115,11 @@ impl ReaderState {
         self.last_readings = readings;
         // Each share is of one core, so the sum is divided over every core the machine has; no
         // machine has more cores than a `u32` counts.
-        let core_count = f64::from(u32::try_from(processor_count.get()).unwrap_or(u32::MAX));
-        Ok(ProcessTreeUsage {
+        let core_count = f64::from(u32::try_from(processor_count()).unwrap_or(u32::MAX));
+        ProcessTreeUsage {
             processor_percent: (core_percent / core_count).min(100.0),
             resident_bytes,
-        })
+        }
     }
 
     // `root` and every process whose parent chain reaches it.

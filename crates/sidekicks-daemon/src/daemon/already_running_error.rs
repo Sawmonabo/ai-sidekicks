@@ -26,7 +26,7 @@ impl Display for HeldPlace {
 /// A start's refusal because another daemon already holds `held_place`; `source` is the failure
 /// that showed it, when one did.
 #[derive(Debug, thiserror::Error)]
-#[error("Another daemon already holds {held_place}")]
+#[error("another daemon already holds {held_place}")]
 pub(crate) struct DaemonAlreadyRunningError {
     /// What the other daemon holds.
     pub(crate) held_place: HeldPlace,
