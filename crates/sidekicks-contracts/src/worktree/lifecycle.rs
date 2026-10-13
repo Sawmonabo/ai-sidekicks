@@ -100,8 +100,9 @@ lifecycle_payload! {
 /// `repo.executionRootPrepare`: the workspace and its branch, which makes the root for the
 /// workspace's execution mode before a run starts. It carries no run id: the daemon supplies it, so
 /// a caller cannot forge run provenance.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ExecutionRootPrepareRequest {
     /// The workspace.
     pub workspace_id: WorkspaceId,
@@ -158,8 +159,9 @@ pub struct ExecutionRootPrepareResponse {
 /// did not show, and is refused with the current risks when the tree changed since they were
 /// read. `discard: true` comes only from the discard confirm, and the daemon keeps the tree whole
 /// instead of deleting it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorktreeRetireRequest {
     /// The worktree.
     pub worktree_id: WorktreeId,
@@ -359,8 +361,9 @@ worktree_status_record! {
 
 /// `repo.worktreeStatusRead`: the project whose worktrees are listed, and the session asking, when
 /// one is, so the read also answers the new-worktree form's suggestion for it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorktreeStatusReadRequest {
     /// The project.
     pub project_id: ProjectId,

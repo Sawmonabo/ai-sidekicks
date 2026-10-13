@@ -656,18 +656,21 @@ pub struct MachineSettingsReading {
 }
 
 /// `daemon.machineSettingsRead` takes nothing.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct MachineSettingsReadRequest {}
 
 /// `daemon.machineSettingsSubscribe` takes nothing: there is one file per machine.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct MachineSettingsSubscribeRequest {}
 
 /// `daemon.machineSettingsUpdate`: the one change to write.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct MachineSettingsUpdateRequest {
     /// The change.
     pub change: MachineSettingsChange,

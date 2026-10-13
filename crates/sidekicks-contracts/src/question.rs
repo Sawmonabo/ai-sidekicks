@@ -287,8 +287,9 @@ pub enum QuestionAnswer {
 
 /// `question.resolve`: every answer at once, one per question in the record's own order. The
 /// daemon refuses a list that does not answer every question rather than applying half of it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct QuestionResolveRequest {
     /// The question.
     pub question_id: QuestionId,

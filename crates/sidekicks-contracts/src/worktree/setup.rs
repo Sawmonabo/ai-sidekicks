@@ -111,8 +111,9 @@ pub struct WorktreeSetupStatus {
 
 /// `repo.worktreeSetupSubscribe` and `repo.worktreeSetupRetry`: the tree whose setup a card follows
 /// or retries. A retry runs the failed step and the ones after it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorktreeSetupRequest {
     /// The tree.
     pub worktree_id: WorktreeId,

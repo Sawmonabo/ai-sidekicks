@@ -75,8 +75,9 @@ pub struct RunningCommand {
 }
 
 /// `command.list`: the session whose running commands the subscription follows.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CommandListSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
@@ -117,8 +118,9 @@ pub enum CommandListFrame {
 
 /// `command.stop`: stops one running command. The agent receives one short message naming it,
 /// never a bare failure; `Stop all commands` sends this once per running command.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CommandStopRequest {
     /// The session.
     pub session_id: SessionId,
@@ -139,8 +141,9 @@ pub struct CommandStopResponse {
 /// `command.background`: moves a command the agent is waiting on to the background, so the agent's
 /// turn continues and the command's output streams into its row. Only one provider has this act;
 /// on the other the control does not exist.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CommandBackgroundRequest {
     /// The session.
     pub session_id: SessionId,

@@ -120,8 +120,9 @@ pub struct DaemonConfig {
 
 /// `daemon.configUpdate`: exactly one setting, as `{"<setting>": value}`; a nullable setting's
 /// `null` clears it.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub enum DaemonConfigUpdateRequest {
     /// The port a workflow started by a web request listens on.
     WorkflowListenerPort(Port),
@@ -184,8 +185,11 @@ pub enum PackageCacheClearTarget {
 
 /// `daemon.packageCacheClear`. A clear waits for the installs using that cache, never removes a
 /// step already installed, and answers with the new reading.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DaemonPackageCacheClearRequest {
     /// The cache to empty.
     pub cache: PackageCacheClearTarget,

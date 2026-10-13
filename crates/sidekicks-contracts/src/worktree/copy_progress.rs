@@ -13,8 +13,9 @@ use crate::wire::text::FreeFormText;
 use crate::worktree::lifecycle::{RemovedWorktreeId, WorktreeId};
 
 /// `repo.worktreeCopySubscribe`: one project's copies under way, or every project's.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorktreeCopySubscribeRequest {
     /// The project; absent follows every project.
     #[serde(

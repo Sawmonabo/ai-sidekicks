@@ -502,8 +502,9 @@ pub struct ProviderAccountUsageWindow {
 }
 
 /// The request of `providerAccount.list`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderAccountListRequest {
     /// The provider to read, or every one.
     #[serde(

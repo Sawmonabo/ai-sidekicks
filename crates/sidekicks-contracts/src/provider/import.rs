@@ -39,8 +39,11 @@ branded_text! {
 }
 
 /// A request naming the provider whose conversations are imported.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderImportProviderRequest {
     /// The provider.
     pub provider: ProviderName,
@@ -148,8 +151,9 @@ pub enum ProviderImportProgress {
 
 /// Stop one import. The conversations already read stay in the sessions list, and the stopped
 /// outcome arrives on the provider's stream; stopping a settled import changes nothing.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderImportStopRequest {
     /// The import.
     pub import_id: ProviderImportId,

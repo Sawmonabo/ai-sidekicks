@@ -160,8 +160,9 @@ pub struct TokenResupply {
 /// Registers an account, or re-supplies the token of an existing one. Its name follows the
 /// token: a pasted token's new account must be named, a signed-in one is named by its provider,
 /// and an `accountId` with nothing to supply is refused.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
+#[garde(allow_unvalidated)]
 pub enum ProviderAccountRegisterRequest {
     /// A signed-in account.
     SignIn(SignInRegistration),
@@ -191,8 +192,9 @@ pub struct ProviderAccountCredentialSealRefusedDetails {
 /// Rebuilds an account's credential home from empty so the person can sign in again. It raises
 /// the credential generation; the identity and stored quota readings survive, and the stored
 /// health is dropped, so the reply carries the new one.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderAccountResetCredentialHomeRequest {
     /// The account.
     pub account_id: ProviderAccountId,
@@ -211,8 +213,9 @@ pub struct ProviderAccountResetCredentialHomeResponse {
 }
 
 /// Starts the provider's own interactive sign-in into this account's home.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderAccountLoginRequest {
     /// The account.
     pub account_id: ProviderAccountId,
@@ -249,8 +252,9 @@ pub struct ProviderAccountLoginResponse {
 }
 
 /// Cancels one sign-in attempt by the id its login reply returned.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderAccountLoginCancelRequest {
     /// The attempt.
     pub attempt_id: FreeFormText<PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN>,

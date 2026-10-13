@@ -203,8 +203,9 @@ pub enum CloudWork {
 /// `cloud.taskStart`: sends one message to the session's provider's cloud instead of to the
 /// agent. `environment` and `attempts` belong to a task with attempts: the environment's label and
 /// how many attempts to run.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CloudTaskStartRequest {
     /// The session.
     pub session_id: SessionId,
@@ -237,8 +238,9 @@ pub struct CloudTaskStartResponse {
 }
 
 /// `cloud.taskList`: the session whose cloud work the subscription follows.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CloudTaskListRequest {
     /// The session.
     pub session_id: SessionId,
@@ -256,8 +258,9 @@ pub struct CloudTaskListFrame {
 }
 
 /// `cloud.taskRead`: the cloud work to read.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CloudTaskReadRequest {
     /// The work.
     pub task_id: CloudTaskId,
@@ -265,8 +268,9 @@ pub struct CloudTaskReadRequest {
 
 /// `cloud.taskDiffRead` and `cloud.taskApply`: one task's attempt, `attempt` picking one of a
 /// task's several; for `cloud.taskApply` on a cloud session, the session to pull back.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CloudTaskAttemptRequest {
     /// The work.
     pub task_id: CloudTaskId,

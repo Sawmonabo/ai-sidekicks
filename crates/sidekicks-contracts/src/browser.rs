@@ -64,8 +64,9 @@ impl JsonSchema for SiteOrigin {
 
 /// Settings › Browser's list read, its clear-all and the Chromium methods: machine-wide, so they
 /// name nothing.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct BrowserMachineRequest {}
 
 /// One site holding saved data. `hasCookies` is true while it holds at least one unexpired cookie,
@@ -97,8 +98,9 @@ pub struct BrowserSiteDataListResponse {
 }
 
 /// Names one site: sign in to it, clear its cookies, or forget it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct BrowserSiteRequest {
     /// The site.
     pub origin: SiteOrigin,

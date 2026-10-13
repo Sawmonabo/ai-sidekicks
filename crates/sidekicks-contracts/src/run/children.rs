@@ -22,8 +22,9 @@ use crate::wire::{False, Never, True};
 /// Sends a message onto one child's own queue (`run.childSteer`), where it waits for the child's
 /// next step as a pending row the lead's queue verbs reach with `child_handle`. It answers as
 /// `run.queueCreate` does.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ChildSteerRequest {
     /// The run the child belongs to.
     pub target_run_id: RunId,
@@ -48,8 +49,9 @@ pub struct ChildSteerRequest {
 
 /// Interrupts one child, and only that child (`run.childInterrupt`); its pending messages go as
 /// its next turn, with `deliver_first`, the row `Send now` was pressed on, ahead of the rest.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ChildInterruptRequest {
     /// The run the child belongs to.
     pub target_run_id: RunId,
@@ -81,8 +83,9 @@ pub struct ChildInterruptResponse {
 }
 
 /// Pauses one child (`paused: true`) or continues it (`paused: false`) (`run.childPauseSet`).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ChildPauseSetRequest {
     /// The run the child belongs to.
     pub target_run_id: RunId,
@@ -147,8 +150,9 @@ pub enum ChildPauseSetResponse {
 
 /// Stops every running child of a run at every depth (`run.childrenStop`): the daemon walks its
 /// own index, one stop per child, never relayed through the lead.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ChildrenStopRequest {
     /// The run whose children to stop.
     pub run_id: RunId,

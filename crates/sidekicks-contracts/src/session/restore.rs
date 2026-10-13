@@ -33,8 +33,9 @@ branded_text! {
 type RestorePath = BoundedText<1, FILE_PATH_MAX_LEN>;
 
 /// Asks for a session's snapshots. A chat session has none.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionSnapshotListRequest {
     /// The session.
     pub session_id: SessionId,
@@ -182,8 +183,9 @@ pub struct SessionRestoreAlsoChanged {
 }
 
 /// Asks what an undo would do, and changes nothing.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionRestorePreviewRequest {
     /// The session.
     pub session_id: SessionId,

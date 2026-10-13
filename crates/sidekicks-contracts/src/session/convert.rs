@@ -18,8 +18,9 @@ use crate::wire::text::{BoundedText, FreeFormText, pattern_text};
 /// Converts a chat to a project. `path` is the folder the person typed; it travels as data and the
 /// daemon checks it, reusing the machine's mount for that folder or attaching one, and refusing a
 /// folder that is not a git repository.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionConvertRequest {
     /// The chat.
     pub session_id: SessionId,
@@ -101,8 +102,9 @@ pub type SessionConvertSkippedFileLimit =
 
 /// The `session.convertSkippedFileList` input: the converted session and, past the first page,
 /// the previous page's `nextCursor`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionConvertSkippedFileListRequest {
     /// The session.
     pub session_id: SessionId,

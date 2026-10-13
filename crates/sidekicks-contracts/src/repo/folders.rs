@@ -77,8 +77,9 @@ pub struct RepoMountListEntry {
 }
 
 /// `repo.mountList` takes nothing: it lists every folder the service can reach.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoMountListRequest {}
 
 /// The `repo.mountList` result.
@@ -91,8 +92,9 @@ pub struct RepoMountListResponse {
 
 /// `repo.folderList`: the folder to show (the service account's home folder when absent), the text
 /// that narrows its folders, and whether hidden folders are listed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoFolderListRequest {
     /// The folder to show.
     #[serde(
@@ -162,8 +164,9 @@ pub struct RepoFolderListResponse {
 /// returned or, from another device, a folder `repo.folderList` showed. The path is kept as
 /// entered; absoluteness, traversal and existence are the resolver's to refuse, and a path that is
 /// not a git repository is refused.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoAttachRequest {
     /// The path as entered.
     pub local_path: FolderPath,
@@ -184,8 +187,9 @@ pub struct RepoAttachResponse {
 }
 
 /// `repo.mountRead`, `repo.detach` and `repo.mountReattach`: the mount to act on.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoMountRequest {
     /// The mount.
     pub repo_mount_id: RepoMountId,

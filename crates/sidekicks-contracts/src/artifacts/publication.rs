@@ -18,8 +18,9 @@ use crate::wire::text::NonEmptyText;
 /// Publishes one artifact in a single call. The daemon hashes the payload's bytes, so the digest
 /// and size are never the caller's to declare, and it reads the recorded type from the bytes. A
 /// client's `file` is refused: a file comes in through ingest.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ArtifactPublishRequest {
     /// The session the artifact belongs to.
     pub session_id: SessionId,

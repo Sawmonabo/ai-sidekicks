@@ -20,8 +20,9 @@ branded_text! {
 }
 
 /// The run whose current turn a `turn.*` subscription follows.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct TurnSubscribeRequest {
     /// The session.
     pub session_id: SessionId,

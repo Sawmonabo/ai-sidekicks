@@ -23,8 +23,9 @@ const DNS_NAME_MAX_LEN: usize = 253;
 /// The service's registration at each start: the machine's id, identity key, own name, platform
 /// and the service's version. The control plane accepts it only for the key enrolled at sign-in,
 /// and refreshes that machine's row.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RuntimeNodeRegisterRequest {
     /// The machine.
     pub node_id: NodeId,
@@ -39,19 +40,23 @@ pub struct RuntimeNodeRegisterRequest {
 }
 
 /// A rename, as the `runtimenode.renamed` statement a trusted key signs.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RuntimeNodeRenameRequest {
     /// The signed statement.
+    #[garde(dive)]
     pub statement: RuntimeNodeRenamedStatement,
 }
 
 /// A removal, as the `runtimenode.removed` statement a trusted key signs. The machine comes back
 /// only by being linked again, under a new identity key and its same id.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RuntimeNodeRemoveRequest {
     /// The signed statement.
+    #[garde(dive)]
     pub statement: RuntimeNodeRemovedStatement,
 }
 
@@ -71,8 +76,9 @@ pattern_text! {
 /// The TXT record an ACME DNS challenge asks for: its name, under `_acme-challenge.`, and its
 /// value. The relay writes it only for a machine that proves its key, and only for the minutes of
 /// the challenge.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RuntimeNodeCertificateChallengeSetRequest {
     /// The record's name.
     pub name: CertificateChallengeName,

@@ -60,8 +60,11 @@ pub struct DaemonRetentionReadResponse {
 
 /// `daemon.retentionUpdate`: exactly one bound, as `{"<bound>": days}`. Setting a bound deletes
 /// nothing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub enum DaemonRetentionUpdateRequest {
     /// `Keep diagnostic logs for`, in whole days.
     KeepDiagnosticLogsDays(SafeInt<1>),

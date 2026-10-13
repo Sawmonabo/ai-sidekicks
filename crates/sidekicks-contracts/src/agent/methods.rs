@@ -28,8 +28,9 @@ use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 
 /// The session whose agents `agent.list` streams.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AgentListRequest {
     /// The session.
     pub session_id: SessionId,

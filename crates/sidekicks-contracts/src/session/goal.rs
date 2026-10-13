@@ -47,8 +47,9 @@ pub enum SessionGoalStatus {
 }
 
 /// Sets or replaces the goal of one agent in the session. The last write wins.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionGoalUpdateRequest {
     /// The session.
     pub session_id: SessionId,
@@ -69,8 +70,9 @@ pub struct SessionGoalUpdateResponse {
 }
 
 /// Removes one agent's goal. With no goal set it succeeds, as Codex's own clear does.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionGoalClearRequest {
     /// The session.
     pub session_id: SessionId,

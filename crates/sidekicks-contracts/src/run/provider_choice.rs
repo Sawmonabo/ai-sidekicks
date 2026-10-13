@@ -32,8 +32,9 @@ pub enum RunRefusalChoice {
 
 /// Answers the retry-or-edit choice a refused run waits on (`run.refusalChoiceResolve`). The first
 /// answer settles it; a second or late one is refused with `run.invalid_transition`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RunRefusalChoiceResolveRequest {
     /// The run that waits.
     pub run_id: RunId,
@@ -132,8 +133,9 @@ pub enum RunUsageCreditsChoice {
 
 /// Answers the switch-or-credits choice a Fable run waits on (`run.usageCreditsChoiceResolve`).
 /// The first answer settles it; a second or late one is refused with `run.invalid_transition`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RunUsageCreditsChoiceResolveRequest {
     /// The run that waits.
     pub run_id: RunId,

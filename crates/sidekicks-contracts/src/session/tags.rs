@@ -13,8 +13,9 @@ use crate::tag::{Tag, TagList};
 use crate::typescript::{Definition, TypeScriptModule};
 
 /// Adds a tag to a session or removes one. A tag is matched ignoring case and nests with `/`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionTagRequest {
     /// The session.
     pub session_id: SessionId,

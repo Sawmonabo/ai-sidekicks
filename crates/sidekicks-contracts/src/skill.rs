@@ -173,8 +173,9 @@ fn entry_names_its_plugin_and_project(entry: &SkillListEntry, (): &()) -> garde:
 }
 
 /// `skill.list` and `skill.subscribe` take no members.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SkillListRequest {}
 
 /// Every skill folder across the four origins, orphaned records included. A file the daemon
@@ -198,8 +199,9 @@ pub struct SkillEntryResponse {
 }
 
 /// `skill.fileRead`: one file's body, loaded when the file opens in the editor.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SkillFileReadRequest {
     /// The skill.
     pub skill_id: SkillId,
@@ -315,8 +317,9 @@ pub struct SkillCreateRequest {
 /// when saved twice. `description` and `body` rewrite `SKILL.md` and keep its other front-matter
 /// keys; `files` and `removedPaths` never name `SKILL.md`; `icon` goes to our record. `name`
 /// renames a folder of ours; a provider's own folder is edited in place and gains nothing of ours.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SkillUpdateRequest {
     /// The skill.
     pub skill_id: SkillId,
@@ -413,8 +416,9 @@ pub struct SkillCallFormReadResponse {
 
 /// `skill.availabilityUpdate`: sets one provider on or off, with no lock: a provider's own skill
 /// can be switched off its home provider, and a skill can be off everywhere.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SkillAvailabilityUpdateRequest {
     /// The skill.
     pub skill_id: SkillId,
@@ -433,8 +437,9 @@ pub struct SkillAvailabilityUpdateResponse {
 }
 
 /// `skill.scan`: the scan a widening runs: the folder, and the provider it is widened onto.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SkillScanRequest {
     /// The skill.
     pub skill_id: SkillId,
@@ -479,8 +484,9 @@ pub struct SkillScanResponse {
 /// `skill.recordReattach`: reattaches an orphaned record (its availability and icon) to a folder,
 /// accepted only while the record is orphaned. The renderer sends the folder chooser's token and
 /// main forwards the path in its place, so `folderPath` is the path the daemon reads.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SkillRecordReattachRequest {
     /// The skill.
     pub skill_id: SkillId,
@@ -489,8 +495,9 @@ pub struct SkillRecordReattachRequest {
 }
 
 /// `skill.recordDiscard`: drops an orphaned record.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SkillRecordDiscardRequest {
     /// The skill.
     pub skill_id: SkillId,

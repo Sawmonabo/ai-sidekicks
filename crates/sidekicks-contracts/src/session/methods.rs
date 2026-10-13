@@ -125,8 +125,9 @@ pub struct SessionRecord {
 }
 
 /// The session `session.read` answers with.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionReadRequest {
     /// The session.
     pub session_id: SessionId,
@@ -237,8 +238,9 @@ pub struct SessionReadResponse {
 }
 
 /// The `session.subscribe` input: the session to follow and an `afterCursor` to catch up from.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
@@ -280,8 +282,9 @@ stream_frame! {
 }
 
 /// The request of every verb that acts on one session and takes nothing else.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionTargetRequest {
     /// The session.
     pub session_id: SessionId,
@@ -295,8 +298,9 @@ pub struct SessionVerbResponse {}
 
 /// The `session.rename` input. `null` clears the name, and the session reads as untitled again.
 /// Renaming never renames the session's branch or worktree.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionRenameRequest {
     /// The session.
     pub session_id: SessionId,
@@ -337,8 +341,9 @@ pub type SessionSearchLimit = BoundedInt<1, { SESSION_SEARCH_PAGE_LIMIT_MAX as i
 /// The `session.search` input: the text typed in the search box and, past the first page, the
 /// previous page's `nextCursor`. The daemon matches it against every session's title, message
 /// text, tool calls, group name and tags, archived sessions included.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionSearchRequest {
     /// The text to find.
     pub query: FreeFormText<SESSION_SEARCH_QUERY_MAX_LEN>,
@@ -498,8 +503,9 @@ pub enum SessionSearchResponse {
 
 /// The `session.fileSearch` input: the text typed after `@` in a session's draft. An empty query
 /// lists the working folder's files; the list narrows as the name is typed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionFileSearchRequest {
     /// The session.
     pub session_id: SessionId,

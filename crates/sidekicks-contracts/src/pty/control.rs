@@ -96,8 +96,9 @@ terminal_holder! {
 /// `outputSubscriptionId`, the taking pane's own `pty.outputSubscribe` subscription to that shell,
 /// whose end gives the hold back. `force` moves it off another of the person's devices; a take
 /// never moves it off a run.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionTakeControlRequest {
     /// The session.
     pub session_id: SessionId,
@@ -130,8 +131,9 @@ pub struct SessionTakeControlResponse {
 /// every live watcher is behind, and a connection's state clears when it disconnects. Not gated by
 /// the lease: it moves no bytes toward the shell. A call naming a shell its session does not have
 /// changes nothing and is not refused.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionSetTerminalFlowControlRequest {
     /// The session.
     pub session_id: SessionId,

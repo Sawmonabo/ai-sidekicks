@@ -15,13 +15,15 @@ use crate::wire::instant::WireInstant;
 use crate::wire::text::FreeFormText;
 
 /// `account.delete` takes nothing: the account is the caller's, and no other account is named.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AccountDeleteRequest {}
 
 /// `account.export` takes nothing: the account is the caller's.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AccountExportRequest {}
 
 /// The account's own record, as the control plane keeps it.

@@ -14,8 +14,9 @@ use crate::wire::text::FreeFormText;
 
 /// Asks a driver to interrupt one run, with an optional reason. A run's id is unique on its own,
 /// so no session id sits beside it as a second key that could disagree.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct InterruptRunParams {
     /// The run to interrupt.
     pub run_id: RunId,
@@ -79,8 +80,9 @@ pub enum InterruptInterventionType {
 /// The request of `driver.applyIntervention`: an interrupt on a live run, so a steer, which only
 /// the run queue delivers, is refused at parse. `expectedRunVersion` is the fail-closed comparand;
 /// `clientIdempotencyKey` is the requester's key, passed through unchanged.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ApplyInterventionRequest {
     /// Always `interrupt`.
     #[serde(rename = "type")]

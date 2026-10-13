@@ -25,8 +25,9 @@ ts_constants! {
 /// declared none; it refuses nothing and is recorded nowhere, since the daemon reads the type from
 /// the bytes. `declaredSizeBytes` also reserves the stream's spool space, so the stream's bytes
 /// may not exceed it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttachmentIngestInitRequest {
     /// The session the file is for.
     pub session_id: SessionId,
@@ -64,8 +65,9 @@ pub struct AttachmentIngestInitResponse {
 /// One chunk of an open stream. `sequenceNumber` counts from 0 with no gaps, and a resent chunk
 /// carries the number it was first sent with; `chunk` is at most
 /// [`ARTIFACT_CHUNK_MAX_BYTES`] bytes.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttachmentIngestChunkRequest {
     /// The stream's handle.
     pub ingest_id: NonEmptyText,
@@ -88,8 +90,9 @@ pub struct AttachmentIngestChunkResponse {
 
 /// Completes a stream. The stream's handle is the only member: the daemon checks the spooled bytes
 /// and commits them, and a resent completion answers with the first one's result.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttachmentIngestCompleteRequest {
     /// The stream's handle.
     pub ingest_id: NonEmptyText,

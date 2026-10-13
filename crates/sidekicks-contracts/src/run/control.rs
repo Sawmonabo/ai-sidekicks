@@ -188,13 +188,14 @@ intervention_interrupt_request! {
 
 /// A caller's request to interrupt or retry a run; a person's steer is a `run.queueCreate`, never
 /// an intervention. `faster_model_retry` resends a turn Codex holds for a safety check on `model`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "type",
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum InterventionRequestPayload {
     /// Interrupts the run's turn.
     Interrupt(InterventionInterruptRequest),
@@ -596,8 +597,9 @@ stream_frame! {
 }
 
 /// Pauses a run. Not an intervention, but guarded by the same mandatory `expectedRunVersion`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RunPauseRequest {
     /// The run.
     pub target_run_id: RunId,
@@ -606,8 +608,9 @@ pub struct RunPauseRequest {
 }
 
 /// Resumes a paused run, guarded by the same mandatory `expectedRunVersion`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RunResumeRequest {
     /// The run.
     pub target_run_id: RunId,
@@ -646,8 +649,9 @@ pub enum RunRecoveryChoice {
 }
 
 /// Answers the recovery question a restart left a run halted on (`run.recoveryResolve`).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RunRecoveryResolveRequest {
     /// The run.
     pub run_id: RunId,
@@ -685,8 +689,9 @@ pub struct RunRecoveryStepsAddedPayload {
 /// Opens a session's run state stream: every run in the session, the lead and each child, which
 /// the caller fans out by `runId`. With `afterCursor`, the stream first replays each change the
 /// session's record holds after that cursor, then follows live; without it, it follows from now.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RunStateSubscribeRequest {
     /// The session.
     pub session_id: SessionId,

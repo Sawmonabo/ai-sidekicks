@@ -22,8 +22,9 @@ pattern_text! {
 }
 
 /// `repo.branchList`: the mount whose branches both base pickers list.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoBranchListRequest {
     /// The mount.
     pub repo_mount_id: RepoMountId,
@@ -183,8 +184,9 @@ file_read_request! {
 
 /// `repo.fileRead`: a file in the session's working folder, or the lines inside a collapsed gap of
 /// a diff, which names its blob and its side together.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
+#[garde(allow_unvalidated)]
 pub enum RepoFileReadRequest {
     /// A gap read.
     Gap(RepoGapReadRequest),
@@ -221,8 +223,9 @@ pub enum RepoFileReadResponse {
 }
 
 /// `repo.workingTreeSubscribe`: the session whose working folder the daemon watches.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkingTreeSubscribeRequest {
     /// The session.
     pub session_id: SessionId,

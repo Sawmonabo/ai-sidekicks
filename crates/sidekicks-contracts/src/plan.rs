@@ -107,13 +107,14 @@ pub struct PlanFreshSession {
 
 /// `plan.resolve`: the verdict on one plan, keep planning, build here, or build in a fresh
 /// session; only `fresh` names the session to mint.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "verdict",
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum PlanResolveRequest {
     /// Keep planning.
     Keep {

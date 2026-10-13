@@ -22,8 +22,9 @@ use crate::wire::text::NonEmptyText;
 use crate::wire::{Never, literal};
 
 /// Reads the whole inventory; `refresh` asks the daemon to probe before answering.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct McpListRequest {
     /// Whether to probe first.
     #[serde(
@@ -175,8 +176,9 @@ binding_addressed! {
 
 /// Searches the public MCP Registry for servers to add. The daemon makes the call, only when the
 /// person types, and keeps nothing past the page it answers.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct McpRegistrySearchRequest {
     /// What the person typed.
     pub query: McpRequestText,

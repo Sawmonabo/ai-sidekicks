@@ -8,8 +8,11 @@ use crate::typescript::{Definition, TypeScriptModule};
 
 /// A request or reply that carries nothing: the method's whole effect is what it changed. Any
 /// member is refused.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct EmptyPayload {}
 
 /// The reply of an act that reads nothing back: `null`.

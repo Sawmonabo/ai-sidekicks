@@ -14,8 +14,11 @@ use crate::wire;
 use crate::wire::text::{BoundedText, FreeFormText};
 
 /// `callbackTool.list` takes no members.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CallbackToolListRequest {}
 
 /// One callback tool. `name` is the name a provider sees; `label` is the words a person reads, the

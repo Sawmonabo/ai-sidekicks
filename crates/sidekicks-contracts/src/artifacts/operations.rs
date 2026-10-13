@@ -21,8 +21,9 @@ use crate::wire::integer::{BoundedInt, SafeInt, SafeSignedInt};
 use crate::wire::text::{ComposedText, NonEmptyText};
 
 /// Asks for the artifacts of one session.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ArtifactListRequest {
     /// The session whose artifacts to list.
     pub session_id: SessionId,
@@ -84,8 +85,9 @@ pub enum ArtifactPayloadSelection {
 
 /// Asks for one artifact: its manifest, a handle, and as much of the payload as `payloadSelection`
 /// picks. `version` counts from 1, oldest first; without it the read answers the newest.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ArtifactReadRequest {
     /// The artifact to read.
     pub artifact_id: ArtifactId,

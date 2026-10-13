@@ -228,8 +228,9 @@ pub fn transcript_row_content_of(
 
 /// The one row whose large body or full output a client opens. `rowId` is the row's `id`, the id
 /// of the event the row renders.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct TranscriptBodyReadRequest {
     /// The session.
     pub session_id: SessionId,
@@ -306,8 +307,9 @@ pub struct TranscriptPatchCursor {
 }
 
 /// The tool call whose left-out patches a diff needs, from `cursor` on.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct TranscriptPatchReadRequest {
     /// The session.
     pub session_id: SessionId,

@@ -181,8 +181,9 @@ pub struct GitHost {
 }
 
 /// `gitflow.hostList` takes nothing: the hosts are the machine's, so nothing names a session.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowHostListRequest {}
 
 /// The `gitflow.hostList` result.
@@ -196,8 +197,9 @@ pub struct GitflowHostListResponse {
 
 /// `gitflow.hostAdd`: one host name and no kind, because the daemon keeps the kind of whichever
 /// installed tool answers for it. Adding a host already listed answers with that host.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowHostAddRequest {
     /// The host as typed.
     pub host: GitHostNameInput,
@@ -213,8 +215,9 @@ pub struct GitflowHostAddResponse {
 }
 
 /// `gitflow.hostRemove`: the host to forget.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowHostRemoveRequest {
     /// The host as typed.
     pub host: GitHostNameInput,
@@ -229,8 +232,9 @@ pub struct GitflowHostRemoveResponse {
 }
 
 /// A request keyed by the session alone; the daemon maps it to the session's folder.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowSessionRequest {
     /// The session.
     pub session_id: SessionId,
@@ -285,8 +289,9 @@ change_request! {
 }
 
 /// `gitflow.changeRequestSubscribe`: the session's branch and the depth to read at.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowChangeRequestSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
@@ -458,8 +463,9 @@ pub enum ChangeRequestFrame {
 }
 
 /// `gitflow.reviewerList`; `query` narrows the candidates by what was typed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowReviewerListRequest {
     /// The session.
     pub session_id: SessionId,
@@ -523,8 +529,9 @@ pub struct GitflowLabelListResponse {
 
 /// `gitflow.reviewSubmit`. The notes are the session's held notes, read from the daemon's own
 /// store, so no note text crosses the wire; `body` is the verdict's one free-standing summary.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowReviewSubmitRequest {
     /// The session.
     pub session_id: SessionId,
@@ -574,8 +581,9 @@ pub struct GitflowReviewSubmitResponse {
 
 /// `gitflow.threadResolve`: one thread of one change request; resolving a resolved thread
 /// succeeds.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowThreadResolveRequest {
     /// The session.
     pub session_id: SessionId,
@@ -601,8 +609,9 @@ pub struct GitflowThreadResolveResponse {
 }
 
 /// `gitflow.threadReply`: a reply to one thread of one change request.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowThreadReplyRequest {
     /// The session.
     pub session_id: SessionId,
@@ -631,8 +640,9 @@ pub struct GitflowThreadReplyResponse {
 }
 
 /// `gitflow.checkLogRead`: one check of one change request.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowCheckLogReadRequest {
     /// The session.
     pub session_id: SessionId,

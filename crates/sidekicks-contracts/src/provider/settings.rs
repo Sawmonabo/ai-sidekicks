@@ -280,8 +280,11 @@ pub struct ProviderSettingsResponse {
 }
 
 /// A request naming one provider.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderRequest {
     /// The provider.
     pub provider: ProviderName,
@@ -313,8 +316,9 @@ macro_rules! provider_update_request {
         /// One knob changed, one member per press, and only a knob the named provider has. A new
         /// path is checked again where it now points and the provider's model catalog is read
         /// again.
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(untagged, rename_all_fields = "camelCase", deny_unknown_fields)]
+        #[garde(allow_unvalidated)]
         pub enum ProviderUpdateRequest {$(
             /// A new command path, or `null` to return to auto-detect.
             $command_path {
@@ -386,8 +390,11 @@ provider_update_request! {
 
 /// Put the app's terminal plugin into the person's own Claude Code, or take it out; off removes
 /// exactly what on added and nothing the person added.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderTerminalPluginUpdateRequest {
     /// Always `claude`: the plugin is Claude Code's alone.
     pub provider: ClaudeProviderWord,
@@ -494,8 +501,9 @@ pub struct ProviderStandingRuleListResponse {
 }
 
 /// Remove one standing rule where the provider keeps it; it applies from the next tool call.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderStandingRuleRevokeRequest {
     /// The provider.
     pub provider: ProviderName,

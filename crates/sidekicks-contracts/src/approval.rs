@@ -335,8 +335,9 @@ pub struct ApprovalResolveResponse {
 }
 
 /// `approval.projectionRead`: the session's asks, optionally narrowed by state or category.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ApprovalProjectionReadRequest {
     /// The session.
     pub session_id: SessionId,
@@ -571,8 +572,9 @@ pub struct ApprovalProjectionReadResponse {
 }
 
 /// `approval.ruleList`: the rules in force on one session, its own and its project's.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RememberedRuleListRequest {
     /// The session.
     pub session_id: SessionId,
@@ -606,8 +608,9 @@ pub struct RememberedRuleListResponse {
 
 /// `approval.ruleRevoke`: revokes one rule; a project rule's revoke removes it from the provider's
 /// project rule file.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RememberedRuleRevokeRequest {
     /// The rule.
     pub rule_id: RememberedRuleId,
@@ -631,8 +634,9 @@ pub struct RememberedRuleRevokeResponse {
 /// daemon tells the agent it may retry that one action, by each provider's own means; the agent
 /// decides whether to retry. A press on a block already allowed is answered with the settled
 /// override and sends nothing a second time.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ApprovalDenialOverrideRequest {
     /// The session.
     pub session_id: SessionId,

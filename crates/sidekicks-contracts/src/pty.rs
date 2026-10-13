@@ -61,8 +61,9 @@ branded_text! {
 pub type OutputOffset = SafeInt<0>;
 
 /// `pty.list`: the session whose shells the subscription follows.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PtyListRequest {
     /// The session.
     pub session_id: SessionId,
@@ -132,8 +133,9 @@ pub struct PtyListUpdate {
 /// `pty.open`: another shell for the session, the person's own login shell in the session's tree,
 /// so the request carries no program, arguments or folder. The caller mints the key, and a retry
 /// with the same key never opens a second shell.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PtyOpenRequest {
     /// The session.
     pub session_id: SessionId,
@@ -153,8 +155,9 @@ pub struct PtyOpenResponse {
 /// `pty.close`: closes one shell and ends its process; closing several sends this once per shell.
 /// The daemon refuses it while a run holds the shell, and while another device holds it unless
 /// `force` is true, which the screen sends only after the person confirmed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PtyCloseRequest {
     /// The session.
     pub session_id: SessionId,
@@ -186,8 +189,9 @@ pub struct PtyReorderRequest {
 /// `pty.outputSubscribe`: the shell whose output the subscription streams. `afterOffset` is where
 /// a watcher that reconnects got to: while that offset is still inside the scrollback window it
 /// gets only the bytes after it, and a fresh `scrollback` otherwise.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PtyOutputSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
@@ -309,13 +313,14 @@ pub struct PtyOutputFrame {
 /// closes the pane's earlier paste first. The daemon answers a write once its bytes reach the
 /// shell's terminal, so a client that sends a paste's next part after the answer to the last pastes
 /// no faster than the program reads.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum PtyWriteRequest {
     /// Typed text.
     Keys {
@@ -347,8 +352,9 @@ pub enum PtyWriteRequest {
 
 /// `pty.resize`: a shell's new size in character cells. Only a connection holding it sets it;
 /// watchers follow.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PtyResizeRequest {
     /// The session.
     pub session_id: SessionId,
@@ -390,13 +396,14 @@ pub struct TerminalCellSize {
 /// every shell whose holder reported none. `holding_pane` is the colors and cell size of the pane
 /// holding the shell, which only a connection the shell's hold is bound to may report, refused as a
 /// resize from another is; it outranks the console theme until the shell changes holder.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "source",
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum PtyReportTerminalAppearanceRequest {
     /// The console theme's colors.
     ConsoleTheme {

@@ -86,8 +86,9 @@ plugin_summary! {
 /// `plugin.catalogList`: one provider's catalog, filtered by `query` as the person types. Neither
 /// provider's own command takes a query, so the daemon filters. The catalog is read once per
 /// opening of the view and held only while it is open.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PluginCatalogListRequest {
     /// The provider.
     pub provider: ProviderName,
@@ -127,8 +128,9 @@ pub struct PluginCatalogListResponse {
 
 /// One plugin, named by its provider and that provider's id for it: what `plugin.read`,
 /// `plugin.install` and `plugin.uninstall` act on.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PluginRef {
     /// The provider.
     pub provider: ProviderName,
@@ -233,8 +235,9 @@ pub struct PluginUninstallResponse {
 
 /// `plugin.installedList`: the installed plugins of one provider, or of both when `provider` is
 /// absent.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PluginInstalledListRequest {
     /// The provider.
     #[serde(
@@ -259,8 +262,9 @@ pub struct PluginInstalledListResponse {
 /// provider's own command. A folder is picked with the platform's own chooser; the desktop main
 /// process puts its path in place of the chooser's token. Each provider's official marketplace is
 /// there without adding it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PluginMarketplaceAddRequest {
     /// The provider.
     pub provider: ProviderName,
@@ -277,8 +281,9 @@ pub struct PluginMarketplaceAddResponse {
 }
 
 /// `plugin.marketplaceRemove`: removes a marketplace by the name its provider gave it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PluginMarketplaceRemoveRequest {
     /// The provider.
     pub provider: ProviderName,
@@ -302,8 +307,9 @@ literal! {
 /// `plugin.appList`: a Codex plugin's apps. An app is a tool server its provider hosts, reached
 /// through a Codex account's ChatGPT sign-in, so its link is kept per account and every linked app
 /// reaches every session on that account without loading anything.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PluginAppListRequest {
     /// Always `codex`.
     pub provider: PluginAppProvider,

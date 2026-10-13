@@ -97,8 +97,9 @@ pub struct RelayPinRefusedPayload {
 }
 
 /// `sidekicks relay repin --force`: the new key hash the person pasted becomes the pin.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RelayRepinRequest {
     /// The full SHA-256 of the relay's new key.
     pub spki_hash: Sha256Hex,

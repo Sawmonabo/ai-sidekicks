@@ -174,13 +174,14 @@ pub enum WorkflowRunSnapshotPoint {
 }
 
 /// `gitflow.diffRead`, one arm per comparison.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "scope",
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum GitflowDiffReadRequest {
     /// The working folder against its last commit, untracked files included.
     Changes {
@@ -480,13 +481,14 @@ pub struct GitActRetryPoint {
 macro_rules! git_act_request {
     ($(#[doc = $doc:literal])+ pub enum $name:ident { $($own:tt)* }) => {
         $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "act",
             rename_all = "snake_case",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
+        #[garde(allow_unvalidated)]
         pub enum $name {
             /// A commit.
             Commit {
@@ -563,8 +565,9 @@ pub struct GitflowGitActionExecuteResponse {
 }
 
 /// `gitflow.gitActionSubscribe`: the act to follow.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowGitActionSubscribeRequest {
     /// The act.
     pub act_id: GitActId,

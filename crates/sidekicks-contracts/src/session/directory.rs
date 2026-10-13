@@ -369,8 +369,9 @@ pub struct SessionCreateChatRequest {
 
 /// What `session.create` takes: where the session works and who leads it. Only a project session
 /// is filed in a group.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
+#[garde(allow_unvalidated)]
 pub enum SessionCreateRequest {
     /// A project session.
     Project(SessionCreateProjectRequest),
@@ -395,8 +396,9 @@ pub struct SessionCreateResponse {
 
 /// Forks a session from a message: a new session of the same shape carrying every row up to and
 /// including `anchorCursor`. Absent `name` leaves the fork untitled.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionForkRequest {
     /// The session.
     pub session_id: SessionId,
@@ -441,8 +443,9 @@ pub enum SessionForkResponse {
 /// Moves a project session's working folder to `path`: the folder of any worktree git lists for the
 /// project's repository, or the repository's own checkout. Asking for the folder the session is
 /// already in cancels a pending move, and a later request replaces a pending one.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionSetWorkingFolderRequest {
     /// The session.
     pub session_id: SessionId,
@@ -474,8 +477,11 @@ pub struct SessionSetWorkingFolderResponse {
 
 /// The terminal pane's held read. The daemon answers once its sessions list or any session's agent
 /// list moves past `afterRevision`, or after 10 s with nothing changed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionOverviewReadRequest {
     /// The revision the pane last drew.
     pub after_revision: SafeInt<0>,

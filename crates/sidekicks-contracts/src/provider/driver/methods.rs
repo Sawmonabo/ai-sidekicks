@@ -39,8 +39,9 @@ ts_constants! {
 }
 
 /// The request of `driver.listModels`: the session whose model control reads the catalog.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ListModelsRequest {
     /// The session.
     pub session_id: SessionId,
@@ -115,8 +116,9 @@ pub struct ListModesResult {
 
 /// The request of `driver.compactContext`, the person's compaction of one run's context. The
 /// reply's `refused` and `failed` arms are data a caller branches on, never a refusal.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CompactContextRequest {
     /// The session, the scope checked first.
     pub session_id: SessionId,
@@ -126,8 +128,9 @@ pub struct CompactContextRequest {
 
 /// The request of `driver.listProviderCommands`: the commands and skills one agent's providers
 /// publish, one group per live binding the agent holds.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ListProviderCommandsRequest {
     /// The session, the scope checked first.
     pub session_id: SessionId,

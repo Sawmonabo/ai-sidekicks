@@ -113,8 +113,9 @@ run_create_request! {
 /// `orchestration.runCreate`: admits a run under an agent, called by the daemon's own paths and
 /// the SDK, never by a screen control. No count limits admission or depth: a refusal is the
 /// provider's own or an unresolved target. It names exactly one target.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
+#[garde(allow_unvalidated)]
 pub enum OrchestrationRunCreateRequest {
     /// Aimed at a live agent.
     Agent(AgentRunCreateRequest),
@@ -182,8 +183,9 @@ pub struct OrchestrationRejectedPayload {
 }
 
 /// `orchestration.childRunLinkRead`: the session whose whole tree is read.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ChildRunLinkReadRequest {
     /// The session.
     pub session_id: SessionId,

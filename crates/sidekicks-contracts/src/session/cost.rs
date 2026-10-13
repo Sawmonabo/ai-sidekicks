@@ -76,16 +76,18 @@ pub struct OrchestrationBudgetState {
 }
 
 /// The session whose spend `orchestration.budgetRead` answers with.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct OrchestrationBudgetReadRequest {
     /// The session.
     pub session_id: SessionId,
 }
 
 /// The session whose cost receipt `orchestration.costReceiptRead` answers with.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionCostReceiptRequest {
     /// The session.
     pub session_id: SessionId,

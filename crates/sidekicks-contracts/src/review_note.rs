@@ -198,8 +198,9 @@ pub struct ReviewNoteResponse {
 }
 
 /// `session.reviewNoteUpdate`: replaces a held note's words.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ReviewNoteUpdateRequest {
     /// The session.
     pub session_id: SessionId,
@@ -211,8 +212,9 @@ pub struct ReviewNoteUpdateRequest {
 
 /// `session.reviewNoteRemove`: discards held notes in one act; the notes chip's `×` discards every
 /// note behind one question, and a steer clears every note it carried.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ReviewNoteRemoveRequest {
     /// The session.
     pub session_id: SessionId,
@@ -238,8 +240,9 @@ pub struct ReviewNoteSet {
 }
 
 /// `session.reviewNoteList`: follows a session's held notes, the whole set now and on each change.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ReviewNoteListRequest {
     /// The session.
     pub session_id: SessionId,

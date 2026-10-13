@@ -120,8 +120,9 @@ pub struct ProjectListEntry {
 }
 
 /// The `repo.projectList` subscription takes nothing: it lists every project.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProjectListRequest {}
 
 /// One `repo.projectList` emission: every project, sent once on subscribe and again on each
@@ -142,8 +143,9 @@ pub struct ProjectEditResponse {
 }
 
 /// `repo.projectRename`: the project's display name; the folder on disk is untouched.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProjectRenameRequest {
     /// The project.
     pub project_id: ProjectId,
@@ -154,16 +156,18 @@ pub struct ProjectRenameRequest {
 /// `repo.projectArchive` and `repo.projectReactivate`: the project to move into or out of the
 /// archived group. Its sessions are kept either way, and archiving an archived project, or
 /// reactivating an active one, changes nothing.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProjectStateChangeRequest {
     /// The project.
     pub project_id: ProjectId,
 }
 
 /// `repo.projectSetupUpdate`: the whole setup, replacing what the project had.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProjectSetupUpdateRequest {
     /// The project.
     pub project_id: ProjectId,
@@ -174,8 +178,9 @@ pub struct ProjectSetupUpdateRequest {
 /// `repo.projectEnvironmentUpdate`: the project's whole list of rows, replacing what it had. A row
 /// whose name the environment-name rule refuses is refused with `daemon.environment_name_refused`
 /// naming the row, and nothing is written.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProjectEnvironmentUpdateRequest {
     /// The project.
     pub project_id: ProjectId,
@@ -186,8 +191,9 @@ pub struct ProjectEnvironmentUpdateRequest {
 /// `repo.projectBranchPatternUpdate`: the project's own branch pattern, or `null` to return the
 /// project to the machine's pattern. A pattern git refuses, or one that clashes with a branch in
 /// the repository, is refused and nothing is written.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProjectBranchPatternUpdateRequest {
     /// The project.
     pub project_id: ProjectId,

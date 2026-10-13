@@ -76,8 +76,9 @@ pub struct QueuedSkillPick {
 }
 
 /// Sends one message to the lead, whether a turn is running or not (`run.queueCreate`).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct QueueItemCreateRequest {
     /// The session.
     pub session_id: SessionId,
@@ -348,8 +349,9 @@ queue_item_by_state! {
 /// Reads a queue, the lead's or, with `child_handle`, a child's, in the daemon's order
 /// (`run.queueList`): the items in `state` when it is given, else every item waiting or not
 /// delivered.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct QueueItemListRequest {
     /// The session.
     pub session_id: SessionId,
@@ -439,8 +441,9 @@ stream_frame! {
 /// Opens a queue's stream, the lead's or, with `child_handle`, a child's (`run.subscribeQueue`).
 /// With `after_cursor`, the stream first sends each item that changed after that cursor and every
 /// item still waiting, as it now stands, then follows live; without it, it follows from now.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RunQueueSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
@@ -464,8 +467,9 @@ pub struct RunQueueSubscribeRequest {
 
 /// Removes a waiting message, from the lead's queue or, with `child_handle`, a child's
 /// (`run.queueCancel`).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct QueueItemCancelRequest {
     /// The item.
     pub queue_item_id: QueueItemId,

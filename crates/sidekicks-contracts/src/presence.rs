@@ -24,8 +24,9 @@ pub type DeviceType = FreeFormText<DEVICE_TYPE_MAX_LEN>;
 /// A device's report to a machine, sent when `appVisible` changes and otherwise every 15 seconds on
 /// each machine connection the device holds. It names no device: the machine files it under the
 /// device of the connection that carried it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PresenceHeartbeat {
     /// The device's category.
     pub device_type: DeviceType,
@@ -57,8 +58,9 @@ pub struct MachinePresence {
 }
 
 /// `presence.read` and `presence.subscribe` take nothing: presence is the machine's.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PresenceRequest {}
 
 methods! {

@@ -278,8 +278,9 @@ pub struct AttentionProjection {
 
 /// `attention.bannerSettle`: main's record of what became of a `pending` entry's banner. Only main
 /// sends it, and the daemon ignores it once the entry has left `pending`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttentionBannerSettleRequest {
     /// The entry.
     pub entry_id: AttentionId,
@@ -289,8 +290,9 @@ pub struct AttentionBannerSettleRequest {
 
 /// `attention.seenUpdate`: marks a session seen, so its finished and failed entries stop reading as
 /// unseen, in the notifications list and on the session's row alike. Opening the session sends it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttentionSeenUpdateRequest {
     /// The session.
     pub session_id: SessionId,
@@ -409,8 +411,11 @@ pub struct AttentionDeliveryReadResponse {
 }
 
 /// `attention.deliveryTest`: sends one test message on a channel.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttentionDeliveryTestRequest {
     /// The channel.
     pub channel: AttentionDeliveryChannel,
@@ -430,8 +435,9 @@ pub type AttentionDeliverySecret = FreeFormText<ATTENTION_DELIVERY_SECRET_MAX_LE
 
 /// `attention.mailPasswordSave`: saves the mail account's password. Write-only: it is sealed and
 /// never sent back.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttentionMailPasswordSaveRequest {
     /// The password.
     pub password: AttentionDeliverySecret,
@@ -440,8 +446,9 @@ pub struct AttentionMailPasswordSaveRequest {
 /// `attention.webAddressSave`: saves the web address, a secret because chat services put their
 /// token in it. Whatever is typed is saved as typed; a text that is not an address is kept, and
 /// each message to it fails and is counted as undelivered.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttentionWebAddressSaveRequest {
     /// The address as typed.
     pub address: AttentionDeliverySecret,

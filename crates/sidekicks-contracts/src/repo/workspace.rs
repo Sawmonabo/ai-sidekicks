@@ -18,8 +18,9 @@ ts_constants! {
 
 /// `repo.workspaceBind`: the session, the attached mount and the mode to bind in. `directory` is
 /// relative to the mount root, and the daemon keeps it inside the mount once symlinks resolve.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkspaceBindRequest {
     /// The session; the mount belongs to the machine, so the caller names it.
     pub session_id: SessionId,
@@ -51,8 +52,9 @@ pub struct WorkspaceBindResponse {
 }
 
 /// `repo.workspaceList`: a session's workspaces, narrowed to one mount when it is named.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkspaceListRequest {
     /// The session.
     pub session_id: SessionId,

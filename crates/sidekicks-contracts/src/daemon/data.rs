@@ -28,8 +28,9 @@ branded_uuid_id! {
 /// Starts an export into a new folder. `destination` is the folder's path: the one the platform's
 /// save dialog picked, which the desktop app's main process turns from its token into a path, or
 /// the one typed on the command line.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DataExportRequest {
     /// The new folder's path.
     pub destination: FreeFormText<FILE_PATH_MAX_LEN>,
@@ -44,8 +45,9 @@ pub struct DataExportResponse {
 }
 
 /// The export job whose progress to stream.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DataExportSubscribeRequest {
     /// The job.
     pub job_id: DataExportJobId,

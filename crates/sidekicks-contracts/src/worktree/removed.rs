@@ -19,8 +19,9 @@ use crate::worktree::lifecycle::{RemovedWorktreeId, WorktreeId};
 
 /// `repo.removedWorktreeList`: one project's kept worktrees, or every project's, plus what is left
 /// of a copy put back while it is the one source to rebuild a live tree git cannot read.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RemovedWorktreeListRequest {
     /// The project; absent lists every project's.
     #[serde(
@@ -78,8 +79,9 @@ pub struct RemovedWorktreeListResponse {
 
 /// `repo.worktreeRestore` and `repo.removedWorktreeDelete`: the kept worktree to put back or
 /// delete.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RemovedWorktreeRequest {
     /// The kept worktree.
     pub removed_worktree_id: RemovedWorktreeId,

@@ -26,8 +26,9 @@ use crate::wire::text::{BoundedText, NonEmptyText};
 /// Saves a session's draft. `text` is the whole draft and replaces the one held; an empty string
 /// clears it, which is what Send does. The text has no length limit of its own: a message's limit
 /// is the send's to state, so a draft the send would take is never refused here.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionDraftUpdateRequest {
     /// The session.
     pub session_id: SessionId,
@@ -94,8 +95,9 @@ pub enum SessionAttachmentItem {
 
 /// Stages files for the next message. The count is not limited here: a pick over the message's
 /// limit stages as many as fit and refuses each of the rest by name; an empty list is refused.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionAttachmentAddRequest {
     /// The session.
     pub session_id: SessionId,
@@ -240,8 +242,9 @@ pub struct SessionAttachmentAddResponse {
 
 /// Unstages one file. The artifact itself keeps its own life; only its place in the staged set
 /// goes. Removing a file that is no longer staged answers with the set as it is.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionAttachmentRemoveRequest {
     /// The session.
     pub session_id: SessionId,
@@ -277,8 +280,9 @@ pub struct SessionAttachmentCoverBox {
 /// the covered copy as a new artifact that takes the old one's place in the staged set, and deletes
 /// the uncovered copy, so the provider only ever receives the covered picture. A picture already
 /// sent cannot be covered; an empty box list is refused.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionAttachmentCoverRequest {
     /// The staged picture.
     pub attachment_id: ArtifactId,

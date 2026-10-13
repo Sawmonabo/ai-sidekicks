@@ -20,8 +20,9 @@ branded_uuid_id! {
 
 /// Makes a group in the session's project with this session in it, so no group is ever empty. A
 /// name another group of the project holds, ignoring case, is refused; a chat sits in no group.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionGroupCreateRequest {
     /// The session the group starts with.
     pub session_id: SessionId,
@@ -39,8 +40,9 @@ pub struct SessionGroupCreateResponse {
 
 /// Moves the session into a group of its own project, leaving any group it was in; `groupId`
 /// `null` takes it out among the project's loose sessions. A group left with no session is removed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionGroupMoveRequest {
     /// The session.
     pub session_id: SessionId,
@@ -51,8 +53,9 @@ pub struct SessionGroupMoveRequest {
 }
 
 /// Renames a group, held to the same uniqueness in its project as a new group's name.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionGroupRenameRequest {
     /// The group.
     pub group_id: SessionGroupId,
@@ -61,8 +64,9 @@ pub struct SessionGroupRenameRequest {
 }
 
 /// Ungroups a group: its sessions go back loose, and nothing is archived or closed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionGroupUngroupRequest {
     /// The group.
     pub group_id: SessionGroupId,

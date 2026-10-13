@@ -25,8 +25,9 @@ use crate::wire::number::number;
 use crate::wire::text::{ComposedText, FreeFormText};
 
 /// The one input every session read takes: the session.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionAddressedRequest {
     /// The session.
     pub session_id: SessionId,
@@ -60,8 +61,9 @@ pub enum PermissionLevel {
 
 /// Moves the session to a level. Setting the level it already has changes nothing, and a move never
 /// answers an open card: the new level decides from the next ask.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionPermissionLevelUpdateRequest {
     /// The session.
     pub session_id: SessionId,
@@ -90,8 +92,9 @@ pub enum SessionMode {
 }
 
 /// Sets the session's mode.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionModeUpdateRequest {
     /// The session.
     pub session_id: SessionId,
@@ -119,8 +122,9 @@ number! {
 /// Sets this session's own auto-compact bound from its next turn, as a percent of the window;
 /// `null` returns the session to the Settings default. The accepted range comes from the provider's
 /// live figures, so the daemon refuses a percent outside it; the type bounds only a percent.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionAutoCompactUpdateRequest {
     /// The session.
     pub session_id: SessionId,
@@ -177,8 +181,9 @@ pub struct SessionMcpServerList {
 }
 
 /// Turns one server on or off for this session only.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionMcpServerUpdateRequest {
     /// The session.
     pub session_id: SessionId,
@@ -201,8 +206,9 @@ pub struct SessionMcpServerUpdateResponse {
 }
 
 /// Lists what one working server offers, for `Attach a resource…`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionMcpResourceListRequest {
     /// The session.
     pub session_id: SessionId,
@@ -316,8 +322,9 @@ named_scalar! {
 }
 
 /// Asks a side question in a throwaway copy of the conversation.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionSideQuestionAskRequest {
     /// The session.
     pub session_id: SessionId,
@@ -348,8 +355,9 @@ pub enum SessionReviewTarget {
 }
 
 /// Starts the provider's own review; its report lands as the agent's reply.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionReviewStartRequest {
     /// The session.
     pub session_id: SessionId,
@@ -359,8 +367,9 @@ pub struct SessionReviewStartRequest {
 
 /// Sets or clears this session's own bound on how many steps one turn may take, from its next
 /// turn. `null` returns the session to the machine's own value; a bound below one is refused.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionMaxStepsUpdateRequest {
     /// The session.
     pub session_id: SessionId,
@@ -388,8 +397,9 @@ pub struct SessionMaxStepsUpdateResponse {
 
 /// Sets or clears this session's own `Spend limit`, in micro-dollars; `null` is `Unlimited`.
 /// Saving a higher limit carries on the turns the limit stopped.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionSpendLimitUpdateRequest {
     /// The session.
     pub session_id: SessionId,
@@ -401,8 +411,9 @@ pub struct SessionSpendLimitUpdateRequest {
 
 /// Sets or clears this session's own `Tokens per run`; `null` is `Unlimited`. Saving a higher limit
 /// carries on the run the limit stopped.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionTokensPerRunUpdateRequest {
     /// The session.
     pub session_id: SessionId,

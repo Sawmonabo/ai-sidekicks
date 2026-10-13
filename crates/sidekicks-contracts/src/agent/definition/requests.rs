@@ -230,8 +230,9 @@ pub struct AgentDefinitionUpdateResponse {
 /// Deletes a definition: never refused and never cascading. On a provider's own agent the daemon
 /// deletes that file and the record beside it in one act; on an orphaned record it discards the
 /// record.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AgentDefinitionDeleteRequest {
     /// The definition.
     pub definition_id: AgentDefinitionId,
@@ -247,8 +248,9 @@ pub struct AgentDefinitionDeleteResponse {
 
 /// Writes the chosen definitions into the folder the person picked, one Markdown file each, every
 /// binding with its account left out. An unknown id refuses the whole export.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AgentDefinitionExportRequest {
     /// The definitions, at least one.
     pub definition_ids: BoundedVec<AgentDefinitionId, 1, { usize::MAX }>,
@@ -267,8 +269,9 @@ pub struct AgentDefinitionExportResponse {
 /// Reads the folder the person picked and creates every agent definition in it in one
 /// transaction: it only creates, suffixes a colliding name, lands each in the global scope with
 /// no account, and lists every other file it skipped.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AgentDefinitionImportRequest {
     /// The folder, the path main's relay put in place of the chooser's token.
     pub folder: FreeFormText<FILE_PATH_MAX_LEN>,

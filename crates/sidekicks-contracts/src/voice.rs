@@ -58,8 +58,9 @@ pub struct VoiceUnavailableDetails {
 /// The session voice is on in, or `null` when it is off: the request and result of
 /// `voice.stateUpdate`, and each delivery of `voice.stateSubscribe`, the first of which is the
 /// current state.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct VoiceState {
     /// The session, or `null`.
     #[serde(deserialize_with = "nullable")]
@@ -68,8 +69,9 @@ pub struct VoiceState {
 }
 
 /// `voice.dictationStart`: starts a recording in a Claude Code session.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct VoiceDictationStartRequest {
     /// The session.
     pub session_id: SessionId,
@@ -98,8 +100,11 @@ fn holds_whole_samples(
 }
 
 /// `voice.dictationStop`: stops the recording; `cancel` drops it, and its words with it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct VoiceDictationStopRequest {
     /// Whether to drop the recording.
     pub cancel: bool,
@@ -190,8 +195,9 @@ pub enum VoiceDictationFrame {
 }
 
 /// `voice.callStart`: starts a call in a Codex session with the window's WebRTC offer.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct VoiceCallStartRequest {
     /// The session.
     pub session_id: SessionId,

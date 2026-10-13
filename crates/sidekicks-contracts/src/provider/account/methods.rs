@@ -56,8 +56,9 @@ ts_constants! {
 
 /// Edits an account's descriptive settings; an omitted member is unchanged. The provider, the
 /// credential home, the credential generation and the default mark are not changed here.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderAccountUpdateRequest {
     /// The account.
     pub account_id: ProviderAccountId,
@@ -143,8 +144,9 @@ pub struct ProviderAccountUpdateResponse {
 }
 
 /// Removes one account.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderAccountRemoveRequest {
     /// The account.
     pub account_id: ProviderAccountId,
@@ -171,8 +173,9 @@ pub struct ProviderAccountInUseDetails {
 /// Makes this account its provider's current account, the one the default mark sits on. New
 /// sessions on that provider start on it and every running session there not pinned to an
 /// account moves to it; no credential is touched.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderAccountSetCurrentRequest {
     /// The account.
     pub account_id: ProviderAccountId,
@@ -223,8 +226,9 @@ pub struct ProviderAccountNotAuthenticatedDetails {
 }
 
 /// Checks one account's health now.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderAccountProbeRequest {
     /// The account.
     pub account_id: ProviderAccountId,
@@ -244,8 +248,9 @@ pub struct ProviderAccountProbeResponse {
 
 /// Copies the person's own provider memory into this account's home, once, never overwriting a
 /// file, and answers with the outcome the account keeps, so a repeat never copies twice.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderAccountMemoryImportRequest {
     /// The account.
     pub account_id: ProviderAccountId,

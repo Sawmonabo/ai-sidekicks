@@ -34,8 +34,9 @@ pub enum SessionLinkKind {
 }
 
 /// `session.relatedList`'s input: the session whose related sessions to follow.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionRelatedListRequest {
     /// The session.
     pub session_id: SessionId,

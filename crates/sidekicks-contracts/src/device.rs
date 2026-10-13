@@ -124,8 +124,9 @@ pub struct PasskeyEntry {
 }
 
 /// `device.list` takes nothing: the account is the caller's.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DeviceListRequest {}
 
 /// The list now, which the live read answers with before its first change.
@@ -199,8 +200,9 @@ pub enum DeviceListEvent {
 // Linking
 
 /// `device.linkStart` takes nothing: the caller is the linking side.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DeviceLinkStartRequest {}
 
 /// A single-use pairing, good for 5 minutes from when it was made.
@@ -217,8 +219,9 @@ pub struct DeviceLinkStartResponse {
 
 /// The new device's half of the link: its keys, its name and platform, and a SHA-256 HMAC under
 /// the link's secret, which never reaches the control plane.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DeviceLinkRedeemRequest {
     /// The pairing.
     pub pairing_id: PairingId,
@@ -272,8 +275,9 @@ pub struct DeviceLinkRequest {
 }
 
 /// `Cancel`, or `It doesn't match`: the pairing ends and nothing is linked.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DeviceLinkCancelRequest {
     /// The pairing.
     pub pairing_id: PairingId,
@@ -300,8 +304,9 @@ pub struct DeviceRevokeRequest {
 }
 
 /// Removes a revoked device's row; its `device.revoked` stays in the chain.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DeviceForgetRequest {
     /// The device.
     pub device_id: DeviceId,
@@ -310,8 +315,9 @@ pub struct DeviceForgetRequest {
 // The chain, fetched and handed on
 
 /// The chain after a given statement; `null` asks for it from the start.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DeviceStatementListRequest {
     /// The statement to start after.
     #[serde(deserialize_with = "nullable")]
@@ -339,8 +345,9 @@ pub struct DeviceStatementApplyRequest {
 }
 
 /// `device.trustedList` takes nothing: the view is the answering machine's own.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DeviceTrustedListRequest {}
 
 /// One device as this machine's verified chain sees it.
@@ -395,13 +402,14 @@ pub enum PushPlatform {
 /// The calling device's push address: its APNs token, its FCM token or its Web Push endpoint. Set
 /// at link time and whenever the platform changes it. The control plane posts to a Web Push
 /// endpoint, so that one is an `https:` address, never somewhere no push service lives.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "platform",
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum DevicePushAddressSetRequest {
     /// An APNs token.
     Apns {
@@ -433,8 +441,9 @@ pub struct WebPushKeys {
 /// A device's own switches and push keys, handed to a machine on every connection and whenever one
 /// changes. The machine keeps the copy only to decide before it sends, and never edits it.
 /// `pushKey` is the 1,216-byte X-Wing public key a push is sealed to, standard base64.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DeviceNotificationSettingsSetRequest {
     /// `Notify me outside the app`.
     pub notify_outside_the_app: bool,
@@ -607,8 +616,9 @@ pub enum ControlPlaneCallProcedure {
 
 /// One forwarded call. `input` is the procedure's own request, which the control plane's
 /// descriptor for that procedure parses, and the reply is that procedure's own result.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ControlPlaneCallRequest {
     /// The procedure, from the closed list.
     pub procedure: ControlPlaneCallProcedure,

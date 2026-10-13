@@ -196,8 +196,9 @@ pub struct SessionMemoryReadResponse {
 }
 
 /// Turns the session's `Auto memory` switch on or off.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionAutoMemoryUpdateRequest {
     /// The session.
     pub session_id: SessionId,

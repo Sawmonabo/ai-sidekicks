@@ -30,8 +30,9 @@ pub type CloneLine = FreeFormText<REPO_CLONE_LINE_MAX_LEN>;
 /// `repo.clone`: the repository's URL, the folder the clone goes into when it is not the machine's
 /// clone folder, and the project whose failed or canceled clone this runs again. The reply names
 /// the project, made at once and marked `cloning`; the clone ends in the ordinary attach.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoCloneRequest {
     /// The repository's URL, handed to git as typed.
     pub url: FreeFormText<REPO_CLONE_URL_MAX_LEN>,
@@ -83,8 +84,9 @@ pub struct RepoCloneResponse {
 
 /// `repo.cloneSubscribe`, `repo.cloneCancel` and `repo.largeFilesPull`: the project a clone-card
 /// request is about.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoCloneProjectRequest {
     /// The project.
     pub project_id: ProjectId,
@@ -209,8 +211,9 @@ pattern_text! {
 /// `repo.cloneAnswer`: the answer to one of git's questions. The daemon hands it to git's askpass
 /// program and nowhere else; it is never stored, logged or echoed, and a transport that logs
 /// request bodies must redact `answer`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoCloneAnswerRequest {
     /// The project.
     pub project_id: ProjectId,
@@ -221,8 +224,9 @@ pub struct RepoCloneAnswerRequest {
 }
 
 /// `repo.cloneFolderRead` takes nothing.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoCloneFolderReadRequest {}
 
 /// Why a clone goes where it does.
