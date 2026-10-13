@@ -213,7 +213,7 @@ Phases still to build, and the order between them, live in [`docs/architecture/c
 
 ## Project Status
 
-Code execution is under way. What is left to build, and the order between the pieces, is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). [Plan-021](docs/plans/021-rust-pty-sidecar.md) Phases 4-5 wait on hardware and certificate procurement.
+Code execution is under way. What is left to build, and the order between the pieces, is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). [Plan-021](docs/plans/021-terminal.md) Phases 4-5 wait on hardware and certificate procurement.
 
 ---
 

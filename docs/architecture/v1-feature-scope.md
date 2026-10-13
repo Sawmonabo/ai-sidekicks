@@ -49,7 +49,7 @@ The person picks per setup and can switch a machine between them; the daemon poi
 
 ## Platform Support (V1)
 
-Per [ADR-018: Windows V1 Tier and PTY Sidecar Strategy](../decisions/018-windows-v1-tier-and-pty-sidecar.md), V1 ships Windows, macOS, and Linux as GA tiers on equal footing:
+Per [ADR-018: Windows V1 Tier and PTY Sidecar Strategy](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md), V1 ships Windows, macOS, and Linux as GA tiers on equal footing:
 
 | Platform | V1 Tier | PTY Backend |
 | --- | --- | --- |
@@ -87,7 +87,7 @@ All V1 features and supporting V1 specs have implementation plans: Plan-001 and 
 
 - [ADR-014: V1 Feature Scope Definition](../decisions/014-v1-feature-scope-definition.md) — the governing decision for this scope.
 - [ADR-015: Electron Desktop App](../decisions/015-electron-desktop-app.md) — enables V1 feature 12 (Desktop GUI).
-- [ADR-018: Windows V1 Tier and PTY Sidecar Strategy](../decisions/018-windows-v1-tier-and-pty-sidecar.md) — Windows V1 tier decision.
+- [ADR-018: Windows V1 Tier and PTY Sidecar Strategy](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md) — Windows V1 tier decision.
 - [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md) — the person's own relay and the ways to deploy it.
 - [ADR-010: Tokens, Passkeys And The Remote Channel](../decisions/010-tokens-passkeys-and-the-remote-channel.md) — PASETO v4 tokens with a device-code sign-in and a DPoP-bound refresh token for the control plane, passkeys only in the web client, the phone apps and the device-code page, and the per-connection `Noise_KK_25519_ChaChaPoly_SHA256` channel between each device and each machine.
 - [Vision](../vision.md) — signature features and build order.

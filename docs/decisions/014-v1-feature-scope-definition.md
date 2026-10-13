@@ -191,7 +191,7 @@ Feature 14 (workflow authoring and execution) is grounded in primary sources on:
 ### Related ADRs
 
 - [ADR-015: Electron Desktop App](./015-electron-desktop-app.md) — chosen desktop runtime; enables Feature 12.
-- [ADR-018: Windows V1 Tier and PTY Sidecar](./018-windows-v1-tier-and-pty-sidecar.md) — Windows tier decision; enables V1 shipment across Windows, macOS, Linux.
+- [ADR-018: Windows V1 Tier and PTY Sidecar](./018-windows-v1-tier-and-pty-in-the-daemon.md) — Windows tier decision; enables V1 shipment across Windows, macOS, Linux.
 - [ADR-019: V1 Deployment Model and OSS License](./019-v1-deployment-model-and-oss-license.md) — how V1 is deployed (one open-source codebase whose relay the person deploys for themself, in their own Cloudflare account or on their own server), distinct from what V1 contains.
 - [ADR-010: Tokens, Passkeys And The Remote Channel](./010-tokens-passkeys-and-the-remote-channel.md) — PASETO v4 tokens with a device-code sign-in and a DPoP-bound refresh token for the control plane, passkeys only in the web client, the phone apps and the device-code page, and the per-connection `Noise_KK_25519_ChaChaPoly_SHA256` channel between each device and each machine, which Remote Control (feature 21) runs over.
 

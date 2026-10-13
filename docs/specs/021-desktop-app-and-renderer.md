@@ -753,7 +753,7 @@ The sources behind §Required Behavior and [Desktop App Implementation Notes](..
 - [ADR-023: Electron Main-Process Window Retention](../decisions/023-electron-main-process-window-retention.md) — main's registry of windows and the reachability the window-retention criterion checks
 - [ADR-010: Tokens, Passkeys And The Remote Channel](../decisions/010-tokens-passkeys-and-the-remote-channel.md) — the control-plane token format and device-code sign-in behind the service's control-plane calls, which the preload bridge's `controlPlane.call` rides
 - [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md) — daemon IPC wire format the preload bridge forwards
-- [ADR-013: tRPC Control Plane API](../decisions/013-trpc-control-plane-api.md) — control-plane transport the preload bridge forwards
+- [ADR-013: tRPC Control Plane API](../decisions/013-control-plane-api.md) — control-plane transport the preload bridge forwards
 - [ADR-024: Visual Node-Graph Workflow Authoring](../decisions/024-visual-node-graph-workflow-authoring.md) — the `@xyflow/react` decision the Workflows builder holds to
 - [ADR-019: V1 Deployment Model And OSS License](../decisions/019-v1-deployment-model-and-oss-license.md) — §Decision Log records the test-only MPL-2.0 `axe-core` admission
 - [ADR-026: Provider Credential Custody Posture](../decisions/026-provider-credential-custody-posture.md) — the write-only-credential rule every console input obeys

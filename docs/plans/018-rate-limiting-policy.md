@@ -8,7 +8,7 @@
 | **Date** | `2026-04-17` |
 | **Author(s)** | `Claude Opus 4.7` |
 | **Spec** | [Spec-019: Rate Limiting Policy](../specs/019-rate-limiting-policy.md) |
-| **Required ADRs** | [ADR-013: tRPC Control-Plane API](../decisions/013-trpc-control-plane-api.md); [ADR-019: V1 Deployment Model And OSS License](../decisions/019-v1-deployment-model-and-oss-license.md); [ADR-014: V1 Feature Scope Definition](../decisions/014-v1-feature-scope-definition.md); [ADR-010: Tokens, Passkeys And The Remote Channel](../decisions/010-tokens-passkeys-and-the-remote-channel.md) |
+| **Required ADRs** | [ADR-013: tRPC Control-Plane API](../decisions/013-control-plane-api.md); [ADR-019: V1 Deployment Model And OSS License](../decisions/019-v1-deployment-model-and-oss-license.md); [ADR-014: V1 Feature Scope Definition](../decisions/014-v1-feature-scope-definition.md); [ADR-010: Tokens, Passkeys And The Remote Channel](../decisions/010-tokens-passkeys-and-the-remote-channel.md) |
 | **Dependencies** | the shipped control-plane host (the stable tRPC middleware-mount surface consumed here; `wrangler.toml` deployment config extended); the sign-in, token-refresh and device-linking procedures the middleware wraps ([Plan-015](./015-hosted-account-and-identity.md), [Plan-025](./025-remote-control.md) Phase 5). Non-blocking context, not dependencies: Plan-005 daemon-IPC scope exclusion (§Non-Goals); Plan-025's self-host relay node as a downstream consumer (see §Cross-Plan Obligations) |
 | **Cross-Plan Deps** | Cross-Plan Dependency Graph |
 
@@ -359,7 +359,7 @@ Strictly **downstream of the control-plane host** for the CP-018-1 tRPC mount, a
 ## References
 
 - [Spec-019: Rate Limiting Policy](../specs/019-rate-limiting-policy.md)
-- [ADR-013: tRPC Control-Plane API](../decisions/013-trpc-control-plane-api.md)
+- [ADR-013: tRPC Control-Plane API](../decisions/013-control-plane-api.md)
 - [ADR-019: V1 Deployment Model And OSS License](../decisions/019-v1-deployment-model-and-oss-license.md)
 - [ADR-010: Tokens, Passkeys And The Remote Channel](../decisions/010-tokens-passkeys-and-the-remote-channel.md)
 - [Deployment Topology §Rate Limiting By Deployment](../architecture/deployment-topology.md#rate-limiting-by-deployment)

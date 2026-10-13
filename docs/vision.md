@@ -317,7 +317,7 @@ Every technology below ships in V1; the feature list is [ADR-014: V1 Feature Sco
 | Terminal | `node-pty`, `@xterm/xterm` (own React wrapper — no published wrapper is adopted, per Desktop App Implementation Notes §Console Libraries) | Terminal multiplexing inside Desktop GUI (ADR-014 V1 Feature 12); which of the person's devices may type into a shell is Spec-002's per-shell device control lease |
 | Push notifications | `web-push` (Web Push encryption and VAPID headers), `apns2`, FCM's HTTP v1 API through `google-auth-library`, `@hpke/core` with `@hpke/hybridkem-x-wing` | A push to a device with no live connection: the machine decides per device and seals the notice to the device's push key (HPKE with X-Wing; RFC 8291 for Web Push), and the relay adds only the person's own APNs, FCM or VAPID credentials, per [Spec-017 §Cross-Device Delivery](./specs/017-notifications-and-attention-model.md#cross-device-delivery). |
 | OpenTelemetry | `@opentelemetry/*` | Observability (traces + metrics) |
-| Rust PTY sidecar | `portable-pty` (wezterm) via child-process sidecar | Windows-primary PTY backend per [ADR-018](./decisions/018-windows-v1-tier-and-pty-sidecar.md); `node-pty` remains the macOS/Linux primary and the Windows fallback |
+| Rust PTY sidecar | `portable-pty` (wezterm) via child-process sidecar | Windows-primary PTY backend per [ADR-018](./decisions/018-windows-v1-tier-and-pty-in-the-daemon.md); `node-pty` remains the macOS/Linux primary and the Windows fallback |
 
 ## Signature Features And Their Correct Implementation
 

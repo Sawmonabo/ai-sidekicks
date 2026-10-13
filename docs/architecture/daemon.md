@@ -44,7 +44,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 
 ## PTY Backend Strategy
 
-Per [ADR-018](../decisions/018-windows-v1-tier-and-pty-sidecar.md), all PTY access flows through a `PtyHost` interface declared in `packages/contracts/` with two implementations under one platform selector:
+Per [ADR-018](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md), all PTY access flows through a `PtyHost` interface declared in `packages/contracts/` with two implementations under one platform selector:
 
 - **`RustSidecarPtyHost`** — the Windows backend, and the only one there. Spawns a child-process Rust sidecar built on `portable-pty` (wezterm) and communicates via LSP-style Content-Length framing over stdio (JSON control channel + length-prefixed binary data channel). The sidecar's lifecycle is tied to the daemon's session lifecycle; supervisor auto-restarts on crash and surfaces backpressure to the caller.
 - **`NodePtyHost`** — the macOS and Linux backend (in-process, zero per-spawn process overhead). The sidecar ships for Windows alone, and Windows has no `node-pty` fallback.
@@ -93,4 +93,4 @@ The platform selector picks the one backend for the platform; consumers of `PtyH
 - [Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
 - [Provider Drivers Use A Normalized Interface](../decisions/005-provider-drivers-use-a-normalized-interface.md)
 - [Worktree First Execution Mode](../decisions/006-worktree-first-execution-mode.md)
-- [Windows V1 Tier and PTY Sidecar Strategy](../decisions/018-windows-v1-tier-and-pty-sidecar.md)
+- [Windows V1 Tier and PTY Sidecar Strategy](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md)

@@ -17,7 +17,7 @@ Constraints from accepted ADRs:
 
 - [ADR-015](./015-electron-desktop-app.md) — Electron 44.x, whose bundled Node (24.21) runs the app's main process and renderer.
 - [ADR-004](./004-sqlite-local-state-and-postgres-control-plane.md) — SQLite for local execution (`session_events`, `session_snapshots`), Postgres for shared state.
-- [ADR-013](./013-trpc-control-plane-api.md) — tRPC v11 for the Control Plane.
+- [ADR-013](./013-control-plane-api.md) — tRPC v11 for the Control Plane.
 - [ADR-009](./009-json-rpc-ipc-wire-format.md) — JSON-RPC 2.0 with LSP-style framing for daemon IPC.
 - [ADR-017](./017-cross-version-compatibility.md) — semver `MAJOR.MINOR` versions, with the app and the service agreeing a version range at the handshake; `engines` declarations set the toolchain floors.
 
@@ -284,7 +284,7 @@ Each of the following events triggers a re-evaluation of the named primitive:
 
 - [ADR-015: Electron Desktop App](./015-electron-desktop-app.md) — sets the Electron pin whose bundled Node the app runs: V1 runs on Electron 44.x, whose bundled Node is 24.21. The packages' `engines.node` floor is `>=24.21.0`, that same bundled Node, which also meets the memory gate's `process.availableMemory()` reading (24.16 or later) and clears the `better-sqlite3` 13.x Node-API-10 prebuild's own floor (Node 22.14).
 - [ADR-004: SQLite Local State and Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md) — sets the SQLite + Postgres engine pair this ADR selects bindings for.
-- [ADR-013: tRPC Control Plane API](./013-trpc-control-plane-api.md) — the control plane RPC stack that consumes the package manager + monorepo + TS settings.
+- [ADR-013: tRPC Control Plane API](./013-control-plane-api.md) — the control plane RPC stack that consumes the package manager + monorepo + TS settings.
 - [ADR-009: JSON-RPC IPC Wire Format](./009-json-rpc-ipc-wire-format.md) — the daemon wire format whose contracts package consumes the toolchain.
 - [ADR-017: Cross-Version Compatibility](./017-cross-version-compatibility.md) — the version-floor enforcement model this ADR's `engines.*` declarations participate in.
 - [ADR-019: V1 Deployment Model and OSS License](./019-v1-deployment-model-and-oss-license.md) — Apache-2.0 posture that constrains primitive license compatibility (all selected primitives are MIT/ISC/BSD-2 compatible).
