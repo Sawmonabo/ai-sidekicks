@@ -26,9 +26,13 @@ export interface ContractMethod {
   readonly emission?: string;
 }
 
-/** A method table, written under its `*_METHOD_DESCRIPTORS` name. */
+/**
+ * A method table, written under its `*_METHOD_DESCRIPTORS` name. `typeName` names the table's
+ * type where today's name is not the one derived from the table's name.
+ */
 export interface MethodTable {
   readonly name: string;
+  readonly typeName?: string;
   readonly doc: string;
   readonly methods: readonly ContractMethod[];
 }
@@ -94,6 +98,7 @@ const MODULE_FILE_SCHEMA = {
         required: ["name", "doc", "methods"],
         properties: {
           name: { type: "string", pattern: "^[A-Z][A-Z0-9_]*_METHOD_DESCRIPTORS$" },
+          typeName: { type: "string", pattern: DEFINITION_NAME },
           doc: DOC,
           methods: {
             type: "array",

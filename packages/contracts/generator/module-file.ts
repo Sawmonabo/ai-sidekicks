@@ -10,7 +10,9 @@ import { ModuleImports, parseTypeReference, type TypeReference } from "./module-
 import { checkName, generateChecks } from "./schema-checks.ts";
 import { generateTypes } from "./type-declarations.ts";
 
+// File-scoped: generated code is held to its generator, not to the hand-written code's lint rules.
 const GENERATED_HEADER =
+  "/* eslint-disable */\n" +
   "// Generated from the Rust contracts by `pnpm --filter @ai-sidekicks/contracts generate`.\n" +
   "// Change the Rust source and regenerate; never edit this file.";
 
@@ -25,9 +27,12 @@ function docComment(text: string): string {
     .join("\n")}\n */`;
 }
 
-/** `TABLE_METHOD_DESCRIPTORS` as `TableMethodDescriptors`, the name of the table's type. */
-function tableTypeName(tableName: string): string {
-  return tableName
+/** The name of a table's type: the emitted one, else `TABLE_METHOD_DESCRIPTORS` as `TableMethodDescriptors`. */
+function tableTypeName(table: MethodTable): string {
+  if (table.typeName !== undefined) {
+    return table.typeName;
+  }
+  return table.name
     .toLowerCase()
     .split("_")
     .map((word) => `${word[0]!.toUpperCase()}${word.slice(1)}`)
@@ -60,7 +65,7 @@ function writeMethodTable(
   module: ContractModule,
   imports: ModuleImports,
 ): string {
-  const typeName = tableTypeName(table.name);
+  const typeName = tableTypeName(table);
   const resolve = (reference: string): string => {
     const target = parseTypeReference(reference, module.path);
     if (target.module !== undefined) {
@@ -122,7 +127,7 @@ export async function writeModuleFile(
     ...definitions,
     ...checked.map(checkName),
     ...module.constants.map((constant) => constant.name),
-    ...module.methodTables.flatMap((table) => [table.name, tableTypeName(table.name)]),
+    ...module.methodTables.flatMap((table) => [table.name, tableTypeName(table)]),
     ...(refusalCodes.module === module.path ? [refusalCodes.name] : []),
   ]);
   const imports = new ModuleImports(module.path, localNames);
