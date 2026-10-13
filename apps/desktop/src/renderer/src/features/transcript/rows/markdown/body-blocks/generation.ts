@@ -2,13 +2,16 @@
 // copied whole; where each block sits and what its text may hold, recorded a slice at a time as a
 // cut lands; what they define; the trees parsed on the page for the blocks mounted, kept only while
 // they are; and the worker's trees, held for the blocks the page does not parse. A generation lasts
-// while the body's text only grows.
+// while the body's text only grows. The blocks start past a byte order mark the text opens on,
+// which is no part of its markdown, as a whole parse of the text drops it.
 
 import {
   PAGE_PARSE_MAX_CHARACTERS,
   type ParsedMarkdown,
 } from "#renderer/components/Markdown/parse/trees.js";
 import { MARKDOWN_SETTLE_LAG_BLOCKS } from "#renderer/components/Markdown/parse/block-cut.js";
+import { byteOrderMarkLengthOf } from "#renderer/components/Markdown/parse/byte-order-mark.js";
+import { LINE_ENDING } from "#renderer/components/Markdown/parse/line-endings.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { publishedTextOf, type PublishedText } from "#renderer/lib/text/published.js";
 import { BlockFlag, BlockRecords } from "../block-records.js";
@@ -45,6 +48,8 @@ export class BlockGeneration {
   /** Each mounted block's page tree, by the block's index. */
   readonly #pageTrees = new Map<number, PageTree>();
   #text: PublishedText = NO_TEXT;
+  /** Where the first block starts: past the byte order mark the text opens on, once it has one. */
+  #blocksStart = 0;
   /** The text's revision and length when last read. */
   #readRevision = 0;
   #readLength = 0;
@@ -67,7 +72,7 @@ export class BlockGeneration {
   /** Where the blocks cut so far end: where the rest of the text starts. */
   public get cutEnd(): number {
     const count = this.records.count;
-    return count === 0 ? 0 : this.records.endOf(count - 1);
+    return count === 0 ? this.#blocksStart : this.records.endOf(count - 1);
   }
 
   /** Whether the text was cut whole at `length`, so no block is left to cut. */
@@ -104,16 +109,24 @@ export class BlockGeneration {
 
   /** Takes the text as it stands now, which extends what was read. */
   public take(text: PublishedText): void {
+    if (this.#readLength === 0 && text.length > 0) {
+      this.#blocksStart = byteOrderMarkLengthOf(text.slice(0, 1));
+    }
     this.#text = text;
     this.#readRevision = text.revision;
     this.#readLength = text.length;
   }
 
-  /** The text after the blocks cut, as a tail is drawn: without its leading blank lines. */
+  /**
+   * The text from `start`, as a tail is drawn: never before the first block's start, and without
+   * its leading blank lines.
+   */
   public tailFrom(start: number): string {
     // A copy, not a cut of the text: a tail parser keeps what it read across frames, and a cut
     // would keep alive the text it was cut from.
-    return structuredClone(withoutLeadingBlankLines(this.#text.slice(start)));
+    return structuredClone(
+      withoutLeadingBlankLines(this.#text.slice(Math.max(start, this.#blocksStart))),
+    );
   }
 
   /** Block `index`'s text, cut from the generation's text for a reader that lets it go. */
@@ -290,8 +303,11 @@ export const NO_STOP: Unsubscribe = () => undefined;
  * open an indented code block. `[ \t]` rather than `\s`, which would match the newline itself.
  */
 export function withoutLeadingBlankLines(tail: string): string {
-  return tail.replace(/^(?:[ \t]*\n)+/u, "");
+  return tail.replace(LEADING_BLANK_LINES, "");
 }
+
+/** The blank lines a tail opens on, each ended by any line ending. */
+const LEADING_BLANK_LINES = new RegExp(`^(?:[ \\t]*(?:${LINE_ENDING.source}))+`, "u");
 
 /** A cut taken to record: where its blocks end, how many are recorded, and where they began. */
 interface TakenCut {

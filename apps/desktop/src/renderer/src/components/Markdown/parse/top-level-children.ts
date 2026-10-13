@@ -2,19 +2,24 @@
 // itself: the root's child ids and types, then the position of each node of those types, both
 // walked inside the parser. Copying the whole tree out would hold its bytes in the parser's
 // memory, which never shrinks; the walk copies out only what the cut reads. The text is parsed as
-// the screen's trees are, with the same features and each NUL replaced; a dollar read as text is
-// left as it is, since which dollars open a formula is read inside a block, after the text is cut
-// into blocks, and moves no block's bounds.
+// the screen's trees are, with the same features, each NUL replaced and a byte order mark it opens
+// on read as text; a dollar read as text is left as it is, since which dollars open a formula is
+// read inside a block, after the text is cut into blocks, and moves no block's bounds.
 
 import { createMdastHandle, dropHandle, walkMdastHandle } from "satteri";
 import { NodeType } from "satteri/mdast-reader";
 
-import { droppedByteOrderMarkLengthOf, type TopLevelChildren } from "./block-cut.js";
+import type { TopLevelChildren } from "./block-cut.js";
+import { parseLeadOf } from "./byte-order-mark.js";
 import { MARKDOWN_FEATURES, withoutNul } from "./serialized-tree.js";
 
-/** Where each top-level child of `source` starts and ends, in UTF-16 code units of it. */
+/**
+ * Where each top-level child of `source` starts and ends, in UTF-16 code units of it, a byte order
+ * mark it opens on read as text.
+ */
 export function readTopLevelChildren(source: string): TopLevelChildren {
-  const handle = createMdastHandle(withoutNul(source), MARKDOWN_FEATURES, true);
+  const lead = parseLeadOf(source);
+  const handle = createMdastHandle(lead + withoutNul(source), MARKDOWN_FEATURES, true);
   try {
     const children = rootChildrenOf(
       walkMdastHandle(handle, [{ nodeType: NodeType.Root, tagFilter: [] }]),
@@ -23,7 +28,7 @@ export function readTopLevelChildren(source: string): TopLevelChildren {
       handle,
       [...new Set(children.types)].map((nodeType) => ({ nodeType, tagFilter: [] })),
     );
-    return positionsOf(children.ids, childMatches, droppedByteOrderMarkLengthOf(source));
+    return positionsOf(children.ids, childMatches, lead.length);
   } finally {
     // The handle holds the parse's arena inside the parser's memory until it is dropped.
     dropHandle(handle);
@@ -71,12 +76,12 @@ function rootChildrenOf(rootMatch: Uint8Array): RootChildren {
 
 /**
  * Where each child in `ids` starts and ends, from a walk that matched every node of their types,
- * each offset moved on by the `droppedLength` units the parser dropped from the text's start.
+ * each offset moved back by the `leadLength` units the parser was given ahead of the text.
  */
 function positionsOf(
   ids: Uint32Array,
   childMatches: Uint8Array,
-  droppedLength: number,
+  leadLength: number,
 ): TopLevelChildren {
   const placeOf = new Map<number, number>();
   for (const [index, id] of ids.entries()) {
@@ -97,8 +102,8 @@ function positionsOf(
     if (view.getUint32(at + POSITION_START_LINE_AT, true) === 0) {
       throw new Error("The markdown parser gave a top-level child no position");
     }
-    starts[place] = view.getUint32(at, true) + droppedLength;
-    ends[place] = view.getUint32(at + POSITION_END_OFFSET_AT, true) + droppedLength;
+    starts[place] = view.getUint32(at, true) - leadLength;
+    ends[place] = view.getUint32(at + POSITION_END_OFFSET_AT, true) - leadLength;
     found[place] = 1;
   }
   if (found.includes(0)) {

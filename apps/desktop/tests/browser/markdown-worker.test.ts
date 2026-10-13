@@ -15,8 +15,9 @@
 // blocks one parse of the whole body reads, whole and as it streams in, on the constructs a scan
 // for blank lines cuts wrongly, on multibyte text, an emoji's halves either side of a window's
 // edge among it, on lines that end in a carriage return alone or with a line feed, over many
-// windows too, and on a body or a window that opens on a byte order mark, which the parser drops
-// before it counts offsets; holding back one block instead of two splits a loose ordered list. A
+// windows too, and on a text, a window or a block that opens on a byte order mark, which every
+// parse reads as text, as a whole parse reads one past a text's start; holding back one block
+// instead of two splits a loose ordered list. A
 // body no longer than a block the page parses is cut on the page, whole and as it streams in, at
 // the ends the worker cuts, with no cut sent to the worker.
 
@@ -36,7 +37,7 @@ import {
 import { markdownTreeToHtml } from "#renderer/components/Markdown/html.js";
 import {
   BlockCut,
-  droppedByteOrderMarkLengthOf,
+  CUT_WINDOW_CHARACTERS,
   MARKDOWN_SETTLE_LAG_BLOCKS,
   type TopLevelChildren,
 } from "#renderer/components/Markdown/parse/block-cut.js";
@@ -309,7 +310,7 @@ it("cuts a body into the top-level blocks one parse of the whole body reads", as
     expect(blockEnds, name).toStrictEqual(wholeParseBlockEndsOf(pageParser, text));
   }
   // The reference cuts where the texts' own lines start, after a byte order mark and a lone CR.
-  const opensOnMark = cutCases["bom at start"];
+  const opensOnMark = cutCases["opens on a byte order mark"];
   expect(wholeParseBlockEndsOf(pageParser, opensOnMark)).toStrictEqual([
     opensOnMark.indexOf("Para."),
     opensOnMark.indexOf("- a"),
@@ -389,25 +390,26 @@ it("cuts a body no longer than a page-parsed block on the page, where the worker
 const MULTIBYTE_PARAGRAPHS = MULTIBYTE_TEXT.replaceAll(/^\d+\. /gmu, "").replaceAll("\n", "\n\n");
 
 /**
- * ASCII paragraphs up to a line whose emoji has its two halves either side of 65,536 code units,
- * where the cut's first window would end were it not cut back to whole lines.
+ * ASCII paragraphs up to a line whose emoji has its two halves either side of where the cut's first
+ * window would end were it not cut back to whole lines.
  */
 const EMOJI_AT_WINDOW_EDGE = ((): string => {
-  const paragraphs = `${"a".repeat(99)}\n\n`.repeat(648);
-  const lead = "b".repeat(65_535 - paragraphs.length);
+  const paragraph = `${"a".repeat(99)}\n\n`;
+  const paragraphs = paragraph.repeat(Math.floor((CUT_WINDOW_CHARACTERS - 1) / paragraph.length));
+  const lead = "b".repeat(CUT_WINDOW_CHARACTERS - 1 - paragraphs.length);
   return `${paragraphs}${lead}\u{1F600} after the edge\n\n${"c".repeat(40)}\n\n- an item\n`;
 })();
 
-/** `line` repeated to a text longer than the cut's first window. */
-function longerThanWindow(line: string): string {
-  return line.repeat(Math.ceil(70_000 / line.length));
+/** `line` repeated to a text longer than the cut's first two windows. */
+function longerThanWindows(line: string): string {
+  return line.repeat(Math.ceil((2 * CUT_WINDOW_CHARACTERS + 1) / line.length));
 }
 
 /**
  * The hand cases a scan for blank lines cuts wrongly, a long reply of every kind of block,
- * multibyte text, whose code units and UTF-8 bytes place each block apart, and paragraphs over
- * several windows whose lines end in a carriage return, alone or with a line feed, or which each
- * open on a byte order mark, so every window after the first opens on one too.
+ * multibyte text, whose code units and UTF-8 bytes place each block apart, and blocks over several
+ * windows whose lines end in a carriage return, alone or with a line feed, or which each open on a
+ * byte order mark before a lazy line, so every window after the first opens on one too.
  */
 const CUT_TEXTS: Readonly<Record<string, string>> = {
   ...cutCases,
@@ -415,9 +417,9 @@ const CUT_TEXTS: Readonly<Record<string, string>> = {
   "multibyte lines": MULTIBYTE_TEXT,
   "multibyte paragraphs": MULTIBYTE_PARAGRAPHS,
   "an emoji across a window's edge": EMOJI_AT_WINDOW_EDGE,
-  "lone cr line ends over windows": longerThanWindow("Para.\r\r"),
-  "crlf line ends over windows": longerThanWindow("Para.\r\n\r\n"),
-  "byte order marks opening windows": longerThanWindow("\uFEFFPara.\n\n"),
+  "lone cr line ends over windows": longerThanWindows("Para.\r\r"),
+  "crlf line ends over windows": longerThanWindows("Para.\r\n\r\n"),
+  "byte order marks opening windows": longerThanWindows("\uFEFF# Title\nPara.\n\n"),
 };
 
 /** A connection to a markdown worker, whose page parser is never started. */
@@ -544,11 +546,8 @@ function plainTreeOf(root: Root): unknown {
  */
 function wholeParseBlockEndsOf(pageParser: PageParser, text: string): number[] {
   const children = pageParser.parse(text).children;
-  const droppedLength = droppedByteOrderMarkLengthOf(text);
   const ends = children.slice(1).map((child) => {
-    const offset =
-      (child.position?.start.offset ?? expect.fail("a top-level child has a position")) +
-      droppedLength;
+    const offset = child.position?.start.offset ?? expect.fail("a top-level child has a position");
     return Math.max(text.lastIndexOf("\n", offset - 1), text.lastIndexOf("\r", offset - 1)) + 1;
   });
   return children.length === 0 ? [] : [...ends, text.length];

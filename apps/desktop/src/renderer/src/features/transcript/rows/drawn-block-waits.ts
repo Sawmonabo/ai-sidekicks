@@ -21,6 +21,7 @@ import {
   watchDiagramPalette,
   type DiagramPalette,
 } from "#renderer/components/Markdown/diagram/palette.js";
+import { lineStartOf } from "#renderer/components/Markdown/parse/line-endings.js";
 import { isReadInPieces } from "#renderer/components/Markdown/parse/pieced-table.js";
 import {
   readDeferredFenceKind,
@@ -175,7 +176,7 @@ export class DrawnBlockWaits implements RowParse {
     }
     const tailStart = textLength - volatileTail.length;
     const scanStart = Math.max(0, this.#openFenceScanEnd - tailStart);
-    const completeLinesEnd = volatileTail.lastIndexOf("\n") + 1;
+    const completeLinesEnd = lineStartOf(volatileTail, volatileTail.length);
     if (completeLinesEnd <= scanStart) {
       return;
     }

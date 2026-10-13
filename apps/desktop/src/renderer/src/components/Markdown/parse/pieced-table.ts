@@ -22,7 +22,12 @@ import { hasPrefix } from "#renderer/lib/text/prefix.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import type { MarkdownParseAnswer } from "../worker/messages.js";
 import { mayHoldLiteralText, restoreLiteralText } from "./literal-text.js";
-import { materializeMarkdownTree } from "./materialized-tree.js";
+import {
+  materializeMarkdownTree,
+  shiftPoint,
+  shiftPositions,
+  type Point,
+} from "./materialized-tree.js";
 import { offsetShiftOf, type TableCut, type TablePiece } from "./table-cut.js";
 
 declare module "mdast" {
@@ -769,30 +774,3 @@ function pieceIndexOf(pieces: readonly CheckedPiece[], bodyIndex: number): numbe
   }
   return low;
 }
-
-/** `node` and every node below it moved `offsetShift` code units and `lineShift` lines on. */
-function shiftPositions(node: Nodes, offsetShift: number, lineShift: number): void {
-  // Each node's place is its own object, made as the node was read, so it moves in place.
-  const position = node.position;
-  if (position !== undefined) {
-    shiftPoint(position.start, offsetShift, lineShift);
-    shiftPoint(position.end, offsetShift, lineShift);
-  }
-  if ("children" in node) {
-    for (const child of node.children) {
-      shiftPositions(child, offsetShift, lineShift);
-    }
-  }
-}
-
-function shiftPoint(point: Point, offsetShift: number, lineShift: number): void {
-  point.line += lineShift;
-  if (point.offset !== undefined) {
-    point.offset += offsetShift;
-  }
-}
-
-/** A node's place in the parsed text, as mdast types it. */
-type Position = NonNullable<Root["position"]>;
-
-type Point = Position["start"];

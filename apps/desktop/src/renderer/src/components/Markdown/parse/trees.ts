@@ -66,7 +66,8 @@ export type BlockSourceReader = () => string;
 
 /**
  * The trees the app's windows draw: parsed on the page by the connection's page parser, or by the
- * one connection's worker.
+ * one connection's worker. Each text is read as a part of its body past the body's start, so a
+ * byte order mark it opens on is text; a caller with a whole document asks past its own mark.
  */
 export class MarkdownTrees {
   /** The page's parser, which `parseSettledBlockNow` parses with once it is ready. */

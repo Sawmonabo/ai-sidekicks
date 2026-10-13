@@ -3,6 +3,7 @@ import { useCallback, useContext, useMemo, useState } from "react";
 import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/document";
 
 import { BlockCopyRendererContext } from "#renderer/components/Markdown/block-copy-offer.js";
+import { byteOrderMarkLengthOf } from "#renderer/components/Markdown/parse/byte-order-mark.js";
 import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
 import { useCodeSpanReader } from "#renderer/services/highlight/hooks/useCodeSpanReader.js";
 import { markdownDocumentOf } from "../markdown-document-rows.js";
@@ -36,7 +37,9 @@ export function usePayloadTableRows(items: readonly WorkflowItem[]): PayloadTabl
   const model = useMemo(
     () =>
       new PayloadTableRows(items, (text, settle) => {
-        appMarkdownTrees.requestSettledBlock(text, "", (outcome) => {
+        // A string's own markdown starts past the byte order mark it opens on.
+        const markdown = text.slice(byteOrderMarkLengthOf(text));
+        appMarkdownTrees.requestSettledBlock(markdown, "", (outcome) => {
           settle(
             outcome.status === "parsed"
               ? {

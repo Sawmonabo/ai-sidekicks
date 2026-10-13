@@ -15,7 +15,7 @@ import type {
   MarkdownWorkerMessage,
   MarkdownWorkerReply,
 } from "./messages.js";
-import { BlockCut, MARKDOWN_SETTLE_LAG_BLOCKS } from "../parse/block-cut.js";
+import { BlockCut, MARKDOWN_SETTLE_LAG_BLOCKS, StalledBlockCutError } from "../parse/block-cut.js";
 import { appPageParser } from "../parse/page-parser.js";
 import { parseMarkdownTree, serializeMarkdownTree } from "../parse/serialized-tree.js";
 import { readTopLevelChildren } from "../parse/top-level-children.js";
@@ -62,10 +62,17 @@ export class InThreadMarkdownWorker implements MarkdownWorkerPort {
         readTopLevelChildren,
       );
       // Every window on this turn, so a suite reads the blocks before the ask returns.
-      this.#say({
-        status: "cut",
-        cuts: [{ requestId: message.requestId, blockEnds: cut.cutWhole() }],
-      });
+      let blockEnds: Uint32Array;
+      try {
+        blockEnds = cut.cutWhole();
+      } catch (error: unknown) {
+        if (!(error instanceof StalledBlockCutError)) {
+          throw error;
+        }
+        this.#say({ status: "cut-failed", requestId: message.requestId, reason: error.message });
+        return;
+      }
+      this.#say({ status: "cut", cuts: [{ requestId: message.requestId, blockEnds }] });
       return;
     }
     if (message.kind !== "parse") {

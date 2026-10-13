@@ -1,7 +1,7 @@
 // The app's markdown trees: a settled block against the whole body's definitions, parsed by the
 // worker or on the page, the cache that shares a worker's tree and keeps none of the page's, a long
-// table read in pieces as its whole parse reads it, and a worker that fails or stops answering,
-// which fails every text it holds and is replaced on the next one.
+// table read in pieces as its whole parse reads it whatever ends its lines, and a worker that fails
+// or stops answering, which fails every text it holds and is replaced on the next one.
 
 import type { Root, Table } from "mdast";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -121,7 +121,7 @@ describe("a held settled block", () => {
 describe("a text that ends in one long table", () => {
   it("is parsed in pieces and reads every row as the whole block's parse reads it", () => {
     const preamble = FOOTNOTE_PREAMBLE;
-    for (const lineEnding of ["\n", "\r\n"]) {
+    for (const lineEnding of ["\n", "\r\n", "\r"]) {
       const { trees, workers } = standInTrees();
       // As the reply's blocks are cut: through the blank line that ends the table.
       const block = longTable(lineEnding) + lineEnding + lineEnding;

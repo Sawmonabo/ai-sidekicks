@@ -9,6 +9,7 @@ import { decodeTextPieces, encodeTextPieces } from "#renderer/lib/text/pieces.js
 import { describeFailure } from "#shared/failure-message.js";
 import { drawnTreeMarkdown, drawnTreeText } from "../drawn-text.js";
 import { markdownTreeToHtml } from "../html.js";
+import { byteOrderMarkLengthOf } from "../parse/byte-order-mark.js";
 import type {
   MarkdownWorkerMade,
   MarkdownWorkerReply,
@@ -79,7 +80,11 @@ export class MarkdownWorkerAnswers {
     parseMarkdown: MarkdownTreeParser,
   ): Promise<MarkdownWorkerMade> {
     if (request.kind === "html") {
-      const html = markdownTreeToHtml(parseMarkdown(decodeTextPieces(request.markdown)));
+      // A reply's own markdown starts past the byte order mark it opens on, as its blocks do.
+      const markdown = decodeTextPieces(request.markdown);
+      const html = markdownTreeToHtml(
+        parseMarkdown(markdown.slice(byteOrderMarkLengthOf(markdown))),
+      );
       return { text: encodeTextPieces([html]) };
     }
     if (request.flavor === "text") {

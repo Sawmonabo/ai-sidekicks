@@ -358,8 +358,14 @@ export class MarkdownWorkerConnection {
         return;
       case "cut":
         for (const cut of reply.cuts) {
-          this.#landCut(port, cut.requestId, cut.blockEnds);
+          this.#landCut(port, cut.requestId, { status: "cut", blockEnds: cut.blockEnds });
         }
+        return;
+      case "cut-failed":
+        this.#landCut(port, reply.requestId, {
+          status: "failed",
+          reason: `The markdown block cut failed: ${reply.reason}`,
+        });
         return;
       default:
         this.#hearMade(port, reply);
@@ -423,11 +429,11 @@ export class MarkdownWorkerConnection {
     }
   }
 
-  #landCut(port: MarkdownWorkerPort, requestId: number, blockEnds: Uint32Array): void {
+  #landCut(port: MarkdownWorkerPort, requestId: number, answer: MarkdownCutAnswer): void {
     const settle = this.#waitingCuts.get(requestId);
     this.#waitingCuts.delete(requestId);
     this.#rearmParseWatchdog(port);
-    settle?.({ status: "cut", blockEnds });
+    settle?.(answer);
   }
 
   /** Counts the parse watchdog's clock again from an answer, while texts still wait on it. */

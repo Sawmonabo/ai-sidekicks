@@ -83,8 +83,8 @@ export class PageParser {
   }
 
   /**
-   * `source` parsed into the tree the screen draws, synchronously. Throws when the parser is not
-   * `ready`, or when the parser breaks on the text.
+   * `source` parsed into the tree the screen draws, synchronously, a byte order mark it opens on
+   * read as text. Throws when the parser is not `ready`, or when the parser breaks on the text.
    */
   public parse(source: string): Root {
     return this.#readyCalls().serializer.parseMarkdownTree(source);

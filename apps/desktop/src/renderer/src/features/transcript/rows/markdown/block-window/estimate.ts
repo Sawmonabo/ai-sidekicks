@@ -3,6 +3,11 @@
 // fence by its source lines, prose by the lines its text wraps to at the body's width. It reads the
 // lengths of the block's lines, never its text, so a new width estimates again from them alone.
 
+import {
+  isLineEnding,
+  lineEndingLengthAt,
+  lineEndOf,
+} from "#renderer/components/Markdown/parse/line-endings.js";
 import { READING_LINE_HEIGHT, TYPE_SCALE_REM } from "#renderer/styles/typography.js";
 
 /** The body's type, as an estimate reads it. */
@@ -56,18 +61,18 @@ export function estimateBlockHeightPx(
  */
 export function measureLineLengths(text: string, take: (length: number) => void): void {
   let end = text.length;
-  while (end > 0 && text.charCodeAt(end - 1) === LINE_FEED) {
+  while (end > 0 && isLineEnding(text.charCodeAt(end - 1))) {
     end -= 1;
   }
   let lineStart = 0;
   for (;;) {
-    const lineEnd = text.indexOf("\n", lineStart);
-    if (lineEnd === -1 || lineEnd >= end) {
+    const lineEnd = lineEndOf(text, lineStart);
+    if (lineEnd >= end) {
       take(end - lineStart);
       return;
     }
     take(lineEnd - lineStart);
-    lineStart = lineEnd + 1;
+    lineStart = lineEnd + lineEndingLengthAt(text, lineEnd);
   }
 }
 
@@ -79,9 +84,6 @@ export function lineLengthsOf(text: string): Uint32Array {
   });
   return Uint32Array.from(lengths);
 }
-
-/** The line feed's code unit. */
-const LINE_FEED = 0x0a;
 
 /** The line boxes a code block's frame adds around its lines: its padding and its bar. */
 const CODE_BLOCK_CHROME_LINES = 2;

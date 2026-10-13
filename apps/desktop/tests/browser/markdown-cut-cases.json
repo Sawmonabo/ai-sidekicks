@@ -43,8 +43,9 @@
   "footnote def then paragraph indented": "[^x]: a\n\n  b\n\nAfter.[^x]\n",
   "lone cr line ends": "# Title\r\rPara one.\r\r- a\r- b\r\rAfter.\r",
   "crlf line ends": "# Title\r\n\r\nPara one.\r\n\r\n- a\r\n- b\r\n\r\n```\r\ncode\r\n```\r\n\r\nAfter.\r\n",
-  "bom at start": "\ufeff# Title\n\nPara.\n\n- a\n- b\n",
-  "bom at start, heading then paragraph": "\ufeff# Title\nPara.\n\nAfter.\n",
-  "bom at a line start": "Para.\n\n\ufeff# Title\n\nPara two.\n",
+  "opens on a byte order mark": "\ufeff# Title\n\nPara.\n\n- a\n- b\n",
+  "opens on a byte order mark before a lazy line": "\ufeff# Title\nPara.\n\nAfter.\n",
+  "byte order mark at a line start": "Para.\n\n\ufeff# Title\n\nPara two.\n",
+  "byte order mark at a line start before a lazy line": "Intro.\n\n\ufeff# Title\nPara two.\n\nA.\n\nB.\n\nC.\n",
   "nul inside": "Para one\u0000 with nul.\n\n```\ncode\u0000\n```\n\nAfter.\n"
 }

@@ -3,7 +3,8 @@
 // as micromark, the reference GFM reader, reads it. Positions are left out of that second
 // comparison because micromark starts a task item's paragraph at its checkbox and the parser
 // after it, which nothing drawn reads. A parsed tail settles its blocks where their lines start,
-// after a byte order mark the parser drops and after lines that end in a carriage return alone.
+// after a byte order mark it opens on, read as text, and after lines that end in a carriage return
+// alone.
 // While a whole parse is on its way, or a parser ended for idleness loads again, the tree on
 // screen stays.
 
@@ -109,6 +110,9 @@ const TRICKY_TAILS: readonly string[] = [
     "last words",
   "Visit www.example.com. Or https://example.com/a(b)c). Done with links: http://x.y/z.",
   "Café — “quoted” text… and naïve façade ’tis, (parenthetical) remark; done?",
+  // Lines that end in a carriage return alone: the last line an append grows is the one after it.
+  "Some words here\r1. item and its words\rmore words",
+  "```\nfoo\r```\rafter the fence, words",
   '<div>\nblock html\n</div>\n\ninline <span class="x">html</span> here <b>bold and more',
   "1\n\n- -\n\n* * *\n\n10. ten items\n\n> 1 quoted number\n\ntrailing text   ",
 ];
@@ -176,7 +180,7 @@ describe("a streaming tail parsed frame after frame", () => {
   );
 
   it("settles blocks where their lines start, after a byte order mark or a lone carriage return", () => {
-    const opensOnMark = "\uFEFF# Title\nPara.\n\nAfter.\n";
+    const opensOnMark = "\uFEFF# Title\n\nPara.\n\nAfter.\n";
     const loneCarriageReturns = "a\r\rb\r\rc\r\rd\r";
     for (const [tail, settledBlockEnds] of [
       [opensOnMark, [opensOnMark.indexOf("Para.")]],
@@ -257,7 +261,9 @@ describe("a streaming tail parsed frame after frame", () => {
     const openStrong = `Note: **${prose}`;
     // The task item's paragraph starts after its checkbox, on the emphasis, not on a bracket.
     const taskItem = `- [x] *Done:* ${prose}`;
-    for (const tail of [prose, fence, openStrong, taskItem]) {
+    // A fence whose opening line ends in a carriage return alone grows the same way.
+    const fenceOpenedByReturn = fence.replace("\n", "\r");
+    for (const tail of [prose, fence, fenceOpenedByReturn, openStrong, taskItem]) {
       const { parser, workers } = tailParser();
       const frames = streamedPrefixes(tail, 7);
       for (const prefix of frames) {
@@ -318,6 +324,11 @@ describe("a tail parsed after the parser's idle stop", () => {
 });
 
 describe("mending the volatile tail", () => {
+  it("leaves a fence open whose lines end in a carriage return alone, keeping its returns", () => {
+    expect(mendVolatileTail("```ts\rconst a = 1;\rconst b")).toBe("```ts\rconst a = 1;\rconst b");
+    expect(mendVolatileTail("Text with **bold\rand more")).toBe("Text with **bold\rand more**");
+  });
+
   it("leaves a lone dollar sign unclosed", () => {
     // "it cost $5" is prose, not the start of a formula, so no closing `$` is written after it.
     expect(mendVolatileTail("it cost $5 and then")).toBe("it cost $5 and then");
