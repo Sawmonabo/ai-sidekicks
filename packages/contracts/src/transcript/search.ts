@@ -4,7 +4,11 @@
 import { z } from "zod";
 
 import { EVENT_FIELD_MAX_LEN } from "../event/envelope.js";
-import { SearchMatchRangeSchema, type SearchMatchRange } from "../session/methods.js";
+import {
+  requireMatchRangesInOrderWithin,
+  SearchMatchRangeSchema,
+  type SearchMatchRange,
+} from "../session/methods.js";
 import { wireFreeFormString } from "../free-form-string.js";
 import { EventCursorSchema, SessionIdSchema, type SessionId } from "../session/id.js";
 import { type EventCursor } from "../session/event-cursor.js";
@@ -63,17 +67,7 @@ const TranscriptSearchHitSchema: z.ZodType<TranscriptSearchHit> = z
   })
   .strict()
   .superRefine((hit, issueContext) => {
-    let previousEnd = 0;
-    hit.matchRanges.forEach((range, index) => {
-      if (range.start < previousEnd || range.end > hit.snippet.length) {
-        issueContext.addIssue({
-          code: "custom",
-          path: ["matchRanges", index],
-          message: "match ranges run in order, never overlap, and sit inside the snippet",
-        });
-      }
-      previousEnd = range.end;
-    });
+    requireMatchRangesInOrderWithin(hit.snippet, hit.matchRanges, issueContext);
   });
 
 const hitsSchema = z.array(TranscriptSearchHitSchema).max(TRANSCRIPT_READ_LIMIT_MAX);

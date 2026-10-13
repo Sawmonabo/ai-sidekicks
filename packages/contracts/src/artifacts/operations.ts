@@ -74,8 +74,9 @@ export interface ArtifactByteRange {
 
 /**
  * Asks for one artifact: the manifest and a handle, or with `includePayload` the bytes when they
- * fit in one message, or with `range` one window of them, so a large payload is read whole window
- * by window. `version` counts from 1, oldest first; without it the read answers the newest.
+ * fit in one message, or with `includePayload` and `range` one window of them, so a large payload
+ * is read whole window by window. `version` counts from 1, oldest first; without it the read
+ * answers the newest.
  */
 export interface ArtifactReadRequest {
   artifactId: ArtifactId;
@@ -85,7 +86,7 @@ export interface ArtifactReadRequest {
 }
 /**
  * Parses an {@link ArtifactReadRequest}; a version below 1, a window past the chunk
- * bound, and a window on a read that declines the payload are refused.
+ * bound, and a window on a read that does not ask for the payload are refused.
  */
 export const ArtifactReadRequestSchema: z.ZodType<ArtifactReadRequest, ArtifactReadRequest> = z
   .object({
@@ -101,8 +102,8 @@ export const ArtifactReadRequestSchema: z.ZodType<ArtifactReadRequest, ArtifactR
       .optional(),
   })
   .strict()
-  .refine((request) => request.range === undefined || request.includePayload !== false, {
-    message: "A byte range reads the payload, so it cannot decline it.",
+  .refine((request) => request.range === undefined || request.includePayload === true, {
+    message: "A byte range reads the payload, so it asks for it with includePayload.",
     path: ["range"],
   });
 

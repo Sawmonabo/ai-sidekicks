@@ -67,8 +67,8 @@ interface ArtifactReadRequest {
   // A window of the payload's bytes, `length` bytes from `offset` (counted from 0), at most
   // ARTIFACT_CHUNK_MAX_BYTES so its encoded bytes fit one message; a window reaching past the end answers
   // the bytes up to the end. A payload too large for one message is read whole by asking for its windows
-  // in turn, so a text body, a picture or a PDF is never cut short. A range on a read that declines the
-  // payload (`includePayload: false`) is refused.
+  // in turn, so a text body, a picture or a PDF is never cut short. A range is refused unless
+  // `includePayload` is true, since a read without it returns the handle only.
   range?: { offset: number; length: number };
 }
 // Two arms, never three independent optional members, because only these two replies can be acted on:

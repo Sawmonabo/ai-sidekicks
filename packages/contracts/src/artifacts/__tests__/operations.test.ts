@@ -70,7 +70,7 @@ describe("ArtifactListResponseSchema", () => {
 });
 
 describe("ArtifactReadRequestSchema", () => {
-  it("refuses a window on a read that declines the payload", () => {
+  it("refuses a window on a read that does not ask for the payload", () => {
     const range = { offset: 0, length: 1 };
     expect(
       ArtifactReadRequestSchema.safeParse({ artifactId: MANIFEST.id, includePayload: true, range })
@@ -80,6 +80,10 @@ describe("ArtifactReadRequestSchema", () => {
       ArtifactReadRequestSchema.safeParse({ artifactId: MANIFEST.id, includePayload: false, range })
         .success,
     ).toBe(false);
+    // An absent `includePayload` returns the handle only, so a window beside it is refused too.
+    expect(ArtifactReadRequestSchema.safeParse({ artifactId: MANIFEST.id, range }).success).toBe(
+      false,
+    );
   });
 });
 
