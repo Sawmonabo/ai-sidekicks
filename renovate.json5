@@ -59,6 +59,12 @@
       matchUpdateTypes: ["major"],
       labels: ["ci-actions", "review-required"],
     },
+    // napi's WebAssembly build refuses to run unless emnapi and its two runtime packages are the
+    // same version, so they move in one PR.
+    {
+      matchPackageNames: ["emnapi", "@emnapi/core", "@emnapi/runtime"],
+      groupName: "emnapi",
+    },
   ],
   // Lockfile maintenance keeps pnpm-lock.yaml fresh against transitive shifts.
   lockFileMaintenance: {

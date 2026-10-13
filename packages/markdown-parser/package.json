@@ -21,9 +21,9 @@
     "test": "cd satteri && cargo test --locked -p satteri-pulldown-cmark --target-dir ../target"
   },
   "devDependencies": {
-    "@emnapi/core": "1.11.1",
-    "@emnapi/runtime": "1.11.1",
-    "@napi-rs/cli": "3.7.2",
-    "emnapi": "1.11.1"
+    "@emnapi/core": "1.11.3",
+    "@emnapi/runtime": "1.11.3",
+    "@napi-rs/cli": "3.10.8",
+    "emnapi": "1.11.3"
   }
 }

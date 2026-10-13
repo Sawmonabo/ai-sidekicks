@@ -238,10 +238,7 @@
     "packages/markdown-parser": {
       // `rustup` installs the Rust Sätteri's source pins, and its WebAssembly target, for the build;
       // it comes with the Rust installation, never as a package dependency.
-      "ignoreBinaries": ["rustup"],
-      // napi's build requires it from the package's folder, to check it matches the emnapi the
-      // build links into the module; no code imports it.
-      "ignoreDependencies": ["@emnapi/core"]
+      "ignoreBinaries": ["rustup"]
     },
     "packages/client-sdk": {},
     "packages/control-plane": {

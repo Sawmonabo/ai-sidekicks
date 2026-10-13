@@ -1,8 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Typechecks the two Electron-driving tiers, `e2e` and `endurance`, and the cross-process
+  // Typechecks the two Electron-driving tiers, `e2e` and `endurance`, the cross-process
   // scaffolding suites under `tests/helpers/` that drive the same launcher, cleanup and
-  // process-tree machinery.
+  // process-tree machinery, and the renderer unit tier's setup file that compiles the markdown
+  // parser, Node code that needs the DOM lib too.
   //
   // These files are both contexts at once, so neither existing test config fits. The driver code is
   // Node (`node:fs`, `node:process`, a spawned Electron), which `tsconfig.browser-test.json`

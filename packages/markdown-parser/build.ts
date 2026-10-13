@@ -2,7 +2,7 @@
 // downloads the release's source archive, refuses it unless it matches the pinned hash, unpacks it
 // into `satteri/`, applies `indented-code-block.patch`, and compiles the parser as the release does,
 // with the Rust its `rust-toolchain.toml` pins. `dist/` then holds the module and the notices of
-// everything compiled into it, and `satteri/` stays, so a crate can take the fixed parser by path.
+// everything compiled into it, and `satteri/` stays for the package's tests, which Cargo runs there.
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -98,6 +98,7 @@ writeWasmDist({
   workspaceDirectory: SOURCE_DIRECTORY,
   buildMessages,
   crateLibraryName: "satteri_napi",
+  isCrateThirdParty: true,
   moduleFile: "satteri.wasm",
   builtModulePath: path.join(NPM_PACKAGE_DIRECTORY, "satteri_napi.wasm32-wasi.wasm"),
   // napi's build links emnapi's compiled Node-API layer into the module.
