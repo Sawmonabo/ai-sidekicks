@@ -16,8 +16,8 @@
   // which root `AGENTS.md` engineering rule 13 binds to a plain-word reason). It is per symbol,
   // unlike `ignore` (file globs), which is not used here: exempting a hand-written file would
   // exempt every export it ever grows. `ignoreIssues` (issue types per file pattern) is used only
-  // for the files the contracts generator writes, which export every wire type the Rust contracts
-  // declare; the generator writes and prunes those entries, one exact path each.
+  // for the contracts generator's folder, whose files export every wire type the Rust contracts
+  // declare, whether or not any TypeScript imports it; no hand-written file sits there.
   //
   // The per-file lever for hand-written code is `ignoreFiles`, for a whole file kept for a consumer
   // that is not built yet: one exact path per entry, never a directory or a glob, each with a comment saying what the
@@ -222,6 +222,9 @@
       // Every contracts module is a package entry (`exports` maps `./*` onto `src/`), so without
       // this an export no other workspace imports would never be reported.
       "includeEntryExports": true,
+      // The generator writes every wire type the Rust contracts declare into `src/generated/`,
+      // including the ones only the Rust daemon reads, so their unused exports are not reported.
+      "ignoreIssues": { "src/generated/**": ["exports", "types"] },
       // A same-file consumer counts as a consumer: a schema, closed set or type that only its own
       // module's exported shapes reference is still part of the contract those shapes describe.
       "ignoreExportsUsedInFile": true
