@@ -33,7 +33,7 @@ use crate::wire::text::FreeFormText;
 
 ts_constants! {
     /// The event type the `rollback_boundary` arm pins.
-    pub const TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE: &str = "run.rolled_back";
+    pub const TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE: &str = SessionEventType::RunRolledBack.as_str();
     /// The category every `run_lifecycle` event belongs to, and the one the boundary arm pins.
     /// Every type in it is run-scoped, which is why the `general` arm refuses the category.
     pub const TRANSCRIPT_RUN_LIFECYCLE_CATEGORY: EventCategory = EventCategory::RunLifecycle;
@@ -274,7 +274,7 @@ transcript_row_arm! {
         pub category: EventCategory,
         /// The event's type; never `run.rolled_back`, which only the boundary arm carries.
         #[serde(rename = "type")]
-        #[schemars(extend("not" = { "const": "run.rolled_back" }))]
+        #[schemars(extend("not" = { "const": TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE }))]
         #[garde(custom(|event_type: &FreeFormText<EVENT_FIELD_MAX_LEN>, (): &()| {
             refuse_boundary_type(event_type.as_str())
         }))]

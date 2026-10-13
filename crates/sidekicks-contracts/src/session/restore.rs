@@ -11,6 +11,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::artifacts::attachment_reference::AttachmentReferenceList;
+use crate::event::registry::SessionEventType;
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::internal::branded::branded_text_id;
 use crate::method::methods;
@@ -26,7 +27,7 @@ use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText};
 pub const SNAPSHOT_ID_MAX_LEN: usize = 256;
 
 /// The event an undo settles with, whatever it managed to do.
-pub const SESSION_RESTORE_FINISHED_EVENT: &str = "session.restore_finished";
+pub const SESSION_RESTORE_FINISHED_EVENT: &str = SessionEventType::SessionRestoreFinished.as_str();
 
 branded_text_id! {
     /// The daemon-minted id of one of a session's snapshots. Opaque to every client.

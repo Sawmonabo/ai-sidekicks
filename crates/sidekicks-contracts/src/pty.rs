@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::color::HexColor;
 use crate::command::ExitCode;
+use crate::event::registry::SessionEventType;
 use crate::jsonrpc::streaming::{STREAM_FRAME_MAX_CHANGES, SubscribeAckResponse, SubscriptionId};
 use crate::method::methods;
 use crate::method_descriptor::NullPayload;
@@ -43,7 +44,7 @@ ts_constants! {
     /// sets to this many UTF-16 units, on a grapheme boundary.
     pub const SHELL_TITLE_MAX_LEN: usize = 256;
     /// The event every change of one shell's holder is broadcast on.
-    pub const PTY_CONTROL_CHANGED_EVENT: &str = "pty.control_changed";
+    pub const PTY_CONTROL_CHANGED_EVENT: &str = SessionEventType::PtyControlChanged.as_str();
     /// Every reason a shell's holder can change.
     PTY_CONTROL_CHANGED_REASONS = PtyControlChangedReason::ALL;
 }

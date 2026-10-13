@@ -13,16 +13,17 @@ use crate::event::envelope::{
     EventCategory, SOURCE_EPOCH_PAYLOAD_KEY, SOURCE_POSITION_PAYLOAD_KEY, SourceEpoch,
     SourcePosition,
 };
+use crate::event::registry::SessionEventType;
 use crate::run::id::RunId;
 use crate::transcript::row::{SupersededMarker, TranscriptRunStamp};
 use crate::typescript::TypeScriptModule;
 use crate::wire::integer::SafeInt;
 
 /// The event type of a turn boundary, which moves its run to its next turn.
-pub const TURN_STARTED_EVENT_TYPE: &str = "run.turn_started";
+pub const TURN_STARTED_EVENT_TYPE: &str = SessionEventType::RunTurnStarted.as_str();
 
 /// The event type that opens a tool call; the call's later rows take the turn it opened in.
-pub const TOOL_CALL_OPENING_EVENT_TYPE: &str = "tool.invoked";
+pub const TOOL_CALL_OPENING_EVENT_TYPE: &str = SessionEventType::ToolInvoked.as_str();
 
 /// An execution epoch and a turn position within it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

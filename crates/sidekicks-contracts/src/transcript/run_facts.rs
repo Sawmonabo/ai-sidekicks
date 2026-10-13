@@ -11,6 +11,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::event::registry::SessionEventType;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::provider::account::record::ProviderAccountId;
 use crate::run::id::RunId;
@@ -77,7 +78,7 @@ ts_constants! {
 }
 
 /// The type of a person's message, which is never a run's own event even when it steers one.
-pub const USER_MESSAGE_EVENT_TYPE: &str = "user.message";
+pub const USER_MESSAGE_EVENT_TYPE: &str = SessionEventType::UserMessage.as_str();
 
 impl RunStateEventType {
     /// The state the event type announces.

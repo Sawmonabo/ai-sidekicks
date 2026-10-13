@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use crate::agent::definition::binding::{AgentProviderBinding, ProviderToken};
 use crate::agent::definition::{AgentId, add_present_exactly_when};
+use crate::event::registry::SessionEventType;
 use crate::provider::account::record::ProviderAccountId;
 use crate::provider::driver::declared_loss::DeclaredLossKind;
 use crate::provider::name::ProviderName;
@@ -21,10 +22,10 @@ use crate::wire::text::FreeFormText;
 
 ts_constants! {
     /// The event a deferred switch settles with when it applied.
-    pub const AGENT_PROVIDER_BINDING_CHANGED_EVENT: &str = "agent.provider_binding_changed";
+    pub const AGENT_PROVIDER_BINDING_CHANGED_EVENT: &str = SessionEventType::AgentProviderBindingChanged.as_str();
     /// The event a deferred switch settles with when it could not be applied.
     pub const AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT: &str =
-        "agent.provider_binding_change_failed";
+        SessionEventType::AgentProviderBindingChangeFailed.as_str();
     /// The longest switch id the daemon mints.
     pub const AGENT_SWITCH_ID_MAX_LEN: usize = 256;
 }
