@@ -1,6 +1,6 @@
-// The `workflow_run` tool an agent calls from a session. The daemon registers it in each
-// session's callback tool registry and the desktop lists it on an agent definition's tool
-// allowlist, so both read this one definition.
+// The `workflow_run` tool an agent calls from a session: the one definition the desktop lists on
+// an agent definition's tool allowlist and the daemon's callback tool registry serves once the
+// tool's executor exists.
 import { z } from "zod";
 
 import { PROJECT_NAME_MAX_LEN } from "../../project.js";

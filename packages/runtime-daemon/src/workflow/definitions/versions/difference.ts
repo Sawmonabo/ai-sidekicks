@@ -10,7 +10,7 @@ import type {
 import type {
   WorkflowVersionChangeCounts,
   WorkflowVersionDiffReadResponse,
-} from "@ai-sidekicks/contracts/workflow/definition/methods";
+} from "@ai-sidekicks/contracts/workflow/definition/versions";
 
 /**
  * The nodes added, removed and changed, the trigger counted as a node, and the edges added and

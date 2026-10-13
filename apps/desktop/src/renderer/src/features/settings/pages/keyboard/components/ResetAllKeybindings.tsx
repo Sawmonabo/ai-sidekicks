@@ -57,7 +57,8 @@ export function ResetAllKeybindings(props: ResetAllKeybindingsProps): ReactNode 
           "meridian-keymap__reset-all meridian-action-button meridian-action-button--compact"
         }
         aria-label={
-          `Reset ${formatCount(props.changedRows.length)} changed chords to the ones the app ` +
+          `Reset all ${formatCount(props.changedRows.length)} changed ` +
+          `${props.changedRows.length === 1 ? "shortcut" : "shortcuts"} to the ones the app ` +
           `ships: ${props.changedRows
             .map((row) => `${row.title} to ${describeShippedChord(row.shippedChord)}`)
             .join("; ")}`
@@ -65,7 +66,7 @@ export function ResetAllKeybindings(props: ResetAllKeybindingsProps): ReactNode 
         onClick={props.onResetAll}
       >
         Reset all {formatCount(props.changedRows.length)} changed{" "}
-        {props.changedRows.length === 1 ? "chord" : "chords"}
+        {props.changedRows.length === 1 ? "shortcut" : "shortcuts"}
       </button>
     </div>
   );

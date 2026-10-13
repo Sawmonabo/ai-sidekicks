@@ -12,11 +12,11 @@
 
 import type { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/streams.js";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
+import type { WorkflowDefinitionListResponse } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import type {
-  WorkflowDefinitionListResponse,
   WorkflowVersionChainReadResponse,
   WorkflowVersionReadResponse,
-} from "@ai-sidekicks/contracts/workflow/definition/methods";
+} from "@ai-sidekicks/contracts/workflow/definition/versions";
 import type { WorkflowPinDataSetResponse } from "@ai-sidekicks/contracts/workflow/definition/builder";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
