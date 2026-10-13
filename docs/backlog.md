@@ -213,3 +213,14 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - V1 Release Impact: none; the patch carries the exports until a release does.
 - Named gate: a Sätteri release carrying bruits/satteri#330.
 - Exit Criteria: that release is taken; the patch and its `patchedDependencies` entry are deleted; this entry is deleted.
+
+## BL-173: xterm.js drawing block and box glyphs to the cell's edge in its DOM renderer
+
+- Status: `blocked` (external-world wait — an `@xterm/xterm` release fixing xtermjs/xterm.js#6224)
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Desktop App Implementation Notes §Console Libraries](./architecture/desktop-implementation-notes.md#console-libraries) (the Terminal row), [xtermjs/xterm.js#6224](https://github.com/xtermjs/xterm.js/issues/6224) (the issue)
+- Summary: `patches/@xterm__xterm@6.0.0.patch` makes the DOM renderer draw block elements and box drawing as background layers in each cell's text color, from the WebGL addon's shape tables, where 6.0.0 takes them from the font and leaves a seam between rows; `customGlyphs` reaches only the WebGL renderer. xtermjs/xterm.js#6224 asks for the same upstream.
+- V1 Release Impact: none; the patch carries the behavior until a release does.
+- Named gate: an `@xterm/xterm` release fixing xtermjs/xterm.js#6224.
+- Exit Criteria: that release is taken; the patch and its `patchedDependencies` entry are deleted; `apps/desktop/tests/browser/terminal-pane/grid.test.ts` still passes drawn by the DOM renderer; this entry is deleted.

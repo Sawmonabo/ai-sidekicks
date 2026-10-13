@@ -1,9 +1,11 @@
-// The terminal's grid as the emulator paints it, read back from its own canvas in device pixels:
-// block and box glyphs stacked in one column meet the row above with no seam at every text size,
-// and the runs the DOM renderer draws as one span are set with shaping off. The browser tier runs
-// this file again on a screen of two device pixels per CSS pixel.
+// The terminal's grid as each renderer paints it, read back in device pixels, the WebGL grid from
+// its own canvas and the DOM grid from a screenshot of it: block and box glyphs stacked in one
+// column meet the row above with no seam at every text size, and the runs the DOM renderer draws
+// as one span are set with shaping off. The browser tier runs this file again on a screen of two
+// device pixels per CSS pixel.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { page } from "vitest/browser";
 
 import "#renderer/features/terminal/emulator/components/XtermMountPoint.css";
 import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
@@ -30,56 +32,73 @@ const SHAPED_RUN = "-> != fi";
 /** The box the emulator is laid out in, in CSS pixels. */
 const MOUNT_BOX_CSS = "inline-size: 400px; block-size: 200px;";
 
+/**
+ * A window small enough for the tier's runner to draw the page at full scale, so a screenshot's
+ * pixels are the screen's own; at the tier's own size the runner shrinks the page to fit.
+ */
+const SCREENSHOT_WINDOW = { width: 640, height: 360 };
+
+const tierViewport = { width: window.innerWidth, height: window.innerHeight };
+
 const liveAdapters: XtermTerminalAdapter[] = [];
 
 beforeEach(() => {
   installMeridianTokens(document);
 });
 
-afterEach(() => {
+afterEach(async () => {
   for (const adapter of liveAdapters.splice(0)) {
     adapter.dispose();
   }
   document.querySelector("[data-grid-host]")?.remove();
   applyAppearance(document, DEFAULT_APPEARANCE_RECORD);
+  await page.viewport(tierViewport.width, tierViewport.height);
 });
 
 describe("browser — the terminal's grid", () => {
-  it("meets the row above with no seam at every text size", async () => {
-    const { adapter } = mountEmulator(new TerminalRendererPool());
-    // The setup: the grid is drawn from the library's glyph atlas, the renderer a person sees.
-    expect(adapter.rendererMode).toBe("webgl");
+  it.each([
+    // The library's glyph atlas, the renderer a person sees.
+    { renderer: "webgl", pool: new TerminalRendererPool(), readGrid: paintedCanvasAfter },
+    // The renderer a terminal falls back to once the page's WebGL contexts are spent.
+    { renderer: "dom", pool: new TerminalRendererPool(0), readGrid: paintedScreenAfter },
+  ] as const)(
+    "meets the row above with no seam at every text size, drawn by $renderer",
+    async ({ renderer, pool, readGrid }) => {
+      const { adapter, mountElement } = mountEmulator(pool);
+      expect(adapter.rendererMode).toBe(renderer);
 
-    for (const textSize of TEXT_SIZES) {
-      applyAppearance(document, { ...DEFAULT_APPEARANCE_RECORD, textSize });
-      adapter.followMountTypeface();
-      // The new cell resizes the canvas, which clears it, after the frame's own callbacks.
-      await nextFrame();
-      await nextFrame();
-      const canvas = await paintedCanvasAfter(adapter, STACKED_GLYPHS);
-      // The setup: the grid is painted at the screen's density, one canvas pixel a device pixel.
-      expect(canvas.width).toBe(canvas.cssWidth * window.devicePixelRatio);
-      const columns = columnCount(canvas);
-      const loneBlock = inkRunsDown(canvas, centerOf(LONE_BLOCK_COLUMN, canvas, columns));
-      // The control: one cell's block is one run from the grid's top edge.
-      expect(loneBlock, `one block at text size ${String(textSize)}`).toHaveLength(1);
-      const [cell] = loneBlock;
-      expect(cell?.start).toBe(0);
-      const cellHeight = cell?.length ?? Number.NaN;
+      for (const textSize of TEXT_SIZES) {
+        applyAppearance(document, { ...DEFAULT_APPEARANCE_RECORD, textSize });
+        adapter.followMountTypeface();
+        // The new cell resizes the grid, and a WebGL canvas with it, which clears it, after the
+        // frame's own callbacks.
+        await nextFrame();
+        await nextFrame();
+        const canvas = await readGrid(adapter, mountElement, STACKED_GLYPHS);
+        // The setup: the grid is read at the screen's density, one pixel read a device pixel.
+        expect(canvas.width).toBe(canvas.cssWidth * window.devicePixelRatio);
+        const columns = columnCount(canvas);
+        const loneBlock = inkRunsDown(canvas, centerOf(LONE_BLOCK_COLUMN, canvas, columns));
+        // The control: one cell's block is one run from the grid's top edge.
+        expect(loneBlock, `one block at text size ${String(textSize)}`).toHaveLength(1);
+        const [cell] = loneBlock;
+        expect(cell?.start).toBe(0);
+        const cellHeight = cell?.length ?? Number.NaN;
 
-      // Two cells abutting make one run exactly two cells tall: a seam splits it, and an overlap
-      // or a fractional row shortens it.
-      for (const [glyph, column] of [
-        ["full block", STACKED_BLOCK_COLUMN],
-        ["light vertical", STACKED_VERTICAL_COLUMN],
-      ] as const) {
-        const runs = inkRunsDown(canvas, inkiestColumnIn(column, canvas, columns));
-        expect(runs, `two of ${glyph} at text size ${String(textSize)}`).toEqual([
-          { start: 0, length: 2 * cellHeight },
-        ]);
+        // Two cells abutting make one run exactly two cells tall: a seam splits it, and an overlap
+        // or a fractional row shortens it.
+        for (const [glyph, column] of [
+          ["full block", STACKED_BLOCK_COLUMN],
+          ["light vertical", STACKED_VERTICAL_COLUMN],
+        ] as const) {
+          const runs = inkRunsDown(canvas, inkiestColumnIn(column, canvas, columns));
+          expect(runs, `two of ${glyph} at text size ${String(textSize)}`).toEqual([
+            { start: 0, length: 2 * cellHeight },
+          ]);
+        }
       }
-    }
-  });
+    },
+  );
 
   it("draws a run of cells with ligatures and contextual alternates off", async () => {
     // The DOM renderer, the one that draws a run of cells as one span the browser shapes.
@@ -136,12 +155,13 @@ async function writeText(adapter: XtermTerminalAdapter, text: string): Promise<v
  */
 async function paintedCanvasAfter(
   adapter: XtermTerminalAdapter,
+  mountElement: HTMLElement,
   text: string,
 ): Promise<PaintedCanvas> {
   await writeText(adapter, text);
   return new Promise((resolve, reject) => {
     requestAnimationFrame(() => {
-      const canvases = document.querySelectorAll<HTMLCanvasElement>("[data-grid-host] canvas");
+      const canvases = mountElement.querySelectorAll<HTMLCanvasElement>("canvas");
       for (const canvas of canvases) {
         const context = canvas.getContext("webgl2");
         if (context !== null) {
@@ -170,11 +190,52 @@ async function paintedCanvasAfter(
   });
 }
 
-/** A canvas's pixels, bottom row first as WebGL reads them, four channels each. */
+/**
+ * The DOM renderer's grid once `text` is painted, as the browser composited it: a screenshot of the
+ * grid's element in device pixels, its rows turned bottom first as WebGL reads them.
+ */
+async function paintedScreenAfter(
+  adapter: XtermTerminalAdapter,
+  mountElement: HTMLElement,
+  text: string,
+): Promise<PaintedCanvas> {
+  await page.viewport(SCREENSHOT_WINDOW.width, SCREENSHOT_WINDOW.height);
+  await writeText(adapter, text);
+  // The rows are drawn on the frame after the write.
+  await nextFrame();
+  await nextFrame();
+  const screen = mountElement.querySelector<HTMLElement>(".xterm-screen");
+  if (screen === null) {
+    throw new Error("the emulator drew no grid element");
+  }
+  const png = await page.screenshot({ element: screen, save: false });
+  const image = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+  const context = new OffscreenCanvas(image.width, image.height).getContext("2d");
+  if (context === null) {
+    throw new Error("the page gave no 2D context to read the screenshot with");
+  }
+  context.drawImage(image, 0, 0);
+  const topDown = context.getImageData(0, 0, image.width, image.height).data;
+  const rowLength = image.width * 4;
+  const pixels = new Uint8Array(topDown.length);
+  for (let y = 0; y < image.height; y += 1) {
+    const sourceStart = (image.height - 1 - y) * rowLength;
+    pixels.set(topDown.subarray(sourceStart, sourceStart + rowLength), y * rowLength);
+  }
+  return {
+    width: image.width,
+    height: image.height,
+    cssWidth: screen.offsetWidth,
+    pixels,
+    ...colorsOf(pixels, image.width, image.height),
+  };
+}
+
+/** A grid's pixels, bottom row first as WebGL reads them, four channels each. */
 interface PaintedCanvas {
   readonly width: number;
   readonly height: number;
-  /** The canvas's laid-out width in CSS pixels, before any transform above it. */
+  /** The grid's laid-out width in CSS pixels, before any transform above it. */
   readonly cssWidth: number;
   readonly ground: readonly number[];
   readonly text: readonly number[];
