@@ -1,0 +1,352 @@
+//! The composer's daemon-held store for one session: the unsent draft, the staged files, covering
+//! part of a staged picture, and the refusals staging can answer with.
+//!
+//! The daemon holds all of it, scoped to the session, so a half-typed message and its staged files
+//! reach the person's other devices and Send needs no upload step. A staged file is copied to the
+//! daemon when it is staged and kept outside the checkout; from then on it is addressed by its
+//! artifact id and its original path is never read again.
+
+use std::borrow::Cow;
+use std::sync::LazyLock;
+
+use regex::Regex;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
+
+use crate::artifacts::id::ArtifactId;
+use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::jsonrpc::refusal::RefusalCode;
+use crate::mcp::server::McpServerName;
+use crate::method::methods;
+use crate::session::id::SessionId;
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::instant::WireInstant;
+use crate::wire::integer::SafeInt;
+use crate::wire::text::{NonEmptyText, Text};
+
+/// A client-minted UUID: versions 1 to 8 in either letter case, or the Nil or Max UUID in lower
+/// case.
+const CLIENT_UUID_PATTERN: &str = "^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}\
+                                   -[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\
+                                   |00000000-0000-0000-0000-000000000000\
+                                   |ffffffff-ffff-ffff-ffff-ffffffffffff)$";
+
+/// [`CLIENT_UUID_PATTERN`], compiled once.
+static CLIENT_UUID: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(CLIENT_UUID_PATTERN).expect("the client UUID is a valid regex"));
+
+/// A UUID a client mints, such as a staging id or an idempotency key, that no brand names.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct ClientUuid(String);
+
+impl ClientUuid {
+    /// Checks `text`; refuses anything but a client UUID.
+    pub fn new(text: String) -> Option<Self> {
+        CLIENT_UUID.is_match(&text).then_some(Self(text))
+    }
+
+    /// The UUID's text as received.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for ClientUuid {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(String::deserialize(deserializer)?)
+            .ok_or_else(|| D::Error::custom("Invalid UUID"))
+    }
+}
+
+impl JsonSchema for ClientUuid {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        "ClientUuid".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({ "type": "string", "pattern": CLIENT_UUID_PATTERN })
+    }
+}
+
+/// Saves a session's draft. `text` is the whole draft and replaces the one held; an empty string
+/// clears it, which is what Send does. The text has no length limit of its own: a message's limit
+/// is the send's to state, so a draft the send would take is never refused here.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionDraftUpdateRequest {
+    /// The session.
+    pub session_id: SessionId,
+    /// The whole draft; empty clears it.
+    pub text: String,
+}
+
+/// When the daemon stored the draft.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct SessionDraftUpdateResponse {
+    /// The session.
+    pub session_id: SessionId,
+    /// When the draft was stored.
+    #[garde(dive)]
+    pub updated_at: WireInstant,
+}
+
+/// One staged file as the daemon holds it. Every member is what the daemon found in the bytes it
+/// copied, never what the caller declared: the name it stored the file under, the media type it
+/// read from the bytes, and the size it measured.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionAttachmentSummary {
+    /// The staged file's artifact.
+    pub artifact_id: ArtifactId,
+    /// The name the daemon stored it under.
+    pub file_name: Text<1, FILE_PATH_MAX_LEN>,
+    /// The media type read from its bytes.
+    pub mime_type: NonEmptyText,
+    /// Its size in bytes, as measured.
+    pub size_bytes: SafeInt<0>,
+}
+
+/// One thing to stage: a file picked, dropped or pasted, by its path, or a resource a tool server
+/// publishes. A path reaches the daemon only from the main process or the command line; a
+/// resource's address names it on its server and is never read as a path.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum SessionAttachmentItem {
+    /// A file, by its path.
+    File {
+        /// The client's id for this one item, so a retried stage never stages it twice.
+        client_staging_id: ClientUuid,
+        /// The file's path.
+        path: Text<1, FILE_PATH_MAX_LEN>,
+    },
+    /// A resource a tool server publishes.
+    McpResource {
+        /// The client's id for this one item, so a retried stage never stages it twice.
+        client_staging_id: ClientUuid,
+        /// The session's name for the server.
+        server_name: McpServerName,
+        /// The resource's own address on the server.
+        uri: NonEmptyText,
+    },
+}
+
+/// Stages files for the next message. The count is not limited here: a pick over the message's
+/// limit stages as many as fit and refuses each of the rest by name; an empty list is refused.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct SessionAttachmentAddRequest {
+    /// The session.
+    pub session_id: SessionId,
+    /// The things to stage; at least one.
+    #[garde(length(min = 1))]
+    #[schemars(length(min = 1))]
+    pub items: Vec<SessionAttachmentItem>,
+}
+
+ts_constants! {
+    /// The code for a file the session cannot stage.
+    SESSION_ATTACHMENT_REFUSED_CODE = RefusalCode::SessionAttachmentRefused;
+}
+
+/// The code a staging refusal carries: always `session.attachment_refused`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[schemars(inline)]
+pub enum SessionAttachmentRefusedCode {
+    /// The one value.
+    #[serde(rename = "session.attachment_refused")]
+    AttachmentRefused,
+}
+
+/// Why the session could not stage a file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionAttachmentRefusedReason {
+    /// The message already carries as many files as it may.
+    CountLimit,
+    /// A folder was offered; an agent reads a folder where it is.
+    Folder,
+    /// The session's provider accepts no files.
+    ProviderTakesNoAttachments,
+    /// A card above the composer is waiting on the person.
+    CardWaiting,
+    /// The provider will not take the file, for example a picture too large.
+    ProviderRefused,
+    /// The copy to the daemon did not complete.
+    CopyFailed,
+}
+
+/// Why one item was not staged: the code, its reason, and for `provider_refused` the provider's own
+/// words naming the limit, for `copy_failed` the daemon's own cause.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionAttachmentRefusalCause {
+    /// Always `session.attachment_refused`.
+    pub code: SessionAttachmentRefusedCode,
+    /// Why.
+    pub reason: SessionAttachmentRefusedReason,
+    /// The provider's words or the daemon's cause, where there are any.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "NonEmptyText")]
+    pub detail: Option<NonEmptyText>,
+}
+
+/// One item the daemon did not stage, by the name the refusal line shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionAttachmentRefusal {
+    /// The client's id for the item.
+    pub client_staging_id: ClientUuid,
+    /// The name the refusal line shows.
+    pub name: NonEmptyText,
+    /// Why it was not staged.
+    pub cause: SessionAttachmentRefusalCause,
+}
+
+/// The whole staged set after the add, so a client draws what the daemon holds rather than merging
+/// its own add, and each item it did not stage with the cause.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionAttachmentAddResponse {
+    /// The session.
+    pub session_id: SessionId,
+    /// The staged set.
+    pub attachments: Vec<SessionAttachmentSummary>,
+    /// The items not staged.
+    pub refused: Vec<SessionAttachmentRefusal>,
+}
+
+/// Unstages one file. The artifact itself keeps its own life; only its place in the staged set
+/// goes. Removing a file that is no longer staged answers with the set as it is.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionAttachmentRemoveRequest {
+    /// The session.
+    pub session_id: SessionId,
+    /// The staged file's artifact.
+    pub artifact_id: ArtifactId,
+}
+
+/// The whole staged set left after the removal.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionAttachmentRemoveResponse {
+    /// The session.
+    pub session_id: SessionId,
+    /// The staged set.
+    pub attachments: Vec<SessionAttachmentSummary>,
+}
+
+/// One box to cover, in the picture's own pixels from its top-left corner; never empty.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionAttachmentCoverBox {
+    /// The left edge.
+    pub x: SafeInt<0>,
+    /// The top edge.
+    pub y: SafeInt<0>,
+    /// The width; at least one.
+    pub width: SafeInt<1>,
+    /// The height; at least one.
+    pub height: SafeInt<1>,
+}
+
+/// Covers parts of a staged picture before Send. The daemon draws the boxes into the pixels, stores
+/// the covered copy as a new artifact that takes the old one's place in the staged set, and deletes
+/// the uncovered copy, so the provider only ever receives the covered picture. A picture already
+/// sent cannot be covered; an empty box list is refused.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct SessionAttachmentCoverRequest {
+    /// The staged picture.
+    pub attachment_id: ArtifactId,
+    /// The boxes to cover; at least one.
+    #[garde(length(min = 1))]
+    #[schemars(length(min = 1))]
+    pub boxes: Vec<SessionAttachmentCoverBox>,
+}
+
+/// The covered copy, which is now the staged attachment.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionAttachmentCoverResponse {
+    /// The covered copy.
+    pub attachment: SessionAttachmentSummary,
+}
+
+methods! {
+    /// The composer store's methods, each with its types.
+    pub const SESSION_DRAFT_METHOD_DESCRIPTORS = [
+        /// Saves the session's draft.
+        SessionDraftUpdate = mutation "session.draftUpdate" {
+            mutating: true,
+            params: SessionDraftUpdateRequest,
+            result: SessionDraftUpdateResponse,
+            refusals: [],
+        },
+        /// Stages files for the next message; each refused item rides in the reply.
+        SessionAttachmentAdd = mutation "session.attachmentAdd" {
+            mutating: true,
+            params: SessionAttachmentAddRequest,
+            result: SessionAttachmentAddResponse,
+            refusals: [],
+        },
+        /// Unstages one file.
+        SessionAttachmentRemove = mutation "session.attachmentRemove" {
+            mutating: true,
+            params: SessionAttachmentRemoveRequest,
+            result: SessionAttachmentRemoveResponse,
+            refusals: [],
+        },
+        /// Covers parts of a staged picture.
+        SessionAttachmentCover = mutation "session.attachmentCover" {
+            mutating: true,
+            params: SessionAttachmentCoverRequest,
+            result: SessionAttachmentCoverResponse,
+            refusals: [],
+        },
+    ];
+}
+
+/// The module's TypeScript face.
+pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
+    path: "session/draft",
+    doc: "The composer's daemon-held store for one session: the unsent draft, the staged files, \
+          covering part of a staged picture, and the refusals staging can answer with.",
+    definitions: &[
+        Definition::read::<SessionDraftUpdateRequest>().checked(),
+        Definition::read::<SessionDraftUpdateResponse>().checked(),
+        Definition::read::<SessionAttachmentSummary>(),
+        Definition::read::<SessionAttachmentItem>(),
+        Definition::read::<SessionAttachmentAddRequest>().checked(),
+        Definition::read::<SessionAttachmentRefusedReason>(),
+        Definition::read::<SessionAttachmentRefusalCause>(),
+        Definition::read::<SessionAttachmentRefusal>(),
+        Definition::read::<SessionAttachmentAddResponse>().checked(),
+        Definition::read::<SessionAttachmentRemoveRequest>().checked(),
+        Definition::read::<SessionAttachmentRemoveResponse>().checked(),
+        Definition::read::<SessionAttachmentCoverBox>(),
+        Definition::read::<SessionAttachmentCoverRequest>().checked(),
+        Definition::read::<SessionAttachmentCoverResponse>().checked(),
+    ],
+    constants: TS_CONSTANTS,
+    method_tables: &[&SESSION_DRAFT_METHOD_DESCRIPTORS],
+};

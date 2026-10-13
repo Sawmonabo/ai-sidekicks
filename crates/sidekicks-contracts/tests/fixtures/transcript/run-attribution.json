@@ -1,0 +1,68 @@
+[
+  {
+    "note": "no payload",
+    "payload": null,
+    "runId": null,
+    "ownRunId": null
+  },
+  {
+    "note": "runId",
+    "payload": {
+      "runId": "r1"
+    },
+    "runId": "r1",
+    "ownRunId": "r1"
+  },
+  {
+    "note": "an intervention's targetRunId files it but is not its own",
+    "payload": {
+      "targetRunId": "r2"
+    },
+    "runId": "r2",
+    "ownRunId": null
+  },
+  {
+    "note": "runId comes first",
+    "payload": {
+      "runId": "r1",
+      "targetRunId": "r2"
+    },
+    "runId": "r1",
+    "ownRunId": "r1"
+  },
+  {
+    "note": "a parent's id alone names no run",
+    "payload": {
+      "parentRunId": "r0"
+    },
+    "runId": null,
+    "ownRunId": null
+  },
+  {
+    "note": "beside its own run, the row's own id wins over its parent's",
+    "payload": {
+      "runId": "r1",
+      "parentRunId": "r0"
+    },
+    "runId": "r1",
+    "ownRunId": "r1"
+  },
+  {
+    "note": "an empty runId names no run",
+    "payload": {
+      "runId": "",
+      "targetRunId": "r2"
+    },
+    "runId": "r2",
+    "ownRunId": null
+  },
+  {
+    "note": "a run id that is not a string names no run",
+    "payload": {
+      "runId": 7,
+      "targetRunId": null
+    },
+    "runId": null,
+    "ownRunId": null
+  }
+]

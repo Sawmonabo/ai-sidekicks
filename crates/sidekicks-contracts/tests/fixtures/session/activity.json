@@ -1,0 +1,51 @@
+[
+  {
+    "note": "a running reading renewed at the stale bound still stands",
+    "activity": "running",
+    "activityRenewedAt": "2026-10-06T12:00:00.000Z",
+    "nowMs": 1791288045000,
+    "expected": "running"
+  },
+  {
+    "note": "a running reading one millisecond past the stale bound reads idle",
+    "activity": "running",
+    "activityRenewedAt": "2026-10-06T12:00:00.000Z",
+    "nowMs": 1791288045001,
+    "expected": "idle"
+  },
+  {
+    "note": "a waiting reading past the stale bound reads idle",
+    "activity": "waiting",
+    "activityRenewedAt": "2026-10-06T12:00:00.000Z",
+    "nowMs": 1791288100000,
+    "expected": "idle"
+  },
+  {
+    "note": "a failed session never ages out of being failed",
+    "activity": "failed",
+    "activityRenewedAt": "2026-10-06T12:00:00.000Z",
+    "nowMs": 1791374400000,
+    "expected": "failed"
+  },
+  {
+    "note": "a done session stands as published",
+    "activity": "done",
+    "activityRenewedAt": "2026-10-06T12:00:00.000Z",
+    "nowMs": 1791374400000,
+    "expected": "done"
+  },
+  {
+    "note": "an offset is read as its instant",
+    "activity": "running",
+    "activityRenewedAt": "2026-10-06T14:00:00.000+02:00",
+    "nowMs": 1791288045001,
+    "expected": "idle"
+  },
+  {
+    "note": "a fraction past the millisecond does not move the bound",
+    "activity": "running",
+    "activityRenewedAt": "2026-10-06T12:00:00.0009999999Z",
+    "nowMs": 1791288045000,
+    "expected": "running"
+  }
+]

@@ -1,0 +1,532 @@
+{
+  "environmentNames": [
+    {
+      "name": "HTTPS_PROXY",
+      "refusal": null
+    },
+    {
+      "name": "_PRIVATE",
+      "refusal": null
+    },
+    {
+      "name": "1PROXY",
+      "refusal": "not_a_name"
+    },
+    {
+      "name": "MY-PROXY",
+      "refusal": "not_a_name"
+    },
+    {
+      "name": "",
+      "refusal": "not_a_name"
+    },
+    {
+      "name": "ÜBER",
+      "refusal": "not_a_name"
+    },
+    {
+      "name": "ANTHROPIC_API_KEY",
+      "refusal": "credential_shaped"
+    },
+    {
+      "name": "github_token",
+      "refusal": "credential_shaped"
+    },
+    {
+      "name": "DB_PASSWORD",
+      "refusal": "credential_shaped"
+    },
+    {
+      "name": "app_secret",
+      "refusal": "credential_shaped"
+    },
+    {
+      "name": "DISABLE_AUTOUPDATER",
+      "refusal": "set_by_app"
+    },
+    {
+      "name": "disable_updates",
+      "refusal": "set_by_app"
+    },
+    {
+      "name": "CODEX_APP_SERVER_BIN",
+      "refusal": "set_by_app"
+    },
+    {
+      "name": "sidekicks_original_env",
+      "refusal": "set_by_app"
+    }
+  ],
+  "settingsFiles": [
+    {
+      "file": {},
+      "settings": {
+        "updatesAutomatic": true,
+        "keepCrashReports": true,
+        "editorId": null,
+        "advisorModel": null,
+        "defaultCheckout": "provisioned-worktree",
+        "newSessionCarriesLastModel": true,
+        "lastLeadModel": null,
+        "keepAwakeWhileAgentWorks": false,
+        "keepAwakeForOtherDevices": false,
+        "notifications": {
+          "appIconCount": true,
+          "notifyOutsideApp": true,
+          "kinds": {
+            "waitingOnYou": true,
+            "finished": true,
+            "failed": true,
+            "notifyStep": true
+          },
+          "emailDigest": {
+            "enabled": false,
+            "sendTo": null,
+            "mailServer": null,
+            "port": null,
+            "userName": null,
+            "after": "day"
+          },
+          "webAddress": {
+            "enabled": false,
+            "kinds": {
+              "waitingOnYou": true,
+              "finished": true,
+              "failed": true,
+              "notifyStep": true
+            }
+          }
+        },
+        "rememberSiteData": true,
+        "browserToolsForAgents": true,
+        "sandboxBackgroundBrowser": false,
+        "screenReaderMode": false,
+        "environmentRows": [],
+        "backup": {
+          "automatic": false,
+          "folder": null
+        },
+        "branchNamePattern": "sidekicks/{session}/{title}",
+        "cloneFolder": null,
+        "voice": {
+          "mode": "hold",
+          "callVoice": null
+        }
+      }
+    },
+    {
+      "file": {
+        "notifications": {
+          "kinds": {
+            "failed": false
+          }
+        },
+        "voice": {
+          "mode": "tap"
+        }
+      },
+      "settings": {
+        "updatesAutomatic": true,
+        "keepCrashReports": true,
+        "editorId": null,
+        "advisorModel": null,
+        "defaultCheckout": "provisioned-worktree",
+        "newSessionCarriesLastModel": true,
+        "lastLeadModel": null,
+        "keepAwakeWhileAgentWorks": false,
+        "keepAwakeForOtherDevices": false,
+        "notifications": {
+          "appIconCount": true,
+          "notifyOutsideApp": true,
+          "kinds": {
+            "waitingOnYou": true,
+            "finished": true,
+            "failed": false,
+            "notifyStep": true
+          },
+          "emailDigest": {
+            "enabled": false,
+            "sendTo": null,
+            "mailServer": null,
+            "port": null,
+            "userName": null,
+            "after": "day"
+          },
+          "webAddress": {
+            "enabled": false,
+            "kinds": {
+              "waitingOnYou": true,
+              "finished": true,
+              "failed": true,
+              "notifyStep": true
+            }
+          }
+        },
+        "rememberSiteData": true,
+        "browserToolsForAgents": true,
+        "sandboxBackgroundBrowser": false,
+        "screenReaderMode": false,
+        "environmentRows": [],
+        "backup": {
+          "automatic": false,
+          "folder": null
+        },
+        "branchNamePattern": "sidekicks/{session}/{title}",
+        "cloneFolder": null,
+        "voice": {
+          "mode": "tap",
+          "callVoice": null
+        }
+      }
+    },
+    {
+      "file": {
+        "notifications": {
+          "sound": true
+        }
+      },
+      "settings": null
+    },
+    {
+      "file": [],
+      "settings": null
+    },
+    {
+      "file": {
+        "branchNamePattern": "sawmon/{title}"
+      },
+      "settings": {
+        "updatesAutomatic": true,
+        "keepCrashReports": true,
+        "editorId": null,
+        "advisorModel": null,
+        "defaultCheckout": "provisioned-worktree",
+        "newSessionCarriesLastModel": true,
+        "lastLeadModel": null,
+        "keepAwakeWhileAgentWorks": false,
+        "keepAwakeForOtherDevices": false,
+        "notifications": {
+          "appIconCount": true,
+          "notifyOutsideApp": true,
+          "kinds": {
+            "waitingOnYou": true,
+            "finished": true,
+            "failed": true,
+            "notifyStep": true
+          },
+          "emailDigest": {
+            "enabled": false,
+            "sendTo": null,
+            "mailServer": null,
+            "port": null,
+            "userName": null,
+            "after": "day"
+          },
+          "webAddress": {
+            "enabled": false,
+            "kinds": {
+              "waitingOnYou": true,
+              "finished": true,
+              "failed": true,
+              "notifyStep": true
+            }
+          }
+        },
+        "rememberSiteData": true,
+        "browserToolsForAgents": true,
+        "sandboxBackgroundBrowser": false,
+        "screenReaderMode": false,
+        "environmentRows": [],
+        "backup": {
+          "automatic": false,
+          "folder": null
+        },
+        "branchNamePattern": "sawmon/{title}",
+        "cloneFolder": null,
+        "voice": {
+          "mode": "hold",
+          "callVoice": null
+        }
+      }
+    },
+    {
+      "file": {
+        "branchNamePattern": "sawmon/{session}"
+      },
+      "settings": null
+    },
+    {
+      "file": {
+        "branchNamePattern": "{title}/{title}"
+      },
+      "settings": null
+    },
+    {
+      "file": {
+        "branchNamePattern": "{session}/{session}/{title}"
+      },
+      "settings": {
+        "updatesAutomatic": true,
+        "keepCrashReports": true,
+        "editorId": null,
+        "advisorModel": null,
+        "defaultCheckout": "provisioned-worktree",
+        "newSessionCarriesLastModel": true,
+        "lastLeadModel": null,
+        "keepAwakeWhileAgentWorks": false,
+        "keepAwakeForOtherDevices": false,
+        "notifications": {
+          "appIconCount": true,
+          "notifyOutsideApp": true,
+          "kinds": {
+            "waitingOnYou": true,
+            "finished": true,
+            "failed": true,
+            "notifyStep": true
+          },
+          "emailDigest": {
+            "enabled": false,
+            "sendTo": null,
+            "mailServer": null,
+            "port": null,
+            "userName": null,
+            "after": "day"
+          },
+          "webAddress": {
+            "enabled": false,
+            "kinds": {
+              "waitingOnYou": true,
+              "finished": true,
+              "failed": true,
+              "notifyStep": true
+            }
+          }
+        },
+        "rememberSiteData": true,
+        "browserToolsForAgents": true,
+        "sandboxBackgroundBrowser": false,
+        "screenReaderMode": false,
+        "environmentRows": [],
+        "backup": {
+          "automatic": false,
+          "folder": null
+        },
+        "branchNamePattern": "{session}/{session}/{title}",
+        "cloneFolder": null,
+        "voice": {
+          "mode": "hold",
+          "callVoice": null
+        }
+      }
+    },
+    {
+      "file": {
+        "lastLeadModel": {
+          "driverName": "codex",
+          "modelId": "gpt-5",
+          "effort": null
+        }
+      },
+      "settings": {
+        "updatesAutomatic": true,
+        "keepCrashReports": true,
+        "editorId": null,
+        "advisorModel": null,
+        "defaultCheckout": "provisioned-worktree",
+        "newSessionCarriesLastModel": true,
+        "lastLeadModel": {
+          "driverName": "codex",
+          "modelId": "gpt-5",
+          "effort": null
+        },
+        "keepAwakeWhileAgentWorks": false,
+        "keepAwakeForOtherDevices": false,
+        "notifications": {
+          "appIconCount": true,
+          "notifyOutsideApp": true,
+          "kinds": {
+            "waitingOnYou": true,
+            "finished": true,
+            "failed": true,
+            "notifyStep": true
+          },
+          "emailDigest": {
+            "enabled": false,
+            "sendTo": null,
+            "mailServer": null,
+            "port": null,
+            "userName": null,
+            "after": "day"
+          },
+          "webAddress": {
+            "enabled": false,
+            "kinds": {
+              "waitingOnYou": true,
+              "finished": true,
+              "failed": true,
+              "notifyStep": true
+            }
+          }
+        },
+        "rememberSiteData": true,
+        "browserToolsForAgents": true,
+        "sandboxBackgroundBrowser": false,
+        "screenReaderMode": false,
+        "environmentRows": [],
+        "backup": {
+          "automatic": false,
+          "folder": null
+        },
+        "branchNamePattern": "sidekicks/{session}/{title}",
+        "cloneFolder": null,
+        "voice": {
+          "mode": "hold",
+          "callVoice": null
+        }
+      }
+    },
+    {
+      "file": {
+        "editorId": null,
+        "cloneFolder": "/Users/person/code"
+      },
+      "settings": {
+        "updatesAutomatic": true,
+        "keepCrashReports": true,
+        "editorId": null,
+        "advisorModel": null,
+        "defaultCheckout": "provisioned-worktree",
+        "newSessionCarriesLastModel": true,
+        "lastLeadModel": null,
+        "keepAwakeWhileAgentWorks": false,
+        "keepAwakeForOtherDevices": false,
+        "notifications": {
+          "appIconCount": true,
+          "notifyOutsideApp": true,
+          "kinds": {
+            "waitingOnYou": true,
+            "finished": true,
+            "failed": true,
+            "notifyStep": true
+          },
+          "emailDigest": {
+            "enabled": false,
+            "sendTo": null,
+            "mailServer": null,
+            "port": null,
+            "userName": null,
+            "after": "day"
+          },
+          "webAddress": {
+            "enabled": false,
+            "kinds": {
+              "waitingOnYou": true,
+              "finished": true,
+              "failed": true,
+              "notifyStep": true
+            }
+          }
+        },
+        "rememberSiteData": true,
+        "browserToolsForAgents": true,
+        "sandboxBackgroundBrowser": false,
+        "screenReaderMode": false,
+        "environmentRows": [],
+        "backup": {
+          "automatic": false,
+          "folder": null
+        },
+        "branchNamePattern": "sidekicks/{session}/{title}",
+        "cloneFolder": "/Users/person/code",
+        "voice": {
+          "mode": "hold",
+          "callVoice": null
+        }
+      }
+    },
+    {
+      "file": {
+        "environmentRows": [
+          {
+            "name": "HTTPS_PROXY",
+            "value": "x\u0000y"
+          }
+        ]
+      },
+      "settings": null
+    },
+    {
+      "file": {
+        "notifications": {
+          "emailDigest": {
+            "sendTo": "person@example.com",
+            "port": 587
+          }
+        }
+      },
+      "settings": {
+        "updatesAutomatic": true,
+        "keepCrashReports": true,
+        "editorId": null,
+        "advisorModel": null,
+        "defaultCheckout": "provisioned-worktree",
+        "newSessionCarriesLastModel": true,
+        "lastLeadModel": null,
+        "keepAwakeWhileAgentWorks": false,
+        "keepAwakeForOtherDevices": false,
+        "notifications": {
+          "appIconCount": true,
+          "notifyOutsideApp": true,
+          "kinds": {
+            "waitingOnYou": true,
+            "finished": true,
+            "failed": true,
+            "notifyStep": true
+          },
+          "emailDigest": {
+            "enabled": false,
+            "sendTo": "person@example.com",
+            "mailServer": null,
+            "port": 587,
+            "userName": null,
+            "after": "day"
+          },
+          "webAddress": {
+            "enabled": false,
+            "kinds": {
+              "waitingOnYou": true,
+              "finished": true,
+              "failed": true,
+              "notifyStep": true
+            }
+          }
+        },
+        "rememberSiteData": true,
+        "browserToolsForAgents": true,
+        "sandboxBackgroundBrowser": false,
+        "screenReaderMode": false,
+        "environmentRows": [],
+        "backup": {
+          "automatic": false,
+          "folder": null
+        },
+        "branchNamePattern": "sidekicks/{session}/{title}",
+        "cloneFolder": null,
+        "voice": {
+          "mode": "hold",
+          "callVoice": null
+        }
+      }
+    },
+    {
+      "file": {
+        "notifications": {
+          "emailDigest": {
+            "sendTo": "not an address"
+          }
+        }
+      },
+      "settings": null
+    }
+  ]
+}

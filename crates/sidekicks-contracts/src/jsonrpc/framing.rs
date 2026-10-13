@@ -76,6 +76,13 @@ pub enum FramingError {
         /// The lane.
         lane: u32,
     },
+    /// A frame opens a lane while [`incoming::MAX_OPEN_LANES`] are open. Every lane a peer opens
+    /// follows a call the receiver admitted, so a peer past the limit is misbehaving.
+    #[error("lane {lane} opens past the {}-lane limit", incoming::MAX_OPEN_LANES)]
+    TooManyLanes {
+        /// The lane that would open.
+        lane: u32,
+    },
     /// A frame closes lane 0, which never closes.
     #[error("lane 0 never closes")]
     ControlLaneClosed,
@@ -184,7 +191,7 @@ mod tests {
     use tokio_util::codec::{Decoder, Encoder};
 
     use super::frame::{Frame, FrameCodec, LaneId};
-    use super::incoming::IncomingLanes;
+    use super::incoming::{IncomingLanes, MAX_OPEN_LANES};
     use super::{
         FramingError, INITIAL_LANE_CREDIT, MAX_ATTACHMENT_BYTES, MAX_CHUNK_BYTES,
         MAX_MESSAGE_BYTES, MessageBody, MessagePart,
@@ -257,7 +264,10 @@ mod tests {
                 Some(decoded) => decoded,
                 None => {
                     encoded.unsplit(std::mem::take(&mut tail));
-                    FrameCodec.decode(&mut encoded).expect("the whole frame decodes").expect("whole")
+                    FrameCodec
+                        .decode(&mut encoded)
+                        .expect("the whole frame decodes")
+                        .expect("whole")
                 }
             };
             prop_assert_eq!(decoded, frame);
@@ -274,7 +284,10 @@ mod tests {
             let mut received = None;
             for frame in Frame::data_chunks(LaneId::new(3), encoded.clone(), chunk_bytes, false) {
                 let outcome = lanes.receive(frame).expect("an ordered message is no fault");
-                prop_assert!(outcome.credit.is_none(), "a message under the window owes no early credit");
+                prop_assert!(
+                    outcome.credit.is_none(),
+                    "a message under the window owes no early credit"
+                );
                 received = received.or(outcome.message);
             }
             let message = received.expect("the last chunk completes the message");
@@ -287,7 +300,9 @@ mod tests {
         }
 
         #[test]
-        fn any_bytes_decode_without_a_panic(bytes in proptest::collection::vec(any::<u8>(), 0..256)) {
+        fn any_bytes_decode_without_a_panic(
+            bytes in proptest::collection::vec(any::<u8>(), 0..256),
+        ) {
             let mut stream = BytesMut::from(&bytes[..]);
             let mut lanes = IncomingLanes::default();
             while let Ok(Some(frame)) = FrameCodec.decode(&mut stream) {
@@ -407,5 +422,27 @@ mod tests {
             ),
             "attachments past the cap are refused before the rest is buffered"
         );
+    }
+
+    #[rstest]
+    #[case::at_the_limit(MAX_OPEN_LANES, true)]
+    #[case::past_the_limit(MAX_OPEN_LANES + 1, false)]
+    fn a_peer_opens_lanes_up_to_the_limit(#[case] opened: usize, #[case] is_accepted: bool) {
+        let mut lanes = IncomingLanes::default();
+        let last = u32::try_from(opened).expect("fits");
+        for lane in 1..last {
+            lanes
+                .receive(data(lane, false, b""))
+                .expect("a lane within the limit opens");
+        }
+        let outcome = lanes.receive(data(last, false, b""));
+        if is_accepted {
+            outcome.expect("the last lane within the limit opens");
+        } else {
+            assert!(
+                matches!(outcome, Err(FramingError::TooManyLanes { lane }) if lane == last),
+                "{outcome:?}"
+            );
+        }
     }
 }

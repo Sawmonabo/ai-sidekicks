@@ -1,0 +1,25 @@
+{
+  "encode": [
+    { "position": -1, "cursor": "-1" },
+    { "position": 0, "cursor": "0" },
+    { "position": 9007199254740991, "cursor": "9007199254740991" },
+    { "position": -2, "cursor": null },
+    { "position": 9007199254740992, "cursor": null }
+  ],
+  "decode": [
+    { "cursor": "-1", "position": -1 },
+    { "cursor": "0", "position": 0 },
+    { "cursor": "9007199254740991", "position": 9007199254740991 },
+    { "cursor": "abc", "position": null },
+    { "cursor": "-2", "position": null },
+    { "cursor": "1.5", "position": null },
+    { "cursor": "007", "position": null },
+    { "cursor": "+1", "position": null },
+    { "cursor": "1e3", "position": null },
+    { "cursor": "-0", "position": null },
+    { "cursor": " 1", "position": null },
+    { "cursor": "9007199254740992", "position": null },
+    { "cursor": "9007199254740993", "position": null },
+    { "cursor": "99999999999999999999", "position": null }
+  ]
+}

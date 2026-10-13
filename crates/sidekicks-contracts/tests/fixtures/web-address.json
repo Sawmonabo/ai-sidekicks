@@ -1,0 +1,11 @@
+[
+  { "address": "https://example.com/path?query#fragment", "fault": null },
+  { "address": "http://localhost:5173/", "fault": null },
+  { "address": "HTTPS://EXAMPLE.COM", "fault": null },
+  { "address": "https://user:secret@example.com/", "fault": null },
+  { "address": "ftp://example.com/file", "fault": "scheme" },
+  { "address": "file:///etc/hosts", "fault": "scheme" },
+  { "address": "javascript:alert(1)", "fault": "scheme" },
+  { "address": "data:text/html,<p>hello</p>", "fault": "scheme" },
+  { "address": "sidekicks://session/1", "fault": "scheme" }
+]

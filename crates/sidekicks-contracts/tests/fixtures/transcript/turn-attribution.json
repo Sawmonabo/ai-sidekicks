@@ -1,0 +1,166 @@
+[
+  {
+    "step": "addSupersedingCut",
+    "note": "the first rollback cuts epoch 0",
+    "turns": { "runId": "0190f2a0-0000-7000-8000-000000000001", "cuts": [] },
+    "point": 2,
+    "expected": {
+      "runId": "0190f2a0-0000-7000-8000-000000000001",
+      "cuts": [{ "sourceEpoch": 0, "point": 2 }]
+    }
+  },
+  {
+    "step": "addSupersedingCut",
+    "note": "a later cut below an earlier epoch's point lowers that point",
+    "turns": {
+      "runId": "0190f2a0-0000-7000-8000-000000000001",
+      "cuts": [
+        { "sourceEpoch": 0, "point": 4 },
+        { "sourceEpoch": 1, "point": 6 }
+      ]
+    },
+    "point": 3,
+    "expected": {
+      "runId": "0190f2a0-0000-7000-8000-000000000001",
+      "cuts": [
+        { "sourceEpoch": 0, "point": 3 },
+        { "sourceEpoch": 1, "point": 3 },
+        { "sourceEpoch": 2, "point": 3 }
+      ]
+    }
+  },
+  {
+    "step": "addSupersedingCut",
+    "note": "a later cut above an earlier epoch's point leaves it",
+    "turns": {
+      "runId": "0190f2a0-0000-7000-8000-000000000001",
+      "cuts": [{ "sourceEpoch": 0, "point": 1 }]
+    },
+    "point": 5,
+    "expected": {
+      "runId": "0190f2a0-0000-7000-8000-000000000001",
+      "cuts": [
+        { "sourceEpoch": 0, "point": 1 },
+        { "sourceEpoch": 1, "point": 5 }
+      ]
+    }
+  },
+  {
+    "step": "transcriptRunStampAt",
+    "note": "a turn above its epoch's cut is superseded",
+    "turns": {
+      "runId": "0190f2a0-0000-7000-8000-000000000001",
+      "cuts": [{ "sourceEpoch": 0, "point": 2 }]
+    },
+    "source": { "epoch": 0, "position": 3 },
+    "expected": { "position": 3, "epoch": 0, "superseded": { "targetPosition": 2 } }
+  },
+  {
+    "step": "transcriptRunStampAt",
+    "note": "a turn at its epoch's cut stands",
+    "turns": {
+      "runId": "0190f2a0-0000-7000-8000-000000000001",
+      "cuts": [{ "sourceEpoch": 0, "point": 2 }]
+    },
+    "source": { "epoch": 0, "position": 2 },
+    "expected": { "position": 2, "epoch": 0 }
+  },
+  {
+    "step": "transcriptRunStampAt",
+    "note": "a turn of an epoch no rollback rewound stands",
+    "turns": {
+      "runId": "0190f2a0-0000-7000-8000-000000000001",
+      "cuts": [{ "sourceEpoch": 0, "point": 2 }]
+    },
+    "source": { "epoch": 1, "position": 9 },
+    "expected": { "position": 9, "epoch": 1 }
+  },
+  {
+    "step": "standingAfterTurnStarted",
+    "note": "the provider's position wins",
+    "standing": { "epoch": 1, "position": 2 },
+    "payload": { "position": 7 },
+    "expected": { "epoch": 1, "position": 7 }
+  },
+  {
+    "step": "standingAfterTurnStarted",
+    "note": "no position moves to the next",
+    "standing": { "epoch": 1, "position": 2 },
+    "payload": {},
+    "expected": { "epoch": 1, "position": 3 }
+  },
+  {
+    "step": "standingAfterTurnStarted",
+    "note": "a negative position moves to the next",
+    "standing": { "epoch": 0, "position": 2 },
+    "payload": { "position": -1 },
+    "expected": { "epoch": 0, "position": 3 }
+  },
+  {
+    "step": "standingAfterTurnStarted",
+    "note": "a fractional position moves to the next",
+    "standing": { "epoch": 0, "position": 2 },
+    "payload": { "position": 1.5 },
+    "expected": { "epoch": 0, "position": 3 }
+  },
+  {
+    "step": "standingAfterTurnStarted",
+    "note": "a text position moves to the next",
+    "standing": { "epoch": 0, "position": 2 },
+    "payload": { "position": "4" },
+    "expected": { "epoch": 0, "position": 3 }
+  },
+  {
+    "step": "standingAfterRollback",
+    "note": "a rollback opens the next epoch at its point",
+    "standing": { "epoch": 1, "position": 6 },
+    "targetPosition": 2,
+    "expected": { "epoch": 2, "position": 2 }
+  },
+  {
+    "step": "stampedSourceOf",
+    "note": "a late row carries both stamps",
+    "payload": { "sourceEpoch": 1, "sourcePosition": 4, "text": "late" },
+    "expected": { "epoch": 1, "position": 4 }
+  },
+  {
+    "step": "stampedSourceOf",
+    "note": "a row delivered in time carries neither",
+    "payload": { "text": "on time" },
+    "expected": null
+  },
+  {
+    "step": "stampedSourceOf",
+    "note": "one stamp alone is no source",
+    "payload": { "sourceEpoch": 1 },
+    "expected": null
+  },
+  {
+    "step": "transcriptToolCallIdOf",
+    "note": "a tool row belongs to its call",
+    "category": "tool_activity",
+    "payload": { "toolCallId": "call-1" },
+    "expected": "call-1"
+  },
+  {
+    "step": "transcriptToolCallIdOf",
+    "note": "a row of another category belongs to no call",
+    "category": "run_lifecycle",
+    "payload": { "toolCallId": "call-1" },
+    "expected": null
+  },
+  {
+    "step": "transcriptToolCallIdOf",
+    "note": "a tool row with no call id belongs to no call",
+    "category": "tool_activity",
+    "payload": { "toolCallId": 7 },
+    "expected": null
+  },
+  {
+    "step": "transcriptToolCallIdOf",
+    "note": "a row with no category belongs to no call",
+    "category": null,
+    "payload": { "toolCallId": "call-1" },
+    "expected": null
+  }
+]

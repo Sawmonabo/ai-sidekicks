@@ -1,0 +1,386 @@
+//! A session's notices and flow rows: the rows its controls write, the notices about its provider
+//! (its build, its restarts, its warnings, a level an account lacks), Codex's reviewer flag, and
+//! the live frame of Codex's safety hold on a turn.
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use crate::agent::definition::AgentId;
+use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
+use crate::provider::driver::methods::{DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN};
+use crate::provider::name::ProviderName;
+use crate::provider::settings::PROVIDER_VERSION_MAX_LEN;
+use crate::run::id::RunId;
+use crate::session::controls::methods::{
+    PermissionLevel, SessionReviewTarget, SideQuestionId, SideQuestionText,
+};
+use crate::session::cost::{TokensPerRun, UsdMicros};
+use crate::session::id::SessionId;
+use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::integer::{SafeInt, SafeSignedInt};
+use crate::wire::text::{ComposedText, FreeFormText};
+
+/// The `session.side_question_answered` payload: the person's question and the provider's answer,
+/// each as written. The aside never enters the conversation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionSideQuestionAnsweredPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The side question.
+    pub side_question_id: SideQuestionId,
+    /// The question, as written.
+    pub question: SideQuestionText,
+    /// The provider's answer, as written.
+    pub answer: FreeFormText<{ usize::MAX }>,
+}
+
+/// The `run.step_limit_reached` payload: a turn reached the step bound and ended there, and the run
+/// then ends as interrupted. `count` is the bound reached, drawn beside `Continue`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunStepLimitReachedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The run.
+    pub run_id: RunId,
+    /// The bound reached.
+    pub count: SafeInt<1>,
+}
+
+/// The `session.spend_limit_reached` payload: the session's spend passed its `Spend limit`, so every
+/// running turn in it stopped. `spend_limit_usd_micros` is the limit, drawn beside `Raise limit`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionSpendLimitReachedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The limit passed.
+    pub spend_limit_usd_micros: UsdMicros,
+}
+
+/// The `run.token_limit_reached` payload: the run passed its `Tokens per run` and ended, and the
+/// next message starts a new run. `token_limit` is the limit, drawn beside `Raise limit`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunTokenLimitReachedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The run.
+    pub run_id: RunId,
+    /// The limit passed.
+    pub token_limit: TokensPerRun,
+}
+
+/// Codex's safety hold on a turn (`active`) or its release, with the faster model Codex names, as
+/// sent. Relayed live on the run's state stream and never kept, so a re-opened session does not
+/// show it again.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunSafetyBufferingUpdatedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The run.
+    pub run_id: RunId,
+    /// The provider's turn id.
+    pub turn_id: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
+    /// Whether the hold is on.
+    pub active: bool,
+    /// The faster model Codex names, where it names one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>")]
+    pub faster_model: Option<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>,
+}
+
+/// Declares a one-value string type: `notice_literal! { /// doc \n Name = "value" }`, for a member
+/// whose value is fixed in its arm.
+macro_rules! notice_literal {
+    ($(#[doc = $doc:literal])+ $name:ident = $value:literal) => {
+        $(#[doc = $doc])+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+        #[schemars(inline)]
+        pub enum $name {
+            /// The one value.
+            #[serde(rename = $value)]
+            Value,
+        }
+    };
+}
+
+notice_literal! {
+    /// The `settings_ignored` notice kind.
+    SettingsIgnoredKind = "settings_ignored"
+}
+
+notice_literal! {
+    /// Codex, as the provider of a `settings_ignored` notice.
+    CodexProvider = "codex"
+}
+
+notice_literal! {
+    /// Claude Code, as the provider of a `settings_ignored` notice.
+    ClaudeProvider = "claude"
+}
+
+/// Codex started without part of its settings: the file and the line it names.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
+pub struct CodexSettingsIgnoredNotice {
+    /// The session.
+    pub session_id: SessionId,
+    /// Always `settings_ignored`.
+    pub kind: SettingsIgnoredKind,
+    /// Always `codex`.
+    pub provider: CodexProvider,
+    /// The settings file.
+    pub file: ComposedText,
+    /// The line in it.
+    pub line: SafeInt<1>,
+}
+
+/// Claude Code started without part of its settings: the file `doctor` names, with the key for one
+/// bad value, or the managed settings file that holds a key lower; absent where no file the daemon
+/// can read sets it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
+pub struct ClaudeSettingsIgnoredNotice {
+    /// The session.
+    pub session_id: SessionId,
+    /// Always `settings_ignored`.
+    pub kind: SettingsIgnoredKind,
+    /// Always `claude`.
+    pub provider: ClaudeProvider,
+    /// The settings file, where one is known.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ComposedText")]
+    pub file: Option<ComposedText>,
+    /// The key with the bad value, where one is known.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ComposedText")]
+    pub key: Option<ComposedText>,
+}
+
+/// Which kind of notice a provider warning came from: a warning or a deprecation notice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderWarningSource {
+    /// A warning.
+    Warning,
+    /// A deprecation notice.
+    Deprecation,
+}
+
+/// Every `session.notice` kind but `settings_ignored`, each drawn as one plain sentence.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+#[schemars(inline)]
+pub enum SessionNotice {
+    /// The conversation was reopened to take new definitions.
+    ConversationReloaded {
+        /// The session.
+        session_id: SessionId,
+    },
+    /// A review started.
+    ReviewStarted {
+        /// The session.
+        session_id: SessionId,
+        /// What the review covers.
+        target: SessionReviewTarget,
+    },
+    /// A review finished.
+    ReviewFinished {
+        /// The session.
+        session_id: SessionId,
+    },
+    /// Claude Code ended the turn at its cap on unmet checks; the goal stays active.
+    GoalNotMet {
+        /// The session.
+        session_id: SessionId,
+        /// The agent whose goal it is.
+        agent_id: AgentId,
+    },
+    /// A goal check ran past its limit; the goal stays active.
+    GoalCheckUnfinished {
+        /// The session.
+        session_id: SessionId,
+        /// The agent whose goal it is.
+        agent_id: AgentId,
+    },
+    /// A warning or a deprecation notice from the provider, in its own words.
+    ProviderWarning {
+        /// The session.
+        session_id: SessionId,
+        /// Which kind of notice it came from.
+        source: ProviderWarningSource,
+        /// The provider's words.
+        text: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+        /// The provider's details, where it sent any.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
+        details: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+    },
+    /// An account switch moved the session onto an account that cannot run the level it left, so
+    /// it runs at `ask`; `level` is the level it left.
+    LevelUnavailable {
+        /// The session.
+        session_id: SessionId,
+        /// The level it left.
+        level: PermissionLevel,
+    },
+    /// The session moved to the provider's new build, both versions as the provider reports them;
+    /// drawn as a faint line above the composer until the next message is sent, never a row.
+    ProviderUpdated {
+        /// The session.
+        session_id: SessionId,
+        /// The provider.
+        provider: ProviderName,
+        /// The version it left.
+        from_version: FreeFormText<PROVIDER_VERSION_MAX_LEN>,
+        /// The version it runs.
+        to_version: FreeFormText<PROVIDER_VERSION_MAX_LEN>,
+    },
+    /// A provider process that ended on its own runs again, restarted by the daemon or by the
+    /// person's restart; drawn as one row.
+    ProviderRestarted {
+        /// The session.
+        session_id: SessionId,
+        /// The provider.
+        provider: ProviderName,
+    },
+    /// The provider process ended on its own too many times in a short window and the daemon
+    /// stopped restarting it, with the exit code or the signal it ended on; drawn as a banner.
+    ProviderCrashLoop {
+        /// The session.
+        session_id: SessionId,
+        /// The provider.
+        provider: ProviderName,
+        /// The exit code it ended with, where it ended with one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "SafeSignedInt")]
+        exit_code: Option<SafeSignedInt>,
+        /// The signal it ended on, where it ended on one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>")]
+        signal: Option<FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>>,
+    },
+    /// The provider says fast output is not on for the run that asked for it, with its own reason
+    /// when it sent one.
+    FastOutputUnavailable {
+        /// The session.
+        session_id: SessionId,
+        /// The run that asked for fast output.
+        run_id: RunId,
+        /// The provider's reason, where it sent one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
+        reason: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+    },
+    /// The session's provider is not installed where the background service runs, so no provider
+    /// process started; `place_has_neither_provider` is true where that place has neither.
+    ProviderMissing {
+        /// The session.
+        session_id: SessionId,
+        /// The provider.
+        provider: ProviderName,
+        /// Whether the place has neither provider.
+        place_has_neither_provider: bool,
+    },
+}
+
+/// The `session.notice` payload. Its kinds are a closed set, each drawn as one plain sentence;
+/// `settings_ignored` takes one shape per provider.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum SessionNoticePayload {
+    /// Codex started without part of its settings.
+    CodexSettingsIgnored(CodexSettingsIgnoredNotice),
+    /// Claude Code started without part of its settings.
+    ClaudeSettingsIgnored(ClaudeSettingsIgnoredNotice),
+    /// Every other notice.
+    Notice(SessionNotice),
+}
+
+/// Which of Codex's reviewer signals a flag carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ModerationReviewSignal {
+    /// A warning.
+    ReviewWarning,
+    /// A required review.
+    ReviewRequired,
+}
+
+/// The `moderation.review_flagged` payload: a warning or a required review from Codex's own
+/// reviewer, drawn as one row in Codex's words. `event_id` names the item the flag is about;
+/// `text` is the words the row shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModerationReviewFlaggedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The run.
+    pub run_id: RunId,
+    /// The agent.
+    pub agent_id: AgentId,
+    /// The item the flag is about.
+    pub event_id: ComposedText,
+    /// Which signal it carries.
+    pub signal: ModerationReviewSignal,
+    /// The words the row shows.
+    pub text: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+}
+
+/// The module's TypeScript face.
+pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
+    path: "session/controls/events",
+    doc: "A session's notices and flow rows: the rows its controls write, the notices about its \
+          provider, Codex's reviewer flag, and the live frame of Codex's safety hold on a turn.",
+    definitions: &[
+        Definition::read::<SessionSideQuestionAnsweredPayload>().checked(),
+        Definition::read::<RunStepLimitReachedPayload>().checked(),
+        Definition::read::<SessionSpendLimitReachedPayload>().checked(),
+        Definition::read::<RunTokenLimitReachedPayload>().checked(),
+        Definition::read::<RunSafetyBufferingUpdatedPayload>().checked(),
+        Definition::read::<ProviderWarningSource>(),
+        Definition::read::<SessionNoticePayload>().checked(),
+        Definition::read::<ModerationReviewSignal>(),
+        Definition::read::<ModerationReviewFlaggedPayload>().checked(),
+    ],
+    constants: &[],
+    method_tables: &[],
+};

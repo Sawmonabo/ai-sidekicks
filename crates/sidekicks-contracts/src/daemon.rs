@@ -1,2 +1,25 @@
 //! The daemon's own methods: lifecycle, status, configuration, data, backup, retention,
-//! recovery, diagnostics and the run folder.
+//! recovery and diagnostics.
+
+use crate::typescript::TypeScriptModule;
+
+pub mod app_diagnostic;
+pub mod backup;
+pub mod config;
+pub mod data;
+pub mod lifecycle;
+pub mod recovery;
+pub mod retention;
+pub mod status;
+
+/// The topic's TypeScript modules.
+pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
+    &app_diagnostic::TYPESCRIPT_MODULE,
+    &backup::TYPESCRIPT_MODULE,
+    &config::TYPESCRIPT_MODULE,
+    &data::TYPESCRIPT_MODULE,
+    &lifecycle::TYPESCRIPT_MODULE,
+    &recovery::TYPESCRIPT_MODULE,
+    &retention::TYPESCRIPT_MODULE,
+    &status::TYPESCRIPT_MODULE,
+];

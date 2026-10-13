@@ -11,6 +11,9 @@ use super::{
     MessagePart,
 };
 
+/// The most lanes a peer holds open at once, lane 0 aside.
+pub const MAX_OPEN_LANES: usize = 10_000;
+
 /// The bytes of a message's JSON length prefix.
 const JSON_LENGTH_BYTES: usize = 4;
 
@@ -113,6 +116,12 @@ impl IncomingLanes {
         body: &[u8],
     ) -> Result<Received, FramingError> {
         if lane.number() > self.highest_opened {
+            // Lane 0 is always in the map and never counts against the limit.
+            if self.lanes.len() > MAX_OPEN_LANES {
+                return Err(FramingError::TooManyLanes {
+                    lane: lane.number(),
+                });
+            }
             self.highest_opened = lane.number();
             self.lanes.insert(lane, IncomingLane::new());
         }

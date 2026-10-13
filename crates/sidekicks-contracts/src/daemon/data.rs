@@ -1,0 +1,182 @@
+//! Everything the service keeps for the person: the data folder it lives in, and the two acts on
+//! it, export and erase, which Settings › Runtime and the command line send as the same verbs.
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use crate::error::ERROR_MESSAGE_MAX_LEN;
+use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::internal::branded::branded_uuid_id;
+use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::method::methods;
+use crate::method_descriptor::EmptyPayload;
+use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::integer::SafeInt;
+use crate::wire::text::FreeFormText;
+
+/// The service's data folder, inside the person's home folder: its database, the machine's
+/// settings and every other file it keeps.
+pub const DAEMON_DATA_FOLDER_NAME: &str = ".ai-sidekicks";
+
+branded_uuid_id! {
+    /// The id of one export job, minted by the service.
+    DataExportJobId
+}
+
+/// Starts an export into a new folder. `destination` is the folder's path: the one the platform's
+/// save dialog picked, which the desktop app's main process turns from its token into a path, or
+/// the one typed on the command line.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DataExportRequest {
+    /// The new folder's path.
+    pub destination: FreeFormText<FILE_PATH_MAX_LEN>,
+}
+
+/// The export job the request started; its progress streams on `daemon.dataExportSubscribe`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DataExportResponse {
+    /// The job.
+    pub job_id: DataExportJobId,
+}
+
+/// The export job whose progress to stream.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DataExportSubscribeRequest {
+    /// The job.
+    pub job_id: DataExportJobId,
+}
+
+/// The word `running`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[schemars(inline)]
+pub enum DataExportRunningState {
+    /// The export is running.
+    Running,
+}
+
+/// The word `completed`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[schemars(inline)]
+pub enum DataExportCompletedState {
+    /// The export finished.
+    Completed,
+}
+
+/// The word `failed`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[schemars(inline)]
+pub enum DataExportFailedState {
+    /// The export failed.
+    Failed,
+}
+
+/// A running export: it exports one session at a time, so it counts sessions, never past its
+/// total.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
+#[garde(allow_unvalidated)]
+pub struct DataExportRunning {
+    /// Always `running`.
+    pub state: DataExportRunningState,
+    /// The sessions exported so far; never more than `sessions_total`.
+    #[garde(custom(|exported: &SafeInt<0>, (): &()| {
+        if *exported <= self.sessions_total {
+            Ok(())
+        } else {
+            Err(garde::Error::new("sessionsExported cannot exceed sessionsTotal"))
+        }
+    }))]
+    #[schemars(extend("maximum" = { "$data": "1/sessionsTotal" }))]
+    pub sessions_exported: SafeInt<0>,
+    /// The sessions the export holds.
+    pub sessions_total: SafeInt<0>,
+}
+
+/// A finished export: the folder and its size.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
+pub struct DataExportCompleted {
+    /// Always `completed`.
+    pub state: DataExportCompletedState,
+    /// The folder written.
+    pub path: FreeFormText<FILE_PATH_MAX_LEN>,
+    /// Its size in bytes.
+    pub total_bytes: SafeInt<0>,
+}
+
+/// A failed export, with the service's own words for the cause.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
+pub struct DataExportFailed {
+    /// Always `failed`.
+    pub state: DataExportFailedState,
+    /// The cause.
+    pub message: FreeFormText<ERROR_MESSAGE_MAX_LEN>,
+}
+
+/// Where an export stands, told apart by its `state`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(untagged)]
+#[garde(allow_unvalidated)]
+pub enum DataExportProgress {
+    /// The export is running.
+    Running(#[garde(dive)] DataExportRunning),
+    /// The export finished.
+    Completed(DataExportCompleted),
+    /// The export failed.
+    Failed(DataExportFailed),
+}
+
+methods! {
+    /// The data methods. The export stream's acknowledgement is the subscription, and each
+    /// emission is the job's progress as it changes.
+    pub const DAEMON_DATA_METHOD_DESCRIPTORS = [
+        /// Starts an export.
+        DaemonDataExport = mutation "daemon.dataExport" {
+            mutating: true,
+            params: DataExportRequest,
+            result: DataExportResponse,
+            refusals: [],
+        },
+        /// Streams an export's progress.
+        DaemonDataExportSubscribe = subscription "daemon.dataExportSubscribe" {
+            mutating: false,
+            params: DataExportSubscribeRequest,
+            result: SubscribeAckResponse,
+            emission: DataExportProgress,
+            refusals: [],
+        },
+        /// Erases everything the service keeps.
+        DaemonDataErase = mutation "daemon.dataErase" {
+            mutating: true,
+            params: EmptyPayload,
+            result: EmptyPayload,
+            refusals: [],
+        },
+    ];
+}
+
+/// The module's TypeScript face.
+pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
+    path: "daemon/data",
+    doc: "Everything the service keeps for the person: the data folder, and the two acts on it, \
+          export and erase.",
+    definitions: &[
+        Definition::read::<DataExportJobId>().checked(),
+        Definition::read::<DataExportRequest>().checked(),
+        Definition::read::<DataExportResponse>().checked(),
+        Definition::read::<DataExportSubscribeRequest>().checked(),
+        Definition::read::<DataExportProgress>().checked(),
+    ],
+    constants: &[],
+    method_tables: &[&DAEMON_DATA_METHOD_DESCRIPTORS],
+};

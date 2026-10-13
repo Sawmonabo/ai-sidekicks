@@ -1,0 +1,202 @@
+//! The payloads of the `approval.*` events the daemon records: one per event type, and the
+//! session's own remembered answers rebuild from them alone.
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use crate::approval::{
+    ApprovalCategory, ApprovalRequestId, ApprovalScope, ApprovalText, InvalidationTrigger,
+    RememberedRuleId, RememberedScope, ReviewerDenialId,
+};
+use crate::event::version::EVENT_FIELD_MAX_LEN;
+use crate::internal::branded::{ClientUuid, UuidTextForm};
+use crate::run::id::RunId;
+use crate::runtime_node::id::NodeId;
+use crate::session::id::SessionId;
+use crate::trust_statement::DeviceId;
+use crate::wire::record::JsonRecord;
+use crate::wire::text::FreeFormText;
+
+/// The `approval.requested` payload. `askId` is present when the request is a provider's
+/// permission ask: the daemon's own durable id for the ask, so an answer reaches the right ask
+/// after a restart when several are open on one run. `toolCallId` names the tool call the ask
+/// holds, so that call's row draws its held mark and `Declined`. The ask's tool name and the
+/// provider's prompt text ride `resourceDescriptor`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApprovalRequestedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The run.
+    pub run_id: RunId,
+    /// The ask.
+    pub approval_request_id: ApprovalRequestId,
+    /// What it is about.
+    pub category: ApprovalCategory,
+    /// Its target scope.
+    pub scope: ApprovalScope,
+    /// Who asked.
+    pub requested_by: ApprovalText,
+    /// What it would touch.
+    pub resource_descriptor: JsonRecord,
+    /// The daemon's durable id for a provider's permission ask.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ApprovalText")]
+    pub ask_id: Option<ApprovalText>,
+    /// The tool call the ask holds, bounded as the tool rows bound it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<EVENT_FIELD_MAX_LEN>")]
+    pub tool_call_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+}
+
+/// The `approval.approved` and `approval.rejected` payload: the answer, the device it came from,
+/// the id the answering client minted, and on an approval the command or path as the person
+/// corrected it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApprovalResolvedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The run.
+    pub run_id: RunId,
+    /// The ask.
+    pub approval_request_id: ApprovalRequestId,
+    /// What it is about.
+    pub category: ApprovalCategory,
+    /// Its target scope.
+    pub scope: ApprovalScope,
+    /// The recorded scope.
+    pub effective_scope: ApprovalScope,
+    /// The device that answered.
+    pub device_id: DeviceId,
+    /// The id the answering client minted.
+    pub client_resolution_id: ClientUuid,
+    /// The corrected command or path, which is what runs; only on `approval.approved`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ApprovalText")]
+    pub edited_action: Option<ApprovalText>,
+}
+
+/// The `approval.canceled` payload: the ask ended with its run and can no longer be answered.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApprovalCanceledPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The run.
+    pub run_id: RunId,
+    /// The ask.
+    pub approval_request_id: ApprovalRequestId,
+    /// What it was about.
+    pub category: ApprovalCategory,
+    /// Its target scope.
+    pub scope: ApprovalScope,
+}
+
+/// The `approval.remembered` payload: the whole rule, so it rebuilds from the log. `nodeId` is the
+/// machine whose provider keeps it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApprovalRememberedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The run.
+    pub run_id: RunId,
+    /// The ask.
+    pub approval_request_id: ApprovalRequestId,
+    /// What it is about.
+    pub category: ApprovalCategory,
+    /// Its target scope.
+    pub scope: ApprovalScope,
+    /// The machine whose provider keeps the rule.
+    pub node_id: NodeId,
+    /// The rule.
+    pub rule_id: RememberedRuleId,
+    /// Its reach, subject and sense.
+    pub remembered_scope: RememberedScope,
+}
+
+/// The `approval.rule_revoked` payload. The run and the ask are absent where no ask was in flight,
+/// as when a project is detached or a tool server is removed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApprovalRuleRevokedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// What it was about.
+    pub category: ApprovalCategory,
+    /// Its target scope.
+    pub scope: ApprovalScope,
+    /// The rule.
+    pub rule_id: RememberedRuleId,
+    /// Why it ended.
+    pub invalidation_trigger: InvalidationTrigger,
+    /// The run, where an ask was in flight.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "RunId")]
+    pub run_id: Option<RunId>,
+    /// The ask, where one was in flight.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ApprovalRequestId")]
+    pub approval_request_id: Option<ApprovalRequestId>,
+}
+
+/// The `approval.reviewer_denied` payload: a provider's own reviewer blocked an action. The
+/// daemon keeps the denial whole beside the row, which is what lets the override hold across a
+/// restart. `eventId` names the blocked call's own row, whose reason line reads
+/// `Blocked · <reason>`, or `Blocked` alone where the reviewer gave no reason. `overridable` is
+/// false where the provider lets no person overrule the block, and no `Allow once` is drawn.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApprovalReviewerDeniedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The run.
+    pub run_id: RunId,
+    /// The agent whose action was blocked.
+    pub agent_id: UuidTextForm,
+    /// The block.
+    pub denial_id: ReviewerDenialId,
+    /// The blocked call's own row.
+    pub event_id: ApprovalText,
+    /// The reviewer's reason.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ApprovalText")]
+    pub reason: Option<ApprovalText>,
+    /// Whether a person may overrule it.
+    pub overridable: bool,
+}
+
+/// The `approval.denial_overridden` payload: the person allowed a blocked action once.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApprovalDenialOverriddenPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The block.
+    pub denial_id: ReviewerDenialId,
+}

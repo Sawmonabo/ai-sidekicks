@@ -1,0 +1,231 @@
+//! Backups of what the person would lose with the disk: reading where they stand, starting one
+//! now, the events a run records, and each backup's manifest.
+//!
+//! A restore replaces the service's own store, so it runs with the service stopped and reads each
+//! manifest straight from the folder; that is why the manifest's shape is a contract. A backup is
+//! a plain copy that holds no key, so any computer can restore it.
+
+use std::borrow::Cow;
+
+use schemars::{JsonSchema, Schema, SchemaGenerator};
+use serde::{Deserialize, Serialize};
+
+use crate::error::ERROR_MESSAGE_MAX_LEN;
+use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::method::methods;
+use crate::method_descriptor::EmptyPayload;
+use crate::release_manifest::ReleaseVersion;
+use crate::service_place::ServicePlaceLocation;
+use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::instant::WireInstant;
+use crate::wire::integer::SafeInt;
+use crate::wire::text::FreeFormText;
+
+/// The manifest's file name, beside each backup's database copy.
+pub const BACKUP_MANIFEST_FILE_NAME: &str = "manifest.json";
+
+/// The database copy's file name inside each backup's folder, beside its manifest; a backup's
+/// writer, its restore and the daemon's repair of a damaged store all read it there.
+pub const BACKUP_DATABASE_FILE_NAME: &str = "daemon.db";
+
+/// The folder backups go to inside the service's data folder when the person picked none.
+pub const BACKUP_DEFAULT_FOLDER_NAME: &str = "backups";
+
+/// The longest backup id or computer name accepted, in code points.
+pub const BACKUP_LABEL_MAX_LEN: usize = 256;
+
+/// One backup's id, minted by the service when it writes the backup. Opaque to every client.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct BackupId(FreeFormText<BACKUP_LABEL_MAX_LEN>);
+
+impl BackupId {
+    /// The id's text.
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl JsonSchema for BackupId {
+    fn schema_name() -> Cow<'static, str> {
+        "BackupId".into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        let mut schema = FreeFormText::<BACKUP_LABEL_MAX_LEN>::json_schema(generator);
+        schema.insert(
+            "description".into(),
+            "One backup's id, minted by the service when it writes the backup. Opaque to every \
+             client."
+                .into(),
+        );
+        schema.insert(
+            "tsType".into(),
+            "string & { readonly __brand: \"BackupId\" }".into(),
+        );
+        schema
+    }
+}
+
+/// What a backup records about itself: when it was taken, the app and service versions that wrote
+/// it, its size and the computer that wrote it. On a Windows computer it also names the side that
+/// wrote it, Windows or a WSL distribution, so a restore on the other side rewrites its stored
+/// paths into that side's form.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct BackupManifest {
+    /// The backup.
+    pub backup_id: BackupId,
+    /// When it was taken.
+    #[garde(dive)]
+    pub taken_at: WireInstant,
+    /// The app version that wrote it.
+    pub app_version: ReleaseVersion,
+    /// The service version that wrote it.
+    pub service_version: ReleaseVersion,
+    /// Its size in bytes.
+    pub total_bytes: SafeInt<0>,
+    /// The computer that wrote it.
+    pub computer_name: FreeFormText<BACKUP_LABEL_MAX_LEN>,
+    /// On a Windows computer, the side that wrote it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ServicePlaceLocation")]
+    pub place: Option<ServicePlaceLocation>,
+}
+
+/// One backup in the folder, as `Restore…` lists it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct BackupListEntry {
+    /// The backup.
+    pub backup_id: BackupId,
+    /// When it was taken.
+    #[garde(dive)]
+    pub taken_at: WireInstant,
+    /// Its size in bytes.
+    pub total_bytes: SafeInt<0>,
+    /// The app version that wrote it.
+    pub app_version: ReleaseVersion,
+    /// The computer that wrote it.
+    pub computer_name: FreeFormText<BACKUP_LABEL_MAX_LEN>,
+}
+
+/// How the last backup run ended: `completed`, or `failed` with the service's own words for the
+/// cause. A failed run keeps the backups already there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(
+    tag = "outcome",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+#[garde(allow_unvalidated)]
+pub enum BackupLastRun {
+    /// The run wrote a backup.
+    Completed {
+        /// When it finished.
+        #[garde(dive)]
+        finished_at: WireInstant,
+    },
+    /// The run did not finish.
+    Failed {
+        /// When it stopped.
+        #[garde(dive)]
+        finished_at: WireInstant,
+        /// The cause, in the service's own words.
+        message: FreeFormText<ERROR_MESSAGE_MAX_LEN>,
+    },
+}
+
+/// Where the backups stand: the folder and whether it sits on the service's own disk, the
+/// folder's total size, the last run (`null` before the first) and every backup in the folder.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct BackupReadResponse {
+    /// The folder.
+    pub folder: FreeFormText<FILE_PATH_MAX_LEN>,
+    /// Whether the folder sits on the service's own disk.
+    pub folder_on_service_disk: bool,
+    /// The folder's total size in bytes.
+    pub total_bytes: SafeInt<0>,
+    /// The last run, or `null` before the first.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<BackupLastRun>")]
+    #[garde(dive)]
+    pub last_run: Option<BackupLastRun>,
+    /// Every backup in the folder.
+    #[garde(dive)]
+    pub backups: Vec<BackupListEntry>,
+}
+
+/// `backup.completed`: a run wrote a backup.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BackupCompletedPayload {
+    /// The backup.
+    pub backup_id: BackupId,
+    /// Its size in bytes.
+    pub total_bytes: SafeInt<0>,
+}
+
+/// `backup.failed`: a run did not finish, in the service's own words.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BackupFailedPayload {
+    /// The cause.
+    pub message: FreeFormText<ERROR_MESSAGE_MAX_LEN>,
+}
+
+/// `backup.restored`: the service started again from a backup.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BackupRestoredPayload {
+    /// The backup.
+    pub backup_id: BackupId,
+}
+
+methods! {
+    /// The backup methods. A run started now reports its end through the `backup.*` events.
+    pub const DAEMON_BACKUP_METHOD_DESCRIPTORS = [
+        /// Reads where the backups stand.
+        DaemonBackupRead = query "daemon.backupRead" {
+            mutating: false,
+            params: EmptyPayload,
+            result: BackupReadResponse,
+            refusals: [],
+        },
+        /// Starts a backup run now.
+        DaemonBackupStart = mutation "daemon.backupStart" {
+            mutating: true,
+            params: EmptyPayload,
+            result: EmptyPayload,
+            refusals: [],
+        },
+    ];
+}
+
+/// The module's TypeScript face.
+pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
+    path: "daemon/backup",
+    doc: "Backups of what the person would lose with the disk: where they stand, starting one now, \
+          the events a run records, and each backup's manifest.",
+    definitions: &[
+        Definition::read::<BackupId>().checked(),
+        Definition::read::<BackupManifest>().checked(),
+        Definition::read::<BackupListEntry>(),
+        Definition::read::<BackupLastRun>(),
+        Definition::read::<BackupReadResponse>().checked(),
+        Definition::read::<BackupCompletedPayload>().checked(),
+        Definition::read::<BackupFailedPayload>().checked(),
+        Definition::read::<BackupRestoredPayload>().checked(),
+    ],
+    constants: &[],
+    method_tables: &[&DAEMON_BACKUP_METHOD_DESCRIPTORS],
+};

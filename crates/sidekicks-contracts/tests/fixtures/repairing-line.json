@@ -1,0 +1,24 @@
+[
+  {
+    "progress": null,
+    "parts": ["Repairing saved sessions after an unexpected shutdown…"]
+  },
+  {
+    "progress": { "done": 0, "total": 0 },
+    "parts": [
+      "Repairing saved sessions after an unexpected shutdown · ",
+      { "count": 0 },
+      " of ",
+      { "count": 0 }
+    ]
+  },
+  {
+    "progress": { "done": 1204, "total": 31000 },
+    "parts": [
+      "Repairing saved sessions after an unexpected shutdown · ",
+      { "count": 1204 },
+      " of ",
+      { "count": 31000 }
+    ]
+  }
+]

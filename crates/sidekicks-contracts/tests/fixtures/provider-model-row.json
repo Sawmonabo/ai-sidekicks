@@ -1,0 +1,58 @@
+{
+  "rows": [
+    {
+      "id": "opus",
+      "name": "Opus",
+      "capabilities": [],
+      "fast": false,
+      "largerWindow": false
+    },
+    {
+      "id": "opus",
+      "name": "Opus (1M)",
+      "capabilities": [],
+      "fast": false,
+      "largerWindow": true,
+      "contextWindow": 1000000
+    },
+    {
+      "id": "sonnet",
+      "name": "Sonnet",
+      "capabilities": [],
+      "fast": true,
+      "largerWindow": false
+    }
+  ],
+  "cases": [
+    {
+      "name": "the default row of a model with two",
+      "modelId": "opus",
+      "largerWindow": false,
+      "expectedIndex": 0
+    },
+    {
+      "name": "the larger-window row of a model with two",
+      "modelId": "opus",
+      "largerWindow": true,
+      "expectedIndex": 1
+    },
+    {
+      "name": "a model with only its default row",
+      "modelId": "sonnet",
+      "largerWindow": false,
+      "expectedIndex": 2
+    },
+    {
+      "name": "a larger window the model does not offer",
+      "modelId": "sonnet",
+      "largerWindow": true,
+      "expectedIndex": null
+    },
+    {
+      "name": "a model the catalog does not hold",
+      "modelId": "haiku",
+      "largerWindow": false,
+      "expectedIndex": null
+    }
+  ]
+}

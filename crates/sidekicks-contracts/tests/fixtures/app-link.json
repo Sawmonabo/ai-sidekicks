@@ -1,0 +1,35 @@
+{
+  "composed": [
+    {
+      "target": { "kind": "session", "sessionId": "0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e" },
+      "link": "sidekicks://session/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e"
+    },
+    {
+      "target": { "kind": "workflowRun", "workflowRunId": "0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8f" },
+      "link": "sidekicks://workflow-run/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8f"
+    }
+  ],
+  "parsed": [
+    {
+      "link": "sidekicks://session/0190F1C4-7E3A-7B1C-9D2E-3F4A5B6C7D8E",
+      "target": { "kind": "session", "sessionId": "0190F1C4-7E3A-7B1C-9D2E-3F4A5B6C7D8E" }
+    },
+    { "link": "sidekicks://session/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e/", "target": null },
+    { "link": "sidekicks://session/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e?x=1", "target": null },
+    { "link": "sidekicks://session/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e#top", "target": null },
+    { "link": "sidekicks://session/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e/more", "target": null },
+    { "link": "sidekicks://session/not-a-uuid", "target": null },
+    { "link": "sidekicks://session/", "target": null },
+    { "link": "sidekicks://run/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e", "target": null },
+    { "link": "Sidekicks://session/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e", "target": null },
+    { "link": "https://session/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e", "target": null },
+    { "link": " sidekicks://session/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e", "target": null },
+    { "link": "sidekicks:session/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e", "target": null },
+    { "link": "sidekicks://workflow-run/%30190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e", "target": null },
+    { "link": "sidekicks://session//0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e", "target": null },
+    { "link": "sidekicks://session%2F0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e", "target": null },
+    { "link": "sidekicks://session/%2F0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e", "target": null },
+    { "link": "sidekicks://me@session/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e", "target": null },
+    { "link": "sidekicks://workflow-run/run%2Fother", "target": null }
+  ]
+}

@@ -1,0 +1,41 @@
+//! The dev servers the daemon discovers listening in a session's project.
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use crate::preview::port::PreviewPort;
+use crate::session::id::SessionId;
+use crate::wire::bounded_text::BoundedText;
+
+/// The session whose project's dev servers a `preview.devServerList` subscription streams.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewDevServerListRequest {
+    /// The session.
+    pub session_id: SessionId,
+}
+
+/// One dev server the daemon found listening in the session's project. `name` and `framework` are
+/// `null` where the daemon could not tell; `startedHere` means this session started it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewDevServer {
+    /// Its port.
+    pub port: PreviewPort,
+    /// The name it gave.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<BoundedText<1, { usize::MAX }>>")]
+    pub name: Option<BoundedText<1, { usize::MAX }>>,
+    /// Its framework.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<BoundedText<1, { usize::MAX }>>")]
+    pub framework: Option<BoundedText<1, { usize::MAX }>>,
+    /// Whether this session started it, by its agent or in its own shell.
+    pub started_here: bool,
+}
+
+/// One frame of the discovered servers: every server listening now. The stream sends the newest
+/// list once the reader has room, never a queue of the lists between.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
+pub struct PreviewDevServerListFrame(pub Vec<PreviewDevServer>);

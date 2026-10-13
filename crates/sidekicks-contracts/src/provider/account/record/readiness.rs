@@ -1,0 +1,331 @@
+//! Each provider's readiness to start a run and the one remedy shown when it is not ready.
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use super::ProviderAccountId;
+use crate::provider::name::ProviderName;
+use crate::wire::instant::WireInstant;
+
+/// Every readiness state, in declaration order.
+pub const PROVIDER_READINESS_STATES: [ProviderReadinessState; 6] = [
+    ProviderReadinessState::Authenticated,
+    ProviderReadinessState::ReauthRequired,
+    ProviderReadinessState::HomeMissing,
+    ProviderReadinessState::Indeterminate,
+    ProviderReadinessState::NoAccount,
+    ProviderReadinessState::NoDefault,
+];
+
+/// The pre-computed answer to what run admission will ask. The first four are the resolved
+/// account's stored health state; `no_account` and `no_default` stand where resolution reached no
+/// account. It authorizes nothing: admission checks again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderReadinessState {
+    /// Signed in.
+    Authenticated,
+    /// The sign-in is gone.
+    ReauthRequired,
+    /// The credential home is missing.
+    HomeMissing,
+    /// Not decided.
+    Indeterminate,
+    /// No account is registered.
+    NoAccount,
+    /// No account is the default.
+    NoDefault,
+}
+
+/// Declares a remedy struct whose `kind` is one literal.
+macro_rules! remedy {
+    (
+        $(#[doc = $doc:literal])+
+        $name:ident, $kind:ident, $wire_kind:literal { $($fields:tt)* }
+    ) => {
+        /// The one value of the remedy's `kind`.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+        #[schemars(inline)]
+        pub enum $kind {
+            /// The literal.
+            #[serde(rename = $wire_kind)]
+            Literal,
+        }
+
+        $(#[doc = $doc])+
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        #[garde(allow_unvalidated)]
+        pub struct $name {
+            /// What the person does.
+            pub kind: $kind,
+            $($fields)*
+        }
+    };
+}
+
+remedy! {
+    /// Remedy for `no_account`: register an account for the provider.
+    ProviderRegisterRemedy, RegisterRemedyKind, "register" {
+        /// The provider.
+        pub provider: ProviderName,
+    }
+}
+
+remedy! {
+    /// Remedy for `no_default`: the person picks one of the listed accounts as the default.
+    ProviderChooseDefaultRemedy, ChooseDefaultRemedyKind, "choose_default" {
+        /// The candidates; the daemon lists them and never picks one. One account with no default
+        /// is still listed rather than elected.
+        #[garde(length(min = 1))]
+        #[schemars(length(min = 1))]
+        pub candidate_account_ids: Vec<ProviderAccountId>,
+    }
+}
+
+remedy! {
+    /// Remedy for a resolved account that is not authenticated: run the provider's own sign-in.
+    ProviderSignInRemedy, SignInRemedyKind, "sign_in" {
+        /// The resolved account.
+        pub account_id: ProviderAccountId,
+    }
+}
+
+remedy! {
+    /// Remedy for `reauth_required` on a token or API-key account: it cannot refresh itself, so
+    /// the person mints a fresh token at the provider and pastes it.
+    ProviderPasteTokenRemedy, PasteTokenRemedyKind, "paste_token" {
+        /// The resolved account.
+        pub account_id: ProviderAccountId,
+    }
+}
+
+remedy! {
+    /// Remedy for `indeterminate`: nothing wrong can be seen, so the next read may settle it and
+    /// `providerAccount.probe` asks again. Never a sign-in.
+    ProviderLookAgainRemedy, LookAgainRemedyKind, "look_again" {
+        /// The resolved account.
+        pub account_id: ProviderAccountId,
+    }
+}
+
+/// The next step shown for a readiness state that is not `authenticated`. A client renders off
+/// `kind`, not `state`, since `reauth_required` takes `sign_in` or `paste_token`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(untagged)]
+pub enum ProviderRemedy {
+    /// Register an account.
+    Register(#[garde(dive)] ProviderRegisterRemedy),
+    /// Choose the default.
+    ChooseDefault(#[garde(dive)] ProviderChooseDefaultRemedy),
+    /// Sign in again.
+    SignIn(#[garde(dive)] ProviderSignInRemedy),
+    /// Paste a fresh token.
+    PasteToken(#[garde(dive)] ProviderPasteTokenRemedy),
+    /// Look again.
+    LookAgain(#[garde(dive)] ProviderLookAgainRemedy),
+}
+
+/// The remedy of one account whose login is gone: the provider's own sign-in, or, on a token or
+/// API-key account, a freshly minted token pasted in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum ProviderLoginExpiredRemedy {
+    /// Sign in again.
+    SignIn(ProviderSignInRemedy),
+    /// Paste a fresh token.
+    PasteToken(ProviderPasteTokenRemedy),
+}
+
+impl ProviderLoginExpiredRemedy {
+    /// The account the remedy names.
+    pub fn account_id(&self) -> &ProviderAccountId {
+        match self {
+            Self::SignIn(remedy) => &remedy.account_id,
+            Self::PasteToken(remedy) => &remedy.account_id,
+        }
+    }
+}
+
+/// One provider's readiness to start a run, tagged on `state`, with the remedy the state calls
+/// for. A remedy that names an account names the entry's own resolved account, so the person is
+/// never pointed at one account to fix another.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(
+    tag = "state",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+#[garde(allow_unvalidated)]
+#[garde(custom(remedy_names_resolved_account))]
+pub enum ProviderReadiness {
+    /// Ready; it carries no remedy.
+    Authenticated {
+        /// The provider.
+        provider: ProviderName,
+        /// The account resolution reached, when it reached exactly one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ProviderAccountId")]
+        resolved_account_id: Option<ProviderAccountId>,
+        /// When the stored observation the state was read from was made.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WireInstant")]
+        #[garde(dive)]
+        observed_at: Option<WireInstant>,
+    },
+    /// The resolved account's sign-in is gone.
+    #[schemars(extend("allOf" = [{ "type": "object", "properties": { "remedy": {
+        "type": "object",
+        "properties": { "accountId": { "const": { "$data": "2/resolvedAccountId" } } },
+    } } }]))]
+    ReauthRequired {
+        /// The provider.
+        provider: ProviderName,
+        /// The account resolution reached.
+        resolved_account_id: ProviderAccountId,
+        /// When the stored observation the state was read from was made.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WireInstant")]
+        #[garde(dive)]
+        observed_at: Option<WireInstant>,
+        /// Sign in again, or paste a fresh token; which applies is the producer's call.
+        remedy: ProviderLoginExpiredRemedy,
+    },
+    /// The resolved account's credential home is missing.
+    #[schemars(extend("allOf" = [{ "type": "object", "properties": { "remedy": {
+        "type": "object",
+        "properties": { "accountId": { "const": { "$data": "2/resolvedAccountId" } } },
+    } } }]))]
+    HomeMissing {
+        /// The provider.
+        provider: ProviderName,
+        /// The account resolution reached.
+        resolved_account_id: ProviderAccountId,
+        /// When the stored observation the state was read from was made.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WireInstant")]
+        #[garde(dive)]
+        observed_at: Option<WireInstant>,
+        /// Sign in again.
+        remedy: ProviderSignInRemedy,
+    },
+    /// The resolved account's health is undecided.
+    #[schemars(extend("allOf" = [{ "type": "object", "properties": { "remedy": {
+        "type": "object",
+        "properties": { "accountId": { "const": { "$data": "2/resolvedAccountId" } } },
+    } } }]))]
+    Indeterminate {
+        /// The provider.
+        provider: ProviderName,
+        /// The account resolution reached.
+        resolved_account_id: ProviderAccountId,
+        /// When the stored observation the state was read from was made; absent for none yet.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WireInstant")]
+        #[garde(dive)]
+        observed_at: Option<WireInstant>,
+        /// Look again.
+        remedy: ProviderLookAgainRemedy,
+    },
+    /// No account is registered for the provider.
+    NoAccount {
+        /// The provider.
+        provider: ProviderName,
+        /// The account resolution reached, when it reached exactly one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ProviderAccountId")]
+        resolved_account_id: Option<ProviderAccountId>,
+        /// When the stored observation the state was read from was made.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WireInstant")]
+        #[garde(dive)]
+        observed_at: Option<WireInstant>,
+        /// Register an account.
+        remedy: ProviderRegisterRemedy,
+    },
+    /// Accounts are registered but none is the default.
+    NoDefault {
+        /// The provider.
+        provider: ProviderName,
+        /// The account resolution reached, when it reached exactly one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ProviderAccountId")]
+        resolved_account_id: Option<ProviderAccountId>,
+        /// When the stored observation the state was read from was made.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WireInstant")]
+        #[garde(dive)]
+        observed_at: Option<WireInstant>,
+        /// Choose the default.
+        #[garde(dive)]
+        remedy: ProviderChooseDefaultRemedy,
+    },
+}
+
+/// Whether a remedy that names an account names the entry's resolved account.
+fn remedy_names_resolved_account(readiness: &ProviderReadiness, _: &()) -> garde::Result {
+    let (resolved, named) = match readiness {
+        ProviderReadiness::ReauthRequired {
+            resolved_account_id,
+            remedy,
+            ..
+        } => (resolved_account_id, remedy.account_id()),
+        ProviderReadiness::HomeMissing {
+            resolved_account_id,
+            remedy,
+            ..
+        } => (resolved_account_id, &remedy.account_id),
+        ProviderReadiness::Indeterminate {
+            resolved_account_id,
+            remedy,
+            ..
+        } => (resolved_account_id, &remedy.account_id),
+        ProviderReadiness::Authenticated { .. }
+        | ProviderReadiness::NoAccount { .. }
+        | ProviderReadiness::NoDefault { .. } => return Ok(()),
+    };
+    if resolved == named {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "remedy.accountId must equal resolvedAccountId",
+        ))
+    }
+}
