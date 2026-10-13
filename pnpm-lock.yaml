@@ -27,6 +27,9 @@ patchedDependencies:
   '@bruits/satteri-wasm32-wasi@0.10.5':
     hash: e35e033f735678cc51b64817b7f2accd0e7be71895fec7e62d5e1be84ec00386
     path: patches/@bruits__satteri-wasm32-wasi@0.10.5.patch
+  '@xterm/xterm@6.0.0':
+    hash: 0ac7a686ca6685db69c37eee65222d226324f20d971389aac0dd60defcbfc438
+    path: patches/@xterm__xterm@6.0.0.patch
   '@xyflow/react@12.12.0':
     hash: dcfbb662e50e85a3098a8d97041868db13aed36bf36462fc1026870abea63b85
     path: patches/@xyflow__react@12.12.0.patch
@@ -246,7 +249,7 @@ importers:
         version: 0.19.0
       '@xterm/xterm':
         specifier: 6.0.0
-        version: 6.0.0
+        version: 6.0.0(patch_hash=0ac7a686ca6685db69c37eee65222d226324f20d971389aac0dd60defcbfc438)
       '@xyflow/react':
         specifier: 12.12.0
         version: 12.12.0(patch_hash=dcfbb662e50e85a3098a8d97041868db13aed36bf36462fc1026870abea63b85)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -11247,7 +11250,7 @@ snapshots:
 
   '@xterm/headless@6.0.0': {}
 
-  '@xterm/xterm@6.0.0': {}
+  '@xterm/xterm@6.0.0(patch_hash=0ac7a686ca6685db69c37eee65222d226324f20d971389aac0dd60defcbfc438)': {}
 
   '@xyflow/react@12.12.0(patch_hash=dcfbb662e50e85a3098a8d97041868db13aed36bf36462fc1026870abea63b85)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
