@@ -303,15 +303,15 @@ impl TerminalControl {
         true
     }
 
-    /// Reaps the program when the watch says it exited, answering its status, and marks it exited
-    /// under the signal lock.
-    fn take_child_exit(&self, watch: &mut TerminalWatch) -> Option<Option<ExitStatus>> {
+    /// Reaps the program when the watch says it exited, answering the loop's end with its status,
+    /// and marks it exited under the signal lock.
+    fn take_child_exit(&self, watch: &mut TerminalWatch) -> Option<LoopEnd> {
         let mut child_state = self.lock_child_state();
         let status = watch.take_child_exit()?;
         child_state.has_exited = true;
         drop(child_state);
         self.child_exit.send_replace(true);
-        Some(status)
+        Some(LoopEnd::ChildExited(status))
     }
 
     /// Marks the program exited under the signal lock, for a release that waited for it.
@@ -575,8 +575,8 @@ where
                     self.queue.fail(error);
                 }
                 Ok(TerminalWake::ChildEvent) => {
-                    if let Some(status) = self.control.take_child_exit(watch) {
-                        return LoopEnd::ChildExited(status);
+                    if let Some(end) = self.control.take_child_exit(watch) {
+                        return end;
                     }
                 }
                 Ok(TerminalWake::Woken) => {}

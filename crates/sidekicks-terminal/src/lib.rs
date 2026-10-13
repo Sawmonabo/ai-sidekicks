@@ -45,6 +45,7 @@ use crate::read_loop::TerminalControl;
 pub struct TerminalHandle(Uuid);
 
 impl TerminalHandle {
+    /// A fresh handle for a terminal being spawned.
     fn mint() -> Self {
         #[expect(
             clippy::disallowed_methods,
@@ -114,9 +115,13 @@ type LiveTerminals = Arc<Mutex<HashMap<TerminalHandle, Arc<TerminalEntry>>>>;
 
 /// The daemon's live terminals: each shell's PTY, its read loop and its stops.
 pub struct Terminals {
+    /// The thread every shell, `taskkill.exe` and console helper starts on.
     spawner: Spawner,
+    /// The daemon's console-helper mode, which ends a terminal on Windows.
     console_helper: Arc<CommandLine>,
+    /// The live terminals, by handle.
     live: LiveTerminals,
+    /// Set once a drain began, so no new terminal spawns.
     is_draining: AtomicBool,
     /// The one drain's result, which a later drain answers with.
     drain_result: OnceCell<DrainResult>,
@@ -296,6 +301,7 @@ impl Terminals {
             .await
     }
 
+    /// Stops every running terminal within `bound`, the work the first drain does.
     async fn drain_once(&self, bound: Duration) -> DrainResult {
         let running: Vec<Arc<TerminalEntry>> = {
             let live = lock_live(&self.live);
@@ -335,6 +341,7 @@ impl Terminals {
             .collect()
     }
 
+    /// The live terminal `handle` names; fails with `UnknownTerminal` once it is gone.
     fn entry(&self, handle: TerminalHandle) -> Result<Arc<TerminalEntry>, TerminalError> {
         lock_live(&self.live)
             .get(&handle)
@@ -343,6 +350,7 @@ impl Terminals {
     }
 }
 
+/// Locks the live terminals.
 fn lock_live(
     live: &Mutex<HashMap<TerminalHandle, Arc<TerminalEntry>>>,
 ) -> MutexGuard<'_, HashMap<TerminalHandle, Arc<TerminalEntry>>> {
@@ -352,7 +360,9 @@ fn lock_live(
 
 /// How one terminal's drain ended.
 enum DrainOutcome {
+    /// It ended on the graceful stop.
     Drained,
+    /// It took the kill, or an outright end of its tree had begun.
     Forced,
 }
 
@@ -383,9 +393,13 @@ async fn drain_terminal(entry: Arc<TerminalEntry>, bound: Duration) -> DrainOutc
 
 /// One live terminal: its loop's control, its pending escalation and how it is ended on Windows.
 struct TerminalEntry {
+    /// Its read loop's control.
     control: Arc<TerminalControl>,
+    /// Its pending escalation from a stop to an outright end.
     escalation: Escalation,
+    /// The thread its ending programs start on.
     spawner: Spawner,
+    /// The daemon's console-helper mode, which ends it on Windows.
     console_helper: Arc<CommandLine>,
     /// Set once an outright end of its tree began, so the drain counts its exit as forced.
     is_escalated: AtomicBool,

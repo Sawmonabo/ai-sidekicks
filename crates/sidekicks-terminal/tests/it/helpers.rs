@@ -66,12 +66,14 @@ pub(crate) async fn read_to_exit(output: &mut TerminalOutput) -> (String, Termin
     tokio::time::timeout(OUTPUT_BOUND, async {
         let mut text = String::new();
         loop {
-            match output.next().await {
-                Some(TerminalEvent::Output(chunk)) => {
-                    text.push_str(&String::from_utf8_lossy(&chunk));
-                }
-                Some(TerminalEvent::Exit(exit)) => return (text, exit),
-                None => panic!("the output ended with no exit, after {text:?}"),
+            let event = output
+                .next()
+                .await
+                .ok_or_else(|| format!("the output ended with no exit, after {text:?}"))
+                .expect("the shell's output ends with its exit");
+            match event {
+                TerminalEvent::Output(chunk) => text.push_str(&String::from_utf8_lossy(&chunk)),
+                TerminalEvent::Exit(exit) => return (text, exit),
             }
         }
     })

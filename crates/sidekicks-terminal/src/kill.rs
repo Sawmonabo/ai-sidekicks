@@ -319,6 +319,16 @@ mod tests {
 
     const ROOT_PROCESS_ID: u32 = 4242;
     const ONE_MILLISECOND: Duration = Duration::from_millis(1);
+    /// The last moment before the console break's grace runs out; the build fails were the grace
+    /// shorter than a millisecond.
+    const JUST_BEFORE_GRACE: Duration = CONSOLE_BREAK_GRACE
+        .checked_sub(ONE_MILLISECOND)
+        .expect("the console break's grace is longer than a millisecond");
+    /// The last moment before a helper program's time limit; the build fails were the limit
+    /// shorter than a millisecond.
+    const JUST_BEFORE_TIME_LIMIT: Duration = HELPER_PROGRAM_TIME_LIMIT
+        .checked_sub(ONE_MILLISECOND)
+        .expect("a helper program's time limit is longer than a millisecond");
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum Call {
@@ -453,7 +463,7 @@ mod tests {
                 expected,
                 "the break goes at once, the tree end waits"
             );
-            advance(CONSOLE_BREAK_GRACE - ONE_MILLISECOND).await;
+            advance(JUST_BEFORE_GRACE).await;
             assert_eq!(
                 child.calls(),
                 expected,
@@ -467,7 +477,7 @@ mod tests {
             TreeEnding::Ends | TreeEnding::Fails => {}
             TreeEnding::NeverReturns => {
                 assert_eq!(child.calls(), expected, "no report before the bound");
-                advance(HELPER_PROGRAM_TIME_LIMIT - ONE_MILLISECOND).await;
+                advance(JUST_BEFORE_TIME_LIMIT).await;
                 assert_eq!(child.calls(), expected, "no report before the bound");
                 advance(ONE_MILLISECOND).await;
             }
