@@ -1,0 +1,2 @@
+# Sätteri's sources are LF; a CRLF checkout of the patch would not apply to them.
+packages/markdown-parser/indented-code-block.patch text eol=lf

@@ -40,8 +40,9 @@ interface BundledNoticeSource {
 
 /**
  * merman ships its compiled ELK, a translation of Eclipse ELK, under EPL-2.0, which asks a program
- * distributed other than as source to say where the source is. The compression module carries
- * compiled Rust crates, whose licenses ask only that their notices travel with it.
+ * distributed other than as source to say where the source is. The compression module and the
+ * markdown parser's module carry compiled Rust crates, and the parser's also emnapi's compiled
+ * Node-API layer, whose licenses ask only that their notices travel with them.
  */
 const BUNDLED_NOTICE_SOURCES: Readonly<Record<string, BundledNoticeSource>> = {
   "@mermanjs/web-render": {
@@ -53,6 +54,10 @@ const BUNDLED_NOTICE_SOURCES: Readonly<Record<string, BundledNoticeSource>> = {
       `available at https://github.com/Latias94/merman/tree/v${version}.`,
   },
   "@ai-sidekicks/compression": {
+    noticesFile: "dist/THIRD_PARTY_NOTICES.md",
+    licensesDirectory: "dist/THIRD_PARTY_LICENSES",
+  },
+  "@ai-sidekicks/markdown-parser": {
     noticesFile: "dist/THIRD_PARTY_NOTICES.md",
     licensesDirectory: "dist/THIRD_PARTY_LICENSES",
   },

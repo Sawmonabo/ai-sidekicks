@@ -17,6 +17,7 @@ export default {
         "search-index",
         "search-ranking",
         "compression",
+        "markdown-parser",
         "daemon",
         "control-plane",
         "desktop",

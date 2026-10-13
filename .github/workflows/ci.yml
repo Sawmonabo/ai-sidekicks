@@ -101,6 +101,8 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
+              # The tool the compression and markdown parser builds lay out their `dist/` with.
+              - 'tools/wasm-dist.ts'
               - '.github/workflows/ci.yml'
               - '.github/actions/setup-electron-display/**'
             # knip reads every workspace, its own config, the manifests and the files that name
@@ -237,11 +239,23 @@ jobs:
       - name: Format check (full repo)
         run: pnpm -w exec prettier --check .
 
-      # Two Rust crates build here: the session search's addon, which the tests also run through
-      # Cargo, and the compression module, built for WebAssembly. The action installs the
-      # newest stable Rust with that target once, before Turbo runs both builds at the same time;
-      # left to `rust-toolchain.toml`, each Cargo run would install it and the two would collide.
-      # SHA-pinned.
+      # The markdown parser's build compiles Sätteri's released source with the Rust its
+      # `rust-toolchain.toml` pins, for the WebAssembly target Sätteri's release builds for; a
+      # newer Rust fails to link the module. Installed once here, before the newest stable Rust so
+      # that one stays the default, and never by a Cargo run on a cache miss. Every job that builds
+      # the desktop repeats this step through the anchor. SHA-pinned.
+      - &markdown-parser-rust
+        name: Set up Rust for the markdown parser
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: 1.95.0
+          targets: wasm32-wasip1-threads
+
+      # Two Rust crates build here with this Rust: the session search's addon, which the tests
+      # also run through Cargo, and the compression module, built for WebAssembly. The action
+      # installs the newest stable Rust with that target once, before Turbo runs both builds at the
+      # same time; left to `rust-toolchain.toml`, each Cargo run would install it and the two would
+      # collide. SHA-pinned.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:
@@ -414,6 +428,9 @@ jobs:
       - name: Set up Electron on a display
         uses: ./.github/actions/setup-electron-display
 
+      # The Rust the markdown parser pins, before the newest stable Rust (see the `test` job).
+      - *markdown-parser-rust
+
       # A tier's turbo edges build the daemon with the session search's addon and the desktop with
       # the compression module, both compiled from Rust. The remote cache above returns them
       # while their inputs are unchanged; on a miss they compile with this toolchain, not whichever
@@ -536,6 +553,9 @@ jobs:
 
       - name: Set up Electron on a display
         uses: ./.github/actions/setup-electron-display
+
+      # The Rust the markdown parser pins, before the newest stable Rust (see the `test` job).
+      - *markdown-parser-rust
 
       # The fixture bundle's edges build the daemon's session search addon and the compression
       # module, both compiled from Rust on a cache miss; the WebAssembly target is installed once
@@ -667,6 +687,9 @@ jobs:
       # inputs are unchanged, the session search's addon among them. SHA-pinned.
       - name: Turborepo remote cache (GitHub Actions cache backend)
         uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
+
+      # The Rust the markdown parser pins, before the newest stable Rust (see the `test` job).
+      - *markdown-parser-rust
 
       # On a cache miss the daemon's build compiles the session search's addon and the desktop's
       # compiles the compression module, both from Rust; the WebAssembly target is installed

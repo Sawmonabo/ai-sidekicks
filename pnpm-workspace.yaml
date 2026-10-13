@@ -134,9 +134,10 @@ catalogs:
     # `playwright`, is `*` and is satisfied by that package's own `playwright` pin.
     "@vitest/browser-playwright": 4.1.11
 
-# The markdown parser's browser build, which the desktop compiles and its parse worker runs, is one
-# of the parser's per-platform builds, marked for the `wasm32` processor; without `wasm32` here pnpm
-# skips it on every machine and the desktop has no parser to compile.
+# The markdown parser's WebAssembly loaders, which the desktop's parse worker, its page and its
+# renderer tests run the parser through, ship in one of the parser's per-platform builds, marked for
+# the `wasm32` processor; without `wasm32` here pnpm skips it on every machine and the desktop has
+# no loader for its parser.
 supportedArchitectures:
   cpu:
     - current

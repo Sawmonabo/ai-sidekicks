@@ -2,9 +2,10 @@
 // a price or a shell variable left as the words it is whatever symbols the text holds, and one
 // alone between double dollars a display formula; a text opening on a byte order mark read with the
 // mark as text, every offset counted in it, so a price and a single tilde there stay the words they
-// are; and what the worker transfers to the page, a
-// plain buffer of the tree's bytes alone. A shared buffer cannot be posted on a page that is not
-// cross-origin isolated, and a pooled one would hand the page other bytes besides.
+// are; an indented code block after the line that closed a list one block, blank line and all; and
+// what the worker transfers to the page, a plain buffer of the tree's bytes alone. A shared buffer
+// cannot be posted on a page that is not cross-origin isolated, and a pooled one would hand the
+// page other bytes besides.
 
 import type { Nodes } from "mdast";
 import { describe, expect, it } from "vitest";
@@ -42,6 +43,14 @@ describe("a text opening on a byte order mark", () => {
   it("reads the mark as text, and a single tilde after it as the words it is", () => {
     const words = "\uFEFFsay ~hi~ there\n";
     expect(textOf(parseMarkdownTree(words))).toBe(words.trimEnd());
+  });
+});
+
+describe("indented code", () => {
+  it("keeps a block whole when a thematic break, not the code, closed the list before it", () => {
+    const tree = parseMarkdownTree("- a\n\n\n***\n    code\n\n    more\n");
+    expect(tree.children.map((node) => node.type)).toStrictEqual(["list", "thematicBreak", "code"]);
+    expect(tree.children[2]).toMatchObject({ type: "code", value: "code\n\nmore" });
   });
 });
 

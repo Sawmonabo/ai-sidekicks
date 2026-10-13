@@ -4,8 +4,9 @@
 // left out, and the slices a copy's text is encoded and decoded in, which run at once; the page's
 // end of the worker reads every tree exactly as it does in the app. The app's page parser runs on
 // the same Node build, started before each suite as the app starts it from the worker's module, so
-// a body draws the frame it mounts. A suite holds the app's worker's answers through
-// `appMarkdownWorkers`, to see the frames drawn while a parse is still out.
+// a body draws the frame it mounts. That module is the app's own compiled parser, which the tier's
+// first setup file puts where the Node build reads it. A suite holds the app's worker's answers
+// through `appMarkdownWorkers`, to see the frames drawn while a parse is still out.
 
 import { vi } from "vitest";
 

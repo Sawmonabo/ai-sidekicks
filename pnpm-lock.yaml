@@ -25,7 +25,7 @@ catalogs:
 
 patchedDependencies:
   '@bruits/satteri-wasm32-wasi@0.10.5':
-    hash: e35e033f735678cc51b64817b7f2accd0e7be71895fec7e62d5e1be84ec00386
+    hash: 83009cbbc40b7e5c4a8babb2631f56d8cab907738a0cc13fad7af941597e0ccd
     path: patches/@bruits__satteri-wasm32-wasi@0.10.5.patch
   '@xterm/xterm@6.0.0':
     hash: 0ac7a686ca6685db69c37eee65222d226324f20d971389aac0dd60defcbfc438
@@ -160,6 +160,9 @@ importers:
       '@ai-sidekicks/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@ai-sidekicks/markdown-parser':
+        specifier: workspace:*
+        version: link:../../packages/markdown-parser
       '@ai-sidekicks/runtime-daemon':
         specifier: workspace:*
         version: link:../../packages/runtime-daemon
@@ -169,9 +172,6 @@ importers:
       '@base-ui/react':
         specifier: 1.8.0
         version: 1.8.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@bruits/satteri-wasm32-wasi':
-        specifier: 0.10.5
-        version: 0.10.5(patch_hash=e35e033f735678cc51b64817b7f2accd0e7be71895fec7e62d5e1be84ec00386)
       '@dagrejs/dagre':
         specifier: 3.1.1
         version: 3.1.1
@@ -482,6 +482,21 @@ importers:
         specifier: catalog:testing
         version: 4.1.11(@types/node@26.6.3)(@vitest/browser-playwright@4.1.11)(@vitest/coverage-v8@4.1.11)(happy-dom@20.11.15)(vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(jiti@2.7.0)(sass@1.105.1)(yaml@2.9.1))
 
+  packages/markdown-parser:
+    devDependencies:
+      '@emnapi/core':
+        specifier: 1.11.3
+        version: 1.11.3
+      '@emnapi/runtime':
+        specifier: 1.11.3
+        version: 1.11.3
+      '@napi-rs/cli':
+        specifier: 3.10.8
+        version: 3.10.8(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.6.3)(emnapi@1.11.3(node-addon-api@8.9.2))
+      emnapi:
+        specifier: 1.11.3
+        version: 1.11.3(node-addon-api@8.9.2)
+
   packages/runtime-daemon:
     dependencies:
       '@ai-sidekicks/contracts':
@@ -661,7 +676,7 @@ importers:
     devDependencies:
       '@napi-rs/cli':
         specifier: 3.10.8
-        version: 3.10.8(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@26.6.3)
+        version: 3.10.8(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.6.3)(emnapi@1.11.3(node-addon-api@8.9.2))
 
   packages/search-ranking: {}
 
@@ -1268,6 +1283,9 @@ packages:
   '@emnapi/core@1.11.2':
     resolution: {integrity: sha512-TC8MkTuZUtcTSiFeuC0ksCh9QIJ5+F21MvZ4Wn4ORfYaFJ/0dsiudv5tVkejgwZlwQ39jL9WWDe2lz8x0WglOA==}
 
+  '@emnapi/core@1.11.3':
+    resolution: {integrity: sha512-zLpS5asjEb7lq8jYLq37N6XKaE41DIexlY1rF/z4/tIl3wo13Sqm28fRyfIsKZD+NZ8mM5RoKkpW/rBcuoSZSg==}
+
   '@emnapi/core@1.9.2':
     resolution: {integrity: sha512-UC+ZhH3XtczQYfOlu3lNEkdW/p4dsJ1r/bP7H8+rhao3TTTMO1ATq/4DdIi23XuGoFY+Cz0JmCbdVl0hz9jZcA==}
 
@@ -1288,6 +1306,9 @@ packages:
 
   '@emnapi/wasi-threads@1.2.2':
     resolution: {integrity: sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA==}
+
+  '@emnapi/wasi-threads@1.2.3':
+    resolution: {integrity: sha512-ELEBe8PsLvvJ6QMr0zLt8ffvOHW/dc1m3CEzNMg7aJUv3bMaoDtw2TXyDAwkYBuroxxuHEwhRTLJSe5sya547g==}
 
   '@esbuild/aix-ppc64@0.28.1':
     resolution: {integrity: sha512-Svl7tq8k/08+p6CXPpRjQ1fKX+1odH/BQbb48fV6fj3CWHhsoIOoY87w1oHXm0qEpkIK3ZfVgp0hed3XBXzXMQ==}
@@ -4848,6 +4869,14 @@ packages:
     resolution: {integrity: sha512-aUq9/zLAAFYc+a9gy6cd0C3Y/N/RmovLCD8TV8LhIzNhuND6HEgsu96jJz9cbAxvckSPv+Trf2PKEjktoZgFkw==}
     engines: {node: '>= 22.12.0'}
     hasBin: true
+
+  emnapi@1.11.3:
+    resolution: {integrity: sha512-+/ZS90YK/rYfVOHtGLHkGffVsnmD/MAKaBHio+Y4XAtg75RLr4cveV/w0jTkUdLM1CcAlaRgG76mpIemWAlk0A==}
+    peerDependencies:
+      node-addon-api: '>= 6.1.0'
+    peerDependenciesMeta:
+      node-addon-api:
+        optional: true
 
   emoji-regex@10.6.0:
     resolution: {integrity: sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A==}
@@ -8452,11 +8481,12 @@ snapshots:
   '@bruits/satteri-linux-x64-musl@0.10.5':
     optional: true
 
-  '@bruits/satteri-wasm32-wasi@0.10.5(patch_hash=e35e033f735678cc51b64817b7f2accd0e7be71895fec7e62d5e1be84ec00386)':
+  '@bruits/satteri-wasm32-wasi@0.10.5(patch_hash=83009cbbc40b7e5c4a8babb2631f56d8cab907738a0cc13fad7af941597e0ccd)':
     dependencies:
       '@emnapi/core': 1.11.1
       '@emnapi/runtime': 1.11.1
       '@napi-rs/wasm-runtime': 1.2.4(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
+    optional: true
 
   '@bruits/satteri-win32-arm64-msvc@0.10.5':
     optional: true
@@ -8755,12 +8785,18 @@ snapshots:
     dependencies:
       '@emnapi/wasi-threads': 1.2.2
       tslib: 2.8.1
+    optional: true
 
   '@emnapi/core@1.11.2':
     dependencies:
       '@emnapi/wasi-threads': 1.2.2
       tslib: 2.8.1
     optional: true
+
+  '@emnapi/core@1.11.3':
+    dependencies:
+      '@emnapi/wasi-threads': 1.2.3
+      tslib: 2.8.1
 
   '@emnapi/core@1.9.2':
     dependencies:
@@ -8771,6 +8807,7 @@ snapshots:
   '@emnapi/runtime@1.11.1':
     dependencies:
       tslib: 2.8.1
+    optional: true
 
   '@emnapi/runtime@1.11.2':
     dependencies:
@@ -8780,7 +8817,6 @@ snapshots:
   '@emnapi/runtime@1.11.3':
     dependencies:
       tslib: 2.8.1
-    optional: true
 
   '@emnapi/runtime@1.9.2':
     dependencies:
@@ -8793,6 +8829,11 @@ snapshots:
     optional: true
 
   '@emnapi/wasi-threads@1.2.2':
+    dependencies:
+      tslib: 2.8.1
+    optional: true
+
+  '@emnapi/wasi-threads@1.2.3':
     dependencies:
       tslib: 2.8.1
 
@@ -9733,7 +9774,7 @@ snapshots:
       '@modelcontextprotocol/core': 2.3.1
       zod: 4.6.5
 
-  '@napi-rs/cli@3.10.8(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@26.6.3)':
+  '@napi-rs/cli@3.10.8(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.6.3)(emnapi@1.11.3(node-addon-api@8.9.2))':
     dependencies:
       '@inquirer/prompts': 8.7.2(@types/node@26.6.3)
       '@napi-rs/cross-toolchain': 1.0.3
@@ -9748,8 +9789,9 @@ snapshots:
       typanion: 3.14.0
       typescript: 6.0.3
     optionalDependencies:
-      '@emnapi/core': 1.9.2
-      '@emnapi/runtime': 1.9.2
+      '@emnapi/core': 1.11.3
+      '@emnapi/runtime': 1.11.3
+      emnapi: 1.11.3(node-addon-api@8.9.2)
     transitivePeerDependencies:
       - '@napi-rs/cross-toolchain-arm64-target-aarch64'
       - '@napi-rs/cross-toolchain-arm64-target-armv7'
@@ -9974,6 +10016,7 @@ snapshots:
       '@emnapi/core': 1.11.1
       '@emnapi/runtime': 1.11.1
       '@tybys/wasm-util': 0.10.4
+    optional: true
 
   '@napi-rs/wasm-runtime@1.2.4(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)':
     dependencies:
@@ -10788,6 +10831,7 @@ snapshots:
   '@tybys/wasm-util@0.10.4':
     dependencies:
       tslib: 2.8.1
+    optional: true
 
   '@types/aria-query@5.0.4': {}
 
@@ -12167,6 +12211,10 @@ snapshots:
       '@types/node': 24.19.0
     transitivePeerDependencies:
       - supports-color
+
+  emnapi@1.11.3(node-addon-api@8.9.2):
+    optionalDependencies:
+      node-addon-api: 8.9.2
 
   emoji-regex@10.6.0: {}
 
@@ -14863,7 +14911,7 @@ snapshots:
       '@bruits/satteri-linux-arm64-musl': 0.10.5
       '@bruits/satteri-linux-x64-gnu': 0.10.5
       '@bruits/satteri-linux-x64-musl': 0.10.5
-      '@bruits/satteri-wasm32-wasi': 0.10.5(patch_hash=e35e033f735678cc51b64817b7f2accd0e7be71895fec7e62d5e1be84ec00386)
+      '@bruits/satteri-wasm32-wasi': 0.10.5(patch_hash=83009cbbc40b7e5c4a8babb2631f56d8cab907738a0cc13fad7af941597e0ccd)
       '@bruits/satteri-win32-arm64-msvc': 0.10.5
       '@bruits/satteri-win32-x64-msvc': 0.10.5
 

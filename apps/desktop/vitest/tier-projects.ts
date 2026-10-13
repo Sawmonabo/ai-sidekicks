@@ -48,8 +48,13 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
       name: "renderer",
       environment: "happy-dom",
       include: ["src/renderer/src/**/*.test.{ts,tsx}", ...RENDERER_TESTS_OUTSIDE_SOURCE],
-      // No worker runs under happy-dom, so the app's markdown worker answers in this process.
-      setupFiles: ["tests/helpers/markdown-worker.ts"],
+      // No worker runs under happy-dom, so the app's markdown worker answers in this process, with
+      // the app's compiled parser, set where Sätteri's Node build reads it before anything loads it.
+      setupFiles: ["tests/helpers/markdown-parser-module.ts", "tests/helpers/markdown-worker.ts"],
+      // Sätteri's Node build loads the native parser the install adds for this machine unless told
+      // otherwise; this makes it load its WebAssembly build, which runs the app's own compiled
+      // parser, and throw rather than fall back to the native one.
+      env: { NAPI_RS_FORCE_WASI: "error" },
       globals: true,
       // Vitest answers every stylesheet with nothing unless listed here, `?raw` reads included.
       // `styles/typeface.ts` reads each split's character range off the font packages' own
