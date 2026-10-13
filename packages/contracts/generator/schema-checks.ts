@@ -184,7 +184,7 @@ export function generateChecks(
       if (helper === undefined) {
         throw new Error(`${module.path}: Ajv calls its helper ${runtime[2]!}, which has no import`);
       }
-      imports.addFromModule(SCHEMA_CHECK_MODULE, helper, "value");
+      imports.addFromHandWrittenModule(SCHEMA_CHECK_MODULE, helper, "value");
       return [`const ${runtime[1]!} = ${helper};`];
     }
     if (statement.includes("require(")) {
@@ -216,9 +216,9 @@ export function generateChecks(
   });
 
   if (used.some((statement) => statement.includes("SCHEMA_FORMATS"))) {
-    imports.addFromModule(SCHEMA_CHECK_MODULE, "SCHEMA_FORMATS", "value");
+    imports.addFromHandWrittenModule(SCHEMA_CHECK_MODULE, "SCHEMA_FORMATS", "value");
   }
-  imports.addFromModule(SCHEMA_CHECK_MODULE, "SchemaCheck", "type");
+  imports.addFromHandWrittenModule(SCHEMA_CHECK_MODULE, "SchemaCheck", "type");
 
   const checks = [...typeByFunction.entries()]
     .sort(([, left], [, right]) => (left < right ? -1 : 1))

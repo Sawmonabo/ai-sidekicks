@@ -18,7 +18,13 @@ export function parseTypeReference(reference: string, currentModule: string): Ty
   return { module: module === currentModule ? undefined : module, name };
 }
 
-/** The import specifier from `fromModule`'s file to `toModule`'s, both module paths. */
+/**
+ * The folder under the package's `src` that holds every generated module; the hand-written
+ * modules sit around it.
+ */
+export const GENERATED_FOLDER = "generated";
+
+/** The import specifier from `fromModule`'s file to `toModule`'s, both paths under one folder. */
 export function moduleSpecifier(fromModule: string, toModule: string): string {
   const relative = posix.relative(posix.dirname(fromModule), toModule);
   return `${relative.startsWith(".") ? relative : `./${relative}`}.js`;
@@ -27,7 +33,6 @@ export function moduleSpecifier(fromModule: string, toModule: string): string {
 /** The imports of one generated module, rendered sorted by specifier. */
 export class ModuleImports {
   private readonly named = new Map<string, Map<string, "type" | "value">>();
-  private readonly defaults = new Map<string, string>();
   private readonly owners = new Map<string, string>();
   private readonly modulePath: string;
   private readonly localNames: ReadonlySet<string>;
@@ -42,40 +47,34 @@ export class ModuleImports {
     this.addNamed(moduleSpecifier(this.modulePath, module), name, kind);
   }
 
-  /** Imports `name` from a package or a hand-written module given by its specifier. */
-  addNamed(specifier: string, name: string, kind: "type" | "value"): void {
+  /** Imports `name` from a hand-written module of the package, given by its path under `src`. */
+  addFromHandWrittenModule(module: string, name: string, kind: "type" | "value"): void {
+    this.addNamed(moduleSpecifier(`${GENERATED_FOLDER}/${this.modulePath}`, module), name, kind);
+  }
+
+  /** Imports `name` from the module `specifier` names. */
+  private addNamed(specifier: string, name: string, kind: "type" | "value"): void {
     this.claim(name, specifier);
     const names = this.named.get(specifier) ?? new Map<string, "type" | "value">();
     names.set(name, names.get(name) === "value" ? "value" : kind);
     this.named.set(specifier, names);
   }
 
-  /** Imports a module's default export as `localName`. */
-  addDefault(specifier: string, localName: string): void {
-    this.claim(localName, specifier);
-    this.defaults.set(specifier, localName);
-  }
-
   /** The import statements, one per specifier. */
   render(): string {
-    const specifiers = [...new Set([...this.defaults.keys(), ...this.named.keys()])].sort();
-    return specifiers
+    return [...this.named.keys()]
+      .sort()
       .map((specifier) => {
-        const defaultName = this.defaults.get(specifier);
-        const entries = [
-          ...(this.named.get(specifier) ?? new Map<string, "type" | "value">()),
-        ].sort(([left], [right]) => (left < right ? -1 : 1));
+        const entries = [...this.named.get(specifier)!].sort(([left], [right]) =>
+          left < right ? -1 : 1,
+        );
         // A type-only import is erased whole; a mixed one marks each type, so neither loads
         // a module for a type alone.
-        const typesOnly = defaultName === undefined && entries.every(([, kind]) => kind === "type");
+        const typesOnly = entries.every(([, kind]) => kind === "type");
         const names = entries.map(([name, kind]) =>
           kind === "type" && !typesOnly ? `type ${name}` : name,
         );
-        const parts = [
-          ...(defaultName === undefined ? [] : [defaultName]),
-          ...(names.length === 0 ? [] : [`{ ${names.join(", ")} }`]),
-        ];
-        return `import ${typesOnly ? "type " : ""}${parts.join(", ")} from "${specifier}";`;
+        return `import ${typesOnly ? "type " : ""}{ ${names.join(", ")} } from "${specifier}";`;
       })
       .join("\n");
   }

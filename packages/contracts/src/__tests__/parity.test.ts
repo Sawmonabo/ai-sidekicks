@@ -9,12 +9,16 @@ import { gunzipSync } from "node:zlib";
 
 import { expect, it } from "vitest";
 
+import type { SchemaCheck } from "../schema-check.js";
+
 const CORPUS_ROOT = fileURLToPath(
   new URL("../../../../crates/sidekicks-contracts/tests/fixtures/parity/", import.meta.url),
 );
-const MODULE_ROOT = fileURLToPath(new URL("../", import.meta.url));
+const MODULE_ROOT = fileURLToPath(new URL("../generated/", import.meta.url));
 /** The longest stretch of an input a failure quotes. */
 const QUOTED_INPUT_LENGTH = 300;
+/** Zod's `base64()` pattern: the standard alphabet with its padding, and nothing else. */
+const ZOD_BASE64 = /^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$/u;
 
 /**
  * One corpus line: the JSON value as `input`, or, where that value holds a lone surrogate, which
@@ -53,6 +57,43 @@ function corpusFiles(folder: string): string[] {
   );
 }
 
+/**
+ * The input with each registered byte member that holds base64 moved into an attachment, as the
+ * wire carries bytes; a member that is not base64 stays as it is, for the check to refuse.
+ */
+function withByteMembers(
+  input: unknown,
+  pointers: readonly string[],
+): { readonly value: unknown; readonly attachments: Uint8Array[] } {
+  const attachments: Uint8Array[] = [];
+  for (const pointer of pointers) {
+    // An RFC 6901 pointer: `/`-separated tokens, `~1` for `/` and `~0` for `~`.
+    const tokens = pointer
+      .split("/")
+      .slice(1)
+      .map((token) => token.replaceAll("~1", "/").replaceAll("~0", "~"));
+    const last = tokens.pop();
+    let parent: unknown = input;
+    for (const token of tokens) {
+      parent =
+        typeof parent === "object" && parent !== null
+          ? (parent as Record<string, unknown>)[token]
+          : undefined;
+    }
+    if (last === undefined || typeof parent !== "object" || parent === null) {
+      continue;
+    }
+    const container = parent as Record<string, unknown>;
+    const member = container[last];
+    if (typeof member !== "string" || !ZOD_BASE64.test(member)) {
+      continue;
+    }
+    container[last] = { $bytes: attachments.length };
+    attachments.push(Uint8Array.from(Buffer.from(member, "base64")));
+  }
+  return { value: input, attachments };
+}
+
 /** The generated check a corpus key names: `<module>#<Name>Schema` is `validate<Name>`. */
 function checkNameOf(key: string, renames: Readonly<Record<string, string>>): string {
   const typeName = renames[key] ?? key.slice(key.indexOf("#") + 1).replace(/Schema$/u, "");
@@ -63,14 +104,16 @@ it("gives Zod's verdict on every parity corpus input", async () => {
   const expected = readJson<ExpectedDifference[]>("expected-differences.json");
   const renames = readJson<Record<string, string>>("check-names.json");
   const aliases = readJson<Record<string, string[]>>("aliases.json");
+  const byteMembers = readJson<Record<string, string[]>>("byte-members.json");
   const unmatched = new Map(
     expected
       .filter((difference) => difference.side === "ajv")
       .map((difference) => [`${difference.schema} ${difference.inputSha256}`, difference]),
   );
 
-  // Every key with its inputs: a schema's own, and each alias export reading the same inputs.
-  const entriesByKey = new Map<string, CorpusEntry[]>();
+  // Every key with its inputs and the owner's byte members: a schema's own, and each alias export
+  // reading the same inputs.
+  const entriesByKey = new Map<string, { entry: CorpusEntry; bytePointers: readonly string[] }[]>();
   for (const file of corpusFiles(CORPUS_ROOT)) {
     const module = relative(CORPUS_ROOT, file).replace(/\.jsonl\.gz$/u, "");
     for (const line of gunzipSync(readFileSync(file)).toString("utf8").split("\n")) {
@@ -78,12 +121,11 @@ it("gives Zod's verdict on every parity corpus input", async () => {
         continue;
       }
       const entry = JSON.parse(line) as CorpusEntry;
-      for (const key of [
-        `${module}#${entry.schema}`,
-        ...(aliases[`${module}#${entry.schema}`] ?? []),
-      ]) {
+      const owner = `${module}#${entry.schema}`;
+      const bytePointers = byteMembers[owner] ?? [];
+      for (const key of [owner, ...(aliases[owner] ?? [])]) {
         const entries = entriesByKey.get(key) ?? [];
-        entries.push(entry);
+        entries.push({ entry, bytePointers });
         entriesByKey.set(key, entries);
       }
     }
@@ -115,10 +157,12 @@ it("gives Zod's verdict on every parity corpus input", async () => {
       faults.push(`${key}: ${module} has no check ${name}`);
       continue;
     }
-    for (const entry of entries) {
+    for (const { entry, bytePointers } of entries) {
       checkedInputs++;
       const text = inputTextOf(entry);
-      if ((check as (value: unknown) => boolean)(JSON.parse(text)) === entry.accepted) {
+      const { value, attachments } = withByteMembers(JSON.parse(text), bytePointers);
+      const verdict = (check as SchemaCheck<unknown>).call({ attachments }, value);
+      if (verdict === entry.accepted) {
         continue;
       }
       const digest = createHash("sha256").update(text).digest("hex");

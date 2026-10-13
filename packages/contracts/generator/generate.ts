@@ -1,13 +1,15 @@
 // Generates the contracts' TypeScript from the Rust contracts' emit folder: one file per contract
-// module at `<output root>/<module path>.ts`.
-// Usage: node --experimental-strip-types generator/generate.ts <emit folder> [output root = src]
+// module at `<output root>/<module path>.ts`. Generated modules import the hand-written ones from
+// the folder above the output root, as `src/generated` sits in `src`.
+// Usage: node --experimental-strip-types generator/generate.ts <emit folder> [output root]
+// (default `src/generated`)
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import { readContractEmit } from "./emit-folder.ts";
 import { writeModuleFile } from "./module-file.ts";
 
-const [emitFolder, outputRoot = "src"] = process.argv.slice(2);
+const [emitFolder, outputRoot = "src/generated"] = process.argv.slice(2);
 if (emitFolder === undefined) {
   throw new Error("usage: generate.ts <emit folder> [output root]");
 }
