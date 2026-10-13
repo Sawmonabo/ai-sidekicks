@@ -46,6 +46,24 @@ impl<K: Ord, V> Default for Record<K, V> {
     }
 }
 
+/// A record's checks are its values' checks, each reported under its member's name.
+impl<K, V> garde::Validate for Record<K, V>
+where
+    K: Ord + Clone + garde::error::PathComponentKind,
+    V: garde::Validate,
+{
+    type Context = V::Context;
+
+    fn validate_into(
+        &self,
+        context: &Self::Context,
+        parent: &mut dyn FnMut() -> garde::Path,
+        report: &mut garde::Report,
+    ) {
+        self.0.validate_into(context, parent, report);
+    }
+}
+
 impl<'de, K, V> Deserialize<'de> for Record<K, V>
 where
     K: Ord + Deserialize<'de> + AsRef<str>,

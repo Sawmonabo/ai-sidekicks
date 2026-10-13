@@ -5,8 +5,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
+use crate::wire::text::ComposedText;
 
 /// Which limit cut a step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -55,6 +57,26 @@ pub enum WorkflowCodeInstallFailedReason {
     ToolError,
 }
 
+/// The sandbox failure's details: whose sandbox, and its wrapper's own error.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowSandboxUnavailableDetails {
+    /// The provider whose sandbox did not start.
+    pub provider: ProviderName,
+    /// The sandbox wrapper's own error.
+    pub detail: ComposedText,
+}
+
+/// The install failure's details: the reason and the installer's own error.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowCodeInstallFailedDetails {
+    /// Why the install failed.
+    pub reason: WorkflowCodeInstallFailedReason,
+    /// The installer's own error.
+    pub detail: ComposedText,
+}
+
 ts_constants! {
     /// A workflow definition or run that does not exist.
     WORKFLOW_NOT_FOUND_CODE = RefusalCode::WorkflowNotFound.as_str();
@@ -90,7 +112,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowStepTimedOutDetails>(),
         Definition::read::<WorkflowStepThreadFailedReason>(),
         Definition::read::<WorkflowStepThreadFailedDetails>(),
+        Definition::read::<WorkflowSandboxUnavailableDetails>(),
         Definition::read::<WorkflowCodeInstallFailedReason>(),
+        Definition::read::<WorkflowCodeInstallFailedDetails>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

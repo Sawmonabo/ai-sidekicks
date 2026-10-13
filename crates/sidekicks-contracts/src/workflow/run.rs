@@ -1,14 +1,9 @@
-//! Workflow runs: their ids, statuses, snapshots, control, records and steps.
+//! Workflow runs: their ids, statuses, snapshots, triggers, control, failures and steps.
 
-use crate::typescript::TypeScriptModule;
-
+pub mod control;
 pub mod failures;
+pub mod id;
 pub mod snapshot;
 pub mod status;
-
-/// The workflow runs' TypeScript modules.
-pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
-    &failures::TYPESCRIPT_MODULE,
-    &snapshot::TYPESCRIPT_MODULE,
-    &status::TYPESCRIPT_MODULE,
-];
+pub mod step;
+pub mod trigger;

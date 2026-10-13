@@ -28,10 +28,6 @@ pub fn decimal_at_most(max: u64) -> String {
 
 /// Declares a handle id type: `handle_id!(/// doc \n InputMainHandleId, "inputs/main/");` gives a
 /// newtype over the index, at most [`MAX_SAFE_INTEGER`](crate::wire::integer::MAX_SAFE_INTEGER).
-#[expect(
-    unused_macros,
-    reason = "the workflow node kinds declare their handle ids with it"
-)]
 macro_rules! handle_id {
     ($(#[$meta:meta])* $name:ident, $prefix:literal) => {
         $(#[$meta])*
@@ -109,8 +105,4 @@ macro_rules! handle_id {
     };
 }
 
-#[expect(
-    unused_imports,
-    reason = "the workflow node kinds declare their handle ids with it"
-)]
 pub(crate) use handle_id;
