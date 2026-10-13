@@ -2,8 +2,8 @@
 //! carries writes to the terminal in order.
 
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::ffi::OsString;
+use std::collections::{HashMap, VecDeque};
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -12,6 +12,9 @@ use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::{self, Pty};
 use bytes::Bytes;
 use tokio::sync::oneshot;
+
+/// The most bytes a terminal's write queue takes before a writer waits for room.
+pub(crate) const WRITE_QUEUE_BYTES: usize = 64 * 1024;
 
 /// A program and the arguments it starts with.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,6 +33,7 @@ pub struct SpawnRequest {
     /// The arguments the shell's program starts with.
     pub arguments: Vec<String>,
     /// Exactly the shell's environment, in order; a later entry with a name already given wins.
+    /// A name is never empty and holds no `=`, and no name or value holds a NUL.
     pub environment: Vec<(String, String)>,
     /// The folder the shell starts in.
     pub working_directory: PathBuf,
@@ -37,34 +41,31 @@ pub struct SpawnRequest {
     pub rows: u16,
     /// The terminal's width in columns.
     pub columns: u16,
-    /// The daemon's `shell-start` mode with its arguments through `--`, which execs the shell with
-    /// exactly `environment`; without it (Windows) the shell also inherits the daemon's own
-    /// environment beneath `environment`.
-    pub shell_start: Option<CommandLine>,
+    /// The daemon's `shell-start` mode with its arguments up to the shell's program, which starts
+    /// the shell with exactly `environment`.
+    pub shell_start: CommandLine,
 }
 
-/// Opens the shell's PTY and starts its program; blocking, so it runs on the daemon's spawner
-/// thread, never a runtime thread. Fails when the terminal cannot be opened or the program started.
+/// Opens the shell's PTY and starts its program through the `shell-start` mode; blocking, so it
+/// runs on the daemon's spawner thread. Fails with `InvalidInput` for an environment entry with
+/// an empty name, an `=` in its name or a NUL, with `NotADirectory` when the working folder is not
+/// a folder, and with the system's error when the terminal cannot be opened or the program
+/// started.
 pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<Pty> {
-    let (shell, environment) = match &request.shell_start {
-        Some(shell_start) => {
-            let mut arguments = shell_start.arguments.clone();
-            arguments.push(request.program.clone());
-            arguments.extend(request.arguments.iter().cloned());
-            (
-                tty::Shell::new(shell_start.program.clone(), arguments),
-                encode_shell_environment(&request.environment),
-            )
-        }
-        None => (
-            tty::Shell::new(request.program.clone(), request.arguments.clone()),
-            request.environment.iter().cloned().collect(),
-        ),
-    };
+    check_environment(&request.environment)?;
+    if !request.working_directory.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotADirectory,
+            format!("{} is not a folder", request.working_directory.display()),
+        ));
+    }
+    let mut arguments = request.shell_start.arguments.clone();
+    arguments.push(request.program.clone());
+    arguments.extend(request.arguments.iter().cloned());
     let options = sidekicks_platforms::terminal_options(
-        shell,
+        tty::Shell::new(request.shell_start.program.clone(), arguments),
         Some(request.working_directory.clone()),
-        environment,
+        encode_shell_environment(&request.environment),
     );
     let window_size = WindowSize {
         num_lines: request.rows,
@@ -75,17 +76,38 @@ pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<Pty> {
     tty::new(&options, window_size, 0)
 }
 
+/// Refuses an environment the `shell-start` mode could not hand on as given: an empty name, an `=`
+/// in a name, or a NUL anywhere.
+fn check_environment(environment: &[(String, String)]) -> io::Result<()> {
+    for (index, (name, value)) in environment.iter().enumerate() {
+        if name.is_empty() || name.contains('=') || name.contains('\0') || value.contains('\0') {
+            // The value may hold a secret, so the error names only the entry.
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "shell environment entry {index} has an empty name, an `=` in its name or a NUL"
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The variable that tells the `shell-start` mode how many environment entries it was handed.
+const SHELL_ENVIRONMENT_COUNT: &str = "SIDEKICKS_SHELL_ENVIRONMENT_COUNT";
+
 /// The start of every variable that carries one entry of a shell's environment to the
 /// `shell-start` mode; the entry's index in the environment follows it.
-pub const SHELL_ENVIRONMENT_PREFIX: &str = "SIDEKICKS_SHELL_ENVIRONMENT_";
+const SHELL_ENVIRONMENT_PREFIX: &str = "SIDEKICKS_SHELL_ENVIRONMENT_";
 
 /// The name of the variable that carries entry `index` of a shell's environment.
 fn shell_environment_name(index: usize) -> String {
     format!("{SHELL_ENVIRONMENT_PREFIX}{index}")
 }
 
-/// The variables that carry `environment` to the `shell-start` mode, one `NAME=VALUE` each, in
-/// order, a later entry's value replacing an earlier one's of the same name in its place.
+/// The variables that carry `environment` to the `shell-start` mode: the count, then one
+/// `NAME=VALUE` each, in order, a later entry's value replacing an earlier one's of the same name
+/// in its place.
 fn encode_shell_environment(environment: &[(String, String)]) -> HashMap<String, String> {
     let mut resolved: Vec<(&str, &str)> = Vec::with_capacity(environment.len());
     let mut position_of_name: HashMap<&str, usize> = HashMap::with_capacity(environment.len());
@@ -98,17 +120,31 @@ fn encode_shell_environment(environment: &[(String, String)]) -> HashMap<String,
             }
         }
     }
+    let count = resolved.len();
     resolved
         .into_iter()
         .enumerate()
         .map(|(index, (name, value))| (shell_environment_name(index), format!("{name}={value}")))
+        .chain([(SHELL_ENVIRONMENT_COUNT.to_owned(), count.to_string())])
         .collect()
 }
 
 /// Why the environment the `shell-start` mode was handed could not be read.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ShellEnvironmentError {
-    /// An entry's value is not Unicode.
+    /// No variable says how many entries were handed over.
+    #[error("the shell environment's count is missing")]
+    CountMissing,
+    /// The count is not a decimal number.
+    #[error("the shell environment's count is not a number")]
+    CountInvalid,
+    /// An entry below the count has no variable.
+    #[error("shell environment entry {index} is missing")]
+    IndexMissing {
+        /// The entry's index.
+        index: usize,
+    },
+    /// An entry is not Unicode.
     #[error("shell environment entry {index} is not Unicode")]
     NotUnicode {
         /// The entry's index.
@@ -120,81 +156,36 @@ pub enum ShellEnvironmentError {
         /// The entry's index.
         index: usize,
     },
-    /// An entry's index is past any the environment can hold.
-    #[error("shell environment index {index_text} is too large")]
-    IndexTooLarge {
-        /// The index as the variable's name spells it.
-        index_text: String,
-    },
-    /// Two variables name the same index.
-    #[error("shell environment entry {index} is given twice")]
-    IndexRepeated {
-        /// The repeated index.
-        index: usize,
-    },
-    /// An index below the highest one given has no entry.
-    #[error("shell environment entry {index} is missing")]
-    IndexMissing {
-        /// The first index with no entry.
-        index: usize,
-    },
 }
 
 /// Reads a shell's environment, in order, from the variables the daemon handed the `shell-start`
-/// mode, ignoring every other variable; fails when an entry is not Unicode, holds no `=` after its
-/// name, or the indices given are not exactly `0..n`.
+/// mode, reading only the entries below the count it was handed, so any other variable, a stray
+/// inherited entry among them, is ignored. Fails when the count is missing or not a number, or an
+/// entry below it is missing, not Unicode or holds no `=`.
 pub fn shell_environment(
     variables: impl IntoIterator<Item = (OsString, OsString)>,
 ) -> Result<Vec<(String, String)>, ShellEnvironmentError> {
-    let mut entries: BTreeMap<usize, (String, String)> = BTreeMap::new();
-    for (name, value) in variables {
-        let Some(index_digits) = name
-            .as_encoded_bytes()
-            .strip_prefix(SHELL_ENVIRONMENT_PREFIX.as_bytes())
-        else {
-            continue;
-        };
-        if index_digits.is_empty() || !index_digits.iter().all(u8::is_ascii_digit) {
-            continue;
-        }
-        let index =
-            decimal_index(index_digits).ok_or_else(|| ShellEnvironmentError::IndexTooLarge {
-                index_text: String::from_utf8_lossy(index_digits).into_owned(),
-            })?;
-        let entry = value.into_string().map_err(|_not_unicode| {
-            // The value may hold a secret, so the error names only the entry.
-            ShellEnvironmentError::NotUnicode { index }
-        })?;
-        let separator = entry
-            .char_indices()
-            .skip(1)
-            .find_map(|(position, character)| (character == '=').then_some(position))
-            .ok_or(ShellEnvironmentError::NoSeparator { index })?;
-        let pair = (
-            entry[..separator].to_owned(),
-            entry[separator + 1..].to_owned(),
-        );
-        if entries.insert(index, pair).is_some() {
-            return Err(ShellEnvironmentError::IndexRepeated { index });
-        }
-    }
-    let mut environment = Vec::with_capacity(entries.len());
-    for (expected, (index, pair)) in entries.into_iter().enumerate() {
-        if index != expected {
-            return Err(ShellEnvironmentError::IndexMissing { index: expected });
-        }
-        environment.push(pair);
-    }
-    Ok(environment)
-}
-
-/// The index ASCII decimal `digits` spell, or `None` past `usize`.
-fn decimal_index(digits: &[u8]) -> Option<usize> {
-    digits.iter().try_fold(0_usize, |index, digit| {
-        index
-            .checked_mul(10)?
-            .checked_add(usize::from(digit - b'0'))
-    })
+    let variables: HashMap<OsString, OsString> = variables.into_iter().collect();
+    let count = variables
+        .get(OsStr::new(SHELL_ENVIRONMENT_COUNT))
+        .ok_or(ShellEnvironmentError::CountMissing)?
+        .to_str()
+        .and_then(|count| count.parse::<usize>().ok())
+        .ok_or(ShellEnvironmentError::CountInvalid)?;
+    (0..count)
+        .map(|index| {
+            let entry = variables
+                .get(OsStr::new(&shell_environment_name(index)))
+                .ok_or(ShellEnvironmentError::IndexMissing { index })?
+                .to_str()
+                // The value may hold a secret, so the error names only the entry.
+                .ok_or(ShellEnvironmentError::NotUnicode { index })?;
+            let (name, value) = entry
+                .split_once('=')
+                .ok_or(ShellEnvironmentError::NoSeparator { index })?;
+            Ok((name.to_owned(), value.to_owned()))
+        })
+        .collect()
 }
 
 /// Why a write to a terminal was not made.
@@ -241,6 +232,8 @@ impl WriteStop {
 /// are written, or with the error that left it unwritten.
 pub(crate) struct WriteQueue {
     pending: VecDeque<PendingWrite>,
+    /// The bytes the waiting writes still hold.
+    pending_byte_count: usize,
     stop: Option<WriteStop>,
 }
 
@@ -249,8 +242,14 @@ impl WriteQueue {
     pub(crate) fn new() -> Self {
         Self {
             pending: VecDeque::new(),
+            pending_byte_count: 0,
             stop: None,
         }
+    }
+
+    /// Whether the queue takes another write: it holds fewer than [`WRITE_QUEUE_BYTES`] bytes.
+    pub(crate) fn has_room(&self) -> bool {
+        self.pending_byte_count < WRITE_QUEUE_BYTES
     }
 
     /// Queues `bytes` behind every earlier write; once the queue is closed or ended the write is
@@ -261,6 +260,7 @@ impl WriteQueue {
         } else if bytes.is_empty() {
             answer_write(answer, Ok(()));
         } else {
+            self.pending_byte_count += bytes.len();
             self.pending.push_back(PendingWrite {
                 bytes,
                 written: 0,
@@ -284,6 +284,7 @@ impl WriteQueue {
             .pop_front()
             .expect("a write is advanced only after its pending bytes were offered");
         head.written += written;
+        self.pending_byte_count -= written;
         if head.written < head.bytes.len() {
             self.pending.push_front(head);
         } else {
@@ -305,6 +306,7 @@ impl WriteQueue {
     /// before.
     pub(crate) fn fail(&mut self, error: io::Error) {
         let error = Arc::new(error);
+        self.pending_byte_count = 0;
         for write in self.pending.drain(..) {
             answer_write(
                 write.answer,
@@ -315,6 +317,7 @@ impl WriteQueue {
 
     fn stop_with(&mut self, stop: WriteStop) {
         self.stop = Some(stop);
+        self.pending_byte_count = 0;
         for write in self.pending.drain(..) {
             answer_write(write.answer, Err(stop.error()));
         }
@@ -333,14 +336,15 @@ fn answer_write(answer: WriteAnswer, result: Result<(), TerminalWriteError>) {
 mod tests {
     use std::collections::HashMap;
     use std::ffi::OsString;
+    use std::io;
 
     use bytes::Bytes;
     use rstest::rstest;
     use tokio::sync::oneshot::{self, error::TryRecvError};
 
     use super::{
-        ShellEnvironmentError, TerminalWriteError, WriteQueue, encode_shell_environment,
-        shell_environment, shell_environment_name,
+        ShellEnvironmentError, TerminalWriteError, WriteQueue, check_environment,
+        encode_shell_environment, shell_environment, shell_environment_name,
     };
 
     type Answer = oneshot::Receiver<Result<(), TerminalWriteError>>;
@@ -426,7 +430,14 @@ mod tests {
             encoded
                 .iter()
                 .map(|(name, value)| (OsString::from(name), OsString::from(value)))
-                .chain([(OsString::from("HOME"), OsString::from("/home/someone"))])
+                // An unrelated variable and an entry past the count, as a parent's leftover.
+                .chain([
+                    (OsString::from("HOME"), OsString::from("/home/someone")),
+                    (
+                        OsString::from(shell_environment_name(3)),
+                        OsString::from("STRAY=1"),
+                    ),
+                ])
                 .collect::<Vec<_>>()
         };
 
@@ -445,5 +456,14 @@ mod tests {
             shell_environment(variables(&missing_one)),
             Err(ShellEnvironmentError::IndexMissing { index: 1 })
         );
+
+        // An entry the encoding could not carry as given is refused before any shell starts.
+        for (name, value) in [("", "x"), ("A=B", "x"), ("A\0", "x"), ("A", "x\0")] {
+            let refused = check_environment(&[(name.to_owned(), value.to_owned())]);
+            assert_eq!(
+                refused.map_err(|error| error.kind()),
+                Err(io::ErrorKind::InvalidInput)
+            );
+        }
     }
 }

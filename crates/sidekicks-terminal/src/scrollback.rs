@@ -49,13 +49,12 @@ impl ScrollbackWindow {
     }
 
     /// Appends `output`, dropping the oldest whole lines past the window's bound.
-    pub(crate) fn append(&mut self, output: &[u8]) {
+    pub(crate) fn append(&mut self, output: Bytes) {
         if output.is_empty() {
             return;
         }
-        self.chunks
-            .push_back(ScrollbackChunk::new(Bytes::copy_from_slice(output)));
         self.byte_count += output.len();
+        self.chunks.push_back(ScrollbackChunk::new(output));
         if self.byte_count > SCROLLBACK_WINDOW_BYTES {
             self.drop_oldest(self.byte_count - SCROLLBACK_WINDOW_BYTES);
         }
@@ -143,6 +142,7 @@ impl ScrollbackWindow {
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
     use rstest::rstest;
 
     use super::{SCROLLBACK_WINDOW_BYTES, ScrollbackWindow};
@@ -189,7 +189,7 @@ mod tests {
         let output = appends.concat();
         let mut window = ScrollbackWindow::new();
         for chunk in appends {
-            window.append(&chunk);
+            window.append(Bytes::from(chunk));
         }
         let kept = window.read();
         assert_eq!(kept.len(), expected_length);

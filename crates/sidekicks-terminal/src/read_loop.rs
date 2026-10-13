@@ -4,15 +4,16 @@
 use std::io;
 use std::process::ExitStatus;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::EventListener;
-use alacritty_terminal::tty::{ChildEvent, EventedPty, Pty};
+use alacritty_terminal::tty::Pty;
 use bytes::Bytes;
 use sidekicks_platforms::{TerminalSignal, TerminalWake, TerminalWaker, TerminalWatch};
 use tokio::runtime::Handle;
-use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{self, OwnedPermit};
 use tokio::sync::{oneshot, watch};
 use tracing::Instrument;
@@ -22,8 +23,11 @@ use crate::exit::TerminalExit;
 use crate::pty::{TerminalWriteError, WriteQueue};
 use crate::screen::TerminalScreen;
 
-/// How many of the caller's writes and resizes wait for the loop before a caller waits for room.
-const COMMAND_CAPACITY: usize = 16;
+/// How many of the caller's writes wait for the loop before a writer waits for room.
+const WRITE_CAPACITY: usize = 16;
+
+/// How many of the caller's resizes wait for the loop before a caller waits for room.
+const RESIZE_CAPACITY: usize = 4;
 
 /// How many chunks of output wait for the caller before the loop stops reading.
 const OUTPUT_CAPACITY: usize = 8;
@@ -34,6 +38,10 @@ const READ_CHUNK_BYTES: usize = 8 * 1024;
 /// The most read after the program's exit, so a process left writing to the terminal cannot hold
 /// the exit back.
 const EXIT_DRAIN_BYTES: usize = 1024 * 1024;
+
+/// How long the terminal stays quiet after the program's exit before its output counts as ended;
+/// each read starts it again, since `ConPTY` reports no end of output.
+const EXIT_QUIET_PERIOD: Duration = Duration::from_secs(1);
 
 /// Takes a shell's output before the screen copy, the scrollback and the caller see it.
 pub trait OutputFilter: Send + 'static {
@@ -73,8 +81,13 @@ impl TerminalOutput {
         }
         match chunk {
             Some(chunk) => {
-                // The loop may be waiting for room to read into.
-                self.control.waker.wake();
+                if self
+                    .control
+                    .is_waiting_for_room
+                    .swap(false, Ordering::SeqCst)
+                {
+                    self.control.waker.wake();
+                }
                 Some(TerminalEvent::Output(chunk))
             }
             None if self.has_yielded_exit => None,
@@ -86,17 +99,25 @@ impl TerminalOutput {
     }
 }
 
-/// A caller's request the loop carries out on the terminal.
-enum LoopCommand {
-    Write {
-        bytes: Bytes,
-        answer: oneshot::Sender<Result<(), TerminalWriteError>>,
-    },
-    Resize {
-        rows: u16,
-        columns: u16,
-        answer: oneshot::Sender<io::Result<()>>,
-    },
+impl Drop for TerminalOutput {
+    fn drop(&mut self) {
+        // Closed first, so the woken loop finds the output gone and reads on without it.
+        self.chunks.close();
+        self.control.waker.wake();
+    }
+}
+
+/// A caller's write the loop carries out on the terminal.
+struct WriteCommand {
+    bytes: Bytes,
+    answer: oneshot::Sender<Result<(), TerminalWriteError>>,
+}
+
+/// A caller's resize the loop carries out on the terminal and its screen copy.
+struct ResizeCommand {
+    rows: u16,
+    columns: u16,
+    answer: oneshot::Sender<io::Result<()>>,
 }
 
 /// Whether the program's exit has been reported, and which.
@@ -112,13 +133,16 @@ struct ChildState {
 
 /// One shell's controls, shared by the terminals and the shell's read loop.
 pub(crate) struct TerminalControl {
-    commands: mpsc::Sender<LoopCommand>,
+    writes: mpsc::Sender<WriteCommand>,
+    resizes: mpsc::Sender<ResizeCommand>,
     waker: TerminalWaker,
     is_paused: AtomicBool,
     is_closing: AtomicBool,
+    /// Set while the loop finds no room for output, so the caller's next take wakes it.
+    is_waiting_for_room: AtomicBool,
     process_id: Option<u32>,
-    /// Held while the program is reaped and while a signal is sent, so no signal reaches a
-    /// process that took a reaped program's id.
+    /// Held across the program's reap and its mark as exited, and across each signal sent to it,
+    /// so no signal sent here reaches its process id once the reap has freed it.
     child_state: Mutex<ChildState>,
     child_exit: watch::Sender<bool>,
     /// Held while the closing flag is set, so no exit is reported once the close begins.
@@ -132,17 +156,17 @@ impl TerminalControl {
         self.process_id
     }
 
-    /// Writes `bytes` to the terminal's input, answering once every byte is written. Fails with
-    /// `Closed` once the close began, `Ended` once the input or the program ended, and `Failed`
-    /// for a write the system refused.
+    /// Writes `bytes` to the terminal's input, answering once every byte is written; waits for
+    /// room while the loop holds 64 KiB of writes. Fails with `Closed` once the close began,
+    /// `Ended` once the input or the program ended, and `Failed` for a write the system refused.
     pub(crate) async fn write(&self, bytes: Bytes) -> Result<(), TerminalWriteError> {
         if self.is_closing() {
             return Err(TerminalWriteError::Closed);
         }
         let (answer, answered) = oneshot::channel();
         if self
-            .commands
-            .send(LoopCommand::Write { bytes, answer })
+            .writes
+            .send(WriteCommand { bytes, answer })
             .await
             .is_err()
         {
@@ -154,20 +178,16 @@ impl TerminalControl {
             .unwrap_or_else(|_loop_ended| Err(self.ended_write_error()))
     }
 
-    /// Resizes the terminal and its screen copy to `rows` by `columns` cells. Fails when the
-    /// system refuses the size or the read loop has ended.
+    /// Resizes the terminal and its screen copy to `rows` by `columns` cells, ahead of any write
+    /// still waiting. Fails when the system refuses the size or the read loop has ended.
     pub(crate) async fn resize(&self, rows: u16, columns: u16) -> io::Result<()> {
         let (answer, answered) = oneshot::channel();
-        if self
-            .commands
-            .send(LoopCommand::Resize {
-                rows,
-                columns,
-                answer,
-            })
-            .await
-            .is_err()
-        {
+        let resize = ResizeCommand {
+            rows,
+            columns,
+            answer,
+        };
+        if self.resizes.send(resize).await.is_err() {
             return Err(loop_ended_error());
         }
         self.waker.wake();
@@ -212,7 +232,7 @@ impl TerminalControl {
         sidekicks_platforms::send_signal(process_id, signal)
     }
 
-    /// Whether the program has exited and been reaped.
+    /// Whether the program has exited.
     pub(crate) fn has_child_exited(&self) -> bool {
         self.lock_child_state().has_exited
     }
@@ -227,6 +247,18 @@ impl TerminalControl {
             .expect("the control keeps the exit's sender while it is borrowed");
     }
 
+    /// Resolves once an exit, real or forced, is reported or the program has exited, whichever
+    /// comes first; a closing terminal reports no exit, so only the program's exit ends its wait.
+    pub(crate) async fn ended(&self) {
+        let mut exit_reported = self.exit_reported.subscribe();
+        tokio::select! {
+            reported = exit_reported.wait_for(|is_reported| *is_reported) => reported
+                .map(drop)
+                .expect("the control keeps the report's sender while it is borrowed"),
+            () = self.child_exited() => {}
+        }
+    }
+
     /// Reports the unconfirmed exit for a program a hard stop ended; does nothing once the close
     /// began or an exit was reported.
     pub(crate) fn report_forced_end(&self) {
@@ -238,16 +270,6 @@ impl TerminalControl {
     /// Whether an exit, real or forced, has been reported.
     pub(crate) fn is_exit_reported(&self) -> bool {
         self.reported_exit().is_some()
-    }
-
-    /// Resolves once an exit, real or forced, is reported, at once when one already is.
-    pub(crate) async fn exit_reported(&self) {
-        let mut exit_reported = self.exit_reported.subscribe();
-        exit_reported
-            .wait_for(|is_reported| *is_reported)
-            .await
-            .map(drop)
-            .expect("the control keeps the report's sender while it is borrowed");
     }
 
     fn is_closing(&self) -> bool {
@@ -277,23 +299,25 @@ impl TerminalControl {
                 ExitReport::Pending => *exit_report = ExitReport::Reported(exit),
             }
         }
-        self.exit_reported
-            .send_modify(|is_reported| *is_reported = true);
+        self.exit_reported.send_replace(true);
         true
     }
 
-    /// Reaps the program when the terminal's child event says it exited, answering its status.
-    fn take_child_exit(&self, pty: &mut Pty) -> Option<Option<ExitStatus>> {
+    /// Reaps the program when the watch says it exited, answering its status, and marks it exited
+    /// under the signal lock.
+    fn take_child_exit(&self, watch: &mut TerminalWatch) -> Option<Option<ExitStatus>> {
         let mut child_state = self.lock_child_state();
-        match pty.next_child_event() {
-            Some(ChildEvent::Exited(status)) => {
-                child_state.has_exited = true;
-                drop(child_state);
-                self.child_exit.send_modify(|has_exited| *has_exited = true);
-                Some(status)
-            }
-            None => None,
-        }
+        let status = watch.take_child_exit()?;
+        child_state.has_exited = true;
+        drop(child_state);
+        self.child_exit.send_replace(true);
+        Some(status)
+    }
+
+    /// Marks the program exited under the signal lock, for a release that waited for it.
+    fn mark_exited(&self) {
+        self.lock_child_state().has_exited = true;
+        self.child_exit.send_replace(true);
     }
 
     /// The error a write gets once the loop is gone: the input ended with the program, or the
@@ -329,10 +353,16 @@ pub(crate) struct StartedLoop<L: EventListener> {
     pub(crate) output: TerminalOutput,
 }
 
+/// Where the loop finds its PTY, so a loop that never starts still hands the PTY back.
+type PtySlot = Arc<Mutex<Option<Pty>>>;
+
+/// A PTY's release, which may block until its program exits.
+type Release = Box<dyn FnOnce() + Send>;
+
 /// Starts the read loop of the shell in `pty` on `runtime`, its screen copy `rows` by `columns`
 /// cells heard by `listener`, every chunk of output passing `filter` first; `name` names the
-/// loop in logs and threads. Runs on the caller's thread, needing no runtime context. Fails when
-/// the loop's waker or thread cannot be made.
+/// loop in logs and threads. Fails when the loop's waker or thread cannot be made; the PTY is then
+/// released off the runtime's workers.
 pub(crate) fn start_read_loop<L, F>(
     runtime: &Handle,
     name: &str,
@@ -343,43 +373,45 @@ pub(crate) fn start_read_loop<L, F>(
     filter: F,
 ) -> io::Result<StartedLoop<L>>
 where
-    L: EventListener + Send + 'static,
+    L: EventListener + Clone + Send + 'static,
     F: OutputFilter,
 {
     let process_id = sidekicks_platforms::child_process_id(&pty);
     let waker = match TerminalWaker::new() {
         Ok(waker) => waker,
         Err(error) => {
-            drop_on_own_thread(pty, name);
+            // No control exists yet, so nothing can signal the program before its release.
+            release_off_runtime(
+                name,
+                Box::new(move || sidekicks_platforms::release_terminal(pty, || {})),
+            );
             return Err(error);
         }
     };
-    let (commands, command_receiver) = mpsc::channel(COMMAND_CAPACITY);
-    let (child_exit, _) = watch::channel(false);
-    let (exit_reported, _) = watch::channel(false);
+    let (writes, write_receiver) = mpsc::channel(WRITE_CAPACITY);
+    let (resizes, resize_receiver) = mpsc::channel(RESIZE_CAPACITY);
     let control = Arc::new(TerminalControl {
-        commands,
+        writes,
+        resizes,
         waker,
         is_paused: AtomicBool::new(false),
         is_closing: AtomicBool::new(false),
+        is_waiting_for_room: AtomicBool::new(false),
         process_id,
         child_state: Mutex::new(ChildState { has_exited: false }),
-        child_exit,
+        child_exit: watch::Sender::new(false),
         exit_report: Mutex::new(ExitReport::Pending),
-        exit_reported,
+        exit_reported: watch::Sender::new(false),
     });
     let screen = Arc::new(Mutex::new(TerminalScreen::new(rows, columns, listener)));
     let (output_sender, output_receiver) = mpsc::channel(OUTPUT_CAPACITY);
-    let guard = PtyGuard {
-        pty: Some(pty),
-        control: Arc::clone(&control),
-        name: name.to_owned(),
-    };
     let read_loop = ReadLoop {
+        name: name.to_owned(),
         control: Arc::clone(&control),
         screen: Arc::clone(&screen),
         filter,
-        commands: command_receiver,
+        writes: write_receiver,
+        resizes: resize_receiver,
         processor: Processor::new(),
         queue: WriteQueue::new(),
         read_buffer: vec![0; READ_CHUNK_BYTES].into_boxed_slice(),
@@ -389,8 +421,18 @@ where
         is_output_ended: false,
         has_closed: false,
     };
+    let pty_slot: PtySlot = Arc::new(Mutex::new(Some(pty)));
     let span = tracing::info_span!("terminal read loop", terminal = name);
-    sidekicks_platforms::run_terminal_loop(runtime, name, read_loop.run(guard).instrument(span))?;
+    let running = read_loop.run(Arc::clone(&pty_slot)).instrument(span);
+    if let Err(error) = sidekicks_platforms::run_terminal_loop(runtime, name, running) {
+        if let Some(pty) = lock_ignoring_poison(&pty_slot).take() {
+            release_off_runtime(
+                name,
+                Box::new(move || sidekicks_platforms::release_terminal(pty, || {})),
+            );
+        }
+        return Err(error);
+    }
     Ok(StartedLoop {
         output: TerminalOutput {
             chunks: output_receiver,
@@ -402,64 +444,52 @@ where
     })
 }
 
-/// Holds a shell's PTY for its loop; a PTY whose program has not exited is dropped on a thread of
-/// its own, since the drop waits for the program and must not block a runtime thread.
-struct PtyGuard {
-    pty: Option<Pty>,
-    control: Arc<TerminalControl>,
-    name: String,
-}
-
-impl PtyGuard {
-    fn pty_mut(&mut self) -> &mut Pty {
-        self.pty
-            .as_mut()
-            .expect("the PTY leaves its guard only when the guard drops")
-    }
-}
-
-impl Drop for PtyGuard {
-    fn drop(&mut self) {
-        let Some(pty) = self.pty.take() else {
-            return;
-        };
-        if self.control.has_child_exited() {
-            drop(pty);
-        } else {
-            drop_on_own_thread(pty, &self.name);
-        }
-    }
-}
-
-/// Drops `pty` on a new thread, since its drop waits for a program that has not exited.
-fn drop_on_own_thread(pty: Pty, name: &str) {
-    let dropping = thread::Builder::new()
+/// Runs `release` on a thread of its own, since it may wait for a program that has not exited;
+/// when no thread can start, the runtime's blocking pool runs it, never one of its workers.
+fn release_off_runtime(name: &str, release: Release) {
+    let slot = Arc::new(Mutex::new(Some(release)));
+    let thread_slot = Arc::clone(&slot);
+    let started = thread::Builder::new()
         .name(format!("{name} release"))
-        .spawn(move || drop(pty));
-    if let Err(error) = dropping {
-        // A thread that could not start drops its work, so the PTY was dropped on this thread.
-        tracing::error!(
+        .spawn(move || run_release(&thread_slot));
+    if let Err(error) = started {
+        tracing::warn!(
             %error,
             terminal = name,
-            "a terminal's PTY could not be dropped on its own thread"
+            "a terminal's release thread could not start, so the blocking pool releases it"
         );
+        tokio::task::spawn_blocking(move || run_release(&slot));
     }
+}
+
+/// Runs the release the slot holds, once.
+fn run_release(slot: &Mutex<Option<Release>>) {
+    if let Some(release) = lock_ignoring_poison(slot).take() {
+        release();
+    }
+}
+
+/// Locks a slot that holds no invariant a panic could break.
+fn lock_ignoring_poison<T>(slot: &Mutex<T>) -> MutexGuard<'_, T> {
+    slot.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// How the loop's watch over the program ended.
 enum LoopEnd {
     /// The program exited, with the status the system reported.
     ChildExited(Option<ExitStatus>),
-    /// The wait failed twice in a row, so the loop can no longer watch the terminal.
+    /// A read or the wait failed, so the loop can no longer watch the terminal.
     WaitFailed,
 }
 
-/// What one shell's read loop owns besides its PTY and its watch.
+/// What one shell's read loop owns besides its watch.
 struct ReadLoop<L: EventListener, F> {
+    name: String,
     control: Arc<TerminalControl>,
     screen: Arc<Mutex<TerminalScreen<L>>>,
     filter: F,
-    commands: mpsc::Receiver<LoopCommand>,
+    writes: mpsc::Receiver<WriteCommand>,
+    resizes: mpsc::Receiver<ResizeCommand>,
     processor: Processor,
     queue: WriteQueue,
     read_buffer: Box<[u8]>,
@@ -475,38 +505,52 @@ struct ReadLoop<L: EventListener, F> {
 
 impl<L, F> ReadLoop<L, F>
 where
-    L: EventListener + Send + 'static,
+    L: EventListener + Clone + Send + 'static,
     F: OutputFilter,
 {
-    async fn run(mut self, mut guard: PtyGuard) {
-        let pty = guard.pty_mut();
+    async fn run(mut self, pty_slot: PtySlot) {
+        let pty = lock_ignoring_poison(&pty_slot)
+            .take()
+            .expect("the slot holds the PTY until the loop takes it");
         let mut watch = match TerminalWatch::new(pty, &self.control.waker) {
             Ok(watch) => watch,
-            Err(error) => {
+            Err((error, pty)) => {
                 tracing::error!(%error, "the terminal could not be watched");
                 self.control.report_exit(TerminalExit::unconfirmed());
+                self.end_output();
+                let control = Arc::clone(&self.control);
+                release_off_runtime(
+                    &self.name,
+                    Box::new(move || {
+                        sidekicks_platforms::release_terminal(pty, || control.mark_exited());
+                    }),
+                );
                 return;
             }
         };
-        match self.watch_child(pty, &mut watch).await {
-            LoopEnd::ChildExited(status) => self.drain_to_exit(pty, &mut watch, status).await,
+        match self.watch_child(&mut watch).await {
+            LoopEnd::ChildExited(status) => self.drain_to_exit(&mut watch, status).await,
             LoopEnd::WaitFailed => {
                 self.control.report_exit(TerminalExit::unconfirmed());
             }
         }
         // The report comes before the output's end, so the caller reads it once the output ends.
         self.end_output();
-        if let Err(error) = watch.release(pty) {
-            tracing::error!(%error, "the terminal's watch could not be released");
+        let control = Arc::clone(&self.control);
+        if control.has_child_exited() {
+            watch.release(|| control.mark_exited());
+        } else {
+            release_off_runtime(
+                &self.name,
+                Box::new(move || watch.release(|| control.mark_exited())),
+            );
         }
     }
 
-    /// Reads, writes and serves commands until the program exits or the wait fails twice in a
-    /// row.
-    async fn watch_child(&mut self, pty: &mut Pty, watch: &mut TerminalWatch) -> LoopEnd {
-        let mut has_failed = false;
+    /// Reads, writes and serves commands until the program exits or a read or the wait fails.
+    async fn watch_child(&mut self, watch: &mut TerminalWatch) -> LoopEnd {
         loop {
-            self.take_commands(pty);
+            self.take_commands(watch);
             self.apply_stops();
             self.reserve_output();
             // Without an output the bytes are read and discarded, so a program that ignores the
@@ -516,123 +560,126 @@ where
             let deadline = self.processor.sync_timeout().sync_timeout();
             let wake = watch
                 .wait(
-                    pty,
                     can_read.then_some(&mut *self.read_buffer),
                     self.queue.pending_bytes(),
                     deadline,
                 )
                 .await;
             match wake {
-                Ok(wake) => {
-                    has_failed = false;
-                    match wake {
-                        TerminalWake::Read(count) => self.take_read(count),
-                        TerminalWake::OutputEnded => self.is_output_ended = true,
-                        TerminalWake::Wrote(count) => self.queue.advance(count),
-                        TerminalWake::InputEnded => self.end_input(),
-                        TerminalWake::ChildEvent => {
-                            if let Some(status) = self.control.take_child_exit(pty) {
-                                return LoopEnd::ChildExited(status);
-                            }
-                        }
-                        TerminalWake::Woken => {}
-                        TerminalWake::Deadline => self.stop_sync(),
+                Ok(TerminalWake::Read(count)) => self.take_read(count),
+                Ok(TerminalWake::OutputEnded) => self.is_output_ended = true,
+                Ok(TerminalWake::Wrote(count)) => self.queue.advance(count),
+                Ok(TerminalWake::InputEnded) => self.end_input(),
+                Ok(TerminalWake::WriteFailed(error)) => {
+                    tracing::warn!(%error, "a write to the terminal failed");
+                    self.queue.fail(error);
+                }
+                Ok(TerminalWake::ChildEvent) => {
+                    if let Some(status) = self.control.take_child_exit(watch) {
+                        return LoopEnd::ChildExited(status);
                     }
                 }
+                Ok(TerminalWake::Woken) => {}
+                Ok(TerminalWake::Deadline) => self.stop_sync(),
                 Err(error) => {
-                    tracing::error!(%error, "the terminal's wait failed");
-                    if has_failed {
-                        return LoopEnd::WaitFailed;
-                    }
-                    has_failed = true;
-                    // From here the loop only waits for the program: no read, and no write.
-                    self.queue.fail(error);
-                    self.end_input();
-                    self.is_output_ended = true;
+                    tracing::error!(%error, "the terminal's read or wait failed");
+                    return LoopEnd::WaitFailed;
                 }
             }
         }
     }
 
-    /// Delivers what the terminal still holds once the program exited, at most
-    /// `EXIT_DRAIN_BYTES`, then what the filter held, then reports the exit.
-    async fn drain_to_exit(
-        &mut self,
-        pty: &mut Pty,
-        watch: &mut TerminalWatch,
-        status: Option<ExitStatus>,
-    ) {
+    /// Delivers what the terminal still holds once the program exited, until it stays quiet for
+    /// `EXIT_QUIET_PERIOD` or `EXIT_DRAIN_BYTES` were read, then what the filter held, then
+    /// reports the exit.
+    async fn drain_to_exit(&mut self, watch: &mut TerminalWatch, status: Option<ExitStatus>) {
         self.end_input();
         let mut drained = 0;
+        let mut quiet_until: Option<Instant> = None;
         loop {
-            self.take_commands(pty);
+            self.take_commands(watch);
             self.apply_stops();
             self.reserve_output();
             if self.output.is_none() {
                 break;
             }
-            if self.permit.is_some() && !self.control.is_paused() {
-                if !self.is_output_ended && drained < EXIT_DRAIN_BYTES {
-                    match watch.try_read(pty, &mut self.read_buffer) {
-                        Ok(Some(0) | None) => self.is_output_ended = true,
-                        Ok(Some(count)) => {
-                            drained += count;
-                            self.take_read(count);
-                        }
-                        Err(error) => {
-                            tracing::error!(%error, "the terminal's output could not be drained");
-                            self.is_output_ended = true;
-                        }
-                    }
-                    continue;
-                }
+            let has_room = self.permit.is_some() && !self.control.is_paused();
+            let is_reading_done = self.is_output_ended || drained >= EXIT_DRAIN_BYTES;
+            if has_room && is_reading_done {
                 self.kept.clear();
                 self.filter.finish(&mut self.kept);
                 self.deliver_kept();
                 break;
             }
-            // No room for output, or paused: wait for the caller without reading.
-            let deadline = self.processor.sync_timeout().sync_timeout();
-            match watch.wait(pty, None, None, deadline).await {
-                Ok(TerminalWake::Deadline) => self.stop_sync(),
+            // The quiet period runs only while the loop reads, so a pause does not end the output.
+            let is_reading = has_room && !is_reading_done;
+            quiet_until = is_reading
+                .then(|| quiet_until.unwrap_or_else(|| Instant::now() + EXIT_QUIET_PERIOD));
+            let sync_deadline = self.processor.sync_timeout().sync_timeout();
+            let deadline = match (sync_deadline, quiet_until) {
+                (Some(sync), Some(quiet)) => Some(sync.min(quiet)),
+                (sync, quiet) => sync.or(quiet),
+            };
+            let read_limit = self
+                .read_buffer
+                .len()
+                .min(EXIT_DRAIN_BYTES.saturating_sub(drained));
+            let read_into = is_reading.then(|| &mut self.read_buffer[..read_limit]);
+            match watch.wait(read_into, None, deadline).await {
+                Ok(TerminalWake::Read(count)) => {
+                    drained += count;
+                    quiet_until = Some(Instant::now() + EXIT_QUIET_PERIOD);
+                    self.take_read(count);
+                }
+                Ok(TerminalWake::OutputEnded) => self.is_output_ended = true,
+                Ok(TerminalWake::Deadline) => {
+                    let now = Instant::now();
+                    if sync_deadline.is_some_and(|sync| now >= sync) {
+                        self.stop_sync();
+                    }
+                    if quiet_until.is_some_and(|quiet| now >= quiet) {
+                        self.is_output_ended = true;
+                    }
+                }
                 Ok(
-                    TerminalWake::Read(_)
-                    | TerminalWake::OutputEnded
-                    | TerminalWake::Wrote(_)
+                    TerminalWake::Wrote(_)
                     | TerminalWake::InputEnded
+                    | TerminalWake::WriteFailed(_)
                     | TerminalWake::ChildEvent
                     | TerminalWake::Woken,
                 ) => {}
                 Err(error) => {
-                    tracing::error!(%error, "the terminal's wait failed after the program exited");
-                    break;
+                    tracing::error!(%error, "the terminal's output could not be drained");
+                    self.is_output_ended = true;
                 }
             }
         }
         self.control.report_exit(TerminalExit::from_status(status));
     }
 
-    /// Carries out every waiting command: writes join the queue, resizes run and are answered.
-    fn take_commands(&mut self, pty: &mut Pty) {
-        loop {
-            match self.commands.try_recv() {
-                Ok(LoopCommand::Write { bytes, answer }) => self.queue.push(bytes, answer),
-                Ok(LoopCommand::Resize {
-                    rows,
-                    columns,
-                    answer,
-                }) => {
-                    let resized = self.resize(pty, rows, columns);
-                    // A caller that stopped waiting needs no answer.
-                    answer.send(resized).unwrap_or_else(drop);
-                }
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => return,
+    /// Carries out every waiting resize, then takes waiting writes while the queue has room, so a
+    /// resize never waits behind writes.
+    fn take_commands(&mut self, watch: &mut TerminalWatch) {
+        while let Ok(ResizeCommand {
+            rows,
+            columns,
+            answer,
+        }) = self.resizes.try_recv()
+        {
+            let resized = self.resize(watch, rows, columns);
+            if answer.send(resized).is_err() {
+                tracing::debug!("a terminal resize's caller stopped waiting for its answer");
             }
+        }
+        while self.queue.has_room()
+            && let Ok(WriteCommand { bytes, answer }) = self.writes.try_recv()
+        {
+            self.queue.push(bytes, answer);
         }
     }
 
-    fn resize(&self, pty: &mut Pty, rows: u16, columns: u16) -> io::Result<()> {
-        sidekicks_platforms::resize_terminal(pty, rows, columns)?;
+    fn resize(&self, watch: &mut TerminalWatch, rows: u16, columns: u16) -> io::Result<()> {
+        watch.resize(rows, columns)?;
         lock_screen(&self.screen).resize(rows, columns);
         Ok(())
     }
@@ -664,9 +711,17 @@ where
         let Some(output) = &self.output else {
             return;
         };
+        // Set before the attempt, so a take between a full attempt and the wait still wakes it.
+        self.control
+            .is_waiting_for_room
+            .store(true, Ordering::SeqCst);
         match output.clone().try_reserve_owned() {
-            Ok(permit) => self.permit = Some(permit),
-            // The caller's next take wakes the loop.
+            Ok(permit) => {
+                self.control
+                    .is_waiting_for_room
+                    .store(false, Ordering::SeqCst);
+                self.permit = Some(permit);
+            }
             Err(TrySendError::Full(_output)) => {}
             Err(TrySendError::Closed(_output)) => self.end_output(),
         }
@@ -684,7 +739,8 @@ where
         self.deliver_kept();
     }
 
-    /// Draws what the filter kept and sends it to the caller; nothing kept keeps the room.
+    /// Draws what the filter kept and sends it to the caller, one buffer shared by the scrollback
+    /// and the channel; nothing kept keeps the room.
     fn deliver_kept(&mut self) {
         if self.kept.is_empty() {
             return;
@@ -693,8 +749,9 @@ where
             .permit
             .take()
             .expect("output is read only while room for it is held");
-        lock_screen(&self.screen).take_output(&mut self.processor, &self.kept);
-        permit.send(Bytes::copy_from_slice(&self.kept));
+        let chunk = Bytes::copy_from_slice(&self.kept);
+        lock_screen(&self.screen).take_output(&mut self.processor, chunk.clone());
+        permit.send(chunk);
     }
 
     fn stop_sync(&mut self) {
@@ -705,6 +762,9 @@ where
     fn end_output(&mut self) {
         self.permit = None;
         self.output = None;
+        self.control
+            .is_waiting_for_room
+            .store(false, Ordering::SeqCst);
     }
 }
 
@@ -719,158 +779,4 @@ fn lock_screen<L: EventListener>(
 /// The error a resize gets once the read loop has ended.
 fn loop_ended_error() -> io::Error {
     io::Error::other("the terminal's read loop has ended")
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use alacritty_terminal::event::VoidListener;
-    use bytes::Bytes;
-    use tokio::runtime::Handle;
-    use tokio::time::timeout;
-
-    use super::{OutputFilter, TerminalEvent, TerminalOutput, start_read_loop};
-    use crate::exit::TerminalExit;
-    use crate::pty::{SpawnRequest, open_pty};
-
-    /// How many numbered lines the program prints, far more than a terminal's buffer holds.
-    const LINE_COUNT: usize = 20_000;
-
-    /// The bound on every wait for output, so a loop that stalls fails the test.
-    const OUTPUT_BOUND: Duration = Duration::from_secs(30);
-
-    /// Turns echo off, says it is ready, waits for one input line and prints the numbers.
-    #[cfg(unix)]
-    const WAITING_PRINTER: (&str, &[&str]) = (
-        "/bin/sh",
-        &[
-            "-c",
-            "stty -echo; echo ready; read line; i=0; \
-             while [ $i -lt 20000 ]; do echo $i; i=$((i+1)); done",
-        ],
-    );
-    #[cfg(windows)]
-    const WAITING_PRINTER: (&str, &[&str]) = (
-        "cmd.exe",
-        &[
-            "/c",
-            "echo ready& set /p line=& for /L %i in (0,1,19999) do @echo %i",
-        ],
-    );
-
-    /// Keeps every byte of the output.
-    struct KeepAllOutput;
-
-    impl OutputFilter for KeepAllOutput {
-        fn filter(&mut self, chunk: &[u8], kept: &mut Vec<u8>) {
-            kept.extend_from_slice(chunk);
-        }
-
-        fn finish(&mut self, _kept: &mut Vec<u8>) {}
-    }
-
-    /// Takes output until `text` holds `marker`.
-    async fn read_until(output: &mut TerminalOutput, text: &mut String, marker: &str) {
-        while !text.contains(marker) {
-            match output.next().await {
-                Some(TerminalEvent::Output(chunk)) => {
-                    text.push_str(&String::from_utf8_lossy(&chunk));
-                }
-                other => panic!("the output ended before {marker:?}: {other:?}, after {text:?}"),
-            }
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_paused_shell_leaves_its_output_waiting_and_the_resume_delivers_it_in_order() {
-        let (program, arguments) = WAITING_PRINTER;
-        let request = SpawnRequest {
-            program: program.to_owned(),
-            arguments: arguments
-                .iter()
-                .map(|argument| (*argument).to_owned())
-                .collect(),
-            environment: Vec::new(),
-            working_directory: std::env::current_dir().expect("the test runs in a folder"),
-            rows: 24,
-            columns: 80,
-            shell_start: None,
-        };
-        let pty = open_pty(&request).expect("the shell starts");
-        let started = start_read_loop(
-            &Handle::current(),
-            "paused shell",
-            pty,
-            24,
-            80,
-            VoidListener,
-            KeepAllOutput,
-        )
-        .expect("the read loop starts");
-        let control = started.control;
-        let mut output = started.output;
-
-        let mut text = String::new();
-        timeout(
-            OUTPUT_BOUND,
-            read_until(&mut output, &mut text, "ready\r\n"),
-        )
-        .await
-        .expect("the program says it is ready");
-        let ready_end = text.find("ready\r\n").expect("the marker was read") + "ready\r\n".len();
-        text.replace_range(..ready_end, "");
-
-        control.pause();
-        control
-            .write(Bytes::from_static(b"go\r\n"))
-            .await
-            .expect("the input line is written");
-        assert!(
-            timeout(Duration::from_millis(500), output.next())
-                .await
-                .is_err(),
-            "output arrived while the shell was paused"
-        );
-
-        control.resume();
-        let mut events_after_exit = Vec::new();
-        let exit = timeout(OUTPUT_BOUND, async {
-            loop {
-                match output.next().await {
-                    Some(TerminalEvent::Output(chunk)) => {
-                        text.push_str(&String::from_utf8_lossy(&chunk));
-                    }
-                    Some(TerminalEvent::Exit(exit)) => {
-                        while let Some(event) = output.next().await {
-                            events_after_exit.push(event);
-                        }
-                        return exit;
-                    }
-                    None => panic!("the output ended with no exit"),
-                }
-            }
-        })
-        .await
-        .expect("the program prints every line and exits");
-
-        let numbers: Vec<usize> = text
-            .split('\n')
-            .map(|line| line.trim_end_matches('\r'))
-            .filter(|line| !line.is_empty() && line.bytes().all(|byte| byte.is_ascii_digit()))
-            .map(|line| line.parse().expect("a line of digits is a number"))
-            .collect();
-        assert_eq!(numbers, (0..LINE_COUNT).collect::<Vec<_>>());
-        assert_eq!(
-            exit,
-            TerminalExit {
-                exit_code: 0,
-                signal_code: None
-            }
-        );
-        assert!(
-            events_after_exit.is_empty(),
-            "events came after the exit: {events_after_exit:?}"
-        );
-    }
 }

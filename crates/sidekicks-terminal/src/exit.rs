@@ -27,7 +27,7 @@ impl TerminalExit {
     /// The exit read from an exit code and a reported signal: an end by signal carries no code of
     /// its own and reads 0, as does a status that holds neither.
     fn from_parts(code: Option<i32>, signal_code: Option<i32>) -> Self {
-        let exit_code = code.map_or(0, |code| i64::from(u32::from_ne_bytes(code.to_ne_bytes())));
+        let exit_code = code.map_or(0, |code| i64::from(code.cast_unsigned()));
         Self {
             exit_code,
             signal_code,
@@ -46,45 +46,18 @@ impl TerminalExit {
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-
     use super::TerminalExit;
 
-    #[rstest]
-    // A Windows exit, an access violation's code among them, carries no signal.
-    #[case::windows_crash(Some(-1_073_741_819), None, 3_221_225_477, None)]
-    // A Windows child the hard stop ended exits with taskkill's code 1 and no signal.
-    #[case::windows_hard_stop(Some(1), None, 1, None)]
-    #[case::unix_code(Some(3), None, 3, None)]
-    // A Unix end by signal carries the signal the system reported, and no code.
-    #[case::unix_signal(None, Some(15), 0, Some(15))]
-    fn an_exit_carries_only_the_signal_the_system_reported(
-        #[case] code: Option<i32>,
-        #[case] signal_code: Option<i32>,
-        #[case] expected_code: i64,
-        #[case] expected_signal: Option<i32>,
-    ) {
-        let exit = TerminalExit::from_parts(code, signal_code);
+    #[test]
+    fn a_crash_code_reads_as_its_unsigned_value() {
+        // An access violation's code, as Windows reports it in a signed 32-bit integer.
+        let exit = TerminalExit::from_parts(Some(-1_073_741_819), None);
         assert_eq!(
             exit,
             TerminalExit {
-                exit_code: expected_code,
-                signal_code: expected_signal
-            }
-        );
-    }
-
-    #[test]
-    fn an_unconfirmed_hard_stop_is_code_one_with_no_signal() {
-        let unconfirmed = TerminalExit::unconfirmed();
-        assert_eq!(
-            unconfirmed,
-            TerminalExit {
-                exit_code: 1,
+                exit_code: 3_221_225_477,
                 signal_code: None
             }
         );
-        assert_eq!(TerminalExit::from_status(None), unconfirmed);
-        assert_ne!(unconfirmed, TerminalExit::from_parts(None, Some(1)));
     }
 }

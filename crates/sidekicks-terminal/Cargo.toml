@@ -19,6 +19,7 @@ vte = { workspace = true, features = ["ansi"] }
 
 [dev-dependencies]
 rstest.workspace = true
+sidekicks-platforms = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

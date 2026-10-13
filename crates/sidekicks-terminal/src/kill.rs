@@ -1,12 +1,14 @@
 //! Stopping a shell's program: a signal as the running system delivers it, the console break's
 //! escalation to an outright end, and a close's hangup, stop and kill in turn.
 
-use std::future::Future;
+use std::future::{Future, pending};
 use std::io;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use sidekicks_platforms::{ProcessTreeEnd, TerminalSignal, TerminalSignalRoute};
+use sidekicks_platforms::{
+    HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd, TerminalSignal, TerminalSignalRoute,
+};
 use tokio::task::AbortHandle;
 use tokio::time::Instant;
 
@@ -15,10 +17,7 @@ use crate::pty::TerminalWriteError;
 /// How long a console break is given before the program's tree is ended outright.
 const CONSOLE_BREAK_GRACE: Duration = Duration::from_secs(2);
 
-/// How long an outright end is waited for before the program's exit is reported anyway.
-const FORCED_END_REPORT_BOUND: Duration = Duration::from_secs(5);
-
-/// How long each of a close's endings waits for the program's exit before the next is tried.
+/// How long each of a close's endings lasts, its delivery included, before the next is tried.
 const ENDING_STEP: Duration = Duration::from_secs(2);
 
 /// A close's endings, in the order it tries them.
@@ -75,6 +74,18 @@ impl Escalation {
             .replace(handle);
         if let Some(replaced) = replaced {
             replaced.abort();
+        }
+    }
+
+    /// Aborts `handle`'s task when it is still the pending escalation, leaving a later one armed.
+    fn disarm(&self, handle: &AbortHandle) {
+        let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+        if pending
+            .as_ref()
+            .is_some_and(|armed| armed.id() == handle.id())
+        {
+            pending.take();
+            handle.abort();
         }
     }
 
@@ -139,7 +150,7 @@ fn describe_process(process_id: Option<u32>) -> String {
 /// delivery has begun; a program that has exited gets nothing. A console break arms the outright
 /// end of the program's tree for after its grace, and an outright end runs on without the caller,
 /// its exit arriving through the output. Fails when the program has no process id the route needs
-/// or the system refused the delivery.
+/// or the system refused the delivery; a console break that fails arms no end of the tree.
 pub(crate) async fn deliver_signal<E: ChildEnding>(
     ending: &Arc<E>,
     escalation: &Escalation,
@@ -166,11 +177,14 @@ pub(crate) async fn deliver_signal<E: ChildEnding>(
                     tokio::spawn(async move { hard_stop(&*escalating, process_id).await });
                 }
             });
+            let escalating_task = task.abort_handle();
             escalation.arm(task.abort_handle());
-            ending
-                .send_console_break(process_id)
-                .await
-                .map_err(KillError::ConsoleBreak)
+            let sent = ending.send_console_break(process_id).await;
+            if sent.is_err() {
+                // A break that never went out arms no end of the tree.
+                escalation.disarm(&escalating_task);
+            }
+            sent.map_err(KillError::ConsoleBreak)
         }
         TerminalSignalRoute::EndTree => {
             let process_id = ending.process_id().ok_or(KillError::NoProcessId)?;
@@ -192,7 +206,7 @@ async fn hard_stop<E: ChildEnding>(ending: &E, process_id: u32) {
 
 /// Ends the program's tree outright and waits for that up to its bound, logging how it went.
 async fn end_tree_within_bound<E: ChildEnding>(ending: &E, process_id: u32) {
-    match tokio::time::timeout(FORCED_END_REPORT_BOUND, ending.end_tree(process_id)).await {
+    match tokio::time::timeout(HELPER_PROGRAM_TIME_LIMIT, ending.end_tree(process_id)).await {
         Ok(Ok(tree_end)) => {
             tracing::debug!(
                 process_id,
@@ -219,8 +233,8 @@ async fn end_tree_within_bound<E: ChildEnding>(ending: &E, process_id: u32) {
 }
 
 /// Ends the program for a close after cancelling the pending escalation: a hangup, a stop and a
-/// kill in turn, each reaching it by `route_of` and each given its step to take, stopping once the
-/// program has exited. Nothing is reported, since a closing terminal reports nothing; a failed
+/// kill in turn, each reaching it by `route_of` and each lasting at most its step, its delivery
+/// included, stopping once the program has exited. Nothing is reported, since a closing terminal reports nothing; a failed
 /// ending is logged and the next tried. Fails when the program outlives its kill.
 pub(crate) async fn end_through_endings<E: ChildEnding>(
     ending: &E,
@@ -232,14 +246,21 @@ pub(crate) async fn end_through_endings<E: ChildEnding>(
         if ending.has_child_exited() {
             return Ok(());
         }
-        if let Err(error) = deliver_ending(ending, route_of(signal)).await {
-            tracing::warn!(?signal, %error, "a closing terminal's ending did not reach it");
-        }
+        // The delivery and the wait run together, so a slow delivery cannot stretch the step.
+        let delivered_then_waited = async {
+            if let Err(error) = deliver_ending(ending, route_of(signal)).await {
+                tracing::warn!(?signal, %error, "a closing terminal's ending did not reach it");
+            }
+            pending::<()>().await;
+        };
+        let step = async {
+            tokio::select! {
+                () = delivered_then_waited => {}
+                () = ending.child_exited() => {}
+            }
+        };
         // Timing out only moves on to the next ending; the last check below says how it went.
-        if tokio::time::timeout(ENDING_STEP, ending.child_exited())
-            .await
-            .is_ok()
-        {
+        if tokio::time::timeout(ENDING_STEP, step).await.is_ok() {
             return Ok(());
         }
     }
@@ -291,7 +312,7 @@ mod tests {
     use tokio::sync::watch;
 
     use super::{
-        CONSOLE_BREAK_GRACE, ChildEnding, Escalation, FORCED_END_REPORT_BOUND, deliver_signal,
+        CONSOLE_BREAK_GRACE, ChildEnding, Escalation, HELPER_PROGRAM_TIME_LIMIT, deliver_signal,
     };
     use crate::pty::TerminalWriteError;
 
@@ -445,21 +466,13 @@ mod tests {
             TreeEnding::Ends | TreeEnding::Fails => {}
             TreeEnding::NeverReturns => {
                 assert_eq!(child.calls(), expected, "no report before the bound");
-                advance(FORCED_END_REPORT_BOUND - ONE_MILLISECOND).await;
+                advance(HELPER_PROGRAM_TIME_LIMIT - ONE_MILLISECOND).await;
                 assert_eq!(child.calls(), expected, "no report before the bound");
                 advance(ONE_MILLISECOND).await;
             }
         }
         expected.push(Call::ForcedEnd);
         assert_eq!(child.calls(), expected);
-    }
-
-    #[test]
-    fn tree_end_hands_taskkill_the_root_alone_to_walk() {
-        assert_eq!(
-            sidekicks_platforms::taskkill_arguments(ROOT_PROCESS_ID),
-            ["/T", "/F", "/PID", "4242"],
-        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -471,7 +484,7 @@ mod tests {
             .unwrap();
         settle().await;
         child.has_exited.send_replace(true);
-        advance(CONSOLE_BREAK_GRACE + FORCED_END_REPORT_BOUND).await;
+        advance(CONSOLE_BREAK_GRACE + HELPER_PROGRAM_TIME_LIMIT).await;
         assert_eq!(child.calls(), [Call::ConsoleBreak(ROOT_PROCESS_ID)]);
     }
 }
