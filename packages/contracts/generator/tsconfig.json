@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Type-checks the generator, which Node runs as stripped TypeScript. Nothing is emitted, and
+  // `composite: false` keeps it out of the project-references graph.
+  "extends": "../../../tsconfig.node.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    // Node resolves the extension it is given and maps no `.js` specifier to a `.ts` source, so
+    // an import names the real file.
+    "allowImportingTsExtensions": true,
+    // Node strips the types and refuses syntax that emits code.
+    "erasableSyntaxOnly": true
+  },
+  "include": ["*.ts"]
+}
