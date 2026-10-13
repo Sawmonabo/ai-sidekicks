@@ -1,6 +1,6 @@
 // The markdown worker: loads the parser, compiling it from the renderer's own origin when the page
 // hands it none and sending the compiled module back for later workers, and compiles the
-// text-compression module on its own for the page, which compiles nothing itself, whenever the
+// compression module on its own for the page, which compiles nothing itself, whenever the
 // page's codec still wants it, sending what that came to; and then, off the page's thread, parses
 // each text the page sends into the parser's binary tree, cuts each body's text the page sends into
 // blocks, makes each reply's markdown into HTML under the screen's policy, and reads each drawn
@@ -11,7 +11,7 @@
 // it cannot make into a copy is answered with the reason, and the worker goes on with the rest.
 
 import parserModuleUrl from "@bruits/satteri-wasm32-wasi/satteri_napi.wasm32-wasi.wasm?url";
-import textCompressionModuleUrl from "@ai-sidekicks/text-compression/text-compression.wasm?url";
+import textCompressionModuleUrl from "@ai-sidekicks/compression/lz4.wasm?url";
 
 import { describeFailure } from "#shared/failure-message.js";
 import { BlockCut, MARKDOWN_SETTLE_LAG_BLOCKS } from "../parse/block-cut.js";
@@ -100,7 +100,7 @@ async function loadParser(load: MarkdownParserLoad): Promise<MarkdownParserCalls
   return await loadMarkdownParserCalls();
 }
 
-/** The text-compression module compiled from the renderer's own origin, or why it was not. */
+/** The compression module compiled from the renderer's own origin, or why it was not. */
 async function compileTextCompression(): Promise<CompiledTextCompression> {
   try {
     return {

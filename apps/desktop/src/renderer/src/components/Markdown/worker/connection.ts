@@ -2,7 +2,7 @@
 // app will soon draw markdown or on the first request, and hands it the parser: the module the
 // first worker compiled and sent back, which every later worker only instantiates. That module is
 // handed to the page's own parser too, at an idle moment, which parses the blocks a body mounts,
-// and the text-compression module a worker compiles while the page's text codec wants one goes to
+// and the compression module a worker compiles while the page's text codec wants one goes to
 // that codec; the worker parses what the page does not: a streaming tail, a block too long to parse
 // on the page, a long table's pieces, and every block while the page's parser could not start. It
 // sends each text to parse and hands back the parser's binary tree; a reply's markdown as the UTF-8
@@ -84,7 +84,7 @@ export const MARKDOWN_WORKER_IDLE_STOP_MS = 60_000;
 export class MarkdownWorkerConnection {
   /** The page's parser, which this connection hands the compiled module to. */
   public readonly pageParser: PageParser;
-  /** The page's text codec, which this connection hands the text-compression module to. */
+  /** The page's text codec, which this connection hands the compression module to. */
   readonly #textCompression: TextCompression;
   readonly #startWorker: MarkdownWorkerStart;
   readonly #view: Window;
@@ -385,7 +385,7 @@ export class MarkdownWorkerConnection {
   }
 
   /**
-   * Hands the page's codec the text-compression module the worker compiled, or its word that it
+   * Hands the page's codec the compression module the worker compiled, or its word that it
    * compiled none, which is recorded, and after which the page holds every chunk plain until a
    * later worker compiles one.
    */

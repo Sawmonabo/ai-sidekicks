@@ -1,5 +1,5 @@
 {
-  "name": "@ai-sidekicks/text-compression",
+  "name": "@ai-sidekicks/compression",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,13 +9,13 @@
     "node": ">=24.21.0"
   },
   "exports": {
-    "./text-compression.wasm": "./dist/text-compression.wasm"
+    "./lz4.wasm": "./dist/lz4.wasm"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "cargo build --profile wasm-release --target wasm32-unknown-unknown -p text-compression --message-format=json-render-diagnostics | node --experimental-strip-types write-dist.ts",
+    "build": "cargo build --profile wasm-release --target wasm32-unknown-unknown -p compression --message-format=json-render-diagnostics | node --experimental-strip-types write-dist.ts",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint write-dist.ts",
     "test": "cargo test"

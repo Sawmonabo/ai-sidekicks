@@ -1,5 +1,5 @@
 // What the page and the markdown worker say to each other: the parser the worker loads, and the
-// text-compression module it compiles on its own for the page's packed texts; a text to parse and
+// compression module it compiles on its own for the page's packed texts; a text to parse and
 // the trees the worker sends back as the parser's own binary buffers; a text to cut into
 // blocks and where each block ends; a reply's markdown asked for as HTML, or a drawn part asked for
 // as the text it copies as; the worker's asks for a long table's undrawn rows and the page's
@@ -26,7 +26,7 @@ export interface MarkdownParserLoad {
 }
 
 /**
- * The text-compression module the worker compiled, or why it compiled none: a failure there never
+ * The compression module the worker compiled, or why it compiled none: a failure there never
  * fails the parser, and the page holds every text's chunks plain until a later worker compiles it.
  */
 export type CompiledTextCompression =
@@ -136,7 +136,7 @@ export interface MarkdownWorkerMade {
 
 /**
  * What the worker says: the parser it compiled, which the page keeps for later workers; the
- * text-compression module it compiled, or why it compiled none, which the page's codec takes; the
+ * compression module it compiled, or why it compiled none, which the page's codec takes; the
  * trees of the texts it parsed since it last sent trees, and where the blocks of the texts it cut
  * since it last sent cuts end, each sent together so the page lands them in one pass; that the
  * parser failed to load or failed on a text, after which the page ends this worker; or, about one

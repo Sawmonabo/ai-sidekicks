@@ -7,7 +7,7 @@
 // it, and the markdown worker compiles the parser, which the page hands a second worker to parse
 // with, as the app hands it to every worker after the first. The page itself never compiles, but
 // it runs the modules the markdown worker compiled: the app hands the parser to the page's parser,
-// which must instantiate it and parse with nothing refused, and the text-compression module to the
+// which must instantiate it and parse with nothing refused, and the compression module to the
 // page's text codec, which must instantiate it and pack and unpack a chunk with nothing refused.
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -73,7 +73,7 @@ interface PageParseResult {
   readonly refusals: readonly string[];
 }
 
-/** What the page's own run of the worker's text-compression module made of a chunk. */
+/** What the page's own run of the worker's compression module made of a chunk. */
 interface PageCodecResult {
   /** The chunk's packed size and the text it unpacked to, or why the page could not run it. */
   readonly roundTrip: { readonly packedLength: number; readonly unpacked: string } | string;

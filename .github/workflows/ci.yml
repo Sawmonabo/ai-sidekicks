@@ -96,7 +96,7 @@ jobs:
               - '.nvmrc'
               - '.npmrc'
               - 'pnpm-workspace.yaml'
-              # The text-compression crate the desktop's build compiles to WebAssembly, the Cargo
+              # The compression crate the desktop's build compiles to WebAssembly, the Cargo
               # workspace files it builds under, and the toolchain that names its target.
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -238,7 +238,7 @@ jobs:
         run: pnpm -w exec prettier --check .
 
       # Two Rust crates build here: the session search's addon, which the tests also run through
-      # Cargo, and the text-compression module, built for WebAssembly. The action installs the
+      # Cargo, and the compression module, built for WebAssembly. The action installs the
       # newest stable Rust with that target once, before Turbo runs both builds at the same time;
       # left to `rust-toolchain.toml`, each Cargo run would install it and the two would collide.
       # SHA-pinned.
@@ -415,7 +415,7 @@ jobs:
         uses: ./.github/actions/setup-electron-display
 
       # A tier's turbo edges build the daemon with the session search's addon and the desktop with
-      # the text-compression module, both compiled from Rust. The remote cache above returns them
+      # the compression module, both compiled from Rust. The remote cache above returns them
       # while their inputs are unchanged; on a miss they compile with this toolchain, not whichever
       # the runner image carries, and the WebAssembly target is installed once here, never by two
       # Cargo runs at the same time. The newest stable Rust; SHA-pinned.
@@ -537,7 +537,7 @@ jobs:
       - name: Set up Electron on a display
         uses: ./.github/actions/setup-electron-display
 
-      # The fixture bundle's edges build the daemon's session search addon and the text-compression
+      # The fixture bundle's edges build the daemon's session search addon and the compression
       # module, both compiled from Rust on a cache miss; the WebAssembly target is installed once
       # here, never by two Cargo runs at the same time. The newest stable Rust; SHA-pinned.
       - name: Set up Rust
@@ -669,7 +669,7 @@ jobs:
         uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
 
       # On a cache miss the daemon's build compiles the session search's addon and the desktop's
-      # compiles the text-compression module, both from Rust; the WebAssembly target is installed
+      # compiles the compression module, both from Rust; the WebAssembly target is installed
       # once here, never by two Cargo runs at the same time. The newest stable Rust; SHA-pinned.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
@@ -815,7 +815,7 @@ jobs:
           ref: ${{ env.SWEEP_REF }}
 
       # The newest stable Rust, with the WebAssembly target `rust-toolchain.toml` lists for the
-      # text-compression module, so Cargo finds it installed; SHA-pinned.
+      # compression module, so Cargo finds it installed; SHA-pinned.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:

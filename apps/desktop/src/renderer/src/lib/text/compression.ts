@@ -28,7 +28,7 @@ export type TextCompressionState = "waiting" | "absent" | "provided" | "running"
 
 /**
  * The most UTF-8 bytes one chunk of a packed text holds: the size of the codec's plain buffer,
- * which the text-compression crate declares as 16 KiB.
+ * which the compression crate declares as 16 KiB.
  */
 export const TEXT_CHUNK_MAX_BYTES: number = 16 * 1024;
 
@@ -282,7 +282,7 @@ interface DecodedChunk {
   readonly text: string;
 }
 
-/** The exports of the text-compression module, as its crate declares them. */
+/** The exports of the compression module, as its crate declares them. */
 interface TextCodecExports {
   readonly memory: WebAssembly.Memory;
   plain_ptr(): number;
@@ -314,7 +314,7 @@ const TEXT_COMPRESSION_SOURCE = "lib/text/compression";
 /** Stateless, so one decoder serves every chunk. */
 const UTF8_DECODER = new TextDecoder();
 
-/** The functions the text-compression module exports. */
+/** The functions the compression module exports. */
 const CODEC_FUNCTION_NAMES = ["plain_ptr", "packed_ptr", "compress", "decompress"] as const;
 
 /**

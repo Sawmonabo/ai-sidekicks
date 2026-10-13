@@ -114,7 +114,7 @@ jobs:
           restore-keys: stryker-incremental-
 
       # The daemon's unit tests load the session search's addon, which its build compiles from
-      # Rust. The WebAssembly target `rust-toolchain.toml` lists for the text-compression module is
+      # Rust. The WebAssembly target `rust-toolchain.toml` lists for the compression module is
       # installed here, so Cargo finds it installed. SHA-pinned.
       - name: Set up Rust
         if: matrix.package == 'runtime-daemon'

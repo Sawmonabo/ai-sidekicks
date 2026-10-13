@@ -11,8 +11,8 @@ import { fileURLToPath } from "node:url";
 const PACKAGE_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIRECTORY = path.join(PACKAGE_DIRECTORY, "dist");
 const LICENSES_FOLDER = "THIRD_PARTY_LICENSES";
-const MODULE_FILE = "text-compression.wasm";
-const CRATE_LIBRARY_NAME = "text_compression";
+const MODULE_FILE = "lz4.wasm";
+const CRATE_LIBRARY_NAME = "compression";
 const STANDARD_INPUT = 0;
 
 /** A crate's legal files, by the names crates ship them under (`LICENSE-MIT`, `COPYING`, …). */

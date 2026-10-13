@@ -1,4 +1,4 @@
-# The newest stable Rust, with the WebAssembly target the text-compression module builds for;
+# The newest stable Rust, with the WebAssembly target the compression module builds for;
 # rustup installs a listed target the first time Cargo runs here without it.
 [toolchain]
 channel = "stable"

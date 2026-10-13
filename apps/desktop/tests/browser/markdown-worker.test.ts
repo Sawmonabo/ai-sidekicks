@@ -7,7 +7,7 @@
 // reference links and images, footnotes, a loose list beside a tight one, raw HTML and a table; and
 // reads a drawn part into the same text as the page, as plain text, and as markdown with its HTML,
 // a table's undrawn rows among it, and a text longer than one piece crosses whole. The page runs
-// the module the worker compiled into the same tree the worker makes, and runs the text-compression
+// the module the worker compiled into the same tree the worker makes, and runs the compression
 // module the worker compiles on its own, even beside a parser that fails to load, to pack a text's
 // chunks and unpack them to the same text. The worker cuts a body into exactly the top-level blocks
 // one parse of the whole body reads, whole and as it streams in, on the constructs a scan for blank
@@ -182,7 +182,7 @@ it("parses a block on the page, from the worker's module, into the same tree the
   expect(onPage.root.children.map((node) => node.type)).toContain("table");
 });
 
-it("packs and unpacks a chunk on the page with the worker's text-compression module", async () => {
+it("packs and unpacks a chunk on the page with the worker's compression module", async () => {
   const textCompression = new TextCompression(window);
   const connection = new MarkdownWorkerConnection(
     endWorkersWithTest(startMarkdownWorker),
@@ -220,7 +220,7 @@ it("packs and unpacks a chunk on the page with the worker's text-compression mod
   );
 });
 
-it("compiles the text-compression module apart from a parser that fails to load", async () => {
+it("compiles the compression module apart from a parser that fails to load", async () => {
   const worker = endWorkersWithTest(startMarkdownWorker)();
   const replies = repliesOf(worker);
   // A module with nothing in it, which the parser's loader cannot run.
