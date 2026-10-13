@@ -181,6 +181,21 @@ Intervention request-admission codes ([Spec-004 §Required Behavior](../../specs
 | --- | --- | --- |
 | `intervention.idempotency_conflict` | A `clientIdempotencyKey` was reused with a differing payload; the original intervention is untouched and the conflicting request is refused (an identical retry is not an error — it returns the saved result). Semantic payload conflict per the converging idempotency-key practice (`data.fields`: `targetRunId`, `interventionId` of the original) | 422 |
 
+### Command
+
+Refusals of the operations on a run's running commands ([Running Command Payload Contracts](running-command-payloads.md#running-command-method-registry-plan-003)). A move to the background on a provider with no such move refuses as §Driver `driver.capability_unsupported`.
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `command.not_in_foreground` | `command.background` named a command no turn is waiting on in the foreground; nothing moves | 409 |
+| `command.takes_no_input` | `command.write` named a command that neither takes input nor has a prompt open; nothing is written | 409 |
+
+### Question
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `question.answers_incomplete` | A `question.resolve` whose list does not answer every question of the record; nothing is answered and the question stays open ([Spec-011 §Interfaces And Contracts](../../specs/011-transcript-and-reasoning.md#interfaces-and-contracts)) | 422 |
+
 ### Orchestration
 
 Orchestration registers no code of its own (Plan-013 D-013-11). An orchestration run-create refused at admission answers with a reused code: §Agent `agent.not_found`, or §Run `run.not_found` where the parent run is missing. Every such refusal is zero-residue — no run row, no queue item, no partial state survives it (I-013-7) — and the daemon records it durably as the `orchestration.rejected` event ([Spec-014 §Example Flows](../../specs/014-multi-agent-orchestration.md#example-flows) "records the refusal visibly"). A reached spend limit is not a refusal: a message sent while it stands lands with the `Spend limit reached` row under it and starts no turn ([Spec-014 §Budget Policies](../../specs/014-multi-agent-orchestration.md#budget-policies)).
@@ -317,6 +332,7 @@ Every refusal point of the workflow surface carries its own code, registered in 
 | `workflow.cursor_unresolvable` | A `workflow.runList` or `workflow.stepRead` `cursor` the daemon did not write, or one past the end of what it pages; nothing is read | 400 |
 | `workflow.step_not_waiting` | A form submitted, an approval answered or a form read on a step that is no longer waiting | 409 |
 | `workflow.retry_unavailable` | `Retry from this step` refused while the source run is still going. `data.fields.reason` is `source_running` | 409 |
+| `workflow.idempotency_conflict` | A `workflow.runStart`, `workflow.runRetry` or `workflow.runRerun` reused a `clientIdempotencyKey` with a differing payload; the run the key first answered is untouched and the conflicting request is refused (an identical resend is not an error: it answers that run), as §Intervention `intervention.idempotency_conflict` does. `data.fields`: `workflowRunId` (the run the first request made) and, for a retry or rerun, `sourceWorkflowRunId` | 422 |
 | `workflow.project_on_project_session` | A `workflow.runStart` from a project session that names a project: that session's run works in the session's own repository, so nothing runs | 422 |
 | `workflow.repository_required` | A start, or a node run (`workflow.nodeExecute`), that names no project's repository — a `None` run, or a start in a chat that names none — of a workflow version holding a Git, Read a repo diff or Run tests step; `data.fields.nodeIds` names those nodes. Nothing runs | 422 |
 | `workflow.input_required` | A start that leaves a required input its workflow declares unfilled, or gives an input a value that does not fit it; `data.fields.inputNames` names those inputs. Nothing runs | 422 |
@@ -403,6 +419,8 @@ Agent-definition and peer-invocation refusals (Plan-024; [Spec-026](../../specs/
 | `mcp.config_invalid` | The submitted server configuration failed validation — malformed shape, unknown transport, or any refusal detectable **before the durable leg commits**; strictly pre-commit by contract: once the durable write has landed, per-leg live-application failures (including Claude `setMcpServers` per-server errors) report as `liveResults[]` entries on the successful response, never as this error, so a caller is never induced to retry a committed mutation ([Spec-024 §Configuration Mutation](../../specs/024-mcp-server-configuration-and-governance.md#configuration-mutation)) | 400 |
 | `mcp.config_write_conflict` | A Codex config write lost to a concurrent edit, on either arm: a `user`-scope write's `expected_version` hit `configVersionConflict`, which is returned at once with no retry, and the error carries both version tokens so the caller can re-inspect; or the `project` file no longer hashes to what the daemon last read, so the edit is not renamed into place and the file is left as it was ([Spec-024 §Configuration Mutation](../../specs/024-mcp-server-configuration-and-governance.md#configuration-mutation), [Spec-024 §Fallback Behavior](../../specs/024-mcp-server-configuration-and-governance.md#fallback-behavior)) | 409 |
 | `mcp.oauth_flow_failed` | The daemon failed to **launch** the sign-in — discovery, registration, or the provider's own flow in its throwaway home — surfaced on the still-open `mcp.oauthLogin` call; strictly launch-phase: once the call has returned, an asynchronous completion failure is delivered as the `mcp.server_oauth_completed` event with `outcome: 'failure'` (observable on the `mcp.subscribe` stream), never as a late error on a completed call; the message never carries authorization URLs or credential material ([Spec-024 §OAuth Orchestration](../../specs/024-mcp-server-configuration-and-governance.md#oauth-orchestration)) | 502 |
+| `mcp.binding_store_unavailable` | The binding store is unreachable: the inventory serves its degraded arm and every MCP mutation fails closed, changing nothing ([Spec-024 §Fallback Behavior](../../specs/024-mcp-server-configuration-and-governance.md#fallback-behavior)) | 503 |
+| `mcp.server_unavailable` | `session.mcpResourceList` named a server that is off or not working in the session, so it has no resources to list | 409 |
 
 ### Skill
 
