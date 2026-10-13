@@ -2,14 +2,15 @@
 //! module that owns it. A declaration gives a marker type the daemon registers a handler for and a
 //! table entry the TypeScript method map is generated from.
 
-use bytes::Bytes as ByteBuffer;
+use std::sync::Arc;
+
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::schema::ReceivedCheckError;
 use crate::typescript::TypeName;
-use crate::wire::attachment::ReceivedError;
 
 /// How a method answers: a `query` reads and a `mutation` changes state, each with one result; a
 /// `subscription` answers with an acknowledgement and then streams emissions.
@@ -42,9 +43,10 @@ pub struct MethodDescriptor {
     pub emission: Option<TypeName>,
     /// The refusal codes the method answers with.
     pub refusals: &'static [RefusalCode],
-    /// Reads the request's params as [`crate::wire::attachment::parse_received`] does, schema,
-    /// serde and garde, and drops the value; refuses what that read refuses.
-    pub params_check: fn(&[u8], Vec<ByteBuffer>) -> Result<(), ReceivedError>,
+    /// The check the request's params pass before serde reads them, built on first use and held,
+    /// so the daemon can build every one at start; it parses nothing. Fails where the params'
+    /// schema does not build a check.
+    pub received_check: fn() -> Result<Arc<jsonschema::Validator>, ReceivedCheckError>,
 }
 
 /// One module's methods, written to TypeScript under `name`.
@@ -145,10 +147,7 @@ macro_rules! methods {
                         result: $crate::typescript::TypeName::of::<$result>(),
                         emission: $crate::method::methods!(@emission $kind $($emission)?),
                         refusals: &[$($crate::jsonrpc::refusal::RefusalCode::$refusal),*],
-                        params_check: |json, attachments| {
-                            $crate::wire::attachment::parse_received::<$params>(json, attachments)
-                                .map(drop)
-                        },
+                        received_check: $crate::schema::received_check::<$params>,
                     };
             }
 
@@ -172,26 +171,22 @@ mod tests {
     use crate::jsonrpc::message::CancelRequestParams;
     use crate::jsonrpc::negotiation::DaemonHello;
     use crate::jsonrpc::streaming::SubscriptionCancelParams;
+    use crate::provider::tools::{SessionSendArguments, TaskOutputArguments, TaskStopArguments};
     use crate::schema::received_check;
-    use crate::wire::attachment::ReceivedError;
 
     #[test]
     fn every_received_type_builds_its_check() {
         let mut failures: Vec<String> = crate::typescript_modules()
             .flat_map(|module| module.method_tables)
             .flat_map(|table| table.methods)
-            .filter_map(|method| match (method.params_check)(b"null", Vec::new()) {
-                Err(ReceivedError::Check(error)) => Some(format!("{}: {error:?}", method.method)),
-                Ok(())
-                | Err(
-                    ReceivedError::Json(_)
-                    | ReceivedError::Shape(_)
-                    | ReceivedError::Attachment(_)
-                    | ReceivedError::Rule(_),
-                ) => None,
+            .filter_map(|method| {
+                (method.received_check)()
+                    .err()
+                    .map(|error| format!("{}: {error:?}", method.method))
             })
             .collect();
-        // The calls a server receives outside the method tables.
+        // The calls a server receives outside the method tables: the protocol's own and the tool
+        // arguments a model sends.
         failures.extend(
             [
                 ("daemon.hello", received_check::<DaemonHello>().err()),
@@ -203,6 +198,12 @@ mod tests {
                     "$/subscription/cancel",
                     received_check::<SubscriptionCancelParams>().err(),
                 ),
+                (
+                    "session_send",
+                    received_check::<SessionSendArguments>().err(),
+                ),
+                ("task_output", received_check::<TaskOutputArguments>().err()),
+                ("task_stop", received_check::<TaskStopArguments>().err()),
             ]
             .into_iter()
             .filter_map(|(method, error)| Some(format!("{method}: {:?}", error?))),

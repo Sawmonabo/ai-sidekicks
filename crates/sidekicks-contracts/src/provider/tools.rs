@@ -1,7 +1,8 @@
 //! The arguments of the tools the daemon serves the providers on its own tool route: the session
 //! messaging pair, and the two that read and stop a tool call that moved to the background. A model
-//! calls these, not a client, so no method table lists them. `session_list` takes no arguments, so
-//! its input is the empty payload every argument-less call shares.
+//! calls these, not a client, so no method table lists them, but the daemon reads them as it reads
+//! any message it receives. `session_list` takes no arguments, so its input is the empty payload
+//! every argument-less call shares.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -15,8 +16,9 @@ use crate::wire::text::FreeFormText;
 /// `session_send`: a message to another session. `to` is that session's name as `session_list`
 /// prints it, never an address; `files` are paths the sending session can read, staged into the
 /// receiving session as its own attachments.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionSendArguments {
     /// The receiving session's name.
     #[schemars(description = format!(
@@ -46,8 +48,9 @@ pub struct SessionSendArguments {
 
 /// `task_output`: the status of a tool call that moved to the background and, once it ends, its
 /// result. `wait_seconds` is how long the model asks to wait; the daemon waits at most 10 s.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct TaskOutputArguments {
     /// The background call.
     #[schemars(
@@ -70,8 +73,9 @@ pub struct TaskOutputArguments {
 }
 
 /// `task_stop`: cancels a tool call that moved to the background.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct TaskStopArguments {
     /// The background call.
     #[schemars(
