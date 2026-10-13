@@ -11,8 +11,6 @@ mod internal;
 pub mod jsonrpc;
 pub mod mcp;
 pub mod method;
-#[cfg(feature = "test-support")]
-pub mod parity;
 pub mod preview;
 pub mod provider;
 pub mod repo;

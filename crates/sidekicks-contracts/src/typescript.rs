@@ -89,7 +89,7 @@ impl TypeName {
 /// A constant a TypeScript client reads as a value.
 #[derive(Clone, Copy, Debug)]
 pub struct TsConstant {
-    /// The exported name, today's TypeScript name.
+    /// The name the constant is exported under.
     pub name: &'static str,
     /// The constant's doc comment.
     pub doc: &'static str,

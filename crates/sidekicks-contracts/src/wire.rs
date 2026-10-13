@@ -110,8 +110,3 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 
 /// The wire's TypeScript modules.
 pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[&TYPESCRIPT_MODULE];
-
-#[cfg(feature = "test-support")]
-crate::parity::parity_keys! {
-    "internal/wire-scalars#isoDateTimeSchema" => instant::WireInstant, checked;
-}

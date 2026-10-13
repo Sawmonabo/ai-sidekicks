@@ -36,16 +36,10 @@ uuid.workspace = true
 wasm-bindgen = { workspace = true, optional = true }
 
 [dev-dependencies]
-flate2.workspace = true
-insta.workspace = true
 proptest.workspace = true
 rstest.workspace = true
-# The crate's own test support, for its integration tests.
-sidekicks-contracts = { workspace = true, features = ["test-support"] }
 
 [features]
-# The parity corpus's keys, which the integration tests read.
-test-support = []
 # The WebAssembly exports the workflow builder loads.
 wasm = ["dep:wasm-bindgen"]
 

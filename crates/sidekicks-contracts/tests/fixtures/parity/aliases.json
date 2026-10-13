@@ -1,9 +1,0 @@
-{
-  "internal/wire-scalars#countSchema": [
-    "event/envelope#SourceEpochSchema",
-    "event/envelope#SourcePositionSchema",
-    "session/cost#UsdMicrosSchema",
-    "workflow/run/snapshot#WorkflowRunEpochSchema"
-  ],
-  "event/version#EventEnvelopeVersionSchema": ["event/envelope#EventEnvelopeVersionSchema"]
-}
