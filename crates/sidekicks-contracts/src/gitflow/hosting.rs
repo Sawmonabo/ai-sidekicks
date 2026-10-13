@@ -9,7 +9,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::gitflow::shared::{ChangeRequestNumber, HostHandle, HostingAddress};
 use crate::repo::git_reads::GitObjectId;
 use crate::review_note::ReviewNoteId;
@@ -180,12 +180,6 @@ pub struct GitHost {
     pub added_at: WireInstant,
 }
 
-/// `gitflow.hostList` takes nothing: the hosts are the machine's, so nothing names a session.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct GitflowHostListRequest {}
-
 /// The `gitflow.hostList` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -328,8 +322,8 @@ pub struct ReviewThread {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "BoundedText<1, FILE_PATH_MAX_LEN>")]
-    pub path: Option<BoundedText<1, FILE_PATH_MAX_LEN>>,
+    #[schemars(with = "FilesystemPath")]
+    pub path: Option<FilesystemPath>,
     /// Its line, from 1.
     #[serde(
         default,
@@ -694,7 +688,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<GitflowHostInvalidReason>(),
         Definition::read::<GitflowHostInvalidDetails>(),
         Definition::read::<GitHost>(),
-        Definition::read::<GitflowHostListRequest>(),
         Definition::read::<GitflowHostListResponse>(),
         Definition::read::<GitflowHostAddRequest>(),
         Definition::read::<GitflowHostAddResponse>(),

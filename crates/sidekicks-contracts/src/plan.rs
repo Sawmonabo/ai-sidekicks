@@ -8,7 +8,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::method::methods;
 use crate::provider::name::ProviderName;
@@ -17,7 +17,6 @@ use crate::session::controls::methods::PermissionLevel;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
-use crate::wire::text::BoundedText;
 
 branded_uuid_id! {
     /// The daemon-minted id of one plan record, stable across a reload and every device.
@@ -66,8 +65,8 @@ pub struct PlanProposedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "BoundedText<1, FILE_PATH_MAX_LEN>")]
-    pub plan_file_path: Option<BoundedText<1, FILE_PATH_MAX_LEN>>,
+    #[schemars(with = "FilesystemPath")]
+    pub plan_file_path: Option<FilesystemPath>,
 }
 
 /// `plan.accepted`: the plan is being built in its own session.

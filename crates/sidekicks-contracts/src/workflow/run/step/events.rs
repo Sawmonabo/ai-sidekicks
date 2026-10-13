@@ -17,7 +17,6 @@ use crate::wire::text::ComposedText;
 use crate::workflow::definition::document::WorkflowNodeId;
 use crate::workflow::definition::item::WorkflowStepError;
 use crate::workflow::run::events::workflow_run_event;
-use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::step::record::{WorkflowCost, WorkflowPayloadRef, workflow_step_key};
 
 ts_constants! {
@@ -107,35 +106,31 @@ workflow_step_event! {
 /// Declares `WorkflowPhaseSuspendedPayload` with the step members every wait cause repeats.
 macro_rules! phase_suspended_payload {
     ($($(#[doc = $doc:literal])+ $arm:ident { $($fields:tt)* })+) => {
-        /// `workflow.phase_suspended`: a step started waiting: its `waitCause` and, for an
-        /// `account` wait, the spent account the attention read groups it under and the durable
-        /// resume instant where the wait armed one; absent, only the person resumes it. A wait on
-        /// anything else names neither. The deadline a `Timeout` arms is written on the step's row
-        /// and rides no event.
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-        #[serde(
-            tag = "waitCause",
-            rename_all = "snake_case",
-            rename_all_fields = "camelCase",
-            deny_unknown_fields
-        )]
-        #[garde(allow_unvalidated)]
-        pub enum WorkflowPhaseSuspendedPayload {$(
-            $(#[doc = $doc])+
-            $arm {
+        workflow_step_key! {
+            enum [
                 /// The session the run lives in.
                 session_id: SessionId,
-                /// The run.
-                workflow_run_id: WorkflowRunId,
-                /// The node.
-                node_id: WorkflowNodeId,
-                /// Which attempt at the step, counted from 1.
-                attempt: SafeInt<1>,
-                /// Which execution of the node.
-                execution_index: SafeInt<0>,
-                $($fields)*
-            },
-        )+}
+            ]
+            /// `workflow.phase_suspended`: a step started waiting: its `waitCause` and, for an
+            /// `account` wait, the spent account the attention read groups it under and the
+            /// durable resume instant where the wait armed one; absent, only the person resumes
+            /// it. A wait on anything else names neither. The deadline a `Timeout` arms is
+            /// written on the step's row and rides no event.
+            #[derive(
+                Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+            )]
+            #[serde(
+                tag = "waitCause",
+                rename_all = "snake_case",
+                rename_all_fields = "camelCase",
+                deny_unknown_fields
+            )]
+            #[garde(allow_unvalidated)]
+            pub enum WorkflowPhaseSuspendedPayload {$(
+                $(#[doc = $doc])+
+                $arm { $($fields)* }
+            )+}
+        }
     };
 }
 

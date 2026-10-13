@@ -193,6 +193,10 @@ pub struct PluginSource {
     pub commit: Option<PluginToken>,
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn names_repository_and_commit_together(source: &PluginSource, (): &()) -> garde::Result {
     if source.repository.is_some() == source.commit.is_some() {
         Ok(())
@@ -305,8 +309,8 @@ literal! {
 }
 
 /// `plugin.appList`: a Codex plugin's apps. An app is a tool server its provider hosts, reached
-/// through a Codex account's ChatGPT sign-in, so its link is kept per account and every linked app
-/// reaches every session on that account without loading anything.
+/// through a Codex account's `ChatGPT` sign-in, so its link is kept per account and every linked
+/// app reaches every session on that account without loading anything.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

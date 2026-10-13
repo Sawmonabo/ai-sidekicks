@@ -4,15 +4,15 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::jsonrpc::page::fits_one_page;
 use crate::repo::mount::RepoMountId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::id::ClientUuid;
-use crate::wire::integer::{BoundedInt, SafeInt};
+use crate::wire::integer::{BoundedInt, SafeInt, count_bound};
 use crate::wire::list::BoundedVec;
-use crate::wire::text::{BoundedText, FreeFormText, pattern_text};
+use crate::wire::text::pattern_text;
 use crate::wire::{False, True};
 
 /// Converts a chat to a project. `path` is the folder the person typed; it travels as data and the
@@ -25,7 +25,7 @@ pub struct SessionConvertRequest {
     /// The chat.
     pub session_id: SessionId,
     /// The folder.
-    pub path: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub path: FilesystemPath,
     /// The key that makes a repeated convert one conversion.
     pub client_idempotency_key: ClientUuid,
 }
@@ -49,7 +49,7 @@ pub enum SessionConvertSkipReason {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionConvertSkippedFile {
     /// The path; any name the filesystem holds, a name of spaces alone included.
-    pub path: BoundedText<1, FILE_PATH_MAX_LEN>,
+    pub path: FilesystemPath,
     /// Why it was not copied.
     pub reason: SessionConvertSkipReason,
 }
@@ -98,7 +98,7 @@ pattern_text! {
 
 /// How many skipped files a page may carry: 1 to [`SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX`].
 pub type SessionConvertSkippedFileLimit =
-    BoundedInt<1, { SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX as i64 }>;
+    BoundedInt<1, { count_bound(SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX) }>;
 
 /// The `session.convertSkippedFileList` input: the converted session and, past the first page,
 /// the previous page's `nextCursor`.

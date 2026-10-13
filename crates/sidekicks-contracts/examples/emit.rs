@@ -19,6 +19,7 @@ const MODULE_ID_SCHEME: &str = "sidekicks-contracts:";
 /// Where schemars puts a definition, as a local reference reads it.
 const LOCAL_DEFINITIONS: &str = "#/$defs/";
 
+/// What every emit step returns: its value, or the error that stops the run.
 type EmitResult<T> = Result<T, Box<dyn Error>>;
 
 fn main() -> EmitResult<()> {
@@ -266,6 +267,7 @@ fn doc_text(doc: &str) -> String {
         .to_owned()
 }
 
+/// Writes `value` to `path` as pretty JSON ending in a newline.
 fn write_json(path: &Path, value: &Value) -> EmitResult<()> {
     let mut text = serde_json::to_string_pretty(value)?;
     text.push('\n');

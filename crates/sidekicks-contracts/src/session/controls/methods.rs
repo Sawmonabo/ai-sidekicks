@@ -480,7 +480,7 @@ methods! {
             mutating: true,
             params: SessionAutoCompactUpdateRequest,
             result: SessionAutoCompactUpdateResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Streams the session's tool server list.
         SessionMcpServerListSubscribe = subscription "session.mcpServerList" {
@@ -488,21 +488,21 @@ methods! {
             params: SessionAddressedRequest,
             result: SubscribeAckResponse,
             emission: SessionMcpServerList,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Turns one tool server on or off for the session.
         SessionMcpServerUpdate = mutation "session.mcpServerUpdate" {
             mutating: true,
             params: SessionMcpServerUpdateRequest,
             result: SessionMcpServerUpdateResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Lists one working server's resources.
         SessionMcpResourceList = query "session.mcpResourceList" {
             mutating: false,
             params: SessionMcpResourceListRequest,
             result: SessionMcpResourceListResponse,
-            refusals: [McpServerUnavailable],
+            refusals: [SessionNotFound, McpServerUnavailable],
         },
         /// Streams the live `/` list's provider half.
         SessionProviderCommandsSubscribe = subscription "session.providerCommandsSubscribe" {
@@ -531,7 +531,7 @@ methods! {
             mutating: true,
             params: SessionAddressedRequest,
             result: SessionAcknowledgement,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Sets or clears the session's step bound.
         SessionMaxStepsUpdate = mutation "session.maxStepsUpdate" {

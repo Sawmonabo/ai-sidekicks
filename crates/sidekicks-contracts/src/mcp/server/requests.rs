@@ -5,6 +5,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::free_form_string::FilesystemPath;
 use crate::mcp::server::config::{
     MCP_REQUEST_TEXT_MAX_LEN, McpRequestText, McpServerAddress, McpServerConfigInput,
     add_provider_config_rules, is_request_address,
@@ -13,7 +14,7 @@ use crate::mcp::server::inventory::{
     McpRuntimeBindingId, McpServerInventoryEntry, McpServerLegStatus, McpToolOverride,
     McpToolOverrideFacet,
 };
-use crate::mcp::server::{McpApplicationGrade, McpProjectRoot, McpToolName, binding_addressed};
+use crate::mcp::server::{McpApplicationGrade, McpToolName, binding_addressed};
 use crate::session::id::SessionId;
 use crate::web_address::WebAddress;
 use crate::wire::id::ClientUuid;
@@ -54,7 +55,11 @@ binding_addressed! {
 
 impl McpUpsertServerRequest {
     /// Whether the declaration fits the binding's provider.
-    fn fits_its_provider(&self, _: &()) -> garde::Result {
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "garde passes a check's context by reference"
+    )]
+    fn fits_its_provider(&self, (): &()) -> garde::Result {
         let (Self::User {
             provider, config, ..
         }
@@ -90,7 +95,7 @@ binding_addressed! {
     }
     on connector and managed {
         /// The project the switch applies in.
-        project_root: McpProjectRoot,
+        project_root: FilesystemPath,
     }
     elsewhere {
         /// Never present: the binding is switched where it applies.

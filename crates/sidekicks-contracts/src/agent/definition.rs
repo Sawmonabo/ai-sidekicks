@@ -10,7 +10,7 @@ use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::project::ProjectId;
@@ -347,7 +347,7 @@ definition_record! {
         pub project_id: Option<ProjectId>,
         /// The record's file, or for an orphaned record the last path it was known at; shown,
         /// never a capability.
-        pub source_path: FreeFormText<FILE_PATH_MAX_LEN>,
+        pub source_path: FilesystemPath,
         /// A provider's file was renamed or deleted outside the app; the record keeps its extras
         /// until it is reattached or discarded.
         pub orphaned: bool,
@@ -361,7 +361,11 @@ definition_record! {
 }
 
 /// Whether a list entry names its plugin and its project exactly where its origin and scope say.
-fn entry_names_its_plugin_and_project(entry: &AgentDefinitionListEntry, _: &()) -> garde::Result {
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
+fn entry_names_its_plugin_and_project(entry: &AgentDefinitionListEntry, (): &()) -> garde::Result {
     plugin_name_matches_origin(entry.origin, entry.plugin_name.as_ref())?;
     project_matches_scope(Some(entry.scope), entry.project_id.as_ref())
 }

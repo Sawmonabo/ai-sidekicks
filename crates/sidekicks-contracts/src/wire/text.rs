@@ -7,8 +7,8 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
-/// Whether `character` is in ECMAScript's `\s` set: its WhiteSpace and LineTerminator code points.
-/// Rust's `char::is_whitespace` differs from it on U+FEFF and U+0085.
+/// Whether `character` is in ECMAScript's `\s` set: its `WhiteSpace` and `LineTerminator` code
+/// points. Rust's `char::is_whitespace` differs from it on U+FEFF and U+0085.
 pub fn is_ecmascript_whitespace(character: char) -> bool {
     matches!(
         character,

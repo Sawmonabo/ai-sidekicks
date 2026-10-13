@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::gitflow::hosting::{ChangeRequestSummary, GitHostKind, ReviewSubmitVerdict};
 use crate::gitflow::shared::{ChangeRequestNumber, GitRefName, GitShortObjectId, HostingAddress};
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
@@ -19,7 +19,7 @@ use crate::wire::Never;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
-use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText, branded_text};
+use crate::wire::text::{FreeFormText, NonEmptyText, branded_text};
 use crate::workflow::definition::document::WorkflowNodeId;
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::snapshot::{WorkflowRunEpoch, WorkflowRunPauseNumber};
@@ -257,7 +257,7 @@ macro_rules! diff_file {
             $arm {
                 $($own)*
                 /// The path.
-                path: BoundedText<1, FILE_PATH_MAX_LEN>,
+                path: FilesystemPath,
                 /// Whether its mode changed.
                 #[serde(
                     default,
@@ -359,7 +359,7 @@ diff_file! {
     /// A file renamed.
     Renamed {
         /// The path before the rename.
-        old_path: BoundedText<1, FILE_PATH_MAX_LEN>,
+        old_path: FilesystemPath,
     }
     /// A file modified.
     Modified {

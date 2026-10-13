@@ -14,18 +14,6 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::text::FreeFormText;
 
-/// `account.delete` takes nothing: the account is the caller's, and no other account is named.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct AccountDeleteRequest {}
-
-/// `account.export` takes nothing: the account is the caller's.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct AccountExportRequest {}
-
 /// The account's own record, as the control plane keeps it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -58,14 +46,14 @@ methods! {
         /// Deletes the caller's account.
         AccountDelete = mutation "account.delete" {
             mutating: true,
-            params: AccountDeleteRequest,
+            params: EmptyPayload,
             result: EmptyPayload,
             refusals: [],
         },
         /// The account record and its device list.
         AccountExport = query "account.export" {
             mutating: false,
-            params: AccountExportRequest,
+            params: EmptyPayload,
             result: AccountExportResponse,
             refusals: [],
         },
@@ -79,8 +67,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The hosted account's procedures on the control plane: deleting it and exporting what \
           the control plane keeps for the person.",
     definitions: &[
-        Definition::read::<AccountDeleteRequest>().checked(),
-        Definition::read::<AccountExportRequest>().checked(),
         Definition::read::<AccountRecord>(),
         Definition::read::<AccountExportResponse>().checked(),
     ],

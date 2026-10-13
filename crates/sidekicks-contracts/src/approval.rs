@@ -550,6 +550,10 @@ approval_projection_row! {
     ],
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn offers_the_project_only_beside_a_standing_allow(
     row: &ApprovalProjectionRow,
     (): &(),
@@ -678,14 +682,14 @@ methods! {
             mutating: false,
             params: ApprovalProjectionReadRequest,
             result: ApprovalProjectionReadResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// The rules in force on a session.
         ApprovalRuleList = query "approval.ruleList" {
             mutating: false,
             params: RememberedRuleListRequest,
             result: RememberedRuleListResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Revokes one rule.
         ApprovalRuleRevoke = mutation "approval.ruleRevoke" {
@@ -700,6 +704,7 @@ methods! {
             params: ApprovalDenialOverrideRequest,
             result: ApprovalDenialOverrideResponse,
             refusals: [
+                SessionNotFound,
                 ApprovalDenialNotFound,
                 ApprovalDenialNotOverridable,
                 SessionAlreadyClosed,

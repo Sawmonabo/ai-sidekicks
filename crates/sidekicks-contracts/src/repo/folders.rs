@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::project::{ProjectId, ProjectName};
 use crate::repo::mount::{RepoMountHealth, RepoMountId, RepoMountState, VcsType, WorkspaceId};
 use crate::runtime_node::id::NodeId;
@@ -22,9 +22,6 @@ use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
 use crate::wire::{NullableSchema, nullable};
 use crate::worktree::lifecycle::WorktreeId;
-
-/// A path on the machine the service runs on.
-pub type FolderPath = FreeFormText<FILE_PATH_MAX_LEN>;
 
 /// Where a folder the service can reach came from, carrying the ids its removal act takes: a
 /// project's folder the person attached (removed by the project's detach); a chat's own workspace,
@@ -67,7 +64,7 @@ pub enum RepoMountOrigin {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoMountListEntry {
     /// The folder.
-    pub path: FolderPath,
+    pub path: FilesystemPath,
     /// Where it came from.
     pub origin: RepoMountOrigin,
     /// How many sessions use it.
@@ -75,12 +72,6 @@ pub struct RepoMountListEntry {
     /// Whether it is on the other side's disk.
     pub on_other_side_disk: bool,
 }
-
-/// `repo.mountList` takes nothing: it lists every folder the service can reach.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct RepoMountListRequest {}
 
 /// The `repo.mountList` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -102,8 +93,8 @@ pub struct RepoFolderListRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FolderPath")]
-    pub path: Option<FolderPath>,
+    #[schemars(with = "FilesystemPath")]
+    pub path: Option<FilesystemPath>,
     /// The text that narrows its folders.
     #[serde(
         default,
@@ -129,7 +120,7 @@ pub struct RepoFolderListEntry {
     /// Its name.
     pub name: FreeFormText<FILE_PATH_MAX_LEN>,
     /// Its path.
-    pub path: FolderPath,
+    pub path: FilesystemPath,
     /// Whether it is a git repository.
     pub is_repository: bool,
 }
@@ -141,7 +132,7 @@ pub struct RepoFolderPathSegment {
     /// Its name.
     pub name: FreeFormText<FILE_PATH_MAX_LEN>,
     /// Its path.
-    pub path: FolderPath,
+    pub path: FilesystemPath,
 }
 
 /// The `repo.folderList` result: the folder in view as the service writes its path, the path's
@@ -151,7 +142,7 @@ pub struct RepoFolderPathSegment {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoFolderListResponse {
     /// The folder in view.
-    pub path: FolderPath,
+    pub path: FilesystemPath,
     /// The path's segments, at least the folder in view.
     pub segments: BoundedVec<RepoFolderPathSegment, 1, { usize::MAX }>,
     /// Its folders.
@@ -169,7 +160,7 @@ pub struct RepoFolderListResponse {
 #[garde(allow_unvalidated)]
 pub struct RepoAttachRequest {
     /// The path as entered.
-    pub local_path: FolderPath,
+    pub local_path: FilesystemPath,
 }
 
 /// The `repo.attach` result: the new mount and the root its path resolved to.
@@ -183,7 +174,7 @@ pub struct RepoAttachResponse {
     /// Its version-control system.
     pub vcs_type: VcsType,
     /// The resolver's absolute, symlink-resolved root, never the entered path.
-    pub canonical_root: FolderPath,
+    pub canonical_root: FilesystemPath,
 }
 
 /// `repo.mountRead`, `repo.detach` and `repo.mountReattach`: the mount to act on.
@@ -213,9 +204,9 @@ pub struct RepoMountReadResponse {
     /// The machine's daemon that holds it.
     pub node_id: NodeId,
     /// The path as entered; it differs from `canonicalRoot` when entered inside or via a link.
-    pub local_path: FolderPath,
+    pub local_path: FilesystemPath,
     /// The resolved root.
-    pub canonical_root: FolderPath,
+    pub canonical_root: FilesystemPath,
     /// Its version-control system.
     pub vcs_type: VcsType,
     /// Its state.
@@ -336,7 +327,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<RepoMountOrigin>().checked(),
         Definition::read::<RepoMountListEntry>(),
-        Definition::read::<RepoMountListRequest>(),
         Definition::read::<RepoMountListResponse>(),
         Definition::read::<RepoFolderListRequest>(),
         Definition::read::<RepoFolderListEntry>(),

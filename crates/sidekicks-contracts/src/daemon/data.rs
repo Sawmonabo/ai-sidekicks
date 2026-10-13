@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ERROR_MESSAGE_MAX_LEN;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
@@ -33,7 +33,7 @@ branded_uuid_id! {
 #[garde(allow_unvalidated)]
 pub struct DataExportRequest {
     /// The new folder's path.
-    pub destination: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub destination: FilesystemPath,
 }
 
 /// The export job the request started; its progress streams on `daemon.dataExportSubscribe`.
@@ -76,7 +76,7 @@ pub enum DataExportProgress {
     /// The export finished: the folder and its size.
     Completed {
         /// The folder written.
-        path: FreeFormText<FILE_PATH_MAX_LEN>,
+        path: FilesystemPath,
         /// Its size in bytes.
         total_bytes: SafeInt<0>,
     },

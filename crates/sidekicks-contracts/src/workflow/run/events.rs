@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::integer::SafeInt;
 use crate::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
 use crate::workflow::run::control::{WorkflowCancelReason, names_whole_repin};
 use crate::workflow::run::id::WorkflowRunId;
+use crate::workflow::run::step::record::workflow_step_key;
 use crate::workflow::run::trigger::{WorkflowRunMode, WorkflowStartedBy};
 
 /// Declares a run event's payload struct: the run it names (its session, its id, and the
@@ -75,16 +75,13 @@ workflow_run_event! {
     pub struct WorkflowRunDeletedPayload {}
 }
 
-/// One step a resumed run picks up, by its node, its attempt and which execution of the node.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkflowResumedStep {
-    /// The node.
-    pub node_id: WorkflowNodeId,
-    /// Which attempt at the step, counted from 1.
-    pub attempt: SafeInt<1>,
-    /// Which execution of the node.
-    pub execution_index: SafeInt<0>,
+workflow_step_key! {
+    position
+    /// One step a resumed run picks up, by its node, its attempt and which execution of the node;
+    /// the run is the event's own.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowResumedStep {}
 }
 
 /// Where a resumed run picks up, so a reader rebuilds it without replaying the run's whole history:

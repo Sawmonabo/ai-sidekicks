@@ -240,7 +240,9 @@ fn close(schema: &mut Value, is_inside_closed: bool) {
     let is_carried = is_inside_closed || is_closing;
     for key in ["oneOf", "anyOf", "allOf"] {
         if let Some(Value::Array(arms)) = object.get_mut(key) {
-            arms.iter_mut().for_each(|arm| close(arm, is_carried));
+            for arm in arms.iter_mut() {
+                close(arm, is_carried);
+            }
         }
     }
     for key in ["if", "then", "else"] {
@@ -272,6 +274,8 @@ fn close(schema: &mut Value, is_inside_closed: bool) {
         }
     }
     if let Some(Value::Array(items)) = object.get_mut("prefixItems") {
-        items.iter_mut().for_each(|item| close(item, false));
+        for item in items.iter_mut() {
+            close(item, false);
+        }
     }
 }

@@ -277,6 +277,10 @@ pub enum ChildRunLink {
     },
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn no_run_is_its_own_parent(link: &ChildRunLink, (): &()) -> garde::Result {
     match link {
         ChildRunLink::Run {
@@ -341,6 +345,10 @@ pub struct ChildRunCounts {
     pub waiting: SafeInt<0>,
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn counts_stay_within_the_total(counts: &ChildRunCounts, (): &()) -> garde::Result {
     if counts.live <= counts.total && counts.waiting <= counts.total {
         Ok(())

@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::artifacts::id::ArtifactId;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::mcp::server::McpServerName;
 use crate::method::methods;
@@ -80,7 +80,7 @@ pub enum SessionAttachmentItem {
         /// The client's id for this one item, so a retried stage never stages it twice.
         client_staging_id: ClientUuid,
         /// The file's path.
-        path: BoundedText<1, FILE_PATH_MAX_LEN>,
+        path: FilesystemPath,
     },
     /// A resource a tool server publishes.
     McpResource {
@@ -313,14 +313,14 @@ methods! {
             mutating: true,
             params: SessionAttachmentAddRequest,
             result: SessionAttachmentAddResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Unstages one file.
         SessionAttachmentRemove = mutation "session.attachmentRemove" {
             mutating: true,
             params: SessionAttachmentRemoveRequest,
             result: SessionAttachmentRemoveResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Covers parts of a staged picture.
         SessionAttachmentCover = mutation "session.attachmentCover" {

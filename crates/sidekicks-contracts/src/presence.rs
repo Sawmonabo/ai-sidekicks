@@ -57,19 +57,13 @@ pub struct MachinePresence {
     pub devices: Vec<ConnectedDevice>,
 }
 
-/// `presence.read` and `presence.subscribe` take nothing: presence is the machine's.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct PresenceRequest {}
-
 methods! {
     /// The `presence.*` methods the daemon answers.
     pub const PRESENCE_METHOD_DESCRIPTORS = [
         /// The devices connected now.
         PresenceRead = query "presence.read" {
             mutating: false,
-            params: PresenceRequest,
+            params: EmptyPayload,
             result: MachinePresence,
             refusals: [],
         },
@@ -84,7 +78,7 @@ methods! {
         /// The devices connected, pushed on each change.
         PresenceSubscribe = subscription "presence.subscribe" {
             mutating: false,
-            params: PresenceRequest,
+            params: EmptyPayload,
             result: SubscribeAckResponse,
             emission: MachinePresence,
             refusals: [],
@@ -101,7 +95,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PresenceHeartbeat>().checked(),
         Definition::read::<ConnectedDevice>(),
         Definition::read::<MachinePresence>().checked(),
-        Definition::read::<PresenceRequest>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&PRESENCE_METHOD_DESCRIPTORS],

@@ -44,7 +44,13 @@ thread_local! {
 /// the ways, so a nested or later call never reads another message's attachments.
 struct ContextGuard<T: 'static> {
     cell: &'static std::thread::LocalKey<RefCell<Option<T>>>,
-    previous: Option<Option<T>>,
+    previous: PreviousContext<T>,
+}
+
+/// The context a guard puts back: still owed, or already put back by [`ContextGuard::take`].
+enum PreviousContext<T> {
+    Owed(Option<T>),
+    Restored,
 }
 
 impl<T> ContextGuard<T> {
@@ -52,19 +58,24 @@ impl<T> ContextGuard<T> {
         let previous = cell.with(|slot| slot.replace(Some(context)));
         Self {
             cell,
-            previous: Some(previous),
+            previous: PreviousContext::Owed(previous),
         }
     }
 
     fn take(mut self) -> Option<T> {
-        let previous = self.previous.take().flatten();
+        let previous = match std::mem::replace(&mut self.previous, PreviousContext::Restored) {
+            PreviousContext::Owed(previous) => previous,
+            PreviousContext::Restored => None,
+        };
         self.cell.with(|slot| slot.replace(previous))
     }
 }
 
 impl<T> Drop for ContextGuard<T> {
     fn drop(&mut self) {
-        if let Some(previous) = self.previous.take() {
+        if let PreviousContext::Owed(previous) =
+            std::mem::replace(&mut self.previous, PreviousContext::Restored)
+        {
             self.cell.with(|slot| slot.replace(previous));
         }
     }

@@ -318,7 +318,11 @@ pub enum ProviderReadiness {
 }
 
 /// Whether a remedy that names an account names the entry's resolved account.
-fn remedy_names_resolved_account(readiness: &ProviderReadiness, _: &()) -> garde::Result {
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
+fn remedy_names_resolved_account(readiness: &ProviderReadiness, (): &()) -> garde::Result {
     let (resolved, named) = match readiness {
         ProviderReadiness::ReauthRequired {
             resolved_account_id,

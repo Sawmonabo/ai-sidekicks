@@ -6,7 +6,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::release_manifest::{ReleaseVersion, Sha256Hex};
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::literal;
@@ -63,7 +63,7 @@ pub struct WslServiceRecord {
     /// The SHA-256 of the runtime's archive.
     pub runtime_digest: Sha256Hex,
     /// The distribution's home folder.
-    pub distro_home: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub distro_home: FilesystemPath,
 }
 
 /// The contents of `service.json`.

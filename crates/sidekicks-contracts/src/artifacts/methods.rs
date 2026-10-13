@@ -21,7 +21,7 @@ methods! {
             mutating: false,
             params: ArtifactListRequest,
             result: ArtifactListResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Reads one artifact's manifest and as much of its payload as asked.
         ArtifactRead = query "artifact.read" {

@@ -9,7 +9,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
@@ -51,14 +51,10 @@ ts_constants! {
 
 /// The provider version as its command printed it.
 type ProviderVersion = FreeFormText<PROVIDER_VERSION_MAX_LEN>;
-/// The path the person typed for a provider's command.
-type CommandPath = FreeFormText<FILE_PATH_MAX_LEN>;
 /// An output style's name.
 type OutputStyleName = FreeFormText<PROVIDER_OUTPUT_STYLE_NAME_MAX_LEN>;
 /// A protected-path pattern or a standing rule's text.
 type RuleText = FreeFormText<PROVIDER_RULE_TEXT_MAX_LEN>;
-/// The file a protected path or a standing rule came from.
-type RuleSourcePath = FreeFormText<FILE_PATH_MAX_LEN>;
 /// A whole percent.
 type WholePercent = BoundedInt<0, 100>;
 
@@ -137,7 +133,7 @@ impl JsonSchema for CompactPercent {
 #[garde(allow_unvalidated)]
 pub struct ProviderAutoCompactBound {
     /// The threshold; it sits between `lowest` and `highest`.
-    #[garde(custom(|value: &CompactPercent, _: &()| is_between_stops(*value, self)))]
+    #[garde(custom(|value: &CompactPercent, (): &()| is_between_stops(*value, self)))]
     #[schemars(extend("allOf" = [{
         "type": "integer",
         "minimum": { "$data": "1/lowest" },
@@ -183,7 +179,7 @@ pub struct ProviderOutputStyle {
 #[garde(allow_unvalidated)]
 pub struct ProviderOutputStyleSetting {
     /// The style the build is on; one of `styles`.
-    #[garde(custom(|current: &OutputStyleName, _: &()| is_listed_style(current, &self.styles)))]
+    #[garde(custom(|current: &OutputStyleName, (): &()| is_listed_style(current, &self.styles)))]
     pub current: OutputStyleName,
     /// The build's own styles.
     #[schemars(extend("contains" = {
@@ -232,8 +228,8 @@ macro_rules! provider_settings {
                 installation: ProviderInstallation,
                 /// The path the person typed, or `null` for auto-detect.
                 #[serde(deserialize_with = "crate::wire::nullable")]
-                #[schemars(with = "crate::wire::NullableSchema<CommandPath>")]
-                command_path: Option<CommandPath>,
+                #[schemars(with = "crate::wire::NullableSchema<FilesystemPath>")]
+                command_path: Option<FilesystemPath>,
                 /// Whether a new session may use the provider.
                 available_for_new_sessions: bool,
                 /// How many helpers run at once: `null` for no limit, `0` for none.
@@ -326,8 +322,8 @@ macro_rules! provider_update_request {
                 provider: $provider,
                 /// The path, or `null` for auto-detect.
                 #[serde(deserialize_with = "crate::wire::nullable")]
-                #[schemars(with = "crate::wire::NullableSchema<CommandPath>")]
-                command_path: Option<CommandPath>,
+                #[schemars(with = "crate::wire::NullableSchema<FilesystemPath>")]
+                command_path: Option<FilesystemPath>,
             },
             /// Whether a new session may use the provider.
             $available {
@@ -423,14 +419,14 @@ pub enum ProviderProtectedPath {
         /// The path pattern.
         pattern: RuleText,
         /// The file the rule sits in.
-        source_path: RuleSourcePath,
+        source_path: FilesystemPath,
     },
     /// A deny rule in a project's configuration.
     Project {
         /// The path pattern.
         pattern: RuleText,
         /// The file the rule sits in.
-        source_path: RuleSourcePath,
+        source_path: FilesystemPath,
         /// The project.
         repo_mount_id: RepoMountId,
     },
@@ -483,7 +479,7 @@ pub struct ProviderStandingRule {
     /// Where the rule holds.
     pub scope: ProviderStandingRuleScope,
     /// The file the rule sits in.
-    pub source_path: RuleSourcePath,
+    pub source_path: FilesystemPath,
     /// The provider's word for what the rule does.
     pub decision: FreeFormText<PROVIDER_RULE_DECISION_MAX_LEN>,
     /// The rule as its file holds it.

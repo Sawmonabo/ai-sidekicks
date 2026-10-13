@@ -66,8 +66,8 @@ pub struct HttpsAddress<const MAX: usize>(String);
 impl<const MAX: usize> HttpsAddress<MAX> {
     /// `text` as kept when it is within the cap, holds no NUL and parses as an `https:` address,
     /// else `None`.
-    pub fn new(text: String) -> Option<Self> {
-        if !is_within_length(&text, 0, MAX) || text.contains('\0') {
+    pub fn new(text: &str) -> Option<Self> {
+        if !is_within_length(text, 0, MAX) || text.contains('\0') {
             return None;
         }
         let trimmed = text.trim_matches(is_ecmascript_whitespace);
@@ -83,7 +83,7 @@ impl<const MAX: usize> HttpsAddress<MAX> {
 
 impl<'de, const MAX: usize> Deserialize<'de> for HttpsAddress<MAX> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(String::deserialize(deserializer)?).ok_or_else(|| {
+        Self::new(&String::deserialize(deserializer)?).ok_or_else(|| {
             D::Error::custom(format!(
                 "not an https: address with no NUL of at most {MAX} code points"
             ))
@@ -127,7 +127,7 @@ pub struct WebAddress(String);
 impl WebAddress {
     /// `text` as kept when it is an `http:` or `https:` address written with its `//`, else
     /// `None`.
-    pub fn new(text: String) -> Option<Self> {
+    pub fn new(text: &str) -> Option<Self> {
         let trimmed = text.trim_matches(is_ecmascript_whitespace);
         let is_written_with_slashes = trimmed
             .get(..7)
@@ -147,7 +147,7 @@ impl WebAddress {
 
 impl<'de> Deserialize<'de> for WebAddress {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(String::deserialize(deserializer)?)
+        Self::new(&String::deserialize(deserializer)?)
             .ok_or_else(|| D::Error::custom("the address is not an http: or https: address"))
     }
 }
@@ -241,9 +241,9 @@ mod tests {
     #[test]
     fn keeps_text_as_the_typescript_url_check_keeps_it() {
         for case in case_table().texts {
-            let web = WebAddress::new(case.text.clone()).map(|address| address.as_str().to_owned());
+            let web = WebAddress::new(&case.text).map(|address| address.as_str().to_owned());
             assert_eq!(web, case.web, "web address: {}", case.name);
-            let https = HttpsAddress::<{ usize::MAX }>::new(case.text)
+            let https = HttpsAddress::<{ usize::MAX }>::new(&case.text)
                 .map(|address| address.as_str().to_owned());
             assert_eq!(https, case.https, "https address: {}", case.name);
         }
@@ -257,7 +257,7 @@ mod tests {
             "the table's cap is the one the test reads under"
         );
         for case in table.capped {
-            let https = HttpsAddress::<HTTPS_CAP>::new(case.text)
+            let https = HttpsAddress::<HTTPS_CAP>::new(&case.text)
                 .map(|address| address.as_str().to_owned());
             assert_eq!(https, case.https, "{}", case.name);
         }

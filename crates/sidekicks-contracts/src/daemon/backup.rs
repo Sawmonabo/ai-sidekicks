@@ -11,7 +11,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 
 use crate::error::ERROR_MESSAGE_MAX_LEN;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::release_manifest::ReleaseVersion;
@@ -152,7 +152,7 @@ pub enum BackupLastRun {
 #[garde(allow_unvalidated)]
 pub struct BackupReadResponse {
     /// The folder.
-    pub folder: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub folder: FilesystemPath,
     /// Whether the folder sits on the service's own disk.
     pub folder_on_service_disk: bool,
     /// The folder's total size in bytes.

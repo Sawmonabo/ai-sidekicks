@@ -44,6 +44,10 @@ pub struct CommandPrompt {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the wire carries each switch as its own boolean member"
+)]
 pub struct RunningCommand {
     /// The command.
     pub command_id: CommandId,
@@ -193,6 +197,10 @@ pub struct CommandWriteRequest {
     pub end_of_input: Option<bool>,
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn write_carries_something(request: &CommandWriteRequest, (): &()) -> garde::Result {
     if request.text.is_some() || request.end_of_input == Some(true) {
         Ok(())
@@ -289,28 +297,28 @@ methods! {
             params: CommandListSubscribeRequest,
             result: SubscribeAckResponse,
             emission: CommandListFrame,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Stops one running command.
         CommandStop = mutation "command.stop" {
             mutating: true,
             params: CommandStopRequest,
             result: CommandStopResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Moves a command the agent waits on to the background.
         CommandBackground = mutation "command.background" {
             mutating: true,
             params: CommandBackgroundRequest,
             result: CommandBackgroundResponse,
-            refusals: [DriverCapabilityUnsupported, CommandNotInForeground],
+            refusals: [SessionNotFound, DriverCapabilityUnsupported, CommandNotInForeground],
         },
         /// Writes input to a command, ends its input, or both.
         CommandWrite = mutation "command.write" {
             mutating: true,
             params: CommandWriteRequest,
             result: NullPayload,
-            refusals: [CommandTakesNoInput],
+            refusals: [SessionNotFound, CommandTakesNoInput],
         },
     ];
 }

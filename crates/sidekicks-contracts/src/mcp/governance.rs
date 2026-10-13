@@ -227,7 +227,7 @@ methods! {
             mutating: true,
             params: McpReconnectRequest,
             result: McpReconnectResponse,
-            refusals: [McpBindingStoreUnavailable, McpServerNotFound],
+            refusals: [SessionNotFound, McpBindingStoreUnavailable, McpServerNotFound],
         },
     ];
 }

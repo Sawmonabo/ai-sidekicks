@@ -732,7 +732,7 @@ methods! {
             mutating: false,
             params: QueueItemListRequest,
             result: QueueItemListResponse,
-            refusals: [RunChildControlRefused],
+            refusals: [SessionNotFound, RunChildControlRefused],
         },
         /// Removes a waiting message.
         RunQueueCancel = mutation "run.queueCancel" {
@@ -746,7 +746,12 @@ methods! {
             mutating: true,
             params: QueueReorderRequest,
             result: QueueItemListResponse,
-            refusals: [QueueItemNotFound, QueueChangeRefused, RunChildControlRefused],
+            refusals: [
+                SessionNotFound,
+                QueueItemNotFound,
+                QueueChangeRefused,
+                RunChildControlRefused,
+            ],
         },
         /// Follows a queue's changes.
         RunSubscribeQueue = subscription "run.subscribeQueue" {
@@ -788,7 +793,7 @@ methods! {
             params: RunStateSubscribeRequest,
             result: SubscribeAckResponse,
             emission: RunStateStreamFrame,
-            refusals: [EventCursorUnresolvable],
+            refusals: [SessionNotFound, EventCursorUnresolvable],
         },
         /// Steers one live child of a run.
         RunChildSteer = mutation "run.childSteer" {

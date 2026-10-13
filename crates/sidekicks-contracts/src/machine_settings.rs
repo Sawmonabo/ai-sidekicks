@@ -21,10 +21,11 @@ use strum::VariantArray;
 
 use crate::agent::definition::binding::ProviderToken;
 use crate::daemon::data::DAEMON_DATA_FOLDER_NAME;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
+use crate::method_descriptor::EmptyPayload;
 use crate::provider::name::ProviderName;
 use crate::repo::mount::ExecutionMode;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -196,6 +197,10 @@ pub struct EnvironmentRow {
 /// The four kinds of moment a notification or a delivery can be about.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the wire carries each switch as its own boolean member"
+)]
 pub struct NotificationKindSwitches {
     /// `Waiting on you`.
     pub waiting_on_you: bool,
@@ -328,8 +333,8 @@ pub struct BackupSettings {
     pub automatic: bool,
     /// Where they go.
     #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<FreeFormText<FILE_PATH_MAX_LEN>>")]
-    pub folder: Option<FreeFormText<FILE_PATH_MAX_LEN>>,
+    #[schemars(with = "NullableSchema<FilesystemPath>")]
+    pub folder: Option<FilesystemPath>,
 }
 
 /// A branch-name pattern as a change carries it: bounded. Its placeholder rule and git's check are
@@ -414,6 +419,10 @@ pub struct LastLeadModel {
 /// Every value the machine's settings file holds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the wire carries each switch as its own boolean member"
+)]
 pub struct MachineSettings {
     /// `Check for updates automatically`.
     pub updates_automatic: bool,
@@ -459,8 +468,8 @@ pub struct MachineSettings {
     pub branch_name_pattern: BranchNamePattern,
     /// `Clone new repositories into`; `null` until the person sets one.
     #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<FreeFormText<FILE_PATH_MAX_LEN>>")]
-    pub clone_folder: Option<FreeFormText<FILE_PATH_MAX_LEN>>,
+    #[schemars(with = "NullableSchema<FilesystemPath>")]
+    pub clone_folder: Option<FilesystemPath>,
     /// The voice settings.
     pub voice: VoiceSettings,
 }
@@ -604,8 +613,8 @@ pub enum MachineSettingsChange {
     /// `Clone new repositories into`.
     CloneFolder(
         #[serde(deserialize_with = "nullable")]
-        #[schemars(with = "NullableSchema<FreeFormText<FILE_PATH_MAX_LEN>>")]
-        Option<FreeFormText<FILE_PATH_MAX_LEN>>,
+        #[schemars(with = "NullableSchema<FilesystemPath>")]
+        Option<FilesystemPath>,
     ),
     /// The voice settings, whole.
     Voice(VoiceSettings),
@@ -655,18 +664,6 @@ pub struct MachineSettingsReading {
     pub repair: Option<SettingsFileRepair>,
 }
 
-/// `daemon.machineSettingsRead` takes nothing.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct MachineSettingsReadRequest {}
-
-/// `daemon.machineSettingsSubscribe` takes nothing: there is one file per machine.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct MachineSettingsSubscribeRequest {}
-
 /// `daemon.machineSettingsUpdate`: the one change to write.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -690,7 +687,7 @@ methods! {
         /// The file as it stands.
         DaemonMachineSettingsRead = query "daemon.machineSettingsRead" {
             mutating: false,
-            params: MachineSettingsReadRequest,
+            params: EmptyPayload,
             result: MachineSettingsReading,
             refusals: [],
         },
@@ -704,7 +701,7 @@ methods! {
         /// The first emission is the file as it stands; each written change follows.
         DaemonMachineSettingsSubscribe = subscription "daemon.machineSettingsSubscribe" {
             mutating: false,
-            params: MachineSettingsSubscribeRequest,
+            params: EmptyPayload,
             result: SubscribeAckResponse,
             emission: MachineSettingsReading,
             refusals: [],
@@ -738,8 +735,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SettingsFileRepairCause>(),
         Definition::read::<SettingsFileRepair>(),
         Definition::read::<MachineSettingsReading>().checked(),
-        Definition::read::<MachineSettingsReadRequest>(),
-        Definition::read::<MachineSettingsSubscribeRequest>().checked(),
         Definition::read::<MachineSettingsUpdateRequest>().checked(),
         Definition::read::<MachineSettingsUpdateResponse>(),
     ],

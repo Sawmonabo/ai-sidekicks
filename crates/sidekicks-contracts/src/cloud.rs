@@ -8,7 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::provider::name::ProviderName;
@@ -17,7 +17,7 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::web_address::HttpsAddress;
 use crate::wire::integer::BoundedInt;
 use crate::wire::literal;
-use crate::wire::text::{BoundedText, FreeFormText, NonBlankText, NonEmptyText, branded_text};
+use crate::wire::text::{FreeFormText, NonBlankText, NonEmptyText, branded_text};
 use crate::wire::{NullableSchema, nullable};
 
 ts_constants! {
@@ -68,9 +68,6 @@ pub struct CloudUnavailableDetails {
     pub provider: ProviderName,
 }
 
-/// A path the provider skipped or found in conflict when it applied an attempt.
-pub type CloudBringBackPath = BoundedText<1, FILE_PATH_MAX_LEN>;
-
 /// What the provider reported when a task's attempt was applied to the session's folder: all of
 /// it, part of it with the paths it skipped and the paths in conflict, or an error in the
 /// provider's own words.
@@ -87,9 +84,9 @@ pub enum CloudBringBack {
     /// Part of it was applied.
     Partial {
         /// The paths it skipped.
-        skipped_paths: Vec<CloudBringBackPath>,
+        skipped_paths: Vec<FilesystemPath>,
         /// The paths in conflict.
-        conflicting_paths: Vec<CloudBringBackPath>,
+        conflicting_paths: Vec<FilesystemPath>,
     },
     /// The apply failed.
     Error {
@@ -336,7 +333,7 @@ methods! {
             mutating: true,
             params: CloudTaskStartRequest,
             result: CloudTaskStartResponse,
-            refusals: [CloudUnavailable],
+            refusals: [SessionNotFound, CloudUnavailable],
         },
         /// Follows the session's cloud work.
         CloudTaskList = subscription "cloud.taskList" {
@@ -344,7 +341,7 @@ methods! {
             params: CloudTaskListRequest,
             result: SubscribeAckResponse,
             emission: CloudTaskListFrame,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Reads one piece of cloud work.
         CloudTaskRead = query "cloud.taskRead" {

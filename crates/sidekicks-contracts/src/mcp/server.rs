@@ -14,7 +14,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FilesystemPath;
 use crate::provider::driver::length_limits::{
     DRIVER_MCP_SERVER_NAME_MAX_LEN, DRIVER_TOOL_NAME_MAX_LEN,
 };
@@ -80,9 +79,6 @@ pub type McpServerName = FreeFormText<DRIVER_MCP_SERVER_NAME_MAX_LEN>;
 
 /// A tool's name as an override and a reading carry it.
 pub type McpToolName = FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>;
-
-/// The root folder of the project a binding applies in or is switched for.
-pub type McpProjectRoot = FilesystemPath;
 
 /// When and where a mutation took effect: in the live sessions now, in the provider's config store
 /// for later runs, in the next run's composed config, or at the daemon's decision layer at once.
@@ -242,7 +238,7 @@ macro_rules! binding_addressed {
                 /// The provider.
                 provider: $crate::provider::name::ProviderName,
                 /// The project's root folder.
-                scope_ref: $crate::mcp::server::McpProjectRoot,
+                scope_ref: $crate::free_form_string::FilesystemPath,
                 /// The server's name.
                 server_name: $crate::mcp::server::McpServerName,
                 $($writable_extra)*
@@ -252,7 +248,7 @@ macro_rules! binding_addressed {
                 /// The provider.
                 provider: $crate::provider::name::ProviderName,
                 /// The project's root folder.
-                scope_ref: $crate::mcp::server::McpProjectRoot,
+                scope_ref: $crate::free_form_string::FilesystemPath,
                 /// The server's name.
                 server_name: $crate::mcp::server::McpServerName,
                 $($writable_extra)*

@@ -5,10 +5,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::gitflow::shared::GitRefName;
 use crate::project::ProjectId;
-use crate::repo::folders::FolderPath;
 use crate::repo::git_reads::GitObjectId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
@@ -64,8 +63,8 @@ pub struct RemovedWorktree {
     /// The folder of the live tree put back from this copy that git cannot read, the one case a
     /// copy put back is listed; `null` otherwise.
     #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<FolderPath>")]
-    pub unreadable_put_back_folder: Option<FolderPath>,
+    #[schemars(with = "NullableSchema<FilesystemPath>")]
+    pub unreadable_put_back_folder: Option<FilesystemPath>,
 }
 
 /// The `repo.removedWorktreeList` result.
@@ -101,7 +100,7 @@ pub enum WorktreeRestoreRefusal {
     /// The repository is no longer at `path`.
     RepositoryMissing {
         /// Where the repository was.
-        path: FolderPath,
+        path: FilesystemPath,
     },
     /// The kept folder no longer holds the tree, so only `Delete now` is left for it.
     KeptTreeMissing {},
@@ -123,7 +122,7 @@ pub enum WorktreeRestoreResponse {
         /// The new worktree.
         worktree_id: WorktreeId,
         /// Its folder.
-        path: FolderPath,
+        path: FilesystemPath,
         /// Its branch.
         branch: GitRefName,
         /// Whether the branch is a new one.

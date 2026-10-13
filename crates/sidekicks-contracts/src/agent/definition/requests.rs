@@ -10,7 +10,7 @@ use super::{
     AgentAccentHue, AgentDefinitionId, AgentDefinitionListEntry, AgentDefinitionScope, AgentHooks,
     AgentMemoryScope, ToolName, add_project_scope_rule, project_matches_scope,
 };
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::project::ProjectId;
 use crate::wire::True;
 use crate::wire::instant::WireInstant;
@@ -169,7 +169,11 @@ definition_write! {
 }
 
 /// Whether a create names its project exactly when its scope is a project.
-fn create_names_its_project(request: &AgentDefinitionCreateRequest, _: &()) -> garde::Result {
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
+fn create_names_its_project(request: &AgentDefinitionCreateRequest, (): &()) -> garde::Result {
     project_matches_scope(request.scope, request.project_id.as_ref())
 }
 
@@ -213,8 +217,8 @@ definition_write! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<FILE_PATH_MAX_LEN>")]
-        pub reattach_file_path: Option<FreeFormText<FILE_PATH_MAX_LEN>>,
+        #[schemars(with = "FilesystemPath")]
+        pub reattach_file_path: Option<FilesystemPath>,
     }
 }
 
@@ -255,7 +259,7 @@ pub struct AgentDefinitionExportRequest {
     /// The definitions, at least one.
     pub definition_ids: BoundedVec<AgentDefinitionId, 1, { usize::MAX }>,
     /// The folder, the path main's relay put in place of the chooser's token.
-    pub folder: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub folder: FilesystemPath,
 }
 
 /// How many definition files the export wrote.
@@ -274,7 +278,7 @@ pub struct AgentDefinitionExportResponse {
 #[garde(allow_unvalidated)]
 pub struct AgentDefinitionImportRequest {
     /// The folder, the path main's relay put in place of the chooser's token.
-    pub folder: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub folder: FilesystemPath,
 }
 
 /// Why an import skipped a file.

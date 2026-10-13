@@ -125,10 +125,7 @@ pub struct ArtifactPdfPreview {
 }
 
 /// Whether `version_number` lies within `version_count`.
-fn is_version_in_count(
-    version_number: &SafeInt<1>,
-    version_count: &SafeSignedInt,
-) -> garde::Result {
+fn is_version_in_count(version_number: SafeInt<1>, version_count: SafeSignedInt) -> garde::Result {
     let is_within =
         i64::try_from(version_number.get()).is_ok_and(|number| number <= version_count.get());
     if is_within {
@@ -155,7 +152,7 @@ macro_rules! artifact_read_arm {
             pub manifest: ArtifactManifest,
             /// The version in view, from 1, oldest first; never above `versionCount`.
             #[garde(custom(|number: &SafeInt<1>, _: &()| {
-                is_version_in_count(number, &self.version_count)
+                is_version_in_count(*number, self.version_count)
             }))]
             #[schemars(extend("maximum" = { "$data": "1/versionCount" }))]
             pub version_number: SafeInt<1>,

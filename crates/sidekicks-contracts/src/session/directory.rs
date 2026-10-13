@@ -8,7 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::binding::{AgentProviderBinding, provider_binding};
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::page::fits_one_page;
 use crate::jsonrpc::streaming::{SubscribeAckResponse, SubscriptionId};
 use crate::method::methods;
@@ -266,7 +266,7 @@ pub enum SessionListChange {
     Upsert {
         /// The entry.
         #[garde(dive)]
-        entry: SessionListEntry,
+        entry: Box<SessionListEntry>,
         /// The chats in the live list.
         chat_count: SafeInt<0>,
     },
@@ -450,7 +450,7 @@ pub struct SessionSetWorkingFolderRequest {
     /// The session.
     pub session_id: SessionId,
     /// The folder.
-    pub path: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub path: FilesystemPath,
 }
 
 /// When a working-folder move takes effect.
@@ -472,7 +472,7 @@ pub struct SessionSetWorkingFolderResponse {
     /// When the move takes effect.
     pub disposition: SessionWorkingFolderDisposition,
     /// The folder.
-    pub path: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub path: FilesystemPath,
 }
 
 /// The terminal pane's held read. The daemon answers once its sessions list or any session's agent
@@ -605,7 +605,7 @@ methods! {
             mutating: true,
             params: SessionForkRequest,
             result: SessionForkResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Moves a project session's working folder.
         SessionSetWorkingFolder = mutation "session.setWorkingFolder" {

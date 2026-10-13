@@ -27,7 +27,7 @@ use crate::transcript::run_facts::{
 };
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
-use crate::wire::integer::{BoundedInt, SafeInt};
+use crate::wire::integer::{BoundedInt, SafeInt, count_bound};
 use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
 use crate::wire::{False, True, literal};
@@ -120,7 +120,7 @@ fn require_entries_to_belong_to_run(
 }
 
 /// How many rows a read may ask for: 1 to [`TRANSCRIPT_READ_LIMIT_MAX`].
-pub type TranscriptReadLimit = BoundedInt<1, { TRANSCRIPT_READ_LIMIT_MAX as i64 }>;
+pub type TranscriptReadLimit = BoundedInt<1, { count_bound(TRANSCRIPT_READ_LIMIT_MAX) }>;
 
 /// A bounded read window over one session's transcript. A cursor is a position in the log, and
 /// the cursor an event carries is the position right after it: `afterCursor` answers the events

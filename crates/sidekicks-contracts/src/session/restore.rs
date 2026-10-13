@@ -11,7 +11,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::artifacts::attachment_reference::AttachmentReferenceList;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::method::methods;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
@@ -19,7 +19,7 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText, branded_text};
+use crate::wire::text::{FreeFormText, NonEmptyText, branded_text};
 
 /// The longest snapshot id the daemon accepts, in code points.
 pub const SNAPSHOT_ID_MAX_LEN: usize = 256;
@@ -28,9 +28,6 @@ branded_text! {
     /// The daemon-minted id of one of a session's snapshots. Opaque to every client.
     pub struct SnapshotId(1..=SNAPSHOT_ID_MAX_LEN);
 }
-
-/// A path an undo names, held to the longest path the wire carries.
-type RestorePath = BoundedText<1, FILE_PATH_MAX_LEN>;
 
 /// Asks for a session's snapshots. A chat session has none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -167,7 +164,7 @@ pub enum SessionRestoreSkipReason {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionRestoreSkippedFile {
     /// The file.
-    pub path: RestorePath,
+    pub path: FilesystemPath,
     /// Why it is skipped.
     pub reason: SessionRestoreSkipReason,
 }
@@ -179,7 +176,7 @@ pub struct SessionRestoreAlsoChanged {
     /// The other session.
     pub session_id: SessionId,
     /// The paths it changed.
-    pub paths: Vec<RestorePath>,
+    pub paths: Vec<FilesystemPath>,
 }
 
 /// Asks what an undo would do, and changes nothing.
@@ -214,7 +211,7 @@ pub struct SessionRestorePreviewResponse {
     /// The commands started after the point that are still running.
     pub running_commands: SafeInt<0>,
     /// The folders the project ignores, never put back.
-    pub ignored_folders: Vec<RestorePath>,
+    pub ignored_folders: Vec<FilesystemPath>,
     /// Whether a command ran after the point.
     pub commands_ran_after_point: bool,
     /// The paths other sessions changed since the point.
@@ -468,21 +465,21 @@ methods! {
             mutating: false,
             params: SessionRestorePreviewRequest,
             result: SessionRestorePreviewResponse,
-            refusals: [EventCursorUnresolvable],
+            refusals: [SessionNotFound, EventCursorUnresolvable],
         },
         /// Undoes to a point, with an optional edit and resend.
         SessionRestore = mutation "session.restore" {
             mutating: true,
             params: SessionRestoreRequest,
             result: SessionRestoreResult,
-            refusals: [EventCursorUnresolvable],
+            refusals: [SessionNotFound, EventCursorUnresolvable],
         },
         /// Lists a session's snapshots.
         SessionSnapshotList = query "session.snapshotList" {
             mutating: false,
             params: SessionSnapshotListRequest,
             result: SessionSnapshotListResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
     ];
 }

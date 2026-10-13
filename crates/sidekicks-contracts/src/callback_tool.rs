@@ -6,20 +6,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::method::methods;
+use crate::method_descriptor::EmptyPayload;
 use crate::provider::driver::length_limits::{
     DRIVER_TOOL_DESCRIPTION_MAX_LEN, DRIVER_TOOL_NAME_MAX_LEN,
 };
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire;
 use crate::wire::text::{BoundedText, FreeFormText};
-
-/// `callbackTool.list` takes no members.
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
-)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct CallbackToolListRequest {}
 
 /// One callback tool. `name` is the name a provider sees; `label` is the words a person reads, the
 /// one label the picker and the transcript both draw, and a tool without one is drawn as its name
@@ -55,7 +48,7 @@ methods! {
         /// Lists the daemon's callback tools for the allowlist picker.
         CallbackToolList = query "callbackTool.list" {
             mutating: false,
-            params: CallbackToolListRequest,
+            params: EmptyPayload,
             result: CallbackToolListResponse,
             refusals: [],
         },
@@ -67,7 +60,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "callback-tool",
     doc: "The daemon's callback tools as the allowlist picker reads them.",
     definitions: &[
-        Definition::read::<CallbackToolListRequest>(),
         Definition::read::<CallbackToolEntry>(),
         Definition::read::<CallbackToolListResponse>(),
     ],

@@ -5,10 +5,10 @@ use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::free_form_string::FilesystemPath;
 use crate::mcp::server::config::McpServerConfigView;
 use crate::mcp::server::{
-    McpApprovalMode, McpClaudeProvider, McpProjectRoot, McpServerStatus, McpToolName,
-    binding_addressed,
+    McpApprovalMode, McpClaudeProvider, McpServerStatus, McpToolName, binding_addressed,
 };
 use crate::provider::driver::length_limits::DRIVER_BINDING_ID_MAX_LEN;
 use crate::provider::name::ProviderName;
@@ -110,7 +110,11 @@ pub struct McpToolOverride {
 }
 
 /// Whether an override sets at least one facet.
-fn override_sets_a_facet(tool_override: &McpToolOverride, _: &()) -> garde::Result {
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
+fn override_sets_a_facet(tool_override: &McpToolOverride, (): &()) -> garde::Result {
     let sets_a_facet = tool_override.enabled.is_some()
         || tool_override.approval_mode.is_some()
         || tool_override.idempotency_class.is_some();
@@ -275,8 +279,8 @@ macro_rules! inventory_entry {
                     skip_serializing_if = "Option::is_none",
                     deserialize_with = "crate::wire::present"
                 )]
-                #[schemars(with = "BoundedVec<McpProjectRoot, 1, { usize::MAX }>")]
-                superseded_in: Option<BoundedVec<McpProjectRoot, 1, { usize::MAX }>>,
+                #[schemars(with = "BoundedVec<FilesystemPath, 1, { usize::MAX }>")]
+                superseded_in: Option<BoundedVec<FilesystemPath, 1, { usize::MAX }>>,
                 /// Claude Code: the project roots where the server is switched off, by Claude
                 /// Code's own per-project list or, on a connector or an organization's server, by
                 /// the daemon's per-project switch; it stays out of those projects' sessions.
@@ -286,8 +290,8 @@ macro_rules! inventory_entry {
                     skip_serializing_if = "Option::is_none",
                     deserialize_with = "crate::wire::present"
                 )]
-                #[schemars(with = "BoundedVec<McpProjectRoot, 1, { usize::MAX }>")]
-                disabled_in: Option<BoundedVec<McpProjectRoot, 1, { usize::MAX }>>,
+                #[schemars(with = "BoundedVec<FilesystemPath, 1, { usize::MAX }>")]
+                disabled_in: Option<BoundedVec<FilesystemPath, 1, { usize::MAX }>>,
                 /// Why a `failed` server failed, where the daemon knows; only on a failed entry.
                 #[serde(
                     default,
@@ -355,7 +359,11 @@ inventory_entry! {
 
 impl McpStoreUnavailableInventoryEntry {
     /// Whether a Claude Code binding leaves `enabled` out.
-    fn leaves_claude_enabled_out(&self, _: &()) -> garde::Result {
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "garde passes a check's context by reference"
+    )]
+    fn leaves_claude_enabled_out(&self, (): &()) -> garde::Result {
         let (is_claude, enabled) = match self {
             Self::User {
                 provider, enabled, ..

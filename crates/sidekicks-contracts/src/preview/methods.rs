@@ -42,49 +42,49 @@ methods! {
             params: PreviewPageListRequest,
             result: SubscribeAckResponse,
             emission: PreviewPageListFrame,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Opens a page.
         PreviewPageOpen = mutation "preview.pageOpen" {
             mutating: true,
             params: PreviewPageOpenRequest,
             result: PreviewPageOpenResponse,
-            refusals: [PreviewAddressRefused],
+            refusals: [SessionNotFound, PreviewAddressRefused],
         },
         /// Closes a page.
         PreviewPageClose = mutation "preview.pageClose" {
             mutating: true,
             params: PreviewPageRequest,
             result: PreviewPageCloseResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Makes a page the one the pane shows.
         PreviewPageActivate = mutation "preview.pageActivate" {
             mutating: true,
             params: PreviewPageRequest,
             result: PreviewPageActivateResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Moves a page within its session's order.
         PreviewPageReorder = mutation "preview.pageReorder" {
             mutating: true,
             params: PreviewPageReorderRequest,
             result: PreviewPageReorderResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Navigates a page.
         PreviewNavigate = mutation "preview.navigate" {
             mutating: true,
             params: PreviewNavigateRequest,
             result: PreviewNavigateResponse,
-            refusals: [PreviewAddressRefused],
+            refusals: [SessionNotFound, PreviewAddressRefused],
         },
         /// Sets a page's zoom.
         PreviewZoom = mutation "preview.zoom" {
             mutating: true,
             params: PreviewZoomRequest,
             result: PreviewZoomResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Streams the dev servers discovered in a session's project.
         PreviewDevServerList = subscription "preview.devServerList" {
@@ -92,14 +92,14 @@ methods! {
             params: PreviewDevServerListRequest,
             result: SubscribeAckResponse,
             emission: PreviewDevServerListFrame,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Sends the marks on a page to the session's provider.
         PreviewMarksSend = mutation "preview.marksSend" {
             mutating: true,
             params: PreviewMarksSendRequest,
             result: PreviewMarksSendResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Streams a page's live picture to another device.
         PreviewScreencastSubscribe = subscription "preview.screencastSubscribe" {
@@ -107,42 +107,42 @@ methods! {
             params: PreviewScreencastSubscribeRequest,
             result: SubscribeAckResponse,
             emission: PreviewScreencastElement,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Acknowledges one frame of the live picture.
         PreviewScreencastAck = mutation "preview.screencastAck" {
             mutating: true,
             params: PreviewScreencastAckRequest,
             result: EmptyPayload,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Sends one input from another device to a page.
         PreviewScreencastInput = mutation "preview.screencastInput" {
             mutating: true,
             params: PreviewScreencastInputRequest,
             result: PreviewScreencastInputResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Applies an act from the menu a device's input raised.
         PreviewScreencastEdit = mutation "preview.screencastEdit" {
             mutating: true,
             params: PreviewScreencastEditRequest,
             result: PreviewMenuEditResponse,
-            refusals: [PreviewEditRefused],
+            refusals: [SessionNotFound, PreviewEditRefused],
         },
         /// Answers a file chooser or a picker a device's input opened.
         PreviewScreencastFileChoose = mutation "preview.screencastFileChoose" {
             mutating: true,
             params: PreviewScreencastFileChooseRequest,
             result: PreviewScreencastFileChooseResponse,
-            refusals: [PreviewFilePathRefused],
+            refusals: [SessionNotFound, PreviewFilePathRefused],
         },
         /// Acknowledges a save the device has written or thrown away.
         PreviewScreencastSaveAck = mutation "preview.screencastSaveAck" {
             mutating: true,
             params: PreviewScreencastSaveAckRequest,
             result: EmptyPayload,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
     ];
 }

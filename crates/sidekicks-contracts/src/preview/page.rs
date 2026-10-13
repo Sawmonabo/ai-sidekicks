@@ -216,7 +216,11 @@ pub struct PreviewPageListFrame {
 
 /// Whether a frame's active index names a page in its list, or none. JSON Schema cannot compare a
 /// number with an array's length, so the check has no schema twin.
-fn active_index_names_a_page(frame: &PreviewPageListFrame, _: &()) -> garde::Result {
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
+fn active_index_names_a_page(frame: &PreviewPageListFrame, (): &()) -> garde::Result {
     let names_a_page = usize::try_from(frame.active_index.get())
         .ok()
         .is_none_or(|index| index < frame.pages.len());

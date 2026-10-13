@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::internal::branded::branded_uuid_id;
 use crate::method::methods;
+use crate::method_descriptor::EmptyPayload;
 use crate::session::id::SessionId;
-use crate::session::methods::SessionVerbResponse;
 use crate::session::name::SESSION_NAME_MAX_LEN;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::text::FreeFormText;
@@ -86,21 +86,21 @@ methods! {
         SessionGroupMove = mutation "session.groupMove" {
             mutating: true,
             params: SessionGroupMoveRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [SessionNotFound, SessionGroupRefused],
         },
         /// Renames a group.
         SessionGroupRename = mutation "session.groupRename" {
             mutating: true,
             params: SessionGroupRenameRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [SessionGroupNameTaken, SessionGroupRefused],
         },
         /// Ungroups a group.
         SessionGroupUngroup = mutation "session.groupUngroup" {
             mutating: true,
             params: SessionGroupUngroupRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [],
         },
     ];

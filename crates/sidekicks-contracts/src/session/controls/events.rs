@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
 use crate::command::ExitCode;
+use crate::free_form_string::FilesystemPath;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::{DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN};
 use crate::provider::name::ProviderName;
@@ -120,7 +121,7 @@ pub struct CodexSettingsIgnoredNotice {
     /// Always `codex`.
     pub provider: CodexProvider,
     /// The settings file.
-    pub file: ComposedText,
+    pub file: FilesystemPath,
     /// The line in it.
     pub line: SafeInt<1>,
 }
@@ -144,8 +145,8 @@ pub struct ClaudeSettingsIgnoredNotice {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "ComposedText")]
-    pub file: Option<ComposedText>,
+    #[schemars(with = "FilesystemPath")]
+    pub file: Option<FilesystemPath>,
     /// The key with the bad value, where one is known.
     #[serde(
         default,

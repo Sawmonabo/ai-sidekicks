@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use crate::jsonrpc::page::fits_one_page;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
+use crate::method_descriptor::EmptyPayload;
 use crate::session::id::SessionId;
-use crate::session::methods::SessionVerbResponse;
 use crate::session::name::SESSION_NAME_MAX_LEN;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
@@ -124,14 +124,14 @@ methods! {
         SessionLinkAdd = mutation "session.linkAdd" {
             mutating: true,
             params: SessionLinkRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [SessionNotFound],
         },
         /// Removes a `related` link.
         SessionLinkRemove = mutation "session.linkRemove" {
             mutating: true,
             params: SessionLinkRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [SessionNotFound, SessionLinkNotRemovable],
         },
     ];

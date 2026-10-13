@@ -335,14 +335,19 @@ methods! {
             mutating: true,
             params: SessionTakeControlRequest,
             result: SessionTakeControlResponse,
-            refusals: [PtyNotFound, PtyControlHeldByOther, PtyOutputSubscriptionNotFound],
+            refusals: [
+                SessionNotFound,
+                PtyNotFound,
+                PtyControlHeldByOther,
+                PtyOutputSubscriptionNotFound,
+            ],
         },
         /// Declares whether this connection is behind on one shell.
         SessionSetTerminalFlowControl = mutation "session.setTerminalFlowControl" {
             mutating: true,
             params: SessionSetTerminalFlowControlRequest,
             result: SessionSetTerminalFlowControlResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
     ];
 }

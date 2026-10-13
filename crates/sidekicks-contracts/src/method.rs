@@ -86,7 +86,7 @@ pub trait SubscriptionMethod: Method {
 ///         /// Lists the sites holding data in the shared browser profile.
 ///         BrowserSiteDataList = query "browser.siteDataList" {
 ///             mutating: false,
-///             params: BrowserMachineRequest,
+///             params: EmptyPayload,
 ///             result: BrowserSiteDataListResponse,
 ///             refusals: [],
 ///         },

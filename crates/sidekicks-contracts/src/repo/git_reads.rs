@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::gitflow::shared::GitRefName;
 use crate::repo::mount::RepoMountId;
 use crate::session::id::SessionId;
@@ -135,7 +135,7 @@ macro_rules! file_read_request {
             /// The session whose working folder is read.
             pub session_id: SessionId,
             /// The file, inside the working folder.
-            pub path: FreeFormText<FILE_PATH_MAX_LEN>,
+            pub path: FilesystemPath,
             $($own)*
             /// The lines to read; absent reads the whole file.
             #[serde(
@@ -208,7 +208,7 @@ pub enum RepoFileReadResponse {
     /// The lines read, starting at `firstLine`, with the file's `totalLines`.
     Lines {
         /// The file.
-        path: FreeFormText<FILE_PATH_MAX_LEN>,
+        path: FilesystemPath,
         /// The lines.
         lines: Vec<String>,
         /// The first line's number, from 1.

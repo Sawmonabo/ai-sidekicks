@@ -9,10 +9,11 @@ use serde::{Deserialize, Serialize};
 use crate::agent::definition::AgentId;
 use crate::event::envelope::EventEnvelope;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
-use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
+use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::page::fits_one_page;
 use crate::jsonrpc::streaming::stream_frame;
 use crate::method::methods;
+use crate::method_descriptor::EmptyPayload;
 use crate::provider::account::record::ProviderAccountId;
 use crate::run::id::RunId;
 use crate::run::state::RunState;
@@ -30,7 +31,7 @@ use crate::tag::TagList;
 use crate::transcript::row::TranscriptRunStamp;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
-use crate::wire::integer::{BoundedInt, SafeInt};
+use crate::wire::integer::{BoundedInt, SafeInt, count_bound};
 use crate::wire::list::BoundedVec;
 use crate::wire::text::{BoundedText, FreeFormText, NulFreeText, branded_text};
 use crate::wire::{False, True};
@@ -69,7 +70,7 @@ pub enum SessionShape {
 #[schemars(inline)]
 pub struct SessionPendingWorkingFolder {
     /// The folder it moves to.
-    pub path: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub path: FilesystemPath,
 }
 
 /// One session as `session.read` answers it. Its tags fit the shared page budget.
@@ -290,12 +291,6 @@ pub struct SessionTargetRequest {
     pub session_id: SessionId,
 }
 
-/// The result of a session verb that returns nothing: the change is read from the event it
-/// appends. A verb that finds the session already as it asks appends nothing and answers the same.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SessionVerbResponse {}
-
 /// The `session.rename` input. `null` clears the name, and the session reads as untitled again.
 /// Renaming never renames the session's branch or worktree.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -336,7 +331,7 @@ branded_text! {
 type NonEmptyList<T> = BoundedVec<T, 1, { usize::MAX }>;
 
 /// How many hits one `session.search` page may carry: 1 to [`SESSION_SEARCH_PAGE_LIMIT_MAX`].
-pub type SessionSearchLimit = BoundedInt<1, { SESSION_SEARCH_PAGE_LIMIT_MAX as i64 }>;
+pub type SessionSearchLimit = BoundedInt<1, { count_bound(SESSION_SEARCH_PAGE_LIMIT_MAX) }>;
 
 /// The `session.search` input: the text typed in the search box and, past the first page, the
 /// previous page's `nextCursor`. The daemon matches it against every session's title, message
@@ -521,7 +516,7 @@ pub struct SessionFileSearchRequest {
 #[garde(allow_unvalidated)]
 pub struct SessionFileSearchResponse {
     /// The paths, best first.
-    #[garde(custom(|paths: &Vec<BoundedText<1, FILE_PATH_MAX_LEN>>, (): &()| {
+    #[garde(custom(|paths: &Vec<FilesystemPath>, (): &()| {
         if u64::try_from(paths.len()).is_ok_and(|count| count <= self.searched_file_count.get()) {
             Ok(())
         } else {
@@ -529,7 +524,7 @@ pub struct SessionFileSearchResponse {
         }
     }))]
     #[schemars(extend("maxItems" = { "$data": "1/searchedFileCount" }))]
-    pub paths: Vec<BoundedText<1, FILE_PATH_MAX_LEN>>,
+    pub paths: Vec<FilesystemPath>,
     /// How many files the query was matched against.
     pub searched_file_count: SafeInt<0>,
 }
@@ -555,21 +550,21 @@ methods! {
         SessionArchive = mutation "session.archive" {
             mutating: true,
             params: SessionTargetRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [SessionNotFound, SessionAlreadyClosed, SessionChangeRefused],
         },
         /// Brings an archived session back.
         SessionReactivate = mutation "session.reactivate" {
             mutating: true,
             params: SessionTargetRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [SessionNotFound, SessionAlreadyClosed, SessionChangeRefused],
         },
         /// Closes a session.
         SessionClose = mutation "session.close" {
             mutating: true,
             params: SessionTargetRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [
                 SessionNotFound,
                 SessionAlreadyClosed,
@@ -581,35 +576,35 @@ methods! {
         SessionPin = mutation "session.pin" {
             mutating: true,
             params: SessionTargetRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [SessionNotFound, SessionAlreadyClosed, SessionChangeRefused],
         },
         /// Unpins a session.
         SessionUnpin = mutation "session.unpin" {
             mutating: true,
             params: SessionTargetRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [SessionNotFound, SessionAlreadyClosed, SessionChangeRefused],
         },
         /// Mutes a session's notifications.
         SessionMute = mutation "session.mute" {
             mutating: true,
             params: SessionTargetRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [SessionNotFound, SessionAlreadyClosed, SessionChangeRefused],
         },
         /// Unmutes a session's notifications.
         SessionUnmute = mutation "session.unmute" {
             mutating: true,
             params: SessionTargetRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [SessionNotFound, SessionAlreadyClosed, SessionChangeRefused],
         },
         /// Restarts a session's provider.
         SessionRestart = mutation "session.restart" {
             mutating: true,
             params: SessionTargetRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [SessionNotFound, DriverUnavailable, DriverCapabilityUnsupported],
         },
         /// `Continue from here`: the session's last good point becomes its end, its damaged events
@@ -617,16 +612,16 @@ methods! {
         SessionRecoveryContinue = mutation "session.recoveryContinue" {
             mutating: true,
             params: SessionTargetRequest,
-            result: SessionVerbResponse,
-            refusals: [SessionRecoveryRefused],
+            result: EmptyPayload,
+            refusals: [SessionNotFound, SessionRecoveryRefused],
         },
         /// `Delete session` on a session whose history is damaged: every row of it goes, the copy
         /// set aside before the repair stays.
         SessionRecoveryDelete = mutation "session.recoveryDelete" {
             mutating: true,
             params: SessionTargetRequest,
-            result: SessionVerbResponse,
-            refusals: [SessionRecoveryRefused],
+            result: EmptyPayload,
+            refusals: [SessionNotFound, SessionRecoveryRefused],
         },
         /// Searches every session.
         SessionSearch = query "session.search" {
@@ -669,7 +664,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionStreamChange>(),
         Definition::read::<SessionStreamFrame>().checked(),
         Definition::read::<SessionTargetRequest>().checked(),
-        Definition::read::<SessionVerbResponse>().checked(),
         Definition::read::<SessionRenameRequest>().checked(),
         Definition::read::<SessionRenameResponse>().checked(),
         Definition::read::<SessionSearchCursor>(),

@@ -8,7 +8,6 @@ use crate::jsonrpc::page::fits_one_page;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::session::id::SessionId;
-use crate::session::methods::SessionVerbResponse;
 use crate::tag::{Tag, TagList};
 use crate::typescript::{Definition, TypeScriptModule};
 
@@ -41,14 +40,14 @@ methods! {
         SessionTagAdd = mutation "session.tagAdd" {
             mutating: true,
             params: SessionTagRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [SessionNotFound],
         },
         /// Removes a tag from a session.
         SessionTagRemove = mutation "session.tagRemove" {
             mutating: true,
             params: SessionTagRequest,
-            result: SessionVerbResponse,
+            result: EmptyPayload,
             refusals: [SessionNotFound],
         },
         /// Lists the tags in use.

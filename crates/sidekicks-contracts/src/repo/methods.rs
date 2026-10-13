@@ -6,16 +6,15 @@ use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::project::{
     ProjectBranchPatternUpdateRequest, ProjectEditResponse, ProjectEnvironmentUpdateRequest,
-    ProjectList, ProjectListRequest, ProjectRenameRequest, ProjectSetupUpdateRequest,
-    ProjectStateChangeRequest,
+    ProjectList, ProjectRenameRequest, ProjectSetupUpdateRequest, ProjectStateChangeRequest,
 };
 use crate::repo::clone::{
-    RepoCloneAnswerRequest, RepoCloneFolderReadRequest, RepoCloneFolderReadResponse,
-    RepoCloneProjectRequest, RepoCloneRequest, RepoCloneResponse, RepoCloneStatus,
+    RepoCloneAnswerRequest, RepoCloneFolderReadResponse, RepoCloneProjectRequest, RepoCloneRequest,
+    RepoCloneResponse, RepoCloneStatus,
 };
 use crate::repo::folders::{
     RepoAttachRequest, RepoAttachResponse, RepoDetachResponse, RepoFolderListRequest,
-    RepoFolderListResponse, RepoMountListRequest, RepoMountListResponse, RepoMountReadResponse,
+    RepoFolderListResponse, RepoMountListResponse, RepoMountReadResponse,
     RepoMountReattachResponse, RepoMountRequest,
 };
 use crate::repo::git_reads::{
@@ -61,7 +60,7 @@ methods! {
         /// Every folder the service can reach.
         RepoMountList = query "repo.mountList" {
             mutating: false,
-            params: RepoMountListRequest,
+            params: EmptyPayload,
             result: RepoMountListResponse,
             refusals: [],
         },
@@ -110,12 +109,12 @@ methods! {
             mutating: false,
             params: WorkspaceListRequest,
             result: WorkspaceListResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Every project, sent on subscribe and again on each change.
         RepoProjectList = subscription "repo.projectList" {
             mutating: false,
-            params: ProjectListRequest,
+            params: EmptyPayload,
             result: SubscribeAckResponse,
             emission: ProjectList,
             refusals: [],
@@ -194,7 +193,7 @@ methods! {
         /// Where a clone goes, and why.
         RepoCloneFolderRead = query "repo.cloneFolderRead" {
             mutating: false,
-            params: RepoCloneFolderReadRequest,
+            params: EmptyPayload,
             result: RepoCloneFolderReadResponse,
             refusals: [RepoCloneUnavailable],
         },
@@ -217,7 +216,7 @@ methods! {
             mutating: false,
             params: RepoFileReadRequest,
             result: RepoFileReadResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Signals each change of a session's working folder.
         RepoWorkingTreeSubscribe = subscription "repo.workingTreeSubscribe" {
@@ -258,7 +257,7 @@ methods! {
             mutating: false,
             params: WorktreeStatusReadRequest,
             result: WorktreeStatusReadResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Follows a tree's setup card.
         RepoWorktreeSetupSubscribe = subscription "repo.worktreeSetupSubscribe" {

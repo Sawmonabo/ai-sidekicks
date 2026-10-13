@@ -67,6 +67,7 @@ impl Definition {
     }
 
     /// The same definition, with an exported check.
+    #[must_use]
     pub const fn checked(self) -> Self {
         Self {
             is_checked: true,

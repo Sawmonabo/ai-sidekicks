@@ -6,7 +6,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::provider::name::ProviderName;
@@ -15,10 +15,7 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
 use crate::wire::number::Percent;
-use crate::wire::text::{BoundedText, ComposedText};
-
-/// A path the daemon composed, held to the longest path the wire carries.
-type ComposedPath = BoundedText<1, FILE_PATH_MAX_LEN>;
+use crate::wire::text::ComposedText;
 
 /// Where the session compacts and the slider's range. The top stop is the provider's own compaction
 /// point on this window; the bottom stop is the session's fixed start plus a tenth of the window,
@@ -158,7 +155,7 @@ pub enum SessionMemoryEntryKind {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionMemoryEntry {
     /// The path.
-    pub path: ComposedPath,
+    pub path: FilesystemPath,
     /// Whether it is a file or a folder.
     pub kind: SessionMemoryEntryKind,
 }
@@ -188,7 +185,7 @@ pub struct SessionMemoryReadResponse {
     /// The session.
     pub session_id: SessionId,
     /// The account home the memory lives under.
-    pub home: ComposedPath,
+    pub home: FilesystemPath,
     /// The `Auto memory` switch.
     pub auto_memory: SessionAutoMemory,
     /// The memory paths.
@@ -272,7 +269,7 @@ pub struct SessionProviderHook {
     /// Its time limit, in seconds.
     pub timeout_seconds: SafeInt<0>,
     /// The file it was read from.
-    pub source_path: ComposedPath,
+    pub source_path: FilesystemPath,
     /// Where it came from, in the provider's words.
     pub source: ComposedText,
     /// Whether it is enabled.
@@ -290,7 +287,7 @@ pub struct SessionProviderHook {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderHookError {
     /// The file.
-    pub path: ComposedPath,
+    pub path: FilesystemPath,
     /// The provider's message.
     pub message: ComposedText,
 }
@@ -300,7 +297,7 @@ pub struct ProviderHookError {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderHookSource {
     /// The folder.
-    pub folder: ComposedPath,
+    pub folder: FilesystemPath,
     /// Its hooks.
     pub hooks: Vec<SessionProviderHook>,
     /// The errors reported for it.
@@ -314,7 +311,7 @@ pub struct ProviderHookSource {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderHookFile {
     /// The file.
-    pub path: ComposedPath,
+    pub path: FilesystemPath,
 }
 
 /// The inspector's `Hooks` section, by what it lists: `loadedHooks` where the provider reports the
@@ -357,28 +354,28 @@ methods! {
             params: SessionAddressedRequest,
             result: SubscribeAckResponse,
             emission: SessionContextReading,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Reads the inspector's `Memory` section.
         SessionMemoryRead = query "session.memoryRead" {
             mutating: false,
             params: SessionAddressedRequest,
             result: SessionMemoryReadResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Turns the `Auto memory` switch on or off.
         SessionAutoMemoryUpdate = mutation "session.autoMemoryUpdate" {
             mutating: true,
             params: SessionAutoMemoryUpdateRequest,
             result: SessionAutoMemoryUpdateResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Reads the inspector's `Hooks` section.
         SessionHookList = query "session.hookList" {
             mutating: false,
             params: SessionAddressedRequest,
             result: SessionHookListResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
     ];
 }

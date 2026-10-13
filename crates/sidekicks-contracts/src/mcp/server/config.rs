@@ -26,7 +26,11 @@ pub type McpRequestValue = BoundedText<0, MCP_REQUEST_TEXT_MAX_LEN>;
 pub type McpServerAddress = WebAddress;
 
 /// Whether an address keeps the request text's cap.
-pub(crate) fn is_request_address(address: &McpServerAddress, _: &()) -> garde::Result {
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
+pub(crate) fn is_request_address(address: &McpServerAddress, (): &()) -> garde::Result {
     if is_within_length(address.as_str(), 0, MCP_REQUEST_TEXT_MAX_LEN) {
         Ok(())
     } else {

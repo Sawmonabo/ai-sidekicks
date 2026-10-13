@@ -96,9 +96,13 @@ pub struct AgentDefinitionBindings {
 }
 
 /// Whether stored bindings name each driver once.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn stored_bindings_bind_each_driver_once(
     bindings: &AgentDefinitionBindings,
-    _: &(),
+    (): &(),
 ) -> garde::Result {
     binds_each_driver_once(
         std::iter::once(&bindings.default)
@@ -126,9 +130,13 @@ pub struct AgentDefinitionBindingsDraft {
 }
 
 /// Whether written bindings name each driver once.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn written_bindings_bind_each_driver_once(
     bindings: &AgentDefinitionBindingsDraft,
-    _: &(),
+    (): &(),
 ) -> garde::Result {
     binds_each_driver_once(
         std::iter::once(&bindings.default)
@@ -243,7 +251,11 @@ pub struct AgentListedBindings {
 }
 
 /// Whether listed bindings name each driver the app runs once.
-fn listed_bindings_bind_each_driver_once(bindings: &AgentListedBindings, _: &()) -> garde::Result {
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
+fn listed_bindings_bind_each_driver_once(bindings: &AgentListedBindings, (): &()) -> garde::Result {
     binds_each_driver_once(
         std::iter::once(&bindings.default)
             .chain(&bindings.overrides)

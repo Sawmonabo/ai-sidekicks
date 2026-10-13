@@ -386,6 +386,10 @@ impl WorkflowTriggerInput {
 }
 
 /// Refuses a choice input whose starting value is none of its options.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn select_starts_on_an_option(input: &WorkflowTriggerInput, (): &()) -> garde::Result {
     if let WorkflowTriggerInput::Select {
         options, default, ..
@@ -570,7 +574,7 @@ macro_rules! workflow_document {
             /// Each repeat of a node id, the trigger's included, in document order: its index in
             /// `nodes` and its `node_id_duplicate` finding, which the daemon's refusal carries.
             pub fn repeated_node_id_findings(&self) -> Vec<(usize, WorkflowDefinitionFinding)> {
-                repeated_node_ids(self.trigger_id(), &self.nodes)
+                repeated_node_ids(self.trigger_ids(), &self.nodes)
                     .into_iter()
                     .map(|(index, id)| {
                         let finding = WorkflowDefinitionFinding::NodeIdDuplicate {
@@ -647,25 +651,25 @@ workflow_document! {
 
 impl WorkflowDocument {
     /// The trigger's id.
-    fn trigger_id(&self) -> Option<&WorkflowNodeId> {
-        Some(&self.trigger.id)
+    fn trigger_ids(&self) -> impl Iterator<Item = &WorkflowNodeId> {
+        std::iter::once(&self.trigger.id)
     }
 }
 
 impl WorkflowDraftDocument {
     /// The trigger's id, once one is placed.
-    fn trigger_id(&self) -> Option<&WorkflowNodeId> {
-        self.trigger.as_ref().map(|trigger| &trigger.id)
+    fn trigger_ids(&self) -> impl Iterator<Item = &WorkflowNodeId> {
+        self.trigger.iter().map(|trigger| &trigger.id)
     }
 }
 
 /// Each repeat of a node id among the trigger's and the other nodes', in document order, with its
 /// index in `nodes`; the trigger comes first, so it is never the repeat.
 fn repeated_node_ids<'a>(
-    trigger_id: Option<&'a WorkflowNodeId>,
+    trigger_ids: impl Iterator<Item = &'a WorkflowNodeId>,
     nodes: &'a [WorkflowNode],
 ) -> Vec<(usize, &'a WorkflowNodeId)> {
-    let mut seen: HashSet<&WorkflowNodeId> = trigger_id.into_iter().collect();
+    let mut seen: HashSet<&WorkflowNodeId> = trigger_ids.collect();
     nodes
         .iter()
         .enumerate()

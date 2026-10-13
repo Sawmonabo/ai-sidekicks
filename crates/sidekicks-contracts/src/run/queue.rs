@@ -10,7 +10,7 @@ use crate::agent::definition::binding::ProviderToken;
 use crate::agent::tree::ChildHandle;
 use crate::artifacts::attachment_reference::AttachmentReferenceList;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::stream_frame;
@@ -72,7 +72,7 @@ pub struct QueuedSkillPick {
     /// The skill's front-matter name.
     pub name: FreeFormText<FILE_PATH_MAX_LEN>,
     /// The skill's folder.
-    pub folder_path: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub folder_path: FilesystemPath,
 }
 
 /// Sends one message to the lead, whether a turn is running or not (`run.queueCreate`).

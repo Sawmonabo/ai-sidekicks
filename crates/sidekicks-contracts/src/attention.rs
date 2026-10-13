@@ -376,6 +376,10 @@ pub struct AttentionWebAddressDelivery {
     pub last_outcome: Option<AttentionDeliveryOutcome>,
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn has_no_host_unless_saved(delivery: &AttentionWebAddressDelivery, (): &()) -> garde::Result {
     if delivery.saved || delivery.host.is_none() {
         Ok(())
@@ -528,7 +532,7 @@ methods! {
             mutating: true,
             params: AttentionSeenUpdateRequest,
             result: EmptyPayload,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// What each delivery channel last did.
         AttentionDeliveryRead = query "attention.deliveryRead" {

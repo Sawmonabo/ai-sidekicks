@@ -131,6 +131,10 @@ static OCCURRED_AT_MILLISECONDS_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Refuses an instant whose fraction holds a non-zero digit past the third.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn holds_milliseconds_at_most(instant: &WireInstant, (): &()) -> garde::Result {
     if OCCURRED_AT_MILLISECONDS_REGEX.is_match(instant.as_str()) {
         Ok(())
@@ -253,7 +257,6 @@ pub fn check_epoch_stamp(
     names_run: bool,
 ) -> garde::Result {
     match (source_epoch, source_position) {
-        (None, None) => Ok(()),
         (Some(_), None) => Err(garde::Error::new(
             "a sourceEpoch stamp requires sourcePosition: the supersede cutoff cannot rank the row \
              against its epoch's surviving rows without a position",
@@ -266,7 +269,7 @@ pub fn check_epoch_stamp(
             "an epoch stamp requires a present, non-null runId: epochs and positions are \
              run-local",
         )),
-        (Some(_), Some(_)) => Ok(()),
+        (None, None) | (Some(_), Some(_)) => Ok(()),
     }
 }
 

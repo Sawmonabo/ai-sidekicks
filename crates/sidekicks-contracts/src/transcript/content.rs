@@ -12,7 +12,7 @@ use crate::event::declared_variants::{
 };
 use crate::event::envelope::HydratedContentUnavailableReason;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::byte_length::json_utf8_byte_length;
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_budget, fits_one_page};
 use crate::session::id::SessionId;
@@ -23,6 +23,10 @@ use crate::wire::{BoolLiteral, True};
 
 /// Refuses a body whose JSON takes more than [`TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES`] bytes: it
 /// belongs on the `large` arm.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn fits_with_its_row(
     body: &BoundedText<0, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES>,
     (): &(),
@@ -333,7 +337,7 @@ pub struct TranscriptPatchReadRequest {
 #[garde(allow_unvalidated)]
 pub struct TranscriptPatchFileRead {
     /// The file's path.
-    pub path: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub path: FilesystemPath,
     /// The patch.
     pub patch: BoundedText<0, CONTENT_PAYLOAD_PLAINTEXT_MAX>,
     /// The lines it adds.
@@ -348,7 +352,7 @@ pub struct TranscriptPatchFileRead {
 #[schemars(inline)]
 pub struct TranscriptPatchFileUnavailable {
     /// The file's path.
-    pub path: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub path: FilesystemPath,
     /// Why its patch cannot be read.
     pub unavailable: HydratedContentUnavailableReason,
 }

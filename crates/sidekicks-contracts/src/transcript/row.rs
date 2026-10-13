@@ -13,7 +13,7 @@ use crate::event::envelope::{
 };
 use crate::event::registry::SessionEventType;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::run::control::RunRolledBackEvent;
 use crate::run::id::RunId;
 use crate::session::event_cursor::EventCursor;
@@ -137,7 +137,7 @@ pub struct SupersededMarker {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TranscriptOmittedPatch {
     /// The file's path.
-    pub path: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub path: FilesystemPath,
     /// The patch's size in bytes.
     pub size: SafeInt<0>,
 }

@@ -9,7 +9,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::machine_settings::{BranchNamePattern, BranchNamePatternChange, EnvironmentRow};
 use crate::repo::mount::RepoMountId;
@@ -57,7 +57,7 @@ pub enum ProjectState {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectSetup {
     /// Paths inside the repository copied into each new tree.
-    pub files_to_copy: Vec<FreeFormText<FILE_PATH_MAX_LEN>>,
+    pub files_to_copy: Vec<FilesystemPath>,
     /// Commands run in order.
     pub commands: Vec<FreeFormText<PROJECT_SETUP_COMMAND_MAX_LEN>>,
     /// Seconds each command is given up on after; absent means no limit. At most 2^31 − 1 ms in
@@ -96,7 +96,7 @@ pub struct ProjectListEntry {
     /// Its name.
     pub name: ProjectName,
     /// Its folder.
-    pub folder_path: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub folder_path: FilesystemPath,
     /// Its life.
     pub state: ProjectState,
     /// How many sessions it has.
@@ -118,12 +118,6 @@ pub struct ProjectListEntry {
     /// A folder on the other side's disk of a Windows computer with WSL, read more slowly.
     pub on_other_side_disk: bool,
 }
-
-/// The `repo.projectList` subscription takes nothing: it lists every project.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct ProjectListRequest {}
 
 /// One `repo.projectList` emission: every project, sent once on subscribe and again on each
 /// change, so a project attached or cloned from another device appears at once.
@@ -214,7 +208,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProjectSetup>(),
         Definition::read::<ProjectSessionTally>(),
         Definition::read::<ProjectListEntry>(),
-        Definition::read::<ProjectListRequest>(),
         Definition::read::<ProjectList>(),
         Definition::read::<ProjectEditResponse>(),
         Definition::read::<ProjectRenameRequest>(),

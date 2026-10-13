@@ -183,7 +183,11 @@ pub struct AgentConfigUpdateRequest {
 }
 
 /// Whether an update moves at least one member, and names its window on a model move.
-fn update_moves_a_member(request: &AgentConfigUpdateRequest, _: &()) -> garde::Result {
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
+fn update_moves_a_member(request: &AgentConfigUpdateRequest, (): &()) -> garde::Result {
     let moves_a_member = request.driver_name.is_some()
         || request.model_id.is_some()
         || request.effort.is_some()

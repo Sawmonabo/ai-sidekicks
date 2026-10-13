@@ -413,11 +413,17 @@ pub enum ProviderAccount {
 
 /// The members of an account its label is drawn from.
 pub(crate) struct AccountLabelFields<'account> {
+    /// The provider.
     pub(crate) provider: ProviderName,
+    /// The label the person gave, if any.
     pub(crate) display_label: Option<&'account str>,
+    /// How the provider says the account signed in.
     pub(crate) observed_auth_mode: Option<ProviderAuthMode>,
+    /// The email the provider reports.
     pub(crate) observed_account_email: Option<&'account str>,
+    /// The plan the provider reports.
     pub(crate) observed_account_plan: Option<&'account str>,
+    /// The organization the provider reports.
     pub(crate) observed_account_org_name: Option<&'account str>,
 }
 
@@ -610,6 +616,10 @@ pub enum ProviderAccountNotification {
 }
 
 /// Whether a usage window's reading names the account its notification routes to.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn window_names_routed_account(
     notification: &ProviderAccountNotification,
     _: &(),
@@ -622,7 +632,10 @@ fn window_names_routed_account(
                 "window.accountId must equal the notification's accountId",
             ))
         }
-        _ => Ok(()),
+        ProviderAccountNotification::UsageWindowUpdated { .. }
+        | ProviderAccountNotification::AccountChanged { .. }
+        | ProviderAccountNotification::AccountRemoved { .. }
+        | ProviderAccountNotification::LoginCompleted { .. } => Ok(()),
     }
 }
 

@@ -306,6 +306,10 @@ pub struct PreviewClearedResponse {
 /// `context-menu` event reports it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the wire carries each switch as its own boolean member"
+)]
 pub struct PreviewPageMenu {
     /// Where it opened, in view points.
     pub point: PreviewPoint,

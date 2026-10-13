@@ -207,7 +207,11 @@ pub struct ProviderAccountSetCurrentResponse {
 }
 
 /// Whether the account carries the default mark.
-fn is_default_account(account: &ProviderAccount, _: &()) -> garde::Result {
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
+fn is_default_account(account: &ProviderAccount, (): &()) -> garde::Result {
     if account.is_default() {
         Ok(())
     } else {

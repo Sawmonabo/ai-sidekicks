@@ -40,6 +40,10 @@ ts_constants! {
 
 /// A garde check refusing a value whose JSON takes more than `CAP` UTF-8 bytes; its schema twin is
 /// the `maxJsonBytes` keyword with the same cap.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 pub(crate) fn fits_json_byte_cap<const CAP: usize, T: Serialize>(
     value: &T,
     (): &(),
@@ -187,22 +191,74 @@ pub enum WorkflowStepReviewPause {
     },
 }
 
-/// Declares a struct that leads with the four members that address one step: the run, the node,
-/// the attempt and which execution, followed by the struct's own members.
+/// Declares a contract that carries the members addressing one step, spelled here once: the run,
+/// then the node, the attempt and which execution. `pub struct` leads with all four;
+/// `position pub struct` leads with the last three, for a reader that already names the run;
+/// `enum [lead]` gives every arm the `lead` members and then all four.
 macro_rules! workflow_step_key {
-    ($(#[$attribute:meta])+ pub struct $name:ident { $($members:tt)* }) => {
+    (@members $($form:tt)*) => {
+        $crate::workflow::run::step::record::workflow_step_key! { @with [
+            /// The run.
+            workflow_run_id: $crate::workflow::run::id::WorkflowRunId,
+        ] [
+            /// The node.
+            node_id: $crate::workflow::definition::document::WorkflowNodeId,
+            /// Which attempt at the step, counted from 1: each retry is a new attempt.
+            attempt: $crate::wire::integer::SafeInt<1>,
+            /// Which execution of the node, increasing through the run.
+            execution_index: $crate::wire::integer::SafeInt<0>,
+        ] $($form)* }
+    };
+    (@with [$($run:tt)*] [$($position:tt)*] position $($declaration:tt)*) => {
+        $crate::workflow::run::step::record::workflow_step_key! {
+            @struct [$($position)*] $($declaration)*
+        }
+    };
+    (@with [$($run:tt)*] [$($position:tt)*] enum $($declaration:tt)*) => {
+        $crate::workflow::run::step::record::workflow_step_key! {
+            @enum [$($run)* $($position)*] $($declaration)*
+        }
+    };
+    (@with [$($run:tt)*] [$($position:tt)*] $($declaration:tt)*) => {
+        $crate::workflow::run::step::record::workflow_step_key! {
+            @struct [$($run)* $($position)*] $($declaration)*
+        }
+    };
+    (
+        @struct [$($(#[doc = $field_doc:literal])+ $field:ident: $type:ty,)+]
+        $(#[$attribute:meta])+ pub struct $name:ident { $($own:tt)* }
+    ) => {
         $(#[$attribute])+
         pub struct $name {
-            /// The run.
-            pub workflow_run_id: $crate::workflow::run::id::WorkflowRunId,
-            /// The node.
-            pub node_id: $crate::workflow::definition::document::WorkflowNodeId,
-            /// Which attempt at the step, counted from 1: each retry is a new attempt.
-            pub attempt: $crate::wire::integer::SafeInt<1>,
-            /// Which execution of the node, increasing through the run.
-            pub execution_index: $crate::wire::integer::SafeInt<0>,
-            $($members)*
+            $($(#[doc = $field_doc])+ pub $field: $type,)+
+            $($own)*
         }
+    };
+    (
+        @enum $members:tt [$($lead:tt)*]
+        $(#[$attribute:meta])+ pub enum $name:ident {
+            $($(#[doc = $arm_doc:literal])+ $arm:ident { $($own:tt)* })+
+        }
+    ) => {
+        $crate::workflow::run::step::record::workflow_step_key! {
+            @arms $members [$($lead)*] [$(#[$attribute])+ pub enum $name] []
+            $([$(#[doc = $arm_doc])+ $arm] [$($own)*])+
+        }
+    };
+    (
+        @arms [$($members:tt)*] [$($lead:tt)*] $header:tt [$($done:tt)*]
+        [$($arm:tt)*] [$($own:tt)*] $($rest:tt)*
+    ) => {
+        $crate::workflow::run::step::record::workflow_step_key! {
+            @arms [$($members)*] [$($lead)*] $header
+            [$($done)* $($arm)* { $($lead)* $($members)* $($own)* },] $($rest)*
+        }
+    };
+    (@arms $members:tt $lead:tt [$($header:tt)*] [$($done:tt)*]) => {
+        $($header)* { $($done)* }
+    };
+    ($($form:tt)*) => {
+        $crate::workflow::run::step::record::workflow_step_key! { @members $($form)* }
     };
 }
 

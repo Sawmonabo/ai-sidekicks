@@ -157,10 +157,10 @@ pub fn stamped_source_of(payload: &Map<String, Value>) -> Option<EpochPosition> 
 }
 
 /// The tool call a row of `category` belongs to, or `None` for a row of no tool call.
-pub fn transcript_tool_call_id_of<'payload>(
+pub fn transcript_tool_call_id_of(
     category: Option<EventCategory>,
-    payload: &'payload Map<String, Value>,
-) -> Option<&'payload str> {
+    payload: &Map<String, Value>,
+) -> Option<&str> {
     if category == Some(EventCategory::ToolActivity) {
         payload.get("toolCallId")?.as_str()
     } else {

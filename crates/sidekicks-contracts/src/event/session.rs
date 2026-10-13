@@ -146,7 +146,7 @@ macro_rules! session_events {
 
 session_events! {
     /// Emitted when a session is admitted.
-    SessionCreated(SessionCreatedPayload) = "session.created",
+    SessionCreated(Box<SessionCreatedPayload>) = "session.created",
     /// Emitted when a workspace's preparation begins, the first time or again.
     WorkspacePreparing(RepoWorkspaceLifecyclePayload) = "workspace.preparing",
     /// Emitted when preparation completes and the execution root is bound.

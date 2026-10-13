@@ -451,14 +451,14 @@ methods! {
             mutating: true,
             params: PtyCloseRequest,
             result: NullPayload,
-            refusals: [PtyNotFound, PtyControlHeldByOther],
+            refusals: [SessionNotFound, PtyNotFound, PtyControlHeldByOther],
         },
         /// Reorders the session's shells.
         PtyReorder = mutation "pty.reorder" {
             mutating: true,
             params: PtyReorderRequest,
             result: NullPayload,
-            refusals: [PtyNotFound],
+            refusals: [SessionNotFound, PtyNotFound],
         },
         /// Streams one shell's output.
         PtyOutputSubscribe = subscription "pty.outputSubscribe" {
@@ -466,28 +466,33 @@ methods! {
             params: PtyOutputSubscribeRequest,
             result: SubscribeAckResponse,
             emission: PtyOutputFrame,
-            refusals: [PtyNotFound],
+            refusals: [SessionNotFound, PtyNotFound],
         },
         /// Writes input to one shell.
         PtyWrite = mutation "pty.write" {
             mutating: true,
             params: PtyWriteRequest,
             result: NullPayload,
-            refusals: [PtyNotFound, PtyControlNotHeld, PtyOutputSubscriptionNotFound],
+            refusals: [
+                SessionNotFound,
+                PtyNotFound,
+                PtyControlNotHeld,
+                PtyOutputSubscriptionNotFound,
+            ],
         },
         /// Resizes one shell.
         PtyResize = mutation "pty.resize" {
             mutating: true,
             params: PtyResizeRequest,
             result: NullPayload,
-            refusals: [PtyNotFound, PtyControlHeldByOther, PtyControlNotHeld],
+            refusals: [SessionNotFound, PtyNotFound, PtyControlHeldByOther, PtyControlNotHeld],
         },
         /// Reports the appearance a program's questions are answered from.
         PtyReportTerminalAppearance = mutation "pty.reportTerminalAppearance" {
             mutating: true,
             params: PtyReportTerminalAppearanceRequest,
             result: NullPayload,
-            refusals: [PtyNotFound, PtyControlHeldByOther, PtyControlNotHeld],
+            refusals: [SessionNotFound, PtyNotFound, PtyControlHeldByOther, PtyControlNotHeld],
         },
     ];
 }

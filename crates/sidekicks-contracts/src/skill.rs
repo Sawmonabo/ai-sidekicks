@@ -13,10 +13,11 @@ use crate::agent::definition::{
     AGENT_REASON_MAX_LEN, AgentDefinitionOrigin, AgentDefinitionScope, add_plugin_origin_rule,
     add_project_scope_rule, plugin_name_matches_origin, project_matches_scope,
 };
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
+use crate::method_descriptor::EmptyPayload;
 use crate::project::ProjectId;
 use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
 use crate::provider::name::ProviderName;
@@ -43,12 +44,6 @@ branded_uuid_id! {
     /// display data only, and never its name, which two origins can share.
     SkillId
 }
-
-/// A file's path inside its skill folder, relative to the folder, as the daemon judges it.
-pub type SkillFilePath = FreeFormText<FILE_PATH_MAX_LEN>;
-
-/// A folder's path; display data only, never a capability.
-pub type SkillFolderPath = FreeFormText<FILE_PATH_MAX_LEN>;
 
 /// A new skill's name, before the daemon folds it into a folder name.
 pub type NewSkillName = FreeFormText<SKILL_NAME_MAX_LEN>;
@@ -101,7 +96,7 @@ pub struct SkillCallForms {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SkillFile {
     /// Its path in the folder.
-    pub path: SkillFilePath,
+    pub path: FilesystemPath,
     /// Its size in bytes.
     pub size: SafeInt<0>,
     /// Whether the editor can open it.
@@ -149,7 +144,7 @@ pub struct SkillListEntry {
     #[schemars(with = "ProjectId")]
     pub project_id: Option<ProjectId>,
     /// The folder, or for an orphaned record the last path it was known at.
-    pub folder_path: SkillFolderPath,
+    pub folder_path: FilesystemPath,
     /// Every file in the folder; empty for an orphaned record.
     pub files: Vec<SkillFile>,
     /// Which providers it reaches.
@@ -167,16 +162,14 @@ pub struct SkillListEntry {
     pub load_error: Option<FreeFormText<AGENT_REASON_MAX_LEN>>,
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn entry_names_its_plugin_and_project(entry: &SkillListEntry, (): &()) -> garde::Result {
     plugin_name_matches_origin(entry.origin, entry.plugin_name.as_ref())?;
     project_matches_scope(Some(entry.scope), entry.project_id.as_ref())
 }
-
-/// `skill.list` and `skill.subscribe` take no members.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct SkillListRequest {}
 
 /// Every skill folder across the four origins, orphaned records included. A file the daemon
 /// cannot read is listed, never a reason to refuse the read.
@@ -206,7 +199,7 @@ pub struct SkillFileReadRequest {
     /// The skill.
     pub skill_id: SkillId,
     /// The file.
-    pub path: SkillFilePath,
+    pub path: FilesystemPath,
 }
 
 /// The file's text as it is on disk.
@@ -223,7 +216,7 @@ pub struct SkillFileReadResponse {
 #[schemars(inline)]
 pub struct SkillFileWrite {
     /// The file.
-    pub path: SkillFilePath,
+    pub path: FilesystemPath,
     /// Its body.
     pub content: String,
 }
@@ -235,9 +228,9 @@ pub struct SkillFileWrite {
 #[schemars(inline)]
 pub struct SkillFileRename {
     /// Where it moves to.
-    pub path: SkillFilePath,
+    pub path: FilesystemPath,
     /// Where it was.
-    pub renamed_from: SkillFilePath,
+    pub renamed_from: FilesystemPath,
     /// Its new body.
     #[serde(
         default,
@@ -338,7 +331,7 @@ pub struct SkillUpdateRequest {
     /// The changed files.
     pub files: Vec<SkillFileChange>,
     /// The removed files.
-    pub removed_paths: Vec<SkillFilePath>,
+    pub removed_paths: Vec<FilesystemPath>,
     /// Its icon, or `null` for the default mark.
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<NonEmptyText>")]
@@ -396,7 +389,7 @@ pub struct SkillCallFormCollision {
     /// Its scope.
     pub scope: AgentDefinitionScope,
     /// Its folder.
-    pub folder_path: SkillFolderPath,
+    pub folder_path: FilesystemPath,
     /// What it is called by once the typed one is saved.
     pub call_forms: SkillCallForms,
 }
@@ -464,7 +457,7 @@ pub struct SkillScanTool {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SkillScanFinding {
     /// The file.
-    pub path: SkillFilePath,
+    pub path: FilesystemPath,
     /// The tools it names.
     pub tools: Vec<SkillScanTool>,
     /// Whether it names the other provider's call sigil.
@@ -491,7 +484,7 @@ pub struct SkillRecordReattachRequest {
     /// The skill.
     pub skill_id: SkillId,
     /// The folder.
-    pub folder_path: SkillFolderPath,
+    pub folder_path: FilesystemPath,
 }
 
 /// `skill.recordDiscard`: drops an orphaned record.
@@ -578,14 +571,14 @@ methods! {
         /// Every skill folder.
         SkillList = query "skill.list" {
             mutating: false,
-            params: SkillListRequest,
+            params: EmptyPayload,
             result: SkillListResponse,
             refusals: [],
         },
         /// Every skill folder, resent on each change.
         SkillSubscribe = subscription "skill.subscribe" {
             mutating: false,
-            params: SkillListRequest,
+            params: EmptyPayload,
             result: SubscribeAckResponse,
             emission: SkillListResponse,
             refusals: [],
@@ -660,7 +653,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SkillCallForms>().checked(),
         Definition::read::<SkillFile>(),
         Definition::read::<SkillListEntry>().checked(),
-        Definition::read::<SkillListRequest>(),
         Definition::read::<SkillListResponse>(),
         Definition::read::<SkillEntryResponse>(),
         Definition::read::<SkillFileReadRequest>(),

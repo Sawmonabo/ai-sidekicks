@@ -5,7 +5,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -26,8 +26,6 @@ ts_constants! {
     pub const PROVIDER_IMPORT_LIST_MAX: usize = 10_000;
 }
 
-/// A file the import read.
-type ImportPath = FreeFormText<FILE_PATH_MAX_LEN>;
 /// The service's reason, in its own words.
 type ImportReason = FreeFormText<PROVIDER_IMPORT_REASON_MAX_LEN>;
 /// A list one settled line carries.
@@ -73,7 +71,7 @@ pub struct ProviderImportStartResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderImportFailure {
     /// The conversation's file.
-    pub source: ImportPath,
+    pub source: FilesystemPath,
     /// Why it was not brought in.
     pub reason: ImportReason,
 }
@@ -99,7 +97,7 @@ pub enum ProviderImportOutcome {
         /// Each conversation not brought in, with its reason.
         failures: ImportList<ProviderImportFailure>,
         /// The files that could not be opened.
-        unreadable_files: ImportList<ImportPath>,
+        unreadable_files: ImportList<FilesystemPath>,
         /// The projects the import attached.
         attached_projects: ImportList<FreeFormText<PROVIDER_IMPORT_PROJECT_NAME_MAX_LEN>>,
     },
@@ -108,7 +106,7 @@ pub enum ProviderImportOutcome {
         /// The conversations already here.
         already_here: SafeInt<0>,
         /// The files that could not be opened.
-        unreadable_files: ImportList<ImportPath>,
+        unreadable_files: ImportList<FilesystemPath>,
     },
     /// The person stopped it.
     Stopped {},

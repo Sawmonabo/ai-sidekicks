@@ -111,7 +111,9 @@ impl ClientUuid {
 
 impl<'de> Deserialize<'de> for ClientUuid {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(String::deserialize(deserializer)?).map_err(|_| D::Error::custom("Invalid UUID"))
+        Self::new(String::deserialize(deserializer)?).map_err(|error| match error {
+            IdError::NotUuid => D::Error::custom("Invalid UUID"),
+        })
     }
 }
 

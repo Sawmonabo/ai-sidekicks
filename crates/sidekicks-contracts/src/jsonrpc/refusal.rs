@@ -135,7 +135,7 @@ refusal_codes! {
     /// daemon holds a connection to started, or from one the system could not name or trace to its
     /// first process.
     AuthCallerRefused = "auth.caller_refused" ();
-    /// DPoP proof does not match the bound token.
+    /// `DPoP` proof does not match the bound token.
     AuthDpopMismatch = "auth.dpop_mismatch" (401);
     /// Token does not have the required scope for this operation.
     AuthInsufficientScope = "auth.insufficient_scope" (403);
@@ -277,7 +277,7 @@ refusal_codes! {
     /// removed after the reference was taken).
     ProvideraccountUnknown = "provideraccount.unknown" (404);
     /// The PTY a shell needs cannot be opened: `sidekicks-terminal` in the daemon could not create
-    /// it (ConPTY on Windows, `alacritty_terminal`'s tty elsewhere).
+    /// it (`ConPTY` on Windows, `alacritty_terminal`'s tty elsewhere).
     PtyBackendUnavailable = "pty.backend_unavailable" (503);
     /// `pty.open` on a chat session, which is bound to a managed workspace and no repository and
     /// has no shell.
@@ -444,12 +444,12 @@ refusal_codes! {
     /// The client cannot reach the daemon's OS-local socket or named pipe, or its link to the
     /// daemon is down.
     TransportUnavailable = "transport.unavailable" (503);
-    /// Bootstrap rejected an unrecognized SecureDefaults config key.
+    /// Bootstrap rejected an unrecognized `SecureDefaults` config key.
     UnknownSetting = "unknown_setting" ();
-    /// The WebAuthn ceremony challenge presented at verification is unknown, already consumed, or
+    /// The `WebAuthn` ceremony challenge presented at verification is unknown, already consumed, or
     /// expired.
     UserWebauthnChallengeInvalid = "user.webauthn_challenge_invalid" (400);
-    /// A WebAuthn registration or assertion response failed verification.
+    /// A `WebAuthn` registration or assertion response failed verification.
     UserWebauthnVerificationFailed = "user.webauthn_verification_failed" (400);
     /// Client above daemon's lex-max supported version.
     VersionCeilingExceeded = "version.ceiling_exceeded" ();
@@ -471,6 +471,10 @@ refusal_codes! {
     WorkflowCursorUnresolvable = "workflow.cursor_unresolvable" (400);
     /// A saved or imported document the daemon's own re-check refuses.
     WorkflowDefinitionRefused = "workflow.definition_refused" (422);
+    /// A `workflow.runStart`, `runRetry` or `runRerun` reused a `clientIdempotencyKey` with a
+    /// differing payload; the run the key first answered is untouched. A resend with the same
+    /// payload is not refused: it answers that run.
+    WorkflowIdempotencyConflict = "workflow.idempotency_conflict" (422);
     /// An import whose schema version is unknown.
     WorkflowImportSchemaUnknown = "workflow.import_schema_unknown" (422);
     /// A start that leaves a required input its workflow declares unfilled, or gives an input a

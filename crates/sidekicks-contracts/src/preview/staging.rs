@@ -58,7 +58,7 @@ pub struct PreviewPageStagingFolderReadResponse {
 pub enum PreviewDownloadState {
     /// Every byte was written.
     Completed,
-    /// The download was canceled; Electron spells it `cancelled`.
+    /// The download was canceled; the wire carries Electron's British spelling of the word.
     #[serde(rename = "cancelled")]
     Canceled,
     /// The download broke off.

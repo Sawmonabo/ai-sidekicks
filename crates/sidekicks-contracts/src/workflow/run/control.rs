@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::method::methods;
 use crate::project::ProjectId;
@@ -16,7 +16,7 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::id::ClientUuid;
 use crate::wire::list::BoundedVec;
-use crate::wire::text::{BoundedText, ComposedText, NonEmptyText, is_within_length};
+use crate::wire::text::{BoundedText, ComposedText, NonEmptyText};
 use crate::wire::{True, literal};
 use crate::workflow::definition::document::{
     WorkflowNodeId, WorkflowTriggerInput, WorkflowVersionId,
@@ -171,7 +171,7 @@ impl From<WorkflowRequestableRunMode> for WorkflowRunMode {
 #[garde(allow_unvalidated)]
 pub struct WorkflowRunStartRequest {
     /// The caller's key, kept in the command receipts: a resend under it after a reconnect answers
-    /// the first start's run, never a second.
+    /// the first start's run, never a second; the same key with a differing payload is refused.
     pub client_idempotency_key: ClientUuid,
     /// The version, taken verbatim from a definition or version read.
     pub workflow_version_id: WorkflowVersionId,
@@ -257,8 +257,8 @@ pub enum WorkflowTriggerInputValue {
 
 /// Fills a workflow's declared inputs from a start's `input`, whose first item's `json` object
 /// holds the values by input name. A value counts as filled only where it fits its input: a flag
-/// for `boolean`, non-empty text for `string` and `path` (a path within [`FILE_PATH_MAX_LEN`] code
-/// points), one of the options for `select`. An optional input left out or left as empty text takes
+/// for `boolean`, non-empty text for `string`, a [`FilesystemPath`] for `path`, one of the options
+/// for `select`. An optional input left out or left as empty text takes
 /// its `default`. Fails with the refusal's details naming every required input left unfilled and
 /// every input given a value that does not fit it, in declaration order.
 pub fn fill_workflow_trigger_inputs(
@@ -331,7 +331,7 @@ fn fitting_value(
         WorkflowTriggerInput::String { .. } => value.as_str().filter(|text| !text.is_empty()),
         WorkflowTriggerInput::Path { .. } => value
             .as_str()
-            .filter(|text| is_within_length(text, 1, FILE_PATH_MAX_LEN)),
+            .filter(|text| FilesystemPath::new((*text).to_owned()).is_ok()),
         WorkflowTriggerInput::Select { options, .. } => value.as_str().filter(|text| {
             options
                 .as_slice()
@@ -485,11 +485,15 @@ pub struct WorkflowRunRetryRequest {
     /// The step to re-run from.
     pub from_node_id: WorkflowNodeId,
     /// The caller's key, kept in the command receipts: a resend under it after a reconnect answers
-    /// the first retry's run, never a second.
+    /// the first retry's run, never a second; the same key with a differing payload is refused.
     pub client_idempotency_key: ClientUuid,
 }
 
 /// Refuses a retry that answers with its own source run.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn is_a_new_run(response: &WorkflowRunRetryResponse, (): &()) -> garde::Result {
     if response.workflow_run_id == response.source_workflow_run_id {
         Err(garde::Error::new(
@@ -529,7 +533,7 @@ pub struct WorkflowRunRerunRequest {
     /// The run to re-run.
     pub workflow_run_id: WorkflowRunId,
     /// The caller's key, kept in the command receipts: a resend under it after a reconnect answers
-    /// the first re-run's run, never a second.
+    /// the first re-run's run, never a second; the same key with a differing payload is refused.
     pub client_idempotency_key: ClientUuid,
 }
 
@@ -675,6 +679,7 @@ methods! {
                 WorkflowRepositoryRequired,
                 WorkflowInputRequired,
                 WorkflowCodePackagesNotLocked,
+                WorkflowIdempotencyConflict,
             ],
         },
         /// Cancels a run that has not ended.
@@ -702,30 +707,52 @@ methods! {
             mutating: true,
             params: WorkflowRunRetryRequest,
             result: WorkflowRunRetryResponse,
-            refusals: [WorkflowNotFound, WorkflowRetryUnavailable, WorkflowInvalidTransition],
+            refusals: [
+                WorkflowNotFound,
+                WorkflowRetryUnavailable,
+                WorkflowInvalidTransition,
+                WorkflowIdempotencyConflict,
+            ],
         },
         /// Starts a new run of a run's own version, input and mode, in its session.
         WorkflowRunRerun = mutation "workflow.runRerun" {
             mutating: true,
             params: WorkflowRunRerunRequest,
             result: WorkflowRunStartResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowNotFound, WorkflowIdempotencyConflict],
         },
         /// Runs one node, or it and its ancestors, from the builder.
         WorkflowNodeExecute = mutation "workflow.nodeExecute" {
             mutating: true,
             params: WorkflowNodeExecuteRequest,
             result: WorkflowNodeExecuteResponse,
-            refusals: [WorkflowNotFound, WorkflowRepositoryRequired],
+            refusals: [SessionNotFound, WorkflowNotFound, WorkflowRepositoryRequired],
         },
         /// Posts a finished run's results into the session that asks.
         WorkflowResultsPost = mutation "workflow.resultsPost" {
             mutating: true,
             params: WorkflowResultsPostRequest,
             result: WorkflowResultsPostResponse,
-            refusals: [WorkflowNotFound, WorkflowInvalidTransition],
+            refusals: [SessionNotFound, WorkflowNotFound, WorkflowInvalidTransition],
         },
     ];
+}
+
+/// The details a `workflow.idempotency_conflict` refusal carries: what the key first answered.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowIdempotencyConflictDetails {
+    /// The run the first request under the key named: a retry's or re-run's source run; absent
+    /// for a start, which names none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WorkflowRunId")]
+    pub source_workflow_run_id: Option<WorkflowRunId>,
+    /// The run the first request under the key made.
+    pub workflow_run_id: WorkflowRunId,
 }
 
 /// The TypeScript module of the run control methods and their refusals.
@@ -759,6 +786,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowCodePackagesNotLockedDetails>().checked(),
         Definition::read::<WorkflowRetryUnavailableReason>(),
         Definition::read::<WorkflowRetryUnavailableDetails>().checked(),
+        Definition::read::<WorkflowIdempotencyConflictDetails>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS],

@@ -8,7 +8,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::schema::doc_description;
@@ -16,7 +16,6 @@ use crate::session::cost::{TokensPerRun, UsdMicros};
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{Port, SafeInt};
-use crate::wire::text::BoundedText;
 
 /// Declares a whole number that takes one of a fixed list of steps, as its own definition.
 macro_rules! step_set {
@@ -115,7 +114,7 @@ pub struct DaemonConfig {
     /// Whether this operating system lets the service enforce the memory cap.
     pub tool_memory_cap_enforceable: bool,
     /// The folder raw provider messages are written to.
-    pub provider_messages_path: BoundedText<1, FILE_PATH_MAX_LEN>,
+    pub provider_messages_path: FilesystemPath,
 }
 
 /// `daemon.configUpdate`: exactly one setting, as `{"<setting>": value}`; a nullable setting's

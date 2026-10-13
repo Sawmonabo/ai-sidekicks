@@ -6,11 +6,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::gitflow::shared::GitRefName;
 use crate::internal::branded::branded_uuid_id;
 use crate::project::ProjectId;
-use crate::repo::folders::FolderPath;
 use crate::repo::mount::{RepoMountId, WorkspaceId, WorkspaceState, lifecycle_payload};
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
@@ -140,7 +139,7 @@ pub struct ExecutionRootPrepareRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExecutionRootPrepareResponse {
     /// The root.
-    pub execution_root: FolderPath,
+    pub execution_root: FilesystemPath,
     /// The workspace's state.
     pub state: WorkspaceState,
     /// The worktree, for a `provisioned-worktree` prepare only.
@@ -291,7 +290,7 @@ macro_rules! worktree_status_record {
             $arm {
                 $($own)*
                 /// The tree's folder.
-                path: FolderPath,
+                path: FilesystemPath,
                 /// Its name.
                 name: FreeFormText<FILE_PATH_MAX_LEN>,
                 /// Its branch.
@@ -387,7 +386,7 @@ pub struct NewWorktreeSuggestion {
     /// A tail suggested from the session title.
     pub suggested_tail: FreeFormText<{ usize::MAX }>,
     /// The folder up to that tail.
-    pub folder_before: FolderPath,
+    pub folder_before: FilesystemPath,
 }
 
 /// The project's own checkout.
@@ -395,7 +394,7 @@ pub struct NewWorktreeSuggestion {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoRootStatus {
     /// Its folder.
-    pub path: FolderPath,
+    pub path: FilesystemPath,
     /// Its branch.
     pub branch_name: GitRefName,
 }

@@ -123,12 +123,6 @@ pub struct PasskeyEntry {
     pub added_by: TrustSigner,
 }
 
-/// `device.list` takes nothing: the account is the caller's.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct DeviceListRequest {}
-
 /// The list now, which the live read answers with before its first change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -198,12 +192,6 @@ pub enum DeviceListEvent {
 }
 
 // Linking
-
-/// `device.linkStart` takes nothing: the caller is the linking side.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct DeviceLinkStartRequest {}
 
 /// A single-use pairing, good for 5 minutes from when it was made.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -344,12 +332,6 @@ pub struct DeviceStatementApplyRequest {
     pub statements: BoundedVec<TrustStatement, 1, { usize::MAX }>,
 }
 
-/// `device.trustedList` takes nothing: the view is the answering machine's own.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct DeviceTrustedListRequest {}
-
 /// One device as this machine's verified chain sees it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -469,7 +451,7 @@ methods! {
         /// The machines, devices and passkeys, live.
         DeviceList = subscription "device.list" {
             mutating: false,
-            params: DeviceListRequest,
+            params: EmptyPayload,
             result: DeviceListSnapshot,
             emission: DeviceListEvent,
             refusals: [],
@@ -477,7 +459,7 @@ methods! {
         /// Opens a single-use pairing.
         DeviceLinkStart = mutation "device.linkStart" {
             mutating: true,
-            params: DeviceLinkStartRequest,
+            params: EmptyPayload,
             result: DeviceLinkStartResponse,
             refusals: [],
         },
@@ -553,7 +535,7 @@ methods! {
         /// This machine's verified view of the trusted devices.
         DeviceTrustedList = query "device.trustedList" {
             mutating: false,
-            params: DeviceTrustedListRequest,
+            params: EmptyPayload,
             result: DeviceTrustedListResponse,
             refusals: [],
         },
@@ -653,12 +635,10 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<MachineEntry>(),
         Definition::read::<DeviceEntry>(),
         Definition::read::<PasskeyEntry>(),
-        Definition::read::<DeviceListRequest>(),
         Definition::read::<DeviceListSnapshot>(),
         Definition::read::<DeviceStatementEvent>(),
         Definition::read::<DeviceListRowEvent>(),
         Definition::read::<DeviceListEvent>().checked(),
-        Definition::read::<DeviceLinkStartRequest>(),
         Definition::read::<DeviceLinkStartResponse>(),
         Definition::read::<TrustedMachineKey>(),
         Definition::read::<DeviceLinkRedeemResponse>(),
@@ -670,7 +650,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DeviceStatementListRequest>(),
         Definition::read::<DeviceStatementListResponse>(),
         Definition::read::<DeviceStatementApplyRequest>(),
-        Definition::read::<DeviceTrustedListRequest>(),
         Definition::read::<TrustedDevice>(),
         Definition::read::<DeviceTrustedListResponse>(),
         Definition::read::<ControlPlaneCallResponse>(),

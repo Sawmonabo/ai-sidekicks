@@ -20,7 +20,7 @@ ts_constants! {
     pub const MACHINE_OR_DEVICE_NAME_MAX_LEN: usize = 256;
     /// The longest platform description, such as `iPhone`, `Chrome on Windows` or `macOS 15.6`.
     pub const PLATFORM_DESCRIPTION_MAX_LEN: usize = 128;
-    /// WebAuthn caps a credential id at 1,023 bytes, which is 1,364 base64url characters.
+    /// `WebAuthn` caps a credential id at 1,023 bytes, which is 1,364 base64url characters.
     pub const PASSKEY_ID_MAX_LEN: usize = 1364;
     /// The longest device id any wire member carries.
     pub const DEVICE_ID_MAX_LEN: usize = 256;
@@ -32,10 +32,10 @@ ts_constants! {
     TRUST_STATEMENT_KINDS = TrustStatementKind::VARIANTS;
 }
 
-/// The longest encoded signature, WebAuthn assertion part or linking proof.
+/// The longest encoded signature, `WebAuthn` assertion part or linking proof.
 const SIGNATURE_PART_MAX_LEN: usize = 4096;
 
-/// A passkey's WebAuthn credential id, base64url as the platform hands it over.
+/// A passkey's `WebAuthn` credential id, base64url as the platform hands it over.
 pub type PasskeyId = Base64UrlText<1, PASSKEY_ID_MAX_LEN>;
 
 /// A device's or a machine's name.
@@ -78,7 +78,7 @@ pub enum IdentityKeyAlgorithm {
     deny_unknown_fields
 )]
 pub enum IdentityPublicKey {
-    /// A P-256 key, as WebCrypto's raw export gives it.
+    /// A P-256 key, as `WebCrypto`'s raw export gives it.
     P256 {
         /// The 65-byte uncompressed point.
         public_key: Base64Array<65>,
@@ -151,7 +151,7 @@ pub enum TrustSigner {
 }
 
 /// One signature over a statement's canonical bytes without its `signatures`. A device or machine
-/// key signs directly; a passkey signs through a WebAuthn assertion, whose three parts arrive
+/// key signs directly; a passkey signs through a `WebAuthn` assertion, whose three parts arrive
 /// base64url as the platform returns them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
@@ -175,7 +175,7 @@ pub enum TrustStatementSignature {
         /// The signature, standard base64.
         signature: Base64Text<1, SIGNATURE_PART_MAX_LEN>,
     },
-    /// A passkey's WebAuthn assertion.
+    /// A passkey's `WebAuthn` assertion.
     Passkey {
         /// The passkey's credential id.
         passkey_id: PasskeyId,

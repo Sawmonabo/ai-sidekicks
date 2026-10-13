@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::artifacts::id::ArtifactId;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::preview::marks::PreviewPoint;
 use crate::preview::page::{PreviewAddress, PreviewPageId};
@@ -74,9 +74,6 @@ pub enum PreviewFileChooserMode {
     /// One folder and the files inside it.
     SelectFolder,
 }
-
-/// A file's path inside a folder, `/`-separated, as `sub/b.txt`.
-pub type PreviewFolderPath = BoundedText<1, FILE_PATH_MAX_LEN>;
 
 /// One part of a save's bytes: at least one byte and at most [`PREVIEW_FILE_PART_MAX_BYTES`].
 pub type PreviewSavePart = Bytes<1, PREVIEW_FILE_PART_MAX_BYTES>;
@@ -195,8 +192,8 @@ preview_screencast_element! {
                 skip_serializing_if = "Option::is_none",
                 deserialize_with = "crate::wire::present"
             )]
-            #[schemars(with = "PreviewFolderPath")]
-            folder_path: Option<PreviewFolderPath>,
+            #[schemars(with = "FilesystemPath")]
+            folder_path: Option<FilesystemPath>,
             /// Its size in bytes.
             size: SafeInt<0>,
             /// Whether it was held while the device was away; the device asks before saving it.

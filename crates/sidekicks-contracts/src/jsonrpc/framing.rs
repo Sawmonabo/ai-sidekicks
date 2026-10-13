@@ -263,15 +263,14 @@ mod tests {
             FrameCodec.encode(frame.clone(), &mut encoded).expect("a valid frame encodes");
             let mut tail = encoded.split_off(split.index(encoded.len() + 1));
             let first = FrameCodec.decode(&mut encoded).expect("a prefix is no fault");
-            let decoded = match first {
-                Some(decoded) => decoded,
-                None => {
-                    encoded.unsplit(std::mem::take(&mut tail));
-                    FrameCodec
-                        .decode(&mut encoded)
-                        .expect("the whole frame decodes")
-                        .expect("whole")
-                }
+            let decoded = if let Some(decoded) = first {
+                decoded
+            } else {
+                encoded.unsplit(std::mem::take(&mut tail));
+                FrameCodec
+                    .decode(&mut encoded)
+                    .expect("the whole frame decodes")
+                    .expect("whole")
             };
             prop_assert_eq!(decoded, frame);
             prop_assert!(encoded.is_empty() && tail.is_empty());

@@ -177,7 +177,11 @@ pub struct AgentBindingSwitchTarget {
 }
 
 /// Whether a target names its window on a model move.
-fn target_names_window_on_model_move(target: &AgentBindingSwitchTarget, _: &()) -> garde::Result {
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
+fn target_names_window_on_model_move(target: &AgentBindingSwitchTarget, (): &()) -> garde::Result {
     model_move_names_window(target.model_id.as_ref(), target.larger_window.as_ref())
 }
 
@@ -387,9 +391,13 @@ switch_disposition! {
 
 /// Whether a degraded switch declares a brief's losses, and a failed one states its account
 /// exactly on an account failure.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn settled_switch_states_its_rules(
     disposition: &AgentBindingSwitchDisposition,
-    _: &(),
+    (): &(),
 ) -> garde::Result {
     match disposition {
         AgentBindingSwitchDisposition::Degraded {
@@ -436,9 +444,13 @@ pub struct AgentProviderBindingChangedPayload {
 }
 
 /// Whether a changed payload's losses agree with its continuity.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn changed_payload_losses_match(
     payload: &AgentProviderBindingChangedPayload,
-    _: &(),
+    (): &(),
 ) -> garde::Result {
     declared_losses_match(payload.continuity, &payload.declared_losses)
 }
@@ -478,9 +490,13 @@ pub struct AgentProviderBindingChangeFailedPayload {
 }
 
 /// Whether a failed payload states its account exactly on an account failure.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn failed_payload_states_its_account(
     payload: &AgentProviderBindingChangeFailedPayload,
-    _: &(),
+    (): &(),
 ) -> garde::Result {
     account_state_matches_reason(payload.reason, payload.account_state)
 }

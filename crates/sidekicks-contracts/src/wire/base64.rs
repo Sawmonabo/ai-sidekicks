@@ -21,7 +21,7 @@ pub const STANDARD_BASE64: GeneralPurpose = GeneralPurpose::new(
         .with_decode_padding_mode(DecodePaddingMode::RequireCanonical),
 );
 
-/// The URL-safe alphabet with no padding, as WebAuthn hands its parts over.
+/// The URL-safe alphabet with no padding, as `WebAuthn` hands its parts over.
 const URL_SAFE_BASE64: GeneralPurpose = GeneralPurpose::new(
     &URL_SAFE,
     GeneralPurposeConfig::new()
@@ -135,7 +135,7 @@ impl<const MIN: usize, const MAX: usize> JsonSchema for Base64Text<MIN, MAX> {
     }
 }
 
-/// URL-safe base64 text with no padding, of `MIN..=MAX` characters: a WebAuthn part.
+/// URL-safe base64 text with no padding, of `MIN..=MAX` characters: a `WebAuthn` part.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
 pub struct Base64UrlText<const MIN: usize, const MAX: usize>(String);

@@ -7,7 +7,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
@@ -17,15 +17,12 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
-use crate::wire::text::{BoundedText, NonEmptyText};
+use crate::wire::text::NonEmptyText;
 
 branded_uuid_id! {
     /// The id of one held note, minted by the client, so adding the same note twice makes one note.
     ReviewNoteId
 }
-
-/// A path in the diff a note is left on.
-pub type ReviewNotePath = BoundedText<1, FILE_PATH_MAX_LEN>;
 
 /// The scopes a note can be left in: the uncommitted changes, the branch, or a pull request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -119,15 +116,15 @@ macro_rules! review_note_located {
             /// The comparison it was left in.
             pub comparison: ReviewNoteComparison,
             /// The file.
-            pub path: ReviewNotePath,
+            pub path: FilesystemPath,
             /// The file's earlier path, when it was renamed.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
                 deserialize_with = "crate::wire::present"
             )]
-            #[schemars(with = "ReviewNotePath")]
-            pub old_path: Option<ReviewNotePath>,
+            #[schemars(with = "FilesystemPath")]
+            pub old_path: Option<FilesystemPath>,
             /// The line's side.
             pub side: ReviewNoteSide,
             /// The line, or the last of several.

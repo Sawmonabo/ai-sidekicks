@@ -49,7 +49,7 @@ methods! {
             mutating: false,
             params: TranscriptPatchReadRequest,
             result: TranscriptPatchReadResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Searches every row one session holds.
         TranscriptSearch = query "transcript.search" {

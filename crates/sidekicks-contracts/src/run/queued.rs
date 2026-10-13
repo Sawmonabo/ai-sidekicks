@@ -157,7 +157,7 @@ pub enum RunQueuedPayload {
     /// For an agent already in the session.
     SessionAgent(#[garde(dive)] RunQueuedSessionAgentPayload),
     /// For an agent resolved from a definition.
-    ResolvedAgent(#[garde(dive)] RunQueuedResolvedAgentPayload),
+    ResolvedAgent(#[garde(dive)] Box<RunQueuedResolvedAgentPayload>),
 }
 
 /// The TypeScript module of a run's creation record.

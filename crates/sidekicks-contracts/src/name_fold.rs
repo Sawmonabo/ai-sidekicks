@@ -42,7 +42,9 @@ mod tests {
                 .expect("the case table reads");
         let mut folds: HashMap<u32, String> = table
             .simple_folds
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| (pair[0], text_of(&pair[1..])))
             .collect();
         folds.extend(

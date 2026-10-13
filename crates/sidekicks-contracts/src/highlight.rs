@@ -125,6 +125,10 @@ pub struct HighlightReadRequest {
     pub block_id: Option<BoundedText<1, HIGHLIGHT_BLOCK_ID_MAX_LENGTH>>,
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn is_source_within_bound(source: &BoundedText<1, { usize::MAX }>, (): &()) -> garde::Result {
     let bytes = json_utf8_byte_length(&source.as_str())
         .map_err(|error| garde::Error::new(error.to_string()))?;
@@ -177,13 +181,14 @@ fn flat_spans(spans: &[HighlightSpan]) -> Vec<u64> {
 impl<'de> Deserialize<'de> for HighlightSpans {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let numbers = Vec::<SafeInt<0>>::deserialize(deserializer)?;
-        if numbers.len() % HIGHLIGHT_SPAN_WIDTH != 0 {
+        let (triples, rest) = numbers.as_chunks::<HIGHLIGHT_SPAN_WIDTH>();
+        if !rest.is_empty() {
             return Err(D::Error::custom(
                 "spans holds three numbers per span: offset, length and class",
             ));
         }
-        numbers
-            .chunks_exact(HIGHLIGHT_SPAN_WIDTH)
+        triples
+            .iter()
             .map(|triple| {
                 let length = SafeInt::new(triple[1].get())
                     .ok_or_else(|| D::Error::custom("a span covers at least one character"))?;
@@ -220,8 +225,8 @@ impl JsonSchema for HighlightSpans {
 }
 
 #[expect(
-    clippy::ptr_arg,
-    reason = "garde hands a check the field as it is declared"
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
 )]
 fn are_spans_paintable(spans: &Vec<HighlightSpan>, (): &()) -> garde::Result {
     let mut previous_end = 0;

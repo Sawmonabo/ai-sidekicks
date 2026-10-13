@@ -5,9 +5,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::project::ProjectId;
-use crate::repo::folders::FolderPath;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::BoundedInt;
 use crate::wire::text::{FreeFormText, pattern_text};
@@ -42,8 +42,8 @@ pub struct RepoCloneRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FolderPath")]
-    pub parent_folder: Option<FolderPath>,
+    #[schemars(with = "FilesystemPath")]
+    pub parent_folder: Option<FilesystemPath>,
     /// The project whose clone runs again.
     #[serde(
         default,
@@ -223,12 +223,6 @@ pub struct RepoCloneAnswerRequest {
     pub answer: AskpassAnswer,
 }
 
-/// `repo.cloneFolderRead` takes nothing.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct RepoCloneFolderReadRequest {}
-
 /// Why a clone goes where it does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -248,7 +242,7 @@ pub enum RepoCloneFolderSource {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoCloneFolderReadResponse {
     /// The folder.
-    pub folder: FolderPath,
+    pub folder: FilesystemPath,
     /// Why.
     pub source: RepoCloneFolderSource,
 }
@@ -270,7 +264,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RepoCloneStatus>(),
         Definition::read::<AskpassAnswer>(),
         Definition::read::<RepoCloneAnswerRequest>().checked(),
-        Definition::read::<RepoCloneFolderReadRequest>(),
         Definition::read::<RepoCloneFolderSource>(),
         Definition::read::<RepoCloneFolderReadResponse>(),
     ],

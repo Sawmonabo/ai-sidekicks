@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::daemon::recovery::DaemonRecoveryStatus;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::process_identity::ProcessIdentity;
@@ -28,9 +28,6 @@ ts_constants! {
 
 /// A text the status carries.
 type StatusText = BoundedText<1, DAEMON_STATUS_TEXT_MAX_LEN>;
-
-/// A path the status carries.
-type StatusPath = BoundedText<1, FILE_PATH_MAX_LEN>;
 
 /// Where the service is in its own life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -132,7 +129,7 @@ pub struct DaemonStatusReadResponse {
     /// How long it has run, in milliseconds.
     pub uptime_ms: SafeInt<0>,
     /// The data directory this service holds; a second service cannot hold it.
-    pub data_directory: StatusPath,
+    pub data_directory: FilesystemPath,
     /// The processor reading, or `null` when it could not be taken at this call.
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<DaemonProcessorReading>")]
@@ -164,8 +161,8 @@ pub struct DaemonStatusReadResponse {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "StatusPath")]
-    pub secrets_file: Option<StatusPath>,
+    #[schemars(with = "FilesystemPath")]
+    pub secrets_file: Option<FilesystemPath>,
 }
 
 pattern_text! {

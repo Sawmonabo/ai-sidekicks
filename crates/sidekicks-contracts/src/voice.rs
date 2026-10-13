@@ -88,11 +88,15 @@ pub struct VoiceDictationWriteRequest {
     pub audio: Bytes<1, VOICE_DICTATION_FRAME_MAX_BYTES>,
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
 fn holds_whole_samples(
     audio: &Bytes<1, VOICE_DICTATION_FRAME_MAX_BYTES>,
     (): &(),
 ) -> garde::Result {
-    if audio.as_bytes().len() % 2 == 0 {
+    if audio.as_bytes().len().is_multiple_of(2) {
         Ok(())
     } else {
         Err(garde::Error::new("audio must hold whole 16-bit samples"))
@@ -332,7 +336,7 @@ methods! {
             mutating: true,
             params: VoiceState,
             result: VoiceState,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Follows which session voice is on in.
         VoiceStateSubscribe = subscription "voice.stateSubscribe" {
@@ -347,7 +351,7 @@ methods! {
             mutating: true,
             params: VoiceDictationStartRequest,
             result: EmptyPayload,
-            refusals: [VoiceUnavailable],
+            refusals: [SessionNotFound, VoiceUnavailable],
         },
         /// Sends one frame of the recording.
         VoiceDictationWrite = mutation "voice.dictationWrite" {
@@ -376,7 +380,7 @@ methods! {
             mutating: true,
             params: VoiceCallStartRequest,
             result: VoiceCallStartResponse,
-            refusals: [VoiceUnavailable, VoiceCallStartFailed],
+            refusals: [SessionNotFound, VoiceUnavailable, VoiceCallStartFailed],
         },
         /// Stops the call.
         VoiceCallStop = mutation "voice.callStop" {

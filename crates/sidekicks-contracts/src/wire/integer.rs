@@ -57,6 +57,14 @@ impl<const MIN: u64> JsonSchema for SafeInt<MIN> {
 /// [`MAX_SAFE_INTEGER`] as a signed number, the bound of a whole number of either sign.
 pub const MAX_SAFE_SIGNED_INTEGER: i64 = MAX_SAFE_INTEGER.cast_signed();
 
+/// `count` as the signed bound of a [`BoundedInt`], for a cap declared as a `usize`; a count past
+/// [`MAX_SAFE_INTEGER`] fails the build.
+pub const fn count_bound(count: usize) -> i64 {
+    let count = count as u64;
+    assert!(count <= MAX_SAFE_INTEGER, "a count bound is a safe integer");
+    count.cast_signed()
+}
+
 /// A whole number of either sign within what a JavaScript number holds exactly, ±(2^53 − 1).
 pub type SafeSignedInt = BoundedInt<{ -MAX_SAFE_SIGNED_INTEGER }, MAX_SAFE_SIGNED_INTEGER>;
 

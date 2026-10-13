@@ -6,7 +6,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::session::name::SESSION_NAME_MAX_LEN;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::number::NonNegativeNumber;
@@ -33,15 +33,15 @@ pub struct SessionSendArguments {
     /// Files to stage into the receiving session.
     #[schemars(description = format!(
         "Optional. Paths of files this session can read, each 1 to {FILE_PATH_MAX_LEN} \
-         characters, not only whitespace, with no NUL character."
+         characters, with no NUL character."
     ))]
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "Vec<FreeFormText<FILE_PATH_MAX_LEN>>")]
-    pub files: Option<Vec<FreeFormText<FILE_PATH_MAX_LEN>>>,
+    #[schemars(with = "Vec<FilesystemPath>")]
+    pub files: Option<Vec<FilesystemPath>>,
 }
 
 /// `task_output`: the status of a tool call that moved to the background and, once it ends, its

@@ -11,6 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use url::Url;
 
 use crate::method::methods;
+use crate::method_descriptor::EmptyPayload;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::web_address::web_address_fault;
 use crate::wire::instant::WireInstant;
@@ -61,13 +62,6 @@ impl JsonSchema for SiteOrigin {
         })
     }
 }
-
-/// Settings › Browser's list read, its clear-all and the Chromium methods: machine-wide, so they
-/// name nothing.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct BrowserMachineRequest {}
 
 /// One site holding saved data. `hasCookies` is true while it holds at least one unexpired cookie,
 /// and the row then reads `Saved cookies`; otherwise it holds other saved data and reads `Saved
@@ -250,7 +244,7 @@ methods! {
         /// Every site with saved data.
         BrowserSiteDataList = query "browser.siteDataList" {
             mutating: false,
-            params: BrowserMachineRequest,
+            params: EmptyPayload,
             result: BrowserSiteDataListResponse,
             refusals: [],
         },
@@ -278,21 +272,21 @@ methods! {
         /// Clears every site's saved data.
         BrowserSiteDataClear = mutation "browser.siteDataClear" {
             mutating: true,
-            params: BrowserMachineRequest,
+            params: EmptyPayload,
             result: BrowserSiteDataClearResponse,
             refusals: [],
         },
         /// The Chromium in use.
         BrowserChromiumRead = query "browser.chromiumRead" {
             mutating: false,
-            params: BrowserMachineRequest,
+            params: EmptyPayload,
             result: BrowserChromiumReadResponse,
             refusals: [],
         },
         /// Fetches Chrome for Testing.
         BrowserChromiumFetch = mutation "browser.chromiumFetch" {
             mutating: true,
-            params: BrowserMachineRequest,
+            params: EmptyPayload,
             result: BrowserChromiumFetchResponse,
             refusals: [],
         },
@@ -305,7 +299,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The machine-wide browser methods behind Settings › Browser.",
     definitions: &[
         Definition::read::<SiteOrigin>().checked(),
-        Definition::read::<BrowserMachineRequest>(),
         Definition::read::<BrowserSiteData>(),
         Definition::read::<BrowserSiteDataListResponse>(),
         Definition::read::<BrowserSiteRequest>(),
