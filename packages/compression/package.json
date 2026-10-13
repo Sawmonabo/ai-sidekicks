@@ -15,9 +15,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "cargo build --profile wasm-release --target wasm32-unknown-unknown -p compression --message-format=json-render-diagnostics | node --experimental-strip-types write-dist.ts",
+    "build": "cargo build --profile wasm-release --target wasm32-unknown-unknown -p sidekicks-compression --message-format=json-render-diagnostics | node --experimental-strip-types write-dist.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "lint": "eslint write-dist.ts",
-    "test": "cargo test"
+    "lint": "eslint write-dist.ts"
   }
 }

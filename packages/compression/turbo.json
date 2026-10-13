@@ -2,34 +2,24 @@
   "$schema": "../../node_modules/turbo/schema.json",
   "extends": ["//"],
   "tasks": {
-    // The build compiles the crate to WebAssembly and lays out `dist/` through the repository's
-    // `tools/wasm-dist.ts`: the module, and the notices of the crates compiled into it. The
-    // workspace's Cargo files pin those crates, and its toolchain file the Rust that compiles them.
-    // The module is the same on every platform, so runners share one cache entry.
+    // The build compiles `crates/sidekicks-compression` to WebAssembly and lays out `dist/` through
+    // the repository's `tools/wasm-dist.ts`: the module, and the notices of the crates compiled into
+    // it. The crate's own build task carries the crate, the workspace's Cargo files and the
+    // toolchain file in its hash. The module is the same on every platform, so runners share one
+    // cache entry.
     "build": {
-      "inputs": [
-        "$TURBO_EXTENDS$",
-        "Cargo.toml",
-        "build.rs",
-        "write-dist.ts",
-        "$TURBO_ROOT$/tools/wasm-dist.ts",
-        "$TURBO_ROOT$/Cargo.toml",
-        "$TURBO_ROOT$/Cargo.lock",
-        "$TURBO_ROOT$/rust-toolchain.toml"
-      ],
+      "dependsOn": ["^build", "sidekicks-compression#build"],
+      "inputs": ["$TURBO_EXTENDS$", "write-dist.ts", "$TURBO_ROOT$/tools/wasm-dist.ts"],
       "outputs": ["dist/**"],
       // Cargo's job limit, its incremental setting (CI turns it off) and the toolchain's folders,
-      // which Turborepo's strict environment mode would otherwise withhold.
+      // which Turborepo's strict environment mode would otherwise withhold from this package's
+      // own Cargo run.
       "passThroughEnv": ["CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_HOME", "RUSTUP_HOME"]
     },
     // The script that lays out `dist/` and the tool it imports; the check writes nothing.
     "typecheck": {
       "inputs": ["$TURBO_EXTENDS$", "write-dist.ts", "$TURBO_ROOT$/tools/wasm-dist.ts"],
       "outputs": []
-    },
-    // The tests are the crate's own, compiled and run by Cargo.
-    "test": {
-      "passThroughEnv": ["CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_HOME", "RUSTUP_HOME"]
     }
   }
 }

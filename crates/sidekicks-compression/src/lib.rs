@@ -7,6 +7,10 @@
 //! no call re-enters it, so each call has both buffers to itself.
 
 #![cfg_attr(target_arch = "wasm32", no_std)]
+#![expect(
+    unsafe_code,
+    reason = "the page calls the module through exported C functions over two static buffers"
+)]
 
 /// The most bytes one plain chunk holds.
 const PLAIN_CAPACITY: usize = 16 * 1024;

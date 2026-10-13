@@ -1,14 +1,18 @@
 [package]
-name = "compression"
-version = "0.1.0"
-edition = "2024"
-publish = false
+name = "sidekicks-compression"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Packs and unpacks 16 KiB chunks of text with LZ4, in a WebAssembly module."
-license = "Apache-2.0"
+license.workspace = true
+publish.workspace = true
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
 # The block format alone: no frames, no standard library, and no unsafe code in the codec.
-lz4_flex = { version = "0.14.0", default-features = false, features = ["safe-decode", "safe-encode"] }
+lz4_flex.workspace = true
+
+[lints]
+workspace = true
