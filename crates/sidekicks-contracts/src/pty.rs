@@ -14,18 +14,21 @@ pub mod control;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::color::HexColor;
 use crate::command::ExitCode;
 use crate::event::registry::SessionEventType;
+use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::jsonrpc::streaming::{STREAM_FRAME_MAX_CHANGES, SubscribeAckResponse, SubscriptionId};
 use crate::method::methods;
 use crate::method_descriptor::NullPayload;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::attachment::Bytes;
 use crate::wire::id::ClientUuid;
 use crate::wire::integer::SafeInt;
-use crate::wire::list::{BoundedVec, unique_by};
+use crate::wire::list::{BoundedVec, ListKey, UniqueList};
 use crate::wire::text::{BoundedText, branded_text};
 use crate::wire::{NullableSchema, True, nullable};
 use control::{
@@ -46,7 +49,7 @@ ts_constants! {
     /// The event every change of one shell's holder is broadcast on.
     pub const PTY_CONTROL_CHANGED_EVENT: &str = SessionEventType::PtyControlChanged.as_str();
     /// Every reason a shell's holder can change.
-    PTY_CONTROL_CHANGED_REASONS = PtyControlChangedReason::ALL;
+    PTY_CONTROL_CHANGED_REASONS = PtyControlChangedReason::VARIANTS;
 }
 
 branded_text! {
@@ -122,8 +125,8 @@ pub struct PtyListUpdate {
     #[garde(skip)]
     pub session_id: SessionId,
     /// Its shells, in tab order.
-    #[garde(dive, custom(unique_by(|entry: &PtyListEntry| entry.terminal_id.clone())))]
-    pub terminals: Vec<PtyListEntry>,
+    #[garde(dive)]
+    pub terminals: UniqueList<PtyListEntry, 0, { usize::MAX }>,
 }
 
 /// `pty.open`: another shell for the session, the person's own login shell in the session's tree,
@@ -175,12 +178,14 @@ pub struct PtyReorderRequest {
     #[garde(skip)]
     pub session_id: SessionId,
     /// The shells, in their new order.
-    #[garde(custom(unique_by(|terminal_id: &TerminalId| terminal_id.clone())))]
+    #[garde(dive)]
     #[schemars(extend("uniqueItems" = true))]
-    pub terminal_ids: BoundedVec<TerminalId, 1, { usize::MAX }>,
+    pub terminal_ids: UniqueList<TerminalId, 1, { usize::MAX }>,
 }
 
-/// `pty.outputSubscribe`: the shell whose output the subscription streams.
+/// `pty.outputSubscribe`: the shell whose output the subscription streams. `afterOffset` is where
+/// a watcher that reconnects got to: while that offset is still inside the scrollback window it
+/// gets only the bytes after it, and a fresh `scrollback` otherwise.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PtyOutputSubscribeRequest {
@@ -188,6 +193,14 @@ pub struct PtyOutputSubscribeRequest {
     pub session_id: SessionId,
     /// The shell.
     pub terminal_id: TerminalId,
+    /// The output offset the watcher already has.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "OutputOffset")]
+    pub after_offset: Option<OutputOffset>,
 }
 
 /// One change on a shell's output stream; `cursor` is the shell's output offset once the change is
@@ -195,7 +208,8 @@ pub struct PtyOutputSubscribeRequest {
 /// its first whole line, with the columns and rows it was last drawn at (so a running program's
 /// boxes come back unwrapped) and who holds it at which lease version; a window too large for one
 /// message goes on in `scrollback_continuation` changes, each in a frame of its own, before any
-/// output. `output` is what the shell wrote next, in order; `exited` is its program's end.
+/// output. `output` is what the shell wrote next, in order; `exited` is its program's end. Output
+/// and scrollback travel as raw bytes, an attachment each, with no character held back.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
@@ -211,8 +225,8 @@ pub enum PtyOutputChange {
         session_id: SessionId,
         /// The shell.
         terminal_id: TerminalId,
-        /// The window's text.
-        data: String,
+        /// The window's bytes.
+        data: Bytes<0, MAX_ONE_ATTACHMENT_BYTES>,
         /// The columns it was last drawn at.
         columns: SafeInt<1>,
         /// The rows it was last drawn at.
@@ -233,8 +247,8 @@ pub enum PtyOutputChange {
         session_id: SessionId,
         /// The shell.
         terminal_id: TerminalId,
-        /// The window's next text.
-        data: String,
+        /// The window's next bytes.
+        data: Bytes<1, MAX_ONE_ATTACHMENT_BYTES>,
         /// The output offset after the change.
         cursor: OutputOffset,
     },
@@ -244,8 +258,8 @@ pub enum PtyOutputChange {
         session_id: SessionId,
         /// The shell.
         terminal_id: TerminalId,
-        /// The text.
-        data: String,
+        /// The bytes.
+        data: Bytes<1, MAX_ONE_ATTACHMENT_BYTES>,
         /// The output offset after the change.
         cursor: OutputOffset,
     },
@@ -266,9 +280,7 @@ pub enum PtyOutputChange {
 /// the frames that continue the window follow it. A watcher that fell behind stops receiving
 /// output, and once it has caught up its next frame carries the drop mark and a fresh `scrollback`
 /// change, so it redraws from the scrollback window and no byte reaches it twice; one still behind
-/// when the shell exits gets the drop mark, a fresh `scrollback` change and the `exited` change. A
-/// cursor counts only the bytes sent: a character the output ends inside is held back for the
-/// output that completes it.
+/// when the shell exits gets the drop mark, a fresh `scrollback` change and the `exited` change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PtyOutputFrame {
@@ -413,7 +425,7 @@ methods! {
             params: PtyListRequest,
             result: SubscribeAckResponse,
             emission: PtyListUpdate,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Opens another shell.
         PtyOpen = mutation "pty.open" {
@@ -421,6 +433,7 @@ methods! {
             params: PtyOpenRequest,
             result: PtyOpenResponse,
             refusals: [
+                SessionNotFound,
                 PtyChatUnsupported,
                 PtyBackendUnavailable,
                 SessionWorkingFolderUnavailable,
@@ -511,3 +524,23 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         &TERMINAL_CONTROL_METHOD_DESCRIPTORS,
     ],
 };
+
+impl ListKey for PtyListEntry {
+    type Key = TerminalId;
+
+    fn list_key(&self) -> TerminalId {
+        self.terminal_id.clone()
+    }
+
+    fn validate_item(&self, parent: &mut dyn FnMut() -> garde::Path, report: &mut garde::Report) {
+        garde::Validate::validate_into(self, &(), parent, report);
+    }
+}
+
+impl ListKey for TerminalId {
+    type Key = Self;
+
+    fn list_key(&self) -> Self {
+        self.clone()
+    }
+}

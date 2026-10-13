@@ -2,8 +2,6 @@
 //! A write treats an absent member as "leave it to the default" and an explicit `null` as "stop
 //! pinning this", while the stored row has no absence, so a write and the row are two shapes.
 
-use std::collections::BTreeMap;
-
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -17,12 +15,9 @@ use crate::project::ProjectId;
 use crate::wire::True;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{BoundedText, FreeFormText};
-
-/// The request of `agent.definitionList` and `agent.definitionSubscribe`, which take no members.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct AgentDefinitionListRequest {}
+use crate::wire::list::BoundedVec;
+use crate::wire::record::Record;
+use crate::wire::text::{FreeFormText, NonEmptyText};
 
 /// The whole registry and two readings folded per reply and never stored. Each reading is absent
 /// as a whole only when its source could not be read, so a card leaves its line out rather than
@@ -40,29 +35,17 @@ pub struct AgentDefinitionListResponse {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "BTreeMap<AgentDefinitionId, SafeInt<0>>")]
-    pub workflow_usage: Option<BTreeMap<AgentDefinitionId, SafeInt<0>>>,
+    #[schemars(with = "Record<AgentDefinitionId, SafeInt<0>>")]
+    pub workflow_usage: Option<Record<AgentDefinitionId, SafeInt<0>>>,
     /// When a session run or a workflow run last resolved each definition.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "BTreeMap<AgentDefinitionId, WireInstant>")]
-    #[garde(custom(are_instants_well_formed))]
-    pub last_used_at: Option<BTreeMap<AgentDefinitionId, WireInstant>>,
-}
-
-/// Whether every last-use instant matches the instant's pattern.
-fn are_instants_well_formed(
-    last_used_at: &Option<BTreeMap<AgentDefinitionId, WireInstant>>,
-    _: &(),
-) -> garde::Result {
-    for instant in last_used_at.iter().flat_map(BTreeMap::values) {
-        garde::Validate::validate(instant)
-            .map_err(|report| garde::Error::new(report.to_string()))?;
-    }
-    Ok(())
+    #[schemars(with = "Record<AgentDefinitionId, WireInstant>")]
+    #[garde(dive)]
+    pub last_used_at: Option<Record<AgentDefinitionId, WireInstant>>,
 }
 
 /// Declares a definition write: the caller's leading members, then the writable members create
@@ -92,8 +75,8 @@ macro_rules! definition_write {
                 skip_serializing_if = "Option::is_none",
                 with = "serde_with::rust::double_option"
             )]
-            #[schemars(with = "crate::wire::NullableSchema<BoundedText<1, { usize::MAX }>>")]
-            pub icon: Option<Option<BoundedText<1, { usize::MAX }>>>,
+            #[schemars(with = "crate::wire::NullableSchema<NonEmptyText>")]
+            pub icon: Option<Option<NonEmptyText>>,
             /// A hue, or `null` for none.
             #[serde(
                 default,
@@ -264,14 +247,11 @@ pub struct AgentDefinitionDeleteResponse {
 
 /// Writes the chosen definitions into the folder the person picked, one Markdown file each, every
 /// binding with its account left out. An unknown id refuses the whole export.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
 pub struct AgentDefinitionExportRequest {
     /// The definitions, at least one.
-    #[garde(length(min = 1))]
-    #[schemars(length(min = 1))]
-    pub definition_ids: Vec<AgentDefinitionId>,
+    pub definition_ids: BoundedVec<AgentDefinitionId, 1, { usize::MAX }>,
     /// The folder, the path main's relay put in place of the chooser's token.
     pub folder: FreeFormText<FILE_PATH_MAX_LEN>,
 }

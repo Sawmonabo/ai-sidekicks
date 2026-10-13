@@ -79,27 +79,27 @@ pub struct WorkflowCodeInstallFailedDetails {
 
 ts_constants! {
     /// A workflow definition or run that does not exist.
-    WORKFLOW_NOT_FOUND_CODE = RefusalCode::WorkflowNotFound.as_str();
+    WORKFLOW_NOT_FOUND_CODE = RefusalCode::WorkflowNotFound;
     /// A step cut by a time limit: its own `Timeout`, or the run's cap.
-    WORKFLOW_STEP_TIMED_OUT_CODE = RefusalCode::WorkflowStepTimedOut.as_str();
+    WORKFLOW_STEP_TIMED_OUT_CODE = RefusalCode::WorkflowStepTimedOut;
     /// Every limit that cuts a step.
     pub const WORKFLOW_STEP_TIMED_OUT_CAUSES: [WorkflowStepTimedOutCause; 2] =
         [WorkflowStepTimedOutCause::StepTimeout, WorkflowStepTimedOutCause::RunCap];
     /// A quick step's engine that did not start in time.
-    WORKFLOW_STEP_THREAD_FAILED_CODE = RefusalCode::WorkflowStepThreadFailed.as_str();
+    WORKFLOW_STEP_THREAD_FAILED_CODE = RefusalCode::WorkflowStepThreadFailed;
     /// Every reason a quick step's engine fails.
     pub const WORKFLOW_STEP_THREAD_FAILED_REASONS: [WorkflowStepThreadFailedReason; 1] =
         [WorkflowStepThreadFailedReason::StartTimeout];
     /// A full-tier Code step or a sandboxed shell step whose provider sandbox did not start; the
     /// step never runs unprotected instead.
-    WORKFLOW_SANDBOX_UNAVAILABLE_CODE = RefusalCode::WorkflowSandboxUnavailable.as_str();
+    WORKFLOW_SANDBOX_UNAVAILABLE_CODE = RefusalCode::WorkflowSandboxUnavailable;
     /// A full-tier Code step whose package install did not finish.
-    WORKFLOW_CODE_INSTALL_FAILED_CODE = RefusalCode::WorkflowCodeInstallFailed.as_str();
+    WORKFLOW_CODE_INSTALL_FAILED_CODE = RefusalCode::WorkflowCodeInstallFailed;
     /// Every reason a package install fails.
     pub const WORKFLOW_CODE_INSTALL_FAILED_REASONS: [WorkflowCodeInstallFailedReason; 2] =
         [WorkflowCodeInstallFailedReason::DiskSpace, WorkflowCodeInstallFailedReason::ToolError];
     /// A Code step over its memory budget; a deadline cut is `workflow.step_timed_out` instead.
-    WORKFLOW_CODE_OVER_BUDGET_CODE = RefusalCode::WorkflowCodeOverBudget.as_str();
+    WORKFLOW_CODE_OVER_BUDGET_CODE = RefusalCode::WorkflowCodeOverBudget;
 }
 
 /// The TypeScript module of the run refusal and the step failures.

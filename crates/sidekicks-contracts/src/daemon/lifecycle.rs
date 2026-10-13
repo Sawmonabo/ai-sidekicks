@@ -11,10 +11,6 @@ use crate::method_descriptor::EmptyPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::True;
 
-/// The words the service's ready line starts with, written once it answers on its socket; whoever
-/// started the process waits for them.
-pub const DAEMON_READY_LINE: &str = "The daemon is ready";
-
 /// How long a stopping service gives its terminals, all at once, to exit before it kills them, in
 /// milliseconds.
 pub const DAEMON_STOP_TERMINAL_DRAIN_MS: u64 = 2_000;
@@ -23,6 +19,10 @@ pub const DAEMON_STOP_TERMINAL_DRAIN_MS: u64 = 2_000;
 pub const DAEMON_STOP_TERMINAL_HOST_DRAIN_MS: u64 = 2_000;
 
 ts_constants! {
+    /// The words the service's ready line starts with, written once it answers on its socket;
+    /// whoever started the process waits for them.
+    pub const DAEMON_READY_LINE: &str = "The daemon is ready";
+
     /// The longest a stopping service's drain runs, in milliseconds. A client that saw a stop or
     /// restart taken waits this long for the service to exit before it signals it, so no signal
     /// cuts the drain short.

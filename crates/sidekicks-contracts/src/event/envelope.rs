@@ -7,9 +7,11 @@
 //! envelope's own members stay closed. The strict session event is parsed from an envelope's
 //! `type` and `payload` when it is read.
 
+use std::borrow::Cow;
 use std::sync::LazyLock;
 
-use schemars::JsonSchema;
+use regex::Regex;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -62,6 +64,31 @@ pub enum EventCategory {
     WorkflowGateResolution,
 }
 
+impl EventCategory {
+    /// The category's wire text, as its serde form writes it.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::RunLifecycle => "run_lifecycle",
+            Self::AssistantOutput => "assistant_output",
+            Self::ToolActivity => "tool_activity",
+            Self::InteractiveRequest => "interactive_request",
+            Self::ArtifactPublication => "artifact_publication",
+            Self::SessionLifecycle => "session_lifecycle",
+            Self::ApprovalFlow => "approval_flow",
+            Self::UsageTelemetry => "usage_telemetry",
+            Self::RecoveryEvents => "recovery_events",
+            Self::SecurityEvents => "security_events",
+            Self::EventMaintenance => "event_maintenance",
+            Self::OrchestrationAdmission => "orchestration_admission",
+            Self::McpGovernance => "mcp_governance",
+            Self::WorkflowLifecycle => "workflow_lifecycle",
+            Self::WorkflowPhaseLifecycle => "workflow_phase_lifecycle",
+            Self::WorkflowParallelCoordination => "workflow_parallel_coordination",
+            Self::WorkflowGateResolution => "workflow_gate_resolution",
+        }
+    }
+}
+
 ts_constants! {
     /// The largest `sequence` an envelope may carry, not a tunable: `sequence` travels as an
     /// IEEE-754 double, which holds integers exactly only up to 2^53 − 1, so above it two events
@@ -94,19 +121,54 @@ impl EventEnvelopeType {
     }
 }
 
-/// The one payload member name the envelope refuses, since a JavaScript record parser drops it
-/// and the parsed value would no longer match the stored canonical bytes.
-const PROTOTYPE_KEY: &str = "__proto__";
+/// The pattern an [`EventOccurredAt`] adds to the instant's own: no non-zero fraction digit past
+/// the third, so the append path's millisecond form keeps the instant exactly.
+const OCCURRED_AT_MILLISECONDS_PATTERN: &str = "^[^.]*(?:\\.[0-9]{1,3}0*[^0-9][^.]*)?$";
 
-/// Refuses a payload holding the member `__proto__`.
-fn holds_no_prototype_member(payload: &Map<String, Value>, (): &()) -> garde::Result {
-    if payload.contains_key(PROTOTYPE_KEY) {
-        Err(garde::Error::new(
-            "an event payload never holds the member __proto__, which a JavaScript reader \
-             cannot keep",
-        ))
-    } else {
+/// [`OCCURRED_AT_MILLISECONDS_PATTERN`], compiled once for the garde check.
+static OCCURRED_AT_MILLISECONDS_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(OCCURRED_AT_MILLISECONDS_PATTERN).expect("the occurred-at pattern is a valid regex")
+});
+
+/// Refuses an instant whose fraction holds a non-zero digit past the third.
+fn holds_milliseconds_at_most(instant: &WireInstant, (): &()) -> garde::Result {
+    if OCCURRED_AT_MILLISECONDS_REGEX.is_match(instant.as_str()) {
         Ok(())
+    } else {
+        Err(garde::Error::new(
+            "an occurredAt carries no non-zero fraction digit past the millisecond",
+        ))
+    }
+}
+
+/// When an incoming event occurred: an instant as a peer sent it, whose fraction holds no non-zero
+/// digit past the third, since the append path stores it in UTC to the millisecond.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, garde::Validate)]
+#[serde(transparent)]
+#[garde(transparent)]
+pub struct EventOccurredAt(#[garde(dive, custom(holds_milliseconds_at_most))] WireInstant);
+
+impl EventOccurredAt {
+    /// The instant as received.
+    pub fn as_instant(&self) -> &WireInstant {
+        &self.0
+    }
+}
+
+impl JsonSchema for EventOccurredAt {
+    fn schema_name() -> Cow<'static, str> {
+        "EventOccurredAt".into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "When an incoming event occurred: an instant whose fraction holds no \
+                            non-zero digit past the third.",
+            "allOf": [
+                generator.subschema_for::<WireInstant>(),
+                { "pattern": OCCURRED_AT_MILLISECONDS_PATTERN },
+            ],
+        })
     }
 }
 
@@ -125,7 +187,7 @@ pub struct EventEnvelope {
     pub sequence: SafeInt<0>,
     /// When the event occurred; the append path stores it in UTC with millisecond precision.
     #[garde(dive)]
-    pub occurred_at: WireInstant,
+    pub occurred_at: EventOccurredAt,
     /// The event's category.
     pub category: EventCategory,
     /// The event's type, kept as written.
@@ -139,9 +201,10 @@ pub struct EventEnvelope {
     )]
     #[schemars(with = "NullableSchema<FreeFormText<EVENT_FIELD_MAX_LEN>>")]
     pub actor: Option<Option<FreeFormText<EVENT_FIELD_MAX_LEN>>>,
-    /// The category's own members, every one kept as written; may carry the epoch stamp.
-    #[garde(custom(holds_no_prototype_member))]
-    #[schemars(extend("propertyNames" = { "not": { "const": PROTOTYPE_KEY } }))]
+    /// The category's own members, every one kept as written but `__proto__`, which a JavaScript
+    /// reader cannot keep; may carry the epoch stamp.
+    #[serde(deserialize_with = "crate::wire::record::prototype_free")]
+    #[schemars(extend("propertyNames" = crate::wire::record::prototype_free_names()))]
     pub payload: Map<String, Value>,
     /// The id that ties this event to others of one operation.
     #[serde(
@@ -284,6 +347,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<EventCategory>().checked(),
         Definition::read::<EventEnvelopeType>(),
+        Definition::read::<EventOccurredAt>(),
         Definition::read::<EventEnvelope>().checked(),
         Definition::read::<SourceEpoch>(),
         Definition::read::<SourcePosition>(),

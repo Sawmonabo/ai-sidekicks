@@ -3,11 +3,14 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 
 /// An operating system a build runs on, in Node's spelling.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "lowercase")]
 #[schemars(rename = "SupportedPlatform")]
 pub enum Platform {
@@ -17,11 +20,6 @@ pub enum Platform {
     Linux,
     /// Windows.
     Win32,
-}
-
-impl Platform {
-    /// Every platform.
-    pub const ALL: &[Self] = &[Self::Darwin, Self::Linux, Self::Win32];
 }
 
 /// A processor architecture a build runs on, in Node's spelling.
@@ -36,7 +34,7 @@ pub enum Arch {
 
 ts_constants! {
     /// The operating systems a build runs on.
-    SUPPORTED_PLATFORMS = Platform::ALL;
+    SUPPORTED_PLATFORMS = Platform::VARIANTS;
 }
 
 /// The TypeScript module of the platforms.

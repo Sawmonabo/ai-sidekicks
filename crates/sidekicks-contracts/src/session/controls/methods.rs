@@ -6,16 +6,14 @@
 //! Every method here names the session it acts on, and every setting it changes belongs to that
 //! session alone: Settings, other sessions and future sessions are untouched.
 
-use std::borrow::Cow;
-
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::de::Error as _;
-use serde::{Deserialize, Deserializer, Serialize};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::mcp::server::{McpServerName, McpServerStatus};
 use crate::method::methods;
+use crate::method_descriptor::EmptyPayload;
 use crate::provider::driver::commands::ProviderCommandEntry;
 use crate::provider::name::ProviderName;
 use crate::session::cost::{OrchestrationBudgetState, TokensPerRun, UsdMicros};
@@ -23,6 +21,7 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
 use crate::wire::named_scalar;
+use crate::wire::number::number;
 use crate::wire::text::{ComposedText, FreeFormText};
 
 /// The one input every session read takes: the session.
@@ -110,42 +109,11 @@ pub struct SessionModeUpdateResponse {
     pub mode: SessionMode,
 }
 
-/// An auto-compact bound: a share of the context window, in percent, above zero and at most 100.
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serialize)]
-#[serde(transparent)]
-pub struct AutoCompactPercent(f64);
-
-impl AutoCompactPercent {
-    /// `value` when it lies above 0 and at most 100, else `None`.
-    pub fn new(value: f64) -> Option<Self> {
-        (value > 0.0 && value <= 100.0).then_some(Self(value))
-    }
-
-    /// The share.
-    pub const fn get(self) -> f64 {
-        self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for AutoCompactPercent {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = f64::deserialize(deserializer)?;
-        Self::new(value).ok_or_else(|| D::Error::custom(format!("{value} is outside (0, 100]")))
-    }
-}
-
-impl JsonSchema for AutoCompactPercent {
-    fn inline_schema() -> bool {
-        true
-    }
-
-    fn schema_name() -> Cow<'static, str> {
-        "AutoCompactPercent".into()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({ "type": "number", "exclusiveMinimum": 0, "maximum": 100 })
-    }
+number! {
+    /// An auto-compact bound: a share of the context window, in percent, above zero and at most
+    /// 100.
+    AutoCompactPercent, |value| value > 0.0 && value <= 100.0, "the percent is outside (0, 100]",
+    { "exclusiveMinimum": 0, "maximum": 100 }
 }
 
 /// Sets this session's own auto-compact bound from its next turn, as a percent of the window;
@@ -444,11 +412,6 @@ pub struct SessionTokensPerRunUpdateRequest {
     pub tokens_per_run: Option<TokensPerRun>,
 }
 
-/// Takes nothing: the list is the machine's, read when a confirm opens.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SessionTerminalProviderSessionListRequest {}
-
 /// Where a provider session typed in a terminal stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -492,14 +455,14 @@ methods! {
             mutating: true,
             params: SessionPermissionLevelUpdateRequest,
             result: SessionPermissionLevelUpdateResponse,
-            refusals: [SessionPermissionLevelUnavailable],
+            refusals: [SessionNotFound, DriverUnavailable, SessionPermissionLevelUnavailable],
         },
         /// Sets the session's mode.
         SessionModeUpdate = mutation "session.modeUpdate" {
             mutating: true,
             params: SessionModeUpdateRequest,
             result: SessionModeUpdateResponse,
-            refusals: [],
+            refusals: [SessionNotFound, DriverUnavailable],
         },
         /// Sets or clears the session's auto-compact bound.
         SessionAutoCompactUpdate = mutation "session.autoCompactUpdate" {
@@ -528,7 +491,7 @@ methods! {
             mutating: false,
             params: SessionMcpResourceListRequest,
             result: SessionMcpResourceListResponse,
-            refusals: [],
+            refusals: [McpServerUnavailable],
         },
         /// Streams the live `/` list's provider half.
         SessionProviderCommandsSubscribe = subscription "session.providerCommandsSubscribe" {
@@ -536,21 +499,21 @@ methods! {
             params: SessionAddressedRequest,
             result: SubscribeAckResponse,
             emission: SessionProviderCommandList,
-            refusals: [],
+            refusals: [SessionNotFound, DriverUnavailable, DriverCapabilityUnsupported],
         },
         /// Asks a side question.
         SessionSideQuestionAsk = mutation "session.sideQuestionAsk" {
             mutating: true,
             params: SessionSideQuestionAskRequest,
             result: SessionSideQuestionAskResponse,
-            refusals: [],
+            refusals: [SessionNotFound, DriverUnavailable],
         },
         /// Starts the provider's own review.
         SessionReviewStart = mutation "session.reviewStart" {
             mutating: true,
             params: SessionReviewStartRequest,
             result: SessionAcknowledgement,
-            refusals: [],
+            refusals: [SessionNotFound, DriverUnavailable],
         },
         /// Reopens the conversation to take new definitions.
         SessionDefinitionsReload = mutation "session.definitionsReload" {
@@ -564,26 +527,26 @@ methods! {
             mutating: true,
             params: SessionMaxStepsUpdateRequest,
             result: SessionMaxStepsUpdateResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Sets or clears the session's `Spend limit`.
         SessionSpendLimitUpdate = mutation "session.spendLimitUpdate" {
             mutating: true,
             params: SessionSpendLimitUpdateRequest,
             result: OrchestrationBudgetState,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Sets or clears the session's `Tokens per run`.
         SessionTokensPerRunUpdate = mutation "session.tokensPerRunUpdate" {
             mutating: true,
             params: SessionTokensPerRunUpdateRequest,
             result: OrchestrationBudgetState,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Lists the provider sessions typed in a terminal.
         SessionTerminalProviderSessionList = query "session.terminalProviderSessionList" {
             mutating: false,
-            params: SessionTerminalProviderSessionListRequest,
+            params: EmptyPayload,
             result: SessionTerminalProviderSessionListResponse,
             refusals: [],
         },
@@ -625,7 +588,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionMaxStepsUpdateResponse>().checked(),
         Definition::read::<SessionSpendLimitUpdateRequest>().checked(),
         Definition::read::<SessionTokensPerRunUpdateRequest>().checked(),
-        Definition::read::<SessionTerminalProviderSessionListRequest>().checked(),
         Definition::read::<TerminalProviderSessionState>(),
         Definition::read::<TerminalProviderSession>(),
         Definition::read::<SessionTerminalProviderSessionListResponse>().checked(),

@@ -5,6 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::gitflow::shared::GitRefName;
 use crate::repo::mount::RepoMountId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -51,7 +52,7 @@ pub struct BranchHolder {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoBranchListEntry {
     /// The branch.
-    pub name: FreeFormText<{ usize::MAX }>,
+    pub name: GitRefName,
     /// Commits ahead of its upstream.
     #[serde(
         default,
@@ -85,7 +86,7 @@ pub struct RepoBranchListEntry {
 #[garde(allow_unvalidated)]
 pub struct RepoBranchListResponse {
     /// The default branch.
-    pub default_branch: FreeFormText<{ usize::MAX }>,
+    pub default_branch: GitRefName,
     /// The branches.
     pub branches: Vec<RepoBranchListEntry>,
     /// Present when the last background fetch failed: when the figures were last true.

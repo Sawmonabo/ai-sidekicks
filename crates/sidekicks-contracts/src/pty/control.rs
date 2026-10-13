@@ -12,6 +12,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::command::CommandId;
 use crate::jsonrpc::streaming::SubscriptionId;
@@ -152,7 +153,9 @@ pub struct SessionSetTerminalFlowControlResponse {
 /// connection ended, the pane's output subscription it was taken through closed, the holding run's
 /// command ended, or the holding run left its running state. A run's two releases hand the shell
 /// back to the device the run took it from, while one of that device's bindings is open.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum PtyControlChangedReason {
     /// Taken.
@@ -167,18 +170,6 @@ pub enum PtyControlChangedReason {
     AutoReleasedCommandEnded,
     /// The holding run left its running state.
     AutoReleasedRunIdle,
-}
-
-impl PtyControlChangedReason {
-    /// Every reason, in declaration order.
-    pub const ALL: [Self; 6] = [
-        Self::Taken,
-        Self::TakenByForce,
-        Self::AutoReleasedDisconnect,
-        Self::AutoReleasedPaneClosed,
-        Self::AutoReleasedCommandEnded,
-        Self::AutoReleasedRunIdle,
-    ];
 }
 
 /// Declares `PtyControlChangedPayload` with the members every reason repeats.

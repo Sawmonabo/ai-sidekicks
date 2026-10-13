@@ -141,10 +141,10 @@ pub struct OrchestrationRunCreateResponse {
 }
 
 /// A refusing error code, as a refusal record names it.
-pub type RefusalReasonCode = FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>;
+pub type OrchestrationRefusalReason = FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>;
 
 /// A refusal's words.
-pub type RefusalDetail = FreeFormText<DRIVER_WIRE_REASON_MAX_LEN>;
+pub type OrchestrationRefusalDetail = FreeFormText<DRIVER_WIRE_REASON_MAX_LEN>;
 
 /// The `orchestration.rejected` payload: a run create admission refused. It names no run, because
 /// a refusal leaves none. `reason` is the refusing error code, and `detail` its words.
@@ -170,15 +170,15 @@ pub struct OrchestrationRejectedPayload {
     #[schemars(with = "RunId")]
     pub parent_run_id: Option<RunId>,
     /// The refusing error code.
-    pub reason: RefusalReasonCode,
+    pub reason: OrchestrationRefusalReason,
     /// Its words.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "RefusalDetail")]
-    pub detail: Option<RefusalDetail>,
+    #[schemars(with = "OrchestrationRefusalDetail")]
+    pub detail: Option<OrchestrationRefusalDetail>,
 }
 
 /// `orchestration.childRunLinkRead`: the session whose whole tree is read.
@@ -304,15 +304,15 @@ pub struct ChildRunRejection {
     #[schemars(with = "AgentId")]
     pub target_agent_id: Option<AgentId>,
     /// The refusing error code.
-    pub reason: RefusalReasonCode,
+    pub reason: OrchestrationRefusalReason,
     /// Its words.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "RefusalDetail")]
-    pub detail: Option<RefusalDetail>,
+    #[schemars(with = "OrchestrationRefusalDetail")]
+    pub detail: Option<OrchestrationRefusalDetail>,
     /// When it was refused.
     #[garde(dive)]
     pub occurred_at: WireInstant,
@@ -373,28 +373,28 @@ methods! {
             mutating: true,
             params: OrchestrationRunCreateRequest,
             result: OrchestrationRunCreateResponse,
-            refusals: [],
+            refusals: [SessionNotFound, AgentNotFound, RunNotFound, AgentDefinitionNotFound],
         },
         /// Reads the session's whole agent tree.
         OrchestrationChildRunLinkRead = query "orchestration.childRunLinkRead" {
             mutating: false,
             params: ChildRunLinkReadRequest,
             result: ChildRunLinkReadResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Reads the session's limits and spend.
         OrchestrationBudgetRead = query "orchestration.budgetRead" {
             mutating: false,
             params: OrchestrationBudgetReadRequest,
             result: OrchestrationBudgetState,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Reads the session's cost receipt.
         OrchestrationCostReceiptRead = query "orchestration.costReceiptRead" {
             mutating: false,
             params: SessionCostReceiptRequest,
             result: SessionCostReceipt,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
     ];
 }

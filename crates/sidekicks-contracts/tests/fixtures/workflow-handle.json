@@ -18,6 +18,15 @@
     }
   },
   {
+    "id": "outputs/main/9007199254740991",
+    "handle": {
+      "mode": "outputs",
+      "type": "main",
+      "index": 9007199254740991,
+      "isTypeKnown": true
+    }
+  },
+  {
     "id": "inputs/error/2",
     "handle": {
       "mode": "inputs",
@@ -100,6 +109,15 @@
   },
   {
     "id": "outputs//0",
+    "handle": {
+      "mode": "outputs",
+      "type": "main",
+      "index": 0,
+      "isTypeKnown": false
+    }
+  },
+  {
+    "id": "outputs/main/9007199254740992",
     "handle": {
       "mode": "outputs",
       "type": "main",

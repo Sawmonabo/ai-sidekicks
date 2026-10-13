@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
 use crate::event::envelope::{
-    SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
+    EventOccurredAt, SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
@@ -22,8 +22,8 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::voice::MessageOrigin;
 use crate::wire::Never;
-use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
+use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
 
 ts_constants! {
@@ -80,11 +80,10 @@ pub struct EventCompactedPayload {
     pub operation_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
     /// When the deletion ran; the envelope's own instant, repeated in the payload.
     #[garde(dive)]
-    pub occurred_at: WireInstant,
+    pub occurred_at: EventOccurredAt,
     /// Every session removed, with its deleted range.
-    #[garde(length(min = 1), dive)]
-    #[schemars(extend("minItems" = 1))]
-    pub removed_sessions: Vec<EventCompactedRemovedSession>,
+    #[garde(dive)]
+    pub removed_sessions: BoundedVec<EventCompactedRemovedSession, 1, { usize::MAX }>,
 }
 
 /// Declares a body-bearing payload: the struct as written, followed by the two members the append

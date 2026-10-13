@@ -29,7 +29,7 @@ ts_constants! {
 }
 
 /// The bytes of each length prefix in a message: the JSON's and each attachment's.
-const LENGTH_PREFIX_BYTES: usize = 4;
+pub(super) const LENGTH_PREFIX_BYTES: usize = 4;
 
 /// Which part of a message passed its cap.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,7 +161,7 @@ fn read_length(message: &mut Bytes) -> Result<usize, FramingError> {
 }
 
 /// Refuses `observed` bytes of `part` past its cap.
-fn check_cap(part: MessagePart, observed: usize) -> Result<(), FramingError> {
+pub(super) fn check_cap(part: MessagePart, observed: usize) -> Result<(), FramingError> {
     let limit = match part {
         MessagePart::Json => MAX_MESSAGE_BYTES,
         MessagePart::Attachments => MAX_ATTACHMENT_BYTES,

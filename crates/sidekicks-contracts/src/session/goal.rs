@@ -132,14 +132,14 @@ methods! {
             mutating: true,
             params: SessionGoalUpdateRequest,
             result: SessionGoalUpdateResponse,
-            refusals: [],
+            refusals: [SessionNotFound, DriverCapabilityUnsupported],
         },
         /// Removes one agent's goal.
         SessionGoalClear = mutation "session.goalClear" {
             mutating: true,
             params: SessionGoalClearRequest,
             result: SessionAcknowledgement,
-            refusals: [],
+            refusals: [SessionNotFound, DriverCapabilityUnsupported],
         },
     ];
 }

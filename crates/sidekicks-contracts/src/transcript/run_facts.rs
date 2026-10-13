@@ -7,7 +7,9 @@
 //! run it targets as `targetRunId` and is not the run's own, and neither is a person's message
 //! steering it.
 
-use schemars::JsonSchema;
+use std::borrow::Cow;
+
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -16,71 +18,123 @@ use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::provider::account::record::ProviderAccountId;
 use crate::run::id::RunId;
 use crate::run::state::{RUN_INITIAL_STATE, RunState};
+use crate::schema::doc_description;
 use crate::session::event_cursor::START_OF_LOG_POSITION;
 use crate::transcript::row::TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE;
-use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::integer::BoundedInt;
+use crate::wire::integer::{BoundedInt, MAX_SAFE_SIGNED_INTEGER, SafeInt};
 use crate::wire::text::FreeFormText;
 
-/// An event type that moves a run into a state: `run.<state>`, one per state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+/// What [`RunStateEventType`]'s schema says it is.
+const RUN_STATE_EVENT_TYPE_DOC: &str =
+    "An event type that moves a run into a state: `run.<state>`, one per state.";
+
+/// An event type that moves a run into a state, written as the [`SessionEventType`] it maps to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(into = "SessionEventType", try_from = "SessionEventType")]
 pub enum RunStateEventType {
-    /// `run.queued`.
-    #[serde(rename = "run.queued")]
+    /// The run is queued.
     Queued,
-    /// `run.starting`.
-    #[serde(rename = "run.starting")]
+    /// The run is starting.
     Starting,
-    /// `run.running`.
-    #[serde(rename = "run.running")]
+    /// The run is running.
     Running,
-    /// `run.waiting_for_approval`.
-    #[serde(rename = "run.waiting_for_approval")]
+    /// The run waits for an approval.
     WaitingForApproval,
-    /// `run.waiting_for_input`.
-    #[serde(rename = "run.waiting_for_input")]
+    /// The run waits for input.
     WaitingForInput,
-    /// `run.pausing`.
-    #[serde(rename = "run.pausing")]
+    /// The run is pausing.
     Pausing,
-    /// `run.paused`.
-    #[serde(rename = "run.paused")]
+    /// The run is paused.
     Paused,
-    /// `run.completed`.
-    #[serde(rename = "run.completed")]
+    /// The run completed.
     Completed,
-    /// `run.interrupted`.
-    #[serde(rename = "run.interrupted")]
+    /// The run was interrupted.
     Interrupted,
-    /// `run.stopped`.
-    #[serde(rename = "run.stopped")]
+    /// The run was stopped.
     Stopped,
-    /// `run.failed`.
-    #[serde(rename = "run.failed")]
+    /// The run failed.
     Failed,
 }
 
-ts_constants! {
-    /// Every `run.<state>` event type, in the order the states are declared.
-    pub const RUN_STATE_EVENT_TYPES: [RunStateEventType; 11] = [
-        RunStateEventType::Queued,
-        RunStateEventType::Starting,
-        RunStateEventType::Running,
-        RunStateEventType::WaitingForApproval,
-        RunStateEventType::WaitingForInput,
-        RunStateEventType::Pausing,
-        RunStateEventType::Paused,
-        RunStateEventType::Completed,
-        RunStateEventType::Interrupted,
-        RunStateEventType::Stopped,
-        RunStateEventType::Failed,
-    ];
+/// Every `run.<state>` event type, in the order the states are declared.
+pub const RUN_STATE_EVENT_TYPES: [RunStateEventType; 11] = [
+    RunStateEventType::Queued,
+    RunStateEventType::Starting,
+    RunStateEventType::Running,
+    RunStateEventType::WaitingForApproval,
+    RunStateEventType::WaitingForInput,
+    RunStateEventType::Pausing,
+    RunStateEventType::Paused,
+    RunStateEventType::Completed,
+    RunStateEventType::Interrupted,
+    RunStateEventType::Stopped,
+    RunStateEventType::Failed,
+];
+
+impl From<RunStateEventType> for SessionEventType {
+    fn from(event_type: RunStateEventType) -> Self {
+        event_type.session_event_type()
+    }
+}
+
+/// A session event type that moves no run into a state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{} moves no run into a state", .0.as_str())]
+pub struct NotARunStateEventType(
+    /// The refused type.
+    pub SessionEventType,
+);
+
+impl TryFrom<SessionEventType> for RunStateEventType {
+    type Error = NotARunStateEventType;
+
+    fn try_from(event_type: SessionEventType) -> Result<Self, Self::Error> {
+        RUN_STATE_EVENT_TYPES
+            .into_iter()
+            .find(|candidate| candidate.session_event_type() == event_type)
+            .ok_or(NotARunStateEventType(event_type))
+    }
+}
+
+impl JsonSchema for RunStateEventType {
+    fn schema_name() -> Cow<'static, str> {
+        "RunStateEventType".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        let names: Vec<&str> = RUN_STATE_EVENT_TYPES
+            .iter()
+            .map(|event_type| event_type.session_event_type().as_str())
+            .collect();
+        json_schema!({
+            "description": doc_description(RUN_STATE_EVENT_TYPE_DOC),
+            "type": "string",
+            "enum": names,
+        })
+    }
 }
 
 /// The type of a person's message, which is never a run's own event even when it steers one.
 pub const USER_MESSAGE_EVENT_TYPE: &str = SessionEventType::UserMessage.as_str();
 
 impl RunStateEventType {
+    /// The session event type this is.
+    pub const fn session_event_type(self) -> SessionEventType {
+        match self {
+            Self::Queued => SessionEventType::RunQueued,
+            Self::Starting => SessionEventType::RunStarting,
+            Self::Running => SessionEventType::RunRunning,
+            Self::WaitingForApproval => SessionEventType::RunWaitingForApproval,
+            Self::WaitingForInput => SessionEventType::RunWaitingForInput,
+            Self::Pausing => SessionEventType::RunPausing,
+            Self::Paused => SessionEventType::RunPaused,
+            Self::Completed => SessionEventType::RunCompleted,
+            Self::Interrupted => SessionEventType::RunInterrupted,
+            Self::Stopped => SessionEventType::RunStopped,
+            Self::Failed => SessionEventType::RunFailed,
+        }
+    }
+
     /// The state the event type announces.
     pub const fn state(self) -> RunState {
         match self {
@@ -100,7 +154,8 @@ impl RunStateEventType {
 
     /// The `run.<state>` event type `event_type` names, or `None` for any other type.
     pub fn of(event_type: &str) -> Option<Self> {
-        Self::deserialize(Value::from(event_type)).ok()
+        SessionEventType::from_wire_name(event_type)
+            .and_then(|event_type| Self::try_from(event_type).ok())
     }
 }
 
@@ -108,7 +163,7 @@ impl RunStateEventType {
 const ADMITTED_PROVIDER_ACCOUNT_MEMBER: &str = "admittedProviderAccountId";
 
 /// A log position, from [`START_OF_LOG_POSITION`] up.
-type FoldedThroughSequence = BoundedInt<START_OF_LOG_POSITION, 9_007_199_254_740_991>;
+pub type FoldedThroughSequence = BoundedInt<START_OF_LOG_POSITION, MAX_SAFE_SIGNED_INTEGER>;
 
 /// One run's facts as a `transcript.read` window serves them, folded over the log through
 /// `foldedThroughSequence`. The header's state word is `stateEventType` unless a rewind came after
@@ -148,13 +203,28 @@ pub struct TranscriptRunFacts {
     pub folded_through_sequence: FoldedThroughSequence,
 }
 
-/// A run's facts while a fold holds them, keyed by the run outside them.
+impl TranscriptRunFacts {
+    /// The facts of `run_id` a fold holds.
+    pub fn from_fold(run_id: RunId, fold: TranscriptRunFactsFold) -> Self {
+        Self {
+            run_id,
+            actor: fold.actor,
+            admitted_provider_account_id: fold.admitted_provider_account_id,
+            state_event_type: fold.state_event_type,
+            is_rewound: fold.is_rewound,
+            folded_through_sequence: fold.folded_through_sequence,
+        }
+    }
+}
+
+/// A run's facts while a fold holds them, keyed by the run outside them: [`TranscriptRunFacts`]
+/// without its `runId`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TranscriptRunFactsFold {
     /// Who the run's first event naming anyone names.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actor: Option<String>,
+    pub actor: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
     /// The account the run was admitted under.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admitted_provider_account_id: Option<ProviderAccountId>,
@@ -164,7 +234,7 @@ pub struct TranscriptRunFactsFold {
     /// Whether a rewind came after that state.
     pub is_rewound: bool,
     /// The sequence the facts hold through.
-    pub folded_through_sequence: i64,
+    pub folded_through_sequence: FoldedThroughSequence,
 }
 
 /// The facts of a run no event has been folded into yet.
@@ -173,7 +243,8 @@ pub const UNFOLDED_TRANSCRIPT_RUN_FACTS: TranscriptRunFactsFold = TranscriptRunF
     admitted_provider_account_id: None,
     state_event_type: None,
     is_rewound: false,
-    folded_through_sequence: START_OF_LOG_POSITION,
+    folded_through_sequence: FoldedThroughSequence::new(START_OF_LOG_POSITION)
+        .expect("the start of the log lies in the range"),
 };
 
 /// One event as the fold reads it: what the daemon's log and a client's stream both carry.
@@ -182,9 +253,9 @@ pub struct TranscriptRunBeat<'event> {
     /// The event's type.
     pub event_type: &'event str,
     /// The event's session sequence.
-    pub sequence: i64,
+    pub sequence: SafeInt<0>,
     /// Who acted, when the event names anyone.
-    pub actor: Option<&'event str>,
+    pub actor: Option<&'event FreeFormText<EVENT_FIELD_MAX_LEN>>,
     /// The event's payload.
     pub payload: Option<&'event Map<String, Value>>,
 }
@@ -211,14 +282,12 @@ pub fn fold_transcript_run_facts(
     facts: &TranscriptRunFactsFold,
     beat: &TranscriptRunBeat<'_>,
 ) -> TranscriptRunFactsFold {
-    if beat.sequence <= facts.folded_through_sequence || beat.event_type == USER_MESSAGE_EVENT_TYPE
-    {
+    let sequence = FoldedThroughSequence::new(beat.sequence.get().cast_signed())
+        .expect("a safe sequence lies in the fold's range");
+    if sequence <= facts.folded_through_sequence || beat.event_type == USER_MESSAGE_EVENT_TYPE {
         return facts.clone();
     }
-    let actor = facts
-        .actor
-        .clone()
-        .or_else(|| beat.actor.map(str::to_owned));
+    let actor = facts.actor.clone().or_else(|| beat.actor.cloned());
     let admitted_provider_account_id = facts.admitted_provider_account_id.clone().or_else(|| {
         (RunStateEventType::of(beat.event_type).map(RunStateEventType::state)
             == Some(RUN_INITIAL_STATE))
@@ -246,7 +315,7 @@ pub fn fold_transcript_run_facts(
         return facts.clone();
     }
     TranscriptRunFactsFold {
-        folded_through_sequence: beat.sequence,
+        folded_through_sequence: sequence,
         ..folded
     }
 }
@@ -279,20 +348,6 @@ fn admitted_provider_account_id_of(
         .and_then(|value| ProviderAccountId::deserialize(value).ok())
 }
 
-/// The module's TypeScript face.
-pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
-    path: "transcript/run-facts",
-    doc: "The facts a run's header and controls read, as a transcript window serves them: who \
-          acts for the run, its account, the state it last entered and whether a rewind came \
-          after it.",
-    definitions: &[
-        Definition::read::<RunStateEventType>().checked(),
-        Definition::read::<TranscriptRunFacts>().checked(),
-    ],
-    constants: TS_CONSTANTS,
-    method_tables: &[],
-};
-
 #[cfg(test)]
 mod tests {
     use serde::Deserialize;
@@ -303,26 +358,29 @@ mod tests {
         fold_transcript_run_facts, is_transcript_run_ended, transcript_run_header_state_of,
         transcript_run_state_of,
     };
+    use crate::event::version::EVENT_FIELD_MAX_LEN;
     use crate::run::state::RunState;
     use crate::transcript::run_facts::RunStateEventType;
+    use crate::wire::integer::SafeInt;
+    use crate::wire::text::FreeFormText;
 
     /// The table the client's run-facts suite reads too.
     const CASES: &str = include_str!("../../tests/fixtures/transcript/run-facts.json");
 
     /// One event of a case, as the cases write it.
     #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct BeatCase {
         #[serde(rename = "type")]
         event_type: String,
-        sequence: i64,
-        actor: Option<String>,
+        sequence: SafeInt<0>,
+        actor: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
         payload: Option<Map<String, Value>>,
     }
 
     /// One case: the beats folded in order onto unfolded facts, and what the facts then read.
     #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct RunFactsCase {
         note: String,
         beats: Vec<BeatCase>,
@@ -345,7 +403,7 @@ mod tests {
                         &TranscriptRunBeat {
                             event_type: &beat.event_type,
                             sequence: beat.sequence,
-                            actor: beat.actor.as_deref(),
+                            actor: beat.actor.as_ref(),
                             payload: beat.payload.as_ref(),
                         },
                     )

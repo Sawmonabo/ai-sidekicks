@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent::definition::AgentId;
 use crate::event::envelope::EventEnvelope;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
-use crate::free_form_string::FILE_PATH_MAX_LEN;
-use crate::internal::branded::branded_text_id;
+use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::jsonrpc::page::fits_one_page;
 use crate::jsonrpc::streaming::stream_frame;
 use crate::method::methods;
@@ -20,6 +19,7 @@ use crate::run::state::RunState;
 use crate::session::convert::{
     SessionConvertSkippedFileListRequest, SessionConvertSkippedFileListResponse,
 };
+use crate::session::draft::SessionAttachmentSummary;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::session::name::SESSION_NAME_MAX_LEN;
@@ -32,7 +32,8 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::BoolLiteral;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt};
-use crate::wire::text::{BoundedText, FreeFormText, NulFreeText};
+use crate::wire::list::BoundedVec;
+use crate::wire::text::{BoundedText, FreeFormText, NulFreeText, branded_text};
 
 /// Where a session is in its lifecycle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -104,6 +105,20 @@ pub struct SessionRecord {
     pub updated_at: WireInstant,
     /// The unsent composer draft, whole; empty when none is held.
     pub draft: String,
+    /// The whole staged set of files, so every device opens the same half-written message.
+    pub attachments: Vec<SessionAttachmentSummary>,
+    /// The session's own bound on the steps one turn may take; absent where the person set none,
+    /// and the machine's Runtime value applies.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SafeInt<1>")]
+    pub max_steps_per_turn: Option<SafeInt<1>>,
+    /// The address another session writes to when it messages this one: the inbox the daemon
+    /// holds for it, stable for its whole life.
+    pub address: FilesystemPath,
     /// Its tags as first written, in the order of their case fold.
     #[garde(custom(fits_one_page))]
     pub tags: TagList,
@@ -306,15 +321,18 @@ pub struct SessionRenameResponse {
 /// The longest `session.search` cursor accepted; a guard against pathological lengths.
 const SESSION_SEARCH_CURSOR_MAX_LEN: usize = 256;
 
-branded_text_id! {
+branded_text! {
     /// Where the next `session.search` page starts. The daemon writes it and owns its format; a
     /// client passes it back unchanged with the same query. A cursor of a search the daemon has
     /// let go is refused, and the client searches again.
-    SessionSearchCursor, SESSION_SEARCH_CURSOR_MAX_LEN
+    pub struct SessionSearchCursor(1..=SESSION_SEARCH_CURSOR_MAX_LEN);
 }
 
+/// A list of at least one item, bounded only by the message cap.
+type NonEmptyList<T> = BoundedVec<T, 1, { usize::MAX }>;
+
 /// How many hits one `session.search` page may carry: 1 to [`SESSION_SEARCH_PAGE_LIMIT_MAX`].
-pub type SessionSearchLimit = BoundedInt<1, 256>;
+pub type SessionSearchLimit = BoundedInt<1, { SESSION_SEARCH_PAGE_LIMIT_MAX as i64 }>;
 
 /// The `session.search` input: the text typed in the search box and, past the first page, the
 /// previous page's `nextCursor`. The daemon matches it against every session's title, message
@@ -395,12 +413,11 @@ pub struct SessionSearchHit {
     /// The line the match sits in.
     pub line: BoundedText<0, SESSION_SEARCH_HIT_LINE_MAX_LEN>,
     /// The matched stretches.
-    #[garde(length(min = 1), dive)]
-    #[garde(custom(|match_ranges: &Vec<SearchMatchRange>, (): &()| {
-        require_match_ranges_in_order_within(self.line.as_str(), match_ranges)
+    #[garde(dive)]
+    #[garde(custom(|match_ranges: &NonEmptyList<SearchMatchRange>, (): &()| {
+        require_match_ranges_in_order_within(self.line.as_str(), match_ranges.as_slice())
     }))]
-    #[schemars(length(min = 1))]
-    pub match_ranges: Vec<SearchMatchRange>,
+    pub match_ranges: NonEmptyList<SearchMatchRange>,
 }
 
 /// The hits in one session, under that session's name; an untitled session has no `name`.
@@ -419,15 +436,14 @@ pub struct SessionSearchGroup {
     #[schemars(with = "FreeFormText<SESSION_NAME_MAX_LEN>")]
     pub name: Option<FreeFormText<SESSION_NAME_MAX_LEN>>,
     /// Its hits, best first.
-    #[garde(length(min = 1), dive)]
-    #[schemars(length(min = 1))]
-    pub hits: Vec<SessionSearchHit>,
+    #[garde(dive)]
+    pub hits: NonEmptyList<SessionSearchHit>,
 }
 
 /// Holds a search page to at most [`SESSION_SEARCH_PAGE_LIMIT_MAX`] hits across its groups and to
 /// the page budget.
 fn require_search_page(groups: &[SessionSearchGroup]) -> garde::Result {
-    let hit_count: usize = groups.iter().map(|group| group.hits.len()).sum();
+    let hit_count: usize = groups.iter().map(|group| group.hits.as_slice().len()).sum();
     if hit_count > SESSION_SEARCH_PAGE_LIMIT_MAX {
         return Err(garde::Error::new(format!(
             "a page carries at most {SESSION_SEARCH_PAGE_LIMIT_MAX} hits, not {hit_count}"
@@ -443,10 +459,11 @@ fn require_search_page(groups: &[SessionSearchGroup]) -> garde::Result {
 #[garde(allow_unvalidated)]
 pub struct SessionSearchContinuing {
     /// The hits grouped by session, sessions in the order of their best hit.
-    #[garde(length(min = 1), dive)]
-    #[garde(custom(|groups: &Vec<SessionSearchGroup>, (): &()| require_search_page(groups)))]
-    #[schemars(length(min = 1))]
-    pub groups: Vec<SessionSearchGroup>,
+    #[garde(dive)]
+    #[garde(custom(|groups: &NonEmptyList<SessionSearchGroup>, (): &()| {
+        require_search_page(groups.as_slice())
+    }))]
+    pub groups: NonEmptyList<SessionSearchGroup>,
     /// More hits follow.
     pub has_more: BoolLiteral<true>,
     /// Where to continue.
@@ -505,6 +522,7 @@ pub struct SessionFileSearchResponse {
             Err(garde::Error::new("a file search cannot match more files than it searched"))
         }
     }))]
+    #[schemars(extend("maxItems" = { "$data": "1/searchedFileCount" }))]
     pub paths: Vec<BoundedText<1, FILE_PATH_MAX_LEN>>,
     /// How many files the query was matched against.
     pub searched_file_count: SafeInt<0>,
@@ -518,70 +536,75 @@ methods! {
             mutating: false,
             params: SessionReadRequest,
             result: SessionReadResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Renames a session, or clears its name.
         SessionRename = mutation "session.rename" {
             mutating: true,
             params: SessionRenameRequest,
             result: SessionRenameResponse,
-            refusals: [],
+            refusals: [SessionNotFound, SessionAlreadyClosed, SessionChangeRefused],
         },
         /// Archives a session.
         SessionArchive = mutation "session.archive" {
             mutating: true,
             params: SessionTargetRequest,
             result: SessionVerbResponse,
-            refusals: [SessionChangeRefused],
+            refusals: [SessionNotFound, SessionAlreadyClosed, SessionChangeRefused],
         },
         /// Brings an archived session back.
         SessionReactivate = mutation "session.reactivate" {
             mutating: true,
             params: SessionTargetRequest,
             result: SessionVerbResponse,
-            refusals: [],
+            refusals: [SessionNotFound, SessionAlreadyClosed, SessionChangeRefused],
         },
         /// Closes a session.
         SessionClose = mutation "session.close" {
             mutating: true,
             params: SessionTargetRequest,
             result: SessionVerbResponse,
-            refusals: [SessionChangeRefused],
+            refusals: [
+                SessionNotFound,
+                SessionAlreadyClosed,
+                SessionChangeRefused,
+                DriverUnavailable,
+            ],
         },
         /// Pins a session.
         SessionPin = mutation "session.pin" {
             mutating: true,
             params: SessionTargetRequest,
             result: SessionVerbResponse,
-            refusals: [],
+            refusals: [SessionNotFound, SessionAlreadyClosed, SessionChangeRefused],
         },
         /// Unpins a session.
         SessionUnpin = mutation "session.unpin" {
             mutating: true,
             params: SessionTargetRequest,
             result: SessionVerbResponse,
-            refusals: [],
+            refusals: [SessionNotFound, SessionAlreadyClosed, SessionChangeRefused],
         },
         /// Mutes a session's notifications.
         SessionMute = mutation "session.mute" {
             mutating: true,
             params: SessionTargetRequest,
             result: SessionVerbResponse,
-            refusals: [],
+            refusals: [SessionNotFound, SessionAlreadyClosed, SessionChangeRefused],
         },
         /// Unmutes a session's notifications.
         SessionUnmute = mutation "session.unmute" {
             mutating: true,
             params: SessionTargetRequest,
             result: SessionVerbResponse,
-            refusals: [],
+            refusals: [SessionNotFound, SessionAlreadyClosed, SessionChangeRefused],
         },
         /// Restarts a session's provider.
         SessionRestart = mutation "session.restart" {
             mutating: true,
             params: SessionTargetRequest,
             result: SessionVerbResponse,
-            refusals: [DriverUnavailable],
+            refusals: [SessionNotFound, DriverUnavailable, DriverCapabilityUnsupported],
         },
         /// `Continue from here`: the session's last good point becomes its end, its damaged events
         /// are skipped from then on, and it takes new work again.
@@ -611,14 +634,14 @@ methods! {
             mutating: false,
             params: SessionFileSearchRequest,
             result: SessionFileSearchResponse,
-            refusals: [SessionWorkingFolderUnavailable],
+            refusals: [SessionNotFound, SessionWorkingFolderUnavailable],
         },
         /// Reads the files a conversion did not copy, page by page.
         SessionConvertSkippedFileList = query "session.convertSkippedFileList" {
             mutating: false,
             params: SessionConvertSkippedFileListRequest,
             result: SessionConvertSkippedFileListResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
     ];
 }

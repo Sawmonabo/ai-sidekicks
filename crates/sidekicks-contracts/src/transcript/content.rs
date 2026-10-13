@@ -14,13 +14,12 @@ use crate::event::envelope::HydratedContentUnavailableReason;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::jsonrpc::byte_length::json_utf8_byte_length;
-use crate::jsonrpc::page::fits_one_page;
+use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_budget, fits_one_page};
 use crate::session::id::SessionId;
 use crate::transcript::limits::TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
-use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::BoolLiteral;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::{BoundedText, FreeFormText};
+use crate::wire::{BoolLiteral, True};
 
 /// Refuses a body whose JSON takes more than [`TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES`] bytes: it
 /// belongs on the `large` arm.
@@ -28,17 +27,12 @@ fn fits_with_its_row(
     body: &BoundedText<0, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES>,
     (): &(),
 ) -> garde::Result {
-    let byte_length = json_utf8_byte_length(&body.as_str())
-        .map_err(|error| garde::Error::new(format!("the body does not serialize: {error}")))?;
-    if byte_length > TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES {
-        Err(garde::Error::new(format!(
-            "a body that travels with its row takes at most {TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES} \
-             JSON bytes; this one takes {byte_length}, so it belongs on the large arm"
-        )))
-    } else {
-        Ok(())
-    }
+    fits_budget(body, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES)
 }
+
+/// A stored body: at most [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points, the cap its event's
+/// payload holds it to.
+pub type StoredBodyText = BoundedText<0, CONTENT_PAYLOAD_PLAINTEXT_MAX>;
 
 /// What a row read from history carries of its body: the body itself, why there is none, or the
 /// size alone of a large one. An `available` body serializes to at most 32,768 JSON bytes.
@@ -70,8 +64,8 @@ pub enum TranscriptRowContent {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "BoolLiteral<true>")]
-        content_truncated: Option<BoolLiteral<true>>,
+        #[schemars(with = "True")]
+        content_truncated: Option<True>,
     },
     /// No body can be read.
     Unavailable {
@@ -88,8 +82,8 @@ pub enum TranscriptRowContent {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "BoolLiteral<true>")]
-        content_truncated: Option<BoolLiteral<true>>,
+        #[schemars(with = "True")]
+        content_truncated: Option<True>,
     },
 }
 
@@ -97,7 +91,7 @@ pub enum TranscriptRowContent {
 /// than recomputed: a length measured from a cut body would hide that anything was cut.
 fn echoed_body_facts_of(
     payload: Option<&Map<String, Value>>,
-) -> (Option<SafeInt<0>>, Option<BoolLiteral<true>>) {
+) -> (Option<SafeInt<0>>, Option<True>) {
     let content_length = payload
         .and_then(|payload| payload.get(CONTENT_LENGTH_PAYLOAD_KEY))
         .and_then(Value::as_u64)
@@ -110,24 +104,86 @@ fn echoed_body_facts_of(
     (content_length, content_truncated)
 }
 
-/// An event's stored body as `transcript.bodyRead` reports it: `absent` when none is stored, never
-/// an empty `available` body, which would claim the agent said nothing. The length and truncation
-/// mark are the payload's own.
+/// A `transcript.bodyRead` offset that is no place to resume from: inside a character, or past
+/// the body's end. It is refused on the request's `offset` path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("offset {offset} is inside a character or past the body's {body_length} bytes")]
+pub struct BodyReadOffsetRefused {
+    /// The refused offset.
+    pub offset: usize,
+    /// The body's UTF-8 byte length.
+    pub body_length: usize,
+}
+
+/// An event's stored body as `transcript.bodyRead` reports it, the part that starts at `offset`:
+/// `absent` when none is stored, never an empty `available` body, which would claim the agent said
+/// nothing. A part holds as much of the body as fits one page and names where the next part
+/// starts, so a client reading from each `nextOffset` until it is `null` joins the whole body. The
+/// length and truncation mark are the payload's own.
 pub fn stored_body_content_of(
     payload: Option<&Map<String, Value>>,
-    stored_body: Option<&str>,
-) -> TranscriptBodyReadResponse {
+    stored_body: Option<&StoredBodyText>,
+    offset: usize,
+) -> Result<TranscriptBodyReadResponse, BodyReadOffsetRefused> {
     let Some(stored_body) = stored_body else {
-        return TranscriptBodyReadResponse::Unavailable {
+        return Ok(TranscriptBodyReadResponse::Unavailable {
             reason: HydratedContentUnavailableReason::Absent,
-        };
+        });
     };
+    let body = stored_body.as_str();
+    if !body.is_char_boundary(offset) {
+        return Err(BodyReadOffsetRefused {
+            offset,
+            body_length: body.len(),
+        });
+    }
+    let end = page_end(body, offset);
     let (content_length, content_truncated) = echoed_body_facts_of(payload);
-    TranscriptBodyReadResponse::Available {
-        body: stored_body.to_owned(),
+    Ok(TranscriptBodyReadResponse::Available {
+        body: StoredBodyText::new(body[offset..end].to_owned())
+            .expect("a part of a stored body is within the stored body's cap"),
+        offset: byte_offset(offset),
+        next_offset: (end < body.len()).then(|| byte_offset(end)),
         content_length,
         content_truncated,
+    })
+}
+
+/// A byte offset into a stored body, which its cap keeps far below 2^53.
+fn byte_offset(offset: usize) -> SafeInt<0> {
+    u64::try_from(offset)
+        .ok()
+        .and_then(SafeInt::new)
+        .expect("a stored body's byte offsets lie far below 2^53")
+}
+
+/// Where the part of `body` that starts at `offset` ends: the furthest character boundary whose
+/// stretch's JSON fits [`PAGE_MAX_BYTES`], measured as the reply's check measures it. One
+/// character's JSON is at most eight bytes, so a part short of the end holds at least one.
+fn page_end(body: &str, offset: usize) -> usize {
+    let fits = |end: usize| {
+        json_utf8_byte_length(&&body[offset..end]).is_ok_and(|length| length <= PAGE_MAX_BYTES)
+    };
+    if fits(body.len()) {
+        return body.len();
     }
+    // The fitting ends form a prefix of the boundaries, so the last one is found by halving the
+    // byte range between a boundary that fits and one that does not.
+    let (mut fitting, mut over) = (offset, body.len());
+    loop {
+        let middle = body.floor_char_boundary(fitting + (over - fitting) / 2);
+        if middle == fitting {
+            break;
+        }
+        if fits(middle) {
+            fitting = middle;
+        } else {
+            over = middle;
+        }
+    }
+    (fitting > offset)
+        .then_some(fitting)
+        .expect("one character's JSON fits a page")
 }
 
 /// A stored body as a row read finds it: its UTF-8 size, and its text when that size still lets it
@@ -179,11 +235,21 @@ pub struct TranscriptBodyReadRequest {
     pub session_id: SessionId,
     /// The row.
     pub row_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// Where the part starts: a UTF-8 byte offset into the body, on a character boundary and not
+    /// past its end; the body's start when absent.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SafeInt<0>")]
+    pub offset: Option<SafeInt<0>>,
 }
 
-/// The row's body, or why it cannot be read. `contentLength` and `contentTruncated` are echoed
-/// from the stored event, so a body kept as a prefix still says how long the whole was. The body
-/// fits one page.
+/// The row's body, one part at a time, or why it cannot be read. `contentLength` and
+/// `contentTruncated` are echoed from the stored event, so a body kept as a prefix still says how
+/// long the whole was. Each part fits one page; a body longer than one page comes back whole in
+/// consecutive parts.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "status",
@@ -195,10 +261,15 @@ pub struct TranscriptBodyReadRequest {
 pub enum TranscriptBodyReadResponse {
     /// The body.
     Available {
-        /// The body; a prefix when `contentTruncated` is `true`.
-        #[garde(length(chars, max = CONTENT_PAYLOAD_PLAINTEXT_MAX), custom(fits_one_page))]
-        #[schemars(length(max = 262_144))]
-        body: String,
+        /// This part of the body; the whole is a prefix when `contentTruncated` is `true`.
+        #[garde(custom(fits_one_page))]
+        body: StoredBodyText,
+        /// Where this part starts, as a UTF-8 byte offset into the body.
+        offset: SafeInt<0>,
+        /// Where the next part starts, or `null` on the last part.
+        #[serde(deserialize_with = "crate::wire::nullable")]
+        #[schemars(with = "crate::wire::NullableSchema<SafeInt<0>>")]
+        next_offset: Option<SafeInt<0>>,
         /// The whole body's UTF-8 byte length, echoed from the stored payload.
         #[serde(
             default,
@@ -213,8 +284,8 @@ pub enum TranscriptBodyReadResponse {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "BoolLiteral<true>")]
-        content_truncated: Option<BoolLiteral<true>>,
+        #[schemars(with = "True")]
+        content_truncated: Option<True>,
     },
     /// No body can be read.
     Unavailable {
@@ -223,7 +294,18 @@ pub enum TranscriptBodyReadResponse {
     },
 }
 
-/// The tool call whose left-out patches a diff needs.
+/// Where a part of a patch read starts: the left-out file's index in the call's `omittedPatches`
+/// order, and a UTF-8 byte offset into its patch, on a character boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TranscriptPatchCursor {
+    /// The file's index.
+    pub file_index: SafeInt<0>,
+    /// The byte offset into its patch.
+    pub offset: SafeInt<0>,
+}
+
+/// The tool call whose left-out patches a diff needs, from `cursor` on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TranscriptPatchReadRequest {
@@ -231,6 +313,14 @@ pub struct TranscriptPatchReadRequest {
     pub session_id: SessionId,
     /// The tool call.
     pub tool_call_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// Where the part starts; the first file's start when absent.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "TranscriptPatchCursor")]
+    pub cursor: Option<TranscriptPatchCursor>,
 }
 
 /// One file's patch with the lines it adds and removes. The counts come from the provider's own
@@ -243,9 +333,7 @@ pub struct TranscriptPatchFileRead {
     /// The file's path.
     pub path: FreeFormText<FILE_PATH_MAX_LEN>,
     /// The patch.
-    #[garde(length(chars, max = CONTENT_PAYLOAD_PLAINTEXT_MAX))]
-    #[schemars(length(max = 262_144))]
-    pub patch: String,
+    pub patch: BoundedText<0, CONTENT_PAYLOAD_PLAINTEXT_MAX>,
     /// The lines it adds.
     pub additions: SafeInt<0>,
     /// The lines it removes.
@@ -273,41 +361,33 @@ pub enum TranscriptPatchFile {
     Unavailable(#[garde(skip)] TranscriptPatchFileUnavailable),
 }
 
-/// Every patch the call left out, in one reply that fits one page, so a call with several missing
-/// files is drawn from one read.
+/// The patches the call left out from the request's `cursor` on, as many as fit one page, so a
+/// call with several missing files is drawn from few reads. The first entry's patch starts at the
+/// cursor's offset and the last one's ends where `next` starts; the client joins the pieces of one
+/// file in order.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct TranscriptPatchReadResponse {
     /// The files.
     #[garde(dive, custom(fits_one_page))]
     pub files: Vec<TranscriptPatchFile>,
+    /// Where the next part starts, or `null` on the last part.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<TranscriptPatchCursor>")]
+    pub next: Option<TranscriptPatchCursor>,
 }
-
-/// The module's TypeScript face.
-pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
-    path: "transcript/content",
-    doc: "A transcript row's body, and the reads for what a row does not carry: a row's large \
-          body or full output, and every file patch a tool call left out.",
-    definitions: &[
-        Definition::read::<TranscriptRowContent>().checked(),
-        Definition::read::<TranscriptBodyReadRequest>().checked(),
-        Definition::read::<TranscriptBodyReadResponse>().checked(),
-        Definition::read::<TranscriptPatchReadRequest>().checked(),
-        Definition::read::<TranscriptPatchFile>(),
-        Definition::read::<TranscriptPatchReadResponse>().checked(),
-    ],
-    constants: &[],
-    method_tables: &[],
-};
 
 #[cfg(test)]
 mod tests {
     use serde::Deserialize;
     use serde_json::{Map, Value};
 
+    use rstest::rstest;
+
     use super::{
-        StoredRowBody, TranscriptBodyReadResponse, TranscriptRowContent, stored_body_content_of,
-        transcript_row_content_of,
+        BodyReadOffsetRefused, StoredBodyText, StoredRowBody, TranscriptBodyReadResponse,
+        TranscriptRowContent, stored_body_content_of, transcript_row_content_of,
     };
     use crate::wire::integer::SafeInt;
 
@@ -341,9 +421,11 @@ mod tests {
             let body = case
                 .stored
                 .as_ref()
-                .and_then(|stored| stored.body.as_deref());
+                .and_then(|stored| stored.body.clone())
+                .map(|body| StoredBodyText::new(body).expect("a stored body within its cap"));
             assert_eq!(
-                stored_body_content_of(payload, body),
+                stored_body_content_of(payload, body.as_ref(), 0)
+                    .expect("the body's start is an offset"),
                 case.body_read,
                 "{}",
                 case.note
@@ -358,6 +440,54 @@ mod tests {
                 "{}",
                 case.note
             );
+        }
+    }
+
+    /// Reads `body` part by part from `offset` until a part names no next one, answering the parts
+    /// joined and how many there were.
+    fn read_from(body: &str, offset: usize) -> Result<(String, usize), BodyReadOffsetRefused> {
+        let stored = StoredBodyText::new(body.to_owned()).expect("a body within its cap");
+        let mut joined = String::new();
+        let mut part_count = 0;
+        let mut next = Some(offset);
+        while let Some(offset) = next {
+            let TranscriptBodyReadResponse::Available {
+                body, next_offset, ..
+            } = stored_body_content_of(None, Some(&stored), offset)?
+            else {
+                panic!("a stored body is available");
+            };
+            joined.push_str(body.as_str());
+            part_count += 1;
+            next = next_offset.map(|next_offset| {
+                usize::try_from(next_offset.get()).expect("an offset fits usize")
+            });
+        }
+        Ok((joined, part_count))
+    }
+
+    #[rstest]
+    // Each control character takes six JSON bytes, so 200,000 of them span two pages.
+    #[case::over_one_page("\u{1}".repeat(200_000), 0, Some(2))]
+    #[case::from_a_later_offset("a\u{e9}b".to_owned(), 3, Some(1))]
+    #[case::at_the_end("ab".to_owned(), 2, Some(1))]
+    #[case::inside_a_character("a\u{e9}b".to_owned(), 2, None)]
+    #[case::past_the_end("ab".to_owned(), 3, None)]
+    fn a_body_read_in_parts_joins_back_whole_from_any_character_boundary(
+        #[case] body: String,
+        #[case] offset: usize,
+        #[case] part_count: Option<usize>,
+    ) {
+        let read = read_from(&body, offset);
+        match part_count {
+            Some(part_count) => assert_eq!(read, Ok((body[offset..].to_owned(), part_count))),
+            None => assert_eq!(
+                read,
+                Err(BodyReadOffsetRefused {
+                    offset,
+                    body_length: body.len()
+                })
+            ),
         }
     }
 }

@@ -9,13 +9,14 @@ use regex::Regex;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
+use strum::VariantArray;
 
 use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::session::id::SessionId;
 use crate::web_address::WebAddressFault;
 use crate::wire::True;
 use crate::wire::attachment::Bytes;
-use crate::wire::integer::{BoundedInt, MAX_SAFE_INTEGER, Port, SafeInt};
+use crate::wire::integer::{BoundedInt, MAX_SAFE_SIGNED_INTEGER, Port, SafeInt};
 use crate::wire::number::UnitFraction;
 use crate::wire::text::{BoundedText, branded_text};
 
@@ -187,15 +188,16 @@ pub struct PreviewPage {
 }
 
 /// The session whose pages a `preview.pageList` subscription streams.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPageListRequest {
     /// The session.
     pub session_id: SessionId,
 }
 
 /// The index of the page the pane shows, or `-1` for none.
-pub type PreviewActiveIndex = BoundedInt<-1, { MAX_SAFE_INTEGER as i64 }>;
+pub type PreviewActiveIndex = BoundedInt<-1, MAX_SAFE_SIGNED_INTEGER>;
 
 /// One frame of a session's page list: every page in the session's order, and the index of the
 /// one the pane shows, `-1` where the session has no page open. The first frame is the list as it
@@ -246,8 +248,9 @@ pub enum PreviewPageTarget {
 }
 
 /// Opens one page in a session. A retried open makes a second page.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPageOpenRequest {
     /// The session.
     pub session_id: SessionId,
@@ -268,11 +271,21 @@ pub struct PreviewPageOpenResponse {
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<Port>")]
     pub moved_from: Option<Port>,
+    /// The page released to make room for this one, where one was. Its address is kept and it
+    /// reloads when shown, so this is a fact the pane may report, never a refusal.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "PreviewPageId")]
+    pub released_page_id: Option<PreviewPageId>,
 }
 
 /// Names one page of one session: close it, or make it the one the pane shows.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPageRequest {
     /// The session.
     pub session_id: SessionId,
@@ -298,8 +311,9 @@ pub struct PreviewPageActivateResponse {
 
 /// Moves one page within its session's order; `toIndex` is a position in the list without that
 /// page in it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPageReorderRequest {
     /// The session.
     pub session_id: SessionId,
@@ -337,8 +351,9 @@ pub enum PreviewNavigationTarget {
 }
 
 /// Navigates one page.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewNavigateRequest {
     /// The session.
     pub session_id: SessionId,
@@ -369,8 +384,9 @@ pub struct PreviewNavigateResponse {
 
 /// Sets one page's zoom on the machine that runs it, so the live picture carries the result. A new
 /// page starts at 1; each open page keeps its own factor.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewZoomRequest {
     /// The session.
     pub session_id: SessionId,
@@ -417,8 +433,16 @@ pub struct PreviewAddressRefusedDetails {
     pub reason: PreviewAddressRefusedReason,
 }
 
-/// Every reason an address is refused.
-pub const PREVIEW_ADDRESS_REFUSED_REASONS: [PreviewAddressRefusedReason; 2] = [
-    PreviewAddressRefusedReason::Fault(WebAddressFault::Scheme),
-    PreviewAddressRefusedReason::Unparsed(PreviewUnparsedAddress::NotAnAddress),
-];
+/// Every reason an address is refused: each fault an address can have, then text that is not an
+/// address at all.
+pub const PREVIEW_ADDRESS_REFUSED_REASONS: [PreviewAddressRefusedReason;
+    WebAddressFault::VARIANTS.len() + 1] = {
+    let mut reasons = [PreviewAddressRefusedReason::Unparsed(PreviewUnparsedAddress::NotAnAddress);
+        WebAddressFault::VARIANTS.len() + 1];
+    let mut index = 0;
+    while index < WebAddressFault::VARIANTS.len() {
+        reasons[index] = PreviewAddressRefusedReason::Fault(WebAddressFault::VARIANTS[index]);
+        index += 1;
+    }
+    reasons
+};

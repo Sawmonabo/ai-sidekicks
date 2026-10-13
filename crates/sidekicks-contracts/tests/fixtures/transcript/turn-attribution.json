@@ -136,6 +136,18 @@
     "expected": null
   },
   {
+    "step": "stampedSourceOf",
+    "note": "a negative stamp is no source",
+    "payload": { "sourceEpoch": -1, "sourcePosition": 4 },
+    "expected": null
+  },
+  {
+    "step": "stampedSourceOf",
+    "note": "a fractional stamp is no source",
+    "payload": { "sourceEpoch": 1, "sourcePosition": 4.5 },
+    "expected": null
+  },
+  {
     "step": "transcriptToolCallIdOf",
     "note": "a tool row belongs to its call",
     "category": "tool_activity",

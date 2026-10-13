@@ -6,6 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
+use crate::command::ExitCode;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::{DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN};
 use crate::provider::name::ProviderName;
@@ -17,7 +18,8 @@ use crate::session::controls::methods::{
 use crate::session::cost::{TokensPerRun, UsdMicros};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::integer::{SafeInt, SafeSignedInt};
+use crate::wire::integer::SafeInt;
+use crate::wire::literal;
 use crate::wire::text::{ComposedText, FreeFormText};
 
 /// The `session.side_question_answered` payload: the person's question and the provider's answer,
@@ -97,34 +99,13 @@ pub struct RunSafetyBufferingUpdatedPayload {
     pub faster_model: Option<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>,
 }
 
-/// Declares a one-value string type: `notice_literal! { /// doc \n Name = "value" }`, for a member
-/// whose value is fixed in its arm.
-macro_rules! notice_literal {
-    ($(#[doc = $doc:literal])+ $name:ident = $value:literal) => {
-        $(#[doc = $doc])+
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-        #[schemars(inline)]
-        pub enum $name {
-            /// The one value.
-            #[serde(rename = $value)]
-            Value,
-        }
-    };
-}
-
-notice_literal! {
+literal! {
     /// The `settings_ignored` notice kind.
-    SettingsIgnoredKind = "settings_ignored"
-}
-
-notice_literal! {
+    pub enum SettingsIgnoredKind = "settings_ignored";
     /// Codex, as the provider of a `settings_ignored` notice.
-    CodexProvider = "codex"
-}
-
-notice_literal! {
+    pub enum CodexProvider = "codex";
     /// Claude Code, as the provider of a `settings_ignored` notice.
-    ClaudeProvider = "claude"
+    pub enum ClaudeProvider = "claude";
 }
 
 /// Codex started without part of its settings: the file and the line it names.
@@ -185,8 +166,9 @@ pub enum ProviderWarningSource {
     Deprecation,
 }
 
-/// Every `session.notice` kind but `settings_ignored`, each drawn as one plain sentence.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// Every `session.notice` kind but `settings_ignored`, each drawn as one plain sentence. A crash
+/// loop names exactly one of the exit code and the signal its process ended on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
     rename_all = "snake_case",
@@ -194,6 +176,8 @@ pub enum ProviderWarningSource {
     deny_unknown_fields
 )]
 #[schemars(inline)]
+#[garde(allow_unvalidated)]
+#[garde(custom(|notice: &Self, (): &()| notice.names_one_crash_loop_ending()))]
 pub enum SessionNotice {
     /// The conversation was reopened to take new definitions.
     ConversationReloaded {
@@ -272,7 +256,9 @@ pub enum SessionNotice {
         provider: ProviderName,
     },
     /// The provider process ended on its own too many times in a short window and the daemon
-    /// stopped restarting it, with the exit code or the signal it ended on; drawn as a banner.
+    /// stopped restarting it, with the exit code or the signal it ended on, exactly one of them;
+    /// drawn as a banner.
+    #[schemars(extend("oneOf" = [{ "required": ["exitCode"] }, { "required": ["signal"] }]))]
     ProviderCrashLoop {
         /// The session.
         session_id: SessionId,
@@ -284,8 +270,8 @@ pub enum SessionNotice {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "SafeSignedInt")]
-        exit_code: Option<SafeSignedInt>,
+        #[schemars(with = "ExitCode")]
+        exit_code: Option<ExitCode>,
         /// The signal it ended on, where it ended on one.
         #[serde(
             default,
@@ -323,17 +309,49 @@ pub enum SessionNotice {
     },
 }
 
+impl SessionNotice {
+    /// Holds a crash loop to exactly one of the exit code and the signal its process ended on;
+    /// every other kind names neither.
+    fn names_one_crash_loop_ending(&self) -> garde::Result {
+        match self {
+            Self::ProviderCrashLoop {
+                exit_code, signal, ..
+            } => {
+                if exit_code.is_some() == signal.is_some() {
+                    Err(garde::Error::new(
+                        "a crash loop names exactly one of exitCode and signal",
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            Self::ConversationReloaded { .. }
+            | Self::ReviewStarted { .. }
+            | Self::ReviewFinished { .. }
+            | Self::GoalNotMet { .. }
+            | Self::GoalCheckUnfinished { .. }
+            | Self::ProviderWarning { .. }
+            | Self::LevelUnavailable { .. }
+            | Self::ProviderUpdated { .. }
+            | Self::ProviderRestarted { .. }
+            | Self::FastOutputUnavailable { .. }
+            | Self::ProviderMissing { .. } => Ok(()),
+        }
+    }
+}
+
 /// The `session.notice` payload. Its kinds are a closed set, each drawn as one plain sentence;
 /// `settings_ignored` takes one shape per provider.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
+#[garde(allow_unvalidated)]
 pub enum SessionNoticePayload {
     /// Codex started without part of its settings.
     CodexSettingsIgnored(CodexSettingsIgnoredNotice),
     /// Claude Code started without part of its settings.
     ClaudeSettingsIgnored(ClaudeSettingsIgnoredNotice),
     /// Every other notice.
-    Notice(SessionNotice),
+    Notice(#[garde(dive)] SessionNotice),
 }
 
 /// Which of Codex's reviewer signals a flag carries.

@@ -6,12 +6,13 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::daemon::recovery::DaemonRecoverySessionState;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
 
 /// Where a session that refuses writes stands in recovery: being rebuilt by the restart's pass,
-/// at its last good point, or with no readable event.
+/// at its last good point, or with no readable event; each is a [`DaemonRecoverySessionState`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionWriteRefusedRecovery {
@@ -21,6 +22,16 @@ pub enum SessionWriteRefusedRecovery {
     Degraded,
     /// No event of it can be read.
     Damaged,
+}
+
+impl From<SessionWriteRefusedRecovery> for DaemonRecoverySessionState {
+    fn from(recovery: SessionWriteRefusedRecovery) -> Self {
+        match recovery {
+            SessionWriteRefusedRecovery::Rebuilding => Self::Rebuilding,
+            SessionWriteRefusedRecovery::Degraded => Self::Degraded,
+            SessionWriteRefusedRecovery::Damaged => Self::Damaged,
+        }
+    }
 }
 
 /// The `session.write_refused` refusal's `data.fields`: the session and where its recovery stands.

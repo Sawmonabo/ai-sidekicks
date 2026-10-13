@@ -1,5 +1,6 @@
 //! The step events a workflow run appends: a step started, finished, failed, skipped or canceled, a
-//! phase suspended, and a gate resolved, each naming its step by the step record's key.
+//! phase suspended, failed or held for memory, and a gate resolved, each naming its step by the
+//! step record's key.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -14,8 +15,8 @@ use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::ComposedText;
 use crate::workflow::definition::document::WorkflowNodeId;
-use crate::workflow::definition::document::item::WorkflowStepError;
-use crate::workflow::run::control::workflow_run_event;
+use crate::workflow::definition::item::WorkflowStepError;
+use crate::workflow::run::events::workflow_run_event;
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::step::record::{WorkflowCost, WorkflowPayloadRef, workflow_step_key};
 
@@ -231,6 +232,41 @@ phase_suspended_payload! {
     }
 }
 
+/// Why a phase was canceled rather than failing on its own work: a sibling branch's failure ended
+/// the run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowPhaseCancellationReason {
+    /// A sibling branch failed and ended the run.
+    SiblingFailure,
+}
+
+workflow_step_event! {
+    /// `workflow.phase_failed`: a phase failed, on its own work or because a sibling branch's
+    /// failure ended the run and so canceled it.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowPhaseFailedPayload {
+        /// `sibling_failure` where a sibling branch's failure canceled the phase; `null` where the
+        /// phase failed on its own work.
+        #[serde(deserialize_with = "crate::wire::nullable")]
+        #[schemars(with = "crate::wire::NullableSchema<WorkflowPhaseCancellationReason>")]
+        pub cancellation_reason: Option<WorkflowPhaseCancellationReason>,
+    }
+}
+
+workflow_step_event! {
+    /// `workflow.phase_waiting_on_pool`: the memory gate holds the step before it starts, written
+    /// on entry to the hold and every 30 seconds while it lasts; memory is the only pool, so the
+    /// payload names none.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowPhaseWaitingOnPoolPayload {
+        /// The envelope sequence the hold began at, which ties each repeat back to one hold.
+        pub waiting_since_seq: SafeInt<0>,
+    }
+}
+
 /// Why a step was skipped: its input carried no items, or its node is disabled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
@@ -279,14 +315,17 @@ workflow_run_event! {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/run/step/events",
     doc: "The step events a workflow run appends: a step started, finished, failed, skipped or \
-          canceled, a phase suspended, and a gate resolved, each naming its step by the step \
-          record's key.",
+          canceled, a phase suspended, failed or held for memory, and a gate resolved, each naming \
+          its step by the step record's key.",
     definitions: &[
         Definition::read::<WorkflowStepCanceledPayload>().checked(),
         Definition::read::<WorkflowStepStartedPayload>().checked(),
         Definition::read::<WorkflowStepFinishedPayload>().checked(),
         Definition::read::<WorkflowStepFailedPayload>().checked(),
         Definition::read::<WorkflowPhaseSuspendedPayload>().checked(),
+        Definition::read::<WorkflowPhaseCancellationReason>(),
+        Definition::read::<WorkflowPhaseFailedPayload>().checked(),
+        Definition::read::<WorkflowPhaseWaitingOnPoolPayload>().checked(),
         Definition::read::<WorkflowStepSkipReason>(),
         Definition::read::<WorkflowStepSkippedPayload>().checked(),
         Definition::read::<WorkflowGateResolvedPayload>().checked(),

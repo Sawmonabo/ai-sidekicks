@@ -7,10 +7,9 @@
 //! service serves `device.statementApply`, `device.trustedList`, `device.notificationSettingsSet`
 //! and `controlPlane.call`.
 
-use std::borrow::Cow;
-
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::machine_settings::NotificationKindSwitches;
 use crate::method::methods;
@@ -18,10 +17,8 @@ use crate::method_descriptor::EmptyPayload;
 use crate::runtime_node::id::NodeId;
 use crate::trust_statement::{
     ChannelPublicKey, DeviceId, DeviceLinkedStatement, DeviceRenamedStatement,
-    DeviceRevokedStatement, IdentityPublicKey, MachineIdentityKey, PasskeyAddedStatement,
-    PasskeyId, PasskeyRemovedStatement, PlatformDescription, RuntimeNodeAddedStatement,
-    RuntimeNodeRemovedStatement, RuntimeNodeRenamedStatement, TrustName, TrustSigner,
-    TrustStatement, TrustStatementHash,
+    DeviceRevokedStatement, IdentityPublicKey, MachineIdentityKey, PasskeyId, PlatformDescription,
+    TrustName, TrustSigner, TrustStatement, TrustStatementHash, TrustStatementKind,
 };
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::web_address::HttpsAddress;
@@ -29,7 +26,7 @@ use crate::wire::base64::{Base64Array, Base64UrlText};
 use crate::wire::instant::WireInstant;
 use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
-use crate::wire::{AnyValue, NullableSchema, nullable};
+use crate::wire::{AnyValue, NullableSchema, named_scalar, nullable};
 
 ts_constants! {
     /// The longest app or service version string.
@@ -39,9 +36,9 @@ ts_constants! {
     /// The longest push address: an APNs or FCM token, or a Web Push endpoint.
     pub const PUSH_ADDRESS_MAX_LEN: usize = 2048;
     /// Where a device's pushes go.
-    PUSH_PLATFORMS = PushPlatform::ALL;
+    PUSH_PLATFORMS = PushPlatform::VARIANTS;
     /// The forwarded procedures, in one closed list.
-    CONTROL_PLANE_CALL_PROCEDURES = ControlPlaneCallProcedure::ALL;
+    CONTROL_PLANE_CALL_PROCEDURES = ControlPlaneCallProcedure::VARIANTS;
 }
 
 /// An app or service version.
@@ -146,68 +143,31 @@ pub struct DeviceListSnapshot {
     pub passkeys: Vec<PasskeyEntry>,
 }
 
-/// One change on the live read: a new statement, under its kind's name, so a reader never meets
-/// an event whose name and statement disagree; a revoked device's row forgotten; or a machine's
-/// registration refreshed.
+/// A new statement on the live read, named by its statement's kind, so a reader never meets an
+/// event whose name and statement disagree.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DeviceStatementEvent {
+    /// The statement's kind.
+    #[serde(rename = "type")]
+    #[garde(custom(|kind: &TrustStatementKind, (): &()| {
+        if *kind == self.statement.kind() {
+            Ok(())
+        } else {
+            Err(garde::Error::new("a statement event is named by its statement's kind"))
+        }
+    }))]
+    pub kind: TrustStatementKind,
+    /// The statement.
+    #[garde(dive)]
+    pub statement: TrustStatement,
+}
+
+/// A change on the live read that is not a statement: a revoked device's row forgotten, or a
+/// machine's registration refreshed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(tag = "type", rename_all_fields = "camelCase", deny_unknown_fields)]
-pub enum DeviceListEvent {
-    /// A device joined.
-    #[serde(rename = "device.linked")]
-    DeviceLinked {
-        /// The statement.
-        #[garde(dive)]
-        statement: DeviceLinkedStatement,
-    },
-    /// A device's name changed.
-    #[serde(rename = "device.renamed")]
-    DeviceRenamed {
-        /// The statement.
-        #[garde(dive)]
-        statement: DeviceRenamedStatement,
-    },
-    /// A device's key ended.
-    #[serde(rename = "device.revoked")]
-    DeviceRevoked {
-        /// The statement.
-        #[garde(dive)]
-        statement: DeviceRevokedStatement,
-    },
-    /// A passkey joined.
-    #[serde(rename = "passkey.added")]
-    PasskeyAdded {
-        /// The statement.
-        #[garde(dive)]
-        statement: PasskeyAddedStatement,
-    },
-    /// A passkey's key ended.
-    #[serde(rename = "passkey.removed")]
-    PasskeyRemoved {
-        /// The statement.
-        #[garde(dive)]
-        statement: PasskeyRemovedStatement,
-    },
-    /// A machine joined.
-    #[serde(rename = "runtimenode.added")]
-    RuntimeNodeAdded {
-        /// The statement.
-        #[garde(dive)]
-        statement: RuntimeNodeAddedStatement,
-    },
-    /// A machine's name changed.
-    #[serde(rename = "runtimenode.renamed")]
-    RuntimeNodeRenamed {
-        /// The statement.
-        #[garde(dive)]
-        statement: RuntimeNodeRenamedStatement,
-    },
-    /// A machine's key ended.
-    #[serde(rename = "runtimenode.removed")]
-    RuntimeNodeRemoved {
-        /// The statement.
-        #[garde(dive)]
-        statement: RuntimeNodeRemovedStatement,
-    },
+pub enum DeviceListRowEvent {
     /// A revoked device's row was forgotten; its `device.revoked` stays in the chain.
     #[serde(rename = "device.forgotten")]
     DeviceForgotten {
@@ -222,6 +182,18 @@ pub enum DeviceListEvent {
         #[garde(dive)]
         machine: MachineEntry,
     },
+}
+
+/// One change on the live read: a new statement under its kind's name, or a row's change. The
+/// generated check cannot compare a statement event's name with its statement's kind; the Rust
+/// check does.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(untagged)]
+pub enum DeviceListEvent {
+    /// A new statement.
+    Statement(#[garde(dive)] DeviceStatementEvent),
+    /// A row's change.
+    Row(#[garde(dive)] DeviceListRowEvent),
 }
 
 // Linking
@@ -407,7 +379,9 @@ pub struct DeviceTrustedListResponse {
 // Push address and notification switches
 
 /// Where a device's pushes go.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum PushPlatform {
     /// Apple's push service.
@@ -416,11 +390,6 @@ pub enum PushPlatform {
     Fcm,
     /// A browser's Web Push endpoint.
     WebPush,
-}
-
-impl PushPlatform {
-    /// Every push platform.
-    pub const ALL: &[Self] = &[Self::Apns, Self::Fcm, Self::WebPush];
 }
 
 /// The calling device's push address: its APNs token, its FCM token or its Web Push endpoint. Set
@@ -594,7 +563,9 @@ methods! {
 /// The control-plane procedures the desktop's screens call. The window holds no credential, so
 /// each rides the background service, which attaches the account's access token and signs the
 /// request's proof of possession. Relay negotiation and every procedure not listed are refused.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 pub enum ControlPlaneCallProcedure {
     /// `device.list`.
     #[serde(rename = "device.list")]
@@ -634,24 +605,6 @@ pub enum ControlPlaneCallProcedure {
     RuntimeNodeRemove,
 }
 
-impl ControlPlaneCallProcedure {
-    /// Every forwarded procedure.
-    pub const ALL: &[Self] = &[
-        Self::DeviceList,
-        Self::DeviceLinkStart,
-        Self::DeviceLinkRedeem,
-        Self::DeviceLink,
-        Self::DeviceLinkCancel,
-        Self::DeviceRename,
-        Self::DeviceRevoke,
-        Self::DeviceForget,
-        Self::DeviceStatementList,
-        Self::DevicePushAddressSet,
-        Self::RuntimeNodeRename,
-        Self::RuntimeNodeRemove,
-    ];
-}
-
 /// One forwarded call. `input` is the procedure's own request, which the control plane's
 /// descriptor for that procedure parses, and the reply is that procedure's own result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -663,22 +616,9 @@ pub struct ControlPlaneCallRequest {
     pub input: AnyValue,
 }
 
-/// The forwarded procedure's own result.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct ControlPlaneCallResponse(pub serde_json::Value);
-
-impl JsonSchema for ControlPlaneCallResponse {
-    fn schema_name() -> Cow<'static, str> {
-        "ControlPlaneCallResponse".into()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({
-            "description": "The forwarded procedure's own result.",
-            "tsType": "unknown",
-        })
-    }
+named_scalar! {
+    /// The forwarded procedure's own result.
+    ControlPlaneCallResponse(AnyValue) unordered
 }
 
 methods! {
@@ -705,6 +645,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PasskeyEntry>(),
         Definition::read::<DeviceListRequest>(),
         Definition::read::<DeviceListSnapshot>(),
+        Definition::read::<DeviceStatementEvent>(),
+        Definition::read::<DeviceListRowEvent>(),
         Definition::read::<DeviceListEvent>().checked(),
         Definition::read::<DeviceLinkStartRequest>(),
         Definition::read::<DeviceLinkStartResponse>(),

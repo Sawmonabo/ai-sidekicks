@@ -1,26 +1,20 @@
 //! The event cursor: an opaque position in a session's event log, and the codec that writes a
 //! position as a cursor and reads it back, refusing a cursor that names no position.
 
-use crate::internal::branded::branded_text_id;
-use crate::jsonrpc::refusal::RefusalCode;
-use crate::typescript::{TypeScriptModule, ts_constants};
 use crate::wire::integer::MAX_SAFE_INTEGER;
+use crate::wire::text::branded_text;
 
 /// The longest event cursor accepted, in code points; a guard against pathological lengths.
 pub const EVENT_CURSOR_MAX_LEN: usize = 256;
 
-branded_text_id! {
+branded_text! {
     /// An opaque position in a session's event log, passed through unchanged. Its format belongs
     /// to the daemon, which writes it with `encode_event_cursor`.
-    EventCursor, EVENT_CURSOR_MAX_LEN
+    pub struct EventCursor(1..=EVENT_CURSOR_MAX_LEN);
 }
 
-ts_constants! {
-    /// The refusal for an event cursor that names no position in its session's log.
-    EVENT_CURSOR_UNRESOLVABLE_CODE = RefusalCode::EventCursorUnresolvable;
-    /// The log position before a session's first event, where a read of the whole log starts.
-    pub const START_OF_LOG_POSITION: i64 = -1;
-}
+/// The log position before a session's first event, where a read of the whole log starts.
+pub const START_OF_LOG_POSITION: i64 = -1;
 
 /// A cursor that names no log position: it is not a canonical decimal integer of at least -1
 /// within JavaScript's safe range. Holds the refused cursor, so the refusal can name it.
@@ -72,17 +66,6 @@ pub fn decode_event_cursor(cursor: &EventCursor) -> Result<i64, EventCursorUnres
         cursor: text.to_owned(),
     })
 }
-
-/// The module's TypeScript face: the constants a client reads; the cursor's type sits with the
-/// session's ids.
-pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
-    path: "session/event-cursor",
-    doc: "The event cursor's constants: its refusal code and the position before a session's \
-          first event.",
-    definitions: &[],
-    constants: TS_CONSTANTS,
-    method_tables: &[],
-};
 
 #[cfg(test)]
 mod tests {

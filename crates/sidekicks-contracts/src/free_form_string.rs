@@ -8,7 +8,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::typescript::{TypeScriptModule, ts_constants};
-use crate::wire::text::NulFreeText;
+use crate::wire::text::{NulFreeText, TextError};
 
 ts_constants! {
     /// The longest filesystem path any wire string carries, in code points. 4096 is Linux's
@@ -25,12 +25,12 @@ ts_constants! {
 pub struct FilesystemPath(NulFreeText<FILE_PATH_MAX_LEN>);
 
 impl FilesystemPath {
-    /// `path` when it is non-empty, within the cap and holds no NUL, else `None`.
-    pub fn new(path: String) -> Option<Self> {
+    /// Checks `path`: refused as blank when empty, else with the first other rule it breaks.
+    pub fn new(path: String) -> Result<Self, TextError> {
         if path.is_empty() {
-            return None;
+            return Err(TextError::Blank);
         }
-        NulFreeText::new(path).ok().map(Self)
+        NulFreeText::new(path).map(Self)
     }
 
     /// The path.
@@ -41,11 +41,7 @@ impl FilesystemPath {
 
 impl<'de> Deserialize<'de> for FilesystemPath {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(String::deserialize(deserializer)?).ok_or_else(|| {
-            D::Error::custom(format!(
-                "a path is 1 to {FILE_PATH_MAX_LEN} code points with no NUL"
-            ))
-        })
+        Self::new(String::deserialize(deserializer)?).map_err(D::Error::custom)
     }
 }
 

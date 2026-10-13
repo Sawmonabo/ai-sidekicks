@@ -5,13 +5,14 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::runtime_node::id::NodeId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::base64::{Base64Array, Base64Text, Base64UrlText};
 use crate::wire::instant::WireInstant;
 use crate::wire::list::BoundedVec;
-use crate::wire::text::{FreeFormText, branded_text, pattern_text};
+use crate::wire::text::{FreeFormText, NON_BLANK_NUL_FREE_PATTERN, pattern_text};
 use crate::wire::{self, literal};
 
 ts_constants! {
@@ -25,10 +26,10 @@ ts_constants! {
     pub const DEVICE_ID_MAX_LEN: usize = 256;
     /// The algorithms an identity key may use: a phone's Secure Enclave holds only P-256, and a
     /// machine's service key is Ed25519, so every public key carries its tag.
-    IDENTITY_KEY_ALGORITHMS = [IdentityKeyAlgorithm::P256, IdentityKeyAlgorithm::Ed25519];
+    IDENTITY_KEY_ALGORITHMS = IdentityKeyAlgorithm::VARIANTS;
     /// The kinds of statement in the account's chain, each a fact named subject first and past
     /// tense; the event that announces a statement carries its kind as its name.
-    TRUST_STATEMENT_KINDS = TrustStatementKind::ALL;
+    TRUST_STATEMENT_KINDS = TrustStatementKind::VARIANTS;
 }
 
 /// The longest encoded signature, WebAuthn assertion part or linking proof.
@@ -43,14 +44,12 @@ pub type TrustName = FreeFormText<MACHINE_OR_DEVICE_NAME_MAX_LEN>;
 /// A platform description.
 pub type PlatformDescription = FreeFormText<PLATFORM_DESCRIPTION_MAX_LEN>;
 
-branded_text! {
+pattern_text! {
     /// The id of one of the person's devices: a phone or browser the control plane registers, or
     /// a machine, whose own id is the device of every local connection to its service. Opaque to
-    /// every client.
-    pub struct DeviceId(1..=DEVICE_ID_MAX_LEN);
-}
+    /// every client; not blank, no NUL, and at most `DEVICE_ID_MAX_LEN` code points.
+    pub struct DeviceId(NON_BLANK_NUL_FREE_PATTERN, max = DEVICE_ID_MAX_LEN) branded;
 
-pattern_text! {
     /// The SHA-256 of a statement's canonical bytes (RFC 8785), as 64 lowercase hex characters.
     /// The chain names each statement's predecessor by it, and a channel open exchanges the newest
     /// one as the chain head.
@@ -58,7 +57,9 @@ pattern_text! {
 }
 
 /// One identity-key algorithm.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum IdentityKeyAlgorithm {
     /// NIST P-256, the only curve a phone's Secure Enclave holds.
@@ -187,100 +188,95 @@ pub enum TrustStatementSignature {
     },
 }
 
-/// One statement kind.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-pub enum TrustStatementKind {
-    /// A device joins.
-    #[serde(rename = "device.linked")]
-    DeviceLinked,
-    /// A device's name changes.
-    #[serde(rename = "device.renamed")]
-    DeviceRenamed,
-    /// A device's key ends.
-    #[serde(rename = "device.revoked")]
-    DeviceRevoked,
-    /// A passkey joins.
-    #[serde(rename = "passkey.added")]
-    PasskeyAdded,
-    /// A passkey's key ends.
-    #[serde(rename = "passkey.removed")]
-    PasskeyRemoved,
-    /// A machine joins, or comes back under its id with a new key.
-    #[serde(rename = "runtimenode.added")]
-    RuntimeNodeAdded,
-    /// A machine's name changes.
-    #[serde(rename = "runtimenode.renamed")]
-    RuntimeNodeRenamed,
-    /// A machine's key ends.
-    #[serde(rename = "runtimenode.removed")]
-    RuntimeNodeRemoved,
-}
-
-impl TrustStatementKind {
-    /// Every kind, in the order TypeScript lists them.
-    pub const ALL: [Self; 8] = [
-        Self::DeviceLinked,
-        Self::DeviceRenamed,
-        Self::DeviceRevoked,
-        Self::PasskeyAdded,
-        Self::PasskeyRemoved,
-        Self::RuntimeNodeAdded,
-        Self::RuntimeNodeRenamed,
-        Self::RuntimeNodeRemoved,
-    ];
-}
-
-literal! {
-    /// The kind of a [`DeviceLinkedStatement`].
-    pub enum DeviceLinkedKind = "device.linked";
-    /// The kind of a [`DeviceRenamedStatement`].
-    pub enum DeviceRenamedKind = "device.renamed";
-    /// The kind of a [`DeviceRevokedStatement`].
-    pub enum DeviceRevokedKind = "device.revoked";
-    /// The kind of a [`PasskeyAddedStatement`].
-    pub enum PasskeyAddedKind = "passkey.added";
-    /// The kind of a [`PasskeyRemovedStatement`].
-    pub enum PasskeyRemovedKind = "passkey.removed";
-    /// The kind of a [`RuntimeNodeAddedStatement`].
-    pub enum RuntimeNodeAddedKind = "runtimenode.added";
-    /// The kind of a [`RuntimeNodeRenamedStatement`].
-    pub enum RuntimeNodeRenamedKind = "runtimenode.renamed";
-    /// The kind of a [`RuntimeNodeRemovedStatement`].
-    pub enum RuntimeNodeRemovedKind = "runtimenode.removed";
-}
-
-/// Declares one statement: its kind, the members every statement carries (the hash of the one
-/// before it, when it was signed and at least one signature), then its own.
-macro_rules! statement {
+/// Declares the statements of the account's chain from one table: [`TrustStatementKind`], each
+/// statement's own type with its kind as a literal, and [`TrustStatement`], told apart by `kind`,
+/// so each kind is spelled once. Every statement carries the hash of the one before it, when it
+/// was signed and at least one signature, then its own members.
+macro_rules! statements {
     ($(
         $(#[doc = $doc:literal])+
-        pub struct $name:ident: $kind:ty {
+        $arm:ident = $kind:literal {
+            statement: $name:ident,
+            kind: $kind_type:ident,
+            $(#[$previous_hash_attribute:meta])*
             previous_hash: $previous_hash:ty,
             $($(#[doc = $member_doc:literal])+ $member:ident: $member_type:ty,)*
         }
-    )+) => {$(
-        $(#[doc = $doc])+
+    )+) => {
+        /// One statement kind.
+        #[derive(
+            Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema,
+            VariantArray,
+        )]
+        pub enum TrustStatementKind {$(
+            $(#[doc = $doc])+
+            #[serde(rename = $kind)]
+            $arm,
+        )+}
+
+        $(
+            literal! {
+                /// The kind one statement carries.
+                pub enum $kind_type = $kind;
+            }
+
+            $(#[doc = $doc])+
+            #[derive(
+                Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+            )]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            #[garde(allow_unvalidated)]
+            pub struct $name {
+                /// The statement's kind.
+                pub kind: $kind_type,
+                /// The hash of the statement before this one.
+                $(#[$previous_hash_attribute])*
+                pub previous_hash: $previous_hash,
+                /// When the statement was signed.
+                #[garde(dive)]
+                pub issued_at: WireInstant,
+                /// The signatures over the statement's canonical bytes without this member.
+                pub signatures: BoundedVec<TrustStatementSignature, 1, { usize::MAX }>,
+                $($(#[doc = $member_doc])+ pub $member: $member_type,)*
+            }
+        )+
+
+        /// One statement of the account's chain, told apart by its `kind`.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        #[serde(tag = "kind", rename_all_fields = "camelCase", deny_unknown_fields)]
         #[garde(allow_unvalidated)]
-        pub struct $name {
+        pub enum TrustStatement {$(
+            $(#[doc = $doc])+
+            #[serde(rename = $kind)]
+            $arm {
+                /// The hash of the statement before this one.
+                $(#[$previous_hash_attribute])*
+                previous_hash: $previous_hash,
+                /// When the statement was signed.
+                #[garde(dive)]
+                issued_at: WireInstant,
+                /// The signatures over the statement's canonical bytes without this member.
+                signatures: BoundedVec<TrustStatementSignature, 1, { usize::MAX }>,
+                $($(#[doc = $member_doc])+ $member: $member_type,)*
+            },
+        )+}
+
+        impl TrustStatement {
             /// The statement's kind.
-            pub kind: $kind,
-            /// The hash of the statement before this one.
-            pub previous_hash: $previous_hash,
-            /// When the statement was signed.
-            #[garde(dive)]
-            pub issued_at: WireInstant,
-            /// The signatures over the statement's canonical bytes without this member.
-            pub signatures: BoundedVec<TrustStatementSignature, 1, { usize::MAX }>,
-            $($(#[doc = $member_doc])+ pub $member: $member_type,)*
+            pub const fn kind(&self) -> TrustStatementKind {
+                match self {
+                    $(Self::$arm { .. } => TrustStatementKind::$arm,)+
+                }
+            }
         }
-    )+};
+    };
 }
 
-statement! {
+statements! {
     /// A device joins: its identity key, its channel key, its name and its platform.
-    pub struct DeviceLinkedStatement: DeviceLinkedKind {
+    DeviceLinked = "device.linked" {
+        statement: DeviceLinkedStatement,
+        kind: DeviceLinkedKind,
         previous_hash: TrustStatementHash,
         /// The device.
         device_id: DeviceId,
@@ -294,7 +290,9 @@ statement! {
         platform: PlatformDescription,
     }
     /// A device's one name changes.
-    pub struct DeviceRenamedStatement: DeviceRenamedKind {
+    DeviceRenamed = "device.renamed" {
+        statement: DeviceRenamedStatement,
+        kind: DeviceRenamedKind,
         previous_hash: TrustStatementHash,
         /// The device.
         device_id: DeviceId,
@@ -302,13 +300,17 @@ statement! {
         name: TrustName,
     }
     /// A device's key ends here; what it signed before stands.
-    pub struct DeviceRevokedStatement: DeviceRevokedKind {
+    DeviceRevoked = "device.revoked" {
+        statement: DeviceRevokedStatement,
+        kind: DeviceRevokedKind,
         previous_hash: TrustStatementHash,
         /// The device.
         device_id: DeviceId,
     }
     /// A passkey joins, with the platform that holds it.
-    pub struct PasskeyAddedStatement: PasskeyAddedKind {
+    PasskeyAdded = "passkey.added" {
+        statement: PasskeyAddedStatement,
+        kind: PasskeyAddedKind,
         previous_hash: TrustStatementHash,
         /// The passkey's credential id.
         passkey_id: PasskeyId,
@@ -318,16 +320,22 @@ statement! {
         platform: PlatformDescription,
     }
     /// A passkey's key ends here.
-    pub struct PasskeyRemovedStatement: PasskeyRemovedKind {
+    PasskeyRemoved = "passkey.removed" {
+        statement: PasskeyRemovedStatement,
+        kind: PasskeyRemovedKind,
         previous_hash: TrustStatementHash,
         /// The passkey's credential id.
         passkey_id: PasskeyId,
     }
     /// A machine joins, or a removed machine comes back under its same id with a new key. The
     /// person's first machine opens the chain with this statement, so here alone `previousHash`
-    /// is `null`.
-    pub struct RuntimeNodeAddedStatement: RuntimeNodeAddedKind {
-        previous_hash: NullableHash,
+    /// is `null`; the key is still required.
+    RuntimeNodeAdded = "runtimenode.added" {
+        statement: RuntimeNodeAddedStatement,
+        kind: RuntimeNodeAddedKind,
+        #[serde(deserialize_with = "wire::nullable")]
+        #[schemars(with = "wire::NullableSchema<TrustStatementHash>")]
+        previous_hash: Option<TrustStatementHash>,
         /// The machine.
         node_id: NodeId,
         /// The machine's identity key.
@@ -338,7 +346,9 @@ statement! {
         name: TrustName,
     }
     /// A machine's one name changes.
-    pub struct RuntimeNodeRenamedStatement: RuntimeNodeRenamedKind {
+    RuntimeNodeRenamed = "runtimenode.renamed" {
+        statement: RuntimeNodeRenamedStatement,
+        kind: RuntimeNodeRenamedKind,
         previous_hash: TrustStatementHash,
         /// The machine.
         node_id: NodeId,
@@ -346,42 +356,13 @@ statement! {
         name: TrustName,
     }
     /// A machine's key ends here; its store, sessions and id stay.
-    pub struct RuntimeNodeRemovedStatement: RuntimeNodeRemovedKind {
+    RuntimeNodeRemoved = "runtimenode.removed" {
+        statement: RuntimeNodeRemovedStatement,
+        kind: RuntimeNodeRemovedKind,
         previous_hash: TrustStatementHash,
         /// The machine.
         node_id: NodeId,
     }
-}
-
-/// The predecessor of the chain's first statement: a hash, or `null` where the chain opens.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(transparent)]
-pub struct NullableHash(
-    #[serde(deserialize_with = "wire::nullable")]
-    #[schemars(with = "wire::NullableSchema<TrustStatementHash>")]
-    pub Option<TrustStatementHash>,
-);
-
-/// One statement of the account's chain, told apart by its `kind`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(untagged)]
-pub enum TrustStatement {
-    /// A device joins.
-    DeviceLinked(#[garde(dive)] DeviceLinkedStatement),
-    /// A device's name changes.
-    DeviceRenamed(#[garde(dive)] DeviceRenamedStatement),
-    /// A device's key ends.
-    DeviceRevoked(#[garde(dive)] DeviceRevokedStatement),
-    /// A passkey joins.
-    PasskeyAdded(#[garde(dive)] PasskeyAddedStatement),
-    /// A passkey's key ends.
-    PasskeyRemoved(#[garde(dive)] PasskeyRemovedStatement),
-    /// A machine joins.
-    RuntimeNodeAdded(#[garde(dive)] RuntimeNodeAddedStatement),
-    /// A machine's name changes.
-    RuntimeNodeRenamed(#[garde(dive)] RuntimeNodeRenamedStatement),
-    /// A machine's key ends.
-    RuntimeNodeRemoved(#[garde(dive)] RuntimeNodeRemovedStatement),
 }
 
 /// The TypeScript module of the trust chain's types.
@@ -411,9 +392,59 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RuntimeNodeAddedStatement>(),
         Definition::read::<RuntimeNodeRenamedStatement>(),
         Definition::read::<RuntimeNodeRemovedStatement>(),
-        Definition::read::<NullableHash>(),
         Definition::read::<TrustStatement>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::{Value, json};
+
+    use super::{RuntimeNodeAddedStatement, TrustStatement};
+
+    /// A chain-opening `runtimenode.added` statement, with `previousHash` set to `previous_hash`
+    /// or left out when it is `None`.
+    fn opening_statement(previous_hash: Option<Value>) -> Value {
+        let mut statement = json!({
+            "kind": "runtimenode.added",
+            "issuedAt": "2026-01-01T00:00:00.000Z",
+            "signatures": [{ "signer": "runtimenode", "nodeId": "node-1", "signature": "AAAA" }],
+            "nodeId": "node-1",
+            "identityKey": {
+                "algorithm": "ed25519",
+                "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            },
+            "channelKey": {
+                "algorithm": "x25519",
+                "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            },
+            "name": "Studio",
+        });
+        if let (Some(previous_hash), Value::Object(members)) = (previous_hash, &mut statement) {
+            members.insert("previousHash".to_owned(), previous_hash);
+        }
+        statement
+    }
+
+    #[rstest]
+    #[case::null(Some(Value::Null), true)]
+    #[case::hash(Some(json!("0".repeat(64))), true)]
+    #[case::missing(None, false)]
+    fn the_chain_opening_statement_requires_its_previous_hash_key(
+        #[case] previous_hash: Option<Value>,
+        #[case] is_read: bool,
+    ) {
+        let statement = opening_statement(previous_hash);
+        let standalone = serde_json::from_value::<RuntimeNodeAddedStatement>(statement.clone());
+        assert_eq!(standalone.is_ok(), is_read, "standalone: {standalone:?}");
+        let in_chain = serde_json::from_value::<TrustStatement>(statement.clone());
+        assert_eq!(in_chain.is_ok(), is_read, "in the chain: {in_chain:?}");
+        if let Ok(read) = in_chain {
+            let written = serde_json::to_value(read).expect("the statement writes");
+            assert_eq!(written, statement, "the statement writes back unchanged");
+        }
+    }
+}

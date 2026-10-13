@@ -4,6 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::provider::account::record::ProviderAccountId;
 use crate::provider::driver::length_limits::{
     DRIVER_MCP_SERVER_NAME_MAX_LEN, DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
     DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN, DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
@@ -12,7 +13,8 @@ use crate::provider::name::ProviderName;
 use crate::run::id::RunId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::Never;
-use crate::wire::text::{BoundedText, FreeFormText};
+use crate::wire::list::BoundedVec;
+use crate::wire::text::FreeFormText;
 
 /// The binding a command list was read under: the routing pair a group and each of its entries
 /// carry. `providerAccountId` is `null` when the session bound no account, and `null` matches
@@ -24,95 +26,72 @@ pub struct ProviderCommandBinding {
     pub driver_name: ProviderName,
     /// The account the session bound, or `null` for none.
     #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<BoundedText<1, { usize::MAX }>>")]
-    pub provider_account_id: Option<BoundedText<1, { usize::MAX }>>,
+    #[schemars(with = "crate::wire::NullableSchema<ProviderAccountId>")]
+    pub provider_account_id: Option<ProviderAccountId>,
 }
 
-/// The kind of a command entry that is not a tool server's prompt.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-#[schemars(inline)]
-pub enum ProviderCommandKind {
-    /// A provider's command.
-    Command,
-    /// A skill.
-    Skill,
-}
-
-/// The kind of a tool server's prompt.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-#[schemars(inline)]
-pub enum ProviderPromptKind {
-    /// A working tool server's prompt.
-    Prompt,
-}
-
-/// Declares one arm of [`ProviderCommandEntry`]: the members every entry carries, then the arm's
-/// own kind and server.
-macro_rules! provider_command_entry_arm {
-    ($(#[doc = $doc:literal])+ $name:ident { $($arm:tt)* }) => {
-        $(#[doc = $doc])+
+/// Declares [`ProviderCommandEntry`]: per kind, the members every entry carries, then the kind's
+/// own server member.
+macro_rules! provider_command_entry {
+    ($( $(#[doc = $doc:literal])+ $kind:ident { $($own:tt)* } )+) => {
+        /// One command, skill or tool server prompt as the provider listed it, told apart by
+        /// `kind`: a disabled entry is returned, not dropped, and `binding` is its routing key.
+        /// `server` is present exactly on a prompt.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-        #[serde(rename_all = "camelCase", deny_unknown_fields)]
-        #[schemars(inline)]
-        pub struct $name {
-            /// The word the person types.
-            pub name: FreeFormText<DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN>,
-            /// What it does, absent when the provider publishes none.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "FreeFormText<DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>")]
-            pub description: Option<FreeFormText<DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>>,
-            /// The provider's hint for what follows the word, where it publishes one.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "FreeFormText<DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>")]
-            pub argument_hint: Option<FreeFormText<DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>>,
-            /// The scope the provider declares, where it declares one.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "FreeFormText<DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN>")]
-            pub scope: Option<FreeFormText<DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN>>,
-            /// Whether it is enabled, where the provider draws that distinction.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "bool")]
-            pub enabled: Option<bool>,
-            /// The binding the entry was read under.
-            pub binding: ProviderCommandBinding,
-            $($arm)*
-        }
+        #[serde(
+            tag = "kind",
+            rename_all = "lowercase",
+            rename_all_fields = "camelCase",
+            deny_unknown_fields
+        )]
+        pub enum ProviderCommandEntry {$(
+            $(#[doc = $doc])+
+            $kind {
+                /// The word the person types.
+                name: FreeFormText<DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN>,
+                /// What it does, absent when the provider publishes none.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "FreeFormText<DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>")]
+                description: Option<FreeFormText<DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>>,
+                /// The provider's hint for what follows the word, where it publishes one.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "FreeFormText<DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>")]
+                argument_hint: Option<FreeFormText<DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>>,
+                /// The scope the provider declares, where it declares one.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "FreeFormText<DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN>")]
+                scope: Option<FreeFormText<DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN>>,
+                /// Whether it is enabled, where the provider draws that distinction.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "bool")]
+                enabled: Option<bool>,
+                /// The binding the entry was read under.
+                binding: ProviderCommandBinding,
+                $($own)*
+            },
+        )+}
     };
 }
 
-provider_command_entry_arm! {
-    /// A tool server's prompt, grouped under the server that publishes it.
-    ProviderPromptEntry {
-        /// Always `prompt`.
-        pub kind: ProviderPromptKind,
-        /// The tool server that publishes the prompt.
-        pub server: FreeFormText<DRIVER_MCP_SERVER_NAME_MAX_LEN>,
-    }
-}
-
-provider_command_entry_arm! {
-    /// A provider's command or a skill.
-    ProviderCommandOrSkillEntry {
-        /// A command or a skill.
-        pub kind: ProviderCommandKind,
+provider_command_entry! {
+    /// A provider's command.
+    Command {
         /// Only a prompt names a server.
         #[serde(
             default,
@@ -120,20 +99,24 @@ provider_command_entry_arm! {
             deserialize_with = "crate::wire::present"
         )]
         #[schemars(with = "Never")]
-        pub server: Option<Never>,
+        server: Option<Never>,
     }
-}
-
-/// One command, skill or tool server prompt as the provider listed it: a disabled entry is
-/// returned, not dropped, and `binding` is its routing key. `server` is present exactly on a
-/// prompt.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum ProviderCommandEntry {
-    /// A tool server's prompt.
-    Prompt(ProviderPromptEntry),
-    /// A provider's command or a skill.
-    CommandOrSkill(ProviderCommandOrSkillEntry),
+    /// A skill.
+    Skill {
+        /// Only a prompt names a server.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        server: Option<Never>,
+    }
+    /// A working tool server's prompt, grouped under the server that publishes it.
+    Prompt {
+        /// The tool server that publishes the prompt.
+        server: FreeFormText<DRIVER_MCP_SERVER_NAME_MAX_LEN>,
+    }
 }
 
 /// One live binding's command list, whole as the provider published it, with where it came from.
@@ -152,13 +135,11 @@ pub struct ProviderCommandBindingGroup {
 
 /// The reply of `driver.listProviderCommands`: one group per live binding, so each entry keeps
 /// where it came from, and at least one, since an agent with no live binding is refused.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderCommandListResult {
     /// The groups.
-    #[garde(length(min = 1))]
-    #[schemars(length(min = 1))]
-    pub bindings: Vec<ProviderCommandBindingGroup>,
+    pub bindings: BoundedVec<ProviderCommandBindingGroup, 1, { usize::MAX }>,
 }
 
 /// The TypeScript module of provider commands.

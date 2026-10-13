@@ -7,6 +7,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
@@ -15,16 +16,16 @@ use crate::provider::name::ProviderName;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::attachment::Bytes;
-use crate::wire::text::BoundedText;
+use crate::wire::text::NonEmptyText;
 use crate::wire::{NullableSchema, literal, nullable};
 
 ts_constants! {
     /// The bytes in one 100 ms frame of 16 kHz 16-bit mono audio.
     pub const VOICE_DICTATION_FRAME_MAX_BYTES: usize = 16_000 * 2 / 10;
     /// Every reason voice can be unavailable, for the composer strip's refusal line.
-    VOICE_UNAVAILABLE_REASONS = VoiceUnavailableReason::ALL;
+    VOICE_UNAVAILABLE_REASONS = VoiceUnavailableReason::VARIANTS;
     /// Every reason a recording can end without its words, for the composer strip's refusal line.
-    VOICE_DICTATION_FAILURE_REASONS = VoiceDictationFailureReason::ALL;
+    VOICE_DICTATION_FAILURE_REASONS = VoiceDictationFailureReason::VARIANTS;
 }
 
 literal! {
@@ -34,16 +35,13 @@ literal! {
 }
 
 /// Why `voice.unavailable` refused: the account is not one its provider gives voice.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum VoiceUnavailableReason {
     /// The provider gives voice only to an account signed in with it.
     ProviderSignInRequired,
-}
-
-impl VoiceUnavailableReason {
-    /// Every reason, in declaration order.
-    pub const ALL: [Self; 1] = [Self::ProviderSignInRequired];
 }
 
 /// The `voice.unavailable` refusal's details: why, and the session's provider, so the screen draws
@@ -84,6 +82,7 @@ pub struct VoiceDictationStartRequest {
 pub struct VoiceDictationWriteRequest {
     /// The frame; an odd length would end mid-sample.
     #[garde(custom(holds_whole_samples))]
+    #[schemars(extend("evenBytes" = true))]
     pub audio: Bytes<1, VOICE_DICTATION_FRAME_MAX_BYTES>,
 }
 
@@ -109,7 +108,9 @@ pub struct VoiceDictationStopRequest {
 /// Why a recording ended without its words: only silent samples reached the microphone; sound but
 /// no words; the connection failed after its one retry or was refused; the speech service refused
 /// the account's sign-in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum VoiceDictationFailureReason {
     /// Only silent samples reached the microphone.
@@ -120,16 +121,6 @@ pub enum VoiceDictationFailureReason {
     NotSent,
     /// The speech service refused the account's sign-in.
     SignInRefused,
-}
-
-impl VoiceDictationFailureReason {
-    /// Every reason, in declaration order.
-    pub const ALL: [Self; 4] = [
-        Self::NoSound,
-        Self::NoSpeech,
-        Self::NotSent,
-        Self::SignInRefused,
-    ];
 }
 
 literal! {
@@ -154,7 +145,7 @@ pub struct VoiceDictationServiceError {
     /// Always `service_error`.
     pub reason: VoiceServiceErrorReason,
     /// The service's words.
-    pub message: BoundedText<1, { usize::MAX }>,
+    pub message: NonEmptyText,
 }
 
 /// A recording's failure, or the speech service's own error in its own words.
@@ -205,7 +196,7 @@ pub struct VoiceCallStartRequest {
     /// The session.
     pub session_id: SessionId,
     /// The window's offer.
-    pub offer_sdp: BoundedText<1, { usize::MAX }>,
+    pub offer_sdp: NonEmptyText,
 }
 
 /// Codex's WebRTC answer to the window's offer.
@@ -213,7 +204,7 @@ pub struct VoiceCallStartRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct VoiceCallStartResponse {
     /// The answer.
-    pub answer_sdp: BoundedText<1, { usize::MAX }>,
+    pub answer_sdp: NonEmptyText,
 }
 
 literal! {
@@ -292,7 +283,7 @@ call_frame! {
         /// Always `error`.
         pub cause: VoiceCallErrorCause,
         /// Codex's words.
-        pub message: BoundedText<1, { usize::MAX }>,
+        pub message: NonEmptyText,
     }
 }
 
@@ -322,9 +313,9 @@ pub enum VoiceCallFrame {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct VoiceListResponse {
     /// The voices.
-    pub voices: Vec<BoundedText<1, { usize::MAX }>>,
+    pub voices: Vec<NonEmptyText>,
     /// The voice used until the person picks another.
-    pub default_voice: BoundedText<1, { usize::MAX }>,
+    pub default_voice: NonEmptyText,
 }
 
 methods! {

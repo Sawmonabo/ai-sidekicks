@@ -76,21 +76,21 @@ methods! {
             mutating: true,
             params: SessionGroupCreateRequest,
             result: SessionGroupCreateResponse,
-            refusals: [SessionGroupNameTaken, SessionGroupRefused],
+            refusals: [SessionNotFound, SessionGroupNameTaken, SessionGroupRefused],
         },
         /// Moves a session into a group, or out of every group.
         SessionGroupMove = mutation "session.groupMove" {
             mutating: true,
             params: SessionGroupMoveRequest,
             result: SessionVerbResponse,
-            refusals: [SessionGroupRefused],
+            refusals: [SessionNotFound, SessionGroupRefused],
         },
         /// Renames a group.
         SessionGroupRename = mutation "session.groupRename" {
             mutating: true,
             params: SessionGroupRenameRequest,
             result: SessionVerbResponse,
-            refusals: [SessionGroupNameTaken],
+            refusals: [SessionGroupNameTaken, SessionGroupRefused],
         },
         /// Ungroups a group.
         SessionGroupUngroup = mutation "session.groupUngroup" {

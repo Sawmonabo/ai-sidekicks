@@ -48,6 +48,8 @@ macro_rules! number {
     };
 }
 
+pub(crate) use number;
+
 number! {
     /// Any finite number: a coordinate or an offset.
     Number, |value| true, "a number is finite", {}

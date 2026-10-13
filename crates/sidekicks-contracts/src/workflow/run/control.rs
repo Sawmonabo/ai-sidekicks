@@ -1,32 +1,31 @@
 //! The acts on a workflow run: starting one, canceling and resuming it, retrying from a step,
 //! running one node from the builder and posting a finished run's results into a session, with
-//! their refusals, the run events they write and their method table.
+//! their refusals and their method table.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator};
-use serde::de::Error as _;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FILE_PATH_MAX_LEN;
-use crate::jsonrpc::byte_length::json_utf8_byte_length;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::method::methods;
 use crate::project::ProjectId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::integer::SafeInt;
+use crate::wire::id::ClientUuid;
 use crate::wire::list::BoundedVec;
-use crate::wire::text::{BoundedText, ComposedText, NonEmptyText};
+use crate::wire::text::{BoundedText, ComposedText, NonEmptyText, is_within_length};
 use crate::wire::{True, literal};
-use crate::workflow::definition::document::item::WorkflowItem;
 use crate::workflow::definition::document::{
     WorkflowNodeId, WorkflowTriggerInput, WorkflowVersionId,
 };
+use crate::workflow::definition::item::WorkflowItem;
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::status::WorkflowRunStatus;
-use crate::workflow::run::trigger::{WorkflowRunMode, WorkflowStartedBy};
+use crate::workflow::run::step::record::fits_json_byte_cap;
+use crate::workflow::run::trigger::WorkflowRunMode;
 
 ts_constants! {
     /// The most bytes a cancellation reason may take, counted as UTF-8 bytes of its JSON encoding
@@ -40,53 +39,58 @@ ts_constants! {
     pub const WORKFLOW_RETRY_UNAVAILABLE_REASONS: [WorkflowRetryUnavailableReason; 1] =
         [WorkflowRetryUnavailableReason::SourceRunning];
     /// A start the policy check denied, or whose principal could not be resolved.
-    WORKFLOW_START_DENIED_CODE = RefusalCode::WorkflowStartDenied.as_str();
+    WORKFLOW_START_DENIED_CODE = RefusalCode::WorkflowStartDenied;
     /// A start in a project session that names a project: the run works in that session's
     /// repository, so it names no other. Nothing runs.
-    WORKFLOW_PROJECT_ON_PROJECT_SESSION_CODE =
-        RefusalCode::WorkflowProjectOnProjectSession.as_str();
+    WORKFLOW_PROJECT_ON_PROJECT_SESSION_CODE = RefusalCode::WorkflowProjectOnProjectSession;
     /// A start or a node run that works in no project's repository, of a version holding a Git,
     /// Read a repo diff or Run tests step. Nothing runs.
-    WORKFLOW_REPOSITORY_REQUIRED_CODE = RefusalCode::WorkflowRepositoryRequired.as_str();
+    WORKFLOW_REPOSITORY_REQUIRED_CODE = RefusalCode::WorkflowRepositoryRequired;
     /// A start that leaves a required input of the workflow unfilled, or gives an input a value
     /// that does not fit it. Nothing runs.
-    WORKFLOW_INPUT_REQUIRED_CODE = RefusalCode::WorkflowInputRequired.as_str();
+    WORKFLOW_INPUT_REQUIRED_CODE = RefusalCode::WorkflowInputRequired;
     /// A start of a version whose Code steps' packages are not locked; a later save that locks them
     /// makes the version runnable. Nothing runs.
-    WORKFLOW_CODE_PACKAGES_NOT_LOCKED_CODE = RefusalCode::WorkflowCodePackagesNotLocked.as_str();
+    WORKFLOW_CODE_PACKAGES_NOT_LOCKED_CODE = RefusalCode::WorkflowCodePackagesNotLocked;
     /// A cancel on a run that has ended. A failed run waiting on Resume has not ended and is
     /// canceled; a run already canceled is not refused, the cancel returns the first's outcome.
-    WORKFLOW_RUN_NOT_CANCELABLE_CODE = RefusalCode::WorkflowRunNotCancelable.as_str();
+    WORKFLOW_RUN_NOT_CANCELABLE_CODE = RefusalCode::WorkflowRunNotCancelable;
     /// A resume on a run that is not waiting: there is no wait to lift.
-    WORKFLOW_RESUME_NOT_PARKED_CODE = RefusalCode::WorkflowResumeNotParked.as_str();
+    WORKFLOW_RESUME_NOT_PARKED_CODE = RefusalCode::WorkflowResumeNotParked;
     /// A version re-pin on a run that is not waiting; a going run is never re-pinned.
-    WORKFLOW_REPAIR_NOT_PARKED_CODE = RefusalCode::WorkflowRepairNotParked.as_str();
+    WORKFLOW_REPAIR_NOT_PARKED_CODE = RefusalCode::WorkflowRepairNotParked;
     /// A version re-pin while one of the run's steps is still in flight.
-    WORKFLOW_REPAIR_ATTEMPT_IN_FLIGHT_CODE = RefusalCode::WorkflowRepairAttemptInFlight.as_str();
+    WORKFLOW_REPAIR_ATTEMPT_IN_FLIGHT_CODE = RefusalCode::WorkflowRepairAttemptInFlight;
     /// A version re-pin whose target cannot account for the steps the run already finished.
-    WORKFLOW_REPAIR_VERSION_UNACCOUNTABLE_CODE =
-        RefusalCode::WorkflowRepairVersionUnaccountable.as_str();
+    WORKFLOW_REPAIR_VERSION_UNACCOUNTABLE_CODE = RefusalCode::WorkflowRepairVersionUnaccountable;
     /// A run or step move its status does not allow: retrying from a step that did not fail,
     /// posting the results of an unfinished run, or opening a fix session on a step that did not
     /// fail.
-    WORKFLOW_INVALID_TRANSITION_CODE = RefusalCode::WorkflowInvalidTransition.as_str();
+    WORKFLOW_INVALID_TRANSITION_CODE = RefusalCode::WorkflowInvalidTransition;
     /// A retry the daemon cannot make now; the reason says why.
-    WORKFLOW_RETRY_UNAVAILABLE_CODE = RefusalCode::WorkflowRetryUnavailable.as_str();
+    WORKFLOW_RETRY_UNAVAILABLE_CODE = RefusalCode::WorkflowRetryUnavailable;
 }
 
+/// The most code points a cancellation reason can hold under its byte cap: its JSON takes two
+/// quotes beside at least one byte for each code point.
+const WORKFLOW_CANCEL_REASON_MAX_LEN: usize = WORKFLOW_CANCEL_REASON_BYTE_CAP - 2;
+
 /// A cancellation's reason as the person typed it: non-empty, and at most
-/// [`WORKFLOW_CANCEL_REASON_BYTE_CAP`] bytes as JSON. It is recorded on the run and its canceled
-/// event and never reaches a step's output or anything an agent reads.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+/// [`WORKFLOW_CANCEL_REASON_BYTE_CAP`] bytes as JSON, which its garde check holds. It is recorded
+/// on the run and its canceled event and never reaches a step's output or anything an agent reads.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, garde::Validate)]
 #[serde(transparent)]
-pub struct WorkflowCancelReason(BoundedText<1, WORKFLOW_CANCEL_REASON_BYTE_CAP>);
+#[garde(transparent)]
+pub struct WorkflowCancelReason(
+    #[garde(custom(fits_json_byte_cap::<WORKFLOW_CANCEL_REASON_BYTE_CAP, _>))]
+    BoundedText<1, WORKFLOW_CANCEL_REASON_MAX_LEN>,
+);
 
 impl WorkflowCancelReason {
     /// `reason` when it is non-empty and its JSON takes at most the cap's bytes, else `None`.
     pub fn new(reason: String) -> Option<Self> {
-        let reason = BoundedText::new(reason)?;
-        let byte_length = json_utf8_byte_length(&reason.as_str()).ok()?;
-        (byte_length <= WORKFLOW_CANCEL_REASON_BYTE_CAP).then_some(Self(reason))
+        let reason = Self(BoundedText::new(reason)?);
+        garde::Validate::validate(&reason).is_ok().then_some(reason)
     }
 
     /// The reason.
@@ -95,26 +99,13 @@ impl WorkflowCancelReason {
     }
 }
 
-impl<'de> Deserialize<'de> for WorkflowCancelReason {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(String::deserialize(deserializer)?).ok_or_else(|| {
-            D::Error::custom(format!(
-                "a cancellation reason is non-empty and at most {WORKFLOW_CANCEL_REASON_BYTE_CAP} \
-                 bytes as JSON"
-            ))
-        })
-    }
-}
-
 impl JsonSchema for WorkflowCancelReason {
     fn schema_name() -> Cow<'static, str> {
         "WorkflowCancelReason".into()
     }
 
-    // The byte cap is checked where the reason is read; the schema states the code-point bound it
-    // implies, since every code point takes at least one byte.
     fn json_schema(generator: &mut SchemaGenerator) -> Schema {
-        let mut schema = BoundedText::<1, WORKFLOW_CANCEL_REASON_BYTE_CAP>::json_schema(generator);
+        let mut schema = BoundedText::<1, WORKFLOW_CANCEL_REASON_MAX_LEN>::json_schema(generator);
         schema.insert(
             "description".into(),
             format!(
@@ -123,12 +114,16 @@ impl JsonSchema for WorkflowCancelReason {
             )
             .into(),
         );
+        schema.insert(
+            "maxJsonBytes".into(),
+            WORKFLOW_CANCEL_REASON_BYTE_CAP.into(),
+        );
         schema
     }
 }
 
 /// Refuses a re-pin that names one of its two versions without the other.
-fn names_whole_repin(
+pub(crate) fn names_whole_repin(
     repinned_from: Option<&WorkflowVersionId>,
     repinned_to: Option<&WorkflowVersionId>,
 ) -> garde::Result {
@@ -169,12 +164,15 @@ impl From<WorkflowRequestableRunMode> for WorkflowRunMode {
     }
 }
 
-/// The `workflow.runStart` input: the version to run, the session it is started in, the
-/// repository it works in, the items it starts on and how the start was made.
+/// The `workflow.runStart` input: the caller's key, the version to run, the session it is started
+/// in, the repository it works in, the items it starts on and how the start was made.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct WorkflowRunStartRequest {
+    /// The caller's key, kept in the command receipts: a resend under it after a reconnect answers
+    /// the first start's run, never a second.
+    pub client_idempotency_key: ClientUuid,
     /// The version, taken verbatim from a definition or version read.
     pub workflow_version_id: WorkflowVersionId,
     /// The session the start was made in; absent, the run lives in the workflow's own session.
@@ -333,7 +331,7 @@ fn fitting_value(
         WorkflowTriggerInput::String { .. } => value.as_str().filter(|text| !text.is_empty()),
         WorkflowTriggerInput::Path { .. } => value
             .as_str()
-            .filter(|text| !text.is_empty() && text.chars().count() <= FILE_PATH_MAX_LEN),
+            .filter(|text| is_within_length(text, 1, FILE_PATH_MAX_LEN)),
         WorkflowTriggerInput::Select { options, .. } => value.as_str().filter(|text| {
             options
                 .as_slice()
@@ -346,8 +344,9 @@ fn fitting_value(
 
 /// The `workflow.runCancel` input. `reason` is recorded on the run and carried on its canceled
 /// event; it never reaches a step's output or anything an agent reads.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowRunCancelRequest {
     /// The run.
     pub workflow_run_id: WorkflowRunId,
@@ -358,12 +357,21 @@ pub struct WorkflowRunCancelRequest {
         deserialize_with = "crate::wire::present"
     )]
     #[schemars(with = "WorkflowCancelReason")]
+    #[garde(dive)]
     pub reason: Option<WorkflowCancelReason>,
 }
 
 literal! {
     /// The one status a successful cancel answers with.
     pub enum WorkflowRunCanceledStatus = "canceled";
+}
+
+impl From<WorkflowRunCanceledStatus> for WorkflowRunStatus {
+    fn from(status: WorkflowRunCanceledStatus) -> Self {
+        match status {
+            WorkflowRunCanceledStatus::Value => Self::Canceled,
+        }
+    }
 }
 
 /// The `workflow.runCancel` result. Cancel is offered on a new, running or waiting run, and on a
@@ -394,8 +402,9 @@ pub struct WorkflowRunResumeVersionRepin {
 
 /// The `workflow.runResume` input. An ordinary resume omits `versionRepin` and continues on the
 /// run's pinned version; only an explicit `versionRepin` moves the run.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowRunResumeRequest {
     /// The run.
     pub workflow_run_id: WorkflowRunId,
@@ -467,13 +476,17 @@ pub struct WorkflowRunResumeResponse {
 
 /// The `workflow.runRetry` input: re-run from a named step, which runs again with its descendants
 /// while the source run's data stays pinned upstream.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowRunRetryRequest {
     /// The source run.
     pub workflow_run_id: WorkflowRunId,
     /// The step to re-run from.
     pub from_node_id: WorkflowNodeId,
+    /// The caller's key, kept in the command receipts: a resend under it after a reconnect answers
+    /// the first retry's run, never a second.
+    pub client_idempotency_key: ClientUuid,
 }
 
 /// Refuses a retry that answers with its own source run.
@@ -509,11 +522,15 @@ pub struct WorkflowRunRetryResponse {
 /// The `workflow.runRerun` input: start a new run of the named run's own pinned version, with the
 /// input and mode that run was started with, in the session it lives in. The daemon reads all
 /// three from the source run.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowRunRerunRequest {
     /// The run to re-run.
     pub workflow_run_id: WorkflowRunId,
+    /// The caller's key, kept in the command receipts: a resend under it after a reconnect answers
+    /// the first re-run's run, never a second.
+    pub client_idempotency_key: ClientUuid,
 }
 
 /// What a node run covers: the node alone (`Run this node`), or the node and its ancestors
@@ -531,8 +548,9 @@ pub enum WorkflowNodeExecuteScope {
 /// unsaved bytes. `projectId` is the project the builder's `Repository` panel names for a node run
 /// on a `chat` or `sub-workflow` trigger, absent for `None` and on every other trigger;
 /// `dirtyNodeIds` is the builder's hint, and the daemon decides what it runs and reuses.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowNodeExecuteRequest {
     /// The saved version.
     pub workflow_version_id: WorkflowVersionId,
@@ -580,8 +598,9 @@ pub struct WorkflowNodeExecuteResponse {
 
 /// The `workflow.resultsPost` input: pull a finished run's results into the session the
 /// `/workflow results` verb was typed in, which the daemon checks is the caller's own.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowResultsPostRequest {
     /// The finished run.
     pub workflow_run_id: WorkflowRunId,
@@ -638,138 +657,6 @@ pub enum WorkflowRetryUnavailableReason {
 pub struct WorkflowRetryUnavailableDetails {
     /// Why.
     pub reason: WorkflowRetryUnavailableReason,
-}
-
-/// Declares a run event's payload struct: the run it names (its session, its id, and the
-/// definition and version it pins), then the payload's own members.
-macro_rules! workflow_run_event {
-    ($(#[$attribute:meta])+ pub struct $name:ident { $($members:tt)* }) => {
-        $(#[$attribute])+
-        pub struct $name {
-            /// The session the run lives in.
-            pub session_id: $crate::session::id::SessionId,
-            /// The run.
-            pub workflow_run_id: $crate::workflow::run::id::WorkflowRunId,
-            /// The definition it came from.
-            pub definition_id: $crate::workflow::definition::document::WorkflowDefinitionId,
-            /// The version it pins.
-            pub workflow_version_id: $crate::workflow::definition::document::WorkflowVersionId,
-            $($members)*
-        }
-    };
-}
-
-pub(crate) use workflow_run_event;
-
-workflow_run_event! {
-    /// `workflow.started`: how the run was started and by whom, so the run row rebuilds from
-    /// events.
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowStartedPayload {
-        /// How it was started.
-        pub mode: WorkflowRunMode,
-        /// Who or what started it.
-        pub started_by: WorkflowStartedBy,
-    }
-}
-
-workflow_run_event! {
-    /// `workflow.canceled`, written with the status in one step, so rebuilding the run from the log
-    /// cannot bring a canceled run back. `reason` is the person's, when one was given; a chain's
-    /// `Stop them all` cancels with none.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowCanceledPayload {
-        /// The person's reason.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "WorkflowCancelReason")]
-        pub reason: Option<WorkflowCancelReason>,
-    }
-}
-
-workflow_run_event! {
-    /// `workflow.run_deleted`, written with the delete of the run's rows in one step, so rebuilding
-    /// the runs from the log leaves out a run the person deleted, whose earlier events the log
-    /// keeps.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowRunDeletedPayload {}
-}
-
-/// One step a resumed run picks up, by its node, its attempt and which execution of the node.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkflowResumedStep {
-    /// The node.
-    pub node_id: WorkflowNodeId,
-    /// Which attempt at the step, counted from 1.
-    pub attempt: SafeInt<1>,
-    /// Which execution of the node.
-    pub execution_index: SafeInt<0>,
-}
-
-/// Where a resumed run picks up, so a reader rebuilds it without replaying the run's whole history:
-/// the steps going on and the approval steps still waiting for an answer.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkflowResumptionPoint {
-    /// The steps going on.
-    pub active_steps: Vec<WorkflowResumedStep>,
-    /// The approval steps still waiting for an answer.
-    pub pending_gates: Vec<WorkflowNodeId>,
-}
-
-workflow_run_event! {
-    /// `workflow.resumed`: a person or an armed schedule resumed a waiting or failed run, with
-    /// where it picks up and, only on an accepted re-pin, the version it left and the one it
-    /// joined, both or neither.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    #[garde(allow_unvalidated)]
-    #[garde(custom(|payload: &Self, (): &()| names_whole_repin(
-        payload.repinned_from_workflow_version_id.as_ref(),
-        payload.repinned_to_workflow_version_id.as_ref(),
-    )))]
-    #[schemars(extend("type" = "object", "dependentRequired" = {
-        "repinnedFromWorkflowVersionId": ["repinnedToWorkflowVersionId"],
-        "repinnedToWorkflowVersionId": ["repinnedFromWorkflowVersionId"],
-    }))]
-    pub struct WorkflowResumedPayload {
-        /// Where it picks up.
-        pub resumption_point: WorkflowResumptionPoint,
-        /// The version the run left, on an accepted re-pin.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "WorkflowVersionId")]
-        pub repinned_from_workflow_version_id: Option<WorkflowVersionId>,
-        /// The version the run joined, on an accepted re-pin.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "WorkflowVersionId")]
-        pub repinned_to_workflow_version_id: Option<WorkflowVersionId>,
-    }
-}
-
-/// `workflow.results_posted`: a finished run's results landed as the results row in `sessionId`,
-/// the session that asked. It follows the run's final status.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkflowResultsPostedPayload {
-    /// The session that asked.
-    pub session_id: SessionId,
-    /// The run.
-    pub workflow_run_id: WorkflowRunId,
 }
 
 methods! {
@@ -841,12 +728,12 @@ methods! {
     ];
 }
 
-/// The TypeScript module of the run control methods, their refusals and the run events.
+/// The TypeScript module of the run control methods and their refusals.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/run/control",
     doc: "The acts on a workflow run: starting one, canceling and resuming it, retrying from a \
           step, running one node from the builder and posting a finished run's results into a \
-          session, with their refusals, the run events they write and their method table.",
+          session, with their refusals and their method table.",
     definitions: &[
         Definition::read::<WorkflowCancelReason>().checked(),
         Definition::read::<WorkflowRequestableRunMode>(),
@@ -872,14 +759,67 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowCodePackagesNotLockedDetails>().checked(),
         Definition::read::<WorkflowRetryUnavailableReason>(),
         Definition::read::<WorkflowRetryUnavailableDetails>().checked(),
-        Definition::read::<WorkflowStartedPayload>().checked(),
-        Definition::read::<WorkflowCanceledPayload>().checked(),
-        Definition::read::<WorkflowRunDeletedPayload>().checked(),
-        Definition::read::<WorkflowResumedStep>(),
-        Definition::read::<WorkflowResumptionPoint>(),
-        Definition::read::<WorkflowResumedPayload>().checked(),
-        Definition::read::<WorkflowResultsPostedPayload>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS],
 };
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::{Value, json};
+
+    use super::fill_workflow_trigger_inputs;
+    use crate::workflow::definition::document::WorkflowTriggerInput;
+    use crate::workflow::definition::item::WorkflowItem;
+
+    /// A required text input and an optional flag that starts on `true`.
+    fn declared() -> Vec<WorkflowTriggerInput> {
+        serde_json::from_value(json!([
+            { "name": "branch", "type": "string", "required": true, "default": "" },
+            { "name": "dryRun", "type": "boolean", "default": true },
+        ]))
+        .expect("the inputs read")
+    }
+
+    #[rstest]
+    #[case::a_required_input_left_out(declared(), json!({ "dryRun": false }), Err(vec!["branch"]))]
+    #[case::inputs_given_values_that_do_not_fit(
+        declared(),
+        json!({ "branch": 7, "dryRun": "yes" }),
+        Err(vec!["branch", "dryRun"]),
+    )]
+    #[case::an_optional_input_left_out_takes_its_default(
+        declared(),
+        json!({ "branch": "main" }),
+        Ok(json!({ "branch": "main", "dryRun": true })),
+    )]
+    #[case::every_input_filled(
+        declared(),
+        json!({ "branch": "main", "dryRun": false }),
+        Ok(json!({ "branch": "main", "dryRun": false })),
+    )]
+    #[case::no_declared_inputs_on_an_empty_start(vec![], Value::Null, Ok(json!({})))]
+    fn a_start_fills_the_declared_inputs_or_names_those_it_lacks(
+        #[case] declared: Vec<WorkflowTriggerInput>,
+        #[case] start: Value,
+        #[case] expected: Result<Value, Vec<&str>>,
+    ) {
+        let input: Vec<WorkflowItem> = if start.is_null() {
+            vec![]
+        } else {
+            serde_json::from_value(json!([{ "json": start }])).expect("the items read")
+        };
+        let filled = fill_workflow_trigger_inputs(&declared, &input)
+            .map(|values| serde_json::to_value(values).expect("the values write"))
+            .map_err(|details| {
+                let names = details.input_names.as_slice().iter();
+                names
+                    .map(|name| name.as_str().to_owned())
+                    .collect::<Vec<_>>()
+            });
+        let expected: Result<Value, Vec<String>> =
+            expected.map_err(|names| names.into_iter().map(str::to_owned).collect());
+        assert_eq!(filled, expected);
+    }
+}

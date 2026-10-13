@@ -98,6 +98,7 @@ methods! {
             params: WorkspaceBindRequest,
             result: WorkspaceBindResponse,
             refusals: [
+                SessionNotFound,
                 RepoNotFound,
                 RepoMountManaged,
                 RepoOutsideTrustEnvelope,
@@ -224,7 +225,7 @@ methods! {
             params: WorkingTreeSubscribeRequest,
             result: SubscribeAckResponse,
             emission: WorkingTreeChange,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Makes a workspace's root before a run starts.
         RepoExecutionRootPrepare = mutation "repo.executionRootPrepare" {

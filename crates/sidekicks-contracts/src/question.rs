@@ -19,22 +19,20 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::Never;
 use crate::wire::id::UuidTextForm;
 use crate::wire::list::BoundedVec;
-use crate::wire::text::BoundedText;
+use crate::wire::number::Number;
+use crate::wire::text::NonEmptyText;
 
 branded_uuid_id! {
     /// The daemon-minted id of one question record.
     QuestionId
 }
 
-/// Text a question carries that is never empty: a label, a header, the question itself.
-pub type QuestionText = BoundedText<1, { usize::MAX }>;
-
 /// One option row; `preview` is present only where the provider attached one to the option.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QuestionOption {
     /// The option's label.
-    pub label: QuestionText,
+    pub label: NonEmptyText,
     /// What it means.
     #[serde(
         default,
@@ -62,21 +60,27 @@ pub enum QuestionDefault {
     /// One option's label, or a text field's value.
     Text(String),
     /// A number field's value.
-    Number(f64),
+    Number(Number),
     /// A yes-or-no field's value.
     Flag(bool),
     /// The labels a field of several picks preselects.
-    Labels(Vec<QuestionText>),
+    Labels(Vec<NonEmptyText>),
 }
 
 /// One question of the record, one page of the card. A secret question takes a masked answer and
 /// has no option rows; a numeric field's smallest number is at most its largest; a question with
-/// option rows starts from its own options.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+/// option rows starts from its own options, which the schema states as `defaultAmongOptions`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-#[garde(custom(prompt_is_answerable))]
-#[schemars(transform = add_secret_has_no_options_rule)]
+#[schemars(extend(
+    "if" = {
+        "type": "object",
+        "properties": { "secret": { "const": true } },
+        "required": ["secret"],
+    },
+    "then" = { "type": "object", "properties": { "options": { "type": "array", "maxItems": 0 } } },
+    "defaultAmongOptions" = true,
+))]
 pub struct QuestionPrompt {
     /// The agent's own short header, a tool server's name, or a workflow's name.
     #[serde(
@@ -84,18 +88,18 @@ pub struct QuestionPrompt {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "QuestionText")]
-    pub header: Option<QuestionText>,
+    #[schemars(with = "NonEmptyText")]
+    pub header: Option<NonEmptyText>,
     /// The question.
-    pub text: QuestionText,
+    pub text: NonEmptyText,
     /// The summary line, where the agent sent one.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "QuestionText")]
-    pub heading: Option<QuestionText>,
+    #[schemars(with = "NonEmptyText")]
+    pub heading: Option<NonEmptyText>,
     /// The option rows; empty on a secret question.
     pub options: Vec<QuestionOption>,
     /// The provider's own reading of whether several picks go back together.
@@ -124,67 +128,63 @@ pub struct QuestionPrompt {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "f64", extend("maximum" = { "$data": "1/maximum" }))]
-    pub minimum: Option<f64>,
+    #[schemars(with = "Number", extend("maximum" = { "$data": "1/maximum" }))]
+    pub minimum: Option<Number>,
     /// The largest number a numeric field takes, where the form bounds it.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "f64")]
-    pub maximum: Option<f64>,
+    #[schemars(with = "Number")]
+    pub maximum: Option<Number>,
 }
 
-fn prompt_is_answerable(prompt: &QuestionPrompt, (): &()) -> garde::Result {
-    if prompt.secret && !prompt.options.is_empty() {
-        return Err(garde::Error::new(
-            "a secret question draws a masked field and no option rows",
-        ));
-    }
-    if let (Some(minimum), Some(maximum)) = (prompt.minimum, prompt.maximum)
-        && minimum > maximum
-    {
-        return Err(garde::Error::new(
-            "a field's largest number is below its smallest",
-        ));
-    }
-    let default_labels: Vec<&str> = match &prompt.default {
-        Some(QuestionDefault::Text(label)) => vec![label.as_str()],
-        Some(QuestionDefault::Labels(labels)) => labels.iter().map(BoundedText::as_str).collect(),
-        Some(QuestionDefault::Number(_) | QuestionDefault::Flag(_)) | None => Vec::new(),
-    };
-    let is_own_option = |label: &&str| {
-        prompt
-            .options
-            .iter()
-            .any(|option| option.label.as_str() == *label)
-    };
-    if !prompt.options.is_empty() && !default_labels.iter().all(is_own_option) {
-        return Err(garde::Error::new(
-            "a question with option rows starts from one of its own options",
-        ));
-    }
-    Ok(())
-}
+/// Each rule a prompt keeps, reported at the member that breaks it: option rows on a secret
+/// question at `options`, a largest number below the smallest at `maximum`, and a default that is
+/// not one of the prompt's own options at `default`.
+impl garde::Validate for QuestionPrompt {
+    type Context = ();
 
-/// States in the schema that a secret question has no option rows.
-fn add_secret_has_no_options_rule(schema: &mut schemars::Schema) {
-    schema.insert(
-        "if".into(),
-        serde_json::json!({
-            "type": "object",
-            "properties": { "secret": { "const": true } },
-            "required": ["secret"],
-        }),
-    );
-    schema.insert(
-        "then".into(),
-        serde_json::json!({
-            "type": "object",
-            "properties": { "options": { "type": "array", "maxItems": 0 } },
-        }),
-    );
+    fn validate_into(
+        &self,
+        (): &Self::Context,
+        parent: &mut dyn FnMut() -> garde::Path,
+        report: &mut garde::Report,
+    ) {
+        if self.secret && !self.options.is_empty() {
+            report.append(
+                parent().join("options"),
+                garde::Error::new("a secret question draws a masked field and no option rows"),
+            );
+        }
+        if let (Some(minimum), Some(maximum)) = (self.minimum, self.maximum)
+            && minimum > maximum
+        {
+            report.append(
+                parent().join("maximum"),
+                garde::Error::new("a field's largest number is below its smallest"),
+            );
+        }
+        let default_labels: Vec<&str> = match &self.default {
+            Some(QuestionDefault::Text(label)) => vec![label.as_str()],
+            Some(QuestionDefault::Labels(labels)) => {
+                labels.iter().map(NonEmptyText::as_str).collect()
+            }
+            Some(QuestionDefault::Number(_) | QuestionDefault::Flag(_)) | None => Vec::new(),
+        };
+        let is_own_option = |label: &&str| {
+            self.options
+                .iter()
+                .any(|option| option.label.as_str() == *label)
+        };
+        if !self.options.is_empty() && !default_labels.iter().all(is_own_option) {
+            report.append(
+                parent().join("default"),
+                garde::Error::new("a question with option rows starts from one of its own options"),
+            );
+        }
+    }
 }
 
 /// Declares one form of the `question.asked` payload: what it waits on, then the members both
@@ -269,17 +269,17 @@ pub enum QuestionAnswer {
     /// The picked options.
     Picked {
         /// Their labels.
-        labels: BoundedVec<QuestionText, 1, { usize::MAX }>,
+        labels: BoundedVec<NonEmptyText, 1, { usize::MAX }>,
     },
     /// Typed text.
     Typed {
         /// The text.
-        text: QuestionText,
+        text: NonEmptyText,
     },
     /// A secret, delivered and never stored.
     Secret {
         /// The secret.
-        value: QuestionText,
+        value: NonEmptyText,
     },
     /// Skipped.
     Skipped {},
@@ -324,7 +324,7 @@ methods! {
             mutating: true,
             params: QuestionResolveRequest,
             result: QuestionResolveResponse,
-            refusals: [],
+            refusals: [QuestionAnswersIncomplete],
         },
     ];
 }

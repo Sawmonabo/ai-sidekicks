@@ -4,16 +4,21 @@
 //! A link arrives from any program on the machine, so the parser accepts only the exact form
 //! [`compose_app_link`] writes and hands back nothing but a checked id.
 
-use serde::{Deserialize, Serialize};
+use schemars::JsonSchema;
+use serde::Deserialize;
 
 use crate::session::id::SessionId;
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::workflow::run::id::WorkflowRunId;
 
-/// The link's URI scheme, which the desktop registers with the operating system as the app's own.
-pub const APP_LINK_SCHEME: &str = "sidekicks";
+ts_constants! {
+    /// The link's URI scheme, which the desktop registers with the operating system as the app's
+    /// own and finds a link by on a command line.
+    pub const APP_LINK_SCHEME: &str = "sidekicks";
+}
 
 /// What a `sidekicks://` link opens: a session, or a workflow run's page.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -33,8 +38,10 @@ pub enum AppLinkTarget {
     },
 }
 
-/// The link's host for each kind of target.
+/// The link's host for a session.
 const SESSION_HOST: &str = "session";
+
+/// The link's host for a workflow run's page.
 const WORKFLOW_RUN_HOST: &str = "workflow-run";
 
 /// Writes the link for a target: `sidekicks://session/<id>` or `sidekicks://workflow-run/<id>`.
@@ -66,6 +73,16 @@ pub fn parse_app_link(address: &str) -> Option<AppLinkTarget> {
     }
 }
 
+/// The TypeScript module of the link's scheme and target; the hand-written pair that composes and
+/// parses a link sits beside it.
+pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
+    path: "app-link/target",
+    doc: "What a `sidekicks://` link opens, and the link's URI scheme.",
+    definitions: &[Definition::read::<AppLinkTarget>()],
+    constants: TS_CONSTANTS,
+    method_tables: &[],
+};
+
 #[cfg(test)]
 mod tests {
     use serde::Deserialize;
@@ -75,18 +92,21 @@ mod tests {
     /// The case table the desktop's pair also reads: each target with its link, and each text with
     /// the target it parses to, or none.
     #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
     struct AppLinkCases {
         composed: Vec<ComposedCase>,
         parsed: Vec<ParsedCase>,
     }
 
     #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
     struct ComposedCase {
         target: AppLinkTarget,
         link: String,
     }
 
     #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
     struct ParsedCase {
         link: String,
         target: Option<AppLinkTarget>,

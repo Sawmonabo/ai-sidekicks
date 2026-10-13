@@ -6,11 +6,12 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use strum::VariantArray;
 
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 
 /// A JSON-RPC error's numeric `code`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, VariantArray)]
 pub enum JsonRpcErrorCode {
     /// The message is not valid JSON.
     ParseError,
@@ -28,16 +29,6 @@ pub enum JsonRpcErrorCode {
 }
 
 impl JsonRpcErrorCode {
-    /// Every code, in the order TypeScript lists them.
-    pub const ALL: [Self; 6] = [
-        Self::ParseError,
-        Self::InvalidRequest,
-        Self::MethodNotFound,
-        Self::InvalidParams,
-        Self::InternalError,
-        Self::RequestCanceled,
-    ];
-
     /// The code's number on the wire.
     pub const fn code(self) -> i32 {
         match self {
@@ -64,15 +55,17 @@ impl JsonRpcErrorCode {
 
     /// The code `number` is, if it is one of these.
     pub fn from_code(number: i64) -> Option<Self> {
-        Self::ALL
-            .into_iter()
+        Self::VARIANTS
+            .iter()
+            .copied()
             .find(|code| i64::from(code.code()) == number)
     }
 
     /// The codes as TypeScript's `JsonRpcErrorCode` object, name to number.
     fn table() -> serde_json::Map<String, serde_json::Value> {
-        Self::ALL
-            .into_iter()
+        Self::VARIANTS
+            .iter()
+            .copied()
             .map(|code| (code.name().to_owned(), code.code().into()))
             .collect()
     }
@@ -98,7 +91,7 @@ impl JsonSchema for JsonRpcErrorCode {
     }
 
     fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        let codes: Vec<i32> = Self::ALL.into_iter().map(Self::code).collect();
+        let codes: Vec<i32> = Self::VARIANTS.iter().copied().map(Self::code).collect();
         json_schema!({
             "description": "A JSON-RPC error's numeric code.",
             "type": "integer",

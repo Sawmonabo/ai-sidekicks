@@ -6,6 +6,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
@@ -16,7 +17,7 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::web_address::HttpsAddress;
 use crate::wire::integer::BoundedInt;
 use crate::wire::literal;
-use crate::wire::text::{BoundedText, FreeFormText, NonBlankText, branded_text};
+use crate::wire::text::{BoundedText, FreeFormText, NonBlankText, NonEmptyText, branded_text};
 use crate::wire::{NullableSchema, nullable};
 
 ts_constants! {
@@ -27,7 +28,7 @@ ts_constants! {
     /// The most attempts one cloud task runs: its provider's own bound.
     pub const CLOUD_TASK_ATTEMPTS_MAX: i64 = 4;
     /// Every reason the cloud can be unavailable, for the session menu that shows why.
-    CLOUD_UNAVAILABLE_REASONS = CloudUnavailableReason::ALL;
+    CLOUD_UNAVAILABLE_REASONS = CloudUnavailableReason::VARIANTS;
 }
 
 branded_text! {
@@ -43,7 +44,9 @@ pub type CloudEnvironmentLabel = FreeFormText<CLOUD_ENVIRONMENT_LABEL_MAX_LEN>;
 
 /// Why sending to the cloud was refused: the account lacks the provider's sign-in or
 /// subscription, or the project has no GitHub remote.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CloudUnavailableReason {
     /// The provider's cloud needs a sign-in the account lacks.
@@ -52,15 +55,6 @@ pub enum CloudUnavailableReason {
     ProviderSubscriptionRequired,
     /// The project has no GitHub remote.
     GithubRemoteRequired,
-}
-
-impl CloudUnavailableReason {
-    /// Every reason, in declaration order.
-    pub const ALL: [Self; 3] = [
-        Self::ProviderSignInRequired,
-        Self::ProviderSubscriptionRequired,
-        Self::GithubRemoteRequired,
-    ];
 }
 
 /// The `cloud.unavailable` refusal's details: why, and the session's provider, so the screen draws
@@ -100,7 +94,7 @@ pub enum CloudBringBack {
     /// The apply failed.
     Error {
         /// The provider's message.
-        message: BoundedText<1, { usize::MAX }>,
+        message: NonEmptyText,
     },
 }
 
@@ -170,7 +164,7 @@ cloud_task! {
         /// Always `error`.
         pub state: CloudTaskErrorState,
         /// The provider's own message.
-        pub error_message: BoundedText<1, { usize::MAX }>,
+        pub error_message: NonEmptyText,
     }
 }
 

@@ -70,16 +70,17 @@ methods! {
     ];
 }
 
-/// The TypeScript module of the hosted account.
+/// The TypeScript module of the hosted account. Every method's params and result is checked, as a
+/// method type is.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "account",
     doc: "The hosted account's procedures on the control plane: deleting it and exporting what \
           the control plane keeps for the person.",
     definitions: &[
         Definition::read::<AccountDeleteRequest>().checked(),
-        Definition::read::<AccountExportRequest>(),
+        Definition::read::<AccountExportRequest>().checked(),
         Definition::read::<AccountRecord>(),
-        Definition::read::<AccountExportResponse>(),
+        Definition::read::<AccountExportResponse>().checked(),
     ],
     constants: &[],
     method_tables: &[&ACCOUNT_METHOD_DESCRIPTORS],

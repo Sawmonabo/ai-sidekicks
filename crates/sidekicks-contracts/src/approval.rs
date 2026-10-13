@@ -13,6 +13,7 @@ pub mod events;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::internal::branded::branded_uuid_id;
@@ -24,19 +25,16 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::record::JsonRecord;
-use crate::wire::text::{BoundedText, FreeFormText};
+use crate::wire::text::{FreeFormText, NonEmptyText};
 use crate::wire::{Never, literal};
 
 ts_constants! {
     /// Every approval category, for the category each agent tool carries.
-    APPROVAL_CATEGORIES = ApprovalCategory::ALL;
+    APPROVAL_CATEGORIES = ApprovalCategory::VARIANTS;
 }
 
 /// An ask's target scope, free text such as a command or a path.
 pub type ApprovalScope = FreeFormText<FILE_PATH_MAX_LEN>;
-
-/// Text that is never empty.
-pub type ApprovalText = BoundedText<1, { usize::MAX }>;
 
 branded_uuid_id! {
     /// The daemon-minted id of one ask.
@@ -56,7 +54,9 @@ branded_uuid_id! {
 
 /// What an ask is about. An agent's question and a tool server's question are not asks: they are
 /// the one question record, so neither is a category here.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalCategory {
     /// Running a tool.
@@ -71,18 +71,6 @@ pub enum ApprovalCategory {
     PlanApproval,
     /// A workflow gate.
     Gate,
-}
-
-impl ApprovalCategory {
-    /// Every category, in declaration order.
-    pub const ALL: [Self; 6] = [
-        Self::ToolExecution,
-        Self::FileWrite,
-        Self::NetworkAccess,
-        Self::DestructiveGit,
-        Self::PlanApproval,
-        Self::Gate,
-    ];
 }
 
 /// Where an ask stands. There is no expired state: an ask waits until it is answered, and the only
@@ -205,7 +193,7 @@ pub struct RememberedScope {
     /// Its reach.
     pub kind: RememberedScopeKind,
     /// Its subject.
-    pub pattern: ApprovalText,
+    pub pattern: NonEmptyText,
     /// Whether it allows or blocks.
     pub sense: RememberedRuleSense,
 }
@@ -276,8 +264,8 @@ approval_resolve_request! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "ApprovalText")]
-        edited_action: Option<ApprovalText>,
+        #[schemars(with = "NonEmptyText")]
+        edited_action: Option<NonEmptyText>,
         /// Never present: only a decline carries a reason.
         #[serde(
             default,
@@ -305,8 +293,8 @@ approval_resolve_request! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "ApprovalText")]
-        decline_reason: Option<ApprovalText>,
+        #[schemars(with = "NonEmptyText")]
+        decline_reason: Option<NonEmptyText>,
         /// Never present: only an approval carries an edited action.
         #[serde(
             default,
@@ -457,7 +445,7 @@ macro_rules! approval_projection_row {
                 /// Its run.
                 run_id: RunId,
                 /// Who asked.
-                requested_by: ApprovalText,
+                requested_by: NonEmptyText,
                 /// What it is about.
                 category: ApprovalCategory,
                 /// Its target scope.
@@ -466,7 +454,7 @@ macro_rules! approval_projection_row {
                 resource_descriptor: JsonRecord,
                 /// The subject the daemon derived from the ask: the words the standing-allow
                 /// button names.
-                subject: ApprovalText,
+                subject: NonEmptyText,
                 /// The provider's own line saying why this action stopped, control characters and
                 /// escape codes stripped; absent where the provider sent none.
                 #[serde(
@@ -474,8 +462,8 @@ macro_rules! approval_projection_row {
                     skip_serializing_if = "Option::is_none",
                     deserialize_with = "crate::wire::present"
                 )]
-                #[schemars(with = "ApprovalText")]
-                reason: Option<ApprovalText>,
+                #[schemars(with = "NonEmptyText")]
+                reason: Option<NonEmptyText>,
                 /// False where the provider forbids a standing allow; the card then draws only
                 /// `Decline` and `Approve once`.
                 standing_allow_offered: bool,
@@ -700,18 +688,19 @@ methods! {
             mutating: true,
             params: RememberedRuleRevokeRequest,
             result: RememberedRuleRevokeResponse,
-            refusals: [
-                ApprovalRuleNotFound,
-                ApprovalRuleAlreadyRevoked,
-                ApprovalPersistenceUnavailable,
-            ],
+            refusals: [ApprovalRuleNotFound, ApprovalRuleAlreadyRevoked],
         },
         /// Allows once an action the provider's reviewer blocked.
         ApprovalDenialOverride = mutation "approval.denialOverride" {
             mutating: true,
             params: ApprovalDenialOverrideRequest,
             result: ApprovalDenialOverrideResponse,
-            refusals: [ApprovalDenialNotFound, ApprovalDenialNotOverridable],
+            refusals: [
+                ApprovalDenialNotFound,
+                ApprovalDenialNotOverridable,
+                SessionAlreadyClosed,
+                SessionChangeRefused,
+            ],
         },
     ];
 }

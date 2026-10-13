@@ -6,6 +6,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -19,23 +20,20 @@ ts_constants! {
     /// The most sealed bytes one push carries: every platform's 4 KB payload limit.
     pub const PUSH_SEALED_NOTICE_MAX_BYTES: usize = 4096;
     /// Every [`PushUrgency`].
-    PUSH_URGENCIES = PushUrgency::ALL;
+    PUSH_URGENCIES = PushUrgency::VARIANTS;
 }
 
 /// How soon the push service delivers a notice: `Waiting on you` and a workflow's Notify step go
 /// at `high`; `Finished` and `Failed` at `normal`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum PushUrgency {
     /// Delivered at once.
     High,
     /// Delivered when the device is ready.
     Normal,
-}
-
-impl PushUrgency {
-    /// Every urgency.
-    pub const ALL: &[Self] = &[Self::High, Self::Normal];
 }
 
 pattern_text! {

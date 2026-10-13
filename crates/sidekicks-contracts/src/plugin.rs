@@ -21,7 +21,7 @@ use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::web_address::HttpsAddress;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{BoundedText, FreeFormText};
+use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText};
 use crate::wire::{NullableSchema, True, literal, nullable};
 
 /// A token in a provider's own plugin vocabulary: a plugin id, a name, a marketplace.
@@ -41,7 +41,7 @@ macro_rules! plugin_summary {
             /// Its name.
             pub name: PluginToken,
             /// The name a person reads.
-            pub display_name: BoundedText<1, { usize::MAX }>,
+            pub display_name: NonEmptyText,
             /// Its one-line description.
             pub description: String,
             /// The marketplace it comes from.
@@ -142,7 +142,7 @@ pub struct PluginRef {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PluginItem {
     /// Its name.
-    pub name: BoundedText<1, { usize::MAX }>,
+    pub name: NonEmptyText,
     /// Its description, or `null`.
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<String>")]
@@ -333,7 +333,7 @@ pub struct PluginApp {
     /// The app.
     pub app_id: PluginToken,
     /// Its name.
-    pub name: BoundedText<1, { usize::MAX }>,
+    pub name: NonEmptyText,
     /// Its link on each account.
     pub accounts: Vec<PluginAppAccountLink>,
 }

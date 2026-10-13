@@ -1,11 +1,203 @@
-[
-  { "address": "https://example.com/path?query#fragment", "fault": null },
-  { "address": "http://localhost:5173/", "fault": null },
-  { "address": "HTTPS://EXAMPLE.COM", "fault": null },
-  { "address": "https://user:secret@example.com/", "fault": null },
-  { "address": "ftp://example.com/file", "fault": "scheme" },
-  { "address": "file:///etc/hosts", "fault": "scheme" },
-  { "address": "javascript:alert(1)", "fault": "scheme" },
-  { "address": "data:text/html,<p>hello</p>", "fault": "scheme" },
-  { "address": "sidekicks://session/1", "fault": "scheme" }
-]
+{
+  "faults": [
+    {
+      "address": "https://example.com/path?query#fragment",
+      "fault": null
+    },
+    {
+      "address": "http://localhost:5173/",
+      "fault": null
+    },
+    {
+      "address": "HTTPS://EXAMPLE.COM",
+      "fault": null
+    },
+    {
+      "address": "https://user:secret@example.com/",
+      "fault": null
+    },
+    {
+      "address": "ftp://example.com/file",
+      "fault": "scheme"
+    },
+    {
+      "address": "file:///etc/hosts",
+      "fault": "scheme"
+    },
+    {
+      "address": "javascript:alert(1)",
+      "fault": "scheme"
+    },
+    {
+      "address": "data:text/html,<p>hello</p>",
+      "fault": "scheme"
+    },
+    {
+      "address": "sidekicks://session/1",
+      "fault": "scheme"
+    }
+  ],
+  "texts": [
+    {
+      "name": "an https address",
+      "text": "https://example.com/path?query#fragment",
+      "web": "https://example.com/path?query#fragment",
+      "https": "https://example.com/path?query#fragment"
+    },
+    {
+      "name": "an http address",
+      "text": "http://localhost:5173/",
+      "web": "http://localhost:5173/",
+      "https": null
+    },
+    {
+      "name": "a scheme in capitals",
+      "text": "HTTPS://EXAMPLE.COM",
+      "web": "HTTPS://EXAMPLE.COM",
+      "https": "HTTPS://EXAMPLE.COM"
+    },
+    {
+      "name": "a user name and password",
+      "text": "https://user:secret@example.com/",
+      "web": "https://user:secret@example.com/",
+      "https": "https://user:secret@example.com/"
+    },
+    {
+      "name": "leading and trailing spaces",
+      "text": "  https://example.com/  ",
+      "web": "https://example.com/",
+      "https": "https://example.com/"
+    },
+    {
+      "name": "leading and trailing ECMAScript whitespace",
+      "text": "\u00a0\ufeffhttp://localhost/\u3000\u2028",
+      "web": "http://localhost/",
+      "https": null
+    },
+    {
+      "name": "a trailing line feed",
+      "text": "https://example.com/\n",
+      "web": "https://example.com/",
+      "https": "https://example.com/"
+    },
+    {
+      "name": "a tab inside the host",
+      "text": "https://exa\tmple.com/",
+      "web": "https://example.com/",
+      "https": "https://example.com/"
+    },
+    {
+      "name": "line breaks inside the host",
+      "text": "https://example\r\n.com/",
+      "web": "https://example.com/",
+      "https": "https://example.com/"
+    },
+    {
+      "name": "a tab inside the scheme",
+      "text": "ht\ttps://example.com/",
+      "web": null,
+      "https": "https://example.com/"
+    },
+    {
+      "name": "http with no slashes",
+      "text": "http:example.com",
+      "web": null,
+      "https": null
+    },
+    {
+      "name": "https with no slashes",
+      "text": "https:example.com",
+      "web": null,
+      "https": "https:example.com"
+    },
+    {
+      "name": "https with one slash",
+      "text": "https:/example.com",
+      "web": null,
+      "https": "https:/example.com"
+    },
+    {
+      "name": "a tab between the slashes",
+      "text": "https:/\t/example.com/",
+      "web": null,
+      "https": "https://example.com/"
+    },
+    {
+      "name": "no host",
+      "text": "https://",
+      "web": null,
+      "https": null
+    },
+    {
+      "name": "another scheme",
+      "text": "ftp://example.com/file",
+      "web": null,
+      "https": null
+    },
+    {
+      "name": "a script address",
+      "text": "javascript:alert(1)",
+      "web": null,
+      "https": null
+    },
+    {
+      "name": "blank",
+      "text": "   ",
+      "web": null,
+      "https": null
+    },
+    {
+      "name": "empty",
+      "text": "",
+      "web": null,
+      "https": null
+    },
+    {
+      "name": "a scheme and host in capitals",
+      "text": "HTTP://x",
+      "web": "HTTP://x",
+      "https": null
+    },
+    {
+      "name": "another scheme, short",
+      "text": "ftp://x",
+      "web": null,
+      "https": null
+    },
+    {
+      "name": "http with one slash",
+      "text": "http:/path",
+      "web": null,
+      "https": null
+    },
+    {
+      "name": "a NUL in the path",
+      "text": "https://example.com/a\u0000b",
+      "web": "https://example.com/a\u0000b",
+      "https": null
+    }
+  ],
+  "httpsCap": 20,
+  "capped": [
+    {
+      "name": "at the cap",
+      "text": "https://example.com/",
+      "https": "https://example.com/"
+    },
+    {
+      "name": "the cap and a trailing space",
+      "text": "https://example.com/ ",
+      "https": null
+    },
+    {
+      "name": "the cap and a leading tab",
+      "text": "\thttps://example.com/",
+      "https": null
+    },
+    {
+      "name": "under the cap with a tab inside",
+      "text": "https://exa\tmple.com",
+      "https": "https://example.com"
+    }
+  ]
+}

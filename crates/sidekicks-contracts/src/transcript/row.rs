@@ -11,10 +11,7 @@ use crate::event::envelope::{
     EventCategory, SOURCE_EPOCH_PAYLOAD_KEY, SOURCE_POSITION_PAYLOAD_KEY, SourceEpoch,
     SourcePosition,
 };
-use crate::event::registry::{
-    INTERACTIVE_REQUEST_EVENT_TYPES, RUN_LIFECYCLE_EVENT_TYPES, SessionEventType,
-    TOOL_ACTIVITY_EVENT_TYPES,
-};
+use crate::event::registry::SessionEventType;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::run::control::RunRolledBackEvent;
@@ -26,9 +23,15 @@ use crate::transcript::content::TranscriptRowContent;
 use crate::transcript::run_attribution::{
     TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS, transcript_run_id_of,
 };
+use crate::transcript::turn_attribution::{
+    RUN_START_POSITION, TOOL_CALL_OPENING_EVENT_TYPE, TURN_STARTED_EVENT_TYPE,
+};
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
+use crate::wire::list::BoundedVec;
+use crate::wire::literal;
+use crate::wire::record::{prototype_free, prototype_free_names};
 use crate::wire::text::FreeFormText;
 
 ts_constants! {
@@ -37,6 +40,14 @@ ts_constants! {
     /// The category every `run_lifecycle` event belongs to, and the one the boundary arm pins.
     /// Every type in it is run-scoped, which is why the `general` arm refuses the category.
     pub const TRANSCRIPT_RUN_LIFECYCLE_CATEGORY: EventCategory = EventCategory::RunLifecycle;
+    /// The payload keys that name a run: `runId` everywhere, and `targetRunId` on interventions.
+    TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS = TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS;
+    /// The event type of a turn boundary, which moves its run to its next turn.
+    TURN_STARTED_EVENT_TYPE = TURN_STARTED_EVENT_TYPE;
+    /// The event type that opens a tool call; the call's later rows take the turn it opened in.
+    TOOL_CALL_OPENING_EVENT_TYPE = TOOL_CALL_OPENING_EVENT_TYPE;
+    /// Where every run starts: the first epoch, before its first turn.
+    RUN_START_POSITION = RUN_START_POSITION;
 }
 
 /// The `interactive_request` types whose payload does not always name a run: queue events, a
@@ -72,19 +83,41 @@ const APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN: [SessionEventType; 8] = [
     SessionEventType::PlanProposed,
 ];
 
-/// Every event type whose payload always names a run, built from the run-scoped categories so a
-/// type added there joins on its own. The `general` arm refuses these by type, because a
+/// Whether every payload of `event_type` names a run, decided from its category so a type added to
+/// a run-scoped category joins on its own. The `general` arm refuses these by type, because a
 /// projected payload is a summary that may omit `runId`.
-pub fn transcript_run_scoped_event_types() -> Vec<&'static str> {
-    RUN_LIFECYCLE_EVENT_TYPES
+pub fn is_transcript_run_scoped_event_type(event_type: SessionEventType) -> bool {
+    match event_type.category() {
+        EventCategory::RunLifecycle | EventCategory::ToolActivity => true,
+        EventCategory::InteractiveRequest => {
+            !INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN.contains(&event_type)
+        }
+        EventCategory::UsageTelemetry => {
+            USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN.contains(&event_type)
+        }
+        EventCategory::ApprovalFlow => APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN.contains(&event_type),
+        EventCategory::AssistantOutput
+        | EventCategory::ArtifactPublication
+        | EventCategory::SessionLifecycle
+        | EventCategory::RecoveryEvents
+        | EventCategory::SecurityEvents
+        | EventCategory::EventMaintenance
+        | EventCategory::OrchestrationAdmission
+        | EventCategory::McpGovernance
+        | EventCategory::WorkflowLifecycle
+        | EventCategory::WorkflowPhaseLifecycle
+        | EventCategory::WorkflowParallelCoordination
+        | EventCategory::WorkflowGateResolution => false,
+    }
+}
+
+/// The wire names of every run-scoped type, for the `general` arm's schema.
+fn transcript_run_scoped_event_type_names() -> Vec<&'static str> {
+    SessionEventType::ALL
         .iter()
-        .chain(TOOL_ACTIVITY_EVENT_TYPES)
-        .chain(INTERACTIVE_REQUEST_EVENT_TYPES.iter().filter(|event_type| {
-            !INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN.contains(event_type)
-        }))
-        .chain(&USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN)
-        .chain(&APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN)
-        .map(|event_type| event_type.as_str())
+        .copied()
+        .filter(|event_type| is_transcript_run_scoped_event_type(*event_type))
+        .map(SessionEventType::as_str)
         .collect()
 }
 
@@ -109,22 +142,13 @@ pub struct TranscriptOmittedPatch {
     pub size: SafeInt<0>,
 }
 
-/// The `rollback_boundary` arm's category: `run_lifecycle`, the one `run.rolled_back` belongs to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[schemars(inline)]
-pub enum RunLifecycleCategory {
-    /// `run_lifecycle`.
-    #[serde(rename = "run_lifecycle")]
-    RunLifecycle,
-}
+literal! {
+    /// The `rollback_boundary` arm's category: `run_lifecycle`, the one `run.rolled_back` belongs
+    /// to.
+    pub enum RunLifecycleCategory = const EventCategory::RunLifecycle.as_str();
 
-/// The `rollback_boundary` arm's event type: `run.rolled_back`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[schemars(inline)]
-pub enum RollbackBoundaryType {
-    /// `run.rolled_back`.
-    #[serde(rename = "run.rolled_back")]
-    RunRolledBack,
+    /// The `rollback_boundary` arm's event type: `run.rolled_back`.
+    pub enum RollbackBoundaryType = const SessionEventType::RunRolledBack.as_str();
 }
 
 /// Refuses a marker that does not supersede its row: the row's position must exceed the marker's
@@ -198,9 +222,8 @@ macro_rules! transcript_row_arm {
                 skip_serializing_if = "Option::is_none",
                 deserialize_with = "crate::wire::present"
             )]
-            #[schemars(with = "Vec<TranscriptOmittedPatch>", extend("minItems" = 1))]
-            #[garde(length(min = 1))]
-            pub omitted_patches: Option<Vec<TranscriptOmittedPatch>>,
+            #[schemars(with = "BoundedVec<TranscriptOmittedPatch, 1, { usize::MAX }>")]
+            pub omitted_patches: Option<BoundedVec<TranscriptOmittedPatch, 1, { usize::MAX }>>,
             /// The row's body.
             #[garde(dive)]
             pub content: TranscriptRowContent,
@@ -226,10 +249,11 @@ transcript_row_arm! {
         #[garde(custom(|event_type: &FreeFormText<EVENT_FIELD_MAX_LEN>, (): &()| {
             self.refuse_run_scoped_row(event_type.as_str())
         }))]
-        #[schemars(extend("not" = { "enum": transcript_run_scoped_event_types() }))]
+        #[schemars(extend("not" = { "enum": transcript_run_scoped_event_type_names() }))]
         pub event_type: FreeFormText<EVENT_FIELD_MAX_LEN>,
         /// The event's payload, an open record that names no run.
-        #[schemars(extend("properties" = {
+        #[serde(deserialize_with = "prototype_free")]
+        #[schemars(extend("propertyNames" = prototype_free_names(), "properties" = {
             "runId": { "not": { "type": "string", "minLength": 1 }, "tsType": "unknown" },
             "targetRunId": { "not": { "type": "string", "minLength": 1 }, "tsType": "unknown" }
         }))]
@@ -245,7 +269,9 @@ impl TranscriptEntry {
                 "every run_lifecycle event is run-scoped, so it belongs to the run arm",
             ));
         }
-        if transcript_run_scoped_event_types().contains(&event_type) {
+        if SessionEventType::from_wire_name(event_type)
+            .is_some_and(is_transcript_run_scoped_event_type)
+        {
             return Err(garde::Error::new(format!(
                 "the event type {event_type:?} names a run in every form of its payload, so it \
                  belongs to the run arm"
@@ -301,7 +327,8 @@ transcript_row_arm! {
         #[garde(custom(|payload: &Map<String, Value>, (): &()| {
             self.require_payload_attribution_to_agree(payload)
         }))]
-        #[schemars(extend("properties" = {
+        #[serde(deserialize_with = "prototype_free")]
+        #[schemars(extend("propertyNames" = prototype_free_names(), "properties" = {
             "runId": { "const": { "$data": "2/runId" }, "tsType": "unknown" },
             "targetRunId": { "const": { "$data": "2/runId" }, "tsType": "unknown" },
             "sourceEpoch": { "const": { "$data": "2/epoch" }, "tsType": "unknown" },
@@ -405,7 +432,7 @@ impl TranscriptRollbackBoundary {
         if payload.session_id != self.session_id {
             return Err(garde::Error::new("sessionId must equal payload.sessionId"));
         }
-        if payload.target_position != self.position.0 {
+        if payload.target_position != self.position {
             return Err(garde::Error::new(
                 "position must equal payload.targetPosition",
             ));
@@ -483,6 +510,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<SupersededMarker>().checked(),
         Definition::read::<TranscriptOmittedPatch>(),
+        Definition::read::<TranscriptRowContent>().checked(),
         Definition::read::<TranscriptReadRow>().checked(),
         Definition::read::<TranscriptRunStamp>().checked(),
     ],

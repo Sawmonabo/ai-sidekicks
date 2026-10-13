@@ -11,6 +11,8 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::wire::text::is_within_length;
+
 /// The standard alphabet as `atob` reads it.
 pub const STANDARD_BASE64: GeneralPurpose = GeneralPurpose::new(
     &STANDARD,
@@ -97,10 +99,9 @@ pub struct Base64Text<const MIN: usize, const MAX: usize>(String);
 impl<'de, const MIN: usize, const MAX: usize> Deserialize<'de> for Base64Text<MIN, MAX> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let text = String::deserialize(deserializer)?;
-        if !(MIN..=MAX).contains(&text.len()) {
+        if !is_within_length(&text, MIN, MAX) {
             return Err(D::Error::custom(format!(
-                "base64 of {} characters is outside {MIN}..={MAX}",
-                text.len()
+                "base64 text is outside {MIN}..={MAX} characters"
             )));
         }
         STANDARD_BASE64.decode(&text).map_err(D::Error::custom)?;
@@ -142,10 +143,9 @@ pub struct Base64UrlText<const MIN: usize, const MAX: usize>(String);
 impl<'de, const MIN: usize, const MAX: usize> Deserialize<'de> for Base64UrlText<MIN, MAX> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let text = String::deserialize(deserializer)?;
-        if !(MIN..=MAX).contains(&text.len()) {
+        if !is_within_length(&text, MIN, MAX) {
             return Err(D::Error::custom(format!(
-                "base64url of {} characters is outside {MIN}..={MAX}",
-                text.len()
+                "base64url text is outside {MIN}..={MAX} characters"
             )));
         }
         URL_SAFE_BASE64.decode(&text).map_err(D::Error::custom)?;

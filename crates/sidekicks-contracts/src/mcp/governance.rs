@@ -178,56 +178,56 @@ methods! {
             mutating: true,
             params: McpUpsertServerRequest,
             result: McpMutationResult,
-            refusals: [McpConfigInvalid, McpConfigWriteConflict],
+            refusals: [McpBindingStoreUnavailable, McpConfigInvalid, McpConfigWriteConflict],
         },
         /// Removes a binding.
         McpRemoveServer = mutation "mcp.removeServer" {
             mutating: true,
             params: McpRemoveServerRequest,
             result: McpRemoveServerResult,
-            refusals: [McpServerNotFound, McpConfigWriteConflict],
+            refusals: [McpBindingStoreUnavailable, McpServerNotFound, McpConfigWriteConflict],
         },
         /// Turns a binding on or off.
         McpSetEnabled = mutation "mcp.setEnabled" {
             mutating: true,
             params: McpSetEnabledRequest,
             result: McpMutationResult,
-            refusals: [McpServerNotFound, McpConfigWriteConflict],
+            refusals: [McpBindingStoreUnavailable, McpServerNotFound, McpConfigWriteConflict],
         },
         /// Sets one tool's override.
         McpSetToolOverride = mutation "mcp.setToolOverride" {
             mutating: true,
             params: McpSetToolOverrideRequest,
             result: McpToolOverrideMutationResult,
-            refusals: [McpServerNotFound, McpConfigWriteConflict],
+            refusals: [McpBindingStoreUnavailable, McpServerNotFound, McpConfigWriteConflict],
         },
         /// Clears one facet of one tool's override.
         McpClearToolOverride = mutation "mcp.clearToolOverride" {
             mutating: true,
             params: McpClearToolOverrideRequest,
             result: McpToolOverrideMutationResult,
-            refusals: [McpServerNotFound, McpConfigWriteConflict],
+            refusals: [McpBindingStoreUnavailable, McpServerNotFound, McpConfigWriteConflict],
         },
         /// Starts the daemon's sign-in to a server.
         McpOauthLogin = mutation "mcp.oauthLogin" {
             mutating: true,
             params: McpKeyedBindingRequest,
             result: McpOauthLoginResponse,
-            refusals: [McpServerNotFound, McpOauthFlowFailed],
+            refusals: [McpBindingStoreUnavailable, McpServerNotFound, McpOauthFlowFailed],
         },
         /// Signs out of a server.
         McpOauthLogout = mutation "mcp.oauthLogout" {
             mutating: true,
             params: McpOauthLogoutRequest,
             result: EmptyPayload,
-            refusals: [],
+            refusals: [McpBindingStoreUnavailable],
         },
         /// Opens a binding's connection again.
         McpReconnect = mutation "mcp.reconnect" {
             mutating: true,
             params: McpReconnectRequest,
             result: McpReconnectResponse,
-            refusals: [McpServerNotFound],
+            refusals: [McpBindingStoreUnavailable, McpServerNotFound],
         },
     ];
 }

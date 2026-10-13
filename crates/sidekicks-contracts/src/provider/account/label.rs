@@ -64,8 +64,8 @@ fn credential_kind(provider: ProviderName, mode: ProviderAuthMode) -> Option<Str
 
 /// The label every screen names `account` by, or `None` for an account still signing in that its
 /// provider has not named yet. A token or API-key account reads its typed name beside the
-/// credential's kind (`Work · Codex API key`); every other account reads the email, the plan in its
-/// provider's own word, then the organization (`sam@example.org · Business · Example Inc`).
+/// credential's kind (`Work · Codex API key`); every other account reads the email, the plan in
+/// its provider's own word, then the organization (`sam@example.org · Business · Example Inc`).
 pub fn account_label(account: &ProviderAccount) -> Option<String> {
     let fields = account.label_fields();
     if let Some(display_label) = fields.display_label {
@@ -89,4 +89,44 @@ pub fn account_label(account: &ProviderAccount) -> Option<String> {
     .flatten()
     .collect();
     (!identity.is_empty()).then(|| identity.join(" · "))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+    use serde_json::{Map, Value};
+
+    use super::account_label;
+    use crate::provider::account::record::ProviderAccount;
+
+    /// The case table: one account and the members each case lays over it.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct CaseTable {
+        account: Map<String, Value>,
+        cases: Vec<Case>,
+    }
+
+    /// One account's overrides and the label it must read, or none.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Case {
+        name: String,
+        overrides: Map<String, Value>,
+        label: Option<String>,
+    }
+
+    #[test]
+    fn names_each_account_as_the_case_table_says() {
+        let table: CaseTable =
+            serde_json::from_str(include_str!("../../../tests/fixtures/account-label.json"))
+                .expect("the case table parses");
+        for case in table.cases {
+            let mut members = table.account.clone();
+            members.extend(case.overrides);
+            let account: ProviderAccount =
+                serde_json::from_value(Value::Object(members)).expect("the case's account parses");
+            assert_eq!(account_label(&account), case.label, "{}", case.name);
+        }
+    }
 }

@@ -17,12 +17,14 @@ use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
+use crate::wire::list::BoundedVec;
 use crate::wire::literal;
 use crate::wire::text::FreeFormText;
 
 ts_constants! {
     /// The event a deferred switch settles with when it applied.
-    pub const AGENT_PROVIDER_BINDING_CHANGED_EVENT: &str = SessionEventType::AgentProviderBindingChanged.as_str();
+    pub const AGENT_PROVIDER_BINDING_CHANGED_EVENT: &str =
+        SessionEventType::AgentProviderBindingChanged.as_str();
     /// The event a deferred switch settles with when it could not be applied.
     pub const AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT: &str =
         SessionEventType::AgentProviderBindingChangeFailed.as_str();
@@ -180,56 +182,12 @@ fn target_names_window_on_model_move(target: &AgentBindingSwitchTarget, _: &()) 
 }
 
 literal! {
-    /// The status of a switch accepted and not applied.
-    pub enum PendingSwitchStatus = "pending";
-}
-literal! {
-    /// The status of a switch whose conversation arrived whole.
-    pub enum AppliedSwitchStatus = "applied";
-}
-literal! {
-    /// The status of a switch whose conversation did not arrive whole.
-    pub enum DegradedSwitchStatus = "degraded";
-}
-literal! {
-    /// The status of an accepted switch that could not be applied.
-    pub enum FailedSwitchStatus = "failed";
-}
-literal! {
     /// An applied switch's continuity.
     pub enum InPlaceContinuity = "in_place";
 }
 literal! {
     /// A degraded switch's continuity.
     pub enum BriefContinuity = "brief";
-}
-
-/// A switch the daemon accepted and has not applied: at most one per agent, a later one replacing
-/// it. The same record is the acknowledgment, the agent row's stored switch and `agent.list`'s
-/// `pendingSwitch`, so `switching to …` survives a reload and reaches another device.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct AgentBindingSwitchPending {
-    /// Always `pending`.
-    pub status: PendingSwitchStatus,
-    /// The switch.
-    pub switch_id: SwitchId,
-    /// Where it applies.
-    pub applies_at: AgentBindingSwitchBoundary,
-    /// Whether the daemon interrupts to reach the boundary; never re-derived from `appliesAt`.
-    pub interrupt_requested: bool,
-    /// What it moves.
-    #[garde(dive)]
-    pub pending_axes: AgentBindingSwitchTarget,
-    /// The earlier pending switch this one displaced, and the only record of it.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "SwitchId")]
-    pub replaced_switch_id: Option<SwitchId>,
 }
 
 /// Whether a loss list agrees with its continuity: `in_place` declares none, and `brief` at least
@@ -317,89 +275,134 @@ pub(crate) fn add_account_state_rule(schema: &mut Schema) {
     add_present_exactly_when(schema, "reason", "account_unavailable", "accountState");
 }
 
-/// A switch that applied with its conversation whole: it declares no loss.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-#[schemars(inline)]
-pub struct AppliedSwitch {
-    /// Always `applied`.
-    pub status: AppliedSwitchStatus,
-    /// The switch.
-    pub switch_id: SwitchId,
-    /// Always `in_place`.
-    pub continuity: InPlaceContinuity,
-    /// Always empty: nothing of the conversation was dropped.
-    #[garde(length(max = 0))]
-    #[schemars(length(max = 0))]
-    pub declared_losses: Vec<DeclaredLossKind>,
+/// Declares [`AgentBindingSwitchPending`] and [`AgentBindingSwitchDisposition`] from one list of
+/// a pending switch's members, so the stored record and the `pending` arm cannot drift; the
+/// settled arms follow.
+macro_rules! switch_disposition {
+    (
+        $pending_word:literal {
+            $($(#[$attribute:meta])* $member:ident: $type:ty,)*
+        }
+        $($settled:tt)*
+    ) => {
+        literal! {
+            /// The status of a switch accepted and not applied.
+            pub enum PendingSwitchStatus = $pending_word;
+        }
+
+        /// A switch the daemon accepted and has not applied: at most one per agent, a later one
+        /// replacing it. The same record is the acknowledgment, the agent row's stored switch and
+        /// `agent.list`'s `pendingSwitch`, so `switching to …` survives a reload and reaches
+        /// another device.
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        #[garde(allow_unvalidated)]
+        pub struct AgentBindingSwitchPending {
+            /// Always `pending`.
+            pub status: PendingSwitchStatus,
+            $($(#[$attribute])* pub $member: $type,)*
+        }
+
+        /// What `agent.configUpdate` answers with, told apart by `status`. `pending` is the
+        /// ordinary answer; the other three come only when the caller asked to interrupt and
+        /// switch, settled on the held-open request as a result, not an error. `applied` is
+        /// exactly a conversation that arrived whole and `degraded` exactly one that did not, so no
+        /// client re-derives that rule.
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+        #[serde(
+            tag = "status",
+            rename_all = "snake_case",
+            rename_all_fields = "camelCase",
+            deny_unknown_fields
+        )]
+        #[garde(allow_unvalidated)]
+        #[garde(custom(settled_switch_states_its_rules))]
+        pub enum AgentBindingSwitchDisposition {
+            /// Accepted, not applied.
+            #[serde(rename = $pending_word)]
+            Pending {
+                $($(#[$attribute])* $member: $type,)*
+            },
+            $($settled)*
+        }
+    };
 }
 
-/// A switch that applied from a hand-over brief, declaring what it lost.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-#[garde(custom(degraded_declares_brief_losses))]
-#[schemars(inline, transform = add_brief_losses_rule)]
-pub struct DegradedSwitch {
-    /// Always `degraded`.
-    pub status: DegradedSwitchStatus,
-    /// The switch.
-    pub switch_id: SwitchId,
-    /// Always `brief`.
-    pub continuity: BriefContinuity,
-    /// What was lost: at least the summarized history and the private reasoning.
-    pub declared_losses: Vec<DeclaredLossKind>,
+switch_disposition! {
+    "pending" {
+        /// The switch.
+        switch_id: SwitchId,
+        /// Where it applies.
+        applies_at: AgentBindingSwitchBoundary,
+        /// Whether the daemon interrupts to reach the boundary; never re-derived from `appliesAt`.
+        interrupt_requested: bool,
+        /// What it moves.
+        #[garde(dive)]
+        pending_axes: AgentBindingSwitchTarget,
+        /// The earlier pending switch this one displaced, and the only record of it.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "SwitchId")]
+        replaced_switch_id: Option<SwitchId>,
+    }
+    /// Applied with its conversation whole: it declares no loss.
+    Applied {
+        /// The switch.
+        switch_id: SwitchId,
+        /// Always `in_place`.
+        continuity: InPlaceContinuity,
+        /// Always empty: nothing of the conversation was dropped.
+        declared_losses: BoundedVec<DeclaredLossKind, 0, 0>,
+    },
+    /// Applied from a hand-over brief, declaring what it lost.
+    #[schemars(transform = add_brief_losses_rule)]
+    Degraded {
+        /// The switch.
+        switch_id: SwitchId,
+        /// Always `brief`.
+        continuity: BriefContinuity,
+        /// What was lost: at least the summarized history and the private reasoning.
+        declared_losses: Vec<DeclaredLossKind>,
+    },
+    /// Accepted but not applied.
+    #[schemars(transform = add_account_state_rule)]
+    Failed {
+        /// The switch.
+        switch_id: SwitchId,
+        /// Why it failed.
+        reason: AgentBindingSwitchFailureReason,
+        /// Why the account cannot carry the run, exactly on `account_unavailable`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "AgentBindingSwitchAccountState")]
+        account_state: Option<AgentBindingSwitchAccountState>,
+    },
 }
 
-/// Whether a degraded switch declares a brief's losses.
-fn degraded_declares_brief_losses(switch: &DegradedSwitch, _: &()) -> garde::Result {
-    declared_losses_match(AgentBindingContinuity::Brief, &switch.declared_losses)
-}
-
-/// An accepted switch settled on the held-open request as a failure: a result, not an error,
-/// since only its application failed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-#[garde(custom(failed_switch_states_its_account))]
-#[schemars(inline, transform = add_account_state_rule)]
-pub struct FailedSwitch {
-    /// Always `failed`.
-    pub status: FailedSwitchStatus,
-    /// The switch.
-    pub switch_id: SwitchId,
-    /// Why it failed.
-    pub reason: AgentBindingSwitchFailureReason,
-    /// Why the account cannot carry the run, exactly on `account_unavailable`.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "AgentBindingSwitchAccountState")]
-    pub account_state: Option<AgentBindingSwitchAccountState>,
-}
-
-/// Whether a failed switch states its account exactly on an account failure.
-fn failed_switch_states_its_account(switch: &FailedSwitch, _: &()) -> garde::Result {
-    account_state_matches_reason(switch.reason, switch.account_state)
-}
-
-/// What `agent.configUpdate` answers with. `pending` is the ordinary answer; the other three come
-/// only when the caller asked to interrupt and switch. `applied` is exactly a conversation that
-/// arrived whole and `degraded` exactly one that did not, so no client re-derives that rule.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(untagged)]
-pub enum AgentBindingSwitchDisposition {
-    /// Accepted, not applied.
-    Pending(#[garde(dive)] AgentBindingSwitchPending),
-    /// Applied whole.
-    Applied(#[garde(dive)] AppliedSwitch),
-    /// Applied from a brief.
-    Degraded(#[garde(dive)] DegradedSwitch),
-    /// Not applied.
-    Failed(#[garde(dive)] FailedSwitch),
+/// Whether a degraded switch declares a brief's losses, and a failed one states its account
+/// exactly on an account failure.
+fn settled_switch_states_its_rules(
+    disposition: &AgentBindingSwitchDisposition,
+    _: &(),
+) -> garde::Result {
+    match disposition {
+        AgentBindingSwitchDisposition::Degraded {
+            declared_losses, ..
+        } => declared_losses_match(AgentBindingContinuity::Brief, declared_losses),
+        AgentBindingSwitchDisposition::Failed {
+            reason,
+            account_state,
+            ..
+        } => account_state_matches_reason(*reason, *account_state),
+        AgentBindingSwitchDisposition::Pending { .. }
+        | AgentBindingSwitchDisposition::Applied { .. } => Ok(()),
+    }
 }
 
 /// The payload of [`AGENT_PROVIDER_BINDING_CHANGED_EVENT`]: a switch that applied. The landed

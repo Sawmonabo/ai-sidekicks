@@ -38,12 +38,6 @@ ts_constants! {
     DRIVER_TIMEOUT_CODE = RefusalCode::DriverTimeout;
 }
 
-/// The request of the reads that take nothing; an unknown member is refused, since the caller
-/// believes it is calling a different method.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DriverReadParams {}
-
 /// The request of `driver.listModels`: the session whose model control reads the catalog.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -147,7 +141,7 @@ methods! {
         /// Lists each driver's capability flags, speed levels and built-in tools.
         DriverListCapabilities = query "driver.listCapabilities" {
             mutating: false,
-            params: DriverReadParams,
+            params: EmptyPayload,
             result: ListCapabilitiesResult,
             refusals: [],
         },
@@ -161,7 +155,7 @@ methods! {
         /// Lists each driver's modes.
         DriverListModes = query "driver.listModes" {
             mutating: false,
-            params: DriverReadParams,
+            params: EmptyPayload,
             result: ListModesResult,
             refusals: [],
         },
@@ -219,7 +213,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/driver/methods",
     doc: "The `driver.*` methods a client calls, their requests and replies, grouped by driver.",
     definitions: &[
-        Definition::read::<DriverReadParams>(),
         Definition::read::<ListModelsRequest>(),
         Definition::read::<DriverCapabilityReport>().checked(),
         Definition::read::<ListCapabilitiesResult>(),

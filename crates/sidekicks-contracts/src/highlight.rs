@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use strum::VariantArray;
 
 use crate::jsonrpc::byte_length::json_utf8_byte_length;
 use crate::method::methods;
@@ -17,7 +18,9 @@ use crate::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use crate::wire::text::BoundedText;
 
 /// One language the daemon can color.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum HighlightLanguage {
     /// Bash.
@@ -52,30 +55,11 @@ pub enum HighlightLanguage {
     Yaml,
 }
 
-impl HighlightLanguage {
-    /// Every language, in wire order.
-    pub const ALL: &[Self] = &[
-        Self::Bash,
-        Self::Css,
-        Self::Diff,
-        Self::Go,
-        Self::Html,
-        Self::Javascript,
-        Self::Json,
-        Self::Jsx,
-        Self::Markdown,
-        Self::Python,
-        Self::Rust,
-        Self::Sql,
-        Self::Tsx,
-        Self::Typescript,
-        Self::Yaml,
-    ];
-}
-
 /// One class a span paints as; plain text has no span. The first five mark code; the rest mark a
-/// diff's lines and Markdown's own syntax. A span names its class by its index in [`Self::ALL`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+/// diff's lines and Markdown's own syntax. A span names its class by its index in `VARIANTS`.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum HighlightSpanClass {
     /// A keyword.
@@ -102,23 +86,6 @@ pub enum HighlightSpanClass {
     InlineCode,
 }
 
-impl HighlightSpanClass {
-    /// Every class, in wire order.
-    pub const ALL: &[Self] = &[
-        Self::Keyword,
-        Self::Name,
-        Self::String,
-        Self::Number,
-        Self::Comment,
-        Self::Inserted,
-        Self::Deleted,
-        Self::Hunk,
-        Self::Heading,
-        Self::Emphasis,
-        Self::InlineCode,
-    ];
-}
-
 ts_constants! {
     /// How many numbers one span takes in a reply: offset, length, class.
     pub const HIGHLIGHT_SPAN_WIDTH: usize = 3;
@@ -132,9 +99,9 @@ ts_constants! {
     /// The longest block id a `highlight.read` carries.
     pub const HIGHLIGHT_BLOCK_ID_MAX_LENGTH: usize = 128;
     /// Every language the daemon can color.
-    HIGHLIGHT_LANGUAGES = HighlightLanguage::ALL;
+    HIGHLIGHT_LANGUAGES = HighlightLanguage::VARIANTS;
     /// The classes a span paints as, in wire order.
-    HIGHLIGHT_SPAN_CLASSES = HighlightSpanClass::ALL;
+    HIGHLIGHT_SPAN_CLASSES = HighlightSpanClass::VARIANTS;
 }
 
 /// The code a client wants colored.
@@ -197,7 +164,7 @@ fn flat_spans(spans: &[HighlightSpan]) -> Vec<u64> {
     spans
         .iter()
         .flat_map(|span| {
-            let class = HighlightSpanClass::ALL
+            let class = HighlightSpanClass::VARIANTS
                 .iter()
                 .position(|class| *class == span.class)
                 .expect("every class is listed");
@@ -222,7 +189,7 @@ impl<'de> Deserialize<'de> for HighlightSpans {
                     .ok_or_else(|| D::Error::custom("a span covers at least one character"))?;
                 let class = usize::try_from(triple[2].get())
                     .ok()
-                    .and_then(|index| HighlightSpanClass::ALL.get(index))
+                    .and_then(|index| HighlightSpanClass::VARIANTS.get(index))
                     .ok_or_else(|| {
                         D::Error::custom("a span's class is an index into the span classes")
                     })?;

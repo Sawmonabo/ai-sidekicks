@@ -4,6 +4,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::keychain::KeychainRefusalCause;
@@ -13,7 +14,7 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt};
-use crate::wire::text::{BoundedText, FreeFormText};
+use crate::wire::text::{FreeFormText, NonEmptyText};
 use crate::wire::{Never, NullableSchema, literal, nullable};
 use crate::workflow::definition::document::WorkflowNodeId;
 
@@ -24,14 +25,14 @@ ts_constants! {
     /// The longest mail password or web address the daemon accepts.
     pub const ATTENTION_DELIVERY_SECRET_MAX_LEN: usize = 8192;
     /// Every attention trigger; a client never invents one.
-    ATTENTION_TRIGGERS = AttentionTrigger::ALL;
+    ATTENTION_TRIGGERS = AttentionTrigger::VARIANTS;
     /// Every attention severity.
-    ATTENTION_SEVERITIES = AttentionSeverity::ALL;
+    ATTENTION_SEVERITIES = AttentionSeverity::VARIANTS;
     /// Every banner state, for the main process's poster, which posts only pending entries.
-    ATTENTION_BANNER_STATES = AttentionBannerState::ALL;
+    ATTENTION_BANNER_STATES = AttentionBannerState::VARIANTS;
     /// Every web-address state, for the send and the status line that counts what stays
     /// undelivered.
-    ATTENTION_WEB_ADDRESS_STATES = AttentionWebAddressState::ALL;
+    ATTENTION_WEB_ADDRESS_STATES = AttentionWebAddressState::VARIANTS;
 }
 
 /// An id an attention entry carries, minted by the daemon.
@@ -39,7 +40,9 @@ pub type AttentionId = FreeFormText<ATTENTION_ID_MAX_LEN>;
 
 /// Every attention trigger: pending approval or user input, run completion, run failure, and a
 /// workflow's Notify step. The set is closed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum AttentionTrigger {
     /// A pending approval.
@@ -52,17 +55,6 @@ pub enum AttentionTrigger {
     RunFailed,
     /// A workflow's Notify step.
     WorkflowNotify,
-}
-
-impl AttentionTrigger {
-    /// Every trigger, in declaration order.
-    pub const ALL: [Self; 5] = [
-        Self::PendingApproval,
-        Self::PendingInput,
-        Self::RunCompleted,
-        Self::RunFailed,
-        Self::WorkflowNotify,
-    ];
 }
 
 /// The triggers of a run's or session's own moment: every trigger but a Notify step's.
@@ -81,7 +73,9 @@ pub enum AttentionMomentTrigger {
 
 /// The two severities: `actionable` attention blocks on the person, `informational` does not. A
 /// client renders the two differently.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum AttentionSeverity {
     /// Blocks on the person.
@@ -90,15 +84,12 @@ pub enum AttentionSeverity {
     Informational,
 }
 
-impl AttentionSeverity {
-    /// Every severity, in declaration order.
-    pub const ALL: [Self; 2] = [Self::Actionable, Self::Informational];
-}
-
 /// What became of an entry's operating-system banner. The daemon writes `withheld` when a switch
 /// or a mute keeps the entry from raising one, and `pending` otherwise; main settles a `pending`
 /// entry once, so no banner is posted twice.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum AttentionBannerState {
     /// Not yet settled by main.
@@ -109,11 +100,6 @@ pub enum AttentionBannerState {
     Withheld,
     /// Taken down.
     Withdrawn,
-}
-
-impl AttentionBannerState {
-    /// Every banner state, in declaration order.
-    pub const ALL: [Self; 4] = [Self::Pending, Self::Posted, Self::Withheld, Self::Withdrawn];
 }
 
 /// A banner state main settles a `pending` entry to; settling back to `pending` is refused.
@@ -129,7 +115,9 @@ pub enum AttentionBannerSettledState {
 }
 
 /// Where an entry's message to the person's web address stands.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum AttentionWebAddressState {
     /// Not yet sent, or being retried.
@@ -138,11 +126,6 @@ pub enum AttentionWebAddressState {
     Delivered,
     /// Given up on.
     Undelivered,
-}
-
-impl AttentionWebAddressState {
-    /// Every web-address state, in declaration order.
-    pub const ALL: [Self; 3] = [Self::Pending, Self::Delivered, Self::Undelivered];
 }
 
 literal! {
@@ -185,9 +168,9 @@ macro_rules! attention_item {
             pub session_id: SessionId,
             $($arm)*
             /// The name the entry leads with.
-            pub display_name: BoundedText<1, { usize::MAX }>,
+            pub display_name: NonEmptyText,
             /// What follows the name: `Waiting on you`, `Finished`, `Failed`, or a notice.
-            pub state_word: BoundedText<1, { usize::MAX }>,
+            pub state_word: NonEmptyText,
             /// One line of prose the list draws; never a banner's body, which says only name and
             /// state.
             pub summary: String,
@@ -382,8 +365,8 @@ pub struct AttentionWebAddressDelivery {
     pub saved: bool,
     /// The saved address's host, or `null`.
     #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<BoundedText<1, { usize::MAX }>>")]
-    pub host: Option<BoundedText<1, { usize::MAX }>>,
+    #[schemars(with = "NullableSchema<NonEmptyText>")]
+    pub host: Option<NonEmptyText>,
     /// Its last attempt, or `null`.
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<AttentionDeliveryOutcome>")]
@@ -472,12 +455,12 @@ pub struct AttentionWebAddressSaveRequest {
 pub struct AttentionWebAddressSaveResponse {
     /// The host, or `null`.
     #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<BoundedText<1, { usize::MAX }>>")]
-    pub host: Option<BoundedText<1, { usize::MAX }>>,
+    #[schemars(with = "NullableSchema<NonEmptyText>")]
+    pub host: Option<NonEmptyText>,
     /// The signing secret, or `null`.
     #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<BoundedText<1, { usize::MAX }>>")]
-    pub signing_secret: Option<BoundedText<1, { usize::MAX }>>,
+    #[schemars(with = "NullableSchema<NonEmptyText>")]
+    pub signing_secret: Option<NonEmptyText>,
 }
 
 /// A new signing secret, shown this once; the old one stops verifying at once.
@@ -485,7 +468,7 @@ pub struct AttentionWebAddressSaveResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AttentionWebAddressSecretRotateResponse {
     /// The secret.
-    pub signing_secret: BoundedText<1, { usize::MAX }>,
+    pub signing_secret: NonEmptyText,
 }
 
 /// The `attention.delivery_store_unavailable` refusal's details: why the keychain holding the

@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::integer::SafeInt;
+use crate::wire::integer::{SafeInt, canonical_index};
 
 /// The side of a node a handle stands on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -71,7 +71,7 @@ pub fn parse_workflow_handle(id: &str) -> WorkflowHandle {
     let Some((type_text, index_text)) = rest.split_once('/') else {
         return FALLBACK_HANDLE;
     };
-    let Some(index) = canonical_index_of(index_text) else {
+    let Some(index) = canonical_index(index_text).and_then(SafeInt::new) else {
         return FALLBACK_HANDLE;
     };
     if type_text.is_empty() {
@@ -88,17 +88,6 @@ pub fn parse_workflow_handle(id: &str) -> WorkflowHandle {
         index,
         is_type_known,
     }
-}
-
-/// The index `text` writes when it is `0` or ASCII digits with no leading zero, up to 2^53 − 1.
-fn canonical_index_of(text: &str) -> Option<SafeInt<0>> {
-    let is_canonical = text == "0"
-        || (text.starts_with(|first: char| ('1'..='9').contains(&first))
-            && text.bytes().all(|digit| digit.is_ascii_digit()));
-    if !is_canonical {
-        return None;
-    }
-    text.parse::<u64>().ok().and_then(SafeInt::new)
 }
 
 /// The TypeScript module of the handle grammar.

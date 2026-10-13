@@ -540,11 +540,6 @@ pub struct ProviderAccountListResponse {
     pub readiness: Vec<readiness::ProviderReadiness>,
 }
 
-/// The request of `providerAccount.subscribe`, empty because the subscription covers the node.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ProviderAccountSubscribeRequest {}
-
 /// How a brokered sign-in attempt ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -657,7 +652,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderAccountUsageWindow>().checked(),
         Definition::read::<ProviderAccountListRequest>().checked(),
         Definition::read::<ProviderAccountListResponse>().checked(),
-        Definition::read::<ProviderAccountSubscribeRequest>().checked(),
         Definition::read::<ProviderLoginOutcome>(),
         Definition::read::<ProviderAccountNotification>().checked(),
     ],

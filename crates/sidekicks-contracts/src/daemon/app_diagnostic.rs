@@ -8,11 +8,12 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::command::ExitCode;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
-use crate::wire::integer::{SafeInt, SafeSignedInt};
+use crate::wire::integer::SafeInt;
 use crate::wire::text::BoundedText;
 
 /// The longest each text of an app diagnostic record may be, in code points; a sender that cuts a
@@ -100,149 +101,117 @@ ts_constants! {
     ];
 }
 
-/// How an unhandled error arrived: an exception nothing caught, or a promise rejected with nothing
-/// to handle it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
-#[schemars(inline)]
-pub enum AppErrorThrownKind {
-    /// An exception nothing caught.
-    UncaughtError,
-    /// A promise rejected with nothing to handle it.
-    UnhandledRejection,
-}
+/// An error's name.
+type AppErrorName = BoundedText<0, { APP_DIAGNOSTIC_TEXT_BOUNDS.name }>;
 
-/// Where a script error was thrown: the script's address, and the line and column from 1.
+/// An error's message, or what a captured line says happened.
+type AppDiagnosticMessage = BoundedText<0, { APP_DIAGNOSTIC_TEXT_BOUNDS.message }>;
+
+/// An error's stack frames.
+type AppErrorStack = BoundedText<0, { APP_DIAGNOSTIC_TEXT_BOUNDS.stack }>;
+
+/// A script's address.
+type AppScriptAddress = BoundedText<0, { APP_DIAGNOSTIC_TEXT_BOUNDS.address }>;
+
+/// Why the window's process went.
+type AppRendererGoneReason = BoundedText<0, { APP_DIAGNOSTIC_TEXT_BOUNDS.reason }>;
+
+/// The module that captured a line, or what kind of line it is.
+type AppDiagnosticLabel = BoundedText<0, { APP_DIAGNOSTIC_TEXT_BOUNDS.label }>;
+
+/// Where a script error was thrown: the script's address, and the line and column it names.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AppErrorSource {
     /// The script's address, without its query or fragment.
-    pub address: BoundedText<0, 2048>,
+    pub address: AppScriptAddress,
     /// The line.
     pub line: SafeInt<0>,
     /// The column.
     pub column: SafeInt<0>,
 }
 
-/// An exception nothing caught, or a promise rejected with nothing to handle it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct AppErrorThrown {
-    /// How it arrived.
-    pub kind: AppErrorThrownKind,
-    /// When it happened.
-    #[garde(dive)]
-    pub at: WireInstant,
-    /// Where in the app it went unhandled.
-    pub role: AppDiagnosticRole,
-    /// The error's name, or `null` for a thrown value that is no error.
-    #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<BoundedText<0, 128>>")]
-    pub name: Option<BoundedText<0, 128>>,
-    /// Its message, with every quoted run taken out.
-    pub message: BoundedText<0, 1024>,
-    /// Its stack frames, one per line, or `null` where it has none.
-    #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<BoundedText<0, 8192>>")]
-    pub stack: Option<BoundedText<0, 8192>>,
-    /// Where it was thrown, or `null` where that is not known.
-    #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<AppErrorSource>")]
-    pub source: Option<AppErrorSource>,
+/// Declares [`AppDiagnosticRecord`], writing the members of an unhandled error's two arms once.
+macro_rules! app_diagnostic_record {
+    ($($(#[doc = $doc:literal])+ $arm:ident,)+) => {
+        /// One record of `daemon.appDiagnostic.record`, told apart by its `kind`.
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+        #[serde(
+            tag = "kind",
+            rename_all = "kebab-case",
+            rename_all_fields = "camelCase",
+            deny_unknown_fields
+        )]
+        #[garde(allow_unvalidated)]
+        pub enum AppDiagnosticRecord {
+            $(
+                $(#[doc = $doc])+
+                $arm {
+                    /// When it happened.
+                    #[garde(dive)]
+                    at: WireInstant,
+                    /// Where in the app it went unhandled.
+                    role: AppDiagnosticRole,
+                    /// The error's name, or `null` for a thrown value that is no error.
+                    #[serde(deserialize_with = "crate::wire::nullable")]
+                    #[schemars(with = "crate::wire::NullableSchema<AppErrorName>")]
+                    name: Option<AppErrorName>,
+                    /// Its message, with every quoted run taken out.
+                    message: AppDiagnosticMessage,
+                    /// Its stack frames, one per line, or `null` where it has none.
+                    #[serde(deserialize_with = "crate::wire::nullable")]
+                    #[schemars(with = "crate::wire::NullableSchema<AppErrorStack>")]
+                    stack: Option<AppErrorStack>,
+                    /// Where it was thrown, or `null` where that is not known.
+                    #[serde(deserialize_with = "crate::wire::nullable")]
+                    #[schemars(with = "crate::wire::NullableSchema<AppErrorSource>")]
+                    source: Option<AppErrorSource>,
+                },
+            )+
+            /// A line a window's diagnostic capture took: something the app could not do or could
+            /// not read.
+            Captured {
+                /// When the window captured it.
+                #[garde(dive)]
+                at: WireInstant,
+                /// How bad it is.
+                severity: AppDiagnosticSeverity,
+                /// The module that captured it.
+                source: AppDiagnosticLabel,
+                /// What kind of line it is, in that module's own words.
+                captured_kind: AppDiagnosticLabel,
+                /// What happened, with every quoted run taken out.
+                detail: AppDiagnosticMessage,
+            },
+            /// The process drawing every window went away; main reloads it.
+            RendererGone {
+                /// When it went.
+                #[garde(dive)]
+                at: WireInstant,
+                /// Why it went, in Electron's own word.
+                reason: AppRendererGoneReason,
+                /// Its exit code.
+                exit_code: ExitCode,
+            },
+            /// How many records were not written, and why.
+            HeldBack {
+                /// When it was counted.
+                #[garde(dive)]
+                at: WireInstant,
+                /// How many records were not written.
+                count: SafeInt<0>,
+                /// Why.
+                cause: AppDiagnosticHeldBackCause,
+            },
+        }
+    };
 }
 
-/// The word `captured`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
-#[schemars(inline)]
-pub enum AppCapturedKind {
-    /// A captured line.
-    Captured,
-}
-
-/// A line a window's diagnostic capture took: something the app could not do or could not read.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct AppCapturedDiagnostic {
-    /// Always `captured`.
-    pub kind: AppCapturedKind,
-    /// When the window captured it.
-    #[garde(dive)]
-    pub at: WireInstant,
-    /// How bad it is.
-    pub severity: AppDiagnosticSeverity,
-    /// The module that captured it.
-    pub source: BoundedText<0, 128>,
-    /// What kind of line it is, in that module's own words.
-    pub captured_kind: BoundedText<0, 128>,
-    /// What happened, with every quoted run taken out.
-    pub detail: BoundedText<0, 1024>,
-}
-
-/// The word `renderer-gone`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
-#[schemars(inline)]
-pub enum AppRendererGoneKind {
-    /// The window process went away.
-    RendererGone,
-}
-
-/// The process drawing every window went away; main reloads it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct AppRendererGone {
-    /// Always `renderer-gone`.
-    pub kind: AppRendererGoneKind,
-    /// When it went.
-    #[garde(dive)]
-    pub at: WireInstant,
-    /// Why it went, in Electron's own word.
-    pub reason: BoundedText<0, 64>,
-    /// Its exit code.
-    pub exit_code: SafeSignedInt,
-}
-
-/// The word `held-back`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
-#[schemars(inline)]
-pub enum AppDiagnosticHeldBackKind {
-    /// Records were not written.
-    HeldBack,
-}
-
-/// How many records were not written, and why.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct AppDiagnosticHeldBack {
-    /// Always `held-back`.
-    pub kind: AppDiagnosticHeldBackKind,
-    /// When it was counted.
-    #[garde(dive)]
-    pub at: WireInstant,
-    /// How many records were not written.
-    pub count: SafeInt<0>,
-    /// Why.
-    pub cause: AppDiagnosticHeldBackCause,
-}
-
-/// One record of `daemon.appDiagnostic.record`, told apart by its `kind`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(untagged)]
-pub enum AppDiagnosticRecord {
-    /// An error nothing handled.
-    Thrown(#[garde(dive)] AppErrorThrown),
-    /// A captured line.
-    Captured(#[garde(dive)] AppCapturedDiagnostic),
-    /// The window process went away.
-    RendererGone(#[garde(dive)] AppRendererGone),
-    /// Records not written.
-    HeldBack(#[garde(dive)] AppDiagnosticHeldBack),
+app_diagnostic_record! {
+    /// An exception nothing caught.
+    UncaughtError,
+    /// A promise rejected with nothing to handle it.
+    UnhandledRejection,
 }
 
 methods! {
@@ -269,10 +238,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AppDiagnosticSeverity>(),
         Definition::read::<AppDiagnosticHeldBackCause>(),
         Definition::read::<AppErrorSource>(),
-        Definition::read::<AppErrorThrown>(),
-        Definition::read::<AppCapturedDiagnostic>(),
-        Definition::read::<AppRendererGone>(),
-        Definition::read::<AppDiagnosticHeldBack>(),
         Definition::read::<AppDiagnosticRecord>().checked(),
     ],
     constants: TS_CONSTANTS,

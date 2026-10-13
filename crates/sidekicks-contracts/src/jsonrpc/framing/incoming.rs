@@ -7,15 +7,11 @@ use bytes::BytesMut;
 
 use super::frame::{Frame, LaneId};
 use super::{
-    FramingError, INITIAL_LANE_CREDIT, MAX_ATTACHMENT_BYTES, MAX_MESSAGE_BYTES, MessageBody,
-    MessagePart,
+    FramingError, INITIAL_LANE_CREDIT, LENGTH_PREFIX_BYTES, MessageBody, MessagePart, check_cap,
 };
 
 /// The most lanes a peer holds open at once, lane 0 aside.
 pub const MAX_OPEN_LANES: usize = 10_000;
-
-/// The bytes of a message's JSON length prefix.
-const JSON_LENGTH_BYTES: usize = 4;
 
 /// A whole message off one lane, waiting for its consumer.
 #[derive(Debug)]
@@ -201,26 +197,13 @@ impl IncomingLanes {
 /// Refuses a partial message whose JSON, or whose attachments so far, passed their cap, before
 /// the rest of it is buffered.
 fn check_partial_caps(partial: &[u8]) -> Result<(), FramingError> {
-    let Some(prefix) = partial.first_chunk::<JSON_LENGTH_BYTES>() else {
+    let Some(prefix) = partial.first_chunk::<LENGTH_PREFIX_BYTES>() else {
         return Ok(());
     };
     let json_length = usize::try_from(u32::from_be_bytes(*prefix)).expect("a u32 fits a usize");
-    if json_length > MAX_MESSAGE_BYTES {
-        return Err(FramingError::MessageTooLarge {
-            part: MessagePart::Json,
-            limit: MAX_MESSAGE_BYTES,
-            observed: json_length,
-        });
-    }
+    check_cap(MessagePart::Json, json_length)?;
     let attachments_so_far = partial
         .len()
-        .saturating_sub(JSON_LENGTH_BYTES + json_length);
-    if attachments_so_far > MAX_ATTACHMENT_BYTES {
-        return Err(FramingError::MessageTooLarge {
-            part: MessagePart::Attachments,
-            limit: MAX_ATTACHMENT_BYTES,
-            observed: attachments_so_far,
-        });
-    }
-    Ok(())
+        .saturating_sub(LENGTH_PREFIX_BYTES + json_length);
+    check_cap(MessagePart::Attachments, attachments_so_far)
 }

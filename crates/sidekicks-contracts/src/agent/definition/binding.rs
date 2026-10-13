@@ -9,48 +9,67 @@ use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::name::ProviderName;
 use crate::wire::Never;
 use crate::wire::integer::SafeInt;
+use crate::wire::list::unique_by;
 use crate::wire::text::FreeFormText;
 
 /// A provider's own vocabulary word: a model id, an effort or a speed, free-form and bounded,
 /// because the vocabulary is the provider's.
 pub type ProviderToken = FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>;
 
-/// Which provider runs an agent, on which model, paying from which account, at which effort and
-/// speed: one shape for a saved definition's bindings and a running agent's binding.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AgentProviderBinding {
-    /// The provider.
-    pub driver_name: ProviderName,
-    /// The model.
-    pub model_id: ProviderToken,
-    /// The account, or `null` to follow the provider's current account, resolved at run start;
-    /// not a foreign key, so a removed account refuses resolution rather than rewriting this.
-    #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<ProviderAccountId>")]
-    pub provider_account_id: Option<ProviderAccountId>,
-    /// The effort, or `null` for the driver's default; checked when a run resolves, never at save.
-    #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<ProviderToken>")]
-    pub effort: Option<ProviderToken>,
-    /// The speed set on a running agent; a saved definition leaves it absent.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "ProviderToken")]
-    pub output_speed: Option<ProviderToken>,
-    /// The larger window chosen, in tokens, recorded when picked and sent on every resume and
-    /// turn; absent is the model's default window. Only a larger row that shares its default
-    /// row's id records one, so a Claude binding never does.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "SafeInt<1>")]
-    pub larger_window: Option<SafeInt<1>>,
+/// The schema of a provider token or `null`, for a binding member a macro declares.
+pub(crate) type NullableProviderToken = crate::wire::NullableSchema<ProviderToken>;
+
+/// Declares a struct holding a provider binding's members, the provider, the model, the effort,
+/// the output speed and the larger window, with the struct's own members after the model.
+macro_rules! provider_binding {
+    ($(#[$attribute:meta])+ pub struct $name:ident { $($own:tt)* }) => {
+        $(#[$attribute])+
+        pub struct $name {
+            /// The provider.
+            pub driver_name: $crate::provider::name::ProviderName,
+            /// The model.
+            pub model_id: $crate::agent::definition::binding::ProviderToken,
+            $($own)*
+            /// The effort, or `null` for the driver's default; checked when a run resolves.
+            #[serde(deserialize_with = "crate::wire::nullable")]
+            #[schemars(with = "crate::agent::definition::binding::NullableProviderToken")]
+            pub effort: Option<$crate::agent::definition::binding::ProviderToken>,
+            /// The output speed, where one was picked; a saved definition leaves it absent.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "crate::agent::definition::binding::ProviderToken")]
+            pub output_speed: Option<$crate::agent::definition::binding::ProviderToken>,
+            /// The larger window chosen, in tokens, recorded when picked and sent on every resume
+            /// and turn; absent is the model's default window.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "crate::wire::integer::SafeInt<1>")]
+            pub larger_window: Option<$crate::wire::integer::SafeInt<1>>,
+        }
+    };
+}
+
+pub(crate) use provider_binding;
+
+provider_binding! {
+    /// Which provider runs an agent, on which model, paying from which account, at which effort
+    /// and speed: one shape for a saved definition's bindings and a running agent's binding.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct AgentProviderBinding {
+        /// The account, or `null` to follow the provider's current account, resolved at run
+        /// start; not a foreign key, so a removed account refuses resolution rather than
+        /// rewriting this.
+        #[serde(deserialize_with = "crate::wire::nullable")]
+        #[schemars(with = "crate::wire::NullableSchema<ProviderAccountId>")]
+        pub provider_account_id: Option<ProviderAccountId>,
+    }
 }
 
 /// Refuses bindings that name one driver twice, so each provider resolves to exactly one
@@ -59,17 +78,8 @@ pub struct AgentProviderBinding {
 fn binds_each_driver_once(
     drivers: impl IntoIterator<Item = Option<ProviderName>>,
 ) -> garde::Result {
-    let mut seen = Vec::new();
-    for driver in drivers.into_iter().flatten() {
-        if seen.contains(&driver) {
-            return Err(garde::Error::new(format!(
-                "a definition binds driver {} once",
-                driver.label()
-            )));
-        }
-        seen.push(driver);
-    }
-    Ok(())
+    let drivers: Vec<ProviderName> = drivers.into_iter().flatten().collect();
+    unique_by::<[ProviderName], _, _>(|driver: &ProviderName| *driver)(drivers.as_slice(), &())
 }
 
 /// A definition's bindings: the one used when a caller names no driver, and one per further

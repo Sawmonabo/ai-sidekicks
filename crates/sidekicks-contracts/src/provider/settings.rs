@@ -19,6 +19,8 @@ use crate::provider::name::ProviderName;
 use crate::repo::mount::RepoMountId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::{BoundedInt, SafeInt};
+use crate::wire::list::BoundedVec;
+use crate::wire::literal;
 use crate::wire::text::{FreeFormText, branded_text};
 
 ts_constants! {
@@ -184,18 +186,19 @@ pub struct ProviderOutputStyleSetting {
     #[garde(custom(|current: &OutputStyleName, _: &()| is_listed_style(current, &self.styles)))]
     pub current: OutputStyleName,
     /// The build's own styles.
-    #[garde(length(min = 1, max = PROVIDER_OUTPUT_STYLES_MAX))]
-    #[schemars(length(min = 1, max = PROVIDER_OUTPUT_STYLES_MAX))]
     #[schemars(extend("contains" = {
         "type": "object",
         "properties": { "name": { "const": { "$data": "3/current" } } },
     }))]
-    pub styles: Vec<ProviderOutputStyle>,
+    pub styles: OutputStyles,
 }
 
+/// The output styles one build lists.
+type OutputStyles = BoundedVec<ProviderOutputStyle, 1, PROVIDER_OUTPUT_STYLES_MAX>;
+
 /// Whether `current` names one of `styles`.
-fn is_listed_style(current: &OutputStyleName, styles: &[ProviderOutputStyle]) -> garde::Result {
-    if styles.iter().any(|style| style.name == *current) {
+fn is_listed_style(current: &OutputStyleName, styles: &OutputStyles) -> garde::Result {
+    if styles.as_slice().iter().any(|style| style.name == *current) {
         return Ok(());
     }
     Err(garde::Error::new(
@@ -284,11 +287,6 @@ pub struct ProviderRequest {
     pub provider: ProviderName,
 }
 
-/// `provider.list` takes nothing: it reads every provider on this machine.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ProviderListRequest {}
-
 /// Each provider's section, one row per provider.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -298,58 +296,92 @@ pub struct ProviderListResponse {
     pub providers: Vec<ProviderSettings>,
 }
 
-/// The one setting a `provider.update` on Claude Code changes.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[schemars(inline)]
-pub enum ClaudeSettingUpdate {
-    /// A new command path, or `null` to return to auto-detect.
-    CommandPath(Option<CommandPath>),
-    /// Whether a new session may use the provider.
-    AvailableForNewSessions(bool),
-    /// How many helpers run at once: `null` lifts the limit, `0` withholds the helper tool.
-    HelpersAtOnce(Option<SafeInt<0>>),
-    /// The compaction threshold.
-    AutoCompactPercent(CompactPercent),
-    /// The output style.
-    OutputStyle(OutputStyleName),
+literal! {
+    /// The `claude` word, in a member only Claude Code may name.
+    pub enum ClaudeProviderWord = const ProviderName::Claude.as_str();
+    /// The `codex` word, in a member only Codex may name.
+    pub enum CodexProviderWord = const ProviderName::Codex.as_str();
 }
 
-/// The one setting a `provider.update` on Codex changes.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[schemars(inline)]
-pub enum CodexSettingUpdate {
-    /// A new command path, or `null` to return to auto-detect.
-    CommandPath(Option<CommandPath>),
-    /// Whether a new session may use the provider.
-    AvailableForNewSessions(bool),
-    /// How many helpers run at once: `null` lifts the limit, `0` withholds the helper tool.
-    HelpersAtOnce(Option<SafeInt<0>>),
-    /// The compaction threshold.
-    AutoCompactPercent(CompactPercent),
-    /// Whether terminal-started sessions are reachable.
-    TerminalSessionsReachable(bool),
+/// Declares [`ProviderUpdateRequest`]: per provider, one closed arm for each knob every provider
+/// has and then its own arms, each arm the provider's word and the knob's one member.
+macro_rules! provider_update_request {
+    ($(
+        $provider:ty => [$command_path:ident, $available:ident, $helpers:ident, $compact:ident]
+        { $($own:tt)* }
+    )+) => {
+        /// One knob changed, one member per press, and only a knob the named provider has. A new
+        /// path is checked again where it now points and the provider's model catalog is read
+        /// again.
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+        #[serde(untagged, rename_all_fields = "camelCase", deny_unknown_fields)]
+        pub enum ProviderUpdateRequest {$(
+            /// A new command path, or `null` to return to auto-detect.
+            $command_path {
+                /// The provider.
+                provider: $provider,
+                /// The path, or `null` for auto-detect.
+                #[serde(deserialize_with = "crate::wire::nullable")]
+                #[schemars(with = "crate::wire::NullableSchema<CommandPath>")]
+                command_path: Option<CommandPath>,
+            },
+            /// Whether a new session may use the provider.
+            $available {
+                /// The provider.
+                provider: $provider,
+                /// Whether it may.
+                available_for_new_sessions: bool,
+            },
+            /// How many helpers run at once: `null` lifts the limit, `0` withholds the helper tool.
+            $helpers {
+                /// The provider.
+                provider: $provider,
+                /// The limit, or `null` for none.
+                #[serde(deserialize_with = "crate::wire::nullable")]
+                #[schemars(with = "crate::wire::NullableSchema<SafeInt<0>>")]
+                helpers_at_once: Option<SafeInt<0>>,
+            },
+            /// The compaction threshold.
+            $compact {
+                /// The provider.
+                provider: $provider,
+                /// The threshold.
+                auto_compact_percent: CompactPercent,
+            },
+            $($own)*
+        )+}
+    };
 }
 
-/// One knob changed, one member per press, and only a knob the named provider has. A new path is
-/// checked again where it now points and the provider's model catalog is read again.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "provider", rename_all = "lowercase")]
-pub enum ProviderUpdateRequest {
-    /// A Claude Code setting.
-    Claude(ClaudeSettingUpdate),
-    /// A Codex setting.
-    Codex(CodexSettingUpdate),
-}
-
-/// The provider whose terminal plugin is set.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-#[schemars(inline)]
-pub enum TerminalPluginProvider {
-    /// The plugin is Claude Code's alone.
-    Claude,
+provider_update_request! {
+    ClaudeProviderWord => [
+        ClaudeCommandPath,
+        ClaudeAvailableForNewSessions,
+        ClaudeHelpersAtOnce,
+        ClaudeAutoCompactPercent
+    ] {
+        /// Claude Code's output style.
+        ClaudeOutputStyle {
+            /// The provider.
+            provider: ClaudeProviderWord,
+            /// The style, one the installed build lists.
+            output_style: OutputStyleName,
+        },
+    }
+    CodexProviderWord => [
+        CodexCommandPath,
+        CodexAvailableForNewSessions,
+        CodexHelpersAtOnce,
+        CodexAutoCompactPercent
+    ] {
+        /// Whether terminal-started Codex sessions are reachable.
+        CodexTerminalSessionsReachable {
+            /// The provider.
+            provider: CodexProviderWord,
+            /// Whether they are.
+            terminal_sessions_reachable: bool,
+        },
+    }
 }
 
 /// Put the app's terminal plugin into the person's own Claude Code, or take it out; off removes
@@ -357,8 +389,8 @@ pub enum TerminalPluginProvider {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderTerminalPluginUpdateRequest {
-    /// Always `claude`.
-    pub provider: TerminalPluginProvider,
+    /// Always `claude`: the plugin is Claude Code's alone.
+    pub provider: ClaudeProviderWord,
     /// Whether the plugin is in.
     pub enabled: bool,
 }
@@ -529,7 +561,7 @@ methods! {
         /// Reads every provider's section.
         ProviderList = query "provider.list" {
             mutating: false,
-            params: ProviderListRequest,
+            params: EmptyPayload,
             result: ProviderListResponse,
             refusals: [],
         },
@@ -613,7 +645,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderSettings>().checked(),
         Definition::read::<ProviderSettingsResponse>(),
         Definition::read::<ProviderRequest>(),
-        Definition::read::<ProviderListRequest>(),
         Definition::read::<ProviderListResponse>(),
         Definition::read::<ProviderUpdateRequest>(),
         Definition::read::<ProviderTerminalPluginUpdateRequest>(),
@@ -630,3 +661,38 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[&PROVIDER_METHOD_DESCRIPTORS],
 };
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::ProviderUpdateRequest;
+
+    #[rstest]
+    #[case::claude_path_to_auto_detect(r#"{"provider":"claude","commandPath":null}"#, true)]
+    #[case::codex_helpers_lifted(r#"{"provider":"codex","helpersAtOnce":null}"#, true)]
+    #[case::claude_style(r#"{"provider":"claude","outputStyle":"Explanatory"}"#, true)]
+    #[case::codex_reachable(r#"{"provider":"codex","terminalSessionsReachable":true}"#, true)]
+    #[case::no_knob(r#"{"provider":"claude"}"#, false)]
+    #[case::two_knobs(
+        r#"{"provider":"claude","commandPath":null,"availableForNewSessions":true}"#,
+        false
+    )]
+    #[case::codex_style(r#"{"provider":"codex","outputStyle":"Explanatory"}"#, false)]
+    #[case::claude_reachable(r#"{"provider":"claude","terminalSessionsReachable":true}"#, false)]
+    #[case::null_on_a_plain_knob(r#"{"provider":"claude","availableForNewSessions":null}"#, false)]
+    #[case::off_step_percent(r#"{"provider":"codex","autoCompactPercent":42}"#, false)]
+    #[case::no_provider(r#"{"commandPath":null}"#, false)]
+    fn takes_exactly_one_knob_the_named_provider_has(
+        #[case] request: &str,
+        #[case] is_taken: bool,
+    ) {
+        let parsed = serde_json::from_str::<ProviderUpdateRequest>(request);
+        assert_eq!(parsed.is_ok(), is_taken, "{request}: {parsed:?}");
+        if let Ok(parsed) = parsed {
+            let written = serde_json::to_value(&parsed).expect("an update request serializes");
+            let sent: serde_json::Value = serde_json::from_str(request).expect("the case is JSON");
+            assert_eq!(written, sent, "an accepted update writes back as sent");
+        }
+    }
+}

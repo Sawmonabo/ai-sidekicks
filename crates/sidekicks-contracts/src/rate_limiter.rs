@@ -20,7 +20,7 @@ ts_constants! {
 
 literal! {
     /// The code of a sign-in route's 429.
-    pub enum RateLimitedCode = "rate_limited";
+    pub enum RateLimitedCode = const RefusalCode::RateLimited.as_str();
 }
 
 /// The body of a 429 from a sign-in route. `retryAfter` is whole seconds until a retry is allowed,

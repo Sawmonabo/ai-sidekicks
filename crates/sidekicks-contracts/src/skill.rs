@@ -7,6 +7,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::agent::definition::{
     AGENT_REASON_MAX_LEN, AgentDefinitionOrigin, AgentDefinitionScope, add_plugin_origin_rule,
@@ -21,7 +22,7 @@ use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
 use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{BoundedText, FreeFormText, NonBlankText};
+use crate::wire::text::{BoundedText, FreeFormText, NonBlankText, NonEmptyText};
 use crate::wire::{NullableSchema, True, nullable};
 
 ts_constants! {
@@ -29,9 +30,9 @@ ts_constants! {
     /// and a new skill is available on both providers.
     pub const SKILL_NAME_MAX_LEN: usize = 64;
     /// Every reason a path can be refused.
-    SKILL_PATH_REFUSED_REASONS = SkillPathRefusedReason::ALL;
+    SKILL_PATH_REFUSED_REASONS = SkillPathRefusedReason::VARIANTS;
     /// Every reason a write can be refused.
-    SKILL_WRITE_REFUSED_REASONS = SkillWriteRefusedReason::ALL;
+    SKILL_WRITE_REFUSED_REASONS = SkillWriteRefusedReason::VARIANTS;
 }
 
 /// The longest account of what a tool does instead on the provider a skill is widened onto.
@@ -48,9 +49,6 @@ pub type SkillFilePath = FreeFormText<FILE_PATH_MAX_LEN>;
 
 /// A folder's path; display data only, never a capability.
 pub type SkillFolderPath = FreeFormText<FILE_PATH_MAX_LEN>;
-
-/// A glyph key from the app's icon set.
-pub type SkillIcon = BoundedText<1, { usize::MAX }>;
 
 /// A new skill's name, before the daemon folds it into a folder name.
 pub type NewSkillName = FreeFormText<SKILL_NAME_MAX_LEN>;
@@ -128,8 +126,8 @@ pub struct SkillListEntry {
     pub description: Option<String>,
     /// A glyph key kept in our record on every origin; `null` draws the default mark.
     #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<SkillIcon>")]
-    pub icon: Option<SkillIcon>,
+    #[schemars(with = "NullableSchema<NonEmptyText>")]
+    pub icon: Option<NonEmptyText>,
     /// Which files it came from.
     pub origin: AgentDefinitionOrigin,
     /// The plugin, on a plugin's skill.
@@ -285,8 +283,8 @@ pub struct SkillCreateRequest {
         skip_serializing_if = "Option::is_none",
         with = "serde_with::rust::double_option"
     )]
-    #[schemars(with = "NullableSchema<SkillIcon>")]
-    pub icon: Option<Option<SkillIcon>>,
+    #[schemars(with = "NullableSchema<NonEmptyText>")]
+    pub icon: Option<Option<NonEmptyText>>,
     /// The other files.
     #[serde(
         default,
@@ -340,8 +338,8 @@ pub struct SkillUpdateRequest {
     pub removed_paths: Vec<SkillFilePath>,
     /// Its icon, or `null` for the default mark.
     #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<SkillIcon>")]
-    pub icon: Option<SkillIcon>,
+    #[schemars(with = "NullableSchema<NonEmptyText>")]
+    pub icon: Option<NonEmptyText>,
 }
 
 /// `skill.callFormRead`: the name a skill of ours would be called by, read while its name is typed
@@ -510,7 +508,9 @@ pub struct SkillRecordDiscardResponse {
 /// already holds it, or it names `SKILL.md`, which a folder always has exactly one of and which is
 /// never replaced, renamed or removed. A send's picked skill matches no row of `skill.list` by name
 /// and folder, so the provider is never handed a file the daemon does not list.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillPathRefusedReason {
     /// It would land outside the folder.
@@ -521,16 +521,6 @@ pub enum SkillPathRefusedReason {
     NamesEntryFile,
     /// A send's picked skill is not a row of `skill.list`.
     NotListed,
-}
-
-impl SkillPathRefusedReason {
-    /// Every reason, in declaration order.
-    pub const ALL: [Self; 4] = [
-        Self::EscapesFolder,
-        Self::DuplicatePath,
-        Self::NamesEntryFile,
-        Self::NotListed,
-    ];
 }
 
 /// The `skill.path_refused` refusal's details: the refused path and why, so the skill editor
@@ -546,18 +536,15 @@ pub struct SkillPathRefusedDetails {
 
 /// Why `skill.write_refused` refused: every method that writes refuses a plugin's skill, which is
 /// read-only, and `skill.recordReattach` refuses a record that is not orphaned.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillWriteRefusedReason {
     /// A plugin's skill is read-only.
     PluginReadOnly,
     /// The record is not orphaned.
     NotOrphaned,
-}
-
-impl SkillWriteRefusedReason {
-    /// Every reason, in declaration order.
-    pub const ALL: [Self; 2] = [Self::PluginReadOnly, Self::NotOrphaned];
 }
 
 /// The `skill.write_refused` refusal's details.
@@ -629,7 +616,7 @@ methods! {
             mutating: true,
             params: SkillAvailabilityUpdateRequest,
             result: SkillAvailabilityUpdateResponse,
-            refusals: [],
+            refusals: [SkillWriteRefused],
         },
         /// The scan a widening runs.
         SkillScan = query "skill.scan" {
@@ -650,7 +637,7 @@ methods! {
             mutating: true,
             params: SkillRecordDiscardRequest,
             result: SkillRecordDiscardResponse,
-            refusals: [],
+            refusals: [SkillWriteRefused],
         },
     ];
 }

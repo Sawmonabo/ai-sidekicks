@@ -1,7 +1,13 @@
 //! JSON Schemas of the contract types, closed so they refuse exactly the unknown members serde
-//! refuses. The TypeScript checks and an agent tool's input schema both come from here.
+//! refuses. The TypeScript checks, an agent tool's input schema and the check a received message
+//! passes before its contract reads it all come from here.
+
+use std::any::TypeId;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 use schemars::generate::SchemaSettings;
+use schemars::transform::RecursiveTransform;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde_json::{Value, json};
 
@@ -14,7 +20,80 @@ pub fn generator(contract: SchemaContract) -> SchemaGenerator {
         SchemaContract::Read => settings.for_deserialize(),
         SchemaContract::Sent => settings.for_serialize(),
     };
-    settings.into_generator()
+    settings
+        .with_transform(RecursiveTransform(enum_of_documented_words))
+        .with_transform(RecursiveTransform(discriminate_tagged_arms))
+        .into_generator()
+}
+
+/// Writes a closed set of words whose variants carry docs, which schemars spells as a `oneOf` of
+/// one `const` each, as one `enum`, so a check compares one list instead of trying every arm.
+fn enum_of_documented_words(schema: &mut Schema) {
+    let Some(Value::Array(arms)) = schema.get("oneOf") else {
+        return;
+    };
+    let words: Option<Vec<Value>> = arms
+        .iter()
+        .map(|arm| {
+            let arm = arm.as_object()?;
+            let is_word_only = arm
+                .keys()
+                .all(|key| matches!(key.as_str(), "const" | "type" | "description"));
+            let is_string = arm.get("type").is_none_or(|kind| kind == "string");
+            let word = arm.get("const").filter(|word| word.is_string())?;
+            (is_word_only && is_string).then(|| word.clone())
+        })
+        .collect();
+    let Some(words) = words.filter(|words| !words.is_empty()) else {
+        return;
+    };
+    let object = schema.ensure_object();
+    object.remove("oneOf");
+    object.insert("type".into(), "string".into());
+    object.insert("enum".into(), Value::Array(words));
+}
+
+/// Names the tag of an internally tagged union, a `oneOf` whose every arm is an object requiring
+/// one member that holds a constant, as its `discriminator`, so Ajv picks the arm by the tag.
+fn discriminate_tagged_arms(schema: &mut Schema) {
+    let Some(Value::Array(arms)) = schema.get("oneOf") else {
+        return;
+    };
+    if schema.get("discriminator").is_some() {
+        return;
+    }
+    let tag_of_arm = |arm: &Value| -> Option<Vec<String>> {
+        let required = arm.get("required")?.as_array()?;
+        let properties = arm.get("properties")?.as_object()?;
+        Some(
+            required
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|member| {
+                    properties
+                        .get(*member)
+                        .is_some_and(|property| property.get("const").is_some())
+                })
+                .map(str::to_owned)
+                .collect(),
+        )
+    };
+    let Some(mut shared) = arms.first().and_then(tag_of_arm) else {
+        return;
+    };
+    for arm in arms.iter().skip(1) {
+        let Some(tags) = tag_of_arm(arm) else {
+            return;
+        };
+        shared.retain(|tag| tags.contains(tag));
+    }
+    let [tag] = shared.as_slice() else {
+        return;
+    };
+    let tag = tag.clone();
+    schema
+        .ensure_object()
+        .insert("discriminator".into(), json!({ "propertyName": tag }));
 }
 
 /// `T`'s schema as a reader accepts it, with its definitions, closed by
@@ -24,6 +103,63 @@ pub fn closed_schema_for<T: JsonSchema>() -> serde_json::Result<Value> {
         serde_json::to_value(generator(SchemaContract::Read).into_root_schema_for::<T>())?;
     close_composite_objects(&mut schema);
     Ok(schema)
+}
+
+/// `T`'s schema as the receiving side checks it: [`closed_schema_for`] with every Ajv `$data`
+/// reference dropped by [`drop_data_references`]. Fails only where `T`'s schema does not
+/// serialize.
+pub fn received_schema_for<T: JsonSchema>() -> serde_json::Result<Value> {
+    let mut schema = closed_schema_for::<T>()?;
+    drop_data_references(&mut schema);
+    Ok(schema)
+}
+
+/// Why the check of a received type could not be built.
+#[derive(Debug, thiserror::Error)]
+pub enum ReceivedCheckError {
+    /// The type's schema does not serialize.
+    #[error(transparent)]
+    Schema(#[from] serde_json::Error),
+    /// The checker refused the type's schema.
+    #[error("the schema of {type_name} does not build a check")]
+    Build {
+        /// The type's schema name.
+        type_name: String,
+        /// The checker's refusal.
+        #[source]
+        source: Box<jsonschema::ValidationError<'static>>,
+    },
+}
+
+/// The checks built so far, one per received type; bounded by the contract types, and an ordered
+/// map, so making it draws no randomness.
+static RECEIVED_CHECKS: Mutex<BTreeMap<TypeId, Arc<jsonschema::Validator>>> =
+    Mutex::new(BTreeMap::new());
+
+/// The check a received `T` passes before serde reads it: [`received_schema_for`] compiled on
+/// first use and held for the process's life. Fails where the schema does not build a check.
+pub fn received_check<T: JsonSchema + 'static>()
+-> Result<Arc<jsonschema::Validator>, ReceivedCheckError> {
+    let type_id = TypeId::of::<T>();
+    let held = RECEIVED_CHECKS
+        .lock()
+        .expect("no holder of the checks panics")
+        .get(&type_id)
+        .cloned();
+    if let Some(check) = held {
+        return Ok(check);
+    }
+    let schema = received_schema_for::<T>()?;
+    let check = jsonschema::validator_for(&schema).map_err(|source| ReceivedCheckError::Build {
+        type_name: T::schema_name().into_owned(),
+        source: Box::new(source),
+    })?;
+    let mut checks = RECEIVED_CHECKS
+        .lock()
+        .expect("no holder of the checks panics");
+    Ok(Arc::clone(
+        checks.entry(type_id).or_insert_with(|| Arc::new(check)),
+    ))
 }
 
 /// A doc comment as a schema's `description`, as schemars writes a derived type's: each line
@@ -44,9 +180,10 @@ pub(crate) fn push_all_of(schema: &mut Schema, rule: Value) {
         .ensure_object()
         .entry("allOf")
         .or_insert_with(|| Value::Array(Vec::new()));
-    if let Value::Array(rules) = all_of {
-        rules.push(rule);
-    }
+    all_of
+        .as_array_mut()
+        .expect("JSON Schema holds `allOf` as an array")
+        .push(rule);
 }
 
 /// The schema of an object that holds `member`, its type stated in place for Ajv's strict mode.
@@ -62,6 +199,26 @@ pub(crate) fn required_member(member: &str) -> Value {
 /// kept-unknown type states `true`) is left as it is.
 pub fn close_composite_objects(schema: &mut Value) {
     close(schema, false);
+}
+
+/// Removes every keyword whose value is an Ajv `$data` reference (`{"$data": "1/count"}`): a
+/// standard checker refuses one under `maxItems` or `minimum` when it builds, and compares one
+/// under `const` as a literal, so the receiving side's copy leaves those rules to garde.
+pub fn drop_data_references(schema: &mut Value) {
+    match schema {
+        Value::Object(object) => {
+            object.retain(|_, value| !is_data_reference(value));
+            object.values_mut().for_each(drop_data_references);
+        }
+        Value::Array(items) => items.iter_mut().for_each(drop_data_references),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+fn is_data_reference(value: &Value) -> bool {
+    value
+        .as_object()
+        .is_some_and(|object| object.len() == 1 && object.contains_key("$data"))
 }
 
 fn close(schema: &mut Value, is_inside_closed: bool) {

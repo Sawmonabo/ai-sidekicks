@@ -7,18 +7,18 @@ use serde::{Deserialize, Serialize};
 use crate::color::HexColor;
 use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::preview::page::{PreviewAddress, PreviewPageId};
+use crate::session::draft::SessionAttachmentSummary;
 use crate::session::id::SessionId;
-use crate::wire::True;
 use crate::wire::attachment::Bytes;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
 use crate::wire::number::{NonNegativeNumber, Number};
-use crate::wire::text::BoundedText;
+use crate::wire::text::{BoundedText, branded_text};
 
 /// The longest note a comment or a box carries.
 pub const PREVIEW_MARK_NOTE_MAX_LEN: usize = 4096;
 
-/// A point on the page, in viewport CSS pixels.
+/// A point; the member holding it names its unit.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewPoint {
@@ -42,6 +42,11 @@ pub struct PreviewRect {
     pub height: NonNegativeNumber,
 }
 
+branded_text! {
+    /// A page snapshot's reference to one element, valid only for the snapshot that minted it.
+    pub struct PreviewElementRef(1..=usize::MAX);
+}
+
 /// The element a mark landed on, as the page snapshot taken when the mark was made names it: the
 /// snapshot's element reference and that element's box. A reference holds only for the snapshot
 /// that minted it, so its generation rides with it.
@@ -49,8 +54,7 @@ pub struct PreviewRect {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewMarkElement {
     /// The snapshot's reference to the element.
-    #[serde(rename = "ref")]
-    pub element_ref: BoundedText<1, { usize::MAX }>,
+    pub element_ref: PreviewElementRef,
     /// The element's box.
     #[serde(rename = "box")]
     pub element_box: PreviewRect,
@@ -102,7 +106,7 @@ preview_mark! {
             #[serde(deserialize_with = "crate::wire::nullable")]
             #[schemars(with = "crate::wire::NullableSchema<PreviewMarkNote>")]
             note: Option<PreviewMarkNote>,
-            /// Where it is pinned.
+            /// Where it is pinned, in viewport CSS pixels.
             point: PreviewPoint,
         },
         /// A numbered box.
@@ -118,7 +122,7 @@ preview_mark! {
         },
         /// An unnumbered freehand stroke.
         Stroke {
-            /// Its points, at least one.
+            /// Its points in viewport CSS pixels, at least one.
             points: BoundedVec<PreviewPoint, 1, { usize::MAX }>,
             /// Its sRGB color.
             color: HexColor,
@@ -126,57 +130,34 @@ preview_mark! {
     }
 }
 
-/// The media type of a frozen picture.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-pub enum PreviewPictureMediaType {
-    /// A PNG.
-    #[serde(rename = "image/png")]
-    Png,
-    /// A JPEG.
-    #[serde(rename = "image/jpeg")]
-    Jpeg,
-}
-
-/// The frozen picture the marks were drawn on, at the pixel size it was captured. It is never
-/// captured again at send, which would not match the marks.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// Sends the marks on one page to the session's provider: the daemon stages one attachment in
+/// the session's composer, the frozen picture with the marks drawn on it, the marks that exist
+/// now, the page's address and its width in CSS pixels, and it goes with the ordinary Send. An
+/// attachment whose last mark was removed is not sent, so `marks` is never empty.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PreviewMarksPicture {
-    /// The image's media type.
-    pub media_type: PreviewPictureMediaType,
-    /// The image.
-    pub data: Bytes<1, MAX_ONE_ATTACHMENT_BYTES>,
-    /// Its width in pixels.
-    pub width: SafeInt<1>,
-    /// Its height in pixels.
-    pub height: SafeInt<1>,
-}
-
-/// Sends the marks on one page to the session's provider as one attachment: the picture, the marks
-/// that exist now, the page's address and its width in CSS pixels. An attachment whose last mark
-/// was removed is not sent, so `marks` is never empty.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewMarksSendRequest {
     /// The session.
     pub session_id: SessionId,
     /// The page.
     pub page_id: PreviewPageId,
-    /// The frozen picture.
-    pub picture: PreviewMarksPicture,
-    /// The marks.
-    pub marks: BoundedVec<PreviewMark, 1, { usize::MAX }>,
+    /// The frozen picture the marks were drawn on: the page capture on the machine, the
+    /// screencast frame on another device. It is never captured again at send, which would not
+    /// match the marks.
+    pub image: Bytes<1, MAX_ONE_ATTACHMENT_BYTES>,
     /// The page's address.
     pub address: PreviewAddress,
     /// The page's width in CSS pixels when it was frozen.
-    pub page_width: SafeInt<1>,
+    pub width: SafeInt<1>,
+    /// The marks.
+    pub marks: BoundedVec<PreviewMark, 1, { usize::MAX }>,
 }
 
-/// The attachment reached the provider, in that provider's own image shape, which differs per
-/// provider, so nothing about the encoding reaches a client.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// The attachment staged in the session's composer, which reads `<N> marks on <path>`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewMarksSendResponse {
-    /// Always `true`.
-    pub delivered: True,
+    /// The staged attachment.
+    pub staged: SessionAttachmentSummary,
 }

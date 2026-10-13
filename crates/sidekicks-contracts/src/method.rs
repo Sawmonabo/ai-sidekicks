@@ -2,11 +2,14 @@
 //! module that owns it. A declaration gives a marker type the daemon registers a handler for and a
 //! table entry the TypeScript method map is generated from.
 
+use std::sync::Arc;
+
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::schema::ReceivedCheckError;
 use crate::typescript::TypeName;
 
 /// How a method answers: a `query` reads and a `mutation` changes state, each with one result; a
@@ -40,6 +43,9 @@ pub struct MethodDescriptor {
     pub emission: Option<TypeName>,
     /// The refusal codes the method answers with.
     pub refusals: &'static [RefusalCode],
+    /// The check the request's params pass before they are read, built on first use; fails where
+    /// the params' schema does not build a check.
+    pub params_check: fn() -> Result<Arc<jsonschema::Validator>, ReceivedCheckError>,
 }
 
 /// One module's methods, written to TypeScript under `name`.
@@ -140,6 +146,7 @@ macro_rules! methods {
                         result: $crate::typescript::TypeName::of::<$result>(),
                         emission: $crate::method::methods!(@emission $kind $($emission)?),
                         refusals: &[$($crate::jsonrpc::refusal::RefusalCode::$refusal),*],
+                        params_check: $crate::schema::received_check::<$params>,
                     };
             }
 
@@ -157,3 +164,20 @@ macro_rules! methods {
 }
 
 pub(crate) use methods;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_method_builds_its_params_check() {
+        let failures: Vec<String> = crate::typescript_modules()
+            .flat_map(|module| module.method_tables)
+            .flat_map(|table| table.methods)
+            .filter_map(|method| {
+                (method.params_check)()
+                    .err()
+                    .map(|error| format!("{}: {error:?}", method.method))
+            })
+            .collect();
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+}

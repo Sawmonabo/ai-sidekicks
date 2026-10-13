@@ -5,6 +5,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::agent::tree::{AgentTreeMember, ChildHandle};
 use crate::jsonrpc::refusal::RefusalCode;
@@ -206,7 +207,9 @@ pub struct ChildrenStopResponse {
 }
 
 /// Why a child control was refused.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum RunChildControlRefusedReason {
     /// The daemon's index names no such child.
@@ -217,18 +220,13 @@ pub enum RunChildControlRefusedReason {
     ProviderRefused,
 }
 
-impl RunChildControlRefusedReason {
-    /// Every reason, in declaration order.
-    pub const ALL: [Self; 3] = [Self::ChildUnknown, Self::ChildEnded, Self::ProviderRefused];
-}
-
 ts_constants! {
     /// The refusal of a child control: the daemon's index names no such child, the child has
     /// ended, or the provider refused the act. A hold lost before a continue is a result, never
     /// this refusal.
     RUN_CHILD_CONTROL_REFUSED_CODE = RefusalCode::RunChildControlRefused;
     /// Every reason a child control is refused.
-    RUN_CHILD_CONTROL_REFUSED_REASONS = RunChildControlRefusedReason::ALL;
+    RUN_CHILD_CONTROL_REFUSED_REASONS = RunChildControlRefusedReason::VARIANTS;
 }
 
 /// The details a `run.child_control_refused` refusal carries.

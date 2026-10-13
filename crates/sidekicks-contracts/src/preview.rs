@@ -1,6 +1,7 @@
 //! Preview: a session's pages and their verbs, the dev servers the daemon discovers, the marks
-//! sent to the provider, the live picture for another device, the page host's link to the desktop,
-//! and the ports shared with the person's other devices.
+//! sent to the provider, the live picture for another device and what that device sends back, the
+//! files a page saves or takes, the page host's link to the desktop, and the ports shared with the
+//! person's other devices.
 
 use crate::typescript::TypeScriptModule;
 
@@ -11,6 +12,7 @@ pub mod page;
 pub mod page_host;
 pub mod port;
 pub mod screencast;
+pub mod staging;
 
 /// The topic's TypeScript modules.
 pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[

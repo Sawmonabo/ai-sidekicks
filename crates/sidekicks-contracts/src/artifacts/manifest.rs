@@ -15,7 +15,8 @@ use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::record::JsonRecord;
+use crate::wire::record::{JsonRecord, prototype_free, prototype_free_names};
+use crate::wire::text::NonEmptyText;
 
 /// The kind of an artifact: a file, a diff, a summary, a log, a design, or the output of one
 /// workflow phase.
@@ -80,6 +81,7 @@ impl<T: JsonSchema> JsonSchema for Extensible<T> {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
+#[schemars(extend("propertyNames" = prototype_free_names()))]
 pub struct ArtifactManifest {
     /// The manifest's id.
     pub id: ArtifactId,
@@ -104,7 +106,7 @@ pub struct ArtifactManifest {
     /// The artifact's kind.
     pub artifact_type: Extensible<ArtifactType>,
     /// The payload's SHA-256 digest; a content-addressed manifest always has one.
-    pub digest: String,
+    pub digest: NonEmptyText,
     /// The payload's length in bytes, measured by the daemon rather than declared by the caller.
     pub size: SafeInt<0>,
     /// Where the manifest is in its life.
@@ -114,8 +116,8 @@ pub struct ArtifactManifest {
     /// When the manifest was written.
     #[garde(dive)]
     pub created_at: WireInstant,
-    /// Every member a newer daemon added, kept as received.
-    #[serde(flatten)]
+    /// Every member a newer daemon added, kept as received; never `__proto__`.
+    #[serde(flatten, deserialize_with = "prototype_free")]
     pub rest: Map<String, Value>,
 }
 
@@ -135,13 +137,23 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use serde::Serialize;
+    use serde::de::DeserializeOwned;
     use serde_json::{Value, json};
 
     use super::ArtifactManifest;
+    use crate::artifacts::publication::ArtifactPublicationPayload;
 
-    #[test]
-    fn a_manifest_keeps_every_member_and_value_a_newer_daemon_adds() {
-        let written = json!({
+    /// Reads `written` as `T` and writes it back, or `None` when it does not read.
+    fn round_trip<T: DeserializeOwned + Serialize>(written: Value) -> Option<Value> {
+        let read: T = serde_json::from_value(written).ok()?;
+        Some(serde_json::to_value(&read).expect("a read value writes"))
+    }
+
+    #[rstest]
+    #[case::manifest(
+        json!({
             "id": "0f2b4d5e-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
             "sessionId": "550e8400-e29b-41d4-a716-446655440000",
             "artifactType": "storyboard",
@@ -151,10 +163,28 @@ mod tests {
             "metadata": { "mediaType": "text/plain" },
             "createdAt": "2026-01-01T14:20:00.000Z",
             "addedByNewerDaemon": { "kept": true },
-        });
-        let manifest: ArtifactManifest =
-            serde_json::from_value(written.clone()).expect("a newer manifest reads");
-        let rewritten: Value = serde_json::to_value(&manifest).expect("the manifest writes");
-        assert_eq!(rewritten, written);
+        }),
+        round_trip::<ArtifactManifest>
+    )]
+    #[case::publication(
+        json!({
+            "sessionId": "550e8400-e29b-41d4-a716-446655440000",
+            "artifactId": "0f2b4d5e-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "state": "archived",
+            "addedByNewerDaemon": { "kept": true },
+        }),
+        round_trip::<ArtifactPublicationPayload>
+    )]
+    fn an_artifact_keeps_every_member_and_value_a_newer_daemon_adds_but_a_prototype(
+        #[case] written: Value,
+        #[case] round_trip: fn(Value) -> Option<Value>,
+    ) {
+        assert_eq!(round_trip(written.clone()), Some(written.clone()));
+        let mut with_prototype = written;
+        with_prototype
+            .as_object_mut()
+            .expect("an artifact is an object")
+            .insert("__proto__".to_owned(), json!({ "polluted": true }));
+        assert_eq!(round_trip(with_prototype), None);
     }
 }

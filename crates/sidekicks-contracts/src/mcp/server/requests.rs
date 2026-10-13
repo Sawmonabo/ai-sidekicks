@@ -7,22 +7,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::mcp::server::config::{
     MCP_REQUEST_TEXT_MAX_LEN, McpRequestText, McpServerAddress, McpServerConfigInput,
-    is_request_address,
+    add_provider_config_rules, is_request_address,
 };
 use crate::mcp::server::inventory::{
     McpRuntimeBindingId, McpServerInventoryEntry, McpServerLegStatus, McpToolOverride,
     McpToolOverrideFacet,
 };
-use crate::mcp::server::{McpApplicationGrade, McpToolName, binding_addressed};
-use crate::provider::driver::length_limits::DRIVER_BINDING_ID_MAX_LEN;
+use crate::mcp::server::{McpApplicationGrade, McpProjectRoot, McpToolName, binding_addressed};
 use crate::session::id::SessionId;
 use crate::web_address::WebAddress;
 use crate::wire::id::ClientUuid;
-use crate::wire::literal;
-use crate::wire::text::{BoundedText, FreeFormText};
-
-/// Text with at least one character and no other rule, as the registry and the daemon fill it.
-pub type McpNonEmptyText = BoundedText<1, { usize::MAX }>;
+use crate::wire::record::JsonRecord;
+use crate::wire::text::NonEmptyText;
+use crate::wire::{Never, literal};
 
 /// Reads the whole inventory; `refresh` asks the daemon to probe before answering.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -41,7 +38,10 @@ pub struct McpListRequest {
 binding_addressed! {
     /// Adds a binding or changes its declaration, at any writable scope on either provider. Every
     /// scope takes what the person typed, values included, written in that provider's own file
-    /// format; a plugin's server is refused.
+    /// format; a plugin's, connector's or organization's server is refused. A member only Codex
+    /// reads is refused on a Claude Code binding, and `sse` on a Codex one.
+    #[garde(custom(Self::fits_its_provider))]
+    #[schemars(transform = add_provider_config_rules)]
     pub enum McpUpsertServerRequest in writable scopes {
         /// The press's key; a retry reuses it.
         client_idempotency_key: ClientUuid,
@@ -51,9 +51,26 @@ binding_addressed! {
     }
 }
 
+impl McpUpsertServerRequest {
+    /// Whether the declaration fits the binding's provider.
+    fn fits_its_provider(&self, _: &()) -> garde::Result {
+        let (Self::User {
+            provider, config, ..
+        }
+        | Self::Project {
+            provider, config, ..
+        }
+        | Self::Local {
+            provider, config, ..
+        }) = self;
+        config.check_provider(*provider)
+    }
+}
+
 binding_addressed! {
     /// Removes a binding from its provider's config. A plugin's server leaves only with its
-    /// plugin, so it is refused.
+    /// plugin, and a connector or an organization's server only with Claude Code's own account or
+    /// settings, so each is refused.
     pub enum McpRemoveServerRequest in writable scopes {
         /// The press's key; a retry reuses it.
         client_idempotency_key: ClientUuid,
@@ -61,12 +78,28 @@ binding_addressed! {
 }
 
 binding_addressed! {
-    /// Turns one binding on or off.
+    /// Turns one binding on or off. A connector or an organization's server is switched for one
+    /// project, `projectRoot`, by the daemon's own switch, never in Claude Code's config; every
+    /// other binding is switched where it applies and takes no `projectRoot`.
     pub enum McpSetEnabledRequest in every scope {
         /// The press's key; a retry reuses it.
         client_idempotency_key: ClientUuid,
         /// On or off.
         enabled: bool,
+    }
+    on connector and managed {
+        /// The project the switch applies in.
+        project_root: McpProjectRoot,
+    }
+    elsewhere {
+        /// Never present: the binding is switched where it applies.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        project_root: Option<Never>,
     }
 }
 
@@ -106,7 +139,10 @@ binding_addressed! {
 /// binding naming it share. `serverId` is the server's address, not a scope-qualified binding.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct McpOauthLogoutRequest {
+    /// The press's key; a retry reuses it.
+    pub client_idempotency_key: ClientUuid,
     /// The server's address.
     #[garde(custom(is_request_address))]
     #[schemars(extend("maxLength" = MCP_REQUEST_TEXT_MAX_LEN))]
@@ -132,8 +168,8 @@ binding_addressed! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<DRIVER_BINDING_ID_MAX_LEN>")]
-        binding_id: Option<FreeFormText<DRIVER_BINDING_ID_MAX_LEN>>,
+        #[schemars(with = "McpRuntimeBindingId")]
+        binding_id: Option<McpRuntimeBindingId>,
     }
 }
 
@@ -251,7 +287,7 @@ pub struct McpRemoveServerResult {
 
 literal! {
     /// The grade an interrupted-call class takes: always enforced at the daemon, at once.
-    pub enum McpDaemonEnforcedGrade = "daemon_enforced";
+    pub enum McpDaemonEnforcedGrade = const McpApplicationGrade::DaemonEnforced.as_str();
 }
 
 /// One tool override's result, per facet it touched. A Codex `enabled` or `approvalMode` facet is
@@ -329,7 +365,7 @@ pub struct McpRegistryPackage {
     /// The package registry, such as `npm`.
     pub registry_type: String,
     /// The package's name there.
-    pub identifier: McpNonEmptyText,
+    pub identifier: NonEmptyText,
     /// The runtime that runs it, such as `npx`.
     #[serde(
         default,
@@ -338,8 +374,15 @@ pub struct McpRegistryPackage {
     )]
     #[schemars(with = "String")]
     pub runtime_hint: Option<String>,
-    /// The runtime's arguments.
-    pub runtime_arguments: Vec<String>,
+    /// The runtime's arguments, each as the registry describes it (its kind, name, value and
+    /// whether it is required).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Vec<JsonRecord>")]
+    pub runtime_arguments: Option<Vec<JsonRecord>>,
 }
 
 /// A registry server reached at an address.
@@ -358,7 +401,7 @@ pub struct McpRegistryRemote {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct McpRegistryEnvironmentVariable {
     /// The variable's name.
-    pub name: McpNonEmptyText,
+    pub name: NonEmptyText,
     /// What it is for.
     #[serde(
         default,
@@ -377,7 +420,7 @@ pub struct McpRegistryEnvironmentVariable {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct McpRegistryServer {
     /// The server's registry name.
-    pub name: McpNonEmptyText,
+    pub name: NonEmptyText,
     /// The name a person reads.
     #[serde(
         default,
@@ -390,10 +433,22 @@ pub struct McpRegistryServer {
     pub description: String,
     /// Its version.
     pub version: String,
-    /// The packages it runs as.
-    pub packages: Vec<McpRegistryPackage>,
-    /// The addresses it is reached at.
-    pub remotes: Vec<McpRegistryRemote>,
+    /// The packages it runs as, where it runs as one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Vec<McpRegistryPackage>")]
+    pub packages: Option<Vec<McpRegistryPackage>>,
+    /// The addresses it is reached at, where it is reached at one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Vec<McpRegistryRemote>")]
+    pub remotes: Option<Vec<McpRegistryRemote>>,
     /// The environment variables it reads.
     pub environment_variables: Vec<McpRegistryEnvironmentVariable>,
 }
@@ -410,6 +465,6 @@ pub struct McpRegistrySearchResponse {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "McpNonEmptyText")]
-    pub next_cursor: Option<McpNonEmptyText>,
+    #[schemars(with = "NonEmptyText")]
+    pub next_cursor: Option<NonEmptyText>,
 }

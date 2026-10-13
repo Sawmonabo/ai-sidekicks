@@ -18,7 +18,7 @@ use crate::wire::Never;
 use crate::wire::attachment::Bytes;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt, SafeSignedInt};
-use crate::wire::text::ComposedText;
+use crate::wire::text::{ComposedText, NonEmptyText};
 
 /// Asks for the artifacts of one session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -188,7 +188,7 @@ artifact_read_arm! {
     /// ranged reads.
     ArtifactReadDeferred {
         /// The content-store key or address for the payload.
-        pub payload_handle: String,
+        pub payload_handle: NonEmptyText,
         /// Absent: this arm carries no bytes.
         #[serde(
             default,
@@ -209,8 +209,8 @@ artifact_read_arm! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "String")]
-        pub payload_handle: Option<String>,
+        #[schemars(with = "NonEmptyText")]
+        pub payload_handle: Option<NonEmptyText>,
         /// The bytes.
         pub payload: Bytes<0, MAX_ONE_ATTACHMENT_BYTES>,
     }

@@ -16,7 +16,7 @@ use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::release_manifest::ReleaseVersion;
 use crate::service_place::ServicePlaceLocation;
-use crate::typescript::{Definition, TypeScriptModule};
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
@@ -31,8 +31,10 @@ pub const BACKUP_DATABASE_FILE_NAME: &str = "daemon.db";
 /// The folder backups go to inside the service's data folder when the person picked none.
 pub const BACKUP_DEFAULT_FOLDER_NAME: &str = "backups";
 
-/// The longest backup id or computer name accepted, in code points.
-pub const BACKUP_LABEL_MAX_LEN: usize = 256;
+ts_constants! {
+    /// The longest backup id or computer name accepted, in code points.
+    pub const BACKUP_LABEL_MAX_LEN: usize = 256;
+}
 
 /// One backup's id, minted by the service when it writes the backup. Opaque to every client.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -226,6 +228,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<BackupFailedPayload>().checked(),
         Definition::read::<BackupRestoredPayload>().checked(),
     ],
-    constants: &[],
+    constants: TS_CONSTANTS,
     method_tables: &[&DAEMON_BACKUP_METHOD_DESCRIPTORS],
 };

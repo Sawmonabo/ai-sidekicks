@@ -4,25 +4,25 @@
 //! verb here appends an event. `AgentId` lives here beside the definition's id because every
 //! other agent module imports it.
 
-use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::fmt;
 
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::de::Error as _;
-use serde::{Deserialize, Deserializer, Serialize};
+use schemars::{JsonSchema, Schema};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::internal::branded::branded_uuid_id;
+use crate::jsonrpc::refusal::RefusalCode;
 use crate::project::ProjectId;
 use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
 use crate::schema::{push_all_of, required_member};
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::inline_scalar_definition;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
-use crate::wire::record::JsonRecord;
-use crate::wire::text::{BoundedText, FreeFormText};
+use crate::wire::record::{JsonRecord, Record};
+use crate::wire::text::{FreeFormText, NonEmptyText};
 
 pub mod binding;
 pub mod refusal;
@@ -33,6 +33,8 @@ use binding::{AgentDefinitionBindings, AgentListedBindings, AgentProviderBinding
 ts_constants! {
     /// The longest reason text a refusal or a load failure carries.
     pub const AGENT_REASON_MAX_LEN: usize = 1024;
+    /// A definition that exists but cannot produce a runnable agent now.
+    AGENT_RESOLUTION_REFUSED_CODE = RefusalCode::AgentResolutionRefused;
     /// The agent hue wheel's twelve steps by token name, in wheel order.
     pub const AGENT_ACCENT_HUES: [AgentAccentHue; 12] = [
         AgentAccentHue::Hue00,
@@ -54,6 +56,27 @@ branded_uuid_id! {
     /// A saved definition's daemon-minted id, never its name, so a rename orphans no stored
     /// reference.
     AgentDefinitionId
+}
+
+/// A definition id names a member of a record keyed by definition.
+impl AsRef<str> for AgentDefinitionId {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+/// A definition id as a check's report names the member it keys.
+impl fmt::Display for AgentDefinitionId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// A record keyed by definition reports a failed value under its id.
+impl garde::error::PathComponentKind for AgentDefinitionId {
+    fn component_kind() -> garde::error::Kind {
+        garde::error::Kind::Key
+    }
 }
 
 branded_uuid_id! {
@@ -136,52 +159,9 @@ pub struct AgentHookGroup {
     pub hooks: BoundedVec<JsonRecord, 1, { usize::MAX }>,
 }
 
-/// The one event name hooks refuse, since a JavaScript object reads it as its prototype.
-const PROTOTYPE_KEY: &str = "__proto__";
-
 /// An agent's own hooks in Claude Code's shape, the form an agent file's `hooks` key holds: per
 /// event name, the matcher groups.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(transparent)]
-pub struct AgentHooks(BTreeMap<String, Vec<AgentHookGroup>>);
-
-impl AgentHooks {
-    /// The groups per event name.
-    pub fn as_map(&self) -> &BTreeMap<String, Vec<AgentHookGroup>> {
-        &self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for AgentHooks {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let events = BTreeMap::<String, Vec<AgentHookGroup>>::deserialize(deserializer)?;
-        for event in events.keys() {
-            if event == PROTOTYPE_KEY {
-                return Err(D::Error::custom("hooks have no `__proto__` event"));
-            }
-            ToolName::new(event.clone()).map_err(D::Error::custom)?;
-        }
-        Ok(Self(events))
-    }
-}
-
-impl JsonSchema for AgentHooks {
-    fn schema_name() -> Cow<'static, str> {
-        "AgentHooks".into()
-    }
-
-    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({
-            "description": "An agent's own hooks in Claude Code's shape: per event name, the \
-                            matcher groups.",
-            "type": "object",
-            "propertyNames": {
-                "allOf": [ToolName::json_schema(generator), { "not": { "const": PROTOTYPE_KEY } }],
-            },
-            "additionalProperties": generator.subschema_for::<Vec<AgentHookGroup>>(),
-        })
-    }
-}
+pub type AgentHooks = Record<ToolName, Vec<AgentHookGroup>>;
 
 /// Whether a definition belongs to every project or to one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -289,8 +269,8 @@ macro_rules! definition_record {
             pub description: String,
             /// A glyph key from the app's icon set; `null` is the generic agent mark.
             #[serde(deserialize_with = "crate::wire::nullable")]
-            #[schemars(with = "crate::wire::NullableSchema<BoundedText<1, { usize::MAX }>>")]
-            pub icon: Option<BoundedText<1, { usize::MAX }>>,
+            #[schemars(with = "crate::wire::NullableSchema<NonEmptyText>")]
+            pub icon: Option<NonEmptyText>,
             /// One step of the hue wheel; `null` is no chosen hue.
             #[serde(deserialize_with = "crate::wire::nullable")]
             #[schemars(with = "crate::wire::NullableSchema<AgentAccentHue>")]
@@ -427,13 +407,16 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AgentMemoryScope>().checked(),
         Definition::read::<AgentAccentHue>(),
         Definition::read::<AgentHookGroup>(),
-        Definition::read::<AgentHooks>().checked(),
+        inline_scalar_definition!(
+            AgentHooks,
+            "AgentHooks",
+            "An agent's own hooks in Claude Code's shape: per event name, the matcher groups."
+        ),
         Definition::read::<AgentDefinitionScope>(),
         Definition::read::<AgentDefinitionOrigin>(),
         Definition::read::<AgentDefinition>(),
         Definition::read::<AgentDefinitionListEntry>().checked(),
         Definition::read::<AgentResolvedConfiguration>().checked(),
-        Definition::read::<requests::AgentDefinitionListRequest>().checked(),
         Definition::read::<requests::AgentDefinitionListResponse>().checked(),
         Definition::read::<requests::AgentDefinitionCreateRequest>().checked(),
         Definition::read::<requests::AgentDefinitionCreateResponse>().checked(),
@@ -446,6 +429,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<requests::AgentDefinitionImportRequest>().checked(),
         Definition::read::<requests::SkippedImportFile>(),
         Definition::read::<requests::AgentDefinitionImportResponse>().checked(),
+        Definition::read::<refusal::AgentResolutionRefusedCode>(),
         Definition::read::<refusal::AgentExportWriteFailedDetails>(),
         Definition::read::<refusal::AgentResolutionRefusedDetails>().checked(),
         Definition::read::<refusal::AgentUpdateRefusedReason>(),

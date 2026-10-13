@@ -18,8 +18,8 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{SafeInt, SafeSignedInt};
-use crate::wire::list::unique_by;
-use crate::wire::text::{BoundedText, branded_text};
+use crate::wire::list::{ListKey, UniqueList};
+use crate::wire::text::{NonEmptyText, branded_text};
 use crate::wire::{False, True};
 
 ts_constants! {
@@ -37,7 +37,7 @@ branded_text! {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CommandPrompt {
     /// The prompt's words.
-    pub text: BoundedText<1, { usize::MAX }>,
+    pub text: NonEmptyText,
 }
 
 /// One running command in a session, as every device draws its row.
@@ -50,7 +50,7 @@ pub struct RunningCommand {
     /// The run that started it.
     pub run_id: RunId,
     /// The command as the agent ran it.
-    pub name: BoundedText<1, { usize::MAX }>,
+    pub name: NonEmptyText,
     /// When it started.
     #[garde(dive)]
     pub started_at: WireInstant,
@@ -98,8 +98,8 @@ pub enum CommandListFrame {
         #[garde(skip)]
         session_id: SessionId,
         /// The commands, in start order.
-        #[garde(dive, custom(unique_by(|command: &RunningCommand| command.command_id.clone())))]
-        commands: Vec<RunningCommand>,
+        #[garde(dive)]
+        commands: UniqueList<RunningCommand, 0, { usize::MAX }>,
     },
     /// A piece of one command's output.
     Output {
@@ -178,8 +178,8 @@ pub struct CommandWriteRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "BoundedText<1, { usize::MAX }>")]
-    pub text: Option<BoundedText<1, { usize::MAX }>>,
+    #[schemars(with = "NonEmptyText")]
+    pub text: Option<NonEmptyText>,
     /// Whether the input ends after the text.
     #[serde(
         default,
@@ -300,14 +300,14 @@ methods! {
             mutating: true,
             params: CommandBackgroundRequest,
             result: CommandBackgroundResponse,
-            refusals: [],
+            refusals: [DriverCapabilityUnsupported, CommandNotInForeground],
         },
         /// Writes input to a command, ends its input, or both.
         CommandWrite = mutation "command.write" {
             mutating: true,
             params: CommandWriteRequest,
             result: NullPayload,
-            refusals: [],
+            refusals: [CommandTakesNoInput],
         },
     ];
 }
@@ -334,3 +334,15 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[&COMMAND_METHOD_DESCRIPTORS],
 };
+
+impl ListKey for RunningCommand {
+    type Key = CommandId;
+
+    fn list_key(&self) -> CommandId {
+        self.command_id.clone()
+    }
+
+    fn validate_item(&self, parent: &mut dyn FnMut() -> garde::Path, report: &mut garde::Report) {
+        garde::Validate::validate_into(self, &(), parent, report);
+    }
+}

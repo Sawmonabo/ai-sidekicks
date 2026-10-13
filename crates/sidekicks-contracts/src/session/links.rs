@@ -117,21 +117,21 @@ methods! {
             params: SessionRelatedListRequest,
             result: SubscribeAckResponse,
             emission: SessionRelatedListUpdate,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Adds a `related` link.
         SessionLinkAdd = mutation "session.linkAdd" {
             mutating: true,
             params: SessionLinkRequest,
             result: SessionVerbResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Removes a `related` link.
         SessionLinkRemove = mutation "session.linkRemove" {
             mutating: true,
             params: SessionLinkRequest,
             result: SessionVerbResponse,
-            refusals: [SessionLinkNotRemovable],
+            refusals: [SessionNotFound, SessionLinkNotRemovable],
         },
     ];
 }

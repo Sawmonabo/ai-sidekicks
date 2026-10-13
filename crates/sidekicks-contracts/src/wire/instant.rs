@@ -46,6 +46,35 @@ impl WireInstant {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// The instant's milliseconds since the Unix epoch, its fraction past the ninth digit dropped
+    /// first since a timestamp holds nanoseconds; `None` where it does not parse, as `Date.parse`
+    /// answers NaN.
+    pub fn unix_millisecond(&self) -> Option<i64> {
+        let instant = self.0.as_str();
+        let trimmed = match instant.find('.').map(|dot| dot + 1) {
+            Some(start) => {
+                let digit_count = instant[start..]
+                    .bytes()
+                    .take_while(u8::is_ascii_digit)
+                    .count();
+                if digit_count > 9 {
+                    format!(
+                        "{}{}",
+                        &instant[..start + 9],
+                        &instant[start + digit_count..]
+                    )
+                } else {
+                    instant.to_owned()
+                }
+            }
+            None => instant.to_owned(),
+        };
+        trimmed
+            .parse::<jiff::Timestamp>()
+            .ok()
+            .map(jiff::Timestamp::as_millisecond)
+    }
 }
 
 impl JsonSchema for WireInstant {

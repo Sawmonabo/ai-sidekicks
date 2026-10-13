@@ -148,6 +148,10 @@ refusal_codes! {
     ChannelNoCommonProfile = "channel.no_common_profile" (426);
     /// Sending to the cloud refused because this session cannot use its provider's cloud.
     CloudUnavailable = "cloud.unavailable" (403);
+    /// `command.background` named a command that is not waiting in the foreground.
+    CommandNotInForeground = "command.not_in_foreground" (409);
+    /// `command.write` named a command that takes no input and has no prompt open.
+    CommandTakesNoInput = "command.takes_no_input" (409);
     /// A branch-name pattern refused at save, from `daemon.machineSettingsUpdate` (`Every
     /// project`'s `Branch names`) or `repo.projectBranchPatternUpdate`, one rule for both.
     DaemonBranchPatternRefused = "daemon.branch_pattern_refused" (422);
@@ -192,6 +196,8 @@ refusal_codes! {
     InvalidParams = "invalid_params" ();
     /// The handler's result failed the method's result check: a daemon fault, never the client's.
     InvalidResult = "invalid_result" ();
+    /// The MCP binding store cannot be read, so every MCP change fails closed until it can.
+    McpBindingStoreUnavailable = "mcp.binding_store_unavailable" (503);
     /// The submitted server configuration failed validation.
     McpConfigInvalid = "mcp.config_invalid" (400);
     /// A Codex config write lost to a concurrent edit, on either arm: a `user`-scope write's
@@ -203,6 +209,8 @@ refusal_codes! {
     /// No server with the requested `(provider, scope, scopeRef, serverName)` binding exists in the
     /// unified inventory.
     McpServerNotFound = "mcp.server_not_found" (404);
+    /// The server is off or not working, so it cannot answer a read of its resources.
+    McpServerUnavailable = "mcp.server_unavailable" (409);
     /// The request names a method the daemon does not register; no handler runs.
     MethodNotFound = "method_not_found" ();
     /// An address Preview will not open.
@@ -287,6 +295,8 @@ refusal_codes! {
     /// subscription, another connection's, or one to another shell, which the refusal never tells
     /// apart.
     PtyOutputSubscriptionNotFound = "pty.output_subscription_not_found" (404);
+    /// `question.resolve` was sent answers that do not cover every question of the record.
+    QuestionAnswersIncomplete = "question.answers_incomplete" (422);
     /// A change to a waiting message refused: a removal (`run.queueCancel`) or an edit
     /// (`run.queueCreate` with `replacesQueueItemId`) of a message the agent has already taken, a
     /// removal or an edit of one Claude Code did not give back, its withdraw failing or passing the

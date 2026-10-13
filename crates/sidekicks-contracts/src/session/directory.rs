@@ -7,11 +7,12 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::agent::definition::binding::{AgentProviderBinding, ProviderToken};
+use crate::agent::definition::binding::{AgentProviderBinding, provider_binding};
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::jsonrpc::page::fits_one_page;
 use crate::jsonrpc::streaming::{SubscribeAckResponse, SubscriptionId};
 use crate::method::methods;
+use crate::method_descriptor::EmptyPayload;
 use crate::project::ProjectId;
 use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
 use crate::provider::name::ProviderName;
@@ -24,12 +25,13 @@ use crate::session::methods::{
     SessionShape, SessionState, SessionStreamFrame, SessionSubscribeRequest,
 };
 use crate::session::name::SESSION_NAME_MAX_LEN;
-use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::Never;
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
+use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
+use crate::wire::{Never, literal};
 use crate::worktree::lifecycle::WorktreeId;
 
 /// What a session is doing, as the daemon derives it: exactly one of five, and no client invents a
@@ -52,9 +54,11 @@ pub enum SessionActivity {
 
 /// How often the daemon republishes a quiet running or waiting session's entry.
 pub const SESSION_ACTIVITY_RENEW_INTERVAL_MS: i64 = 15_000;
-/// How old a `running` or `waiting` reading may be before a reader stops believing it: three
-/// missed renewals, so a daemon that stopped publishing never leaves a row claiming work.
-pub const SESSION_ACTIVITY_STALE_AFTER_MS: i64 = 45_000;
+ts_constants! {
+    /// How old a `running` or `waiting` reading may be before a reader stops believing it: three
+    /// missed renewals, so a daemon that stopped publishing never leaves a row claiming work.
+    pub const SESSION_ACTIVITY_STALE_AFTER_MS: i64 = 45_000;
+}
 
 /// The activity a reader shows at `now_ms` (milliseconds since the Unix epoch) for an entry whose
 /// `activity` was renewed at `activity_renewed_at`: a `running` or `waiting` reading renewed longer
@@ -71,41 +75,12 @@ pub fn session_activity_as_of(
     ) {
         return activity;
     }
-    match renewed_at_ms(activity_renewed_at.as_str()) {
+    match activity_renewed_at.unix_millisecond() {
         Some(renewed_ms) if now_ms - renewed_ms > SESSION_ACTIVITY_STALE_AFTER_MS => {
             SessionActivity::Idle
         }
         _ => activity,
     }
-}
-
-/// An instant's milliseconds since the Unix epoch, its fraction past the ninth digit dropped
-/// first since a timestamp holds nanoseconds; `None` where it does not parse, as `Date.parse`
-/// answers NaN.
-fn renewed_at_ms(instant: &str) -> Option<i64> {
-    let fraction_start = instant.find('.').map(|dot| dot + 1);
-    let trimmed = match fraction_start {
-        Some(start) => {
-            let digit_count = instant[start..]
-                .bytes()
-                .take_while(u8::is_ascii_digit)
-                .count();
-            if digit_count > 9 {
-                format!(
-                    "{}{}",
-                    &instant[..start + 9],
-                    &instant[start + digit_count..]
-                )
-            } else {
-                instant.to_owned()
-            }
-        }
-        None => instant.to_owned(),
-    };
-    trimmed
-        .parse::<jiff::Timestamp>()
-        .ok()
-        .map(jiff::Timestamp::as_millisecond)
 }
 
 /// The line a session's row shows in place of its branch or document count while it trades
@@ -247,11 +222,6 @@ pub enum SessionListEntry {
     Chat(#[garde(dive)] SessionListChatEntry),
 }
 
-/// `session.list` takes no members: the list is every session on this machine.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SessionListRequest {}
-
 /// `session.list`'s acknowledgement: the subscription, the first page of every session as it
 /// stands, and `chatCount`, the chats in the live list as the daemon counts them, so no reader
 /// counts. While `isComplete` is false the rest of the list follows as `page` changes, before any
@@ -285,9 +255,8 @@ pub enum SessionListChange {
     /// A further page of the opening list.
     Page {
         /// The sessions, at least one.
-        #[garde(length(min = 1), dive, custom(fits_one_page))]
-        #[schemars(length(min = 1))]
-        sessions: Vec<SessionListEntry>,
+        #[garde(dive, custom(fits_one_page))]
+        sessions: BoundedVec<SessionListEntry, 1, { usize::MAX }>,
         /// The chats in the live list.
         chat_count: SafeInt<0>,
         /// Whether the list is now whole.
@@ -310,22 +279,11 @@ pub enum SessionListChange {
     },
 }
 
-/// The `chat` word of a binding.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[schemars(inline)]
-pub enum ChatBindingKind {
-    /// The one value.
-    #[serde(rename = "chat")]
-    Value,
-}
-
-/// The `project` word of a binding.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[schemars(inline)]
-pub enum ProjectBindingKind {
-    /// The one value.
-    #[serde(rename = "project")]
-    Value,
+literal! {
+    /// The `chat` word of a binding.
+    pub enum ChatBindingKind = "chat";
+    /// The `project` word of a binding.
+    pub enum ProjectBindingKind = "project";
 }
 
 /// A chat works in a managed workspace the daemon makes for it in the same step.
@@ -359,35 +317,12 @@ pub enum SessionBinding {
     Project(SessionProjectBinding),
 }
 
-/// The lead as the app chose it: its provider, model and effort, and its output speed where one
-/// was picked. It names no account: the daemon resolves that.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SessionLead {
-    /// The provider.
-    pub driver_name: ProviderName,
-    /// The model.
-    pub model_id: ProviderToken,
-    /// The effort, or `null` for the driver's default.
-    #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<ProviderToken>")]
-    pub effort: Option<ProviderToken>,
-    /// The output speed.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "ProviderToken")]
-    pub output_speed: Option<ProviderToken>,
-    /// The larger context window.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "SafeInt<1>")]
-    pub larger_window: Option<SafeInt<1>>,
+provider_binding! {
+    /// The lead as the app chose it: its provider, model and effort, and its output speed where one
+    /// was picked. It names no account: the daemon resolves that.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct SessionLead {}
 }
 
 /// `session.create` for a project session, which may be filed in a group of its project.
@@ -621,12 +556,17 @@ methods! {
             mutating: true,
             params: SessionCreateRequest,
             result: SessionCreateResponse,
-            refusals: [RepoNotFound, SessionGroupRefused],
+            refusals: [
+                RepoNotFound,
+                SessionGroupRefused,
+                ProvideraccountNoDefault,
+                ProvideraccountNotRegistered,
+            ],
         },
         /// Follows the sessions list.
         SessionList = subscription "session.list" {
             mutating: false,
-            params: SessionListRequest,
+            params: EmptyPayload,
             result: SessionListAck,
             emission: SessionListChange,
             refusals: [],
@@ -637,14 +577,22 @@ methods! {
             params: SessionSubscribeRequest,
             result: SubscribeAckResponse,
             emission: SessionStreamFrame,
-            refusals: [],
+            refusals: [SessionNotFound, EventCursorUnresolvable],
         },
         /// Converts a chat to a project.
         SessionConvert = mutation "session.convert" {
             mutating: true,
             params: SessionConvertRequest,
             result: SessionConvertResponse,
-            refusals: [SessionConvertRefused, SessionConvertIncomplete, SessionChangeRefused],
+            refusals: [
+                SessionNotFound,
+                SessionAlreadyClosed,
+                SessionChangeRefused,
+                SessionConvertRefused,
+                SessionConvertIncomplete,
+                RepoRootResolutionFailed,
+                RepoAlreadyAttached,
+            ],
         },
         /// Forks a session from a message.
         SessionFork = mutation "session.fork" {
@@ -658,7 +606,14 @@ methods! {
             mutating: true,
             params: SessionSetWorkingFolderRequest,
             result: SessionSetWorkingFolderResponse,
-            refusals: [RepoMountManaged, SessionWorkingFolderUnavailable],
+            refusals: [
+                SessionNotFound,
+                RepoMountManaged,
+                SessionWorkingFolderUnavailable,
+                RepoRootResolutionFailed,
+                RepoOutsideTrustEnvelope,
+                WorkspaceStale,
+            ],
         },
         /// The terminal pane's held read.
         SessionOverviewRead = query "session.overviewRead" {
@@ -681,7 +636,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionExchange>(),
         Definition::read::<SessionListGroup>(),
         Definition::read::<SessionListEntry>(),
-        Definition::read::<SessionListRequest>().checked(),
         Definition::read::<SessionListAck>().checked(),
         Definition::read::<SessionListChange>().checked(),
         Definition::read::<SessionChatBinding>(),
@@ -701,7 +655,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RemoteControlState>(),
         Definition::read::<SessionOverviewReadResponse>().checked(),
     ],
-    constants: &[],
+    constants: TS_CONSTANTS,
     method_tables: &[&SESSION_DIRECTORY_METHOD_DESCRIPTORS],
 };
 

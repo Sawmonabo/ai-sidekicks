@@ -26,11 +26,20 @@ pub fn is_ecmascript_whitespace(character: char) -> bool {
     )
 }
 
+/// The body of a regex class holding ECMAScript's `\s` set, spelled out so Rust's `regex` and
+/// ECMAScript read it alike; it goes inside `concat!` in a pattern.
+macro_rules! ecmascript_whitespace {
+    () => {
+        "\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff"
+    };
+}
+
+pub(crate) use ecmascript_whitespace;
+
 /// A pattern Rust's `regex` and ECMAScript read alike: text with no NUL and at least one character
 /// outside ECMAScript's `\s` set.
-const NON_BLANK_NUL_FREE_PATTERN: &str = "^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\
-                                          \\u2000-\\u200a\
-                                          \\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$";
+pub(crate) const NON_BLANK_NUL_FREE_PATTERN: &str =
+    concat!("^[^\\x00]*[^\\x00", ecmascript_whitespace!(), "][^\\x00]*$");
 
 /// Why a text was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -64,7 +73,7 @@ impl<const MAX: usize> FreeFormText<MAX> {
         if text.chars().all(is_ecmascript_whitespace) {
             return Err(TextError::Blank);
         }
-        if MAX != usize::MAX && text.chars().nth(MAX).is_some() {
+        if !is_within_length(&text, 0, MAX) {
             return Err(TextError::OverCap { cap: MAX });
         }
         Ok(Self(text))
@@ -235,7 +244,7 @@ impl<const MAX: usize> NulFreeText<MAX> {
         if text.contains('\0') {
             return Err(TextError::HoldsNul);
         }
-        if text.chars().nth(MAX).is_some() {
+        if !is_within_length(&text, 0, MAX) {
             return Err(TextError::OverCap { cap: MAX });
         }
         Ok(Self(text))
@@ -432,9 +441,7 @@ pub(crate) use branded_text;
 pattern_text! {
     /// Text holding at least one character outside ECMAScript's `\s` set; unlike free-form text it
     /// may hold a NUL.
-    pub struct NonBlankText(
-        "[^\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]"
-    );
+    pub struct NonBlankText(concat!("[^", ecmascript_whitespace!(), "]"));
 }
 
 #[cfg(test)]

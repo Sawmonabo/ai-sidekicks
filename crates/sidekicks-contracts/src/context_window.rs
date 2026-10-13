@@ -2,12 +2,15 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 
 /// Where a context window's figures came from: the provider reported them, or the window is the
 /// model's declared default.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ContextWindowSource {
     /// The provider reported the figures.
@@ -16,14 +19,9 @@ pub enum ContextWindowSource {
     ModelDefault,
 }
 
-impl ContextWindowSource {
-    /// Every source.
-    pub const ALL: &[Self] = &[Self::ProviderReported, Self::ModelDefault];
-}
-
 ts_constants! {
     /// Every [`ContextWindowSource`].
-    CONTEXT_WINDOW_SOURCES = ContextWindowSource::ALL;
+    CONTEXT_WINDOW_SOURCES = ContextWindowSource::VARIANTS;
 }
 
 /// The TypeScript module of the context window's source.

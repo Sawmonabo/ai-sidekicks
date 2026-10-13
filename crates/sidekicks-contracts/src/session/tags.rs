@@ -41,14 +41,14 @@ methods! {
             mutating: true,
             params: SessionTagRequest,
             result: SessionVerbResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Removes a tag from a session.
         SessionTagRemove = mutation "session.tagRemove" {
             mutating: true,
             params: SessionTagRequest,
             result: SessionVerbResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Lists the tags in use.
         SessionTagList = query "session.tagList" {

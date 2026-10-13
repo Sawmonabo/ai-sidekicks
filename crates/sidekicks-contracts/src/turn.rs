@@ -12,10 +12,12 @@ use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
-use crate::wire::text::BoundedText;
+use crate::wire::text::{NonEmptyText, branded_text};
 
-/// A provider's id of one turn.
-pub type ProviderTurnId = BoundedText<1, { usize::MAX }>;
+branded_text! {
+    /// A provider's id of one turn.
+    pub struct ProviderTurnId(1..=usize::MAX);
+}
 
 /// The run whose current turn a `turn.*` subscription follows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -58,7 +60,7 @@ pub enum TurnTaskState {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TurnTask {
     /// The task.
-    pub text: BoundedText<1, { usize::MAX }>,
+    pub text: NonEmptyText,
     /// Where it stands.
     pub state: TurnTaskState,
 }
@@ -86,7 +88,7 @@ methods! {
             params: TurnSubscribeRequest,
             result: SubscribeAckResponse,
             emission: TurnUsageUpdate,
-            refusals: [],
+            refusals: [SessionNotFound, RunNotFound],
         },
         /// The turn's task list.
         TurnTasks = subscription "turn.tasks" {
@@ -94,7 +96,7 @@ methods! {
             params: TurnSubscribeRequest,
             result: SubscribeAckResponse,
             emission: TurnTasksUpdate,
-            refusals: [],
+            refusals: [SessionNotFound, RunNotFound],
         },
     ];
 }
@@ -105,6 +107,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "What the working line reads about one turn: the tokens received so far and the agent's \
           own task list.",
     definitions: &[
+        Definition::read::<ProviderTurnId>(),
         Definition::read::<TurnSubscribeRequest>().checked(),
         Definition::read::<TurnUsageUpdate>().checked(),
         Definition::read::<TurnTaskState>(),

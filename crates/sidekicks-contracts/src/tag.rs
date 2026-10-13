@@ -12,13 +12,18 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::name_fold::fold_name;
 use crate::session::name::SESSION_NAME_MAX_LEN;
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::list::unique_by;
+use crate::wire::list::{ListKey, UniqueList};
+use crate::wire::text::{ecmascript_whitespace, is_within_length};
 
 /// A tag's pattern: levels joined by `/`, each one or more characters that are neither a NUL, a
 /// `/` nor ECMAScript whitespace, spelled out so Rust and ECMAScript read it alike.
-const TAG_PATTERN: &str = "^[^\\x00/\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\
-                           \\u202f\\u205f\\u3000\\ufeff]+(?:/[^\\x00/\\t\\n\\v\\f\\r \\u00a0\
-                           \\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]+)*$";
+const TAG_PATTERN: &str = concat!(
+    "^[^\\x00/",
+    ecmascript_whitespace!(),
+    "]+(?:/[^\\x00/",
+    ecmascript_whitespace!(),
+    "]+)*$"
+);
 
 /// [`TAG_PATTERN`], compiled once.
 static TAG_REGEX: LazyLock<Regex> =
@@ -34,7 +39,7 @@ pub struct Tag(String);
 impl Tag {
     /// `text` when it is a tag, else `None`.
     pub fn new(text: String) -> Option<Self> {
-        let is_tag = TAG_REGEX.is_match(&text) && text.chars().nth(SESSION_NAME_MAX_LEN).is_none();
+        let is_tag = TAG_REGEX.is_match(&text) && is_within_length(&text, 0, SESSION_NAME_MAX_LEN);
         is_tag.then_some(Self(text))
     }
 
@@ -47,7 +52,10 @@ impl Tag {
 impl<'de> Deserialize<'de> for Tag {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Self::new(String::deserialize(deserializer)?).ok_or_else(|| {
-            D::Error::custom("a tag has no whitespace, no empty level and at most 256 characters")
+            D::Error::custom(format!(
+                "a tag has no whitespace, no empty level and at most {SESSION_NAME_MAX_LEN} \
+                 characters"
+            ))
         })
     }
 }
@@ -73,7 +81,7 @@ impl JsonSchema for Tag {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, garde::Validate)]
 #[serde(transparent)]
 #[garde(transparent)]
-pub struct TagList(#[garde(custom(unique_by(|tag: &Tag| fold_name(tag.as_str()))))] pub Vec<Tag>);
+pub struct TagList(#[garde(dive)] pub UniqueList<Tag, 0, { usize::MAX }>);
 
 impl JsonSchema for TagList {
     fn schema_name() -> Cow<'static, str> {
@@ -104,3 +112,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: &[],
     method_tables: &[],
 };
+
+impl ListKey for Tag {
+    type Key = String;
+
+    fn list_key(&self) -> String {
+        fold_name(self.as_str())
+    }
+}

@@ -4,8 +4,6 @@
 
 use serde_json::{Map, Value};
 
-use crate::typescript::TypeScriptModule;
-
 /// The payload keys that name a run: `runId` everywhere, and `targetRunId` on interventions. Both
 /// are read, since a guard reading only `runId` would let intervention rows through the `general`
 /// arm.
@@ -35,15 +33,6 @@ fn run_id_at<'payload>(
         .as_str()
         .filter(|run_id| !run_id.is_empty())
 }
-
-/// The module has no TypeScript face: the client keeps its own copy of these readers.
-pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
-    path: "transcript/run-attribution",
-    doc: "Which run an event payload names.",
-    definitions: &[],
-    constants: &[],
-    method_tables: &[],
-};
 
 #[cfg(test)]
 mod tests {

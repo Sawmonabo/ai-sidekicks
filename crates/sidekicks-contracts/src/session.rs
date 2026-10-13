@@ -30,7 +30,6 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &cost::TYPESCRIPT_MODULE,
     &directory::TYPESCRIPT_MODULE,
     &draft::TYPESCRIPT_MODULE,
-    &event_cursor::TYPESCRIPT_MODULE,
     &events::TYPESCRIPT_MODULE,
     &goal::TYPESCRIPT_MODULE,
     &groups::TYPESCRIPT_MODULE,

@@ -166,7 +166,9 @@ impl<const VALUE: bool> JsonSchema for BoolLiteral<VALUE> {
 }
 
 /// Declares a one-value string type, for a member that holds exactly one wire word:
-/// `literal! { /// doc \n pub enum DeviceLinkedKind = "device.linked"; }`.
+/// `literal! { /// doc \n pub enum DeviceLinkedKind = "device.linked"; }`. A word another closed
+/// set owns is named by its constant text, so it is spelled once:
+/// `pub enum AttachmentRefusedCode = const RefusalCode::SessionAttachmentRefused.as_str();`.
 macro_rules! literal {
     ($($(#[doc = $doc:literal])+ pub enum $name:ident = $value:literal;)+) => {$(
         $(#[doc = $doc])+
@@ -188,6 +190,55 @@ macro_rules! literal {
             Value,
         }
     )+};
+    ($($(#[doc = $doc:literal])+ pub enum $name:ident = const $value:expr;)+) => {$(
+        $(#[doc = $doc])+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        pub enum $name {
+            /// The one value.
+            Value,
+        }
+
+        impl $name {
+            /// The one value's text.
+            pub const TEXT: &str = $value;
+        }
+
+        impl serde::Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_str(Self::TEXT)
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let text = <std::borrow::Cow<'de, str> as serde::Deserialize>::deserialize(
+                    deserializer,
+                )?;
+                if text == Self::TEXT {
+                    Ok(Self::Value)
+                } else {
+                    Err(<D::Error as serde::de::Error>::invalid_value(
+                        serde::de::Unexpected::Str(&text),
+                        &Self::TEXT,
+                    ))
+                }
+            }
+        }
+
+        impl schemars::JsonSchema for $name {
+            fn inline_schema() -> bool {
+                true
+            }
+
+            fn schema_name() -> std::borrow::Cow<'static, str> {
+                stringify!($name).into()
+            }
+
+            fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+                schemars::json_schema!({ "type": "string", "const": Self::TEXT })
+            }
+        }
+    )+};
 }
 
 pub(crate) use literal;
@@ -195,8 +246,33 @@ pub(crate) use literal;
 /// Declares a scalar a contract names as its own definition: `named_scalar! { /// doc \n
 /// UsdMicros(SafeInt<0>), Copy }` gives a newtype that reads, writes and checks as its inner
 /// scalar, with its own schema name and the doc as its description, so TypeScript gets a type and
-/// a check by that name. Traits listed after the type are derived too.
+/// a check by that name. Traits listed after the type are derived too; `unordered` after the type
+/// instead leaves out the ordering and hash derives, for an inner type without them.
 macro_rules! named_scalar {
+    (@schema $name:ident($inner:ty) $($doc:literal)+) => {
+        impl schemars::JsonSchema for $name {
+            fn schema_name() -> std::borrow::Cow<'static, str> {
+                stringify!($name).into()
+            }
+
+            fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+                let mut schema = <$inner as schemars::JsonSchema>::json_schema(generator);
+                schema.insert(
+                    "description".into(),
+                    $crate::schema::doc_description(concat!($($doc, "\n"),+)).into(),
+                );
+                schema
+            }
+        }
+    };
+    ($(#[doc = $doc:literal])+ $name:ident($inner:ty) unordered) => {
+        $(#[doc = $doc])+
+        #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[serde(transparent)]
+        pub struct $name(pub $inner);
+
+        $crate::wire::named_scalar!(@schema $name($inner) $($doc)+);
+    };
     ($(#[doc = $doc:literal])+ $name:ident($inner:ty) $(, $derive:ident)* $(,)?) => {
         $(#[doc = $doc])+
         #[derive(
@@ -214,20 +290,7 @@ macro_rules! named_scalar {
         #[serde(transparent)]
         pub struct $name(pub $inner);
 
-        impl schemars::JsonSchema for $name {
-            fn schema_name() -> std::borrow::Cow<'static, str> {
-                stringify!($name).into()
-            }
-
-            fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-                let mut schema = <$inner as schemars::JsonSchema>::json_schema(generator);
-                schema.insert(
-                    "description".into(),
-                    $crate::schema::doc_description(concat!($($doc, "\n"),+)).into(),
-                );
-                schema
-            }
-        }
+        $crate::wire::named_scalar!(@schema $name($inner) $($doc)+);
     };
 }
 

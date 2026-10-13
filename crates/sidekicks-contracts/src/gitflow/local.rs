@@ -19,13 +19,10 @@ use crate::wire::Never;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
-use crate::wire::text::{BoundedText, FreeFormText, branded_text};
+use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText, branded_text};
 use crate::workflow::definition::document::WorkflowNodeId;
 use crate::workflow::run::id::WorkflowRunId;
-use crate::workflow::run::snapshot::WorkflowRunPauseNumber;
-
-/// Text that is never empty, with no other rule: a command, a subject, a title.
-pub type NonEmptyText = BoundedText<1, { usize::MAX }>;
+use crate::workflow::run::snapshot::{WorkflowRunEpoch, WorkflowRunPauseNumber};
 
 branded_text! {
     /// The id of one running or finished git act, which the daemon mints.
@@ -160,19 +157,19 @@ pub enum WorkflowRunSnapshotPoint {
     /// The run's start.
     Start {
         /// The execution.
-        epoch: SafeInt<0>,
+        epoch: WorkflowRunEpoch,
     },
     /// An approval pause.
     Pause {
         /// The execution.
-        epoch: SafeInt<0>,
+        epoch: WorkflowRunEpoch,
         /// The pause.
         pause_number: WorkflowRunPauseNumber,
     },
     /// The run's end.
     End {
         /// The execution.
-        epoch: SafeInt<0>,
+        epoch: WorkflowRunEpoch,
     },
 }
 

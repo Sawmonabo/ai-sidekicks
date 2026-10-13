@@ -10,12 +10,12 @@ use serde::{Deserialize, Serialize};
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
+use crate::method_descriptor::EmptyPayload;
 use crate::provider::account::record::readiness::ProviderLoginExpiredRemedy;
 use crate::provider::account::record::{
     BillingMode, CredentialGeneration, DisplayLabel, ProviderAccount, ProviderAccountHealthState,
     ProviderAccountId, ProviderAccountListRequest, ProviderAccountListResponse,
     ProviderAccountMemoryImportOutcome, ProviderAccountNotification,
-    ProviderAccountSubscribeRequest,
 };
 use crate::provider::account::sign_in::{
     ProviderAccountLoginCancelRequest, ProviderAccountLoginCancelResponse,
@@ -31,6 +31,7 @@ use crate::wire::True;
 use crate::wire::date::WireDate;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
+use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
 
 ts_constants! {
@@ -160,13 +161,11 @@ pub struct ProviderAccountRemoveResponse {
 }
 
 /// The sessions whose live runs block a removal; at least one is named.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderAccountInUseDetails {
     /// The sessions.
-    #[garde(length(min = 1))]
-    #[schemars(length(min = 1))]
-    pub session_ids: Vec<SessionId>,
+    pub session_ids: BoundedVec<SessionId, 1, { usize::MAX }>,
 }
 
 /// Makes this account its provider's current account, the one the default mark sits on. New
@@ -377,7 +376,7 @@ methods! {
         /// Streams every change to the account registry.
         ProviderAccountSubscribe = subscription "providerAccount.subscribe" {
             mutating: false,
-            params: ProviderAccountSubscribeRequest,
+            params: EmptyPayload,
             result: SubscribeAckResponse,
             emission: ProviderAccountNotification,
             refusals: [],

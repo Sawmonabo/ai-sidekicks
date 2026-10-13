@@ -4,12 +4,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::agent::definition::AgentId;
 use crate::approval::{
-    ApprovalCategory, ApprovalRequestId, ApprovalScope, ApprovalText, InvalidationTrigger,
-    RememberedRuleId, RememberedScope, ReviewerDenialId,
+    ApprovalCategory, ApprovalRequestId, ApprovalScope, InvalidationTrigger, RememberedRuleId,
+    RememberedScope, ReviewerDenialId,
 };
-use crate::event::declared_variants::with_machine_content_descriptor;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::run::id::RunId;
 use crate::runtime_node::id::NodeId;
@@ -17,7 +15,7 @@ use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
 use crate::wire::id::ClientUuid;
 use crate::wire::record::JsonRecord;
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{FreeFormText, NonEmptyText};
 
 /// The `approval.requested` payload. `askId` is present when the request is a provider's
 /// permission ask: the daemon's own durable id for the ask, so an answer reaches the right ask
@@ -38,7 +36,7 @@ pub struct ApprovalRequestedPayload {
     /// Its target scope.
     pub scope: ApprovalScope,
     /// Who asked.
-    pub requested_by: ApprovalText,
+    pub requested_by: NonEmptyText,
     /// What it would touch.
     pub resource_descriptor: JsonRecord,
     /// The daemon's durable id for a provider's permission ask.
@@ -47,8 +45,8 @@ pub struct ApprovalRequestedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "ApprovalText")]
-    pub ask_id: Option<ApprovalText>,
+    #[schemars(with = "NonEmptyText")]
+    pub ask_id: Option<NonEmptyText>,
     /// The tool call the ask holds, bounded as the tool rows bound it.
     #[serde(
         default,
@@ -87,8 +85,8 @@ pub struct ApprovalResolvedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "ApprovalText")]
-    pub edited_action: Option<ApprovalText>,
+    #[schemars(with = "NonEmptyText")]
+    pub edited_action: Option<NonEmptyText>,
 }
 
 /// The `approval.canceled` payload: the ask ended with its run and can no longer be answered.
@@ -163,7 +161,54 @@ pub struct ApprovalRuleRevokedPayload {
     pub approval_request_id: Option<ApprovalRequestId>,
 }
 
-with_machine_content_descriptor! {
+/// Declares a struct with the `approval.reviewer_denied` members, written once: `plain` gives the
+/// payload as the approval topic reads it, and `described` adds the two members the append path
+/// owns on a body-bearing payload, as the session event carries it.
+macro_rules! approval_reviewer_denied_payload {
+    (@emit plain $(#[$meta:meta])* pub struct $name:ident { $($members:tt)* }) => {
+        $(#[$meta])*
+        pub struct $name { $($members)* }
+    };
+    (@emit described $(#[$meta:meta])* pub struct $name:ident { $($members:tt)* }) => {
+        $crate::event::declared_variants::with_machine_content_descriptor! {
+            $(#[$meta])*
+            pub struct $name { $($members)* }
+        }
+    };
+    ($form:ident $(#[$meta:meta])* pub struct $name:ident) => {
+        $crate::approval::events::approval_reviewer_denied_payload! {
+            @emit $form
+            $(#[$meta])*
+            pub struct $name {
+                /// The session.
+                pub session_id: $crate::session::id::SessionId,
+                /// The run.
+                pub run_id: $crate::run::id::RunId,
+                /// The agent whose action was blocked.
+                pub agent_id: $crate::agent::definition::AgentId,
+                /// The block.
+                pub denial_id: $crate::approval::ReviewerDenialId,
+                /// The blocked call's own row.
+                pub event_id: $crate::wire::text::NonEmptyText,
+                /// The reviewer's reason.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "crate::wire::text::NonEmptyText")]
+                pub reason: Option<$crate::wire::text::NonEmptyText>,
+                /// Whether a person may overrule it.
+                pub overridable: bool,
+            }
+        }
+    };
+}
+
+pub(crate) use approval_reviewer_denied_payload;
+
+approval_reviewer_denied_payload! {
+    plain
     /// The `approval.reviewer_denied` payload: a provider's own reviewer blocked an action. The
     /// daemon keeps the denial whole beside the row, which is what lets the override hold across a
     /// restart. `eventId` names the blocked call's own row, whose reason line reads
@@ -171,28 +216,7 @@ with_machine_content_descriptor! {
     /// false where the provider lets no person overrule the block, and no `Allow once` is drawn.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct ApprovalReviewerDeniedPayload {
-        /// The session.
-        pub session_id: SessionId,
-        /// The run.
-        pub run_id: RunId,
-        /// The agent whose action was blocked.
-        pub agent_id: AgentId,
-        /// The block.
-        pub denial_id: ReviewerDenialId,
-        /// The blocked call's own row.
-        pub event_id: ApprovalText,
-        /// The reviewer's reason.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "ApprovalText")]
-        pub reason: Option<ApprovalText>,
-        /// Whether a person may overrule it.
-        pub overridable: bool,
-    }
+    pub struct ApprovalReviewerDeniedPayload
 }
 
 /// The `approval.denial_overridden` payload: the person allowed a blocked action once.

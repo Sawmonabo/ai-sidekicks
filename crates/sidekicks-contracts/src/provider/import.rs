@@ -12,6 +12,7 @@ use crate::method_descriptor::EmptyPayload;
 use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
+use crate::wire::list::BoundedVec;
 use crate::wire::text::{FreeFormText, branded_text};
 
 ts_constants! {
@@ -29,6 +30,8 @@ ts_constants! {
 type ImportPath = FreeFormText<FILE_PATH_MAX_LEN>;
 /// The service's reason, in its own words.
 type ImportReason = FreeFormText<PROVIDER_IMPORT_REASON_MAX_LEN>;
+/// A list one settled line carries.
+type ImportList<T> = BoundedVec<T, 0, PROVIDER_IMPORT_LIST_MAX>;
 
 branded_text! {
     /// The daemon-minted id of one import, opaque to every client.
@@ -74,14 +77,13 @@ pub struct ProviderImportFailure {
 
 /// How an import ended. `nothingNew` still reports what was already here and what could not be
 /// read, so an empty result is never blank; `stopped` leaves the sessions already read in the list.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "outcome",
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-#[garde(allow_unvalidated)]
 pub enum ProviderImportOutcome {
     /// The import read everything it found.
     Finished {
@@ -92,26 +94,18 @@ pub enum ProviderImportOutcome {
         /// The conversations already here.
         already_here: SafeInt<0>,
         /// Each conversation not brought in, with its reason.
-        #[garde(length(max = PROVIDER_IMPORT_LIST_MAX))]
-        #[schemars(length(max = PROVIDER_IMPORT_LIST_MAX))]
-        failures: Vec<ProviderImportFailure>,
+        failures: ImportList<ProviderImportFailure>,
         /// The files that could not be opened.
-        #[garde(length(max = PROVIDER_IMPORT_LIST_MAX))]
-        #[schemars(length(max = PROVIDER_IMPORT_LIST_MAX))]
-        unreadable_files: Vec<ImportPath>,
+        unreadable_files: ImportList<ImportPath>,
         /// The projects the import attached.
-        #[garde(length(max = PROVIDER_IMPORT_LIST_MAX))]
-        #[schemars(length(max = PROVIDER_IMPORT_LIST_MAX))]
-        attached_projects: Vec<FreeFormText<PROVIDER_IMPORT_PROJECT_NAME_MAX_LEN>>,
+        attached_projects: ImportList<FreeFormText<PROVIDER_IMPORT_PROJECT_NAME_MAX_LEN>>,
     },
     /// Nothing new was found.
     NothingNew {
         /// The conversations already here.
         already_here: SafeInt<0>,
         /// The files that could not be opened.
-        #[garde(length(max = PROVIDER_IMPORT_LIST_MAX))]
-        #[schemars(length(max = PROVIDER_IMPORT_LIST_MAX))]
-        unreadable_files: Vec<ImportPath>,
+        unreadable_files: ImportList<ImportPath>,
     },
     /// The person stopped it.
     Stopped {},
@@ -124,14 +118,13 @@ pub enum ProviderImportOutcome {
 
 /// One message on a provider's import stream: the running import's count of conversations read so
 /// far, or how the last import ended.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-#[garde(allow_unvalidated)]
 pub enum ProviderImportProgress {
     /// The running import's count so far.
     Progress {
@@ -149,7 +142,6 @@ pub enum ProviderImportProgress {
         /// The import.
         import_id: ProviderImportId,
         /// How it ended.
-        #[garde(dive)]
         settlement: ProviderImportOutcome,
     },
 }

@@ -9,13 +9,14 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::value::RawValue;
 
+use crate::jsonrpc::byte_length::json_utf8_byte_length;
 use crate::jsonrpc::error_code::JsonRpcErrorCode;
 use crate::jsonrpc::negotiation::DAEMON_HELLO_METHOD;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::schema::doc_description;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire;
-use crate::wire::integer::{BoundedInt, MAX_SAFE_INTEGER};
+use crate::wire::integer::SafeSignedInt;
 use crate::wire::record::JsonRecord;
 
 ts_constants! {
@@ -37,9 +38,6 @@ pub const CANCEL_REQUEST_METHOD: &str = "$/cancelRequest";
 /// its versions in its params, since none is negotiated before it.
 pub const ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS: &[&str] = &[DAEMON_HELLO_METHOD];
 
-/// The largest integer magnitude a JavaScript number holds exactly, as a signed bound.
-const SIGNED_SAFE_INTEGER: i64 = MAX_SAFE_INTEGER.cast_signed();
-
 /// A request's `id`: a string, a number or `null`, echoed back by its response.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum JsonRpcId {
@@ -55,7 +53,7 @@ impl JsonRpcId {
     /// Whether the id encodes within [`JSON_RPC_ID_MAX_BYTES`] as JSON. Fails only where the id's
     /// own `Serialize` fails.
     pub fn is_within_bound(&self) -> serde_json::Result<bool> {
-        Ok(serde_json_canonicalizer::to_string(self)?.len() <= JSON_RPC_ID_MAX_BYTES)
+        Ok(json_utf8_byte_length(self)? <= JSON_RPC_ID_MAX_BYTES)
     }
 }
 
@@ -121,7 +119,7 @@ pub struct JsonRpcErrorData {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct JsonRpcError {
     /// The numeric code that frames the error.
-    pub code: BoundedInt<{ -SIGNED_SAFE_INTEGER }, SIGNED_SAFE_INTEGER>,
+    pub code: SafeSignedInt,
     /// A sentence for a person, sanitized before it leaves the daemon.
     pub message: String,
     /// The refusal's code and detail.
@@ -138,7 +136,7 @@ impl JsonRpcError {
     /// The answer to a call the client canceled before the daemon committed it.
     pub fn request_canceled() -> Self {
         Self {
-            code: BoundedInt::new(i64::from(JsonRpcErrorCode::RequestCanceled.code()))
+            code: SafeSignedInt::new(i64::from(JsonRpcErrorCode::RequestCanceled.code()))
                 .expect("a JSON-RPC error code is a safe integer"),
             message: "The call was canceled.".to_owned(),
             data: Some(JsonRpcErrorData {
@@ -211,14 +209,22 @@ pub enum MessageError {
     /// The JSON does not parse, or a member has the wrong type (`-32700` or `-32600`).
     #[error(transparent)]
     Json(#[from] serde_json::Error),
-    /// The members present form no message kind, or `jsonrpc` is not `2.0` (`-32600`).
+    /// The JSON is not an object, its members form no message kind, or `jsonrpc` is not `2.0`
+    /// (`-32600`).
     #[error("the JSON is not a JSON-RPC 2.0 message")]
     NotAMessage,
 }
 
 impl JsonRpcMessage {
-    /// Reads a message's JSON; refuses JSON whose members form no message kind.
+    /// Reads a message's JSON; refuses JSON that is not an object or whose members form no message
+    /// kind.
     pub fn from_slice(json: &[u8]) -> Result<Self, MessageError> {
+        // serde reads a struct from a JSON array too, by position; a message is an object. JSON
+        // that does not parse still answers as a parse error.
+        if json.trim_ascii_start().first() != Some(&b'{') {
+            serde_json::from_slice::<serde::de::IgnoredAny>(json)?;
+            return Err(MessageError::NotAMessage);
+        }
         let envelope: Envelope = serde_json::from_slice(json)?;
         if envelope.jsonrpc != JSONRPC_VERSION {
             return Err(MessageError::NotAMessage);
@@ -467,4 +473,22 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 pub struct CancelRequestParams {
     /// The id of the request to stop.
     pub id: JsonRpcId,
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::{JsonRpcMessage, MessageError};
+
+    #[rstest]
+    #[case::an_array_by_position(br#"["2.0", 1, "session.read", null, null, null, null]"#, false)]
+    #[case::text_that_does_not_parse(br#"["2.0", "#, true)]
+    fn a_message_that_is_not_an_object_is_refused(
+        #[case] json: &[u8],
+        #[case] is_parse_error: bool,
+    ) {
+        let refusal = JsonRpcMessage::from_slice(json).expect_err("a non-object is refused");
+        assert_eq!(matches!(refusal, MessageError::Json(_)), is_parse_error);
+    }
 }

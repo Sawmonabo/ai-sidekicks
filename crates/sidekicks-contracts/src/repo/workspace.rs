@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::repo::folders::FolderPath;
 use crate::repo::mount::{ExecutionMode, RepoMountId, WorkspaceId, WorkspaceState};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -33,8 +33,8 @@ pub struct WorkspaceBindRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<FILE_PATH_MAX_LEN>")]
-    pub directory: Option<FreeFormText<FILE_PATH_MAX_LEN>>,
+    #[schemars(with = "FolderPath")]
+    pub directory: Option<FolderPath>,
 }
 
 /// The `repo.workspaceBind` result: the new workspace, its bound mode and its state, which may be
@@ -84,8 +84,8 @@ pub struct WorkspaceListEntry {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<FILE_PATH_MAX_LEN>")]
-    pub fs_root: Option<FreeFormText<FILE_PATH_MAX_LEN>>,
+    #[schemars(with = "FolderPath")]
+    pub fs_root: Option<FolderPath>,
     /// The failure that made it `stale`, when one did.
     #[serde(
         default,

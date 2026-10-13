@@ -1,6 +1,7 @@
 //! Lists on the wire, each with the bounds its schema states.
 
 use std::borrow::Cow;
+use std::collections::hash_map::Entry;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::de::Error as _;
@@ -75,7 +76,8 @@ impl<T: JsonSchema, const MIN: usize, const MAX: usize> JsonSchema for BoundedVe
     }
 }
 
-/// A garde check that no two items of a list share `key`, refusing the first repeat by its index.
+/// A garde check that no two items of a list share `key`, refusing the first repeat by its index:
+/// for a list assembled from several members, where no one index names the repeat.
 pub fn unique_by<List, T, K>(key: impl Fn(&T) -> K) -> impl Fn(&List, &()) -> garde::Result
 where
     List: AsRef<[T]> + ?Sized,
@@ -92,6 +94,64 @@ where
                 "item {index} repeats an earlier one"
             ))),
             None => Ok(()),
+        }
+    }
+}
+
+/// What no two items of a [`UniqueList`] share, and the item's own check.
+pub trait ListKey {
+    /// The compared value.
+    type Key: Eq + std::hash::Hash;
+
+    /// The item's key.
+    fn list_key(&self) -> Self::Key;
+
+    /// Checks the item itself, at `parent`; an item with no rule of its own checks nothing.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+/// A list of `MIN..=MAX` items no two of which share their [`ListKey`]; its check reports each
+/// repeat at the repeat's index, as Zod's does.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
+#[schemars(transparent)]
+pub struct UniqueList<T, const MIN: usize, const MAX: usize>(BoundedVec<T, MIN, MAX>);
+
+impl<T, const MIN: usize, const MAX: usize> UniqueList<T, MIN, MAX> {
+    /// `items` when their count lies in `MIN..=MAX`, else `None`; the check refuses a repeat.
+    pub fn new(items: Vec<T>) -> Option<Self> {
+        BoundedVec::new(items).map(Self)
+    }
+
+    /// The items.
+    pub fn as_slice(&self) -> &[T] {
+        self.0.as_slice()
+    }
+}
+
+impl<T: ListKey, const MIN: usize, const MAX: usize> garde::Validate for UniqueList<T, MIN, MAX> {
+    type Context = ();
+
+    fn validate_into(
+        &self,
+        (): &Self::Context,
+        parent: &mut dyn FnMut() -> garde::Path,
+        report: &mut garde::Report,
+    ) {
+        let mut first_index_of = std::collections::HashMap::new();
+        for (index, item) in self.as_slice().iter().enumerate() {
+            let mut item_path = || parent().join(index);
+            item.validate_item(&mut item_path, report);
+            match first_index_of.entry(item.list_key()) {
+                Entry::Occupied(first) => report.append(
+                    item_path(),
+                    garde::Error::new(format!("item {index} repeats item {}", first.get())),
+                ),
+                Entry::Vacant(slot) => {
+                    slot.insert(index);
+                }
+            }
         }
     }
 }

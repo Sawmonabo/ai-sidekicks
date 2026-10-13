@@ -1,6 +1,7 @@
 //! Bytes on the wire travel beside a message's JSON as attachments: the JSON holds the placeholder
-//! `{"$bytes": <index>}` and the bytes ride after it. [`parse`] reads a message with its
-//! attachments and [`write`] produces them; each attachment is referenced exactly once.
+//! `{"$bytes": <index>}` and the bytes ride after it. [`parse_received`] reads a message a server
+//! received, checked against its schema first, [`parse`] one a client reads, and [`write`] produces
+//! them; each attachment is referenced exactly once.
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -10,6 +11,8 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::{DeserializeOwned, Error as _};
 use serde::ser::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::schema::{ReceivedCheckError, received_check};
 
 /// Why a message's attachments do not match its JSON.
 #[derive(Debug, thiserror::Error)]
@@ -67,12 +70,56 @@ impl<T> Drop for ContextGuard<T> {
     }
 }
 
-/// Parses one message's JSON with its attachments. Refuses a JSON the type refuses, a placeholder
-/// past the attachments or repeated, a size outside a member's bounds, and an attachment nothing
-/// references.
+/// Parses one message's JSON with its attachments, as a client reads what a typed writer sent.
+/// Refuses a JSON the type refuses, a placeholder past the attachments or repeated, a size outside
+/// a member's bounds, and an attachment nothing references.
 pub fn parse<T: DeserializeOwned>(
     json: &[u8],
     attachments: Vec<ByteBuffer>,
+) -> Result<T, AttachmentError> {
+    read_with_attachments(attachments, || serde_json::from_slice::<T>(json))
+}
+
+/// Why a received message was refused.
+#[derive(Debug, thiserror::Error)]
+pub enum ReceivedError {
+    /// The JSON does not parse.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    /// The message breaks its contract's schema, an array where an object belongs among the ways.
+    #[error("the message breaks its contract's schema")]
+    Shape(#[source] Box<jsonschema::ValidationError<'static>>),
+    /// The contract's check could not be built.
+    #[error(transparent)]
+    Check(#[from] ReceivedCheckError),
+    /// The message passed its schema but its attachments do not match it.
+    #[error(transparent)]
+    Attachment(#[from] AttachmentError),
+}
+
+/// Parses a message a server received, a request's or a notification's params or an attachment
+/// message's body: the JSON is checked against `T`'s schema before serde reads it, since serde
+/// alone reads a JSON array where an object belongs. Refuses what [`parse`] refuses, and any JSON
+/// the schema refuses.
+pub fn parse_received<T: DeserializeOwned + JsonSchema + 'static>(
+    json: &[u8],
+    attachments: Vec<ByteBuffer>,
+) -> Result<T, ReceivedError> {
+    let check = received_check::<T>()?;
+    let value: serde_json::Value = serde_json::from_slice(json)?;
+    check
+        .validate(&value)
+        .map_err(|error| ReceivedError::Shape(Box::new(error.to_owned())))?;
+    Ok(read_with_attachments(attachments, || {
+        T::deserialize(value)
+    })?)
+}
+
+/// Runs `read` with `attachments` as the thread's attachment context, then refuses an attachment
+/// no placeholder took.
+fn read_with_attachments<T>(
+    attachments: Vec<ByteBuffer>,
+    read: impl FnOnce() -> serde_json::Result<T>,
 ) -> Result<T, AttachmentError> {
     let is_taken = vec![false; attachments.len()];
     let guard = ContextGuard::enter(
@@ -82,7 +129,7 @@ pub fn parse<T: DeserializeOwned>(
             is_taken,
         },
     );
-    let parsed = serde_json::from_slice::<T>(json);
+    let parsed = read();
     let incoming = guard
         .take()
         .expect("the guard holds this parse's attachments");
@@ -222,9 +269,11 @@ impl<const MIN: usize, const MAX: usize> JsonSchema for Bytes<MIN, MAX> {
 mod tests {
     use bytes::Bytes as ByteBuffer;
     use proptest::prelude::*;
+    use rstest::rstest;
+    use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 
-    use super::{AttachmentError, Bytes, parse, write};
+    use super::{AttachmentError, Bytes, ReceivedError, parse, parse_received, write};
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -288,5 +337,51 @@ mod tests {
             let (json, attachments) = write(&frame).expect("a frame serializes");
             prop_assert_eq!(parse::<Frame>(&json, attachments).expect("it parses back"), frame);
         }
+    }
+
+    #[derive(Debug, Deserialize, JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    struct Leaf {
+        x: u8,
+    }
+
+    #[derive(Debug, Deserialize, JsonSchema)]
+    #[serde(tag = "kind", deny_unknown_fields)]
+    enum Arm {
+        Holder { leaf: Leaf },
+    }
+
+    #[derive(Debug, Deserialize, JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    struct Received {
+        leaf: Leaf,
+        arm: Arm,
+    }
+
+    #[rstest]
+    #[case::at_the_top(r#"[{"x":1},{"kind":"Holder","leaf":{"x":2}}]"#)]
+    #[case::inside_a_struct(r#"{"leaf":[1],"arm":{"kind":"Holder","leaf":{"x":2}}}"#)]
+    #[case::as_a_tagged_arm(r#"{"leaf":{"x":1},"arm":["Holder",{"x":2}]}"#)]
+    #[case::inside_a_tagged_arm(r#"{"leaf":{"x":1},"arm":{"kind":"Holder","leaf":[2]}}"#)]
+    fn a_received_message_refuses_an_array_where_an_object_belongs(#[case] json: &str) {
+        serde_json::from_str::<Received>(json).expect("serde alone reads the array by position");
+        assert!(
+            matches!(
+                parse_received::<Received>(json.as_bytes(), Vec::new()),
+                Err(ReceivedError::Shape(_))
+            ),
+            "{json} is refused"
+        );
+        let Received {
+            leaf: Leaf { x: outer },
+            arm: Arm::Holder {
+                leaf: Leaf { x: inner },
+            },
+        } = parse_received(
+            br#"{"leaf":{"x":1},"arm":{"kind":"Holder","leaf":{"x":2}}}"#,
+            Vec::new(),
+        )
+        .expect("the object form is read");
+        assert_eq!((outer, inner), (1, 2));
     }
 }

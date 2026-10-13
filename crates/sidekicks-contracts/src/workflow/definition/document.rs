@@ -8,6 +8,8 @@
 //! meet is also written in that description. The run contracts import the document's ids, nodes
 //! and items from here; this module imports nothing from them.
 
+use std::collections::HashSet;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -17,21 +19,13 @@ use crate::mcp::server::McpServerBindingRef;
 use crate::tag::TagList;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::{SafeInt, SafeSignedInt};
-use crate::wire::list::{BoundedVec, unique_by};
+use crate::wire::list::{BoundedVec, ListKey, UniqueList};
 use crate::wire::number::{Number, PositiveNumber};
 use crate::wire::record::{JsonRecord, Record};
 use crate::wire::text::{BoundedText, NonEmptyText, branded_text};
 use crate::wire::{literal, named_scalar};
+use crate::workflow::definition::item::WorkflowPinnedItem;
 use crate::workflow::definition::refusals::WorkflowDefinitionFinding;
-
-pub mod item;
-
-pub use item::{
-    AgentResolutionRefusedCode, WorkflowBinaryRef, WorkflowItem, WorkflowPairedItem,
-    WorkflowPairedItems, WorkflowPinnedItem, WorkflowStepAgentResolutionError,
-    WorkflowStepAgentResolutionRefusedDetails, WorkflowStepCodedError, WorkflowStepError,
-    WorkflowStepErrorCode, WorkflowStepUncodedError,
-};
 
 ts_constants! {
     /// The document schema version this contract reads and writes.
@@ -51,10 +45,10 @@ branded_uuid_id! {
     WorkflowDefinitionId
 }
 
-named_scalar! {
-    /// One saved version's id, exactly as the daemon returned it; it is what a run start takes. A
-    /// client never builds one from a definition id and a version number.
-    WorkflowVersionId(NonEmptyText)
+branded_uuid_id! {
+    /// One saved version's id, exactly as the daemon returned it; it is what a run start takes. The
+    /// daemon mints it; a client never builds one from a definition id and a version number.
+    WorkflowVersionId
 }
 
 named_scalar! {
@@ -244,10 +238,8 @@ workflow_node! {
                            a type (boolean, string, path, or select with its options) with the \
                            value it starts on as default; required marks one a start must fill."
         )]
-        #[garde(dive, custom(|inputs: &Option<Vec<WorkflowTriggerInput>>, (): &()| {
-            inputs_are_named_once(inputs.as_deref())
-        }))]
-        pub inputs: Option<Vec<WorkflowTriggerInput>>,
+        #[garde(dive)]
+        pub inputs: Option<UniqueList<WorkflowTriggerInput, 0, { usize::MAX }>>,
     }
 }
 
@@ -271,11 +263,16 @@ impl From<&WorkflowTriggerNode> for WorkflowNode {
     }
 }
 
-/// Refuses a trigger input name used twice, at the repeat's index.
-fn inputs_are_named_once(inputs: Option<&[WorkflowTriggerInput]>) -> garde::Result {
-    inputs.map_or(Ok(()), |inputs| {
-        unique_by(|input: &WorkflowTriggerInput| input.name().as_str().to_owned())(inputs, &())
-    })
+impl ListKey for WorkflowTriggerInput {
+    type Key = String;
+
+    fn list_key(&self) -> String {
+        self.name().as_str().to_owned()
+    }
+
+    fn validate_item(&self, parent: &mut dyn FnMut() -> garde::Path, report: &mut garde::Report) {
+        garde::Validate::validate_into(self, &(), parent, report);
+    }
 }
 
 /// One input a workflow declares on its trigger, which a run start fills by `name`, unique among
@@ -496,16 +493,12 @@ pub struct WorkflowLayout {
 }
 
 /// Declares a document type with every member a document carries, its trigger written in place
-/// by the caller. Both refuse a node id used twice, the trigger's included.
+/// by the caller. Both refuse a node id used twice, the trigger's included, at each repeat.
 macro_rules! workflow_document {
     ($(#[doc = $doc:literal])+ pub struct $name:ident { $($trigger:tt)* }) => {
         $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
-        #[garde(allow_unvalidated)]
-        #[garde(custom(|document: &$name, (): &()| {
-            refuse_repeated_node_ids(document.trigger_id(), &document.nodes)
-        }))]
         pub struct $name {
             /// Always `2`.
             #[schemars(description = "The document schema version; always \"2\".")]
@@ -557,7 +550,6 @@ macro_rules! workflow_document {
                 with = "Record<String, Vec<WorkflowPinnedItem>>",
                 description = "Test data pinned onto nodes by node id; outside the content hash."
             )]
-            #[garde(dive)]
             pub pin_data: Option<Record<String, Vec<WorkflowPinnedItem>>>,
             /// The workflow's tags, outside the content hash.
             #[serde(
@@ -571,20 +563,50 @@ macro_rules! workflow_document {
                                each never empty, with no whitespace and no empty level around a \
                                /; outside the content hash."
             )]
-            #[garde(dive)]
             pub tags: Option<TagList>,
         }
 
         impl $name {
-            /// One `node_id_duplicate` finding for each repeat of a node id, the trigger's
-            /// included, in document order; the daemon's refusal of the read carries them.
-            pub fn repeated_node_id_findings(&self) -> Vec<WorkflowDefinitionFinding> {
+            /// Each repeat of a node id, the trigger's included, in document order: its index in
+            /// `nodes` and its `node_id_duplicate` finding, which the daemon's refusal carries.
+            pub fn repeated_node_id_findings(&self) -> Vec<(usize, WorkflowDefinitionFinding)> {
                 repeated_node_ids(self.trigger_id(), &self.nodes)
                     .into_iter()
-                    .map(|id| WorkflowDefinitionFinding::NodeIdDuplicate {
-                        node_ids: vec![id.clone()],
+                    .map(|(index, id)| {
+                        let finding = WorkflowDefinitionFinding::NodeIdDuplicate {
+                            node_ids: vec![id.clone()],
+                        };
+                        (index, finding)
                     })
                     .collect()
+            }
+        }
+
+        /// The members' checks, then each repeated node id at its `nodes[i].id`, its message the
+        /// repeat's `node_id_duplicate` finding as JSON.
+        impl garde::Validate for $name {
+            type Context = ();
+
+            fn validate_into(
+                &self,
+                context: &Self::Context,
+                parent: &mut dyn FnMut() -> garde::Path,
+                report: &mut garde::Report,
+            ) {
+                let mut trigger_path = || parent().join("trigger");
+                garde::Validate::validate_into(&self.trigger, context, &mut trigger_path, report);
+                let mut pin_data_path = || parent().join("pin_data");
+                garde::Validate::validate_into(&self.pin_data, context, &mut pin_data_path, report);
+                let mut tags_path = || parent().join("tags");
+                garde::Validate::validate_into(&self.tags, context, &mut tags_path, report);
+                for (index, finding) in self.repeated_node_id_findings() {
+                    let message =
+                        serde_json::to_string(&finding).expect("a finding serializes as JSON");
+                    report.append(
+                        parent().join("nodes").join(index).join("id"),
+                        garde::Error::new(message),
+                    );
+                }
             }
         }
     };
@@ -600,7 +622,6 @@ workflow_document! {
             description = "The one trigger node; its kind is in the trigger category, such as \
                            trigger.manual. Only the trigger declares inputs."
         )]
-        #[garde(dive)]
         pub trigger: WorkflowTriggerNode,
     }
 }
@@ -620,7 +641,6 @@ workflow_document! {
             description = "The one trigger node; its kind is in the trigger category, such as \
                            trigger.manual. Only the trigger declares inputs."
         )]
-        #[garde(dive)]
         pub trigger: Option<WorkflowTriggerNode>,
     }
 }
@@ -639,33 +659,19 @@ impl WorkflowDraftDocument {
     }
 }
 
-/// Each repeat of a node id among the trigger's and the other nodes', in document order.
+/// Each repeat of a node id among the trigger's and the other nodes', in document order, with its
+/// index in `nodes`; the trigger comes first, so it is never the repeat.
 fn repeated_node_ids<'a>(
     trigger_id: Option<&'a WorkflowNodeId>,
     nodes: &'a [WorkflowNode],
-) -> Vec<&'a WorkflowNodeId> {
-    let mut seen = std::collections::HashSet::new();
-    trigger_id
-        .into_iter()
-        .chain(nodes.iter().map(|node| &node.id))
-        .filter(|id| !seen.insert(*id))
+) -> Vec<(usize, &'a WorkflowNodeId)> {
+    let mut seen: HashSet<&WorkflowNodeId> = trigger_id.into_iter().collect();
+    nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| !seen.insert(&node.id))
+        .map(|(index, node)| (index, &node.id))
         .collect()
-}
-
-/// Refuses a node id used twice, naming each repeat.
-fn refuse_repeated_node_ids(
-    trigger_id: Option<&WorkflowNodeId>,
-    nodes: &[WorkflowNode],
-) -> garde::Result {
-    let repeats = repeated_node_ids(trigger_id, nodes);
-    if repeats.is_empty() {
-        return Ok(());
-    }
-    let names: Vec<&str> = repeats.iter().map(|id| id.as_str()).collect();
-    Err(garde::Error::new(format!(
-        "node id used more than once: {}",
-        names.join(", ")
-    )))
 }
 
 /// The part of a document its content hash covers: its content, never its schema version, its
@@ -743,18 +749,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowViewport>(),
         Definition::read::<WorkflowStickyNote>(),
         Definition::read::<WorkflowLayout>().checked(),
-        Definition::read::<WorkflowBinaryRef>(),
-        Definition::read::<WorkflowPairedItem>(),
-        Definition::read::<WorkflowPairedItems>(),
-        Definition::read::<WorkflowStepErrorCode>(),
-        Definition::read::<AgentResolutionRefusedCode>(),
-        Definition::read::<WorkflowStepAgentResolutionRefusedDetails>(),
-        Definition::read::<WorkflowStepUncodedError>(),
-        Definition::read::<WorkflowStepCodedError>(),
-        Definition::read::<WorkflowStepAgentResolutionError>(),
-        Definition::read::<WorkflowStepError>().checked(),
-        Definition::read::<WorkflowItem>().checked(),
-        Definition::read::<WorkflowPinnedItem>().checked(),
         Definition::read::<WorkflowDocument>().checked(),
         Definition::read::<WorkflowDraftDocument>().checked(),
         Definition::read::<WorkflowToolBinding>().checked(),
@@ -762,3 +756,49 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use garde::Validate;
+    use serde_json::{Value, json};
+
+    use super::WorkflowDocument;
+    use crate::workflow::definition::refusals::WorkflowDefinitionFinding;
+
+    fn node(id: &str, kind: &str) -> Value {
+        json!({ "id": id, "kind": kind, "kindVersion": 1, "name": id, "order": 0, "params": {} })
+    }
+
+    #[test]
+    fn each_repeated_node_id_is_refused_at_its_own_place_with_its_finding() {
+        let document: WorkflowDocument = serde_json::from_value(json!({
+            "schemaVersion": "2",
+            "name": "Repeats",
+            "trigger": node("t", "trigger.manual"),
+            "nodes": [node("a", "agent.run"), node("t", "agent.run"), node("a", "agent.run")],
+            "edges": [],
+        }))
+        .expect("the document reads");
+        let report = document
+            .validate()
+            .expect_err("a repeated node id is refused");
+        let issues: Vec<(String, WorkflowDefinitionFinding)> = report
+            .iter()
+            .map(|(path, error)| {
+                let finding = serde_json::from_str(error.message()).expect("the message is JSON");
+                (path.to_string(), finding)
+            })
+            .collect();
+        let finding = |id: &str| -> WorkflowDefinitionFinding {
+            serde_json::from_value(json!({ "rule": "node_id_duplicate", "nodeIds": [id] }))
+                .expect("the finding reads")
+        };
+        assert_eq!(
+            issues,
+            vec![
+                ("nodes[1].id".to_owned(), finding("t")),
+                ("nodes[2].id".to_owned(), finding("a")),
+            ]
+        );
+    }
+}

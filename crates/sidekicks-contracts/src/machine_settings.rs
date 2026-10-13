@@ -10,24 +10,27 @@
 //! saving, and the drivers read the names they set on the processes they start from it.
 
 use std::borrow::Cow;
+use std::sync::LazyLock;
 
+use regex::Regex;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
+use strum::VariantArray;
 
+use crate::agent::definition::binding::ProviderToken;
 use crate::daemon::data::DAEMON_DATA_FOLDER_NAME;
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
-use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::name::ProviderName;
 use crate::repo::mount::ExecutionMode;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::Port;
-use crate::wire::text::{BoundedText, FreeFormText, NulFreeText, pattern_text};
+use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText, NulFreeText, pattern_text};
 use crate::wire::{NullableSchema, nullable};
 
 ts_constants! {
@@ -100,11 +103,11 @@ ts_constants! {
     /// The placeholder a branch-name pattern holds exactly once: the tail of the session's title.
     pub const BRANCH_NAME_TITLE_PLACEHOLDER: &str = "{title}";
     /// Every [`EmailDigestPeriod`], shortest first.
-    EMAIL_DIGEST_PERIODS = EmailDigestPeriod::ALL;
+    EMAIL_DIGEST_PERIODS = EmailDigestPeriod::VARIANTS;
     /// Every [`VoiceMode`].
-    VOICE_MODES = VoiceMode::ALL;
+    VOICE_MODES = VoiceMode::VARIANTS;
     /// Every [`SettingsFileRepairCause`].
-    SETTINGS_FILE_REPAIR_CAUSES = SettingsFileRepairCause::ALL;
+    SETTINGS_FILE_REPAIR_CAUSES = SettingsFileRepairCause::VARIANTS;
     /// What each value is before anybody has chosen.
     MACHINE_SETTINGS_DEFAULTS = MachineSettings::default();
 }
@@ -121,15 +124,15 @@ pub enum EnvironmentNameRefusalReason {
     SetByApp,
 }
 
+/// [`ENVIRONMENT_NAME_PATTERN`], compiled once.
+static ENVIRONMENT_NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(ENVIRONMENT_NAME_PATTERN).expect("the environment name pattern is a valid regex")
+});
+
 /// The reason a row's name is refused, or `None` when the name may be saved. Names compare without
 /// case, because Windows reads `disable_updates` and `DISABLE_UPDATES` as one variable.
 pub fn environment_name_refusal(name: &str) -> Option<EnvironmentNameRefusalReason> {
-    let mut characters = name.chars();
-    let is_name = characters
-        .next()
-        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-        && characters.all(|character| character.is_ascii_alphanumeric() || character == '_');
-    if !is_name {
+    if !ENVIRONMENT_NAME_REGEX.is_match(name) {
         return Some(EnvironmentNameRefusalReason::NotAName);
     }
     let upper_name = name.to_ascii_uppercase();
@@ -155,22 +158,27 @@ pub struct DaemonEnvironmentNameRefusedDetails {
     pub reason: EnvironmentNameRefusalReason,
 }
 
-/// Why a branch-name pattern is refused at save.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum BranchPatternRefusalReason {
-    /// The pattern does not hold `{title}` exactly once.
-    TitleNotOnce,
-    /// The filled-in name is not a branch name git accepts.
-    NotABranchName,
-}
-
-/// Why the pattern was refused, so the page says which rule it broke.
+/// Why a branch-name pattern was refused at save, told apart by `reason`, so the page says which
+/// rule it broke.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DaemonBranchPatternRefusedDetails {
-    /// Which rule it broke.
-    pub reason: BranchPatternRefusalReason,
+#[serde(
+    tag = "reason",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum DaemonBranchPatternRefusedDetails {
+    /// The pattern does not hold `{title}` exactly once.
+    TitleNotOnce {},
+    /// The filled-in name is not a branch name git accepts.
+    NotABranchName {},
+    /// The filled-in name clashes with an existing branch: one that would hold it, sit inside it,
+    /// or share its name.
+    ClashesWithBranch {
+        /// Git's own line for the clash, without the `fatal: prepare: cannot lock ref '<name>': `
+        /// prefix git writes before it.
+        git_message: NonEmptyText,
+    },
 }
 
 /// One `name = value` row passed to every process the app starts, in `Every project` or in one
@@ -210,7 +218,9 @@ impl NotificationKindSwitches {
 }
 
 /// How often the email digest may go out at most.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum EmailDigestPeriod {
     /// Once an hour.
@@ -219,11 +229,6 @@ pub enum EmailDigestPeriod {
     FourHours,
     /// Once a day.
     Day,
-}
-
-impl EmailDigestPeriod {
-    /// Every period, shortest first.
-    pub const ALL: &[Self] = &[Self::Hour, Self::FourHours, Self::Day];
 }
 
 pattern_text! {
@@ -291,18 +296,15 @@ pub struct NotificationSettings {
 }
 
 /// Whether Space is held while talking or tapped to start and stop, on both providers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum VoiceMode {
     /// Held while talking.
     Hold,
     /// Tapped to start and stop.
     Tap,
-}
-
-impl VoiceMode {
-    /// Every mode.
-    pub const ALL: &[Self] = &[Self::Hold, Self::Tap];
 }
 
 /// Voice's two settings. `callVoice`, the voice a spoken call answers in, reads as the call's own
@@ -346,8 +348,11 @@ pub struct BranchNamePattern(BranchNamePatternChange);
 
 impl BranchNamePattern {
     /// `pattern` when it holds `{title}` exactly once, else the reason it is refused. Whether the
-    /// filled-in name is a branch name is git's check, which the service makes after this one.
-    pub fn new(pattern: BranchNamePatternChange) -> Result<Self, BranchPatternRefusalReason> {
+    /// filled-in name is a branch name, and whether it clashes with one, are git's checks, which
+    /// the service makes after this one.
+    pub fn new(
+        pattern: BranchNamePatternChange,
+    ) -> Result<Self, DaemonBranchPatternRefusedDetails> {
         if pattern
             .as_str()
             .matches(BRANCH_NAME_TITLE_PLACEHOLDER)
@@ -356,7 +361,7 @@ impl BranchNamePattern {
         {
             Ok(Self(pattern))
         } else {
-            Err(BranchPatternRefusalReason::TitleNotOnce)
+            Err(DaemonBranchPatternRefusedDetails::TitleNotOnce {})
         }
     }
 
@@ -399,11 +404,11 @@ pub struct LastLeadModel {
     /// The provider.
     pub driver_name: ProviderName,
     /// The model.
-    pub model_id: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
+    pub model_id: ProviderToken,
     /// The effort, or `null` for the driver's default.
     #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>")]
-    pub effort: Option<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>,
+    #[schemars(with = "NullableSchema<ProviderToken>")]
+    pub effort: Option<ProviderToken>,
 }
 
 /// Every value the machine's settings file holds.
@@ -607,18 +612,15 @@ pub enum MachineSettingsChange {
 }
 
 /// Why a settings file was found broken.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum SettingsFileRepairCause {
     /// The file was not JSON.
     Unparseable,
     /// The file's JSON did not match its schema.
     SchemaRefused,
-}
-
-impl SettingsFileRepairCause {
-    /// Every cause.
-    pub const ALL: &[Self] = &[Self::Unparseable, Self::SchemaRefused];
 }
 
 /// A settings file's repair: its owner found the file broken, read the defaults in its place and
@@ -715,7 +717,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<EnvironmentNameRefusalReason>(),
         Definition::read::<DaemonEnvironmentNameRefusedDetails>(),
-        Definition::read::<BranchPatternRefusalReason>(),
         Definition::read::<DaemonBranchPatternRefusedDetails>(),
         Definition::read::<EnvironmentRow>().checked(),
         Definition::read::<NotificationKindSwitches>().checked(),
@@ -753,19 +754,21 @@ mod tests {
     };
 
     #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
     struct EnvironmentNameCase {
         name: String,
         refusal: Option<EnvironmentNameRefusalReason>,
     }
 
     #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
     struct SettingsFileCase {
         file: Value,
         settings: Option<Value>,
     }
 
     #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct MachineSettingsCases {
         environment_names: Vec<EnvironmentNameCase>,
         settings_files: Vec<SettingsFileCase>,

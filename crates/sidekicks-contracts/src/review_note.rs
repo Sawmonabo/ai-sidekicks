@@ -11,20 +11,18 @@ use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
+use crate::repo::git_reads::GitObjectId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
-use crate::wire::text::BoundedText;
+use crate::wire::text::{BoundedText, NonEmptyText};
 
 branded_uuid_id! {
     /// The id of one held note, minted by the client, so adding the same note twice makes one note.
     ReviewNoteId
 }
-
-/// Text a note carries that is never empty.
-pub type ReviewNoteText = BoundedText<1, { usize::MAX }>;
 
 /// A path in the diff a note is left on.
 pub type ReviewNotePath = BoundedText<1, FILE_PATH_MAX_LEN>;
@@ -63,7 +61,7 @@ macro_rules! review_note_comparison {
             /// The scope.
             pub scope: ReviewNoteScope,
             /// The comparison's base.
-            pub base: ReviewNoteText,
+            pub base: NonEmptyText,
             $($own)*
             /// The pull request, in that scope.
             #[serde(
@@ -81,7 +79,7 @@ review_note_comparison! {
     /// A comparison on committed lines, naming the head commit.
     pub struct CommittedReviewNoteComparison {
         /// The head commit.
-        pub head_commit_id: ReviewNoteText,
+        pub head_commit_id: GitObjectId,
     }
 }
 
@@ -90,7 +88,7 @@ review_note_comparison! {
     /// of a posted review.
     pub struct WorkingTreeReviewNoteComparison {
         /// The working tree's blob.
-        pub working_tree_blob_id: ReviewNoteText,
+        pub working_tree_blob_id: GitObjectId,
     }
 }
 
@@ -166,7 +164,7 @@ review_note_located! {
         /// A one-line quote of its line.
         pub quote: String,
         /// The person's words.
-        pub body: ReviewNoteText,
+        pub body: NonEmptyText,
         /// Whether its line is gone from the diff.
         pub stranded: bool,
         /// When it was made.
@@ -186,7 +184,7 @@ review_note_located! {
         /// The note.
         pub note_id: ReviewNoteId,
         /// The person's words.
-        pub body: ReviewNoteText,
+        pub body: NonEmptyText,
     }
 }
 
@@ -208,7 +206,7 @@ pub struct ReviewNoteUpdateRequest {
     /// The note.
     pub note_id: ReviewNoteId,
     /// The new words.
-    pub body: ReviewNoteText,
+    pub body: NonEmptyText,
 }
 
 /// `session.reviewNoteRemove`: discards held notes in one act; the notes chip's `×` discards every
@@ -255,21 +253,21 @@ methods! {
             mutating: true,
             params: ReviewNoteAddRequest,
             result: ReviewNoteResponse,
-            refusals: [SessionReviewNoteNotFound],
+            refusals: [SessionNotFound, SessionReviewNoteNotFound],
         },
         /// Replaces a held note's words.
         SessionReviewNoteUpdate = mutation "session.reviewNoteUpdate" {
             mutating: true,
             params: ReviewNoteUpdateRequest,
             result: ReviewNoteResponse,
-            refusals: [SessionReviewNoteNotFound],
+            refusals: [SessionNotFound, SessionReviewNoteNotFound],
         },
         /// Discards held notes.
         SessionReviewNoteRemove = mutation "session.reviewNoteRemove" {
             mutating: true,
             params: ReviewNoteRemoveRequest,
             result: ReviewNoteRemoveResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Follows the session's held notes.
         SessionReviewNoteList = subscription "session.reviewNoteList" {
@@ -277,7 +275,7 @@ methods! {
             params: ReviewNoteListRequest,
             result: SubscribeAckResponse,
             emission: ReviewNoteSet,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
     ];
 }

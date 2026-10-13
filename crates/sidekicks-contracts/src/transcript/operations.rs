@@ -10,20 +10,27 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::jsonrpc::byte_length::json_utf8_byte_length;
-use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
+use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_budget, fits_one_page};
 use crate::run::id::RunId;
 use crate::run::state::RunState;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::transcript::child_run_summary::refuse_self_parenting_run;
+use crate::transcript::content::{
+    TranscriptBodyReadRequest, TranscriptBodyReadResponse, TranscriptPatchCursor,
+    TranscriptPatchFile, TranscriptPatchReadRequest, TranscriptPatchReadResponse,
+};
 use crate::transcript::limits::TRANSCRIPT_READ_LIMIT_MAX;
 use crate::transcript::row::TranscriptReadRow;
-use crate::transcript::run_facts::TranscriptRunFacts;
+use crate::transcript::run_facts::{
+    RUN_STATE_EVENT_TYPES, RunStateEventType, TranscriptRunFacts, USER_MESSAGE_EVENT_TYPE,
+};
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::BoolLiteral;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt};
+use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
+use crate::wire::{False, True, literal};
 
 /// Refuses entries that go backwards in sequence: a page runs oldest to newest, nondecreasing.
 fn require_nondecreasing_sequence<T>(
@@ -43,26 +50,15 @@ fn require_nondecreasing_sequence<T>(
     Ok(())
 }
 
-/// The JSON length of a member the window's budget measures.
-fn json_length_of<T: Serialize>(member: &T) -> Result<usize, garde::Error> {
-    json_utf8_byte_length(member)
-        .map_err(|error| garde::Error::new(format!("the member does not serialize: {error}")))
-}
-
 /// Holds a window's rows: they run oldest to newest and fit the page budget left beside `runs`,
 /// which rides in the same frame.
 fn require_window_rows(
     entries: &[TranscriptReadRow],
     runs: &[TranscriptRunFacts],
 ) -> garde::Result {
-    let budget_bytes = PAGE_MAX_BYTES.saturating_sub(json_length_of(&runs)?);
-    let entries_bytes = json_length_of(&entries)?;
-    if entries_bytes > budget_bytes {
-        return Err(garde::Error::new(format!(
-            "the entries measure {entries_bytes} JSON bytes, over the {budget_bytes} bytes the \
-             page budget leaves beside the runs"
-        )));
-    }
+    let runs_bytes = json_utf8_byte_length(&runs)
+        .map_err(|error| garde::Error::new(format!("the runs do not serialize: {error}")))?;
+    fits_budget(&entries, PAGE_MAX_BYTES.saturating_sub(runs_bytes))?;
     require_nondecreasing_sequence(entries, |entry| entry.sequence().get())
 }
 
@@ -92,9 +88,10 @@ fn require_one_fact_per_named_run(
             )));
         }
     }
-    match named_run_ids
+    match entries
         .iter()
-        .find(|run_id| !fact_run_ids.contains(*run_id))
+        .filter_map(TranscriptReadRow::run_id)
+        .find(|run_id| !fact_run_ids.contains(run_id))
     {
         Some(run_id) => Err(garde::Error::new(format!(
             "an entry names run {}, which runs carries no facts for",
@@ -123,7 +120,7 @@ fn require_entries_to_belong_to_run(
 }
 
 /// How many rows a read may ask for: 1 to [`TRANSCRIPT_READ_LIMIT_MAX`].
-pub type TranscriptReadLimit = BoundedInt<1, 256>;
+pub type TranscriptReadLimit = BoundedInt<1, { TRANSCRIPT_READ_LIMIT_MAX as i64 }>;
 
 /// A bounded read window over one session's transcript. A cursor is a position in the log, and
 /// the cursor an event carries is the position right after it: `afterCursor` answers the events
@@ -161,6 +158,13 @@ pub struct TranscriptReadRequest {
     pub limit: Option<TranscriptReadLimit>,
 }
 
+/// A page's rows, `MIN` to [`TRANSCRIPT_READ_LIMIT_MAX`] of them.
+pub type ReadEntries<const MIN: usize> =
+    BoundedVec<TranscriptReadRow, MIN, TRANSCRIPT_READ_LIMIT_MAX>;
+
+/// The facts of a window's runs, at most one per row.
+pub type WindowRunFacts = BoundedVec<TranscriptRunFacts, 0, TRANSCRIPT_READ_LIMIT_MAX>;
+
 /// A read window with more after it: at least one row, and the cursor to continue from.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -168,21 +172,18 @@ pub struct TranscriptReadRequest {
 #[garde(allow_unvalidated)]
 pub struct TranscriptReadContinuing {
     /// The rows, oldest first, within the page budget the runs leave.
-    #[garde(length(min = 1, max = TRANSCRIPT_READ_LIMIT_MAX), dive)]
-    #[garde(custom(|entries: &Vec<TranscriptReadRow>, (): &()| {
-        require_window_rows(entries, &self.runs)
+    #[garde(dive)]
+    #[garde(custom(|entries: &ReadEntries<1>, (): &()| {
+        require_window_rows(entries.as_slice(), self.runs.as_slice())
     }))]
-    #[schemars(length(min = 1, max = 256))]
-    pub entries: Vec<TranscriptReadRow>,
+    pub entries: ReadEntries<1>,
     /// The facts of each run the entries name, folded over the whole log, one per run.
-    #[garde(length(max = TRANSCRIPT_READ_LIMIT_MAX))]
-    #[garde(custom(|runs: &Vec<TranscriptRunFacts>, (): &()| {
-        require_one_fact_per_named_run(runs, &self.entries)
+    #[garde(custom(|runs: &WindowRunFacts, (): &()| {
+        require_one_fact_per_named_run(runs.as_slice(), self.entries.as_slice())
     }))]
-    #[schemars(length(max = 256))]
-    pub runs: Vec<TranscriptRunFacts>,
+    pub runs: WindowRunFacts,
     /// More rows follow.
-    pub has_more: BoolLiteral<true>,
+    pub has_more: True,
     /// Where to continue.
     pub next_cursor: EventCursor,
 }
@@ -194,21 +195,18 @@ pub struct TranscriptReadContinuing {
 #[garde(allow_unvalidated)]
 pub struct TranscriptReadTerminal {
     /// The rows, oldest first, within the page budget the runs leave.
-    #[garde(length(max = TRANSCRIPT_READ_LIMIT_MAX), dive)]
-    #[garde(custom(|entries: &Vec<TranscriptReadRow>, (): &()| {
-        require_window_rows(entries, &self.runs)
+    #[garde(dive)]
+    #[garde(custom(|entries: &ReadEntries<0>, (): &()| {
+        require_window_rows(entries.as_slice(), self.runs.as_slice())
     }))]
-    #[schemars(length(max = 256))]
-    pub entries: Vec<TranscriptReadRow>,
+    pub entries: ReadEntries<0>,
     /// The facts of each run the entries name, folded over the whole log, one per run.
-    #[garde(length(max = TRANSCRIPT_READ_LIMIT_MAX))]
-    #[garde(custom(|runs: &Vec<TranscriptRunFacts>, (): &()| {
-        require_one_fact_per_named_run(runs, &self.entries)
+    #[garde(custom(|runs: &WindowRunFacts, (): &()| {
+        require_one_fact_per_named_run(runs.as_slice(), self.entries.as_slice())
     }))]
-    #[schemars(length(max = 256))]
-    pub runs: Vec<TranscriptRunFacts>,
+    pub runs: WindowRunFacts,
     /// No rows follow.
-    pub has_more: BoolLiteral<false>,
+    pub has_more: False,
     /// Where the window ended.
     #[serde(
         default,
@@ -235,6 +233,10 @@ ts_constants! {
     pub const REASONING_SURFACE_ENTRIES_MAX: usize = 256;
     /// The longest one reasoning entry's `content`, in code points.
     pub const REASONING_ENTRY_CONTENT_MAX_LEN: usize = 16_384;
+    /// Every `run.<state>` event type, in the order the states are declared.
+    RUN_STATE_EVENT_TYPES = RUN_STATE_EVENT_TYPES;
+    /// The type of a person's message, which is never a run's own event even when it steers one.
+    USER_MESSAGE_EVENT_TYPE = USER_MESSAGE_EVENT_TYPE;
 }
 
 /// A run's reasoning, from `afterCursor` when continuing. The cursor is an event position, since a
@@ -269,22 +271,12 @@ pub struct ReasoningEntry {
     pub timestamp: WireInstant,
 }
 
-/// The `available` word of a reasoning reply.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[schemars(inline)]
-pub enum ReasoningAvailable {
-    /// The one value.
-    #[serde(rename = "available")]
-    Value,
-}
+literal! {
+    /// The `available` word of a reasoning reply.
+    pub enum ReasoningAvailable = "available";
 
-/// The `unavailable` word of a reasoning reply.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[schemars(inline)]
-pub enum ReasoningUnavailable {
-    /// The one value.
-    #[serde(rename = "unavailable")]
-    Value,
+    /// The `unavailable` word of a reasoning reply.
+    pub enum ReasoningUnavailable = "unavailable";
 }
 
 /// Holds a reasoning page to the page budget and to sequence order.
@@ -292,6 +284,10 @@ fn require_reasoning_page(entries: &[ReasoningEntry]) -> garde::Result {
     fits_one_page(&entries, &())?;
     require_nondecreasing_sequence(entries, |entry| entry.sequence.get())
 }
+
+/// A reasoning page's entries, `MIN` to [`REASONING_SURFACE_ENTRIES_MAX`] of them.
+pub type ReasoningEntries<const MIN: usize> =
+    BoundedVec<ReasoningEntry, MIN, REASONING_SURFACE_ENTRIES_MAX>;
 
 /// A reasoning page with more after it: at least one entry, and the cursor to continue from.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -302,12 +298,13 @@ pub struct ReasoningSurfaceContinuing {
     /// The reasoning is readable.
     pub availability: ReasoningAvailable,
     /// The entries, oldest first.
-    #[garde(length(min = 1, max = REASONING_SURFACE_ENTRIES_MAX), dive)]
-    #[garde(custom(|entries: &Vec<ReasoningEntry>, (): &()| require_reasoning_page(entries)))]
-    #[schemars(length(min = 1, max = 256))]
-    pub reasoning_entries: Vec<ReasoningEntry>,
+    #[garde(dive)]
+    #[garde(custom(|entries: &ReasoningEntries<1>, (): &()| {
+        require_reasoning_page(entries.as_slice())
+    }))]
+    pub reasoning_entries: ReasoningEntries<1>,
     /// More entries follow.
-    pub has_more: BoolLiteral<true>,
+    pub has_more: True,
     /// Where to continue.
     pub next_cursor: EventCursor,
 }
@@ -322,12 +319,13 @@ pub struct ReasoningSurfaceTerminal {
     /// The reasoning is readable.
     pub availability: ReasoningAvailable,
     /// The entries, oldest first.
-    #[garde(length(max = REASONING_SURFACE_ENTRIES_MAX), dive)]
-    #[garde(custom(|entries: &Vec<ReasoningEntry>, (): &()| require_reasoning_page(entries)))]
-    #[schemars(length(max = 256))]
-    pub reasoning_entries: Vec<ReasoningEntry>,
+    #[garde(dive)]
+    #[garde(custom(|entries: &ReasoningEntries<0>, (): &()| {
+        require_reasoning_page(entries.as_slice())
+    }))]
+    pub reasoning_entries: ReasoningEntries<0>,
     /// No entries follow.
-    pub has_more: BoolLiteral<false>,
+    pub has_more: False,
     /// Where the page ended.
     #[serde(
         default,
@@ -391,7 +389,7 @@ macro_rules! child_run_expand_arm {
     (
         $(#[doc = $doc:literal])+
         $name:ident {
-            entries: $(#[$entries_attribute:meta])+,
+            entries: $min:literal,
             $($arm_member:tt)*
         }
     ) => {
@@ -412,11 +410,11 @@ macro_rules! child_run_expand_arm {
             /// The child's state.
             pub state: RunState,
             /// The run's rows, oldest first, each with its body.
-            $(#[$entries_attribute])+
-            #[garde(custom(|entries: &Vec<TranscriptReadRow>, (): &()| {
-                require_expansion_rows(&self.run_id, entries)
+            #[garde(dive)]
+            #[garde(custom(|entries: &ReadEntries<$min>, (): &()| {
+                require_expansion_rows(&self.run_id, entries.as_slice())
             }))]
-            pub entries: Vec<TranscriptReadRow>,
+            pub entries: ReadEntries<$min>,
             $($arm_member)*
         }
     };
@@ -425,11 +423,9 @@ macro_rules! child_run_expand_arm {
 child_run_expand_arm! {
     /// An expansion with more after it: at least one row, and the cursor to continue from.
     ChildRunExpandContinuing {
-        entries:
-            #[garde(length(min = 1, max = TRANSCRIPT_READ_LIMIT_MAX), dive)]
-            #[schemars(length(min = 1, max = 256))],
+        entries: 1,
         /// More rows follow.
-        pub has_more: BoolLiteral<true>,
+        pub has_more: True,
         /// Where to continue.
         pub next_cursor: EventCursor,
     }
@@ -438,11 +434,9 @@ child_run_expand_arm! {
 child_run_expand_arm! {
     /// The last expansion page: possibly empty, and possibly saying where it ended.
     ChildRunExpandTerminal {
-        entries:
-            #[garde(length(max = TRANSCRIPT_READ_LIMIT_MAX), dive)]
-            #[schemars(length(max = 256))],
+        entries: 0,
         /// No rows follow.
-        pub has_more: BoolLiteral<false>,
+        pub has_more: False,
         /// Where the expansion ended.
         #[serde(
             default,
@@ -465,12 +459,22 @@ pub enum ChildRunExpandResponse {
     Terminal(#[garde(dive)] ChildRunExpandTerminal),
 }
 
-/// The module's TypeScript face.
+/// The module's TypeScript face: the transcript reads, and the run facts a window serves, whose
+/// reader is hand-written.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "transcript/operations",
-    doc: "The paged transcript reads: `transcript.read`, the reasoning read and the child-run \
-          expansion, each page held to the shared page budget.",
+    doc: "The transcript reads: `transcript.read`, the reasoning read and the child-run \
+          expansion, each page held to the shared page budget; the run facts a window serves; and \
+          the reads of a row's large body and of a tool call's left-out patches.",
     definitions: &[
+        Definition::read::<RunStateEventType>().checked(),
+        Definition::read::<TranscriptRunFacts>().checked(),
+        Definition::read::<TranscriptBodyReadRequest>().checked(),
+        Definition::read::<TranscriptBodyReadResponse>().checked(),
+        Definition::read::<TranscriptPatchCursor>(),
+        Definition::read::<TranscriptPatchReadRequest>().checked(),
+        Definition::read::<TranscriptPatchFile>(),
+        Definition::read::<TranscriptPatchReadResponse>().checked(),
         Definition::read::<TranscriptReadRequest>().checked(),
         Definition::read::<TranscriptReadResponse>().checked(),
         Definition::read::<ReasoningSurfaceReadRequest>().checked(),

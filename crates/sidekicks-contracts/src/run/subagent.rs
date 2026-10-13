@@ -3,7 +3,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::event::envelope::{SourceEpoch, SourcePosition};
+use crate::event::envelope::{
+    SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
+};
 use crate::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::name::ProviderName;
 use crate::run::id::RunId;
@@ -19,10 +21,7 @@ use crate::wire::text::FreeFormText;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[schemars(extend("dependentRequired" = {
-    "sourceEpoch": ["sourcePosition"],
-    "sourcePosition": ["sourceEpoch"],
-}))]
+#[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
 pub struct SubagentLifecyclePayload {
     /// The session.
     pub session_id: SessionId,
@@ -48,11 +47,7 @@ pub struct SubagentLifecyclePayload {
     )]
     #[schemars(with = "SourceEpoch")]
     #[garde(custom(|epoch: &Option<SourceEpoch>, (): &()| {
-        if epoch.is_some() == self.source_position.is_some() {
-            Ok(())
-        } else {
-            Err(garde::Error::new("sourceEpoch and sourcePosition come together"))
-        }
+        check_epoch_stamp(*epoch, self.source_position, true)
     }))]
     pub source_epoch: Option<SourceEpoch>,
     /// The turn position the row occupies within its epoch; comes with `source_epoch`.

@@ -12,7 +12,27 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::wire::AnyValue;
 
 /// The one member name a record refuses, since a JavaScript object reads it as its prototype.
-const PROTOTYPE_KEY: &str = "__proto__";
+pub(crate) const PROTOTYPE_KEY: &str = "__proto__";
+
+/// The `propertyNames` rule of an object that refuses the member `__proto__`.
+pub(crate) fn prototype_free_names() -> serde_json::Value {
+    serde_json::json!({ "not": { "const": PROTOTYPE_KEY } })
+}
+
+/// Reads an object of any members but `__proto__`, for a kept-unknown map
+/// (`deserialize_with`); its schema states [`prototype_free_names`].
+pub(crate) fn prototype_free<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<serde_json::Map<String, serde_json::Value>, D::Error> {
+    let members = serde_json::Map::deserialize(deserializer)?;
+    if members.contains_key(PROTOTYPE_KEY) {
+        Err(D::Error::custom(
+            "an object here never holds the member __proto__",
+        ))
+    } else {
+        Ok(members)
+    }
+}
 
 /// An object whose member names are `K` and whose values are `V`, in key order; the member
 /// `__proto__` is refused.

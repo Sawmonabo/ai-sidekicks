@@ -12,8 +12,8 @@ use crate::agent::provider_binding::{
 };
 use crate::approval::events::{
     ApprovalCanceledPayload, ApprovalDenialOverriddenPayload, ApprovalRememberedPayload,
-    ApprovalRequestedPayload, ApprovalResolvedPayload, ApprovalReviewerDeniedPayload,
-    ApprovalRuleRevokedPayload,
+    ApprovalRequestedPayload, ApprovalResolvedPayload, ApprovalRuleRevokedPayload,
+    approval_reviewer_denied_payload,
 };
 use crate::artifacts::publication::ArtifactPublicationPayload;
 use crate::cloud::CloudTaskUpdatedPayload;
@@ -68,20 +68,29 @@ use crate::session::goal::{SessionGoalClearedPayload, SessionGoalUpdatedPayload}
 use crate::session::recovery::RecoveryDamagedEventsSkippedPayload;
 use crate::session::restore::SessionRestoreFinishedPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::workflow::run::control::{
+use crate::workflow::run::events::{
     WorkflowCanceledPayload, WorkflowResultsPostedPayload, WorkflowResumedPayload,
     WorkflowRunDeletedPayload, WorkflowStartedPayload,
 };
 use crate::workflow::run::step::events::{
-    WorkflowGateResolvedPayload, WorkflowPhaseSuspendedPayload, WorkflowStepCanceledPayload,
-    WorkflowStepFailedPayload, WorkflowStepFinishedPayload, WorkflowStepSkippedPayload,
-    WorkflowStepStartedPayload,
+    WorkflowGateResolvedPayload, WorkflowPhaseFailedPayload, WorkflowPhaseSuspendedPayload,
+    WorkflowPhaseWaitingOnPoolPayload, WorkflowStepCanceledPayload, WorkflowStepFailedPayload,
+    WorkflowStepFinishedPayload, WorkflowStepSkippedPayload, WorkflowStepStartedPayload,
 };
 use crate::worktree::events::{
     SessionBranchChangedPayload, SessionSweptToRepoRootPayload, WorktreeCreatedPayload,
     WorktreeRetiredPayload,
 };
 use crate::worktree::lifecycle::WorktreeLifecyclePayload;
+
+approval_reviewer_denied_payload! {
+    described
+    /// The `approval.reviewer_denied` payload as the session event carries it: the reviewer's
+    /// block, with the stored denial body's length and cut mark, which the append path owns.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct ApprovalReviewerDeniedEventPayload
+}
 
 /// Declares [`SessionEvent`] from one registration table: each row is an arm named as its
 /// [`SessionEventType`] variant, its payload (with `#[garde(dive)]` where the payload has checks)
@@ -109,6 +118,21 @@ macro_rules! session_events {
                 match self {
                     $(Self::$variant(_) => SessionEventType::$variant,)+
                 }
+            }
+
+            /// Reads `payload` as the payload variant `event_type` registers, borrowing it, or
+            /// `None` when the type registers no payload variant.
+            fn read_payload(
+                event_type: SessionEventType,
+                payload: &Map<String, Value>,
+            ) -> Option<Result<Self, serde_json::Error>> {
+                $(
+                    if event_type == SessionEventType::$variant {
+                        let read = <$payload as Deserialize>::deserialize(payload);
+                        return Some(read.map(Self::$variant));
+                    }
+                )+
+                None
             }
         }
 
@@ -208,7 +232,7 @@ session_events! {
     SessionGoalCleared(SessionGoalClearedPayload) = "session.goal_cleared",
     /// Emitted for a plain-sentence notice about the session, such as a warning from the
     /// provider.
-    SessionNotice(SessionNoticePayload) = "session.notice",
+    SessionNotice(#[garde(dive)] SessionNoticePayload) = "session.notice",
     /// Emitted when a side question is answered; the aside never enters the conversation.
     SessionSideQuestionAnswered(SessionSideQuestionAnsweredPayload) =
         "session.side_question_answered",
@@ -256,7 +280,7 @@ session_events! {
     ApprovalApproved(ApprovalResolvedPayload) = "approval.approved",
     /// Emitted when the provider's own reviewer blocks an action; its denial is the row's body,
     /// kept apart from the payload.
-    ApprovalReviewerDenied(ApprovalReviewerDeniedPayload) = "approval.reviewer_denied",
+    ApprovalReviewerDenied(ApprovalReviewerDeniedEventPayload) = "approval.reviewer_denied",
     /// Emitted when the person allows a blocked action once.
     ApprovalDenialOverridden(ApprovalDenialOverriddenPayload) = "approval.denial_overridden",
     /// Emitted when a run is queued.
@@ -308,7 +332,7 @@ session_events! {
     /// Emitted when a workflow run resumes.
     WorkflowResumed(#[garde(dive)] WorkflowResumedPayload) = "workflow.resumed",
     /// Emitted when a workflow run is canceled.
-    WorkflowCanceled(WorkflowCanceledPayload) = "workflow.canceled",
+    WorkflowCanceled(#[garde(dive)] WorkflowCanceledPayload) = "workflow.canceled",
     /// Emitted when the person deletes a workflow run.
     WorkflowRunDeleted(WorkflowRunDeletedPayload) = "workflow.run_deleted",
     /// Emitted when a finished run's results land as a row in the asking session.
@@ -316,12 +340,19 @@ session_events! {
     /// Emitted when a workflow step starts waiting, with what it waits on.
     WorkflowPhaseSuspended(#[garde(dive)] WorkflowPhaseSuspendedPayload) =
         "workflow.phase_suspended",
+    /// Emitted when a workflow step's phase fails, saying whether a sibling branch's failure
+    /// canceled it.
+    WorkflowPhaseFailed(WorkflowPhaseFailedPayload) = "workflow.phase_failed",
+    /// Emitted when the memory gate holds a step before it starts, and every 30 seconds while it
+    /// holds it.
+    WorkflowPhaseWaitingOnPool(WorkflowPhaseWaitingOnPoolPayload) =
+        "workflow.phase_waiting_on_pool",
     /// Emitted when a workflow step starts, with the input it ran on.
     WorkflowStepStarted(#[garde(dive)] WorkflowStepStartedPayload) = "workflow.step_started",
     /// Emitted when a workflow step finishes, with its output and log.
     WorkflowStepFinished(#[garde(dive)] WorkflowStepFinishedPayload) = "workflow.step_finished",
     /// Emitted when a workflow step fails, with its error.
-    WorkflowStepFailed(WorkflowStepFailedPayload) = "workflow.step_failed",
+    WorkflowStepFailed(#[garde(dive)] WorkflowStepFailedPayload) = "workflow.step_failed",
     /// Emitted when a running or waiting step ends because its run ended failed or canceled, or
     /// when a first-to-arrive merge cancels a branch once another branch arrived.
     WorkflowStepCanceled(WorkflowStepCanceledPayload) = "workflow.step_canceled",
@@ -400,7 +431,10 @@ pub enum SessionEventReadError {
         /// The category the envelope carries.
         found: EventCategory,
     },
-    /// The payload does not have its type's shape, or the type registers no payload variant.
+    /// The type is registered but declares no payload variant, so no strict event reads from it.
+    #[error("the event type {} registers no payload variant", .0.as_str())]
+    NoPayloadVariant(SessionEventType),
+    /// The payload does not have its type's shape.
     #[error("the payload does not read as its type's: {0}")]
     Payload(#[from] serde_json::Error),
     /// The payload has its type's shape but breaks one of its checks.
@@ -411,7 +445,8 @@ pub enum SessionEventReadError {
 impl SessionEvent {
     /// Reads the strict event from a stored envelope's `type` and `payload`, after checking that
     /// the envelope's category is its type's own. Fails with [`SessionEventReadError`] on an
-    /// unregistered type, a mismatched category, or a payload its type's schema refuses.
+    /// unregistered type, a mismatched category, a type with no payload variant, or a payload its
+    /// type's schema refuses.
     pub fn from_envelope(envelope: &EventEnvelope) -> Result<Self, SessionEventReadError> {
         let type_name = envelope.event_type.as_str();
         let event_type = SessionEventType::from_wire_name(type_name)
@@ -424,16 +459,8 @@ impl SessionEvent {
                 found: envelope.category,
             });
         }
-        let wire: Map<String, Value> = [
-            ("type".to_owned(), Value::String(type_name.to_owned())),
-            (
-                "payload".to_owned(),
-                Value::Object(envelope.payload.clone()),
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let event: Self = serde_json::from_value(Value::Object(wire))?;
+        let event = Self::read_payload(event_type, &envelope.payload)
+            .ok_or(SessionEventReadError::NoPayloadVariant(event_type))??;
         garde::Validate::validate(&event)?;
         Ok(event)
     }
@@ -444,7 +471,10 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "event/session",
     doc: "The strict session event: an envelope's `type` and `payload`, the payload parsed by the \
           schema its type registers. The envelope is read tolerant and the event strict.",
-    definitions: &[Definition::read::<SessionEvent>().checked()],
+    definitions: &[
+        Definition::read::<ApprovalReviewerDeniedEventPayload>(),
+        Definition::read::<SessionEvent>().checked(),
+    ],
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
@@ -508,15 +538,17 @@ mod tests {
         });
         let known_text = envelope_text("session.pinned", "session_lifecycle", &payload);
         let known: EventEnvelope = serde_json::from_str(&known_text).expect("the envelope reads");
-        assert_eq!(
-            serde_json_canonicalizer::to_vec(&known).expect("the envelope canonicalizes"),
-            canonical_text(&known_text),
-        );
+        let kept_bytes =
+            serde_json_canonicalizer::to_vec(&known).expect("the envelope canonicalizes");
+        assert_eq!(kept_bytes, canonical_text(&known_text));
+        // The kept bytes, read back, give the event the native form reads to.
+        let reread: EventEnvelope =
+            serde_json::from_slice(&kept_bytes).expect("the kept bytes read back");
         let native: SessionEvent =
             serde_json::from_value(json!({ "type": "session.pinned", "payload": payload }))
                 .expect("the native event reads");
         assert_eq!(
-            SessionEvent::from_envelope(&known).expect("the known type reads"),
+            SessionEvent::from_envelope(&reread).expect("the known type reads"),
             native
         );
     }

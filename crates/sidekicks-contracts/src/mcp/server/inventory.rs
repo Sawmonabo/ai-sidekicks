@@ -7,18 +7,23 @@ use serde_json::json;
 
 use crate::mcp::server::config::McpServerConfigView;
 use crate::mcp::server::{
-    McpApprovalMode, McpProjectRoot, McpServerStatus, McpToolName, binding_addressed,
+    McpApprovalMode, McpClaudeProvider, McpProjectRoot, McpServerStatus, McpToolName,
+    binding_addressed,
 };
+use crate::provider::driver::length_limits::DRIVER_BINDING_ID_MAX_LEN;
+use crate::provider::name::ProviderName;
 use crate::schema::{push_all_of, required_member};
 use crate::session::id::SessionId;
-use crate::wire::True;
 use crate::wire::instant::WireInstant;
 use crate::wire::list::BoundedVec;
-use crate::wire::literal;
-use crate::wire::text::BoundedText;
+use crate::wire::text::branded_text;
+use crate::wire::{Never, True, literal};
 
-/// The runtime binding one live session's observation came from, not the config binding.
-pub type McpRuntimeBindingId = BoundedText<1, { usize::MAX }>;
+branded_text! {
+    /// The daemon-minted id of the runtime binding, one live session's leg, an observation came
+    /// from; not the config binding. Opaque to every client.
+    pub struct McpRuntimeBindingId(1..=DRIVER_BINDING_ID_MAX_LEN);
+}
 
 /// One live session's observation of one binding, kept per session because two sessions'
 /// connections to one binding can disagree, and one verdict would hide a partial outage.
@@ -260,18 +265,11 @@ macro_rules! inventory_entry {
                 #[schemars(with = "WireInstant")]
                 #[garde(dive)]
                 observed_at: Option<WireInstant>,
-                /// Whether a session refuses to start without the server.
-                #[serde(
-                    default,
-                    skip_serializing_if = "Option::is_none",
-                    deserialize_with = "crate::wire::present"
-                )]
-                #[schemars(with = "bool")]
-                required_server: Option<bool>,
-                /// The project roots in which another binding of this provider and server name
-                /// takes this one's place, by the provider's order: a project's `local` binding
-                /// over its `project` one, either over the `user` one. Absent where it is used
-                /// wherever it applies.
+                /// The project roots in which another binding of this provider takes this one's
+                /// place, by the provider's order: a project's `local` binding over its `project`
+                /// one, either over the `user` one, matched by server name; on Claude Code a
+                /// plugin's server or a connector also matches when it points at the same address
+                /// or command. Absent where it is used wherever it applies.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
@@ -279,6 +277,17 @@ macro_rules! inventory_entry {
                 )]
                 #[schemars(with = "BoundedVec<McpProjectRoot, 1, { usize::MAX }>")]
                 superseded_in: Option<BoundedVec<McpProjectRoot, 1, { usize::MAX }>>,
+                /// Claude Code: the project roots where the server is switched off, by Claude
+                /// Code's own per-project list or, on a connector or an organization's server, by
+                /// the daemon's per-project switch; it stays out of those projects' sessions.
+                /// Absent where no project switched it off.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "BoundedVec<McpProjectRoot, 1, { usize::MAX }>")]
+                disabled_in: Option<BoundedVec<McpProjectRoot, 1, { usize::MAX }>>,
                 /// Why a `failed` server failed, where the daemon knows; only on a failed entry.
                 #[serde(
                     default,
@@ -297,7 +306,9 @@ macro_rules! inventory_entry {
                 let (Self::User { status, failed_reason, .. }
                 | Self::Project { status, failed_reason, .. }
                 | Self::Local { status, failed_reason, .. }
-                | Self::Plugin { status, failed_reason, .. }) = self;
+                | Self::Plugin { status, failed_reason, .. }
+                | Self::Connector { status, failed_reason, .. }
+                | Self::Managed { status, failed_reason, .. }) = self;
                 is_failure_reason_on_failed(*status, failed_reason.as_ref())
             }
         }
@@ -307,6 +318,14 @@ macro_rules! inventory_entry {
 inventory_entry! {
     /// An inventory row whose binding store answered.
     pub enum McpAnsweredInventoryEntry {
+        /// Never present: the store answered.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        binding_store_unavailable: Option<Never>,
         /// Whether the binding is on.
         enabled: bool,
         /// Its server's tools.
@@ -316,11 +335,14 @@ inventory_entry! {
 
 inventory_entry! {
     /// An inventory row while the binding store is unavailable: the members that need the store
-    /// are absent, not `false`, `unknown` or an empty list, so no made-up verdict exists.
+    /// are absent, not `false`, `unknown` or an empty list, so no made-up verdict exists. A
+    /// Claude Code binding leaves `enabled` out, since its switch lives in the store.
+    #[garde(custom(Self::leaves_claude_enabled_out))]
+    #[schemars(transform = add_claude_enabled_rule)]
     pub enum McpStoreUnavailableInventoryEntry {
         /// Always `true`.
         binding_store_unavailable: True,
-        /// Whether the binding is on, where known without the store.
+        /// Whether the binding is on, as Codex's own config says; absent on Claude Code.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -329,6 +351,49 @@ inventory_entry! {
         #[schemars(with = "bool")]
         enabled: Option<bool>,
     }
+}
+
+impl McpStoreUnavailableInventoryEntry {
+    /// Whether a Claude Code binding leaves `enabled` out.
+    fn leaves_claude_enabled_out(&self, _: &()) -> garde::Result {
+        let (is_claude, enabled) = match self {
+            Self::User {
+                provider, enabled, ..
+            }
+            | Self::Project {
+                provider, enabled, ..
+            }
+            | Self::Local {
+                provider, enabled, ..
+            }
+            | Self::Plugin {
+                provider, enabled, ..
+            } => (*provider == ProviderName::Claude, enabled),
+            Self::Connector { enabled, .. } | Self::Managed { enabled, .. } => (true, enabled),
+        };
+        if is_claude && enabled.is_some() {
+            Err(garde::Error::new(
+                "a Claude Code binding's enabled is unknown while the binding store is unavailable",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// The schema twin of [`McpStoreUnavailableInventoryEntry::leaves_claude_enabled_out`].
+fn add_claude_enabled_rule(schema: &mut Schema) {
+    push_all_of(
+        schema,
+        json!({
+            "if": {
+                "type": "object",
+                "properties": { "provider": { "const": McpClaudeProvider::TEXT } },
+                "required": ["provider"],
+            },
+            "then": { "type": "object", "properties": { "enabled": false } },
+        }),
+    );
 }
 
 /// One inventory row: the binding and what is known about it. A client renders an absent member

@@ -10,8 +10,8 @@ use crate::agent::definition::binding::ProviderToken;
 use crate::agent::definition::requests::{
     AgentDefinitionCreateRequest, AgentDefinitionCreateResponse, AgentDefinitionDeleteRequest,
     AgentDefinitionDeleteResponse, AgentDefinitionExportRequest, AgentDefinitionExportResponse,
-    AgentDefinitionImportRequest, AgentDefinitionImportResponse, AgentDefinitionListRequest,
-    AgentDefinitionListResponse, AgentDefinitionUpdateRequest, AgentDefinitionUpdateResponse,
+    AgentDefinitionImportRequest, AgentDefinitionImportResponse, AgentDefinitionListResponse,
+    AgentDefinitionUpdateRequest, AgentDefinitionUpdateResponse,
 };
 use crate::agent::definition::{AgentId, AgentResolvedConfiguration};
 use crate::agent::provider_binding::{
@@ -19,6 +19,7 @@ use crate::agent::provider_binding::{
 };
 use crate::jsonrpc::streaming::{SubscribeAckResponse, SubscriptionId};
 use crate::method::methods;
+use crate::method_descriptor::EmptyPayload;
 use crate::provider::name::ProviderName;
 use crate::schema::required_member;
 use crate::session::id::SessionId;
@@ -247,14 +248,14 @@ methods! {
         /// Reads the definition registry.
         AgentDefinitionList = query "agent.definitionList" {
             mutating: false,
-            params: AgentDefinitionListRequest,
+            params: EmptyPayload,
             result: AgentDefinitionListResponse,
             refusals: [AgentDefinitionUnreadable],
         },
         /// Streams the definition registry.
         AgentDefinitionSubscribe = subscription "agent.definitionSubscribe" {
             mutating: false,
-            params: AgentDefinitionListRequest,
+            params: EmptyPayload,
             result: SubscribeAckResponse,
             emission: AgentDefinitionListResponse,
             refusals: [AgentDefinitionUnreadable],

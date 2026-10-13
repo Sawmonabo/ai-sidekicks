@@ -16,7 +16,7 @@ use crate::method_descriptor::EmptyPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::handle_id::handle_id;
 use crate::wire::integer::SafeInt;
-use crate::wire::list::unique_by;
+use crate::wire::list::{ListKey, UniqueList};
 use crate::wire::literal;
 use crate::wire::record::Record;
 use crate::wire::text::NonEmptyText;
@@ -183,8 +183,8 @@ macro_rules! handle_spec {
             /// The handle's id as an edge writes it.
             pub fn id_text(&self) -> String {
                 match self {
-                    Self::Main { id, .. } => format!(concat!($main_prefix, "{}"), id.index()),
-                    Self::Tool { id, .. } => format!(concat!($tool_prefix, "{}"), id.index()),
+                    Self::Main { id, .. } => id.to_string(),
+                    Self::Tool { id, .. } => id.to_string(),
                 }
             }
 
@@ -437,11 +437,11 @@ pub struct WorkflowNodeKindSpec {
     #[schemars(with = "Vec<NonEmptyText>")]
     pub aliases: Option<Vec<NonEmptyText>>,
     /// The input handles, each id once.
-    #[garde(custom(unique_by(WorkflowInputHandleSpec::id_text)))]
-    pub inputs: Vec<WorkflowInputHandleSpec>,
+    #[garde(dive)]
+    pub inputs: UniqueList<WorkflowInputHandleSpec, 0, { usize::MAX }>,
     /// The output handles, each id once.
-    #[garde(custom(unique_by(WorkflowOutputHandleSpec::id_text)))]
-    pub outputs: Vec<WorkflowOutputHandleSpec>,
+    #[garde(dive)]
+    pub outputs: UniqueList<WorkflowOutputHandleSpec, 0, { usize::MAX }>,
     /// Whether the listed outputs are the base case of a set the node's params derive.
     pub outputs_derive_from_params: bool,
     /// The parameters.
@@ -510,3 +510,19 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[&WORKFLOW_KIND_METHOD_DESCRIPTORS],
 };
+
+impl ListKey for WorkflowInputHandleSpec {
+    type Key = String;
+
+    fn list_key(&self) -> String {
+        self.id_text()
+    }
+}
+
+impl ListKey for WorkflowOutputHandleSpec {
+    type Key = String;
+
+    fn list_key(&self) -> String {
+        self.id_text()
+    }
+}

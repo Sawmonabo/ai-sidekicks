@@ -98,6 +98,7 @@ pub fn typescript_modules() -> impl Iterator<Item = &'static TypeScriptModule> {
 /// The TypeScript modules of the root contract modules.
 const ROOT_TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &account::TYPESCRIPT_MODULE,
+    &app_link::TYPESCRIPT_MODULE,
     &approval::TYPESCRIPT_MODULE,
     &attention::TYPESCRIPT_MODULE,
     &browser::TYPESCRIPT_MODULE,

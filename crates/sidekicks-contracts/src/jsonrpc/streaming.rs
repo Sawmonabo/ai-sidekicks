@@ -1,8 +1,8 @@
 //! The wire shapes of a streaming subscription: the acknowledgement every `*.subscribe` method
 //! answers with, the `$/subscription/notify` frame carrying one value, the `$/subscription/end`
 //! frame the daemon ends a stream with, and the `$/subscription/cancel` call a client tears one
-//! down with. A subscription holds only its place, never a queue, so a frame carries changes and
-//! nothing is ever dropped from it.
+//! down with. A subscription holds only its place, never a queue: a stream either loses nothing or
+//! marks a drop.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -83,7 +83,7 @@ pub struct SubscriptionNotifyParams<T> {
 /// ```ignore
 /// stream_frame! {
 ///     /// One `run.subscribeQueue` emission.
-///     pub struct RunQueueStreamFrame(RunQueueChange);
+///     pub struct RunQueueStreamFrame(RunQueueStreamChange);
 /// }
 /// ```
 macro_rules! stream_frame {

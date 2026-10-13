@@ -10,6 +10,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::text::is_within_length;
 
 /// The cap on the envelope's free-form strings (id, actor, correlation and causation ids), with
 /// room for composite ids beyond a 36-character UUID, in code points.
@@ -39,8 +40,9 @@ impl EventEnvelopeVersion {
     /// `text` as a version, or `None` when it is longer than
     /// [`EVENT_ENVELOPE_VERSION_MAX_LEN`] or not `"MAJOR.MINOR"`.
     pub fn new(text: String) -> Option<Self> {
-        (text.chars().count() <= EVENT_ENVELOPE_VERSION_MAX_LEN && VERSION_REGEX.is_match(&text))
-            .then_some(Self(text))
+        let is_version = is_within_length(&text, 0, EVENT_ENVELOPE_VERSION_MAX_LEN)
+            && VERSION_REGEX.is_match(&text);
+        is_version.then_some(Self(text))
     }
 
     /// The version's text.

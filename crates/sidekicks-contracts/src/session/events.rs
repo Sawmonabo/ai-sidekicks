@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentDefinitionId;
 use crate::agent::methods::AgentListEntry;
-use crate::event::envelope::{SourceEpoch, SourcePosition};
+use crate::event::envelope::{
+    SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
+};
 use crate::machine_settings::MACHINE_SETTINGS_NAME_MAX_LEN;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
@@ -203,10 +205,7 @@ pub struct SessionOutputStyleChangedPayload {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-#[schemars(extend("dependentRequired" = {
-    "sourceEpoch": ["sourcePosition", "runId"],
-    "sourcePosition": ["sourceEpoch", "runId"],
-}))]
+#[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
 pub struct SessionProviderStatusPayload {
     /// The session.
     pub session_id: SessionId,
@@ -238,13 +237,7 @@ pub struct SessionProviderStatusPayload {
     )]
     #[schemars(with = "SourceEpoch")]
     #[garde(custom(|epoch: &Option<SourceEpoch>, (): &()| {
-        if epoch.is_some() != self.source_position.is_some() {
-            Err(garde::Error::new("sourceEpoch and sourcePosition come together"))
-        } else if epoch.is_some() && self.run_id.is_none() {
-            Err(garde::Error::new("an epoch stamp requires runId"))
-        } else {
-            Ok(())
-        }
+        check_epoch_stamp(*epoch, self.source_position, self.run_id.is_some())
     }))]
     pub source_epoch: Option<SourceEpoch>,
     /// The turn position the row occupies within its epoch; comes with `source_epoch`.

@@ -4,13 +4,16 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentDefinitionId;
-use crate::agent::definition::refusal::agent_resolution_refused_details;
+use crate::agent::definition::refusal::{
+    AgentResolutionRefusedCode, agent_resolution_refused_details,
+};
 use crate::artifacts::id::ArtifactId;
 use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
 use crate::wire::record::{JsonRecord, Record};
 use crate::wire::text::{BoundedText, NonEmptyText, pattern_text};
-use crate::wire::{AnyValue, Never, literal};
+use crate::wire::{AnyValue, Never};
 use crate::workflow::definition::document::WorkflowNodeId;
 
 /// A binary value an item carries: a stored artifact by id, with the type, name and size a panel
@@ -57,11 +60,6 @@ pub enum WorkflowPairedItems {
 pattern_text! {
     /// A step failure's own code, in the `workflow.<condition>` form.
     pub struct WorkflowStepErrorCode("^workflow\\.[a-z][a-z_]*$");
-}
-
-literal! {
-    /// The code of a step whose agent could not resolve.
-    pub enum AgentResolutionRefusedCode = "agent.resolution_refused";
 }
 
 agent_resolution_refused_details! {
@@ -219,3 +217,25 @@ workflow_item! {
     /// items carry one cannot be pinned.
     pub struct WorkflowPinnedItem {}
 }
+
+/// The TypeScript module of the workflow items and the failures they carry.
+pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
+    path: "workflow/definition/item",
+    doc: "The items data travels in between nodes, and the failure an item, a step or a run \
+          carries.",
+    definitions: &[
+        Definition::read::<WorkflowBinaryRef>(),
+        Definition::read::<WorkflowPairedItem>(),
+        Definition::read::<WorkflowPairedItems>(),
+        Definition::read::<WorkflowStepErrorCode>(),
+        Definition::read::<WorkflowStepAgentResolutionRefusedDetails>(),
+        Definition::read::<WorkflowStepUncodedError>(),
+        Definition::read::<WorkflowStepCodedError>(),
+        Definition::read::<WorkflowStepAgentResolutionError>(),
+        Definition::read::<WorkflowStepError>().checked(),
+        Definition::read::<WorkflowItem>().checked(),
+        Definition::read::<WorkflowPinnedItem>().checked(),
+    ],
+    constants: &[],
+    method_tables: &[],
+};

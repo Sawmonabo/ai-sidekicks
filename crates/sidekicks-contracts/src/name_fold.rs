@@ -21,7 +21,7 @@ mod tests {
     /// Every code point whose fold is not itself, from the fold the desktop runs, and the code
     /// points only its newer Unicode data folds.
     #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct NameFoldTable {
         simple_folds: Vec<u32>,
         full_folds: Vec<Vec<u32>>,

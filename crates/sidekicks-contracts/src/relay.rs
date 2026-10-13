@@ -16,7 +16,7 @@ use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::release_manifest::Sha256Hex;
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::text::pattern_text;
+use crate::wire::text::{is_within_length, pattern_text};
 
 /// A host name's labels: letters, digits and inner hyphens, each 1 to 63 characters, joined by
 /// dots, with an optional final dot.
@@ -39,8 +39,10 @@ pub struct Hostname(String);
 impl Hostname {
     /// `text` when it is a host name, else `None`.
     pub fn new(text: String) -> Option<Self> {
-        let length = text.strip_suffix('.').unwrap_or(&text).len();
-        (length <= HOSTNAME_MAX_LEN && HOSTNAME_REGEX.is_match(&text)).then_some(Self(text))
+        let labels = text.strip_suffix('.').unwrap_or(&text);
+        let is_hostname =
+            is_within_length(labels, 0, HOSTNAME_MAX_LEN) && HOSTNAME_REGEX.is_match(&text);
+        is_hostname.then_some(Self(text))
     }
 
     /// The host name.

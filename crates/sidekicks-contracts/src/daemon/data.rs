@@ -10,13 +10,15 @@ use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
-use crate::typescript::{Definition, TypeScriptModule};
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
 
-/// The service's data folder, inside the person's home folder: its database, the machine's
-/// settings and every other file it keeps.
-pub const DAEMON_DATA_FOLDER_NAME: &str = ".ai-sidekicks";
+ts_constants! {
+    /// The service's data folder, inside the person's home folder: its database, the machine's
+    /// settings and every other file it keeps.
+    pub const DAEMON_DATA_FOLDER_NAME: &str = ".ai-sidekicks";
+}
 
 branded_uuid_id! {
     /// The id of one export job, minted by the service.
@@ -49,91 +51,53 @@ pub struct DataExportSubscribeRequest {
     pub job_id: DataExportJobId,
 }
 
-/// The word `running`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-#[schemars(inline)]
-pub enum DataExportRunningState {
-    /// The export is running.
-    Running,
-}
-
-/// The word `completed`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-#[schemars(inline)]
-pub enum DataExportCompletedState {
-    /// The export finished.
-    Completed,
-}
-
-/// The word `failed`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-#[schemars(inline)]
-pub enum DataExportFailedState {
-    /// The export failed.
-    Failed,
-}
-
-/// A running export: it exports one session at a time, so it counts sessions, never past its
-/// total.
+/// Where an export stands, told apart by its `state`. A running export exports one session at a
+/// time, so it counts sessions, never past its total.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[schemars(inline)]
+#[serde(
+    tag = "state",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 #[garde(allow_unvalidated)]
-pub struct DataExportRunning {
-    /// Always `running`.
-    pub state: DataExportRunningState,
-    /// The sessions exported so far; never more than `sessions_total`.
-    #[garde(custom(|exported: &SafeInt<0>, (): &()| {
-        if *exported <= self.sessions_total {
-            Ok(())
-        } else {
-            Err(garde::Error::new("sessionsExported cannot exceed sessionsTotal"))
-        }
-    }))]
-    #[schemars(extend("maximum" = { "$data": "1/sessionsTotal" }))]
-    pub sessions_exported: SafeInt<0>,
-    /// The sessions the export holds.
-    pub sessions_total: SafeInt<0>,
-}
-
-/// A finished export: the folder and its size.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[schemars(inline)]
-pub struct DataExportCompleted {
-    /// Always `completed`.
-    pub state: DataExportCompletedState,
-    /// The folder written.
-    pub path: FreeFormText<FILE_PATH_MAX_LEN>,
-    /// Its size in bytes.
-    pub total_bytes: SafeInt<0>,
-}
-
-/// A failed export, with the service's own words for the cause.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[schemars(inline)]
-pub struct DataExportFailed {
-    /// Always `failed`.
-    pub state: DataExportFailedState,
-    /// The cause.
-    pub message: FreeFormText<ERROR_MESSAGE_MAX_LEN>,
-}
-
-/// Where an export stands, told apart by its `state`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(untagged)]
-#[garde(allow_unvalidated)]
+#[garde(custom(|progress: &Self, (): &()| progress.counts_within_total()))]
 pub enum DataExportProgress {
     /// The export is running.
-    Running(#[garde(dive)] DataExportRunning),
-    /// The export finished.
-    Completed(DataExportCompleted),
-    /// The export failed.
-    Failed(DataExportFailed),
+    Running {
+        /// The sessions exported so far; never more than `sessionsTotal`.
+        #[schemars(extend("maximum" = { "$data": "1/sessionsTotal" }))]
+        sessions_exported: SafeInt<0>,
+        /// The sessions the export holds.
+        sessions_total: SafeInt<0>,
+    },
+    /// The export finished: the folder and its size.
+    Completed {
+        /// The folder written.
+        path: FreeFormText<FILE_PATH_MAX_LEN>,
+        /// Its size in bytes.
+        total_bytes: SafeInt<0>,
+    },
+    /// The export failed, with the service's own words for the cause.
+    Failed {
+        /// The cause.
+        message: FreeFormText<ERROR_MESSAGE_MAX_LEN>,
+    },
+}
+
+impl DataExportProgress {
+    /// Refuses a running export that counts more sessions exported than it holds.
+    fn counts_within_total(&self) -> garde::Result {
+        match self {
+            Self::Running {
+                sessions_exported,
+                sessions_total,
+            } if sessions_exported > sessions_total => Err(garde::Error::new(
+                "sessionsExported cannot exceed sessionsTotal",
+            )),
+            Self::Running { .. } | Self::Completed { .. } | Self::Failed { .. } => Ok(()),
+        }
+    }
 }
 
 methods! {
@@ -177,6 +141,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DataExportSubscribeRequest>().checked(),
         Definition::read::<DataExportProgress>().checked(),
     ],
-    constants: &[],
+    constants: TS_CONSTANTS,
     method_tables: &[&DAEMON_DATA_METHOD_DESCRIPTORS],
 };

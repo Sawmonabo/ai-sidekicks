@@ -82,7 +82,13 @@ fn write_module(
     };
     let mut definitions = Map::new();
     for definition in module.definitions {
-        let schema = (definition.schema)(&mut generators[generator_index(definition.contract)]);
+        let generator = &mut generators[generator_index(definition.contract)];
+        let mut schema = (definition.schema)(generator);
+        // The generator's transforms run on what it collects; a listed schema takes them too, so
+        // the two compare equal.
+        for transform in generator.transforms_mut() {
+            transform.transform(&mut schema);
+        }
         definitions.insert((definition.name)().into_owned(), schema.to_value());
     }
     for (contract, generator) in [SchemaContract::Read, SchemaContract::Sent]
@@ -98,7 +104,7 @@ fn write_module(
                         .ok_or("a listed definition is present")?;
                     if *listed != schema {
                         return Err(format!(
-                            "{}: {name}'s {contract:?} schema differs from the one it is listed with",
+                            "{}: {name}'s {contract:?} schema differs from its listed one",
                             module.path
                         )
                         .into());
@@ -150,7 +156,8 @@ fn write_module(
         .constants
         .iter()
         .map(|constant| {
-            Ok(json!({ "name": constant.name, "doc": doc_text(constant.doc), "value": (constant.value)()? }))
+            let value = (constant.value)()?;
+            Ok(json!({ "name": constant.name, "doc": doc_text(constant.doc), "value": value }))
         })
         .collect::<EmitResult<Vec<_>>>()?;
 

@@ -8,7 +8,7 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::web_address::WebAddress;
 use crate::wire::integer::SafeInt;
 use crate::wire::named_scalar;
-use crate::wire::text::{BoundedText, FreeFormText, pattern_text};
+use crate::wire::text::{FreeFormText, branded_text, pattern_text};
 
 pattern_text! {
     /// A commit's short id, git's own abbreviation, which is as long as the repository needs.
@@ -18,8 +18,10 @@ pattern_text! {
 /// A branch or other ref name; git's own rule judges it, so the wire sets no length.
 pub type GitRefName = FreeFormText<{ usize::MAX }>;
 
-/// An id the hosting service minted (a thread, a comment, a check), opaque to every client.
-pub type HostHandle = BoundedText<1, { usize::MAX }>;
+branded_text! {
+    /// An id the hosting service minted (a thread, a comment, a check), opaque to every client.
+    pub struct HostHandle(1..=usize::MAX);
+}
 
 /// A change request's number on its host: `#482` on GitHub, `!482` on GitLab.
 #[derive(
@@ -40,6 +42,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The scalars the git-flow modules share.",
     definitions: &[
         Definition::read::<GitShortObjectId>().checked(),
+        Definition::read::<HostHandle>(),
         Definition::read::<ChangeRequestNumber>().checked(),
         Definition::read::<HostingAddress>().checked(),
     ],

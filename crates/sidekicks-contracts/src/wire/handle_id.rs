@@ -52,9 +52,15 @@ macro_rules! handle_id {
             }
         }
 
+        impl std::fmt::Display for $name {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, concat!($prefix, "{}"), self.index)
+            }
+        }
+
         impl serde::Serialize for $name {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-                serializer.collect_str(&format_args!(concat!($prefix, "{}"), self.index))
+                serializer.collect_str(self)
             }
         }
 
@@ -63,12 +69,7 @@ macro_rules! handle_id {
                 let text = <String as serde::Deserialize>::deserialize(deserializer)?;
                 let index = text
                     .strip_prefix($prefix)
-                    .filter(|digits| {
-                        *digits == "0"
-                            || (digits.starts_with(|first: char| ('1'..='9').contains(&first))
-                                && digits.bytes().all(|digit| digit.is_ascii_digit()))
-                    })
-                    .and_then(|digits| digits.parse::<u64>().ok())
+                    .and_then($crate::wire::integer::canonical_index)
                     .and_then(Self::new);
                 index.ok_or_else(|| {
                     <D::Error as serde::de::Error>::custom(concat!(

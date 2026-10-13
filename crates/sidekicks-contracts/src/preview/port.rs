@@ -14,7 +14,7 @@ use crate::web_address::HttpsAddress;
 use crate::wire::True;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::Port;
-use crate::wire::text::BoundedText;
+use crate::wire::text::NonEmptyText;
 
 /// The details both port refusals carry: the port the request named.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -35,8 +35,8 @@ pub struct PreviewSharedPort {
     pub port: Port,
     /// The framework discovery named.
     #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<BoundedText<1, { usize::MAX }>>")]
-    pub framework: Option<BoundedText<1, { usize::MAX }>>,
+    #[schemars(with = "crate::wire::NullableSchema<NonEmptyText>")]
+    pub framework: Option<NonEmptyText>,
     /// Whether anything listens on it.
     pub listening: bool,
     /// When it was shared.
@@ -55,8 +55,11 @@ pub struct PreviewPortShareListFrame {
 }
 
 /// Names one port: share it, stop sharing it, or issue the web address's ticket for it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPortRequest {
     /// The port.
     pub port: Port,

@@ -5,7 +5,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::{AGENT_REASON_MAX_LEN, AgentDefinitionId};
+use crate::jsonrpc::refusal::RefusalCode;
+use crate::wire::literal;
 use crate::wire::text::FreeFormText;
+
+literal! {
+    /// The code of a definition that cannot resolve to a runnable agent, wherever its refusal is
+    /// carried: always `agent.resolution_refused`.
+    pub enum AgentResolutionRefusedCode = const RefusalCode::AgentResolutionRefused.as_str();
+}
 
 /// The operating system's own cause of a failed export write, as it reported it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -14,6 +22,10 @@ pub struct AgentExportWriteFailedDetails {
     /// The cause.
     pub cause: FreeFormText<AGENT_REASON_MAX_LEN>,
 }
+
+/// The schema of a provider token that may be `null`, short enough to name in the macro below.
+pub(crate) type NullableProviderToken =
+    crate::wire::NullableSchema<crate::agent::definition::binding::ProviderToken>;
 
 /// Declares the details of a resolution refusal whose `definitionId` has the given type and
 /// attributes: a definition's id where one always runs, nullable where the agent may run none.
@@ -53,7 +65,7 @@ macro_rules! agent_resolution_refused_details {
                 driver_name: $crate::provider::name::ProviderName,
                 /// The model, or `null` for none bound.
                 #[serde(deserialize_with = "crate::wire::nullable")]
-                #[schemars(with = "crate::wire::NullableSchema<crate::agent::definition::binding::ProviderToken>")]
+                #[schemars(with = "crate::agent::definition::refusal::NullableProviderToken")]
                 model_id: Option<$crate::agent::definition::binding::ProviderToken>,
             },
             /// The stored effort and the efforts the model publishes.
@@ -80,9 +92,11 @@ macro_rules! agent_resolution_refused_details {
                 $(#[$id_meta])*
                 definition_id: $definition_id,
                 /// The missing tools, at least one.
-                #[garde(length(min = 1))]
-                #[schemars(length(min = 1))]
-                tool_names: Vec<$crate::agent::definition::ToolName>,
+                tool_names: $crate::wire::list::BoundedVec<
+                    $crate::agent::definition::ToolName,
+                    1,
+                    { usize::MAX },
+                >,
                 /// The driver's tools.
                 supported_tool_names: Vec<$crate::agent::definition::ToolName>,
             },

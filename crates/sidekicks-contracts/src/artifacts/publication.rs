@@ -12,7 +12,7 @@ use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::attachment::Bytes;
-use crate::wire::record::JsonRecord;
+use crate::wire::record::{JsonRecord, prototype_free, prototype_free_names};
 use crate::wire::text::NonEmptyText;
 
 /// Publishes one artifact in a single call. The daemon hashes the payload's bytes, so the digest
@@ -61,6 +61,7 @@ pub struct ArtifactPublishResponse {
 /// reader keeps it rather than refusing a known event.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(extend("propertyNames" = prototype_free_names()))]
 pub struct ArtifactPublicationPayload {
     /// The session the artifact belongs to.
     pub session_id: SessionId,
@@ -90,8 +91,8 @@ pub struct ArtifactPublicationPayload {
     pub diff_artifact_id: Option<ArtifactId>,
     /// The artifact's new state.
     pub state: Extensible<ArtifactState>,
-    /// Every member a newer daemon added, kept as received.
-    #[serde(flatten)]
+    /// Every member a newer daemon added, kept as received; never `__proto__`.
+    #[serde(flatten, deserialize_with = "prototype_free")]
     pub rest: Map<String, Value>,
 }
 
@@ -108,24 +109,3 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: &[],
     method_tables: &[],
 };
-
-#[cfg(test)]
-mod tests {
-    use serde_json::{Value, json};
-
-    use super::ArtifactPublicationPayload;
-
-    #[test]
-    fn a_publication_keeps_every_member_and_state_a_newer_daemon_adds() {
-        let written = json!({
-            "sessionId": "550e8400-e29b-41d4-a716-446655440000",
-            "artifactId": "0f2b4d5e-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-            "state": "archived",
-            "addedByNewerDaemon": { "kept": true },
-        });
-        let payload: ArtifactPublicationPayload =
-            serde_json::from_value(written.clone()).expect("a newer publication reads");
-        let rewritten: Value = serde_json::to_value(&payload).expect("the publication writes");
-        assert_eq!(rewritten, written);
-    }
-}

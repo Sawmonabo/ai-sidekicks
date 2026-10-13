@@ -15,8 +15,8 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::web_address::web_address_fault;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::BoundedText;
-use crate::wire::{NullableSchema, True, literal, nullable};
+use crate::wire::text::NonEmptyText;
+use crate::wire::{Never, NullableSchema, True, literal, nullable};
 
 /// A site's origin, `scheme://host` with a port only where it is not the scheme's own: an `http:`
 /// or `https:` origin with no credentials, no path, no query and no fragment, exactly as the
@@ -176,7 +176,7 @@ pub struct BrowserChromiumCannotStart {
     /// Why.
     pub reason: BrowserChromiumCannotStartReason,
     /// The command that fixes it.
-    pub install_step: BoundedText<1, { usize::MAX }>,
+    pub install_step: NonEmptyText,
 }
 
 /// Declares one form of the Chromium reading: its source and when it was fetched, then the members
@@ -191,7 +191,7 @@ macro_rules! chromium_reading {
         pub struct $name {
             $($own)*
             /// Its version.
-            pub version: BoundedText<1, { usize::MAX }>,
+            pub version: NonEmptyText,
             /// Why the headless Chromium cannot start here, or `null`.
             #[serde(deserialize_with = "nullable")]
             #[schemars(with = "NullableSchema<BrowserChromiumCannotStart>")]
@@ -216,8 +216,10 @@ chromium_reading! {
     pub struct InstalledChromiumReading {
         /// Which one.
         pub source: BrowserInstalledChromiumSource,
-        /// Only a fetched Chromium has a fetch time.
-        pub fetched_at: (),
+        /// Always `null`: only a fetched Chromium has a fetch time.
+        #[serde(deserialize_with = "nullable")]
+        #[schemars(with = "NullableSchema<Never>")]
+        pub fetched_at: Option<Never>,
     }
 }
 

@@ -23,7 +23,7 @@ use crate::workflow::kind::{
 
 ts_constants! {
     /// A document the daemon's check at save refused; it carries every finding at once.
-    WORKFLOW_DEFINITION_REFUSED_CODE = RefusalCode::WorkflowDefinitionRefused.as_str();
+    WORKFLOW_DEFINITION_REFUSED_CODE = RefusalCode::WorkflowDefinitionRefused;
 }
 
 /// Declares the findings: each named rule, with the nodes it marks, then the one finding that also
@@ -628,3 +628,138 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::{Value, json};
+
+    use super::{WorkflowNodeHandles, check_workflow_graph};
+    use crate::workflow::definition::document::{WorkflowDraftDocument, WorkflowNode};
+    use crate::workflow::kind::WorkflowNodeKindCategory;
+
+    fn node(id: &str, kind: &str) -> Value {
+        json!({ "id": id, "kind": kind, "kindVersion": 1, "name": id, "order": 0, "params": {} })
+    }
+
+    fn edge(source: &str, source_handle: &str, target: &str, target_handle: &str) -> Value {
+        json!({
+            "id": format!("{source}-{target}"),
+            "source": source,
+            "sourceHandle": source_handle,
+            "target": target,
+            "targetHandle": target_handle,
+        })
+    }
+
+    fn main_edge(source: &str, target: &str) -> Value {
+        edge(source, "outputs/main/0", target, "inputs/main/0")
+    }
+
+    // The handles of the kinds the cases place; any other kind is one the catalog does not list.
+    fn handles_of(node: &WorkflowNode) -> Option<WorkflowNodeHandles> {
+        let main_in = json!({ "type": "main", "id": "inputs/main/0", "label": "In" });
+        let limited_in =
+            json!({ "type": "main", "id": "inputs/main/0", "label": "In", "maxConnections": 1 });
+        let main_out = json!({ "type": "main", "id": "outputs/main/0", "label": "Out" });
+        let (category, inputs, outputs) = match node.kind.0.as_str() {
+            "trigger.manual" => (
+                WorkflowNodeKindCategory::Trigger,
+                json!([]),
+                json!([main_out]),
+            ),
+            "agent.run" => (
+                WorkflowNodeKindCategory::Agent,
+                json!([main_in, { "type": "tool", "id": "inputs/tool/0", "label": "Tools" }]),
+                json!([main_out]),
+            ),
+            "developer.mcp-tool" => (
+                WorkflowNodeKindCategory::Developer,
+                json!([]),
+                json!([{ "type": "tool", "id": "outputs/tool/0", "label": "Tool" }]),
+            ),
+            "flow.loop-items" => (
+                WorkflowNodeKindCategory::Flow,
+                json!([main_in]),
+                json!([main_out, { "type": "main", "id": "outputs/main/1", "label": "Each" }]),
+            ),
+            "output.notify" => (
+                WorkflowNodeKindCategory::Output,
+                json!([limited_in]),
+                json!([]),
+            ),
+            _ => return None,
+        };
+        Some(WorkflowNodeHandles {
+            category,
+            inputs: serde_json::from_value(inputs).expect("the inputs read"),
+            outputs: serde_json::from_value(outputs).expect("the outputs read"),
+        })
+    }
+
+    #[rstest]
+    #[case::a_cycle_of_main_edges(
+        json!([node("a", "agent.run"), node("b", "agent.run")]),
+        json!([main_edge("t", "a"), main_edge("a", "b"), main_edge("b", "a")]),
+        json!([{ "rule": "cycle", "nodeIds": ["a", "b"] }]),
+    )]
+    #[case::an_edge_back_into_a_loop_closes_its_body(
+        json!([node("l", "flow.loop-items"), node("x", "agent.run")]),
+        json!([
+            main_edge("t", "l"),
+            edge("l", "outputs/main/1", "x", "inputs/main/0"),
+            main_edge("x", "l"),
+        ]),
+        json!([]),
+    )]
+    #[case::a_loop_into_itself_is_a_cycle(
+        json!([node("l", "flow.loop-items")]),
+        json!([main_edge("t", "l"), main_edge("l", "l")]),
+        json!([{ "rule": "cycle", "nodeIds": ["l"] }]),
+    )]
+    #[case::a_tool_is_reached_through_the_agent_it_serves(
+        json!([node("a", "agent.run"), node("m", "developer.mcp-tool")]),
+        json!([main_edge("t", "a"), edge("m", "outputs/tool/0", "a", "inputs/tool/0")]),
+        json!([]),
+    )]
+    #[case::an_input_past_its_connection_limit(
+        json!([node("a", "agent.run"), node("n", "output.notify")]),
+        json!([main_edge("t", "a"), main_edge("t", "n"), main_edge("a", "n")]),
+        json!([{ "rule": "input_connections_exceeded", "nodeIds": ["n", "a"] }]),
+    )]
+    #[case::an_edge_into_the_trigger(
+        json!([node("a", "agent.run"), node("b", "agent.run")]),
+        json!([main_edge("t", "a"), main_edge("b", "t")]),
+        json!([
+            { "rule": "edge_into_trigger", "nodeIds": ["b", "t"] },
+            { "rule": "orphan", "nodeIds": ["b"] },
+        ]),
+    )]
+    #[case::a_kind_the_catalog_does_not_list_keeps_only_the_handle_grammar(
+        json!([node("u", "custom.thing"), node("a", "agent.run")]),
+        json!([
+            edge("t", "outputs/main/0", "u", "inputs/main/3"),
+            edge("u", "outputs/weird/0", "a", "inputs/main/0"),
+        ]),
+        json!([{ "rule": "handle_type_unknown", "nodeIds": ["u", "a"] }]),
+    )]
+    fn the_graph_check_finds_what_the_save_refuses(
+        #[case] nodes: Value,
+        #[case] edges: Value,
+        #[case] findings: Value,
+    ) {
+        let document: WorkflowDraftDocument = serde_json::from_value(json!({
+            "schemaVersion": "2",
+            "name": "Graph",
+            "trigger": node("t", "trigger.manual"),
+            "nodes": nodes,
+            "edges": edges,
+        }))
+        .expect("the document reads");
+        let found = check_workflow_graph(&document, handles_of);
+        assert_eq!(
+            serde_json::to_value(found).expect("the findings write"),
+            findings
+        );
+    }
+}

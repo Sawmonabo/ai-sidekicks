@@ -2,11 +2,8 @@
 //! reports this machine keeps. Processor and memory figures are read when called and stamped with
 //! the time taken; nothing samples them on a timer.
 
-use std::borrow::Cow;
-
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::de::Error as _;
-use serde::{Deserialize, Deserializer, Serialize};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::daemon::recovery::DaemonRecoveryStatus;
 use crate::free_form_string::FILE_PATH_MAX_LEN;
@@ -14,17 +11,20 @@ use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::process_identity::ProcessIdentity;
 use crate::release_manifest::ReleaseVersion;
-use crate::typescript::{Definition, TypeScriptModule};
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
+use crate::wire::list::BoundedVec;
 use crate::wire::number::Percent;
-use crate::wire::text::BoundedText;
+use crate::wire::text::{BoundedText, pattern_text};
 
-/// The longest free-form text the status carries, in code points.
-pub const DAEMON_STATUS_TEXT_MAX_LEN: usize = 4_096;
+ts_constants! {
+    /// The longest free-form text the status carries, in code points.
+    pub const DAEMON_STATUS_TEXT_MAX_LEN: usize = 4_096;
 
-/// The most frames a report keeps of the crashing thread's stack.
-pub const CRASH_REPORT_STACK_MAX_FRAMES: usize = 256;
+    /// The most frames a report keeps of the crashing thread's stack.
+    pub const CRASH_REPORT_STACK_MAX_FRAMES: usize = 256;
+}
 
 /// A text the status carries.
 type StatusText = BoundedText<1, DAEMON_STATUS_TEXT_MAX_LEN>;
@@ -168,52 +168,10 @@ pub struct DaemonStatusReadResponse {
     pub secrets_file: Option<StatusPath>,
 }
 
-/// The pattern of a stack frame's module: a file name, with no `/` or `\`.
-const MODULE_FILE_NAME_PATTERN: &str = "^[^\\\\/]+$";
-
-/// A stack frame's module: its file name, never its path, so no user folder leaks.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
-pub struct CrashModuleFileName(String);
-
-impl CrashModuleFileName {
-    /// Checks `name`; refuses an empty name, one past the status's text bound, or a path.
-    pub fn new(name: String) -> Option<Self> {
-        let is_file_name = !name.is_empty()
-            && name.chars().nth(DAEMON_STATUS_TEXT_MAX_LEN).is_none()
-            && !name.contains(['/', '\\']);
-        is_file_name.then_some(Self(name))
-    }
-
-    /// The file name.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for CrashModuleFileName {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(String::deserialize(deserializer)?)
-            .ok_or_else(|| D::Error::custom("a stack frame names its module's file, never a path"))
-    }
-}
-
-impl JsonSchema for CrashModuleFileName {
-    fn inline_schema() -> bool {
-        true
-    }
-
-    fn schema_name() -> Cow<'static, str> {
-        "CrashModuleFileName".into()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({
-            "type": "string",
-            "maxLength": DAEMON_STATUS_TEXT_MAX_LEN,
-            "pattern": MODULE_FILE_NAME_PATTERN,
-        })
-    }
+pattern_text! {
+    /// A stack frame's module: its file name, never its path, so no user folder leaks; it holds no
+    /// `/` or `\`.
+    pub struct CrashModuleFileName("^[^\\\\/]+$", max = DAEMON_STATUS_TEXT_MAX_LEN);
 }
 
 /// One frame of the crashing thread's stack: the module's file name, never its path, and the
@@ -246,9 +204,7 @@ pub struct CrashReport {
     /// The platform.
     pub platform: StatusText,
     /// The crashing thread's stack, at most [`CRASH_REPORT_STACK_MAX_FRAMES`] frames.
-    #[garde(length(max = CRASH_REPORT_STACK_MAX_FRAMES))]
-    #[schemars(length(max = 256))]
-    pub stack: Vec<CrashStackFrame>,
+    pub stack: BoundedVec<CrashStackFrame, 0, CRASH_REPORT_STACK_MAX_FRAMES>,
 }
 
 /// The reports this machine keeps, newest first; kept as long as its diagnostic logs.
@@ -292,10 +248,36 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonRelayDevice>(),
         Definition::read::<DaemonRelayStatus>(),
         Definition::read::<DaemonStatusReadResponse>().checked(),
+        Definition::read::<CrashModuleFileName>(),
         Definition::read::<CrashStackFrame>(),
         Definition::read::<CrashReport>(),
         Definition::read::<DaemonCrashListResponse>().checked(),
     ],
-    constants: &[],
+    constants: TS_CONSTANTS,
     method_tables: &[&DAEMON_STATUS_METHOD_DESCRIPTORS],
 };
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::{CrashStackFrame, DAEMON_STATUS_TEXT_MAX_LEN};
+
+    #[rstest]
+    #[case::file_name("libsidekicks.dylib".to_owned(), true)]
+    #[case::posix_path("/Users/someone/app/libsidekicks.dylib".to_owned(), false)]
+    #[case::relative_path("app/libsidekicks.dylib".to_owned(), false)]
+    #[case::windows_path("C:\\Users\\someone\\sidekicks.dll".to_owned(), false)]
+    #[case::trailing_separator("sidekicks\\".to_owned(), false)]
+    #[case::empty(String::new(), false)]
+    #[case::at_the_bound("a".repeat(DAEMON_STATUS_TEXT_MAX_LEN), true)]
+    #[case::past_the_bound("a".repeat(DAEMON_STATUS_TEXT_MAX_LEN + 1), false)]
+    fn a_stack_frame_names_its_module_file_never_a_path(
+        #[case] module: String,
+        #[case] is_accepted: bool,
+    ) {
+        let frame = serde_json::json!({ "module": module, "offset": 16 });
+        let parsed = serde_json::from_value::<CrashStackFrame>(frame);
+        assert_eq!(parsed.is_ok(), is_accepted);
+    }
+}

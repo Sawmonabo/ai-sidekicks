@@ -22,6 +22,14 @@ pub enum ProviderName {
 }
 
 impl ProviderName {
+    /// The provider's wire name, the text serde writes for it.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+        }
+    }
+
     /// The provider's on-screen name.
     pub const fn label(self) -> &'static str {
         match self {

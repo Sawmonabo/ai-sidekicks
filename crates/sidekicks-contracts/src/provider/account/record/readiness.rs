@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use super::ProviderAccountId;
 use crate::provider::name::ProviderName;
 use crate::wire::instant::WireInstant;
+use crate::wire::list::BoundedVec;
+use crate::wire::literal;
 
 /// Every readiness state, in declaration order.
 pub const PROVIDER_READINESS_STATES: [ProviderReadinessState; 6] = [
@@ -37,112 +39,129 @@ pub enum ProviderReadinessState {
     NoDefault,
 }
 
-/// Declares a remedy struct whose `kind` is one literal.
-macro_rules! remedy {
+/// Declares the remedies: each one's `kind` word as a literal and its standalone struct, then
+/// [`ProviderLoginExpiredRemedy`] from the login-expired group and [`ProviderRemedy`] from both
+/// groups, every enum arm repeating its struct's members.
+macro_rules! remedies {
     (
-        $(#[doc = $doc:literal])+
-        $name:ident, $kind:ident, $wire_kind:literal { $($fields:tt)* }
+        login_expired {$(
+            $(#[doc = $expired_doc:literal])+
+            $expired_arm:ident($expired_struct:ident, $expired_kind:ident = $expired_word:literal) {
+                $($(#[$expired_attribute:meta])* $expired_member:ident: $expired_type:ty,)*
+            }
+        )+}
+        other {$(
+            $(#[doc = $other_doc:literal])+
+            $other_arm:ident($other_struct:ident, $other_kind:ident = $other_word:literal) {
+                $($(#[$other_attribute:meta])* $other_member:ident: $other_type:ty,)*
+            }
+        )+}
     ) => {
-        /// The one value of the remedy's `kind`.
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-        #[schemars(inline)]
-        pub enum $kind {
-            /// The literal.
-            #[serde(rename = $wire_kind)]
-            Literal,
+        remedies!(@struct $(
+            $(#[doc = $expired_doc])+
+            $expired_struct, $expired_kind = $expired_word {
+                $($(#[$expired_attribute])* $expired_member: $expired_type,)*
+            }
+        )+ $(
+            $(#[doc = $other_doc])+
+            $other_struct, $other_kind = $other_word {
+                $($(#[$other_attribute])* $other_member: $other_type,)*
+            }
+        )+);
+
+        /// The remedy of one account whose login is gone: the provider's own sign-in, or, on a
+        /// token or API-key account, a freshly minted token pasted in.
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+        #[serde(tag = "kind", rename_all_fields = "camelCase", deny_unknown_fields)]
+        pub enum ProviderLoginExpiredRemedy {$(
+            $(#[doc = $expired_doc])+
+            #[serde(rename = $expired_word)]
+            $expired_arm {
+                $($(#[$expired_attribute])* $expired_member: $expired_type,)*
+            },
+        )+}
+
+        /// The next step shown for a readiness state that is not `authenticated`. A client renders
+        /// off `kind`, not `state`, since `reauth_required` takes `sign_in` or `paste_token`.
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+        #[serde(tag = "kind", rename_all_fields = "camelCase", deny_unknown_fields)]
+        pub enum ProviderRemedy {$(
+            $(#[doc = $expired_doc])+
+            #[serde(rename = $expired_word)]
+            $expired_arm {
+                $($(#[$expired_attribute])* $expired_member: $expired_type,)*
+            },
+        )+ $(
+            $(#[doc = $other_doc])+
+            #[serde(rename = $other_word)]
+            $other_arm {
+                $($(#[$other_attribute])* $other_member: $other_type,)*
+            },
+        )+}
+    };
+    (@struct $(
+        $(#[doc = $doc:literal])+
+        $name:ident, $kind:ident = $word:literal {
+            $($(#[$attribute:meta])* $member:ident: $type:ty,)*
+        }
+    )+) => {$(
+        literal! {
+            /// The one value of the remedy's `kind`.
+            pub enum $kind = $word;
         }
 
         $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
-        #[garde(allow_unvalidated)]
         pub struct $name {
             /// What the person does.
             pub kind: $kind,
-            $($fields)*
+            $($(#[$attribute])* pub $member: $type,)*
         }
-    };
+    )+};
 }
 
-remedy! {
-    /// Remedy for `no_account`: register an account for the provider.
-    ProviderRegisterRemedy, RegisterRemedyKind, "register" {
-        /// The provider.
-        pub provider: ProviderName,
+remedies! {
+    login_expired {
+        /// Remedy for a resolved account that is not authenticated: run the provider's own
+        /// sign-in.
+        SignIn(ProviderSignInRemedy, SignInRemedyKind = "sign_in") {
+            /// The resolved account.
+            account_id: ProviderAccountId,
+        }
+        /// Remedy for `reauth_required` on a token or API-key account: it cannot refresh itself,
+        /// so the person mints a fresh token at the provider and pastes it.
+        PasteToken(ProviderPasteTokenRemedy, PasteTokenRemedyKind = "paste_token") {
+            /// The resolved account.
+            account_id: ProviderAccountId,
+        }
     }
-}
-
-remedy! {
-    /// Remedy for `no_default`: the person picks one of the listed accounts as the default.
-    ProviderChooseDefaultRemedy, ChooseDefaultRemedyKind, "choose_default" {
-        /// The candidates; the daemon lists them and never picks one. One account with no default
-        /// is still listed rather than elected.
-        #[garde(length(min = 1))]
-        #[schemars(length(min = 1))]
-        pub candidate_account_ids: Vec<ProviderAccountId>,
+    other {
+        /// Remedy for `no_account`: register an account for the provider.
+        Register(ProviderRegisterRemedy, RegisterRemedyKind = "register") {
+            /// The provider.
+            provider: ProviderName,
+        }
+        /// Remedy for `no_default`: the person picks one of the listed accounts as the default.
+        ChooseDefault(ProviderChooseDefaultRemedy, ChooseDefaultRemedyKind = "choose_default") {
+            /// The candidates; the daemon lists them and never picks one. One account with no
+            /// default is still listed rather than elected.
+            candidate_account_ids: BoundedVec<ProviderAccountId, 1, { usize::MAX }>,
+        }
+        /// Remedy for `indeterminate`: nothing wrong can be seen, so the next read may settle it
+        /// and `providerAccount.probe` asks again. Never a sign-in.
+        LookAgain(ProviderLookAgainRemedy, LookAgainRemedyKind = "look_again") {
+            /// The resolved account.
+            account_id: ProviderAccountId,
+        }
     }
-}
-
-remedy! {
-    /// Remedy for a resolved account that is not authenticated: run the provider's own sign-in.
-    ProviderSignInRemedy, SignInRemedyKind, "sign_in" {
-        /// The resolved account.
-        pub account_id: ProviderAccountId,
-    }
-}
-
-remedy! {
-    /// Remedy for `reauth_required` on a token or API-key account: it cannot refresh itself, so
-    /// the person mints a fresh token at the provider and pastes it.
-    ProviderPasteTokenRemedy, PasteTokenRemedyKind, "paste_token" {
-        /// The resolved account.
-        pub account_id: ProviderAccountId,
-    }
-}
-
-remedy! {
-    /// Remedy for `indeterminate`: nothing wrong can be seen, so the next read may settle it and
-    /// `providerAccount.probe` asks again. Never a sign-in.
-    ProviderLookAgainRemedy, LookAgainRemedyKind, "look_again" {
-        /// The resolved account.
-        pub account_id: ProviderAccountId,
-    }
-}
-
-/// The next step shown for a readiness state that is not `authenticated`. A client renders off
-/// `kind`, not `state`, since `reauth_required` takes `sign_in` or `paste_token`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(untagged)]
-pub enum ProviderRemedy {
-    /// Register an account.
-    Register(#[garde(dive)] ProviderRegisterRemedy),
-    /// Choose the default.
-    ChooseDefault(#[garde(dive)] ProviderChooseDefaultRemedy),
-    /// Sign in again.
-    SignIn(#[garde(dive)] ProviderSignInRemedy),
-    /// Paste a fresh token.
-    PasteToken(#[garde(dive)] ProviderPasteTokenRemedy),
-    /// Look again.
-    LookAgain(#[garde(dive)] ProviderLookAgainRemedy),
-}
-
-/// The remedy of one account whose login is gone: the provider's own sign-in, or, on a token or
-/// API-key account, a freshly minted token pasted in.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum ProviderLoginExpiredRemedy {
-    /// Sign in again.
-    SignIn(ProviderSignInRemedy),
-    /// Paste a fresh token.
-    PasteToken(ProviderPasteTokenRemedy),
 }
 
 impl ProviderLoginExpiredRemedy {
     /// The account the remedy names.
     pub fn account_id(&self) -> &ProviderAccountId {
         match self {
-            Self::SignIn(remedy) => &remedy.account_id,
-            Self::PasteToken(remedy) => &remedy.account_id,
+            Self::SignIn { account_id } | Self::PasteToken { account_id } => account_id,
         }
     }
 }
@@ -294,7 +313,6 @@ pub enum ProviderReadiness {
         #[garde(dive)]
         observed_at: Option<WireInstant>,
         /// Choose the default.
-        #[garde(dive)]
         remedy: ProviderChooseDefaultRemedy,
     },
 }

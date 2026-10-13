@@ -6,6 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::command::ExitCode;
+use crate::event::envelope::SourcePosition;
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::{SubscribeAckResponse, stream_frame};
@@ -558,7 +559,7 @@ pub struct RunRolledBackEvent {
     pub run_version: SafeInt<0>,
     /// The turn boundary the run landed at, as a session position: the request's target, or the
     /// landing the driver confirmed when that differs.
-    pub target_position: SafeInt<0>,
+    pub target_position: SourcePosition,
 }
 
 /// One delivery on `run.subscribeState`: a state change, a rollback, or Codex's safety hold on the
@@ -709,6 +710,11 @@ methods! {
             params: QueueItemCreateRequest,
             result: QueueItemCreateResponse,
             refusals: [
+                SessionNotFound,
+                SessionAlreadyClosed,
+                SessionChangeRefused,
+                DriverUnavailable,
+                DriverTimeout,
                 QueuePersistenceUnavailable,
                 QueueItemNotFound,
                 QueueChangeRefused,
@@ -743,7 +749,12 @@ methods! {
             params: RunQueueSubscribeRequest,
             result: SubscribeAckResponse,
             emission: RunQueueStreamFrame,
-            refusals: [EventCursorUnresolvable, RunChildControlRefused],
+            refusals: [
+                SessionNotFound,
+                DriverUnavailable,
+                EventCursorUnresolvable,
+                RunChildControlRefused,
+            ],
         },
         /// Interrupts a run or retries its turn on a faster model.
         RunIntervene = mutation "run.intervene" {
@@ -757,14 +768,14 @@ methods! {
             mutating: true,
             params: RunPauseRequest,
             result: RunControlAck,
-            refusals: [RunNotFound, RunVersionStale, RunInvalidTransition],
+            refusals: [RunNotFound, RunVersionStale, RunInvalidTransition, DriverUnavailable],
         },
         /// Resumes a paused run.
         RunResume = mutation "run.resume" {
             mutating: true,
             params: RunResumeRequest,
             result: RunControlAck,
-            refusals: [RunNotFound, RunVersionStale, RunInvalidTransition],
+            refusals: [RunNotFound, RunVersionStale, RunInvalidTransition, DriverUnavailable],
         },
         /// Follows every run state change in a session.
         RunSubscribeState = subscription "run.subscribeState" {
@@ -779,14 +790,20 @@ methods! {
             mutating: true,
             params: ChildSteerRequest,
             result: QueueItemCreateResponse,
-            refusals: [RunNotFound, RunChildControlRefused],
+            refusals: [
+                RunNotFound,
+                RunChildControlRefused,
+                QueueItemNotFound,
+                QueueChangeRefused,
+                QueuePersistenceUnavailable,
+            ],
         },
         /// Interrupts one live child of a run.
         RunChildInterrupt = mutation "run.childInterrupt" {
             mutating: true,
             params: ChildInterruptRequest,
             result: ChildInterruptResponse,
-            refusals: [RunNotFound, RunChildControlRefused],
+            refusals: [RunNotFound, RunChildControlRefused, QueueItemNotFound],
         },
         /// Pauses or resumes one live child of a run.
         RunChildPauseSet = mutation "run.childPauseSet" {
@@ -814,14 +831,14 @@ methods! {
             mutating: true,
             params: RunRefusalChoiceResolveRequest,
             result: RunControlAck,
-            refusals: [RunNotFound, RunInvalidTransition],
+            refusals: [RunNotFound, RunInvalidTransition, DriverUnavailable],
         },
         /// Answers the choice a turn past the plan's allowance waits on.
         RunUsageCreditsChoiceResolve = mutation "run.usageCreditsChoiceResolve" {
             mutating: true,
             params: RunUsageCreditsChoiceResolveRequest,
             result: RunControlAck,
-            refusals: [RunNotFound, RunInvalidTransition],
+            refusals: [RunNotFound, RunInvalidTransition, DriverUnavailable],
         },
     ];
 }

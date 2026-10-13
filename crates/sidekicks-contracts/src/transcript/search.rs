@@ -13,9 +13,10 @@ use crate::session::methods::{SearchMatchRange, require_match_ranges_in_order_wi
 use crate::transcript::limits::{TRANSCRIPT_READ_LIMIT_MAX, TRANSCRIPT_SEARCH_TEXT_MAX_LEN};
 use crate::transcript::operations::TranscriptReadLimit;
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::BoolLiteral;
 use crate::wire::integer::SafeInt;
+use crate::wire::list::BoundedVec;
 use crate::wire::text::{BoundedText, FreeFormText};
+use crate::wire::{False, True};
 
 /// Searches one session. Hits come newest first; `beforeCursor` continues from the previous page's
 /// `nextCursor`.
@@ -58,19 +59,21 @@ pub struct TranscriptSearchHit {
     /// The line the match sits in.
     pub snippet: BoundedText<1, TRANSCRIPT_SEARCH_TEXT_MAX_LEN>,
     /// The matched stretches to mark.
-    #[garde(length(min = 1), dive)]
-    #[garde(custom(|match_ranges: &Vec<SearchMatchRange>, (): &()| {
-        require_match_ranges_in_order_within(self.snippet.as_str(), match_ranges)
+    #[garde(dive)]
+    #[garde(custom(|match_ranges: &BoundedVec<SearchMatchRange, 1, { usize::MAX }>, (): &()| {
+        require_match_ranges_in_order_within(self.snippet.as_str(), match_ranges.as_slice())
     }))]
-    #[schemars(length(min = 1))]
-    pub match_ranges: Vec<SearchMatchRange>,
+    pub match_ranges: BoundedVec<SearchMatchRange, 1, { usize::MAX }>,
 }
 
 /// Holds a page's hits to the page budget and its `matchCount` to at least the matches it carries,
 /// since the count speaks for the whole session.
 fn require_hits_counted(hits: &[TranscriptSearchHit], match_count: SafeInt<0>) -> garde::Result {
     fits_one_page(&hits, &())?;
-    let page_match_count: usize = hits.iter().map(|hit| hit.match_ranges.len()).sum();
+    let page_match_count: usize = hits
+        .iter()
+        .map(|hit| hit.match_ranges.as_slice().len())
+        .sum();
     if u64::try_from(page_match_count).is_ok_and(|count| count > match_count.get()) {
         return Err(garde::Error::new(format!(
             "matchCount counts the whole session, so it is at least the {page_match_count} matches \
@@ -79,6 +82,10 @@ fn require_hits_counted(hits: &[TranscriptSearchHit], match_count: SafeInt<0>) -
     }
     Ok(())
 }
+
+/// A page's hits, `MIN` to [`TRANSCRIPT_READ_LIMIT_MAX`] of them.
+pub type SearchHits<const MIN: usize> =
+    BoundedVec<TranscriptSearchHit, MIN, TRANSCRIPT_READ_LIMIT_MAX>;
 
 /// A page of hits with more after it: at least one hit, and the cursor to continue from.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -89,14 +96,13 @@ pub struct TranscriptSearchContinuing {
     /// The session's whole match count.
     pub match_count: SafeInt<0>,
     /// The hits, newest first.
-    #[garde(length(min = 1, max = TRANSCRIPT_READ_LIMIT_MAX), dive)]
-    #[garde(custom(|hits: &Vec<TranscriptSearchHit>, (): &()| {
-        require_hits_counted(hits, self.match_count)
+    #[garde(dive)]
+    #[garde(custom(|hits: &SearchHits<1>, (): &()| {
+        require_hits_counted(hits.as_slice(), self.match_count)
     }))]
-    #[schemars(length(min = 1, max = 256))]
-    pub hits: Vec<TranscriptSearchHit>,
+    pub hits: SearchHits<1>,
     /// More hits follow.
-    pub has_more: BoolLiteral<true>,
+    pub has_more: True,
     /// Where to continue.
     pub next_cursor: EventCursor,
 }
@@ -110,14 +116,13 @@ pub struct TranscriptSearchTerminal {
     /// The session's whole match count.
     pub match_count: SafeInt<0>,
     /// The hits, newest first.
-    #[garde(length(max = TRANSCRIPT_READ_LIMIT_MAX), dive)]
-    #[garde(custom(|hits: &Vec<TranscriptSearchHit>, (): &()| {
-        require_hits_counted(hits, self.match_count)
+    #[garde(dive)]
+    #[garde(custom(|hits: &SearchHits<0>, (): &()| {
+        require_hits_counted(hits.as_slice(), self.match_count)
     }))]
-    #[schemars(length(max = 256))]
-    pub hits: Vec<TranscriptSearchHit>,
+    pub hits: SearchHits<0>,
     /// No hits follow.
-    pub has_more: BoolLiteral<false>,
+    pub has_more: False,
 }
 
 /// One page of hits and the session's whole match count, split on `hasMore`.

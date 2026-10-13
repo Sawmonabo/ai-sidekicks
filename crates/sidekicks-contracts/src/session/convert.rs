@@ -12,7 +12,8 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::BoolLiteral;
 use crate::wire::id::ClientUuid;
 use crate::wire::integer::{BoundedInt, SafeInt};
-use crate::wire::text::{BoundedText, FreeFormText};
+use crate::wire::list::BoundedVec;
+use crate::wire::text::{BoundedText, FreeFormText, pattern_text};
 
 /// Converts a chat to a project. `path` is the folder the person typed; it travels as data and the
 /// daemon checks it, reusing the machine's mount for that folder or attaching one, and refusing a
@@ -84,59 +85,19 @@ pub const SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX: usize = 256;
 /// characters for each of the path's UTF-16 units.
 const SESSION_CONVERT_SKIPPED_FILE_CURSOR_MAX_LEN: usize = FILE_PATH_MAX_LEN * 4;
 
-/// The skipped-file cursor's pattern: base64url without padding.
-const SESSION_CONVERT_SKIPPED_FILE_CURSOR_PATTERN: &str = "^[A-Za-z0-9_-]+$";
-
-/// Where the next `session.convertSkippedFileList` page starts: a bounded base64url string. The
-/// daemon writes it and owns its format; a client passes it back unchanged with the same session.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-#[serde(transparent)]
-pub struct SessionConvertSkippedFileCursor(String);
-
-impl SessionConvertSkippedFileCursor {
-    /// Checks `text`; refuses anything but 1 to the bound of base64url characters.
-    pub fn new(text: String) -> Option<Self> {
-        let is_base64url = text
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
-        let is_in_bounds =
-            !text.is_empty() && text.len() <= SESSION_CONVERT_SKIPPED_FILE_CURSOR_MAX_LEN;
-        (is_base64url && is_in_bounds).then_some(Self(text))
-    }
-
-    /// The cursor's text as received.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for SessionConvertSkippedFileCursor {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(String::deserialize(deserializer)?).ok_or_else(|| {
-            serde::de::Error::custom("a skipped-file cursor is 1 or more base64url characters")
-        })
-    }
-}
-
-impl JsonSchema for SessionConvertSkippedFileCursor {
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        "SessionConvertSkippedFileCursor".into()
-    }
-
-    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        schemars::json_schema!({
-            "description": "Where the next `session.convertSkippedFileList` page starts.",
-            "type": "string",
-            "minLength": 1,
-            "maxLength": SESSION_CONVERT_SKIPPED_FILE_CURSOR_MAX_LEN,
-            "pattern": SESSION_CONVERT_SKIPPED_FILE_CURSOR_PATTERN,
-            "tsType": "string & { readonly __brand: \"SessionConvertSkippedFileCursor\" }",
-        })
-    }
+pattern_text! {
+    /// Where the next `session.convertSkippedFileList` page starts: base64url without padding, at
+    /// least one character and at most four for each UTF-16 unit of the longest path. The daemon
+    /// writes it and owns its format; a client passes it back unchanged with the same session.
+    pub struct SessionConvertSkippedFileCursor(
+        "^[A-Za-z0-9_-]+$",
+        max = SESSION_CONVERT_SKIPPED_FILE_CURSOR_MAX_LEN
+    ) branded;
 }
 
 /// How many skipped files a page may carry: 1 to [`SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX`].
-pub type SessionConvertSkippedFileLimit = BoundedInt<1, 256>;
+pub type SessionConvertSkippedFileLimit =
+    BoundedInt<1, { SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX as i64 }>;
 
 /// The `session.convertSkippedFileList` input: the converted session and, past the first page,
 /// the previous page's `nextCursor`.
@@ -170,12 +131,9 @@ pub struct SessionConvertSkippedFileListRequest {
 #[garde(allow_unvalidated)]
 pub struct SessionConvertSkippedFilesContinuing {
     /// The files, in path order.
-    #[garde(
-        length(min = 1, max = SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX),
-        custom(fits_one_page)
-    )]
-    #[schemars(length(min = 1, max = 256))]
-    pub files: Vec<SessionConvertSkippedFile>,
+    #[garde(custom(fits_one_page))]
+    pub files:
+        BoundedVec<SessionConvertSkippedFile, 1, SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX>,
     /// More files follow.
     pub has_more: BoolLiteral<true>,
     /// Where to continue.
@@ -190,9 +148,9 @@ pub struct SessionConvertSkippedFilesContinuing {
 #[garde(allow_unvalidated)]
 pub struct SessionConvertSkippedFilesTerminal {
     /// The files, in path order.
-    #[garde(length(max = SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX), custom(fits_one_page))]
-    #[schemars(length(max = 256))]
-    pub files: Vec<SessionConvertSkippedFile>,
+    #[garde(custom(fits_one_page))]
+    pub files:
+        BoundedVec<SessionConvertSkippedFile, 0, SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX>,
     /// No files follow.
     pub has_more: BoolLiteral<false>,
 }

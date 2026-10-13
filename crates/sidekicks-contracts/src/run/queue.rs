@@ -25,7 +25,7 @@ use crate::voice::MessageOrigin;
 use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::list::{BoundedVec, unique_by};
+use crate::wire::list::{ListKey, UniqueList};
 use crate::wire::text::FreeFormText;
 use crate::wire::{Never, literal};
 
@@ -508,9 +508,9 @@ pub struct QueueReorderRequest {
     #[garde(skip)]
     pub child_handle: Option<ChildHandle>,
     /// The new order, each waiting item once.
-    #[garde(custom(unique_by(|queue_item_id: &QueueItemId| queue_item_id.clone())))]
+    #[garde(dive)]
     #[schemars(extend("uniqueItems" = true))]
-    pub queue_item_ids: BoundedVec<QueueItemId, 1, { usize::MAX }>,
+    pub queue_item_ids: UniqueList<QueueItemId, 1, { usize::MAX }>,
 }
 
 ts_constants! {
@@ -583,3 +583,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+impl ListKey for QueueItemId {
+    type Key = Self;
+
+    fn list_key(&self) -> Self {
+        self.clone()
+    }
+}

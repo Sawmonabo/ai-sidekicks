@@ -5,11 +5,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::session::id::SessionId;
 use crate::wire::integer::Port;
-use crate::wire::text::BoundedText;
+use crate::wire::text::NonEmptyText;
 
 /// The session whose project's dev servers a `preview.devServerList` subscription streams.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewDevServerListRequest {
     /// The session.
     pub session_id: SessionId,
@@ -24,12 +25,12 @@ pub struct PreviewDevServer {
     pub port: Port,
     /// The name it gave.
     #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<BoundedText<1, { usize::MAX }>>")]
-    pub name: Option<BoundedText<1, { usize::MAX }>>,
+    #[schemars(with = "crate::wire::NullableSchema<NonEmptyText>")]
+    pub name: Option<NonEmptyText>,
     /// Its framework.
     #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<BoundedText<1, { usize::MAX }>>")]
-    pub framework: Option<BoundedText<1, { usize::MAX }>>,
+    #[schemars(with = "crate::wire::NullableSchema<NonEmptyText>")]
+    pub framework: Option<NonEmptyText>,
     /// Whether this session started it, by its agent or in its own shell.
     pub started_here: bool,
 }

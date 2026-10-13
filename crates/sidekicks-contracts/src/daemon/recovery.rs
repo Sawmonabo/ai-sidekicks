@@ -6,6 +6,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
@@ -14,7 +15,6 @@ use crate::run::id::RunId;
 use crate::runtime_node::id::NodeId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::id::UuidTextForm;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
@@ -158,6 +158,15 @@ pub enum DaemonWriteRefusedRecovery {
     Blocked,
 }
 
+impl From<DaemonWriteRefusedRecovery> for DaemonRecoveryState {
+    fn from(recovery: DaemonWriteRefusedRecovery) -> Self {
+        match recovery {
+            DaemonWriteRefusedRecovery::Rebuilding => Self::Rebuilding,
+            DaemonWriteRefusedRecovery::Blocked => Self::Blocked,
+        }
+    }
+}
+
 /// The `daemon.write_refused` refusal's `data.fields`: the node's recovery state when the call
 /// arrived.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -267,6 +276,11 @@ pub enum RecoveryFailureKind {
     Other,
 }
 
+branded_uuid_id! {
+    /// Identifies one recovery pass; every event of the pass names it.
+    RecoveryId
+}
+
 /// `recovery.attempted`: a recovery pass started. Like every recovery event it names this
 /// machine, the pass, the step it was in, and which attempt it is, one above the failed passes
 /// since the last one that succeeded.
@@ -277,7 +291,7 @@ pub struct RecoveryAttemptedPayload {
     /// This machine.
     pub node_id: NodeId,
     /// The pass.
-    pub recovery_id: UuidTextForm,
+    pub recovery_id: RecoveryId,
     /// The step it was in.
     pub phase: RecoveryPhase,
     /// Which attempt it is.
@@ -300,7 +314,7 @@ pub struct RecoverySucceededPayload {
     /// This machine.
     pub node_id: NodeId,
     /// The pass.
-    pub recovery_id: UuidTextForm,
+    pub recovery_id: RecoveryId,
     /// The step it was in.
     pub phase: RecoveryPhase,
     /// Which attempt it is.
@@ -333,7 +347,7 @@ pub struct RecoveryFailedPayload {
     /// This machine.
     pub node_id: NodeId,
     /// The pass.
-    pub recovery_id: UuidTextForm,
+    pub recovery_id: RecoveryId,
     /// The step it was in.
     pub phase: RecoveryPhase,
     /// Which attempt it is.
@@ -365,6 +379,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonRepairingDetails>().checked(),
         Definition::read::<RecoveryPhase>(),
         Definition::read::<RecoveryTrigger>(),
+        Definition::read::<RecoveryId>(),
         Definition::read::<RecoveryFailureKind>(),
         Definition::read::<RecoveryAttemptedPayload>().checked(),
         Definition::read::<RecoverySucceededPayload>().checked(),

@@ -19,6 +19,8 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
+use crate::wire::list::BoundedVec;
+use crate::wire::literal;
 use crate::wire::text::{BoundedText, NonEmptyText};
 
 /// Saves a session's draft. `text` is the whole draft and replaces the one held; an empty string
@@ -92,16 +94,13 @@ pub enum SessionAttachmentItem {
 
 /// Stages files for the next message. The count is not limited here: a pick over the message's
 /// limit stages as many as fit and refuses each of the rest by name; an empty list is refused.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
 pub struct SessionAttachmentAddRequest {
     /// The session.
     pub session_id: SessionId,
     /// The things to stage; at least one.
-    #[garde(length(min = 1))]
-    #[schemars(length(min = 1))]
-    pub items: Vec<SessionAttachmentItem>,
+    pub items: BoundedVec<SessionAttachmentItem, 1, { usize::MAX }>,
 }
 
 ts_constants! {
@@ -109,20 +108,28 @@ ts_constants! {
     SESSION_ATTACHMENT_REFUSED_CODE = RefusalCode::SessionAttachmentRefused;
 }
 
-/// The code a staging refusal carries: always `session.attachment_refused`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[schemars(inline)]
-pub enum SessionAttachmentRefusedCode {
-    /// The one value.
-    #[serde(rename = "session.attachment_refused")]
-    AttachmentRefused,
+literal! {
+    /// The code of an item the session could not stage.
+    pub enum SessionAttachmentRefusedCode = const RefusalCode::SessionAttachmentRefused.as_str();
+    /// The code of a file the free disk cannot hold even with nothing else being taken.
+    pub enum ArtifactTooLargeCode = const RefusalCode::ArtifactTooLarge.as_str();
+    /// The code of a file that only waits on the files already being taken.
+    pub enum ArtifactIngestCapacityExhaustedCode =
+        const RefusalCode::ArtifactIngestCapacityExhausted.as_str();
 }
 
-/// Why the session could not stage a file.
+literal! {
+    /// The provider's own limit, or its refusal of a picture.
+    pub enum ProviderRefusedReason = "provider_refused";
+    /// The copy to the daemon did not complete.
+    pub enum CopyFailedReason = "copy_failed";
+}
+
+/// Why the session would not stage a file, by a rule of its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum SessionAttachmentRefusedReason {
-    /// The message already carries as many files as it may.
+pub enum SessionAttachmentLimitReason {
+    /// The message already carries as many files as the provider takes.
     CountLimit,
     /// A folder was offered; an agent reads a folder where it is.
     Folder,
@@ -130,29 +137,80 @@ pub enum SessionAttachmentRefusedReason {
     ProviderTakesNoAttachments,
     /// A card above the composer is waiting on the person.
     CardWaiting,
-    /// The provider will not take the file, for example a picture too large.
-    ProviderRefused,
-    /// The copy to the daemon did not complete.
-    CopyFailed,
 }
 
-/// Why one item was not staged: the code, its reason, and for `provider_refused` the provider's own
-/// words naming the limit, for `copy_failed` the daemon's own cause.
+/// A session rule refused the item.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SessionAttachmentRefusalCause {
+#[schemars(inline)]
+pub struct SessionAttachmentLimitRefusal {
     /// Always `session.attachment_refused`.
     pub code: SessionAttachmentRefusedCode,
-    /// Why.
-    pub reason: SessionAttachmentRefusedReason,
-    /// The provider's words or the daemon's cause, where there are any.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "NonEmptyText")]
-    pub detail: Option<NonEmptyText>,
+    /// The rule.
+    pub reason: SessionAttachmentLimitReason,
+}
+
+/// The provider would not take the file: its own limit, or its refusal of a picture.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
+pub struct SessionAttachmentProviderRefusal {
+    /// Always `session.attachment_refused`.
+    pub code: SessionAttachmentRefusedCode,
+    /// Always `provider_refused`.
+    pub reason: ProviderRefusedReason,
+    /// The provider's own words, shown as given.
+    pub provider_message: NonEmptyText,
+}
+
+/// The copy to the daemon did not complete.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
+pub struct SessionAttachmentCopyFailure {
+    /// Always `session.attachment_refused`.
+    pub code: SessionAttachmentRefusedCode,
+    /// Always `copy_failed`.
+    pub reason: CopyFailedReason,
+    /// The daemon's own cause, the text after `·` on the refusal line.
+    pub detail: NonEmptyText,
+}
+
+/// The free disk cannot hold the file even with nothing else being taken.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
+pub struct SessionAttachmentDiskFull {
+    /// Always `artifact.too_large`.
+    pub code: ArtifactTooLargeCode,
+    /// The room the disk has, in bytes.
+    pub available_bytes: SafeInt<0>,
+}
+
+/// The file only waits on the files already being taken.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
+pub struct SessionAttachmentIngestBusy {
+    /// Always `artifact.ingest_capacity_exhausted`.
+    pub code: ArtifactIngestCapacityExhaustedCode,
+}
+
+/// Why one item was not staged: a session rule, the provider's refusal with its words, a failed
+/// copy with the daemon's cause, a disk too full with the room it has, or the ingest being busy.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum SessionAttachmentRefusalCause {
+    /// A session rule.
+    Limit(SessionAttachmentLimitRefusal),
+    /// The provider's refusal.
+    ProviderRefused(SessionAttachmentProviderRefusal),
+    /// A failed copy.
+    CopyFailed(SessionAttachmentCopyFailure),
+    /// A disk too full.
+    DiskFull(SessionAttachmentDiskFull),
+    /// The ingest is busy.
+    IngestBusy(SessionAttachmentIngestBusy),
 }
 
 /// One item the daemon did not stage, by the name the refusal line shows.
@@ -219,16 +277,13 @@ pub struct SessionAttachmentCoverBox {
 /// the covered copy as a new artifact that takes the old one's place in the staged set, and deletes
 /// the uncovered copy, so the provider only ever receives the covered picture. A picture already
 /// sent cannot be covered; an empty box list is refused.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
 pub struct SessionAttachmentCoverRequest {
     /// The staged picture.
     pub attachment_id: ArtifactId,
     /// The boxes to cover; at least one.
-    #[garde(length(min = 1))]
-    #[schemars(length(min = 1))]
-    pub boxes: Vec<SessionAttachmentCoverBox>,
+    pub boxes: BoundedVec<SessionAttachmentCoverBox, 1, { usize::MAX }>,
 }
 
 /// The covered copy, which is now the staged attachment.
@@ -247,7 +302,7 @@ methods! {
             mutating: true,
             params: SessionDraftUpdateRequest,
             result: SessionDraftUpdateResponse,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Stages files for the next message; each refused item rides in the reply.
         SessionAttachmentAdd = mutation "session.attachmentAdd" {
@@ -284,7 +339,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionAttachmentSummary>(),
         Definition::read::<SessionAttachmentItem>(),
         Definition::read::<SessionAttachmentAddRequest>().checked(),
-        Definition::read::<SessionAttachmentRefusedReason>(),
+        Definition::read::<SessionAttachmentLimitReason>(),
         Definition::read::<SessionAttachmentRefusalCause>(),
         Definition::read::<SessionAttachmentRefusal>(),
         Definition::read::<SessionAttachmentAddResponse>().checked(),

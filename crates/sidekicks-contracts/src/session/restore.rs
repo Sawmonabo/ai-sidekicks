@@ -11,9 +11,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::artifacts::attachment_reference::AttachmentReferenceList;
-use crate::event::registry::SessionEventType;
 use crate::free_form_string::FILE_PATH_MAX_LEN;
-use crate::internal::branded::branded_text_id;
 use crate::method::methods;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
@@ -21,17 +19,14 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText};
+use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText, branded_text};
 
 /// The longest snapshot id the daemon accepts, in code points.
 pub const SNAPSHOT_ID_MAX_LEN: usize = 256;
 
-/// The event an undo settles with, whatever it managed to do.
-pub const SESSION_RESTORE_FINISHED_EVENT: &str = SessionEventType::SessionRestoreFinished.as_str();
-
-branded_text_id! {
+branded_text! {
     /// The daemon-minted id of one of a session's snapshots. Opaque to every client.
-    SnapshotId, SNAPSHOT_ID_MAX_LEN
+    pub struct SnapshotId(1..=SNAPSHOT_ID_MAX_LEN);
 }
 
 /// A path an undo names, held to the longest path the wire carries.
@@ -101,18 +96,6 @@ pub enum SessionRestoreScope {
     Files,
 }
 
-impl SessionRestoreScope {
-    /// Whether the scope puts the conversation back.
-    pub const fn has_conversation(self) -> bool {
-        matches!(self, Self::ConversationAndFiles | Self::Conversation)
-    }
-
-    /// Whether the scope puts the files back.
-    pub const fn has_files(self) -> bool {
-        matches!(self, Self::ConversationAndFiles | Self::Files)
-    }
-}
-
 /// One part an undo puts back on its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
@@ -138,14 +121,24 @@ pub enum SessionRestoredScope {
 }
 
 impl SessionRestoredScope {
-    /// Whether the conversation went back.
+    /// Whether the scope holds the conversation.
     pub const fn has_conversation(self) -> bool {
         matches!(self, Self::ConversationAndFiles | Self::Conversation)
     }
 
-    /// Whether the files went back.
+    /// Whether the scope holds the files.
     pub const fn has_files(self) -> bool {
         matches!(self, Self::ConversationAndFiles | Self::Files)
+    }
+}
+
+impl From<SessionRestoreScope> for SessionRestoredScope {
+    fn from(scope: SessionRestoreScope) -> Self {
+        match scope {
+            SessionRestoreScope::ConversationAndFiles => Self::ConversationAndFiles,
+            SessionRestoreScope::Conversation => Self::Conversation,
+            SessionRestoreScope::Files => Self::Files,
+        }
     }
 }
 
@@ -327,134 +320,127 @@ pub struct SessionRestoreFileOutcome {
     pub skipped: Vec<SessionRestoreSkippedFile>,
 }
 
-/// The `restore-finished` outcome word.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[schemars(inline)]
-pub enum RestoreFinishedOutcome {
-    /// The one value.
-    #[serde(rename = "restore-finished")]
-    RestoreFinished,
-}
-
-/// The `resend-unapplied` outcome word.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[schemars(inline)]
-pub enum ResendUnappliedOutcome {
-    /// The one value.
-    #[serde(rename = "resend-unapplied")]
-    ResendUnapplied,
-}
-
-/// Whether every asked-for part either went back or carries the daemon's reason.
-fn is_every_requested_part_accounted(
+/// Holds a finished undo to its account: `files` is present exactly when the files went back,
+/// and every asked-for part that did not go back carries the daemon's reason.
+fn require_every_part_accounted(
     requested: SessionRestoreScope,
     restored: SessionRestoredScope,
+    files: Option<&SessionRestoreFileOutcome>,
     failures: Option<&SessionRestoreFailures>,
-) -> bool {
+) -> garde::Result {
+    if files.is_some() != restored.has_files() {
+        return Err(garde::Error::new(
+            "the files outcome is present exactly when the files went back",
+        ));
+    }
+    let requested = SessionRestoredScope::from(requested);
     let is_conversation_accounted = !requested.has_conversation()
         || restored.has_conversation()
         || failures.is_some_and(|failures| failures.conversation.is_some());
     let is_files_accounted = !requested.has_files()
         || restored.has_files()
         || failures.is_some_and(|failures| failures.files.is_some());
-    is_conversation_accounted && is_files_accounted
+    if is_conversation_accounted && is_files_accounted {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "every asked-for part that did not go back carries the daemon's reason",
+        ))
+    }
 }
 
-/// A finished undo: what was asked, what went back, and the daemon's reason for every asked-for
-/// part that did not. `files` is present exactly when the files went back.
+/// What an undo, or an edit and resend, reports, split on `outcome`: a finished undo with what
+/// was asked, what went back and the daemon's reason for every asked-for part that did not, or an
+/// edit and resend whose undo applied and whose send failed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "outcome",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 #[garde(allow_unvalidated)]
-#[schemars(extend("allOf" = [
-    {
-        "if": { "properties": { "restored": { "enum": ["conversation-and-files", "files"] } } },
-        "then": { "required": ["files"] },
-        "else": { "not": { "required": ["files"] } },
-    },
-    {
-        "if": {
-            "properties": {
-                "requested": { "enum": ["conversation-and-files", "conversation"] },
-                "restored": { "enum": ["files", "nothing"] },
-            },
-        },
-        "then": {
-            "required": ["failures"],
-            "properties": { "failures": { "type": "object", "required": ["conversation"] } },
-        },
-    },
-    {
-        "if": {
-            "properties": {
-                "requested": { "enum": ["conversation-and-files", "files"] },
-                "restored": { "enum": ["conversation", "nothing"] },
-            },
-        },
-        "then": {
-            "required": ["failures"],
-            "properties": { "failures": { "type": "object", "required": ["files"] } },
-        },
-    },
-]))]
-pub struct SessionRestoreFinished {
-    /// Always `restore-finished`.
-    pub outcome: RestoreFinishedOutcome,
-    /// What was asked.
-    pub requested: SessionRestoreScope,
-    /// What went back.
-    pub restored: SessionRestoredScope,
-    /// What the files part did, present exactly when the files went back.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "SessionRestoreFileOutcome")]
-    #[garde(custom(|files: &Option<SessionRestoreFileOutcome>, (): &()| {
-        if files.is_some() == self.restored.has_files() {
-            Ok(())
-        } else {
-            Err(garde::Error::new("the files outcome is present exactly when the files went back"))
-        }
-    }))]
-    pub files: Option<SessionRestoreFileOutcome>,
-    /// The daemon's reason for each asked-for part that did not go back.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "SessionRestoreFailures")]
-    #[garde(custom(|failures: &Option<SessionRestoreFailures>, (): &()| {
-        if is_every_requested_part_accounted(self.requested, self.restored, failures.as_ref()) {
-            Ok(())
-        } else {
-            Err(garde::Error::new(
-                "every asked-for part that did not go back carries the daemon's reason",
-            ))
-        }
-    }))]
-    pub failures: Option<SessionRestoreFailures>,
-}
-
-/// An edit and resend whose undo applied and whose send failed, with the send's reason.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SessionResendUnapplied {
-    /// Always `resend-unapplied`.
-    pub outcome: ResendUnappliedOutcome,
-    /// The send's reason.
-    pub reason: NonEmptyText,
-}
-
-/// What an undo, or an edit and resend, reports.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(untagged)]
+#[garde(custom(|result: &Self, (): &()| result.accounts_for_every_part()))]
 pub enum SessionRestoreResult {
-    /// A finished undo.
-    Finished(#[garde(dive)] SessionRestoreFinished),
-    /// An edit and resend whose send failed.
-    ResendUnapplied(#[garde(skip)] SessionResendUnapplied),
+    /// A finished undo. `files` is present exactly when the files went back.
+    #[schemars(extend("allOf" = [
+        {
+            "if": { "properties": { "restored": { "enum": ["conversation-and-files", "files"] } } },
+            "then": { "required": ["files"] },
+            "else": { "not": { "required": ["files"] } },
+        },
+        {
+            "if": {
+                "properties": {
+                    "requested": { "enum": ["conversation-and-files", "conversation"] },
+                    "restored": { "enum": ["files", "nothing"] },
+                },
+            },
+            "then": {
+                "required": ["failures"],
+                "properties": { "failures": { "type": "object", "required": ["conversation"] } },
+            },
+        },
+        {
+            "if": {
+                "properties": {
+                    "requested": { "enum": ["conversation-and-files", "files"] },
+                    "restored": { "enum": ["conversation", "nothing"] },
+                },
+            },
+            "then": {
+                "required": ["failures"],
+                "properties": { "failures": { "type": "object", "required": ["files"] } },
+            },
+        },
+    ]))]
+    RestoreFinished {
+        /// What was asked.
+        requested: SessionRestoreScope,
+        /// What went back.
+        restored: SessionRestoredScope,
+        /// What the files part did, present exactly when the files went back.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "SessionRestoreFileOutcome")]
+        files: Option<SessionRestoreFileOutcome>,
+        /// The daemon's reason for each asked-for part that did not go back.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "SessionRestoreFailures")]
+        failures: Option<SessionRestoreFailures>,
+    },
+    /// An edit and resend whose undo applied and whose send failed.
+    ResendUnapplied {
+        /// The send's reason.
+        reason: NonEmptyText,
+    },
+}
+
+impl SessionRestoreResult {
+    /// Holds a finished undo to its account; a failed resend carries only its reason.
+    fn accounts_for_every_part(&self) -> garde::Result {
+        match self {
+            Self::RestoreFinished {
+                requested,
+                restored,
+                files,
+                failures,
+            } => require_every_part_accounted(
+                *requested,
+                *restored,
+                files.as_ref(),
+                failures.as_ref(),
+            ),
+            Self::ResendUnapplied { .. } => Ok(()),
+        }
+    }
 }
 
 /// The payload of `session.restore_finished`: one stored record per undo, carrying its result. The
@@ -480,14 +466,14 @@ methods! {
             mutating: false,
             params: SessionRestorePreviewRequest,
             result: SessionRestorePreviewResponse,
-            refusals: [],
+            refusals: [EventCursorUnresolvable],
         },
         /// Undoes to a point, with an optional edit and resend.
         SessionRestore = mutation "session.restore" {
             mutating: true,
             params: SessionRestoreRequest,
             result: SessionRestoreResult,
-            refusals: [],
+            refusals: [EventCursorUnresolvable],
         },
         /// Lists a session's snapshots.
         SessionSnapshotList = query "session.snapshotList" {
@@ -523,8 +509,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionRestoreFailure>(),
         Definition::read::<SessionRestoreFailures>(),
         Definition::read::<SessionRestoreFileOutcome>(),
-        Definition::read::<SessionRestoreFinished>(),
-        Definition::read::<SessionResendUnapplied>(),
         Definition::read::<SessionRestoreResult>().checked(),
         Definition::read::<SessionRestoreFinishedPayload>().checked(),
     ],

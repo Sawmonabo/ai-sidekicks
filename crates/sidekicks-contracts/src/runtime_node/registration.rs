@@ -3,13 +3,8 @@
 //! control plane's admission record; trust is the statement chain's, so rename and remove each
 //! carry the statement a trusted key signed.
 
-use std::borrow::Cow;
-use std::sync::LazyLock;
-
-use regex::Regex;
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::de::Error as _;
-use serde::{Deserialize, Deserializer, Serialize};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::device::APP_VERSION_MAX_LEN;
 use crate::method::methods;
@@ -20,29 +15,10 @@ use crate::trust_statement::{
     RuntimeNodeRemovedStatement, RuntimeNodeRenamedStatement,
 };
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{FreeFormText, pattern_text};
 
 /// The longest DNS name, per RFC 1035.
 const DNS_NAME_MAX_LEN: usize = 253;
-
-/// A challenge record's name: `_acme-challenge.` and then a lower-case domain of two labels or
-/// more. Rust's `regex` and ECMAScript read it alike.
-const CHALLENGE_NAME_PATTERN: &str = "^_acme-challenge\\.\
-                                      (?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+\
-                                      [a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$";
-
-/// A challenge record's value: the 43 base64url characters of a SHA-256 digest.
-const CHALLENGE_VALUE_PATTERN: &str = "^[A-Za-z0-9_-]{43}$";
-
-/// [`CHALLENGE_NAME_PATTERN`], compiled once.
-static CHALLENGE_NAME: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(CHALLENGE_NAME_PATTERN).expect("the challenge name pattern is a valid regex")
-});
-
-/// [`CHALLENGE_VALUE_PATTERN`], compiled once.
-static CHALLENGE_VALUE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(CHALLENGE_VALUE_PATTERN).expect("the challenge value pattern is a valid regex")
-});
 
 /// The service's registration at each start: the machine's id, identity key, own name, platform
 /// and the service's version. The control plane accepts it only for the key enrolled at sign-in,
@@ -79,86 +55,17 @@ pub struct RuntimeNodeRemoveRequest {
     pub statement: RuntimeNodeRemovedStatement,
 }
 
-/// A challenge record's name, `_acme-challenge.<domain>`, so the request can never write any other
-/// record.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
-pub struct CertificateChallengeName(String);
+pattern_text! {
+    /// A challenge record's name: `_acme-challenge.` and then a lower-case domain of two labels or
+    /// more, within the DNS name bound, so the request can never write any other record.
+    pub struct CertificateChallengeName(
+        "^_acme-challenge\\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+\
+         [a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+        max = DNS_NAME_MAX_LEN
+    );
 
-impl CertificateChallengeName {
-    /// Checks `name`; refuses anything but a challenge name within the DNS name bound.
-    pub fn new(name: String) -> Option<Self> {
-        (name.chars().count() <= DNS_NAME_MAX_LEN && CHALLENGE_NAME.is_match(&name))
-            .then_some(Self(name))
-    }
-
-    /// The name.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for CertificateChallengeName {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(String::deserialize(deserializer)?)
-            .ok_or_else(|| D::Error::custom("a challenge record is named _acme-challenge.<domain>"))
-    }
-}
-
-impl JsonSchema for CertificateChallengeName {
-    fn inline_schema() -> bool {
-        true
-    }
-
-    fn schema_name() -> Cow<'static, str> {
-        "CertificateChallengeName".into()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({
-            "type": "string",
-            "maxLength": DNS_NAME_MAX_LEN,
-            "pattern": CHALLENGE_NAME_PATTERN,
-        })
-    }
-}
-
-/// A challenge record's value: the 43-character base64url SHA-256 digest.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
-pub struct CertificateChallengeValue(String);
-
-impl CertificateChallengeValue {
-    /// Checks `value`; refuses anything but 43 base64url characters.
-    pub fn new(value: String) -> Option<Self> {
-        CHALLENGE_VALUE.is_match(&value).then_some(Self(value))
-    }
-
-    /// The value.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for CertificateChallengeValue {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(String::deserialize(deserializer)?)
-            .ok_or_else(|| D::Error::custom("a challenge value is 43 base64url characters"))
-    }
-}
-
-impl JsonSchema for CertificateChallengeValue {
-    fn inline_schema() -> bool {
-        true
-    }
-
-    fn schema_name() -> Cow<'static, str> {
-        "CertificateChallengeValue".into()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({ "type": "string", "pattern": CHALLENGE_VALUE_PATTERN })
-    }
+    /// A challenge record's value: the 43 base64url characters of a SHA-256 digest.
+    pub struct CertificateChallengeValue("^[A-Za-z0-9_-]{43}$");
 }
 
 /// The TXT record an ACME DNS challenge asks for: its name, under `_acme-challenge.`, and its
@@ -175,40 +82,40 @@ pub struct RuntimeNodeCertificateChallengeSetRequest {
 
 methods! {
     /// The runtime-node procedures the control plane serves.
-    pub const RUNTIMENODE_PROCEDURE_DESCRIPTORS = [
+    pub const RUNTIMENODE_METHOD_DESCRIPTORS = [
         /// Registers the machine at each start of its service.
         RuntimeNodeRegister = mutation "runtimenode.register" {
             mutating: true,
             params: RuntimeNodeRegisterRequest,
             result: EmptyPayload,
-            refusals: [],
+            refusals: [RuntimenodePermissionDenied],
         },
         /// Renames the machine.
         RuntimeNodeRename = mutation "runtimenode.rename" {
             mutating: true,
             params: RuntimeNodeRenameRequest,
             result: EmptyPayload,
-            refusals: [],
+            refusals: [RuntimenodePermissionDenied],
         },
         /// Removes the machine.
         RuntimeNodeRemove = mutation "runtimenode.remove" {
             mutating: true,
             params: RuntimeNodeRemoveRequest,
             result: EmptyPayload,
-            refusals: [],
+            refusals: [RuntimenodePermissionDenied],
         },
         /// Writes the DNS challenge record for the machine's wildcard certificate.
         RuntimeNodeCertificateChallengeSet = mutation "runtimenode.certificateChallengeSet" {
             mutating: true,
             params: RuntimeNodeCertificateChallengeSetRequest,
             result: EmptyPayload,
-            refusals: [],
+            refusals: [RuntimenodePermissionDenied],
         },
     ];
 }
 
-/// The module's TypeScript face; the control plane, not a TypeScript client, serves these
-/// procedures, so no method table is written.
+/// The module's TypeScript face. The daemon sends these requests and the control plane and the
+/// relay read them, all in Rust, so no method table is written and no definition is checked.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "runtime-node/registration",
     doc: "A machine's registration with the control plane, and the requests that rename it, \
@@ -217,8 +124,51 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RuntimeNodeRegisterRequest>(),
         Definition::read::<RuntimeNodeRenameRequest>(),
         Definition::read::<RuntimeNodeRemoveRequest>(),
-        Definition::read::<RuntimeNodeCertificateChallengeSetRequest>().checked(),
+        Definition::read::<CertificateChallengeName>(),
+        Definition::read::<CertificateChallengeValue>(),
+        Definition::read::<RuntimeNodeCertificateChallengeSetRequest>(),
     ],
     constants: &[],
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::RuntimeNodeCertificateChallengeSetRequest;
+
+    const DIGEST: &str = "n4bQgYhMfWWaL-qgxVrQFaO_TxsrC4Is0V1sFbDwCgg";
+    const NAME: &str = "_acme-challenge.machine.example.com";
+
+    /// Three labels of 63 and one of 45 make a name of exactly 253 code points.
+    fn name_of_last_label(last_label_len: usize) -> String {
+        let labels = ["a".repeat(63), "b".repeat(63), "c".repeat(63)].join(".");
+        format!("_acme-challenge.{labels}.{}", "d".repeat(last_label_len))
+    }
+
+    #[rstest]
+    #[case::challenge_record(NAME.to_owned(), DIGEST.to_owned(), true)]
+    #[case::at_the_dns_bound(name_of_last_label(45), DIGEST.to_owned(), true)]
+    #[case::past_the_dns_bound(name_of_last_label(46), DIGEST.to_owned(), false)]
+    #[case::bare_domain("machine.example.com".to_owned(), DIGEST.to_owned(), false)]
+    #[case::one_label("_acme-challenge.localhost".to_owned(), DIGEST.to_owned(), false)]
+    #[case::upper_case(NAME.replace('m', "M"), DIGEST.to_owned(), false)]
+    #[case::other_record("_dmarc.example.com".to_owned(), DIGEST.to_owned(), false)]
+    #[case::prefix_inside(format!("x{NAME}"), DIGEST.to_owned(), false)]
+    #[case::trailing_line(format!("{NAME}\n"), DIGEST.to_owned(), false)]
+    #[case::label_over_63(NAME.replace("machine", &"a".repeat(64)), DIGEST.to_owned(), false)]
+    #[case::hyphen_edge(NAME.replace("machine", "-machine"), DIGEST.to_owned(), false)]
+    #[case::short_value(NAME.to_owned(), DIGEST[1..].to_owned(), false)]
+    #[case::padded_value(NAME.to_owned(), format!("{}=", &DIGEST[1..]), false)]
+    #[case::standard_alphabet(NAME.to_owned(), DIGEST.replace('-', "+"), false)]
+    fn a_challenge_request_writes_only_a_challenge_record(
+        #[case] name: String,
+        #[case] value: String,
+        #[case] is_accepted: bool,
+    ) {
+        let request = serde_json::json!({ "name": name, "value": value });
+        let parsed = serde_json::from_value::<RuntimeNodeCertificateChallengeSetRequest>(request);
+        assert_eq!(parsed.is_ok(), is_accepted);
+    }
+}

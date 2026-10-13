@@ -35,7 +35,12 @@ methods! {
             mutating: true,
             params: AttachmentIngestInitRequest,
             result: AttachmentIngestInitResponse,
-            refusals: [ArtifactTooLarge, ArtifactIngestCapacityExhausted],
+            refusals: [
+                SessionNotFound,
+                RunNotFound,
+                ArtifactTooLarge,
+                ArtifactIngestCapacityExhausted,
+            ],
         },
         /// Sends one chunk of an open stream.
         ArtifactIngestChunk = mutation "artifact.ingestChunk" {
@@ -50,6 +55,8 @@ methods! {
             params: AttachmentIngestCompleteRequest,
             result: AttachmentIngestCompleteResponse,
             refusals: [
+                SessionNotFound,
+                RunNotFound,
                 ArtifactIngestStreamInvalid,
                 ArtifactTypeUnreadable,
                 ArtifactTypeCheckUnavailable,
@@ -61,6 +68,8 @@ methods! {
             params: ArtifactPublishRequest,
             result: ArtifactPublishResponse,
             refusals: [
+                SessionNotFound,
+                RunNotFound,
                 ArtifactFilePublishRefused,
                 ArtifactIngestCapacityExhausted,
                 ArtifactTooLarge,

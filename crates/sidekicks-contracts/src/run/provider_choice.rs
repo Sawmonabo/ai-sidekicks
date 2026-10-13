@@ -83,7 +83,7 @@ pub struct RunRefusalChoiceRequestedPayload {
 
 literal! {
     /// The settlement the daemon records for an interrupt or a message sent while the
-    /// retry-or-edit choice waits; the driver maps Claude Code's own `cancelled` to it.
+    /// retry-or-edit choice waits; the driver maps Claude Code's own cancel answer to it.
     pub enum RunRefusalChoiceCanceled = "canceled";
 }
 

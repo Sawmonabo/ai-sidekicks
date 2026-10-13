@@ -10,6 +10,7 @@ use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::gitflow::shared::GitRefName;
 use crate::internal::branded::branded_uuid_id;
 use crate::project::ProjectId;
+use crate::repo::folders::FolderPath;
 use crate::repo::mount::{RepoMountId, WorkspaceId, WorkspaceState, lifecycle_payload};
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
@@ -58,6 +59,8 @@ pub enum WorktreeState {
 }
 
 /// The state of a listed worktree: every state but `retired`, since a retired tree is never listed.
+/// It is a wire enum of its own so a client's table keyed by it covers exactly the listed states;
+/// the conversion from [`WorktreeState`] matches every state, so the two cannot drift apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ListedWorktreeState {
@@ -71,6 +74,22 @@ pub enum ListedWorktreeState {
     Merged,
     /// Making it failed.
     Failed,
+}
+
+impl TryFrom<WorktreeState> for ListedWorktreeState {
+    /// A retired tree is never listed.
+    type Error = RetiredWorktreeState;
+
+    fn try_from(state: WorktreeState) -> Result<Self, Self::Error> {
+        match state {
+            WorktreeState::Creating => Ok(Self::Creating),
+            WorktreeState::Ready => Ok(Self::Ready),
+            WorktreeState::Dirty => Ok(Self::Dirty),
+            WorktreeState::Merged => Ok(Self::Merged),
+            WorktreeState::Failed => Ok(Self::Failed),
+            WorktreeState::Retired => Err(RetiredWorktreeState::Value),
+        }
+    }
 }
 
 lifecycle_payload! {
@@ -120,7 +139,7 @@ pub struct ExecutionRootPrepareRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExecutionRootPrepareResponse {
     /// The root.
-    pub execution_root: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub execution_root: FolderPath,
     /// The workspace's state.
     pub state: WorkspaceState,
     /// The worktree, for a `provisioned-worktree` prepare only.
@@ -270,7 +289,7 @@ macro_rules! worktree_status_record {
             $arm {
                 $($own)*
                 /// The tree's folder.
-                path: FreeFormText<FILE_PATH_MAX_LEN>,
+                path: FolderPath,
                 /// Its name.
                 name: FreeFormText<FILE_PATH_MAX_LEN>,
                 /// Its branch.
@@ -365,7 +384,7 @@ pub struct NewWorktreeSuggestion {
     /// A tail suggested from the session title.
     pub suggested_tail: FreeFormText<{ usize::MAX }>,
     /// The folder up to that tail.
-    pub folder_before: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub folder_before: FolderPath,
 }
 
 /// The project's own checkout.
@@ -373,7 +392,7 @@ pub struct NewWorktreeSuggestion {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoRootStatus {
     /// Its folder.
-    pub path: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub path: FolderPath,
     /// Its branch.
     pub branch_name: GitRefName,
 }

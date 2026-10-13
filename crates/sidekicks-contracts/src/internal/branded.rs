@@ -52,56 +52,7 @@ macro_rules! branded_uuid_id {
     };
 }
 
-/// Declares an opaque text id: `branded_text_id! { /// doc \n NodeId, 256 }` gives a newtype over
-/// a text of 1 to 256 code points whose format belongs to its writer, branded `NodeId` in
-/// TypeScript.
-macro_rules! branded_text_id {
-    ($(#[doc = $doc:literal])+ $name:ident, $max:expr) => {
-        $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
-        #[serde(transparent)]
-        pub struct $name(String);
-
-        impl $name {
-            /// Checks `text`; refuses an empty text or one past the id's bound.
-            pub fn new(text: String) -> Result<Self, $crate::wire::id::IdError> {
-                $crate::wire::id::check_bounded_text(&text, $max).map(|()| Self(text))
-            }
-
-            /// The id's text as received.
-            pub fn as_str(&self) -> &str {
-                &self.0
-            }
-        }
-
-        impl<'de> serde::Deserialize<'de> for $name {
-            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                let text = <String as serde::Deserialize>::deserialize(deserializer)?;
-                Self::new(text).map_err(<D::Error as serde::de::Error>::custom)
-            }
-        }
-
-        impl schemars::JsonSchema for $name {
-            fn schema_name() -> std::borrow::Cow<'static, str> {
-                stringify!($name).into()
-            }
-
-            fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-                schemars::json_schema!({
-                    "description": $crate::schema::doc_description(concat!($($doc, "\n"),+)),
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": $max,
-                    "tsType": concat!(
-                        "string & { readonly __brand: \"", stringify!($name), "\" }"
-                    ),
-                })
-            }
-        }
-    };
-}
-
-pub(crate) use {branded_text_id, branded_uuid_id};
+pub(crate) use branded_uuid_id;
 
 /// The TypeScript module of the UUID text form every UUID id shares.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {

@@ -5,17 +5,18 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
-use crate::wire::list::{BoundedVec, unique_by};
+use crate::wire::list::{ListKey, UniqueList};
 use crate::wire::text::pattern_text;
 
 ts_constants! {
     /// The channel frame format this build speaks.
     pub const CHANNEL_VERSION: u64 = 1;
     /// The profiles this build runs, in order of preference.
-    CHANNEL_PROFILES = ChannelProfile::ALL;
+    CHANNEL_PROFILES = ChannelProfile::VARIANTS;
 }
 
 /// The longest profile: the Noise specification caps a protocol name at 255 bytes.
@@ -24,16 +25,13 @@ const NOISE_PROTOCOL_NAME_MAX_LEN: usize = 255;
 const CHANNEL_OFFER_MAX_PROFILES: usize = 16;
 
 /// One profile this build runs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 pub enum ChannelProfile {
     /// Noise KK over X25519, ChaCha20-Poly1305 and SHA-256.
     #[serde(rename = "Noise_KK_25519_ChaChaPoly_SHA256")]
     KkChaChaPolySha256,
-}
-
-impl ChannelProfile {
-    /// Every profile, in order of preference.
-    pub const ALL: &[Self] = &[Self::KkChaChaPolySha256];
 }
 
 pattern_text! {
@@ -53,9 +51,9 @@ pub struct ChannelOffer {
     #[garde(skip)]
     pub channel_version: SafeInt<1>,
     /// The profiles, in the device's order of preference.
-    #[garde(custom(unique_by(|profile: &NoiseProtocolName| profile.clone())))]
+    #[garde(dive)]
     #[schemars(extend("uniqueItems" = true))]
-    pub profiles: BoundedVec<NoiseProtocolName, 1, CHANNEL_OFFER_MAX_PROFILES>,
+    pub profiles: UniqueList<NoiseProtocolName, 1, CHANNEL_OFFER_MAX_PROFILES>,
 }
 
 /// The machine's answer: the first offered profile it also runs.
@@ -79,3 +77,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+impl ListKey for NoiseProtocolName {
+    type Key = Self;
+
+    fn list_key(&self) -> Self {
+        self.clone()
+    }
+}

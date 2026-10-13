@@ -16,7 +16,6 @@ use crate::event::envelope::{
 use crate::event::registry::SessionEventType;
 use crate::run::id::RunId;
 use crate::transcript::row::{SupersededMarker, TranscriptRunStamp};
-use crate::typescript::TypeScriptModule;
 use crate::wire::integer::SafeInt;
 
 /// The event type of a turn boundary, which moves its run to its next turn.
@@ -67,7 +66,11 @@ pub struct SupersededTurns {
 /// Adds the run's next accepted rollback, which rewound epoch `turns.cuts.len()` to `point`. An
 /// earlier epoch's point drops to it when it lies lower.
 pub fn add_superseding_cut(turns: &SupersededTurns, point: SourcePosition) -> SupersededTurns {
-    let next_epoch = SourceEpoch(SafeInt::new(turns.cuts.len() as u64).unwrap_or(ZERO));
+    let next_epoch = u64::try_from(turns.cuts.len())
+        .ok()
+        .and_then(SafeInt::new)
+        .map(SourceEpoch)
+        .expect("a run's rollbacks number far fewer than 2^53");
     let mut cuts: Vec<SupersedingCut> = turns
         .cuts
         .iter()
@@ -112,9 +115,10 @@ pub fn standing_after_turn_started(
     payload: &Map<String, Value>,
 ) -> EpochPosition {
     let supplied = payload.get("position").and_then(whole_number_of);
-    let position = supplied
-        .or_else(|| SafeInt::new(standing.position.0.get() + 1))
-        .map_or(standing.position, SourcePosition);
+    let position = SourcePosition(supplied.unwrap_or_else(|| {
+        SafeInt::new(standing.position.0.get() + 1)
+            .expect("a run's turns number far fewer than 2^53")
+    }));
     EpochPosition {
         epoch: standing.epoch,
         position,
@@ -127,7 +131,10 @@ pub fn standing_after_rollback(
     target_position: SourcePosition,
 ) -> EpochPosition {
     EpochPosition {
-        epoch: SafeInt::new(standing.epoch.0.get() + 1).map_or(standing.epoch, SourceEpoch),
+        epoch: SourceEpoch(
+            SafeInt::new(standing.epoch.0.get() + 1)
+                .expect("a run's rollbacks number far fewer than 2^53"),
+        ),
         position: target_position,
     }
 }
@@ -182,15 +189,6 @@ fn whole_number_of(value: &Value) -> Option<SafeInt<0>> {
         .and_then(SafeInt::new)
 }
 
-/// The module has no TypeScript face: the client keeps its own copy of these rules.
-pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
-    path: "transcript/turn-attribution",
-    doc: "Which turn of its run an event belongs to.",
-    definitions: &[],
-    constants: &[],
-    method_tables: &[],
-};
-
 #[cfg(test)]
 mod tests {
     use serde::Deserialize;
@@ -212,7 +210,8 @@ mod tests {
     #[serde(
         tag = "step",
         rename_all = "camelCase",
-        rename_all_fields = "camelCase"
+        rename_all_fields = "camelCase",
+        deny_unknown_fields
     )]
     enum TurnCase {
         AddSupersedingCut {

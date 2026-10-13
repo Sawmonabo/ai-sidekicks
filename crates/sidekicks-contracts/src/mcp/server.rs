@@ -6,21 +6,22 @@
 //! `urlQueryParamNames`) where the wire carries values, so a client rendering every read-back
 //! still cannot render an environment-variable value, a header value or a token.
 //!
-//! Every governance mutation carries a `clientIdempotencyKey` the caller mints: a retry of one
-//! press reuses it, since a key minted per call would make every retry a new operation.
-//! `mcp.reconnect` alone carries none, because it writes nothing and has no saved result for a key
-//! to return.
+//! Every governance mutation, and the sign-in and sign-out commands, carries a
+//! `clientIdempotencyKey` the caller mints: a retry of one press reuses it, since a key minted per
+//! call would make every retry a new operation. `mcp.reconnect` alone carries none, because it
+//! writes nothing and has no saved result for a key to return.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::provider::driver::length_limits::{
     DRIVER_MCP_SERVER_NAME_MAX_LEN, DRIVER_TOOL_NAME_MAX_LEN,
 };
+use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::literal;
-use crate::wire::text::{BoundedText, FreeFormText};
+use crate::wire::text::FreeFormText;
 
 pub mod config;
 pub mod inventory;
@@ -80,8 +81,8 @@ pub type McpServerName = FreeFormText<DRIVER_MCP_SERVER_NAME_MAX_LEN>;
 /// A tool's name as an override and a reading carry it.
 pub type McpToolName = FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>;
 
-/// The root folder of the project a `project` or `local` binding applies in.
-pub type McpProjectRoot = BoundedText<1, FILE_PATH_MAX_LEN>;
+/// The root folder of the project a binding applies in or is switched for.
+pub type McpProjectRoot = FilesystemPath;
 
 /// When and where a mutation took effect: in the live sessions now, in the provider's config store
 /// for later runs, in the next run's composed config, or at the daemon's decision layer at once.
@@ -97,6 +98,18 @@ pub enum McpApplicationGrade {
     NextRun,
     /// Enforced at the daemon's decision layer at once.
     DaemonEnforced,
+}
+
+impl McpApplicationGrade {
+    /// The grade's wire name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LiveReconcile => "live_reconcile",
+            Self::UserConfigWrite => "user_config_write",
+            Self::NextRun => "next_run",
+            Self::DaemonEnforced => "daemon_enforced",
+        }
+    }
 }
 
 /// The normalized approval vocabulary a tool override may pin.
@@ -115,10 +128,11 @@ pub enum McpApprovalMode {
 
 /// Where a server binding applies: `user` in all projects, `project` in one project with its
 /// declaration in the repository, `local` in one project with its declaration outside the
-/// repository, and `plugin` for a server an installed plugin carries. The first three are writable
-/// on both providers; Codex has no per-project layer outside the repository, so the daemon emulates
-/// `local` there with a user entry that is off by default and switched on in that project's
-/// sessions.
+/// repository, `plugin` for a server an installed plugin carries, and, on Claude Code only,
+/// `connector` for a claude.ai connector and `managed` for an organization's server. The first
+/// three are writable on both providers; Codex has no per-project layer outside the repository, so
+/// the daemon emulates `local` there with a user entry that is off by default and switched on in
+/// that project's sessions. The last two are read-only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum McpBindingScope {
@@ -130,63 +144,78 @@ pub enum McpBindingScope {
     Local,
     /// Carried by an installed plugin.
     Plugin,
+    /// A claude.ai connector of one provider account.
+    Connector,
+    /// An organization's server.
+    Managed,
+}
+
+literal! {
+    /// The provider of a binding only Claude Code has: a connector or an organization's server.
+    pub enum McpClaudeProvider = const ProviderName::Claude.as_str();
 }
 
 /// Declares a union tagged on `scope` whose arms are the binding scopes, each arm holding the
-/// binding's identity and the members the caller adds. `in writable scopes` leaves out `plugin`,
-/// whose declaration changes only with its plugin; `in every scope` keeps it.
+/// binding's identity and the members the caller adds. `in writable scopes` keeps the three scopes
+/// a person writes; `in every scope` adds `plugin`, `connector` and `managed`, whose declarations
+/// the daemon never writes. An `in every scope` union may end with `on connector and managed { … }
+/// elsewhere { … }`: members only the two read-only Claude Code arms take, and their form on the
+/// other four arms.
 macro_rules! binding_addressed {
     (
         $(#[$meta:meta])+
         pub enum $name:ident in writable scopes { $($extra:tt)* }
     ) => {
-        #[derive(
-            Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
-            garde::Validate,
-        )]
-        #[serde(
-            tag = "scope",
-            rename_all = "snake_case",
-            rename_all_fields = "camelCase",
-            deny_unknown_fields
-        )]
-        #[garde(allow_unvalidated)]
-        $(#[$meta])+
-        pub enum $name {
-            /// A binding in all projects.
-            User {
-                /// The provider.
-                provider: $crate::provider::name::ProviderName,
-                /// The server's name.
-                server_name: $crate::mcp::server::McpServerName,
-                $($extra)*
-            },
-            /// A binding in one project, declared in the repository.
-            Project {
-                /// The provider.
-                provider: $crate::provider::name::ProviderName,
-                /// The project's root folder.
-                scope_ref: $crate::mcp::server::McpProjectRoot,
-                /// The server's name.
-                server_name: $crate::mcp::server::McpServerName,
-                $($extra)*
-            },
-            /// A binding in one project, declared outside the repository.
-            Local {
-                /// The provider.
-                provider: $crate::provider::name::ProviderName,
-                /// The project's root folder.
-                scope_ref: $crate::mcp::server::McpProjectRoot,
-                /// The server's name.
-                server_name: $crate::mcp::server::McpServerName,
-                $($extra)*
-            },
+        $crate::mcp::server::binding_addressed! {
+            @union [$(#[$meta])+] $name [$($extra)*] {}
         }
     };
     (
         $(#[$meta:meta])+
         pub enum $name:ident in every scope { $($extra:tt)* }
+        $(on connector and managed { $($read_only:tt)* } elsewhere { $($elsewhere:tt)* })?
     ) => {
+        $crate::mcp::server::binding_addressed! {
+            @union [$(#[$meta])+] $name [$($extra)* $($($elsewhere)*)?] {
+                /// A server an installed plugin carries: switched on and off and given tool
+                /// overrides, its declaration changing only with the plugin.
+                Plugin {
+                    /// The provider.
+                    provider: $crate::provider::name::ProviderName,
+                    /// The plugin's name.
+                    scope_ref: $crate::plugin::PluginToken,
+                    /// The server's name.
+                    server_name: $crate::mcp::server::McpServerName,
+                    $($extra)*
+                    $($($elsewhere)*)?
+                },
+                /// A claude.ai connector, the provider account's own: read-only, switched off per
+                /// project only by the daemon's own switch, and given tool overrides.
+                Connector {
+                    /// Always `claude`.
+                    provider: $crate::mcp::server::McpClaudeProvider,
+                    /// The provider account the connector belongs to.
+                    scope_ref: $crate::provider::account::record::ProviderAccountId,
+                    /// The name Claude Code reports for it, such as `claude.ai Slack`.
+                    server_name: $crate::mcp::server::McpServerName,
+                    $($extra)*
+                    $($($read_only)*)?
+                },
+                /// An organization's server, from its managed settings: read-only, served with its
+                /// address's host only, switched off per project only by the daemon's own switch,
+                /// and given tool overrides.
+                Managed {
+                    /// Always `claude`.
+                    provider: $crate::mcp::server::McpClaudeProvider,
+                    /// The server's name.
+                    server_name: $crate::mcp::server::McpServerName,
+                    $($extra)*
+                    $($($read_only)*)?
+                },
+            }
+        }
+    };
+    (@union [$(#[$meta:meta])+] $name:ident [$($writable_extra:tt)*] { $($other_arms:tt)* }) => {
         #[derive(
             Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
             garde::Validate,
@@ -206,7 +235,7 @@ macro_rules! binding_addressed {
                 provider: $crate::provider::name::ProviderName,
                 /// The server's name.
                 server_name: $crate::mcp::server::McpServerName,
-                $($extra)*
+                $($writable_extra)*
             },
             /// A binding in one project, declared in the repository.
             Project {
@@ -216,7 +245,7 @@ macro_rules! binding_addressed {
                 scope_ref: $crate::mcp::server::McpProjectRoot,
                 /// The server's name.
                 server_name: $crate::mcp::server::McpServerName,
-                $($extra)*
+                $($writable_extra)*
             },
             /// A binding in one project, declared outside the repository.
             Local {
@@ -226,19 +255,9 @@ macro_rules! binding_addressed {
                 scope_ref: $crate::mcp::server::McpProjectRoot,
                 /// The server's name.
                 server_name: $crate::mcp::server::McpServerName,
-                $($extra)*
+                $($writable_extra)*
             },
-            /// A server an installed plugin carries: switched on and off and given tool overrides,
-            /// its declaration changing only with the plugin.
-            Plugin {
-                /// The provider.
-                provider: $crate::provider::name::ProviderName,
-                /// The plugin's name.
-                scope_ref: $crate::plugin::PluginToken,
-                /// The server's name.
-                server_name: $crate::mcp::server::McpServerName,
-                $($extra)*
-            },
+            $($other_arms)*
         }
     };
 }
@@ -253,8 +272,9 @@ binding_addressed! {
 }
 
 binding_addressed! {
-    /// The scope-qualified identity of one server binding: a writable binding, or a server an
-    /// installed plugin carries. Same-named servers in two scopes stay two rows.
+    /// The scope-qualified identity of one server binding: a writable binding, a server an
+    /// installed plugin carries, or one Claude Code brings itself (a claude.ai connector or an
+    /// organization's server). Same-named servers in two scopes stay two rows.
     pub enum McpServerBindingRef in every scope {}
 }
 
@@ -291,7 +311,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<McpServerConfigChangedNotice>().checked(),
         Definition::read::<config::McpServerConfigInput>(),
         Definition::read::<config::McpServerConfigView>(),
-        Definition::read::<config::McpRemoteTransport>(),
+        Definition::read::<inventory::McpRuntimeBindingId>().checked(),
         Definition::read::<inventory::McpServerLegStatus>(),
         Definition::read::<inventory::McpServerFailedReason>(),
         Definition::read::<inventory::McpAssignableIdempotencyClass>(),

@@ -1,8 +1,11 @@
 //! The stored payloads of a run's state changes, of the markers its provider reports, and of its
 //! interventions, one per event type.
 
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::event::envelope::SourcePosition;
 use crate::orchestration::InterruptReason;
@@ -47,23 +50,6 @@ pub enum RunStateChangeState {
     Stopped,
     /// Ended by a failure.
     Failed,
-}
-
-impl From<RunStateChangeState> for RunState {
-    fn from(state: RunStateChangeState) -> Self {
-        match state {
-            RunStateChangeState::Starting => Self::Starting,
-            RunStateChangeState::Running => Self::Running,
-            RunStateChangeState::WaitingForApproval => Self::WaitingForApproval,
-            RunStateChangeState::WaitingForInput => Self::WaitingForInput,
-            RunStateChangeState::Pausing => Self::Pausing,
-            RunStateChangeState::Paused => Self::Paused,
-            RunStateChangeState::Completed => Self::Completed,
-            RunStateChangeState::Interrupted => Self::Interrupted,
-            RunStateChangeState::Stopped => Self::Stopped,
-            RunStateChangeState::Failed => Self::Failed,
-        }
-    }
 }
 
 literal! {
@@ -316,7 +302,7 @@ run_marker_payloads! {
 
 literal! {
     /// The actor of an intervention the daemon made itself, such as a stop at a spend limit.
-    pub enum DaemonInterventionActor = "daemon";
+    pub enum DaemonInterventionActor = const "daemon";
 }
 
 ts_constants! {
@@ -324,15 +310,60 @@ ts_constants! {
     DAEMON_INTERVENTION_ACTOR = DaemonInterventionActor::Value;
 }
 
+/// A device id as an intervention's actor: any device id but `daemon`, which names the daemon's
+/// own intervention, so the two actor arms never both read one value.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct InterventionDeviceActor(DeviceId);
+
+impl InterventionDeviceActor {
+    /// `device_id` as an actor, or `None` when it is `daemon`.
+    pub fn new(device_id: DeviceId) -> Option<Self> {
+        (device_id.as_str() != DaemonInterventionActor::TEXT).then_some(Self(device_id))
+    }
+
+    /// The device.
+    pub fn device_id(&self) -> &DeviceId {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for InterventionDeviceActor {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(DeviceId::deserialize(deserializer)?).ok_or_else(|| {
+            D::Error::custom("a device actor is never `daemon`, which names the daemon itself")
+        })
+    }
+}
+
+impl JsonSchema for InterventionDeviceActor {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        "InterventionDeviceActor".into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "allOf": [
+                generator.subschema_for::<DeviceId>(),
+                { "not": { "const": DaemonInterventionActor::TEXT } },
+            ],
+        })
+    }
+}
+
 /// Who an intervention is from: the daemon for its own, or the device whose connection carried
-/// it. Never a person. `daemon` is read as the daemon first, before any device id.
+/// it. Never a person. The arms are disjoint: a device actor is never `daemon`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum InterventionActor {
     /// The daemon's own.
     Daemon(DaemonInterventionActor),
     /// The device whose connection carried it.
-    Device(DeviceId),
+    Device(InterventionDeviceActor),
 }
 
 literal! {

@@ -1,6 +1,6 @@
 //! What every id on the wire checks. A UUID id accepts any RFC 9562 text form in either case, the
 //! Nil and Max UUIDs among them, since the daemon mints version 7 and the control plane's rows take
-//! version 4; a text id is an opaque string within a bound.
+//! version 4.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -9,8 +9,6 @@ use regex::Regex;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
-
-use crate::wire::text::is_within_length;
 
 /// The RFC 9562 UUID text form, any version from 1 to 8 with the RFC variant, or the Nil or Max
 /// UUID, in either case. Each case is spelled out, so Rust and ECMAScript read it alike.
@@ -30,12 +28,6 @@ pub enum IdError {
     /// The text is not an RFC 9562 UUID text form.
     #[error("the id is not an RFC 9562 UUID text form")]
     NotUuid,
-    /// The text is empty or longer than the id's bound, counted in code points.
-    #[error("the id is empty or longer than {max} code points")]
-    OutOfBounds {
-        /// The longest id accepted.
-        max: usize,
-    },
 }
 
 /// Checks `text` against the UUID text form.
@@ -44,15 +36,6 @@ pub fn check_uuid_text(text: &str) -> Result<(), IdError> {
         Ok(())
     } else {
         Err(IdError::NotUuid)
-    }
-}
-
-/// Checks that `text` holds `1..=max` code points.
-pub fn check_bounded_text(text: &str, max: usize) -> Result<(), IdError> {
-    if is_within_length(text, 1, max) {
-        Ok(())
-    } else {
-        Err(IdError::OutOfBounds { max })
     }
 }
 
@@ -112,8 +95,12 @@ pub struct ClientUuid(String);
 
 impl ClientUuid {
     /// Checks `text`; refuses anything but a client UUID.
-    pub fn new(text: String) -> Option<Self> {
-        CLIENT_UUID.is_match(&text).then_some(Self(text))
+    pub fn new(text: String) -> Result<Self, IdError> {
+        if CLIENT_UUID.is_match(&text) {
+            Ok(Self(text))
+        } else {
+            Err(IdError::NotUuid)
+        }
     }
 
     /// The UUID's text as received.
@@ -124,8 +111,7 @@ impl ClientUuid {
 
 impl<'de> Deserialize<'de> for ClientUuid {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(String::deserialize(deserializer)?)
-            .ok_or_else(|| D::Error::custom("Invalid UUID"))
+        Self::new(String::deserialize(deserializer)?).map_err(|_| D::Error::custom("Invalid UUID"))
     }
 }
 

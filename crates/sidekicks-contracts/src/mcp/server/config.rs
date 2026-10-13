@@ -1,14 +1,16 @@
 //! A server's declaration: as the person submits it, values included, and as the daemon reads it
 //! back, with every credential-bearing value reduced to its name.
 
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
+use crate::provider::name::ProviderName;
+use crate::schema::{push_all_of, required_member};
 use crate::web_address::WebAddress;
-use crate::wire::literal;
 use crate::wire::number::PositiveNumber;
 use crate::wire::record::Record;
-use crate::wire::text::{BoundedText, FreeFormText};
+use crate::wire::text::{BoundedText, FreeFormText, is_within_length};
 
 /// The longest command, argument, name, value, address or search text an `mcp.*` request carries.
 pub const MCP_REQUEST_TEXT_MAX_LEN: usize = 8192;
@@ -25,12 +27,7 @@ pub type McpServerAddress = WebAddress;
 
 /// Whether an address keeps the request text's cap.
 pub(crate) fn is_request_address(address: &McpServerAddress, _: &()) -> garde::Result {
-    if address
-        .as_str()
-        .chars()
-        .nth(MCP_REQUEST_TEXT_MAX_LEN)
-        .is_none()
-    {
+    if is_within_length(address.as_str(), 0, MCP_REQUEST_TEXT_MAX_LEN) {
         Ok(())
     } else {
         Err(garde::Error::new(
@@ -42,252 +39,369 @@ pub(crate) fn is_request_address(address: &McpServerAddress, _: &()) -> garde::R
 /// A submitted map of names to values: an environment, or headers.
 pub type McpTextMap = Record<McpRequestText, McpRequestValue>;
 
-/// How a remote server is reached.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum McpRemoteTransport {
-    /// Streamable HTTP.
-    Http,
-    /// Server-sent events.
-    Sse,
-}
-
-literal! {
-    /// The transport of a server the provider starts as a program.
-    pub enum McpStdioTransport = "stdio";
-}
-
-/// Declares one transport's declaration: the members the caller names, then the settings every
-/// transport carries, the same on a submitted declaration and its read-back.
+/// Declares a declaration union tagged on `transport`: a program the provider starts (`stdio`)
+/// and a server reached at an address over streamable HTTP (`http`) or server-sent events (`sse`,
+/// Claude Code only), each arm ending with the settings every transport carries, the same on a
+/// submitted declaration and its read-back.
 macro_rules! server_config {
-    ($(#[doc = $doc:literal])+ pub struct $name:ident { $($members:tt)* }) => {
+    (
+        $(#[doc = $doc:literal])+
+        pub enum $name:ident {
+            stdio { $($stdio:tt)* }
+            remote { $($remote:tt)* }
+        }
+    ) => {
+        server_config! {
+            @union [$(#[doc = $doc])+] $name [$($stdio)*] [$($remote)*] [
+                /// Whether the server is on; unset keeps the provider's value.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "bool")]
+                enabled: Option<bool>,
+                /// Whether a session refuses to start without the server; Codex only. Unset keeps
+                /// the provider's value.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "bool")]
+                required: Option<bool>,
+                /// How long the server may take to start, in seconds; Codex only.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "PositiveNumber")]
+                startup_timeout_sec: Option<PositiveNumber>,
+                /// How long one tool call may take, in seconds; Codex only.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "PositiveNumber")]
+                tool_timeout_sec: Option<PositiveNumber>,
+            ]
+        }
+    };
+    (
+        @union [$(#[doc = $doc:literal])+] $name:ident [$($stdio:tt)*] [$($remote:tt)*]
+        [$($shared:tt)*]
+    ) => {
         $(#[doc = $doc])+
         #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-        #[serde(rename_all = "camelCase", deny_unknown_fields)]
-        #[schemars(inline)]
+        #[serde(
+            tag = "transport",
+            rename_all = "snake_case",
+            rename_all_fields = "camelCase",
+            deny_unknown_fields
+        )]
         #[garde(allow_unvalidated)]
-        pub struct $name {
-            $($members)*
-            /// Whether the server is on; unset keeps the provider's value.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "bool")]
-            pub enabled: Option<bool>,
-            /// Whether a session refuses to start without the server; unset keeps the provider's
-            /// value.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "bool")]
-            pub required: Option<bool>,
-            /// How long the server may take to start, in seconds.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "PositiveNumber")]
-            pub startup_timeout_sec: Option<PositiveNumber>,
-            /// How long one tool call may take, in seconds.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "PositiveNumber")]
-            pub tool_timeout_sec: Option<PositiveNumber>,
+        pub enum $name {
+            /// A program the provider starts.
+            Stdio { $($stdio)* $($shared)* },
+            /// A server reached over streamable HTTP.
+            Http { $($remote)* $($shared)* },
+            /// A server reached over server-sent events; Claude Code only.
+            Sse { $($remote)* $($shared)* },
         }
     };
 }
 
 server_config! {
-    /// A program the provider starts, as the person submits it. Environment values are write-only,
-    /// handed to the provider's write path and never served back.
-    pub struct McpStdioConfigInput {
-        /// Always `stdio`.
-        pub transport: McpStdioTransport,
-        /// The program.
-        pub command: McpRequestText,
-        /// Its arguments.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "Vec<McpRequestValue>")]
-        pub args: Option<Vec<McpRequestValue>>,
-        /// Its environment, values included.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "McpTextMap")]
-        pub env: Option<McpTextMap>,
+    /// A server's declaration as the person submits it, by transport; unset members keep the
+    /// provider's values. Environment and header values are write-only, handed to the provider's
+    /// write path and never served back. A member only Codex reads is refused on a Claude Code
+    /// binding, and `sse` on a Codex one.
+    pub enum McpServerConfigInput {
+        stdio {
+            /// The program.
+            command: McpRequestText,
+            /// Its arguments.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Vec<McpRequestValue>")]
+            args: Option<Vec<McpRequestValue>>,
+            /// Its environment, values included.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "McpTextMap")]
+            env: Option<McpTextMap>,
+            /// The names of the variables it inherits from the environment Codex starts in; Codex
+            /// only.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Vec<McpRequestText>")]
+            env_vars: Option<Vec<McpRequestText>>,
+        }
+        remote {
+            /// Its address.
+            #[garde(custom(is_request_address))]
+            #[schemars(extend("maxLength" = MCP_REQUEST_TEXT_MAX_LEN))]
+            url: McpServerAddress,
+            /// Headers sent with each request, values included.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "McpTextMap")]
+            headers: Option<McpTextMap>,
+            /// The environment variable holding a bearer token; Codex only.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "McpRequestText")]
+            bearer_token_env_var: Option<McpRequestText>,
+            /// A header name mapped to the name of the environment variable holding its value;
+            /// Codex only.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "McpTextMap")]
+            env_http_headers: Option<McpTextMap>,
+            /// The scopes a sign-in asks for; Codex only.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Vec<McpRequestText>")]
+            oauth_scopes: Option<Vec<McpRequestText>>,
+            /// The resource a sign-in names; Codex only.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "McpRequestText")]
+            oauth_resource: Option<McpRequestText>,
+        }
     }
+}
+
+/// The members of a submitted declaration only Codex reads, by wire name; a Claude Code binding
+/// refuses each.
+const CODEX_ONLY_CONFIG_MEMBERS: [&str; 8] = [
+    "envVars",
+    "required",
+    "startupTimeoutSec",
+    "toolTimeoutSec",
+    "bearerTokenEnvVar",
+    "envHttpHeaders",
+    "oauthScopes",
+    "oauthResource",
+];
+
+impl McpServerConfigInput {
+    /// Whether the declaration sets the member of that wire name.
+    fn sets_member(&self, member: &str) -> bool {
+        match self {
+            Self::Stdio {
+                env_vars,
+                required,
+                startup_timeout_sec,
+                tool_timeout_sec,
+                ..
+            } => match member {
+                "envVars" => env_vars.is_some(),
+                "required" => required.is_some(),
+                "startupTimeoutSec" => startup_timeout_sec.is_some(),
+                "toolTimeoutSec" => tool_timeout_sec.is_some(),
+                _ => false,
+            },
+            Self::Http {
+                bearer_token_env_var,
+                env_http_headers,
+                oauth_scopes,
+                oauth_resource,
+                required,
+                startup_timeout_sec,
+                tool_timeout_sec,
+                ..
+            }
+            | Self::Sse {
+                bearer_token_env_var,
+                env_http_headers,
+                oauth_scopes,
+                oauth_resource,
+                required,
+                startup_timeout_sec,
+                tool_timeout_sec,
+                ..
+            } => match member {
+                "bearerTokenEnvVar" => bearer_token_env_var.is_some(),
+                "envHttpHeaders" => env_http_headers.is_some(),
+                "oauthScopes" => oauth_scopes.is_some(),
+                "oauthResource" => oauth_resource.is_some(),
+                "required" => required.is_some(),
+                "startupTimeoutSec" => startup_timeout_sec.is_some(),
+                "toolTimeoutSec" => tool_timeout_sec.is_some(),
+                _ => false,
+            },
+        }
+    }
+
+    /// Whether the declaration fits its provider: a Claude Code binding sets no member only Codex
+    /// reads, and a Codex binding is not reached over `sse`.
+    pub(crate) fn check_provider(&self, provider: ProviderName) -> garde::Result {
+        match provider {
+            ProviderName::Claude => {
+                match CODEX_ONLY_CONFIG_MEMBERS
+                    .into_iter()
+                    .find(|member| self.sets_member(member))
+                {
+                    Some(member) => Err(garde::Error::new(format!(
+                        "{member} is read only by Codex, so a Claude Code binding refuses it"
+                    ))),
+                    None => Ok(()),
+                }
+            }
+            ProviderName::Codex if matches!(self, Self::Sse { .. }) => {
+                Err(garde::Error::new("a Codex binding is not reached over sse"))
+            }
+            ProviderName::Codex => Ok(()),
+        }
+    }
+}
+
+/// The schema twin of [`McpServerConfigInput::check_provider`], on a request whose `provider` sits
+/// beside its `config`.
+pub(crate) fn add_provider_config_rules(schema: &mut Schema) {
+    let provider_is = |provider: ProviderName| {
+        json!({
+            "type": "object",
+            "properties": { "provider": { "const": provider } },
+            "required": ["provider"],
+        })
+    };
+    push_all_of(
+        schema,
+        json!({
+            "if": provider_is(ProviderName::Claude),
+            "then": {
+                "type": "object",
+                "properties": {
+                    "config": {
+                        "not": { "anyOf": CODEX_ONLY_CONFIG_MEMBERS.map(required_member) },
+                    },
+                },
+            },
+        }),
+    );
+    push_all_of(
+        schema,
+        json!({
+            "if": provider_is(ProviderName::Codex),
+            "then": {
+                "type": "object",
+                "properties": {
+                    "config": {
+                        "type": "object",
+                        "properties": { "transport": { "not": { "const": "sse" } } },
+                    },
+                },
+            },
+        }),
+    );
 }
 
 server_config! {
-    /// A server reached at an address, as the person submits it. Header values are write-only.
-    pub struct McpRemoteConfigInput {
-        /// How it is reached.
-        pub transport: McpRemoteTransport,
-        /// Its address.
-        #[garde(custom(is_request_address))]
-        #[schemars(extend("maxLength" = MCP_REQUEST_TEXT_MAX_LEN))]
-        pub url: McpServerAddress,
-        /// Headers sent with each request, values included.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "McpTextMap")]
-        pub headers: Option<McpTextMap>,
-        /// The environment variable holding a bearer token.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "McpRequestText")]
-        pub bearer_token_env_var: Option<McpRequestText>,
-        /// A header name mapped to the name of the environment variable holding its value.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "McpTextMap")]
-        pub env_http_headers: Option<McpTextMap>,
-        /// The scopes a sign-in asks for.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "Vec<McpRequestText>")]
-        pub oauth_scopes: Option<Vec<McpRequestText>>,
-        /// The resource a sign-in names.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "McpRequestText")]
-        pub oauth_resource: Option<McpRequestText>,
+    /// The redacted read-back of a binding's declaration, by transport: environment, header and
+    /// query names only. The daemon strips an address's query and any user name or password from
+    /// it, and serves an organization's server with its address's host only; a client shows the
+    /// address verbatim.
+    pub enum McpServerConfigView {
+        stdio {
+            /// The program.
+            command: String,
+            /// Its arguments.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Vec<String>")]
+            args: Option<Vec<String>>,
+            /// The names of the environment variables it is given.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Vec<String>")]
+            env_var_names: Option<Vec<String>>,
+        }
+        remote {
+            /// Its address, stripped.
+            url: String,
+            /// The names of the query parameters stripped from the address.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Vec<String>")]
+            url_query_param_names: Option<Vec<String>>,
+            /// The names of the headers sent with each request.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Vec<String>")]
+            header_names: Option<Vec<String>>,
+            /// The environment variable holding a bearer token.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "String")]
+            bearer_token_env_var: Option<String>,
+            /// A header name mapped to the name of the environment variable holding its value;
+            /// names only, so it is served back.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Record<String, String>")]
+            env_http_headers: Option<Record<String, String>>,
+            /// The scopes a sign-in asks for.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Vec<String>")]
+            oauth_scopes: Option<Vec<String>>,
+            /// The resource a sign-in names.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "String")]
+            oauth_resource: Option<String>,
+        }
     }
-}
-
-/// A server's declaration as the person submits it, by transport; unset members keep the
-/// provider's values.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(untagged)]
-pub enum McpServerConfigInput {
-    /// A program the provider starts.
-    Stdio(#[garde(dive)] McpStdioConfigInput),
-    /// A server reached at an address.
-    Remote(#[garde(dive)] McpRemoteConfigInput),
-}
-
-server_config! {
-    /// A program the provider starts, read back with its environment's names only.
-    pub struct McpStdioConfigView {
-        /// Always `stdio`.
-        pub transport: McpStdioTransport,
-        /// The program.
-        pub command: String,
-        /// Its arguments.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "Vec<String>")]
-        pub args: Option<Vec<String>>,
-        /// The names of the environment variables it is given.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "Vec<String>")]
-        pub env_var_names: Option<Vec<String>>,
-    }
-}
-
-server_config! {
-    /// A server reached at an address, read back with header and query names only. The daemon
-    /// strips the address's query and any user name or password from it; a client shows it
-    /// verbatim.
-    pub struct McpRemoteConfigView {
-        /// How it is reached.
-        pub transport: McpRemoteTransport,
-        /// Its address, stripped.
-        pub url: String,
-        /// The names of the query parameters stripped from the address.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "Vec<String>")]
-        pub url_query_param_names: Option<Vec<String>>,
-        /// The names of the headers sent with each request.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "Vec<String>")]
-        pub header_names: Option<Vec<String>>,
-        /// The environment variable holding a bearer token.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "String")]
-        pub bearer_token_env_var: Option<String>,
-        /// A header name mapped to the name of the environment variable holding its value; names
-        /// only, so it is served back.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "Record<String, String>")]
-        pub env_http_headers: Option<Record<String, String>>,
-        /// The scopes a sign-in asks for.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "Vec<String>")]
-        pub oauth_scopes: Option<Vec<String>>,
-        /// The resource a sign-in names.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "String")]
-        pub oauth_resource: Option<String>,
-    }
-}
-
-/// The redacted read-back of a binding's declaration, by transport.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum McpServerConfigView {
-    /// A program the provider starts.
-    Stdio(McpStdioConfigView),
-    /// A server reached at an address.
-    Remote(McpRemoteConfigView),
 }

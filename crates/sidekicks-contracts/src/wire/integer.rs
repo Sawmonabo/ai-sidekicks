@@ -54,8 +54,11 @@ impl<const MIN: u64> JsonSchema for SafeInt<MIN> {
     }
 }
 
+/// [`MAX_SAFE_INTEGER`] as a signed number, the bound of a whole number of either sign.
+pub const MAX_SAFE_SIGNED_INTEGER: i64 = MAX_SAFE_INTEGER.cast_signed();
+
 /// A whole number of either sign within what a JavaScript number holds exactly, ±(2^53 − 1).
-pub type SafeSignedInt = BoundedInt<-9_007_199_254_740_991, 9_007_199_254_740_991>;
+pub type SafeSignedInt = BoundedInt<{ -MAX_SAFE_SIGNED_INTEGER }, MAX_SAFE_SIGNED_INTEGER>;
 
 /// A whole number from `MIN` to `MAX`, both inclusive.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -129,5 +132,18 @@ impl JsonSchema for Port {
             "minimum": 1,
             "maximum": 65_535,
         })
+    }
+}
+
+/// The whole number `text` writes when it is `0` or ASCII digits with no leading zero, as a
+/// handle's or a branch's index is written; `None` for any other text or past `u64`.
+pub fn canonical_index(text: &str) -> Option<u64> {
+    let is_canonical = text == "0"
+        || (text.starts_with(|first: char| ('1'..='9').contains(&first))
+            && text.bytes().all(|digit| digit.is_ascii_digit()));
+    if is_canonical {
+        text.parse().ok()
+    } else {
+        None
     }
 }

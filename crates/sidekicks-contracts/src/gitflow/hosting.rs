@@ -12,21 +12,19 @@ use serde::{Deserialize, Serialize};
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::gitflow::shared::{ChangeRequestNumber, HostHandle, HostingAddress};
 use crate::repo::git_reads::GitObjectId;
+use crate::review_note::ReviewNoteId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
 use crate::wire::literal;
-use crate::wire::text::{BoundedText, FreeFormText};
+use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText};
 
 ts_constants! {
     /// The longest host name DNS allows.
     pub const GIT_HOST_NAME_MAX_LEN: usize = 253;
 }
-
-/// Text a host gives that is never empty: a login, a name, a label, a description.
-pub type HostText = BoundedText<1, { usize::MAX }>;
 
 /// The hosting services served. A host is kept with the kind whose tool answered for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -304,7 +302,7 @@ pub struct ReviewThreadComment {
     /// The comment.
     pub comment_id: HostHandle,
     /// Its author.
-    pub author: HostText,
+    pub author: NonEmptyText,
     /// Its text.
     pub body: String,
     /// When it was written.
@@ -355,7 +353,7 @@ pub struct ReviewThread {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChangeRequestReview {
     /// The reviewer.
-    pub reviewer: HostText,
+    pub reviewer: NonEmptyText,
     /// Their verdict.
     pub verdict: ReviewerVerdict,
 }
@@ -367,7 +365,7 @@ pub struct ChangeRequestCheck {
     /// The check.
     pub check_id: HostHandle,
     /// Its name.
-    pub name: HostText,
+    pub name: NonEmptyText,
     /// Its outcome.
     pub status: ChangeRequestCheckStatus,
     /// Its run's address.
@@ -394,12 +392,12 @@ change_request! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "HostText")]
-        pub description: Option<HostText>,
+        #[schemars(with = "NonEmptyText")]
+        pub description: Option<NonEmptyText>,
         /// Each reviewer's latest verdict.
         pub reviews: Vec<ChangeRequestReview>,
         /// The reviewers asked who have not answered.
-        pub requested_reviewers: Vec<HostText>,
+        pub requested_reviewers: Vec<NonEmptyText>,
         /// Its review threads.
         #[garde(dive)]
         pub threads: Vec<ReviewThread>,
@@ -471,8 +469,8 @@ pub struct GitflowReviewerListRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "HostText")]
-    pub query: Option<HostText>,
+    #[schemars(with = "NonEmptyText")]
+    pub query: Option<NonEmptyText>,
 }
 
 /// One reviewer candidate.
@@ -480,15 +478,15 @@ pub struct GitflowReviewerListRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewerCandidate {
     /// Their login.
-    pub login: HostText,
+    pub login: NonEmptyText,
     /// Their name.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "HostText")]
-    pub name: Option<HostText>,
+    #[schemars(with = "NonEmptyText")]
+    pub name: Option<NonEmptyText>,
 }
 
 /// The `gitflow.reviewerList` result.
@@ -504,15 +502,15 @@ pub struct GitflowReviewerListResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LabelCandidate {
     /// Its name.
-    pub name: HostText,
+    pub name: NonEmptyText,
     /// Its description.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "HostText")]
-    pub description: Option<HostText>,
+    #[schemars(with = "NonEmptyText")]
+    pub description: Option<NonEmptyText>,
 }
 
 /// The `gitflow.labelList` result.
@@ -540,8 +538,8 @@ pub struct GitflowReviewSubmitRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "HostText")]
-    pub body: Option<HostText>,
+    #[schemars(with = "NonEmptyText")]
+    pub body: Option<NonEmptyText>,
 }
 
 /// A note the host refused to post, and why.
@@ -549,9 +547,9 @@ pub struct GitflowReviewSubmitRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewNoteFailure {
     /// The note.
-    pub note_id: HostText,
+    pub note_id: ReviewNoteId,
     /// The host's reason.
-    pub reason: HostText,
+    pub reason: NonEmptyText,
 }
 
 /// The `gitflow.reviewSubmit` result. A review that fails part way says which notes posted and,
@@ -569,7 +567,7 @@ pub struct GitflowReviewSubmitResponse {
     #[schemars(with = "HostingAddress")]
     pub review_url: Option<HostingAddress>,
     /// The notes posted.
-    pub posted_note_ids: Vec<HostText>,
+    pub posted_note_ids: Vec<ReviewNoteId>,
     /// The notes refused.
     pub failures: Vec<ReviewNoteFailure>,
 }
@@ -613,7 +611,7 @@ pub struct GitflowThreadReplyRequest {
     /// The thread.
     pub thread_id: HostHandle,
     /// The reply.
-    pub body: HostText,
+    pub body: NonEmptyText,
 }
 
 /// The `gitflow.threadReply` result: the posted comment and its address.

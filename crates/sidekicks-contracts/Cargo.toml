@@ -11,6 +11,10 @@ publish.workspace = true
 ignored = [
   # The workflow builder's WebAssembly build of the workflow checks.
   "wasm-bindgen",
+  # On for the WebAssembly builds only, so the randomness `p256` (getrandom 0.4) and the schema
+  # checker's hash maps (getrandom 0.3, through `ahash`) take is read from `crypto.getRandomValues`.
+  "getrandom",
+  "getrandom_03",
 ]
 
 [dependencies]
@@ -20,6 +24,7 @@ ed25519-dalek.workspace = true
 garde.workspace = true
 icu_casemap.workspace = true
 jiff.workspace = true
+jsonschema.workspace = true
 p256.workspace = true
 regex.workspace = true
 schemars.workspace = true
@@ -29,6 +34,7 @@ serde_json_canonicalizer.workspace = true
 serde_path_to_error.workspace = true
 serde_with.workspace = true
 sha2.workspace = true
+strum.workspace = true
 thiserror.workspace = true
 tokio-util.workspace = true
 url.workspace = true
@@ -38,6 +44,11 @@ wasm-bindgen = { workspace = true, optional = true }
 [dev-dependencies]
 proptest.workspace = true
 rstest.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true, features = ["wasm_js"] }
+getrandom_03 = { workspace = true, features = ["wasm_js"] }
+uuid = { workspace = true, features = ["js"] }
 
 [features]
 # The WebAssembly exports the workflow builder loads.

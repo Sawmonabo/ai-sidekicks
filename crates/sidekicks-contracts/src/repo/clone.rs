@@ -5,9 +5,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::internal::branded::branded_uuid_id;
 use crate::project::ProjectId;
+use crate::repo::folders::FolderPath;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::BoundedInt;
 use crate::wire::text::{FreeFormText, pattern_text};
@@ -41,8 +41,8 @@ pub struct RepoCloneRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<FILE_PATH_MAX_LEN>")]
-    pub parent_folder: Option<FreeFormText<FILE_PATH_MAX_LEN>>,
+    #[schemars(with = "FolderPath")]
+    pub parent_folder: Option<FolderPath>,
     /// The project whose clone runs again.
     #[serde(
         default,
@@ -244,7 +244,7 @@ pub enum RepoCloneFolderSource {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoCloneFolderReadResponse {
     /// The folder.
-    pub folder: FreeFormText<FILE_PATH_MAX_LEN>,
+    pub folder: FolderPath,
     /// Why.
     pub source: RepoCloneFolderSource,
 }
@@ -276,23 +276,24 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 
 #[cfg(test)]
 mod tests {
-    use super::AskpassAnswer;
+    use rstest::rstest;
 
-    #[test]
-    fn passes_one_line_to_askpass_and_refuses_a_break_or_nul() {
-        for answer in ["", "hunter2", "pass\u{2028}word"] {
-            assert!(
-                AskpassAnswer::new(answer.to_owned()).is_some(),
-                "{answer:?}"
-            );
-        }
-        for answer in ["pass\nword", "pass\rword", "pass\0word", "line\n"] {
-            assert!(
-                AskpassAnswer::new(answer.to_owned()).is_none(),
-                "{answer:?}"
-            );
-        }
-        assert!(AskpassAnswer::new("a".repeat(4096)).is_some());
-        assert!(AskpassAnswer::new("a".repeat(4097)).is_none());
+    use super::{AskpassAnswer, REPO_CLONE_ANSWER_MAX_LEN};
+
+    #[rstest]
+    #[case::empty(String::new(), true)]
+    #[case::one_line("hunter2".to_owned(), true)]
+    #[case::line_separator("pass\u{2028}word".to_owned(), true)]
+    #[case::at_the_cap("a".repeat(REPO_CLONE_ANSWER_MAX_LEN), true)]
+    #[case::line_feed("pass\nword".to_owned(), false)]
+    #[case::carriage_return("pass\rword".to_owned(), false)]
+    #[case::nul("pass\0word".to_owned(), false)]
+    #[case::trailing_line_feed("line\n".to_owned(), false)]
+    #[case::past_the_cap("a".repeat(REPO_CLONE_ANSWER_MAX_LEN + 1), false)]
+    fn passes_one_line_to_askpass_and_refuses_a_break_or_nul(
+        #[case] answer: String,
+        #[case] is_passed: bool,
+    ) {
+        assert_eq!(AskpassAnswer::new(answer).is_some(), is_passed);
     }
 }

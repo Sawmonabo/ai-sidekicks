@@ -44,12 +44,17 @@ pub fn count_entries_fitting_one_frame<T: Serialize>(
 /// A garde check that a reply member fits [`PAGE_MAX_BYTES`], measured as the count above
 /// measures it, so a page the count built always passes.
 pub fn fits_one_page<T: Serialize>(member: &T, _context: &()) -> garde::Result {
+    fits_budget(member, PAGE_MAX_BYTES)
+}
+
+/// Checks that `member` measures at most `budget_bytes` JSON bytes, counted as the page count
+/// counts them.
+pub fn fits_budget<T: Serialize>(member: &T, budget_bytes: usize) -> garde::Result {
     let measured_bytes = json_utf8_byte_length(member)
         .map_err(|error| garde::Error::new(format!("the member does not serialize: {error}")))?;
-    if measured_bytes > PAGE_MAX_BYTES {
+    if measured_bytes > budget_bytes {
         return Err(garde::Error::new(format!(
-            "the member measures {measured_bytes} JSON bytes, over the {PAGE_MAX_BYTES}-byte page \
-             budget"
+            "the member measures {measured_bytes} JSON bytes, over its {budget_bytes}-byte budget"
         )));
     }
     Ok(())
