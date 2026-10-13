@@ -80,19 +80,19 @@ The external primary sources behind [Spec-015: Workflow Authoring And Execution]
 - [React Flow](https://reactflow.dev/) (read 2026-06-03 and 2026-09-09) — the library scan that chose it over the runner-up, whose round-trip finding Spec-015 keeps: a canvas is a projection over the stored model and never a competing source of truth
 - [JSONata](https://jsonata.org) (read 2026-09-09)
 
-Two adopted packages carry no documentation page in any source read for Spec-015 — the WebAssembly interpreter behind the Code node and the scheduling library behind the schedule trigger. Their pins, licenses and sizes were read from the npm registry on 2026-09-21 and are recorded in [Workflow Implementation Notes](workflow-implementation-notes.md) rather than asserted from a page.
+Two crates carry no documentation page in any source read for Spec-015: `rquickjs` 0.14.0 behind the Code node and `croner` 4.0.1 behind the schedule trigger. Their pins and licenses are recorded in [Workflow Implementation Notes](workflow-implementation-notes.md).
 
 **Code tiers, the sandbox boundary, and memory-gated admission (SA-3, I2):**
 
 - [Anthropic sandbox runtime](https://github.com/anthropics/sandbox-runtime) (read 2026-09-21) — the reusable wrapper a full-tier Code node and a `developer.shell` node are spawned under on the Claude leg: Seatbelt on macOS, bubblewrap on Linux, a dedicated local account with an egress fence on Windows, network default-deny through a local proxy. Its own banner calls it an early research preview whose interfaces may still move.
 - `codex sandbox --help` on codex-cli 0.155.1 (read 2026-09-21) — the Codex-leg wrapper, `codex sandbox [OPTIONS] [COMMAND]...` with `-P / --permission-profile <NAME>`. How each posture maps onto a provider's own sandbox and network settings is [Spec-010 §Required Behavior](../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior)'s, not restated here.
-- [Node — `process.availableMemory()`](https://nodejs.org/docs/latest-v24.x/api/process.html#processavailablememory) — the call the admission gate re-reads each tick. From Node 24.16.0 it sums free, inactive and purgeable pages on macOS; on Node 22 it returns free pages alone, the same number as `os.freemem()`, which is why the daemon and the CLI need Node 24.16 or later; the workspace's one Node line is 24.21.
+- [Node — `process.availableMemory()`](https://nodejs.org/docs/latest-v24.x/api/process.html#processavailablememory) — the reading the admission gate re-reads each tick, which the service takes from libuv's `uv_get_available_memory` computation, reproduced in `sidekicks-platforms`. From Node 24.16.0 it sums free, inactive and purgeable pages on macOS; on Node 22 it returns free pages alone, the same number as `os.freemem()`.
 - Measured on an Apple-silicon Mac, 2026-09-21: a TypeScript program naming its package in its import line and a Python program naming its packages in its own inline metadata block each ran with their packages inside `codex sandbox` on the workspace profile, with home-directory writes and the network blocked, and the sandbox cost about 0.02 s per run. Linux and Windows are unmeasured.
 - Measured on macOS and on Linux (Debian 12 in a container): the lock, install and run of a full-tier Code step under both providers' sandboxes and with no sandbox, the writes each allows, and clearing each package cache — installed steps kept running, a later run fetched nothing, and the other cache and the managed Python were untouched. Windows is unmeasured, and so is either sandbox started by the daemon on an Ubuntu 24.04 desktop.
 - [uv — Running scripts, §Locking dependencies](https://docs.astral.sh/uv/guides/scripts/#locking-dependencies) — inline script metadata and `uv lock --script`, which writes the lock beside the script.
 - [Bun — `bun install`](https://bun.com/docs/cli/install) — `--lockfile-only` writes the lock without installing, and `--frozen-lockfile` installs the locked versions and exits with an error where the manifest disagrees with the lock.
 - [Claude Code — Sandboxing](https://docs.claude.com/en/docs/claude-code/sandboxing) and [Codex — Agent approvals and security](https://developers.openai.com/codex/agent-approvals-security) — the two providers' own sandbox documentation, whose settings the full tier and `developer.shell` are run under.
-- [RE2JS](https://github.com/le0pard/re2js) — a JavaScript port of RE2, MIT, matching in time linear in its input; the expression engine's regular expressions run on it ([Spec-015 §Expressions](../specs/015-workflow-authoring-and-execution.md#expressions)).
+- [RE2JS](https://github.com/le0pard/re2js) — a JavaScript port of RE2, MIT, matching in time linear in its input; the expression engine's regular expressions take its meaning of each class, on `jsonata-core`'s `regex` engine ([Spec-015 §Expressions](../specs/015-workflow-authoring-and-execution.md#expressions)).
 
 **Chat-command interception and authorization precedents (SA-35, SA-36, C-18):**
 
@@ -105,8 +105,8 @@ Two adopted packages carry no documentation page in any source read for Spec-015
 
 **Testing (SA-27):**
 
-- [`fast-check` (model-based testing)](https://github.com/dubzzz/fast-check) — property-test framework pin (SA-27)
-- [Jazzer.js (fuzzing)](https://github.com/CodeIntelligenceTesting/jazzer.js) — fuzz-test framework pin (SA-27)
+- [`fast-check` (model-based testing)](https://github.com/dubzzz/fast-check) — property-test precedent read for SA-27; the pin is `proptest`
+- [Jazzer.js (fuzzing)](https://github.com/CodeIntelligenceTesting/jazzer.js) — fuzz-test precedent read for SA-27; the pin is `cargo-fuzz`
 - [Jazzer.js — fuzz-targets docs](https://github.com/CodeIntelligenceTesting/jazzer.js/blob/main/docs/fuzz-targets.md) — fuzz-target shape (SA-27)
 - [Astronomer — testing Airflow](https://www.astronomer.io/docs/learn/testing-airflow/) — DAG-test precedent
 

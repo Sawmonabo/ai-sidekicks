@@ -26,7 +26,7 @@ Supported topologies:
 | --- | --- |
 | `Single-Device Local` | Desktop or CLI plus one local daemon on the same machine, operating in `local-only` continuity. No control-plane dependency. |
 | `Workers Relay` | The person's own control plane and relay on Cloudflare Workers and Durable Objects, deployed in their own Cloudflare account, holding the device and machine registry and the account's statement chain and relaying their channels. It serves that one person and no one else, per [ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md). |
-| `Compose Relay` | The same control plane and relay on the person's own server: Node, Caddy and Postgres from one `docker-compose.yml`, per [ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md). It serves the same features as the Workers relay, and it alone gives shared ports in the web client an address. Secure-defaults posture for this topology is normative per [Spec-023: Self-Host Secure Defaults](../specs/023-self-host-secure-defaults.md) with its hands-on companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-023 Acceptance Criterion). |
+| `Compose Relay` | The same control plane and relay on the person's own server: `sidekicks-control-plane`'s native program, Caddy and Postgres from one `docker-compose.yml`, per [ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md). It serves the same features as the Workers relay, and it alone gives shared ports in the web client an address. Secure-defaults posture for this topology is normative per [Spec-023: Self-Host Secure Defaults](../specs/023-self-host-secure-defaults.md) with its hands-on companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-023 Acceptance Criterion). |
 | `Relay-Assisted Remote Access` | A device reaches the person's machines through their relay, one channel per device and machine, without moving execution into the control plane. |
 
 ## Data Flow
@@ -75,7 +75,7 @@ The relay serves one person: their machines and the devices they link. Each mach
 
 Frames either way, agent output and Preview's live picture included, are the term no quota fixes, so they are measured rather than assumed.
 
-**Compose relay.** One Node process holds every connection under the same backpressure.
+**Compose relay.** One native process, `sidekicks-control-plane`'s self-host program, holds every connection under the same backpressure and counts sign-in routes in its own memory.
 
 **Decision triggers for changing the layout.** Re-evaluate when either is true:
 
@@ -97,7 +97,7 @@ Frames either way, agent output and Preview's live picture included, are the ter
 
 ## Horizontal Scaling Strategy
 
-**Control plane and relay:** one person's relay needs no horizontal scale. The Compose relay is one Node process beside Caddy and Postgres, and its durable state lives in Postgres; the relay holds only live connections. The Workers relay scales on Cloudflare as §Relay Scaling Strategy lays out.
+**Control plane and relay:** one person's relay needs no horizontal scale. The Compose relay is one native process beside Caddy and Postgres, and its durable state lives in Postgres; the relay holds only live connections. The Workers relay scales on Cloudflare as §Relay Scaling Strategy lays out.
 
 **Local daemon:** runs on each of the user's machines, any number of them. No scaling needed — it is per-machine by design. Each session has exactly one owning machine and is never silently migrated; a new session starts on the machine in view, and a device finds a session by asking each machine it can reach ([Spec-027 §One user, many devices, any number of machines](../specs/027-remote-control.md#one-user-many-devices-any-number-of-machines)).
 
@@ -126,21 +126,23 @@ The workload is one person, their machines and their devices, on one relay. The 
 | Relay (per process)        | 1 vCPU   | 256 MB | —                         |
 | Local daemon (per machine) | 0.5 vCPU | 256 MB | 1 GB (SQLite + artifacts) |
 
-### Local Daemon Memory Instrumentation And Budget Triggers
+### Local Daemon Memory Instrumentation And Budget
 
 The 256 MB local daemon budget above is an operating target derived from one user's session sizing on a developer workstation — a handful of concurrent runs, one working tree, and the relay connection that serves that user's other devices — not a hard ceiling. Budget violations MUST be observable, so that a budget raise or a deeper change is decided from the numbers.
 
-**Instrumentation requirement.** The daemon reads its own resident set size (RSS) and reports it in `daemon.status.read`, which Settings › Runtime and `sidekicks daemon status` show with the time the reading was taken ([Spec-018 §Interfaces And Contracts](../specs/018-observability-and-failure-recovery.md#interfaces-and-contracts)). RSS is the authoritative figure for process footprint — distinct from V8 heap-used, which excludes native allocations from SQLite page cache, `node-pty` file descriptors, and `@noble/*` cryptographic buffers.
+**Instrumentation requirement.** The daemon reads its own resident set size (RSS) and reports it in `daemon.status.read`, which Settings › Runtime and `sidekicks daemon status` show with the time the reading was taken ([Spec-018 §Interfaces And Contracts](../specs/018-observability-and-failure-recovery.md#interfaces-and-contracts)). RSS is the authoritative figure for process footprint: it counts SQLite's page cache, the terminals' buffers and every other allocation, where an allocator's own statistics can miss some.
 
-**Decision trigger.** If measurements under the workload named above consistently exceed the 256 MB budget, **raise the budget to 384–512 MB before considering a runtime change.** Rationale: a budget raise is reversible and low-blast-radius (a documentation update); changing the runtime (e.g., replacing Node.js with a different language) carries much larger implementation cost and is reserved for breaches that persist after a budget raise.
+**Measurement.** Footprint and RSS on macOS, the service counted apart from Claude Code, Codex, Chromium and terminals: idle, with four sessions while all four stream, and two minutes after. Comparable compiled services idle at 25–33 MB; that is the reason the service is written in Rust, not a promised figure; a tighter target than the 256 MB budget is set from the service's first measurement under this workload.
+
+**Flat over time.** The same four-session run, idle again after streaming, returns to its idle figure, and nothing in the service keeps an unbounded queue or cache.
 
 ### Budgets On A Windows Computer
 
 Workload: the service idle for 10 minutes, one app window open, no session.
 
 - **The daemon:** the 256 MB operating target above, the same inside a WSL 2 distribution.
-- **The service's Windows half:** 15 MB private working set or less at idle, the same on native Windows where it runs as the daemon's child. Proposed; the baseline is measured on a Windows machine before the WSL phase lands.
-- **The channel's buffers:** bounded by the channel's settings, a 128 MB session-memory ceiling on each end, which is never a resident figure at idle.
+- **The service's Windows half,** on a computer whose service runs in WSL 2: 15 MB private working set or less at idle. Proposed; the baseline is measured on a Windows machine before the WSL phase lands.
+- **The channel's buffers:** bounded by the channel's `h2` settings on each end, its `max_send_buffer_size` of 128 MB, a 1 MiB stream window and a 16 MiB connection window, which are never a resident figure at idle.
 - **The attached `wsl.exe`, and the channel's latency and throughput against a native pipe:** measured on a Windows machine before the WSL phase lands.
 - **The WSL virtual machine:** kept running for the service's whole life. Its memory cap defaults to half of RAM, with `autoMemoryReclaim` at `dropCache`, and the person's `.wslconfig` is never edited. Its idle cost with only the service running is measured on a Windows machine and stated here; it is not part of the Runtime figure, which counts the service's own processes (the daemon's process tree inside the distribution, plus the Windows half and its `wsl.exe` on Windows), because the VM's working set holds other distributions and the person's own WSL work.
 - **A folder on the other side's disk** (`/mnt/c` from Linux, `\\wsl.localhost` from Windows) is slower, because every file operation crosses 9P; its cost is measured before the WSL phase lands.
@@ -151,25 +153,25 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 **Relay:** Docker container, same base image.
 
-**Local daemon:** the standalone Node.js bundle — the Node runtime, the JavaScript, the SQLite and `node-pty` native modules, and the CLI, with the native modules beside the runtime as plain files. `vercel/pkg` was considered and is not used: it is archived, and it packs files into the executable where the native modules must stay plain files. The Linux runtime ships for glibc and for musl, so an Alpine machine or distribution runs it; the musl builds use the Node.js project's unofficial-builds binaries, because the bundle cannot carry Alpine's own system `nodejs` package. Each Windows installer carries the Linux runtime archives for its architecture, glibc and musl, with their SHA-256, so a WSL 2 distribution runs the bytes a Linux user downloads and its first start works offline. Distributed through GitHub Releases, as a direct download and inside the desktop app's installers, never on npm ([§CI/CD and Release](#cicd-and-release)).
+**Local daemon:** `sidekicks-daemon`, a signed native binary, beside the `sidekicks` command line, with no Node runtime and no Node native module. The Linux runtime is `sidekicks-daemon` and `sidekicks` for glibc and musl on x64 and arm64, each archive with its SHA-256, so an Alpine machine or distribution runs it; the musl `sidekicks-daemon` is the dynamic build with `libgcc_s.so.1` and `libpdfium.so` beside it, and the musl `sidekicks` is one static program, since it loads no PDFium. Each Windows installer carries the Linux runtime archives for its architecture, glibc and musl, with their SHA-256, so a WSL 2 distribution runs the bytes a Linux user downloads and its first start works offline. Distributed through GitHub Releases, as a direct download and inside the desktop app's installers, never on npm ([§CI/CD and Release](#cicd-and-release)).
 
 **Desktop app:** Electron app bundling the daemon. The daemon is the person's own background service on every platform, spawned detached or run by the operating system's service manager, never a child of the desktop app. A quit flushes and leaves the service, every run and every shell running; only Runtime's `Stop` and `Restart` end work ([Spec-006](../specs/006-local-ipc-and-daemon-control.md)).
 
-**Background service on a Windows computer:** the service runs on the side where Claude Code and Codex are installed, Windows or one WSL 2 distribution, one service per computer. In a distribution it is the daemon plus the service's Windows half, a small native Windows program started at logon by a per-user task; the Windows half keeps one attached `wsl.exe` running the daemon for the service's whole life, inside a Job that lets Windows programs started through interop outlive it. Windows clients reach the daemon through one per-user named pipe, the same on both kinds of Windows computer, carried to a daemon in a distribution as streams of one HTTP/2 channel over that `wsl.exe`'s standard input and output. Key custody stays on Windows for both sides. On native Windows the same Windows half runs as the daemon's child, so every Windows-only job has one implementation ([ADR-039](../decisions/039-the-service-on-wsl-2.md), [Spec-006 §The service on a Windows computer](../specs/006-local-ipc-and-daemon-control.md#the-service-on-a-windows-computer)).
+**Background service on a Windows computer:** the service runs on the side where Claude Code and Codex are installed, Windows or one WSL 2 distribution, one service per computer. In a distribution it is the daemon plus the service's Windows half, a small native Windows program built by `sidekicks-platforms` and started at logon by a per-user task; the Windows half keeps one attached `wsl.exe` running the daemon for the service's whole life, inside a Job that lets Windows programs started through interop outlive it. Windows clients reach the daemon through one per-user named pipe, the same on both kinds of Windows computer, carried to a daemon in a distribution as streams of one HTTP/2 channel over that `wsl.exe`'s standard input and output. Key custody stays on Windows for both sides. On native Windows the daemon serves the pipe and does custody, keep-awake, the wake timer and banner withdrawal in its own process through the same `sidekicks-platforms` code the Windows half runs, so every Windows-only job has one implementation ([ADR-039](../decisions/039-the-service-on-wsl-2.md), [Spec-006 §The service on a Windows computer](../specs/006-local-ipc-and-daemon-control.md#the-service-on-a-windows-computer)).
 
-**CLI:** `sidekicks`, carried in the standalone Node.js bundle beside the daemon, and connecting to the local daemon.
+**CLI:** `sidekicks`, a signed native binary shipped beside the daemon, connecting to the local daemon.
 
 ## CI/CD and Release
 
-**Build orchestration:** monorepo with Turborepo.
+**Build orchestration:** monorepo with Turborepo over Cargo and pnpm.
 
-**CI:** GitHub Actions — lint, typecheck, test, build on every PR.
+**CI:** GitHub Actions — lint, typecheck, test and build, for the Rust crates and the TypeScript packages, on every PR.
 
 **CD:** none run by the project. The person deploys their own relay: the Workers relay into their own Cloudflare account, the Compose relay with its `docker-compose.yml` on their own server ([ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md)).
 
-**Local artifacts:** the desktop app's installers and the standalone Node.js bundle, built on a release tag by the release workflow, `.github/workflows/release.yml`, which [Plan-020](../plans/020-desktop-app-and-renderer.md) T-020r-6-4 creates, and published to GitHub Releases. Only the terminal helper's npm platform packages publish to npm ([ADR-022 §Axis 3](../decisions/022-v1-ci-cd-and-release-automation.md#axis-3--release-automation)).
+**Local artifacts:** the desktop app's installers and the daemon's and command line's signed native binaries, built on a release tag by the release workflow, `.github/workflows/release.yml`, which [Plan-020](../plans/020-desktop-app-and-renderer.md) T-020r-6-4 creates, and published to GitHub Releases. Nothing publishes to npm ([ADR-022 §Axis 3](../decisions/022-v1-ci-cd-and-release-automation.md#axis-3--release-automation)).
 
-**Versioning:** semver for packages; control-plane API versioned via tRPC router namespacing.
+**Versioning:** semver for packages.
 
 ## Related Domain Docs
 

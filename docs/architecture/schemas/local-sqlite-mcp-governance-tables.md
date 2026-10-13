@@ -46,7 +46,7 @@ CREATE TABLE mcp_tool_overrides (
   PRIMARY KEY (provider, scope, scope_ref, server_name, tool_name),
   -- an all-NULL facet row is meaningless: mcp.clearToolOverride nulls the one facet it names, and
   -- clearing the row's last set facet deletes the row instead of blanking it — and the
-  -- mcp.setToolOverride schema mirrors this as a Zod refinement (>= 1 facet required), so a
+  -- mcp.setToolOverride contract mirrors this as a garde check (>= 1 facet required), so a
   -- facet-less override dies as a typed validation error before it can reach this constraint
   CHECK(enabled IS NOT NULL OR approval_mode IS NOT NULL OR idempotency_class IS NOT NULL),
   -- binding-ref structural validity, mirroring mcp_server_bindings (defense in depth)

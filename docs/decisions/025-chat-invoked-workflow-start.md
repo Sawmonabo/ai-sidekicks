@@ -45,7 +45,7 @@ The named action wins on width and on cost. The approval card's `Always allow <s
 
 ### Antithesis — The Strongest Case Against
 
-**A new approval category buys the whole approvals apparatus for free.** Categories get the approval pipeline, the pending-approval UI, audit rows, and the card's `Always` answers, whose rules the providers keep — all shipped, all tested. A named action gets none of that: a denied start is just a refusal, with no escalation path. Under the category model an agent's start could be approval-mediated (`Yes (with approval)`) rather than flatly denied, which is arguably the safer default for an operation that can spawn a multi-step run.
+**A new approval category buys the whole approvals apparatus for free.** Categories get the approval pipeline, the pending-approval UI, audit rows, and the card's `Always` answers, whose rules the providers keep. A named action gets none of that: a denied start is just a refusal, with no escalation path. Under the category model an agent's start could be approval-mediated (`Yes (with approval)`) rather than flatly denied, which is arguably the safer default for an operation that can spawn a multi-step run.
 
 **Prose intent beats grammar.** A user who types "kick off the release workflow" gets nothing from a command grammar; a model-mediated runtime could interpret intent and skip the grammar entirely. Committing to a verb grammar freezes a 1970s-shaped surface into a product whose differentiator is model mediation.
 
@@ -92,7 +92,7 @@ No start surface of the runtime's own — append a context block to the provider
 ## Failure Mode Analysis
 
 - **An agent's start or a fired run arrives whose principal the daemon cannot resolve.** Refused with `workflow.start_denied` before any run is created. The daemon never substitutes a default identity, because a placeholder would read as a real caller to the policy check. Bounded and honest: the matrix row never claims enforcement it lacks (the fail-closed refusal _is_ the enforcement).
-- **The daemon's approval service is not running.** No workflow callback tool is exposed; a stray invocation is answered `denied` with a diagnostic record — never `completed` without Cedar, never silent. Shipped-state honesty is written into the spec text.
+- **The daemon's approval service is not running.** No workflow callback tool is exposed; a stray invocation is answered `denied` with a diagnostic record — never `completed` without Cedar, never silent. The spec states this fail-closed behavior.
 - **An agent writes `/workflow run x` in its own reply.** Inert by two independent rules: the command grammar exists only at the user's composer (C-18), and an agent's reply is not an addressing act and starts nothing (Spec-014 addressing-gated activation). Defense in depth, not coincidence.
 - **A start names a session that does not exist.** Refused: once a start is admitted — the person's own with no policy check, an agent's or a fired run's by the adjudication — the daemon validates that the session the start binds to exists (`session.not_found`, an ordinary not-found, binding no run), so a start's progress lands only in the session that asked. The agent leg names no session at all: the daemon derives it from the invoking turn.
 - **Steer/queue text beginning with `/` reaches a provider.** Text on no list goes to the provider as typed on every path, and the provider answers it in its own words ([Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)). A console word never reaches a provider on any path, and a word the bound provider's own enumeration carries is dispatched through that provider's own client rather than composed into a text frame.
@@ -107,7 +107,7 @@ The interception rule is the one-way part: once users rely on how leading-slash 
 ### Positive
 
 - Workflows become startable where the work happens, by the user and by their agents, under one typed operation and one authorization rule — no new wire method, no new start mode, no governance-enum amendment.
-- The corpus gains its first concrete `SessionCallbackTool`s, exercising the shipped registry, Cedar route, and fail-closed withholding end to end.
+- The corpus gains its first concrete `SessionCallbackTool`s, exercising the registry, Cedar route, and fail-closed withholding end to end.
 - The provider-collision class is closed by construction on the composer path, and the residual (steer/queue) is named and tracked rather than latent.
 - `error-contracts.md §Workflow` carries the surface's one authorization refusal code, `workflow.start_denied`, registered before any handler mints it.
 

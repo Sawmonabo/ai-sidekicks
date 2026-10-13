@@ -290,10 +290,10 @@ If these are modeled cleanly, most major features become straightforward instead
 
 ### Keep
 
-- TypeScript for daemon, contracts, CLI, and Electron
-- React 19 for the renderer
+- Rust for the service, the CLI, the contracts' source and the control plane
+- TypeScript with React 19 for Electron and the renderer
 - Electron for the desktop app
-- Zod and typed contracts across boundaries
+- `serde` with `garde` in Rust, and generated Ajv checks across boundaries
 
 ### Change
 
@@ -308,16 +308,13 @@ Every technology below ships in V1; the feature list is [ADR-014: V1 Feature Sco
 
 | Technology | Package | Purpose |
 | --- | --- | --- |
-| PASETO v4 | `paseto` 4.x in `packages/crypto-paseto/`, with `v4.local` on `@noble/ciphers` + `@noble/hashes` | Internal auth tokens — see [ADR-010 §PASETO v4 Implementation Library](./decisions/010-tokens-passkeys-and-the-remote-channel.md#paseto-v4-implementation-library) |
-| WebAuthn | `@simplewebauthn/server` (relying-party verification on the control plane, and on each machine, which verifies the statements a passkey signs in the account's chain) | Passkeys: the web client and the phone apps create them and sign in with them, the device-code page signs a machine in with one, and a passkey lets a new phone or browser link itself. The desktop app carries no WebAuthn; the machine signs in to the hosted account by `sidekicks sign-in`'s device code, and each device's own key is kept as [ADR-010 §Identity Key Storage](./decisions/010-tokens-passkeys-and-the-remote-channel.md#identity-key-storage) records. |
-| Relay channel | A maintained Noise implementation whose Diffie-Hellman can be supplied from WebCrypto, chosen and recorded in [Plan-025](./plans/025-remote-control.md) Phase 3 | One channel per device and machine on `Noise_KK_25519_ChaChaPoly_SHA256`, with a fresh handshake on every connection and every 10 minutes; the relay forwards ciphertext only ([ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md)). |
-| XState v5 | `xstate` | Internal state machine logic — supports ADR-014 V1 Feature 4 (queue, steer, pause, resume) |
-| tRPC v11 | `@trpc/server`, `@trpc/client` | Control plane API framework |
-| Cedar | `@cedar-policy/cedar-wasm` | Approval policy engine. The built-in rules are `.cedar` files in the service's own source, compiled into the service with it, changed only by an app update and evaluated in-process by the resident WASM authorizer, per [ADR-012](./decisions/012-cedar-approval-policy-engine.md). |
-| Terminal | `node-pty`, `@xterm/xterm` (own React wrapper — no published wrapper is adopted, per Desktop App Implementation Notes §Console Libraries) | Terminal multiplexing inside Desktop GUI (ADR-014 V1 Feature 12); which of the person's devices may type into a shell is Spec-002's per-shell device control lease |
-| Push notifications | `web-push` (Web Push encryption and VAPID headers), `apns2`, FCM's HTTP v1 API through `google-auth-library`, `@hpke/core` with `@hpke/hybridkem-x-wing` | A push to a device with no live connection: the machine decides per device and seals the notice to the device's push key (HPKE with X-Wing; RFC 8291 for Web Push), and the relay adds only the person's own APNs, FCM or VAPID credentials, per [Spec-017 §Cross-Device Delivery](./specs/017-notifications-and-attention-model.md#cross-device-delivery). |
-| OpenTelemetry | `@opentelemetry/*` | Observability (traces + metrics) |
-| Rust PTY sidecar | `portable-pty` (wezterm) via child-process sidecar | Windows-primary PTY backend per [ADR-018](./decisions/018-windows-v1-tier-and-pty-sidecar.md); `node-pty` remains the macOS/Linux primary and the Windows fallback |
+| PASETO v4 | `pasetors`, in the daemon and the control plane | Internal auth tokens — see [ADR-010 §PASETO v4 Implementation Library](./decisions/010-tokens-passkeys-and-the-remote-channel.md#paseto-v4-implementation-library) |
+| WebAuthn | `@simplewebauthn/server` (relying-party verification on the control plane's Worker, and on each machine, run on `rquickjs`, which verifies the statements a passkey signs in the account's chain) | Passkeys: the web client and the phone apps create them and sign in with them, the device-code page signs a machine in with one, and a passkey lets a new phone or browser link itself. The desktop app carries no WebAuthn; the machine signs in to the hosted account by `sidekicks sign-in`'s device code, and each device's own key is kept as [ADR-010 §Identity Key Storage](./decisions/010-tokens-passkeys-and-the-remote-channel.md#identity-key-storage) records. |
+| Relay channel | `snow` built with `ring-accelerated` on the machine; on each device a maintained Noise implementation whose Diffie-Hellman can be supplied from WebCrypto, chosen and recorded in [Plan-025](./plans/025-remote-control.md) Phase 3 | One channel per device and machine on `Noise_KK_25519_AESGCM_SHA256`, offered first, or `Noise_KK_25519_ChaChaPoly_SHA256`, second, with a fresh handshake on every connection and every 10 minutes; the relay forwards ciphertext only ([ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md)). |
+| Control plane API | `axum` on `worker` | The control plane's HTTP routes, per [ADR-013](./decisions/013-control-plane-api.md) |
+| Cedar | `cedar-policy` | Approval policy engine. The built-in rules are `.cedar` files in the service's own source, compiled into the service with it, changed only by an app update and evaluated in-process by the native authorizer, per [ADR-012](./decisions/012-cedar-approval-policy-engine.md). |
+| Terminal | `alacritty_terminal` in the daemon's `sidekicks-terminal`, the PTY inside the daemon on every operating system per [ADR-018](./decisions/018-windows-v1-tier-and-pty-in-the-daemon.md); `@xterm/xterm` (own React wrapper — no published wrapper is adopted, per Desktop App Implementation Notes §Console Libraries) | Terminal multiplexing inside Desktop GUI (ADR-014 V1 Feature 12); which of the person's devices may type into a shell is Spec-002's per-shell device control lease |
+| Push notifications | `web-push-native` (Web Push encryption, on the machine), `hpke` with X-Wing, and on the relay the VAPID, APNs and FCM HTTP v1 requests signed through WebCrypto | A push to a device with no live connection: the machine decides per device and seals the notice to the device's push key (HPKE with X-Wing; RFC 8291 for Web Push), and the relay adds only the person's own APNs, FCM or VAPID credentials, per [Spec-017 §Cross-Device Delivery](./specs/017-notifications-and-attention-model.md#cross-device-delivery). |
 
 ## Signature Features And Their Correct Implementation
 
@@ -385,15 +382,15 @@ Diff attribution must be per run, with an explicit fallback path only when provi
 
 ## Suggested Greenfield Stack
 
-- Daemon: Node 24.21+, TypeScript
+- Daemon: Rust on `tokio`
 - Renderer: React, Vite
 - Desktop app: Electron
 - Local DB: SQLite
-- Query layer: Kysely or equivalent typed SQL layer
-- Logging: pino
-- Validation: zod
+- Query layer: `rusqlite`
+- Logging: `tracing`
+- Validation: `serde` + `garde`, with generated Ajv checks in TypeScript
 - IPC: Unix socket on macOS/Linux, named pipe on Windows
-- Control plane: Postgres-backed service
+- Control plane: Rust, `axum` on `worker`, Postgres-backed
 
 ## Build Order
 

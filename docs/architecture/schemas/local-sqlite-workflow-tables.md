@@ -33,6 +33,11 @@ CREATE TABLE workflow_definitions (
   -- next step. OUTSIDE the content_hash preimage, so a change mints no version.
   permission_level     TEXT NOT NULL DEFAULT 'yolo'
                        CHECK(permission_level IN ('readonly','ask','reviewed','sandboxed','yolo')),
+  -- The workflow's background-browser pick, set from the builder's browser pill and starting at
+  -- 'settings_default': every later run of the workflow uses it, a live run keeping the browser it
+  -- started with. OUTSIDE the content_hash preimage, so a change mints no version.
+  background_browser   TEXT NOT NULL DEFAULT 'settings_default'
+                       CHECK(background_browser IN ('settings_default','sandboxed','not_sandboxed')),
   -- The node's pinned test data: an item array per node id. OUTSIDE the content_hash preimage and on
   -- the definition only, so a pin mints no version; NULL = nothing pinned.
   pin_data_json        TEXT
@@ -353,4 +358,4 @@ CREATE TABLE workflow_drafts (
 ) STRICT;
 ```
 
-**Index rationale + write-amplification estimate:** Per-index query justifications above are sized against SQLite's standard query-planner cost model — partial indexes with `WHERE` clauses are evaluated only over the matching subset, yielding the smallest workable index for the live-set queries ([SQLite — Partial Indexes](https://www.sqlite.org/partialindex.html)). The engine commits the step rows one turn of its loop started or settled in one transaction and hands that turn's events to the event log as one batch — Spec-013's 50 events or 10 ms to a transaction, flushed under one `db.transaction(fn)` call — `better-sqlite3` commits each batch atomically and rolls back on throw (_"Calling [.transaction()] returns a new function that, when called, runs the given function inside an SQLite transaction"_ — [better-sqlite3 API docs](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md)). Measured, twenty steps starting and finishing together cost 1.3 to 2.3 ms of the daemon's time in one transaction against up to 12.3 ms one by one, and a sustained 10,000 step boundaries cost 17 to 19 µs each, so nothing the engine emits outruns the store under `synchronous = FULL` WAL and no write rate limit is needed ([SQLite — Write-Ahead Logging](https://www.sqlite.org/wal.html)).
+**Index rationale + write-amplification estimate:** Per-index query justifications above are sized against SQLite's standard query-planner cost model — partial indexes with `WHERE` clauses are evaluated only over the matching subset, yielding the smallest workable index for the live-set queries ([SQLite — Partial Indexes](https://www.sqlite.org/partialindex.html)). The engine commits the step rows one turn of its loop started or settled in one transaction and hands that turn's events to the event log as one batch — Spec-013's 50 events or 10 ms to a transaction, flushed in one `rusqlite` transaction, which commits each batch atomically and rolls back when it is dropped without a commit ([rusqlite `Transaction`](https://docs.rs/rusqlite/latest/rusqlite/struct.Transaction.html)). Measured, twenty steps starting and finishing together cost 1.3 to 2.3 ms of the daemon's time in one transaction against up to 12.3 ms one by one, and a sustained 10,000 step boundaries cost 17 to 19 µs each, so nothing the engine emits outruns the store under `synchronous = FULL` WAL and no write rate limit is needed ([SQLite — Write-Ahead Logging](https://www.sqlite.org/wal.html)).

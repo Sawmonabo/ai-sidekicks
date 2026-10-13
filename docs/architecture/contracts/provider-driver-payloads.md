@@ -5,7 +5,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 ## Plan-003 — Provider Driver Contract (Internal Interface)
 
 ```ts
-// Internal driver interface. Two kinds of nominal-TypeScript surface ship here. (a) The
+// Internal driver interface (a Rust trait in the daemon). Two kinds of nominal surface ship here. (a) The
 // daemon-CONSTRUCTED param types (`CreateSessionParams` … `ApplyInterventionParams` + the
 // intervention payloads) are genuinely trusted — the daemon constructs them in-process.
 // (b) The driver-CONSTRUCTED returns — the capability flags, `DriverCapabilities`,
@@ -17,7 +17,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // and `DriverCliVersionReport.rawVersion` — the CLI-version string as the provider printed it,
 // riding the nominal `GetCapabilitiesResult` return exactly like `contractVersion`) are bounded
 // at the Plan-003 Phase-2 write seam (semver / non-empty + length + NUL), not here.
-// Zod validates ONLY the surfaces that parse UNTRUSTED
+// The contract checks (serde shapes and garde checks) run ONLY on the surfaces that parse UNTRUSTED
 // provider output (the trust boundary): the result envelopes `DriverInterventionResult`,
 // `DriverResumeResult`, `MoveSessionToForkResult`, `DriverGoalResult`, and `DriverAuthProbeResult`,
 // provider-declared `ProviderToolMetadata`, and the driver-normalized `CallbackToolInvocation` /
@@ -28,10 +28,10 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // `getCapabilities` returns the `GetCapabilitiesResult` wrapper (defined in provider-driver-capability-payloads.md) so the
 // per-tool `ProviderToolMetadata[]` rides alongside the flag matrix in a single
 // round-trip per Plan-003 Phase 4.
-// Within the Zod-validated surfaces, `ProviderToolMetadata` STRIPS unknown keys (Spec-004
+// Within the checked surfaces, `ProviderToolMetadata` is tolerant and drops unknown keys (Spec-004
 // §Default Behavior forward-compat: "Unknown capability fields are ignored (tolerant
 // reader)" — contractVersion is change-detection, not negotiation),
-// while the result envelopes reject unknown keys (`.strict()`);
+// while the result envelopes refuse unknown keys (`deny_unknown_fields`);
 // and every untrusted provider-output free-form string (`ProviderToolMetadata.name`/`.description`,
 // `DriverInterventionResult.fallbackAction`, `DriverResumeResult.bindingId`/`.providerFailureDetail`,
 // `MoveSessionToForkResult.fallbackAction`, `DriverGoalResult.fallbackAction`,
@@ -42,16 +42,16 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // built from provider-, skill- or tool-server-authored metadata at the driver's own normalize
 // boundary and both travel to a client, so an unbounded one is an arbitrarily large IPC response
 // and renderer workload) —
-// each on a Zod-validated result envelope, `ProviderToolMetadata`, or a driver-normalized
+// each on a checked result envelope, `ProviderToolMetadata`, or a driver-normalized
 // seam shape (`CallbackToolInvocation` / `McpServerStatusEmission` / `ProviderCommandEntry` /
 // `ProviderOutputSpeedState`) below and in provider-driver-capability-payloads.md —
-// are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
-// helper — Zod constraints not expressible in these TS interface shapes.
-// The daemon's provider layer (`packages/runtime-daemon/src/provider/`) realizes this enumeration for the
-// driver-internal shapes; `packages/contracts/src/provider/driver/intervention.ts` (`DriverInterventionResult`),
-// `commands.ts` (`ProviderCommandEntry`) and `output-speed.ts` (`ProviderOutputSpeedState`) in the same folder
-// realize it for the ones that reach a client, and `packages/contracts/src/free-form-string.ts` holds the
-// `wireFreeFormString` helper they use.
+// are bounded (length + non-whitespace + NUL-rejection) by the `FreeFormText<MAX>` text newtype —
+// rules not expressible in these TS interface shapes.
+// The daemon's provider layer (`crates/sidekicks-daemon/src/provider/`) realizes this enumeration for the
+// driver-internal shapes; `crates/sidekicks-contracts/src/provider/driver/intervention.rs` (`DriverInterventionResult`),
+// `commands.rs` (`ProviderCommandEntry`) and `output_speed.rs` (`ProviderOutputSpeedState`) in the same folder
+// realize it for the ones that reach a client, and `crates/sidekicks-contracts/src/free_form_text.rs` holds the
+// `FreeFormText<MAX>` newtype they use.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
@@ -244,7 +244,7 @@ interface ListProviderCommandsParams {
 // CHECKED AT THE NORMALIZE BOUNDARY. Every entry is assembled from provider-, skill- and
 // tool-server-authored metadata — a local skill file's front matter is the person's to write, a provider
 // handshake enumeration is provider-writable, and a tool server's prompt list is the server's.
-// `name`, `description`, `scope`, `argumentHint` and `server` are therefore `wireFreeFormString`-checked
+// `name`, `description`, `scope`, `argumentHint` and `server` are therefore `FreeFormText<MAX>`-bounded
 // (length + non-whitespace + NUL-rejection) exactly as the other untrusted provider-output strings
 // enumerated at the head of this section are. The list carries every entry the provider publishes,
 // with no count of the driver's own; the palette draws only the rows in view.
@@ -299,7 +299,7 @@ interface SessionProviderCommandList {
 // The daemon-side fold of a run's normalized events into ordered turns (Spec-004 §The canonical
 // transcript is a projection, never a store). It never crosses a wire and is never persisted, so
 // only its IDENTITY is mirrored here: the per-turn element shape is authored by Plan-003 T3.16 in
-// `packages/runtime-daemon/src/provider/hand-over/canonical-transcript.ts` and is bounded by the Spec-005 normalized taxonomy,
+// `crates/sidekicks-daemon/src/provider/hand_over/canonical_transcript.rs` and is bounded by the Spec-005 normalized taxonomy,
 // which is what makes "anything that never became an event is not in the transcript" true by
 // construction rather than by discipline.
 interface CanonicalTranscriptProjection {
@@ -381,7 +381,7 @@ interface ResumeSessionParams {
   // surface CreateSessionParams binds must re-realize here or the resumed leg silently sheds it —
   // a posture-less resume relaunches UNSANDBOXED, a schema-less one unconstrained. The DATA legs below are
   // reconstructed by the daemon from the durable
-  // runtime_bindings.spawn_config record (written at every spawn; Plan-003 T1.7) — never from the
+  // runtime_bindings.spawn_config record (written at every spawn; Plan-003 T1.6) — never from the
   // original client request, which recovery does not have; the two FUNCTION legs are re-injected
   // fresh at every spawn (functions are never stored in spawn_config).
   executionPosture?: ExecutionPosture;
@@ -478,8 +478,8 @@ type ApplyInterventionParams =
 // the retyping a PREREQUISITE of the first change that wires delivery through this carrier.
 // The carrier sets no count bound of its own: how many files a message carries is what the daemon and the
 // provider accept, and a provider that will not take one refuses in its own words. The brand lives
-// in `packages/contracts/src/artifacts/id.ts` per Plan-003 CP-003-4, and this payload and every later
-// consumer import it (`ArtifactIdSchema`); Plan-011 Task 1
+// in `crates/sidekicks-contracts/src/artifacts/id.rs` per Plan-003 CP-003-4, and this payload and every later
+// consumer import it (`ArtifactId`); Plan-011 Task 1
 // imports rather than restates, so no second definition of an artifact id exists.
 interface SteerPayload {
   content: string;
@@ -624,8 +624,9 @@ type RecoveryCondition = "recovery-needed" | "reauth-required";
 // CP-023-2). Recognition is TYPED-ONLY (I-003-6): each driver leg keys on a structured provider
 // event it can name — never message prose, an exit code, or a bare HTTP status — and an
 // unrecognized shape emits NOTHING, an absence that reads "not known to be limited", never "known
-// not to be limited". The signal is a wire shape, so its Zod schema lives in `packages/contracts`
-// (`provider/driver/usage-limit.ts`, which Plan-003 T3.44 EXTEND creates), beside `RecoveryCondition`'s: it rides `run.failed`'s
+// not to be limited". The signal is a wire shape, so its Rust type lives in `crates/sidekicks-contracts`
+// (`provider/driver/usage_limit.rs`, which Plan-003 T3.44 EXTEND creates; the generated TypeScript keeps
+// `packages/contracts/src/provider/driver/usage-limit.ts`), beside `RecoveryCondition`'s: it rides `run.failed`'s
 // `failureCause` (Spec-005 §Run Lifecycle), where a reload redraws the limit row from the stored
 // record, and the workflow park reads the same shape. No member is provider-verbatim — `cause` is a
 // closed literal the driver selects and `resetsAt` a timestamp it composes — so the schema checks
@@ -640,7 +641,7 @@ type ProviderUsageLimitCause = "plan-allowance-exhausted";
 // standard: the Codex leg reads it off the published rate-limit shapes — the
 // `account/rateLimits/read` pull + `account/rateLimits/updated` push pair the provider-wire
 // reference family's codex file records (Generated schema, Verified at the version that file
-// names), consumed by the shipped codex event-normalizer's push row. The Claude leg emits no
+// names), consumed by the codex event-normalizer's push row. The Claude leg emits no
 // usage-limit signal: Claude Code retries no plan limit, so its final announced `api_retry`
 // of a `rate_limit` or `overloaded` error is the spent-retries cause, `retries-exhausted`,
 // with no reset boundary — the mid-session retry taxonomy the provider-wire claude file

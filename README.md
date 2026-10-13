@@ -126,7 +126,7 @@ Any device you have linked drives the same session with full parity — read the
               │  │ SQLite   │  │
               │  └──────────┘  │
               └───────┬────────┘
-                      │ tRPC + WebSocket
+                      │ HTTPS + WebSocket
            ┌──────────┴──────────┐
            │    Control Plane    │
            │  (Auth, Devices,    │
@@ -144,7 +144,7 @@ Any device you have linked drives the same session with full parity — read the
 
 **Local Runtime Daemon** — Machine-local execution authority. Owns provider processes, git worktrees, terminal sessions, tool execution, and local persistence (SQLite).
 
-**Control Plane** — Hosted or self-hosted service for auth (PASETO v4 + WebAuthn), the device directory, device presence (Yjs Awareness CRDT), the E2E-encrypted relay between your devices and your runtime node, and shared metadata (Postgres).
+**Control Plane** — Hosted or self-hosted service for auth (PASETO v4 + WebAuthn), the device directory, device presence (each device's `presence.heartbeat` over its channel to the machine), the E2E-encrypted relay between your devices and your runtime node, and shared metadata (Postgres).
 
 ### CLI-First
 
@@ -158,20 +158,19 @@ A short alias `sk` installs alongside it; if an unrelated `sk` is already on you
 
 | Layer | Technology |
 | --- | --- |
-| Language | TypeScript (daemon, CLI, desktop, contracts) |
+| Language | Rust (daemon, CLI, contracts' source, control plane); TypeScript (desktop) |
 | Desktop App | Electron |
 | Desktop UI | React + Vite |
-| Local Database | SQLite (WAL mode) |
+| Local Runtime Daemon | Rust on `tokio` |
+| Local Database | SQLite (WAL mode) through `rusqlite` |
 | Shared Database | Postgres |
-| Auth | PASETO v4 (access + refresh), WebAuthn, DPoP |
-| Relay Encryption | Noise `Noise_KK_25519_ChaChaPoly_SHA256`, one channel per device and machine |
-| State Machines | XState v5 |
-| API Framework | tRPC v11 |
-| IPC | Unix socket (macOS/Linux), named pipe (Windows) |
-| Validation | Zod |
-| Authorization | Cedar (policy-based) per [ADR-012](docs/decisions/012-cedar-approval-policy-engine.md) |
-| Device Presence | Yjs Awareness protocol |
-| Observability | OpenTelemetry |
+| Control Plane | `axum` on `worker` (Cloudflare Workers), HTTP routes per [ADR-013](docs/decisions/013-control-plane-api.md) |
+| Auth | PASETO v4 (access + refresh) through `pasetors`, WebAuthn, DPoP |
+| Relay Encryption | Noise `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second, one channel per device and machine |
+| IPC | JSON-RPC 2.0 in one frame codec over a Unix socket (macOS/Linux) or a named pipe (Windows) |
+| Validation | `serde` and `garde` in Rust; generated Ajv checks in TypeScript |
+| Authorization | Cedar (policy-based) through `cedar-policy` per [ADR-012](docs/decisions/012-cedar-approval-policy-engine.md) |
+| Logging | `tracing`, the service's own log |
 
 ---
 
@@ -213,7 +212,7 @@ Phases still to build, and the order between them, live in [`docs/architecture/c
 
 ## Project Status
 
-Code execution is under way. What is left to build, and the order between the pieces, is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). [Plan-021](docs/plans/021-rust-pty-sidecar.md) Phases 4-5 wait on hardware and certificate procurement.
+Code execution is under way. What is left to build, and the order between the pieces, is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). The Windows signing of the `sidekicks-daemon` and `sidekicks-platforms` programs waits on hardware and certificate procurement ([BL-108](docs/backlog.md#bl-108-windows--macos-signing-procurement-evidence)).
 
 ---
 

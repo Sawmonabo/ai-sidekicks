@@ -14,11 +14,12 @@ All API errors use the canonical `ErrorResponse` envelope defined in API Payload
 interface ErrorResponse {
   code: string; // namespaced: 'session.not_found', 'auth.token_expired', etc.
   message: string; // human-readable description
-  details?: Record<string, unknown>; // structured context
 }
 ```
 
-This shape is the **HTTP/control-plane** envelope (tRPC + REST surfaces). Local IPC traffic uses the JSON-RPC wire envelope declared in §JSON-RPC Wire Mapping below — the dotted-namespace `code` from this envelope rides as `data.type` on the JSON-RPC side. The two surfaces share the same project code registry (§Error Codes); only the framing differs.
+A code's own fields sit beside `code` and `message`, as in `RateLimitResponse`, never under a nested member.
+
+This shape is the **HTTP/control-plane** envelope (the control plane's HTTP routes, served by `axum` on `worker`). Local IPC traffic uses the JSON-RPC wire envelope declared in §JSON-RPC Wire Mapping below — the dotted-namespace `code` from this envelope rides as `data.type` on the JSON-RPC side. The two surfaces share the same project code registry (§Error Codes); only the framing differs.
 
 ---
 
@@ -33,7 +34,7 @@ Local IPC traffic (Plan-005 daemon ↔ in-tree clients) frames errors per [JSON-
 | `-32700`     | ParseError     | Frame body is not valid JSON                                   |
 | `-32600`     | InvalidRequest | JSON parses but envelope is not a valid JSON-RPC Request shape |
 | `-32601`     | MethodNotFound | Method is not registered against the dispatcher                |
-| `-32602`     | InvalidParams  | Zod schema validation on `params` failed                       |
+| `-32602`     | InvalidParams  | the params failed the method's contract check                  |
 | `-32603`     | InternalError  | Handler-thrown unhandled exception or programmer-error path    |
 
 The reserved range `-32768..-32000` is the JSON-RPC spec's prerogative; the project does NOT mint additional numeric codes inside that range. Project domain codes live as dotted-namespace strings in `data.type`.
@@ -54,7 +55,7 @@ interface JsonRpcErrorEnvelope {
 
 The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` is the canonical project code — the same dotted-namespace strings the §Error Codes tables register. Consumers MUST discriminate on `data.type` (not on `message`) for project-level error handling; `code` is for JSON-RPC-level discrimination only.
 
-`data.fields` is optional structured detail. Producers MUST keep it free of sensitive content (no stack traces, no absolute paths, no secrets) per Plan-005 invariant I-005-7. The daemon's `mapJsonRpcError` substrate enforces I-005-7 a second time on the `data.fields` channel as defense-in-depth: every value passes through `sanitizeFields` (path redaction, length cap, JSON-unsafe value sentinels — `BigInt` / `NaN` / `Infinity` / `Symbol` / `Function` / circular references / hostile getters — and width / depth / node-count caps) before the envelope is serialized. Producer discipline remains primary; the substrate is the safety net that survives a future builder forgetting to redact.
+`data.fields` is optional structured detail. Producers MUST keep it free of sensitive content (no stack traces, no absolute paths, no secrets) per Plan-005 invariant I-005-7. The daemon's `mapJsonRpcError` substrate enforces I-005-7 a second time on the `data.fields` channel as defense-in-depth: every value passes through the daemon's field sanitizer (path redaction, length cap, width, depth and node-count caps) before the envelope is written. Producer discipline remains primary; the substrate is the safety net that survives a future builder forgetting to redact.
 
 ### Plan-005 Domain Identifiers
 
@@ -62,19 +63,19 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 | --- | --- | --- |
 | `unknown_setting` | `-32602` | Bootstrap rejected an unrecognized SecureDefaults config key (T-005p-1-3) |
 | `transport.unavailable` | `-32603` | The client cannot reach the daemon's OS-local socket or named pipe, or its link to the daemon is down; no fallback transport exists |
-| `transport.message_too_large` | `-32600` | Inbound frame exceeded the 4 MB body cap (the InvalidRequest classification of [Plan-005 §Phase 2: Wire Substrate](../../plans/005-local-ipc-and-daemon-control.md#phase-2-wire-substrate), T-005p-2-2). It is a 413-semantic peer mis-framing of the wire layer, never a domain-level refusal. |
-| `transport.invalid_protocol_version` | `-32600` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format): missing, wrong type, or fails the ISO 8601 `YYYY-MM-DD` shape. The substrate `dispatchFrame` gate in `packages/runtime-daemon/src/ipc/local-gateway.ts#LocalIpcGateway` enforces per I-005-6 BEFORE handler dispatch; the handshake (`daemon.hello`) is exempt because the negotiation parameter rides in `params.protocolVersion`. Distinct from `protocol.version_mismatch` (NegotiationError, registry-side gate for incompatible negotiated versions on subsequent mutating ops): the wire-layer envelope shape gate fires once-per-frame, the registry-side gate fires once-per-incompatible-mutating-op. |
+| `transport.message_too_large` | `-32600` | An inbound message passed the 4 MiB cap on its JSON or on its attachments (the InvalidRequest classification of [Plan-005 §Phase 2: Wire Substrate](../../plans/005-local-ipc-and-daemon-control.md#phase-2-wire-substrate), T-005p-2-2): a framing error, answered with this error frame before the connection closes. A reply of the daemon's own past the cap closes the connection with no answer. It is a 413-semantic peer mis-framing of the wire layer, never a domain-level refusal. |
+| `transport.invalid_protocol_version` | `-32600` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format): missing, wrong type, or fails the ISO 8601 `YYYY-MM-DD` shape. The substrate `dispatchFrame` gate in `crates/sidekicks-daemon/src/ipc/local_gateway.rs` (`LocalIpcGateway`) enforces per I-005-6 BEFORE handler dispatch; the handshake (`daemon.hello`) is exempt because the negotiation parameter rides in `params.protocolVersion`. Distinct from `protocol.version_mismatch` (NegotiationError, registry-side gate for incompatible negotiated versions on subsequent mutating ops): the wire-layer envelope shape gate fires once-per-frame, the registry-side gate fires once-per-incompatible-mutating-op. |
 
 `data.fields` shape per code:
 
 - `unknown_setting`: `{ setting: string, value: unknown }`
-- `transport.unavailable`: for a socket the client cannot reach, `{ reason }`, one listed reason (`TransportUnavailableReason` in `packages/contracts/src/jsonrpc/message.ts`): `not_listening` when nothing answers on it (the system's `ENOENT` or `ECONNREFUSED`), `access_denied` when the client may not open it (`EACCES`, `EPERM`) and `unreachable` for any other socket failure. The system's own error code never rides in `reason`. A link that is down carries no `fields`
+- `transport.unavailable`: for a socket the client cannot reach, `{ reason }`, one listed reason (`TransportUnavailableReason` in `crates/sidekicks-contracts/src/jsonrpc/message.rs`, its generated TypeScript at `packages/contracts/src/jsonrpc/message.ts`): `not_listening` when nothing answers on it (the system's `ENOENT` or `ECONNREFUSED`, `io::ErrorKind::NotFound` or `ConnectionRefused`), `access_denied` when the client may not open it (`EACCES`, `EPERM`, `io::ErrorKind::PermissionDenied`) and `unreachable` for any other socket failure. The system's own error code never rides in `reason`. A link that is down carries no `fields`
 - `transport.message_too_large`: `{ limit: number, observed: number }`
-- `transport.invalid_protocol_version`: `{ reason: "missing" | "wrong_type" | "invalid_format", observedType?: string }` (`observedType` is the JS-typeof tag of the offending value, present only when `reason === "wrong_type"`; the offending VALUE itself is NOT echoed back so client-supplied content does not leak through observability)
+- `transport.invalid_protocol_version`: `{ reason: "missing" | "wrong_type" | "invalid_format", observedType?: string }` (`observedType` is the offending value's JSON type, as the gateway writes it: `"null"` for `null`, `"object"` for an object or an array, else `"boolean"`, `"number"` or `"string"`; present only when `reason === "wrong_type"`; the offending VALUE itself is NOT echoed back so client-supplied content does not leak through observability)
 
 ### Negotiation Refusals
 
-`NegotiationError` throws (the gate-refusal codes in `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`) and `DaemonHelloAck.reason` strings (the handshake-incompatible reasons in `packages/contracts/src/jsonrpc/negotiation.ts`) all map through the same envelope. The reason strings are canonicalized to dotted-namespace form:
+`NegotiationError` refusals (the gate-refusal codes in `crates/sidekicks-daemon/src/ipc/protocol_negotiation.rs`) and `DaemonHelloAck.reason` strings (the handshake-incompatible reasons in `crates/sidekicks-contracts/src/jsonrpc/negotiation.rs`) all map through the same envelope. The reason strings are canonicalized to dotted-namespace form:
 
 | `data.type` | JSON-RPC `code` | Surface | Trigger |
 | --- | --- | --- | --- |
@@ -90,15 +91,12 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 
 Test code asserting on JSON-RPC error envelopes MUST discriminate on `data.type` for project-level expectations and on `code` for JSON-RPC-level expectations, and asserts the whole envelope:
 
-```ts
-expect(caught).toMatchObject({
-  code: -32602,
-  message: expect.stringContaining("unknown_setting"),
-  data: {
-    type: "unknown_setting",
-    fields: expect.objectContaining({ setting: expect.any(String) }),
-  },
-});
+```rust
+let envelope = serde_json::to_value(&error).expect("an error envelope serializes");
+assert_eq!(envelope["code"], -32602);
+assert!(envelope["message"].as_str().expect("message is text").contains("unknown_setting"));
+assert_eq!(envelope["data"]["type"], "unknown_setting");
+assert!(envelope["data"]["fields"]["setting"].is_string());
 ```
 
 ---
@@ -112,7 +110,7 @@ Every namespace below follows the same rules:
 - **The owner's namespace.** A code sits under the root of the domain whose operation refuses (`repo`, `worktree`, `gitflow`), in the registry's `<root>.<noun>_<condition>` form in `snake_case`, the noun left out where the root is itself what is refused (`session.not_found`).
 - **No structure prefixes.** A root names that domain, never the layer, process or pane a refusal passes through.
 - **Current words only.** A code uses the product's current words and names only a concept the product has.
-- **Registered before it is raised.** The unit that builds a capability registers that capability's codes and their reason lists in its contract in `packages/contracts` before the capability is implemented, never while implementing it, and each section below lists what its contract registers. No refusal ships without a registered code.
+- **Registered before it is raised.** The unit that builds a capability registers that capability's codes and their reason lists in its contract in `crates/sidekicks-contracts` before the capability is implemented, never while implementing it, and each section below lists what its contract registers. No refusal ships without a registered code.
 
 ### Session
 
@@ -213,24 +211,24 @@ WebAuthn-ceremony refusals (Plan-015 Phase 6). Both codes are served on **contro
 
 ### Runtime Node
 
-This code is registry-only (code + message; no structured `details`): no acceptance criterion needs structured detail, and a detail naming the machine would say whether it exists. The domain token `runtimenode` matches the method namespace ([Remote Control Payload Contracts §Machine Registration Method Registry](./remote-control-payloads.md#machine-registration-method-registry)).
+This code is registry-only (code and message, with no fields of its own): no acceptance criterion needs structured detail, and a detail naming the machine would say whether it exists. The domain token `runtimenode` matches the method namespace ([Remote Control Payload Contracts §Machine Registration Method Registry](./remote-control-payloads.md#machine-registration-method-registry)).
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `runtimenode.permission_denied` | Caller is not authorized for the machine the request names: the caller's verified principal does not own the machine the request's `nodeId` names (`runtime_nodes.user_id`). Another user's machine and an unknown machine collapse into this one refusal, so it never says whether the machine exists (this namespace's header). Domain authz code; deliberately never tRPC `NOT_FOUND`, which on this namespace means only that the control plane has no such procedure. | 403 |
+| `runtimenode.permission_denied` | Caller is not authorized for the machine the request names: the caller's verified principal does not own the machine the request's `nodeId` names (`runtime_nodes.user_id`). Another user's machine and an unknown machine collapse into this one refusal, so it never says whether the machine exists (this namespace's header). Domain authz code; deliberately never the router's 404, which on this namespace means only that the control plane has no such route. | 403 |
 
 ### PTY
 
-Terminal refusals: the write lease ([Spec-002 §Required Behavior](../../specs/002-machine-registration.md#required-behavior)) and the PTY backend ([ADR-018](../../decisions/018-windows-v1-tier-and-pty-sidecar.md)). The lease is **one per shell**: a session opens as many shells as the node can hold, exactly one writer holds a given shell at a time, and a device's first write to a shell nobody holds takes it; every other write from a writer the shell's hold is not bound to is refused. Every lease refusal below is about one shell, named by the terminal identifier the request carried, and a lease held on one shell never authorizes a write to another. A request naming a shell its session does not have is refused `pty.not_found`, the flow-control signal excepted, and a take or a write naming an output subscription that is not the calling connection's own open subscription to that shell is refused `pty.output_subscription_not_found` before the lease is read, so a hold is never bound to another connection's pane.
+Terminal refusals: the write lease ([Spec-002 §Required Behavior](../../specs/002-machine-registration.md#required-behavior)) and the PTY in the daemon ([ADR-018](../../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md)). The lease is **one per shell**: a session opens as many shells as the node can hold, exactly one writer holds a given shell at a time, and a device's first write to a shell nobody holds takes it; every other write from a writer the shell's hold is not bound to is refused. Every lease refusal below is about one shell, named by the terminal identifier the request carried, and a lease held on one shell never authorizes a write to another. A request naming a shell its session does not have is refused `pty.not_found`, the flow-control signal excepted, and a take or a write naming an output subscription that is not the calling connection's own open subscription to that shell is refused `pty.output_subscription_not_found` before the lease is read, so a hold is never bound to another connection's pane.
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `pty.control_not_held` | A write from a connection the shell's hold is not bound to — a shell another writer holds, or one its own device holds through other connections until this one takes it — a run's write to a shell it does not hold, or a resize or a pane's appearance report for a shell nobody holds or that its own device holds through other connections; a device's first write to a shell nobody holds takes it instead of being refused. `data.fields`: `terminalId` | 409 |
-| `pty.control_held_by_other` | `session.takeControl`, a resize, a pane's appearance report or a close refused for the named shell because someone else holds it. **Two take refusals share this code; the second has the stronger precondition.** A plain take while another of the account's devices holds that shell: refused, and the recourse is the take's forced form, which moves the lease to the taker without a release. Any take while a run's command holds the shell: refused, and normatively so, because a run's hold ends with its command or the run and never by a lease contest — the recourse is stopping the command from its row, or pausing or interrupting the run, and the hold then ends when the command ends or on the run's first transition out of running, whichever comes first. `data.fields` names the shell and its holder flat, as `pty.control_changed` does — `{ terminalId, holderDeviceId, holderRunId?, holderCommandId? }`, with `holderRunId` and `holderCommandId` set together while an agent's running command holds the shell and the agent read from that run — on the JSON-RPC surface, mirrored as `details` on the HTTP `ErrorResponse` envelope (same value on both surfaces, via the canonical envelope's structured-context field) | 409 |
+| `pty.control_held_by_other` | `session.takeControl`, a resize, a pane's appearance report or a close refused for the named shell because someone else holds it. **Two take refusals share this code; the second has the stronger precondition.** A plain take while another of the account's devices holds that shell: refused, and the recourse is the take's forced form, which moves the lease to the taker without a release. Any take while a run's command holds the shell: refused, and normatively so, because a run's hold ends with its command or the run and never by a lease contest — the recourse is stopping the command from its row, or pausing or interrupting the run, and the hold then ends when the command ends or on the run's first transition out of running, whichever comes first. `data.fields` names the shell and its holder flat, as `pty.control_changed` does — `{ terminalId, holderDeviceId, holderRunId?, holderCommandId? }`, with `holderRunId` and `holderCommandId` set together while an agent's running command holds the shell and the agent read from that run — on the JSON-RPC surface, and beside `code` and `message` on the HTTP `ErrorResponse` body (the same value on both surfaces) | 409 |
 | `pty.not_found` | A request naming a shell its session does not have: no shell by that terminal id, or another session's shell, which the refusal never tells apart. The flow-control signal is the one exception: naming such a shell changes nothing, since it may race a closing shell. `data.fields`: `terminalId` | 404 |
 | `pty.output_subscription_not_found` | `session.takeControl` or `pty.write` naming an output subscription that is not the calling connection's own open `pty.outputSubscribe` subscription to the named shell: no such subscription, another connection's, or one to another shell, which the refusal never tells apart. Checked before the lease is read, so a hold is never bound to another connection's pane. `data.fields`: `terminalId`, `outputSubscriptionId` | 404 |
 | `pty.chat_unsupported` | `pty.open` on a chat session, which is bound to a managed workspace and no repository and has no shell. The screen never offers the control on a chat, so only a caller fault reaches this refusal; no shell starts. `data.fields`: `sessionId` | 422 |
-| `pty.backend_unavailable` | The PTY backend a shell needs cannot be constructed: on Windows the Rust sidecar binary is unavailable or the sidecar host has used up its crash-respawn budget, and on macOS and Linux `node-pty` cannot load. Each platform has one backend and no fallback. `details`: `attemptedBackend` (`rust-sidecar` \| `node-pty`) and an optional `cause` | 503 |
+| `pty.backend_unavailable` | The PTY a shell needs cannot be opened: `sidekicks-terminal` in the daemon could not create it (ConPTY on Windows, `alacritty_terminal`'s tty elsewhere). Each platform has one PTY and no fallback. `data.fields`: an optional `cause` | 503 |
 
 Opening a shell on a session that is a chat is refused `pty.chat_unsupported`: a chat is bound to a managed workspace and no repository, so it has no shells.
 
@@ -259,7 +257,7 @@ Repo-mount attach/detach/resolution errors (Plan-006 D-006-3). The `repo` namesp
 | `repo.reattach_conflict` | `repo.mountReattach` refused, writing nothing, while an agent runs anywhere in the project. `data.fields.runningSessionId` and `data.fields.runningAgentId` name the run's session and agent, drawn `Could not re-attach while <agent> is running. Stop the run first.` ([Spec-007 §Repo Mount Health (V1 Definition)](../../specs/007-repo-attachment-and-workspace-binding.md#repo-mount-health-v1-definition)) | 409 |
 | `repo.detach_conflict` | Detach refused while an agent runs anywhere in the project, naming the running session (drawn `Busy: <session> is running in it.`); active work must finish or be canceled first, and there is no force-detach ([Spec-007 §Detach Semantics (V1 Definition)](../../specs/007-repo-attachment-and-workspace-binding.md#detach-semantics-v1-definition)) | 409 |
 | `repo.clone_refused` | `repo.clone` refused before anything is fetched. `data.fields.reason: destination_not_empty` when the destination exists and is not empty, drawn `<folder> is already there and is not empty.`; `data.fields.reason: no_directory_name` when git can name no folder from the address (`host:`, `team/..`), with `data.fields.line` carrying git's own line, `fatal: No directory name could be guessed.`, which the clone card shows as it shows any clone's failure, the `Repository URL` field keeping the address to fix ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)) | 422 |
-| `repo.clone_unavailable` | `repo.clone`, `repo.cloneFolderRead`, `repo.cloneSubscribe`, `repo.cloneAnswer`, `repo.cloneCancel` and `repo.largeFilesPull` answered while the clone service is not running. When its start failed — the askpass program git asks its sign-in questions through could not make its folder, launcher or socket, or the recovery of clones a restart cut short failed — the message is that failure's own text, such as `listen EACCES: permission denied`, its paths redacted as every message's are. When the service was never started, on a platform with no launcher for the askpass program (Windows, whose launcher is the `windows` unit's), the message is empty. No `data.fields`; the service log holds the start's failure or the reason it was never started | 503 |
+| `repo.clone_unavailable` | `repo.clone`, `repo.cloneFolderRead`, `repo.cloneSubscribe`, `repo.cloneAnswer`, `repo.cloneCancel` and `repo.largeFilesPull` answered while the clone service is not running. When its start failed — the askpass program git asks its sign-in questions through could not make its folder or socket, or the recovery of clones a restart cut short failed — the message is that failure's own text, such as `listen EACCES: permission denied`, its paths redacted as every message's are. When the service was never started, on a platform with no askpass link (Windows, whose link is the `windows` unit's), the message is empty. No `data.fields`; the service log holds the start's failure or the reason it was never started | 503 |
 | `repo.mount_managed` | The mount is a chat's managed workspace, which only that chat binds and only its purge removes: another session's bind, any detach and a `session.setWorkingFolder` of the chat are refused, writing nothing (`data.fields`: `repoMountId`) | 409 |
 | `repo.folder_unreachable` | `repo.attach` refused because the background service cannot reach the folder — on Windows, a folder inside another WSL 2 distribution than the one the service runs in — drawn `The background service cannot reach this folder. Pick one under the home folder or on a drive.` | 422 |
 
@@ -327,7 +325,7 @@ Every refusal point of the workflow surface carries its own code, registered in 
 | --- | --- | --- |
 | `workflow.code_over_budget` | A Code step over its memory budget, 256 MiB per node by default and settable | 422 |
 | `workflow.code_install_failed` | A full-tier Code step whose package install did not finish. `data.fields`: `reason` (`disk_space` \| `tool_error`) and `detail`, `bun`'s or `uv`'s own error | 500 |
-| `workflow.step_thread_failed` | A quick step's or an expression's thread that ended without an answer. `data.fields.reason`: `out_of_memory` \| `start_timeout` \| `exited` | 500 |
+| `workflow.step_thread_failed` | A quick step's engine that did not start in time. `data.fields.reason`: `start_timeout` | 500 |
 | `workflow.sandbox_unavailable` | A full-tier Code step, or a shell step at the Sandboxed level, whose provider sandbox did not start — `@anthropic-ai/sandbox-runtime` for Claude Code, `codex sandbox` for Codex. `data.fields`: `provider` (`claude` \| `codex`) and `detail`, the wrapper's own error. The step never falls back to running unprotected, and no other level is substituted for the one the run holds | 503 |
 | `workflow.step_timed_out` | A step or a run cut by a time limit, read `failed · timed out`. `data.fields`: `cause` (`step_timeout` \| `run_cap`) and the limit | 504 |
 | `workflow.secret_not_found` | A secret reference the keychain does not hold. `data.fields`: `reference` only. It reads `not on this machine` for a shared secret, `not in <project>` for a project secret, and `This run has no repository` for a project secret on a run that works in no project's repository. The step offers `Retry from this step` | 404 |
@@ -405,7 +403,7 @@ Skill-library refusals ([Spec-029](../../specs/029-skills.md)).
 
 ### Gitflow
 
-The review and ship surface's refusals ([Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md)), registered with their verbs in `packages/contracts/src/gitflow/`.
+The review and ship surface's refusals ([Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md)), registered with their verbs in `crates/sidekicks-contracts/src/gitflow/`.
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
@@ -469,10 +467,10 @@ Refusals of the delivery channels outside the app, the web address and the email
 | `relay.authentication_failed` | Relay authentication failed | 401 |
 | `relay.spki_mismatch` | The machine refused a pinned relay whose key changed. The pin applies only to a relay whose certificate does not chain to a root the operating system trusts (a self-signed relay, or one on a private certificate authority); a relay with a publicly trusted certificate is checked by the platform's own validation and its host name, so a renewal never trips it. Recorded on the daemon's sentinel session as the `relay.pin_refused {relayHost, pinnedSpkiPrefix, presentedSpkiPrefix}` event, each prefix the first 8 bytes of its key's hash, never a token; the recovery is `sidekicks relay repin --force` with the new hash | 412 |
 | `relay.replay_rejected` | A channel frame failed the Noise transport's decryption — a replayed, reordered or altered frame, since each frame's nonce is the sender's own count — so the receiving end closes the channel, and the next connection runs a fresh handshake. Counted in the relay block of `sidekicks daemon status`, never drawn | 409 |
-| `relay.source_address_unresolvable` | A request reached a sign-in route (sign-in, token refresh or device linking) with no source address the relay can count, so it is refused before anything is counted rather than counted in a bucket other callers share. Registered as `SOURCE_ADDRESS_UNRESOLVABLE_CODE` in `packages/contracts/src/rate-limiter.ts` | 400 |
+| `relay.source_address_unresolvable` | A request reached a sign-in route (sign-in, token refresh or device linking) with no source address the relay can count, so it is refused before anything is counted rather than counted in a bucket other callers share. Registered as `SOURCE_ADDRESS_UNRESOLVABLE_CODE` in `crates/sidekicks-contracts/src/rate_limiter.rs` | 400 |
 | `channel.no_common_profile` | The machine runs none of the channel profiles a device's first frame offered, so it closes the connection with this code; nothing weaker is offered and there is nothing to fall back to. It rides no HTTP or JSON-RPC response: the status is notional | 426 |
 
-A device and a machine share one channel, the Noise Protocol Framework's `Noise_KK_25519_ChaChaPoly_SHA256`, and a handshake from a key the account's statement chain does not trust simply fails, with nothing to click past: a machine answering under a known id with a new key and no later `runtimenode.added` for that id behind it is refused outright on the device. There is no session group and no per-session device cap: one channel carries every session on the machine, and the relay holds at most one connection per device key and one per machine key.
+A device and a machine share one channel, the Noise Protocol Framework's KK pattern in two profiles, `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second, and a handshake from a key the account's statement chain does not trust simply fails, with nothing to click past: a machine answering under a known id with a new key and no later `runtimenode.added` for that id behind it is refused outright on the device. There is no session group and no per-session device cap: one channel carries every session on the machine, and the relay holds at most one connection per device key and one per machine key.
 
 ### Resource
 
@@ -488,9 +486,9 @@ Wire-level codes describing peer mis-use of the framing/handshake layer. Distinc
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `transport.unavailable` | The client cannot reach the daemon's OS-local socket or named pipe, or its link to the daemon is down; no fallback transport exists. A socket failure's `data.fields.reason` is one of the listed reasons in §JSON-RPC Wire Mapping | 503 |
-| `transport.message_too_large` | Inbound frame's declared body length exceeded the 4 MB cap, or daemon-side outbound build exceeded it (Plan-005 Phase 2). 413 semantic. | 413 |
-| `transport.invalid_protocol_version` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format): the field is missing, the wrong JS type, or fails the ISO 8601 `YYYY-MM-DD` shape. Substrate-side gate; fires BEFORE handler dispatch (I-005-6). Distinct from `version.floor_exceeded` / `version.ceiling_exceeded` (registry-side handshake-incompatibility) and from `protocol.version_mismatch` (registry-side mutating-op gate after handshake declared incompatible). 400 semantic. | 400 |
+| `transport.unavailable` | The client cannot reach the daemon's OS-local socket or named pipe, or its link to the daemon is down; no fallback transport exists. A socket failure's `data.fields.reason` is one of the listed reasons in §JSON-RPC Wire Mapping. A call in flight when the link drops: the client resends a call that carries `clientIdempotencyKey` once after it reconnects, before it settles, and settles every unkeyed call with this code | 503 |
+| `transport.message_too_large` | An inbound message passed the 4 MiB cap on its JSON or its attachments; the error frame is sent and the connection closes (Plan-005 Phase 2). 413 semantic. | 413 |
+| `transport.invalid_protocol_version` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format): the field is missing, the wrong JSON type, or fails the ISO 8601 `YYYY-MM-DD` shape. Substrate-side gate; fires BEFORE handler dispatch (I-005-6). Distinct from `version.floor_exceeded` / `version.ceiling_exceeded` (registry-side handshake-incompatibility) and from `protocol.version_mismatch` (registry-side mutating-op gate after handshake declared incompatible). 400 semantic. | 400 |
 
 ### System
 
@@ -516,6 +514,7 @@ Standard 429 response shape (from API Payload Contracts):
 ```ts
 interface RateLimitResponse {
   code: "rate_limited";
+  message: string; // human-readable description
   retryAfter: number; // seconds until retry is allowed
   limit: number; // total allowed requests in the window
   remaining: number; // requests remaining in the current window
@@ -523,6 +522,6 @@ interface RateLimitResponse {
 }
 ```
 
-The relay counts requests on its sign-in routes only, and a refusal there returns the `RateLimitResponse` envelope with HTTP status 429; a counter error fails that one request like any backend error. A request with no source address the relay can count never reaches the counter: it is refused 400 with [`relay.source_address_unresolvable`](#relay), not with this envelope. The `resetAt` field provides the absolute timestamp (ISO 8601) when the oldest counted request leaves the sliding window, the moment the next request is admitted, complementing the relative `retryAfter` seconds value. Every refusal carries both timing fields, with the `Retry-After` header ([Spec-019 §Overflow Response](../../specs/019-rate-limiting-policy.md#overflow-response)).
+The relay counts requests on its sign-in routes only, and a refusal there returns the `RateLimitResponse` body with HTTP status 429; a counter error fails that one request like any backend error. A request with no source address the relay can count never reaches the counter: it is refused 400 with [`relay.source_address_unresolvable`](#relay), not with this body. The `resetAt` field provides the absolute timestamp (ISO 8601) when the oldest counted request leaves the sliding window, the moment the next request is admitted, complementing the relative `retryAfter` seconds value. Every refusal carries both timing fields, with the `Retry-After` header ([Spec-019 §Overflow Response](../../specs/019-rate-limiting-policy.md#overflow-response)).
 
-Every refusal on this envelope carries `code: "rate_limited"`. The relay's channel carries no rate limit: its per-connection backpressure slows a sender rather than refusing it.
+Every refusal with this body carries `code: "rate_limited"`. The relay's channel carries no rate limit: its per-connection backpressure slows a sender rather than refusing it.

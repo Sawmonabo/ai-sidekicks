@@ -35,7 +35,7 @@ interface WorkflowDocument {
   edges: WorkflowEdge[];
   layout?: WorkflowLayout;
   pinData?: Record<string, WorkflowPinnedItem[]>; // by node id
-  // `TagListSchema` (packages/contracts/src/tag.ts): each tag nested with `/`, never empty, with no
+  // `TagList` (crates/sidekicks-contracts/src/tag.rs): each tag nested with `/`, never empty, with no
   // whitespace, no empty level around a `/` and no longer than a session name, and each held once
   // ignoring case. Set beside the
   // workflow's name in the builder header (`workflow.tagsSet`) or by an agent through the workflow

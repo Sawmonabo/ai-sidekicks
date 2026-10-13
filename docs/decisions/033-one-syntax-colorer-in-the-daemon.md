@@ -13,7 +13,7 @@
 
 ## Context
 
-Three surfaces draw source code: the transcript's code blocks, the diff in Review, and a file opened on its own. The console runs on the machine that owns the files and, through Remote Control, on other devices that do not. The obvious shape — a `shiki` instance in each renderer process, in a Worker above about four kilobytes of source, coloring diff lines in the same Worker — puts a copy of the colorer and its grammars behind every window and every remote device. `shiki` is already a dependency of the desktop package.
+Three surfaces draw source code: the transcript's code blocks, the diff in Review, and a file opened on its own. The console runs on the machine that owns the files and, through Remote Control, on other devices that do not. The obvious shape — a `shiki` instance in each renderer process, in a Worker above about four kilobytes of source, coloring diff lines in the same Worker — puts a copy of the colorer and its grammars behind every window and every remote device.
 
 ## Problem Statement
 
@@ -29,31 +29,31 @@ The console design shows the same file in the flow, in Review and in the file vi
 
 **One colorer, in the daemon, and every surface paints the spans it is handed.**
 
-- The daemon reads a file once, computes its color spans with `shiki`, and keeps them against what the file holds, so the same file opened in the flow, in Review and in the file view is colored from one read, and a second open costs nothing.
+- The daemon reads a file once, computes its color spans with `ferriki`, and keeps them against what the file holds, so the same file opened in the flow, in Review and in the file view is colored from one read, and a second open costs nothing.
 - A span travels as a **class that names a kind of token**: keyword, name, string, number, comment for code; inserted, deleted and hunk for a `diff` block's added lines, removed lines and `@@` ranges; heading, emphasis and inline code for Markdown's own syntax. The renderer maps each class to a theme token. A span is never a color written on the element.
 - **A `diff` code block and a Markdown file are colored as GitHub draws them**: the block's `+` lines green (the theme's `ansi-green` role) and `-` lines red (`ansi-red`), the terminal's pair, since the red attention role is kept for a failure; its `@@` ranges dimmed (`text-faint`). Markdown's headings and inline code take `code-name`, its emphasis `code-keyword`, and a link's text `code-string` through the string class. Each sign and mark (`+`, `-`, `@@`, `#`, `*`, a backtick) colors with what it marks. The rest of a hunk's `@@` line and a diff's `diff --git` and `index` lines stay plain: the diff grammar gives them no scope of their own.
 - **A Markdown file's fenced blocks and front matter are always colored in their own language.** Before a file is colored, the thread loads the grammar of every colorable language the file's text opens, read from the Markdown grammar's own fence and front-matter rules, so the same text gives the same spans whatever the thread colored before and the cache never keeps a plain copy.
 - Changing the theme or the color scheme repaints the same spans in place. No block is colored twice, and none flashes plain first.
 - A diff takes a first pass from its own lines the moment it opens, so it is colored before the whole file's spans arrive, and corrects itself when they do. A string that opens above the hunk is the case that changes.
 - A file whose language is not recognized stays plain and asks the daemon for nothing.
-- The renderer holds no `shiki` instance and no Worker in the renderer colors anything. `shiki` belongs to the daemon package, at the pin the desktop package uses, and not to the desktop package.
-- **The daemon tokenizes on a worker thread of its own and keeps the spans on its main thread.** The thread starts on the first read the span cache does not hold and ends after five minutes with nothing asked, so the memory its grammars and regex engine take goes back to the system. Code already colored is answered from the cache at once; the first read in a language after a quiet spell takes up to about 0.3 s to color.
-- **The thread is also ended once its heap and WebAssembly memory pass 128 MiB**, right after the read that took it past, and the next read starts a fresh one that loads only the grammars asked for from then on. The regex engine's memory never shrinks while its thread lives, so only an end gives it back. The ceiling keeps the thread's peak inside its budget; a higher one would let each heavy grammar, 35 to 40 MiB of WebAssembly memory, push that peak further. The colors are the same, since a fresh thread runs the same engine and grammars.
-- **A line the thread cannot finish within 3 s stays plain while the rest of the file is colored**, as an over-long line does. The thread is ended and a fresh one colors the file again with that line plain. The slowest legitimate line measured, 19,999 characters of Go on a fresh thread, took 300 ms. The limit bounds a line that started and has not ended, never the thread's start or a grammar's load, which are bounded work: a slow machine waits for them, and one that fails rejects the read.
+- The renderer holds no colorer and no Worker in the renderer colors anything. `ferriki` belongs to the service, in `sidekicks-daemon`, and not to the desktop package.
+- **The daemon tokenizes on one long-lived thread of its own, which holds one `ferriki` highlighter.** The highlighter is built on the first read the span cache does not hold and dropped after five minutes with nothing asked, every grammar and compiled pattern with it, so the memory they take goes back to the system. Code already colored is answered from the cache at once; the first read in a language after a quiet spell loads that language's grammar again.
+- **The highlighter is also dropped once the memory it holds passes 128 MiB**, right after the read that took it past, and the next read builds a fresh one that loads only the grammars asked for from then on. A drop gives back what the highlighter holds. The ceiling keeps the thread's peak inside its budget. The colors are the same, since a fresh highlighter runs the same engine and grammars.
+- **A line the thread cannot finish within 3 s stays plain while the rest of the file is colored**, as an over-long line does, and the next line starts from the state before it, with no thread ended. The limit bounds a line that started and has not ended, never the thread's start or a grammar's load, which are bounded work: a slow machine waits for them, and one that fails rejects the read.
 - **A read nobody waits for any more is never colored.** Reads of the same code share one tokenization; a code block's read names the block, and the block's next read on the same connection replaces it while it waits, as a block whose code is still arriving asks again for each version; a connection's reads go when it closes. A tokenization no read waits for leaves the line before its turn, keeping nothing of its source, so at most one waits for each block on each connection.
-- **The engine is `shiki`'s Oniguruma WebAssembly engine.** Its JavaScript engine was the other candidate: over one real or hand-written file in each of the 15 languages, colored with the daemon's own span theme, both engines gave the same colors in 14 languages, and in SQL the JavaScript engine left 50 characters plain or in the wrong class where Oniguruma colors them (a `CREATE TABLE` name, matched by a pattern with a backreference). Correctness decides it; `shiki`'s own compatibility report lists SQL as matching, which this file disproves. Oniguruma is also the engine TextMate grammars are written for and resists runaway backtracking, which reports against the JavaScript engine show freezing a thread. It costs more memory while the thread is up (WebAssembly memory grows with each grammar's compiled patterns, about 21 to 53 MB for each of the JavaScript-family grammars, and never shrinks while the thread lives) and the same once the thread ends; warm calls cost about the same (about 1 ms for 1.7 KB of TypeScript on either engine).
+- **The engine is `ferriki` with its regex prefilter off, on `ferroni`, a pure-Rust port of Oniguruma.** It runs `shiki`'s own grammars and gives the same classes as `shiki`'s Oniguruma engine on all 15 languages. Oniguruma's semantics decide it: a JavaScript regex engine, the other candidate, left 50 characters of SQL plain or in the wrong class where Oniguruma colors them (a `CREATE TABLE` name, matched by a pattern with a backreference), though `shiki`'s own compatibility report lists SQL as matching. Oniguruma is also the engine TextMate grammars are written for and resists runaway backtracking, which reports against the JavaScript engine show freezing a thread.
 
 ### Budget
 
-The workload: one read in each of the 15 languages, a real or hand-written file of 1 to 37 KB each, then four TypeScript and four TSX files read alternately, then nothing asked. Measured on macOS with Node 24.21, against the same process before its first read. Every figure here is resident memory (RSS, as `ps` and `process.resourceUsage().maxRSS` report it), not footprint (`phys_footprint`, what Activity Monitor's Memory column shows), which is lower. RSS is the whole process's, so the thread's own heap and its WebAssembly memory are counted:
+The workload: one read in each of the 15 languages, 76,837 visible code points in all, then nothing asked. Every figure here is resident memory (RSS, as `ps` reports it), not footprint (`phys_footprint`, what Activity Monitor's Memory column shows), which is lower. RSS is the whole process's, so a whole-process figure is an upper bound on what the colorer adds:
 
 | State | Resident memory (RSS) the colorer adds | Measured |
 | --- | --- | --- |
-| Once the thread has ended after five quiet minutes | 30 MB at most | 16.5 MB under the process's reading before its first read in the shipped build's run, and 25 to 29 MB over it in earlier runs of a thread ended the same way; the main thread's live heap 0.4 MB over |
-| While the thread is up | 160 MB at most | 154 MB at the peak, the process's own high-water mark; before the ceiling, a thread holding all 15 grammars took 248 MB |
+| Once the highlighter has been dropped after five quiet minutes | 30 MB at most | Measured on the `shiki` engine: 16.5 MB under the process's reading before its first read in one run, and 25 to 29 MB over it in others |
+| While the highlighter is built | 160 MB at most | 101 MB at the peak for the whole process coloring all 15 languages, in 191 ms; 159 to 163 MB with `ferriki`'s regex prefilter on |
 | The span cache | 1/2048 of physical memory at most, 8 MB on a 16 GB machine | bounded by its byte size |
 
-A change that raises a figure past its budget fails. The built daemon itself, idle before any read, holds 220 to 225 MB of RSS (182 to 189 MB of footprint) 10 to 15 s after start, so at the colorer's peak the whole daemon reaches about 375 MB of RSS, past its 256 MB operating target, which is an RSS figure ([deployment-topology §Local Daemon Memory Instrumentation And Budget Triggers](../architecture/deployment-topology.md#local-daemon-memory-instrumentation-and-budget-triggers)); that document's trigger decides what follows, and colors are never cut to meet it. In the measured run the thread was ended twice at the ceiling, after a 25 KB TSX file read after TypeScript, and after Go; the reads that followed, JavaScript and SQL, took 161 ms and 30 ms on their fresh threads. In the alternation of smaller TypeScript and TSX files, 0.5 to 8 KB, the pair stayed on one thread, and every read after the first two took 3 to 62 ms.
+A change that raises a figure past its budget fails. The daemon's own figures and its 256 MB operating target, an RSS figure, are in [deployment-topology §Local Daemon Memory Instrumentation And Budget](../architecture/deployment-topology.md#local-daemon-memory-instrumentation-and-budget); that document decides what follows a figure past the target, and colors are never cut to meet it.
 
 ### Thesis — Why This Option
 
@@ -68,7 +68,7 @@ Coloring in the renderer is the library's common deployment, it keeps typing lat
 
 ### Synthesis — Why It Still Holds [T2]
 
-Nothing in the console is a code editor: every surface that draws code draws text that already exists in a file or a reply, so there is no typing latency to protect. The round trip is hidden by the two rules above: a diff colors itself from its own lines first, and spans are cached against the file's content. The daemon's work is bounded by the same cache, and its budget is written and measured like every other. The cache is `lru-cache`'s `LRUCache`, bounded by bytes: `maxSize` with a `sizeCalculation` per entry. The wire format is the token kinds' class names, which is the smallest stable contract available. The coarse vocabulary is a design choice: code takes its colors from the console's own theme tokens, so a finer vocabulary would have nothing to map to.
+Nothing in the console is a code editor: every surface that draws code draws text that already exists in a file or a reply, so there is no typing latency to protect. The round trip is hidden by the two rules above: a diff colors itself from its own lines first, and spans are cached against the file's content. The daemon's work is bounded by the same cache, and its budget is written and measured like every other. The cache is a `quick_cache` cache weighted by bytes, each entry charged its size. The wire format is the token kinds' class names, which is the smallest stable contract available. The coarse vocabulary is a design choice: code takes its colors from the console's own theme tokens, so a finer vocabulary would have nothing to map to.
 
 ---
 
@@ -98,7 +98,7 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | `shiki` runs in the daemon's Node runtime at the pinned version | It is a Node library; the pin is the one the desktop package already uses | A different colorer would be chosen behind the same wire shape |
+| 1 | `ferriki` runs in the service at the pinned version | It is a pure-Rust library on `ferroni`, equal to `shiki`'s classes on all 15 languages | A different colorer would be chosen behind the same wire shape |
 | 2 | Eleven token kinds — keyword, name, string, number and comment for code, inserted, deleted and hunk for a diff, heading, emphasis and inline code for Markdown — are enough for the console's themes | Four code tokens, the faint token and the terminal's green and red are what the themes define for them | Another kind is one more class name |
 | 3 | Span payloads are small next to the file text | A span is a range and a class name | Large files would need spans sent for the visible range only |
 
@@ -108,11 +108,11 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| Coloring a very large file stalls the daemon | Med | Med | The daemon's event-loop delay under the large-file workload | Tokenize on the daemon's own worker thread, so the main thread only waits; a line past the time limit stays plain and the thread is started again |
+| Coloring a very large file stalls the daemon | Med | Med | The service's other reads' latency under the large-file workload | Tokenize on the daemon's own thread, so no other work waits on it; a line past the time limit stays plain and the next line starts from the state before it |
 | Spans arrive after the text and the block repaints visibly | Med | Low | A visible change of color on open | The diff's own first pass; plain text is a legitimate first frame for a whole file |
 | The span cache grows without bound | Low | Med | Resident memory over budget | The cache is keyed on content and bounded by bytes, each entry charged its spans, its key and its own overhead |
-| The grammars' memory stays taken after coloring ends | Med | Med | Resident memory over the idle budget | The tokenizing thread ends after five quiet minutes, and its memory goes back with it |
-| Reading many languages grows the thread past its budget | Med | Med | Resident memory over the running budget | The thread is ended once its heap and WebAssembly memory pass 128 MiB, and a fresh one loads only what is asked next |
+| The grammars' memory stays taken after coloring ends | Med | Med | Resident memory over the idle budget | The highlighter is dropped after five quiet minutes, and its memory goes back with it |
+| Reading many languages grows the thread past its budget | Med | Med | Resident memory over the running budget | The highlighter is dropped once the memory it holds passes 128 MiB, and a fresh one loads only what is asked next |
 | Reads pile up faster than the thread colors them, as a block whose code is still arriving asks again for each version | Med | Med | Waiting reads and their sources held in memory | A block's newer read replaces its waiting one, a closed connection's reads are dropped, and a tokenization nobody waits for leaves the line holding nothing of its source |
 
 ## Reversibility Assessment
@@ -132,9 +132,9 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 ### Negative (accepted trade-offs)
 
 - The daemon does rendering-adjacent work. Accepted because it already owns the read and the result is shared.
-- The first read in a language after the thread has ended pays the grammar's load again, up to about 0.3 s. Accepted because the thread's memory goes back in return.
-- A thread ended at its memory ceiling drops every grammar, so a read in a language it held pays that load again too. Accepted because the ceiling keeps the thread's peak inside its budget.
-- A code block that leaves the screen while its read waits is still colored once, since nothing on the wire cancels one request; its spans land in the cache for when it is drawn again.
+- The first read in a language after the highlighter has been dropped pays the grammar's load again. Accepted because the highlighter's memory goes back in return.
+- A highlighter dropped at its memory ceiling drops every grammar, so a read in a language it held pays that load again too. Accepted because the ceiling keeps the thread's peak inside its budget.
+- A code block that leaves the screen while its read waits is still colored once; its spans land in the cache for when it is drawn again.
 
 ---
 
@@ -162,7 +162,9 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 | `shiki` issue 1026 | Issue | Oniguruma has built-in protections against runaway backtracking that V8's regex engine lacks | https://github.com/shikijs/shiki/issues/1026 |
 | Node.js worker threads | Documentation | Each worker has its own heap and `resourceLimits`; `terminate()` stops its JavaScript as soon as possible | https://nodejs.org/api/worker_threads.html |
 | `shiki` 4.5.0 and its Oniguruma engine, source | Source | A highlighter's `dispose()` frees its grammars' compiled patterns, and a new highlighter reuses that WebAssembly memory, but the memory itself only grows (`wasmMemory.grow`), so only ending the thread returns it | `@shikijs/primitive` and `@shikijs/engine-oniguruma` in the installed package |
-| `p-limit` 7.3.3 | Source | Its queue has no way to take out one waiting job, so a dropped tokenization keeps its turn and does no work there; `p-queue` takes a waiting job out on an abort, but the daemon already queues with `p-limit`, and one queue library serves it | https://github.com/sindresorhus/p-limit |
+| The service's read queue | Design | Each queued read carries a flag its waiter clears, checked before each line, so a read no one waits for leaves the queue and does no work | `crates/sidekicks-daemon`'s highlight module |
+| `ferriki` 1.0.0 and `ferroni` | Source | `ferriki` runs `shiki`'s grammars on `ferroni`, a pure-Rust Oniguruma port; with its regex prefilter off it gives the same classes as `shiki` on all 15 languages | <https://crates.io/crates/ferriki>, <https://crates.io/crates/ferroni> |
+| `quick_cache` | Documentation | A cache bounded by a weighter, here the bytes each entry holds | <https://docs.rs/quick_cache/latest/quick_cache/> |
 
 ### Related ADRs
 

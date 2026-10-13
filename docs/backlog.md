@@ -9,23 +9,11 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Status: `blocked` (external-world wait — SignPath Foundation's acceptance, and an Apple Developer Program membership)
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [Plan-021](./plans/021-rust-pty-sidecar.md) §Preconditions and Phase 4 (the Windows signing), [Plan-020](./plans/020-desktop-app-and-renderer.md) T-020r-6-2 (the macOS signing), [ADR-018](./decisions/018-windows-v1-tier-and-pty-sidecar.md) §Decision items 7 and 8, [ADR-022](./decisions/022-v1-ci-cd-and-release-automation.md) §Axis 5, [Spec-021](./specs/021-desktop-app-and-renderer.md) §macOS
-- Summary: Three records from outside this repository gate the release workflow's signing steps: (a) SignPath Foundation accepting the project into its free open-source program ([signpath.org/terms](https://signpath.org/terms)); (b) the first release whose Windows binaries — the Electron app, the PTY sidecar and the service's Windows half — name SignPath Foundation as publisher; (c) the Apple Developer ID Application certificate, from an Apple Developer Program membership (its thumbprint, the team ID and the enrollment confirmation), which the desktop app's macOS builds sign with; the sidecar ships no macOS binary. If SignPath Foundation finds the project ineligible, the choice goes back to the person and the distribution plan does not change on its own.
-- V1 Release Impact: Windows signing through SignPath Foundation gates the Windows release; if the project is not eligible, that goes back to the person and the distribution plan does not change silently. macOS builds carry the project's self-signed code-signing identity, whose first launch asks the person to open the app from Finder's menu. Until SignPath Foundation signs, Plan-021's Phase 4 Windows binaries publish only to a pre-release npm tag, and no Windows release ships unsigned.
+- References: the release workflow's Windows signing of the `sidekicks-daemon` program and of the Windows half `sidekicks-platforms` builds, [Plan-020](./plans/020-desktop-app-and-renderer.md) T-020r-6-2 (the macOS signing), [ADR-018](./decisions/018-windows-v1-tier-and-pty-in-the-daemon.md) §Decision items 5 and 6, [ADR-022](./decisions/022-v1-ci-cd-and-release-automation.md) §Axis 5, [Spec-021](./specs/021-desktop-app-and-renderer.md) §macOS
+- Summary: Three records from outside this repository gate the release workflow's signing steps: (a) SignPath Foundation accepting the project into its free open-source program ([signpath.org/terms](https://signpath.org/terms)); (b) the first release whose Windows binaries — the Electron app, `sidekicks-daemon`, `sidekicks`, the client's `.node`, `libpdfium` and the service's Windows half, which `sidekicks-platforms` builds — name SignPath Foundation as publisher; (c) the Apple Developer ID Application certificate, from an Apple Developer Program membership (its thumbprint, the team ID and the enrollment confirmation), which the desktop app's macOS builds sign with. If SignPath Foundation finds the project ineligible, the choice goes back to the person and the distribution plan does not change on its own.
+- V1 Release Impact: Windows signing through SignPath Foundation gates the Windows release; if the project is not eligible, that goes back to the person and the distribution plan does not change silently. macOS builds carry the project's self-signed code-signing identity, whose first launch asks the person to open the app from Finder's menu. Until SignPath Foundation signs, no Windows release ships unsigned.
 - Named gate: SignPath Foundation's acceptance of the project, and an Apple Developer Program membership (a paid yearly membership). Nothing in this repository blocks.
-- Exit Criteria: all three records attached to this entry, and Plan-021 Phase 4's signing preconditions checked.
-
-## BL-124: npm Trusted Publisher bootstrap for the terminal helper's packages
-
-- Status: `blocked` (the registration ceremony must run in an interactive 2FA session the maintainer performs; it cannot run from CI)
-- Priority: `P2`
-- Owner: `unassigned`
-- References: [ADR-022 §Axis 3](./decisions/022-v1-ci-cd-and-release-automation.md#axis-3--release-automation) (Surface 2, the sidecar's npm platform packages under npm Trusted Publishing), [ADR-022 §F-5](./decisions/022-v1-ci-cd-and-release-automation.md#failure-mode-analysis) (per-package Trusted Publisher registration risk + npm-bootstrap chicken-and-egg ceremony), [ADR-022 §Consequences](./decisions/022-v1-ci-cd-and-release-automation.md#consequences) (a per-package 2FA registration ceremony), [Plan-021](./plans/021-rust-pty-sidecar.md) Phase 5 (the publish, T-021-5-1), [BL-108](#bl-108-windows--macos-signing-procurement-evidence) (binary code-signing certificates — distinct procurement track).
-- Summary: The terminal helper's npm platform packages (`@ai-sidekicks/pty-sidecar-win32-x64` and `@ai-sidekicks/pty-sidecar-win32-arm64`, since the helper ships for Windows only, and the umbrella `@ai-sidekicks/pty-sidecar`) publish under npm Trusted Publishing, which gives them npm's own provenance. ADR-022 §F-5 documents the bootstrap as a one-time chicken-and-egg ceremony: each package must publish once under a granular access token before npmjs.com will accept its Trusted Publisher registration. Nothing else is published to npm: `@ai-sidekicks/contracts`, `@ai-sidekicks/client-sdk` and `@ai-sidekicks/crypto-paseto` stay inside the workspace. BL-108 covers the binary installer code-signing certificates (Apple Developer ID + Windows track).
-- V1 Release Impact: Plan-021 Phase 5's publish of the platform packages under Trusted Publishing waits on this entry.
-- Exit Criteria: (a) npm organization claimed + 2FA enforced on every maintainer with publish rights per [npm 2FA docs](https://docs.npmjs.com/configuring-two-factor-authentication); (b) §F-5 bootstrap step — each package published once under a granular access token to seed the npmjs.com package record that Trusted Publisher registration requires; the packages are created by Plan-021 Phase 5; (c) per-package Trusted Publisher entry registered **from the CLI** — `npm trust github <package> --file <workflow>.yml --repository <owner>/ai-sidekicks --allow-publish` (the subcommand needs npm 11.15.0 or later, and `npm trust list` / `npm trust revoke` cover inspection and rollback) — pinned to this repo + the publishing workflow file per [npm Trusted Publishers docs](https://docs.npmjs.com/trusted-publishers/), which bind each registration to a specific workflow **filename**; (d) first end-to-end release publishes the packages with npm's provenance statement, against which `npm audit signatures` passes on a downstream install; (e) [ADR-022](./decisions/022-v1-ci-cd-and-release-automation.md) records the procurement date, the npm organization name, and the registered Trusted Publisher entries. Before (d), **dry-run the publish**: pnpm's reliability as an OIDC carrier is contested upstream, and the escalation path if it fails is to pin npm and publish the packed tarball instead.
-- Tracked-by: ADR-022 §Axis 3 (Surface 2).
-- Revisit Trigger: **This is the one procurement item with a closing window.** Per the [GitHub changelog of 2026-07-31](https://github.blog/changelog/2026-07-31-restricting-npm-bypass-2fa-granular-access-tokens/), bypass-2FA granular access tokens already cannot change package access, maintainers, or trusted-publishing configuration, and around **January 2027**, verbatim, "2FA-bypass tokens will also lose direct publish. Their publishing surface will reduce to reading private packages and staging a publish, which a maintainer approves with 2FA" — the recommendation being to "move automated publishing to trusted publishing (OIDC) or staged publishing." The §F-5 bootstrap is materially easier before that date than after, which is why this entry is `P2`. The ceremony itself must run in an interactive 2FA session and cannot be automated from CI. Other trigger: maintainer capacity aligns with the §F-5 bootstrap ceremony window.
+- Exit Criteria: all three records attached to this entry, and the release workflow's Windows signing of the `sidekicks-daemon` and `sidekicks-platforms` programs checked.
 
 ## BL-155: The remote channel's hybrid post-quantum Noise profile
 
@@ -33,9 +21,9 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Priority: `P2`
 - Owner: `unassigned`
 - References: [ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md) (per-connection encryption on the Noise Protocol Framework), [Spec-027 §The encryption envelope](./specs/027-remote-control.md#the-encryption-envelope), [Plan-025 §Phase 3 — The relay and the channel](./plans/025-remote-control.md#phase-3--the-relay-and-the-channel), [libp2p/specs#727](https://github.com/libp2p/specs/pull/727) (the hybrid Noise draft)
-- Summary: A channel between a device and a machine runs `Noise_KK_25519_ChaChaPoly_SHA256`. Its X25519 exchange is not post-quantum: someone who records a channel's traffic today could open it once a large enough quantum computer exists. The hybrid profile in progress, `Noise_XXhfs_25519+MLKEM768_ChaChaPoly_SHA256`, is an open working draft with no formal analysis, and the channel ships no unreviewed draft and no second, TLS-based connection to get there sooner. The move needs nothing new in the channel: the hybrid `KK` profile joins as a second profile in the connection's first frame, offered ahead of today's, on the same certified channel keys and frames (its extra tokens are ephemeral KEM keys), and a machine stops accepting the classical profile once every device linked to it offers the hybrid one.
+- Summary: A channel between a device and a machine runs one of two profiles, `Noise_KK_25519_AESGCM_SHA256`, offered first, or `Noise_KK_25519_ChaChaPoly_SHA256`. Its X25519 exchange is not post-quantum: someone who records a channel's traffic today could open it once a large enough quantum computer exists. The hybrid profile in progress, `Noise_XXhfs_25519+MLKEM768_ChaChaPoly_SHA256`, is an open working draft with no formal analysis, and the channel ships no unreviewed draft and no second, TLS-based connection to get there sooner. The move needs nothing new in the channel: the hybrid `KK` profile joins as a further profile in the connection's first frame, offered ahead of the classical ones, on the same certified channel keys and frames (its extra tokens are ephemeral KEM keys), and a machine stops accepting the classical profiles once every device linked to it offers the hybrid one.
 - Named gate: the hybrid Noise profile's specification being finalized and reviewed for production use. Nothing in-tree blocks.
-- Exit Criteria: (a) a finalized hybrid `KK` Noise profile with published analysis; (b) the profile added to the channel's profile list on the machine and every client, ahead of `Noise_KK_25519_ChaChaPoly_SHA256`; (c) a machine refusing the classical profile once every linked device offers the hybrid one; (d) ADR-010 and Spec-027 §The encryption envelope name the hybrid profile.
+- Exit Criteria: (a) a finalized hybrid `KK` Noise profile with published analysis; (b) the profile added to the channel's profile list on the machine and every client, ahead of `Noise_KK_25519_AESGCM_SHA256` and `Noise_KK_25519_ChaChaPoly_SHA256`; (c) a machine refusing the classical profiles once every linked device offers the hybrid one; (d) ADR-010 and Spec-027 §The encryption envelope name the hybrid profile.
 
 ## BL-156: An app-owned no-reply co-author address
 
@@ -148,17 +136,6 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Named gate: an Electron release with the call.
 - Exit Criteria: when the Linux work starts, where #54650 stands is checked, and the held socket-intercepting add-on ADR-040 records is looked at again if no release carries the call; the release is taken, T27.2.15's Wayland drag moves onto the call, and this entry is deleted.
 
-## BL-167: A login shell the kernel refuses starts through /bin/sh on Linux
-
-- Status: `blocked` (external-world wait — a Node.js release that bundles libuv 1.53.0 or later)
-- Priority: `P3`
-- Owner: `unassigned`
-- References: [Plan-021](./plans/021-rust-pty-sidecar.md) T-021-3B-8 (the login shell, or the platform's default where it cannot be started), [libuv 1.53.0 ChangeLog](https://github.com/libuv/libuv/blob/v1.x/ChangeLog) ("unix: use posix_spawn instead of fork"), [libuv pull request #3520](https://github.com/libuv/libuv/pull/3520)
-- Summary: On Linux, a login shell the kernel refuses to run (`ENOEXEC`, such as a file that is no program for this computer) starts through `/bin/sh` instead of the platform's default shell with its line. Node's bundled libuv 1.52.1 starts a child on Linux with `fork` and glibc's `execvp`, which runs a refused file as a shell script, so the start check sees it start; on macOS libuv uses `posix_spawn`, which reports `ENOEXEC`. libuv 1.53.0 starts children on Linux through `posix_spawn` too, whose glibc path has no shell fallback. No Node.js release bundles it yet (24.21.0 and 26.11.1 carry 1.52.1).
-- V1 Release Impact: none for macOS. On Linux such a tab shows `/bin/sh`'s error and ends instead of falling back; a missing file, a folder and a missing interpreter already fall back.
-- Named gate: a Node.js release whose `process.versions.uv` is 1.53.0 or later.
-- Exit Criteria: that release is taken; the Linux skip on the unrunnable-file case in `packages/runtime-daemon/src/pty/shell/__tests__/table.lifecycle.test.ts` is removed and the case passes on the ubuntu leg; this entry is deleted.
-
 ## BL-168: A backup restored on a second computer
 
 - Status: `blocked` (external-world wait — a second computer to restore on)
@@ -170,17 +147,6 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Named gate: a second computer in the build loop.
 - Exit Criteria: a backup taken on one machine is restored on a second with `sidekicks db restore`, the sessions read back whole, the providers ask to sign in and the devices to link, and the figures are recorded in Plan-005; this entry is deleted.
 
-## BL-169: The daemon tests turn off V8's WebAssembly code collector on Node 24
-
-- Status: `blocked` (external-world wait — a Node 24 release carrying V8's fix)
-- Priority: `P3`
-- Owner: `unassigned`
-- References: [nodejs/node#66366](https://github.com/nodejs/node/issues/66366) (the WebAssembly import wrapper freed twice), [nodejs/node#66376](https://github.com/nodejs/node/pull/66376) (the fix's backport to Node 24)
-- Summary: `packages/runtime-daemon/vitest.config.ts` passes `--no-wasm-code-gc` to its test processes on Node 24. Node strips each worker thread's TypeScript with a WebAssembly module, and the daemon tests start and stop many worker threads; CI's test job aborted in V8 with `Check failed: jit_page.has_value()` and no symbols. The issue reports the same double free failing at `jit_page_->allocations_.erase(addr) == 1`, so the match is inferred from the crash site and the trigger rather than from a symbolized stack.
-- V1 Release Impact: none; the flag is on in tests only, and the daemon's own processes run without it.
-- Named gate: a Node 24 release that carries nodejs/node#66376.
-- Exit Criteria: that release is taken; the flag is removed from the daemon's test configuration; the daemon tests pass on the ubuntu leg; this entry is deleted.
-
 ## BL-170: Sätteri parsing seven markdown cases as CommonMark and GFM do
 
 - Status: `blocked` (external-world wait — a Sätteri release carrying the parser fix)
@@ -190,7 +156,7 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Summary: The app parses replies with Sätteri 0.10.5, built from the release's source with one fix of the app's own ([BL-174](#bl-174-sätteri-keeping-an-indented-code-block-whole-after-the-line-that-closed-a-list)). Seven cases parse differently from CommonMark and remark-gfm: emphasis flanking, task lists, footnotes and autolinks. A reply holding one of them can draw differently from how another CommonMark renderer draws it. The app carries no change for them; it waits for a release.
 - V1 Release Impact: the seven cases draw as Sätteri 0.10.5 reads them until a release carries the fix.
 - Named gate: a Sätteri release carrying bruits/satteri#327.
-- Exit Criteria: that release is taken; the seven cases of bruits/satteri#326 parse as CommonMark and remark-gfm do; this entry is deleted.
+- Exit Criteria: that release is taken by the app's package and, in the same release bump, by the service's Sätteri parser; the seven cases of bruits/satteri#326 parse as CommonMark and remark-gfm do; this entry is deleted.
 
 ## BL-171: Sätteri's browser loader taking an already compiled parser
 
@@ -231,7 +197,37 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Priority: `P3`
 - Owner: `unassigned`
 - References: [Desktop App Implementation Notes §Console Libraries](./architecture/desktop-implementation-notes.md#console-libraries) (the Streaming markdown row)
-- Summary: Sätteri 0.10.5 ends an indented code block after its first line when an earlier line closed a list item or a blockquote and held another block, so `- a\n\n\n***\n    code\n\n    more\n` parses as two code blocks where CommonMark reads one. `packages/markdown-parser` builds the parser's WebAssembly module from the release's source archive, checked against a pinned SHA-256, with `indented-code-block.patch` applied, and the markdown worker compiles that module in place of the npm package's. `patches/@bruits__satteri-wasm32-wasi@0.10.5.patch` makes the Node loader read the same module from `satteriWasmModule`, and the renderer's unit tier forces that loader over the native build, so no test parses with the release's module. No upstream change carries the fix yet; whether to send one is the person's call.
+- Summary: Sätteri 0.10.5 ends an indented code block after its first line when an earlier line closed a list item or a blockquote and held another block, so `- a\n\n\n***\n    code\n\n    more\n` parses as two code blocks where CommonMark reads one. `packages/markdown-parser` builds the parser's WebAssembly module from the release's source archive, checked against a pinned SHA-256, with `indented-code-block.patch` applied, and the markdown worker compiles that module in place of the npm package's. `patches/@bruits__satteri-wasm32-wasi@0.10.5.patch` makes the Node loader read the same module from `satteriWasmModule`, and the renderer's unit tier forces that loader over the native build, so no test parses with the release's module. The fix is not sent upstream.
 - V1 Release Impact: none; the package carries the fix until a release does.
 - Named gate: a Sätteri release carrying the fix.
 - Exit Criteria: that release is taken, and every reference to `packages/markdown-parser` and to `apps/desktop/tests/helpers/markdown-parser-module.ts`, the setup file that sets the global `satteriWasmModule` for the renderer's unit tier, is gone: the package and its lockfile entries; the desktop's dependency on it, and `apps/desktop/src/renderer/src/components/Markdown/worker/entry.ts` compiles the npm package's module again; the package's entry in `apps/desktop/build/third-party-notices.ts`; `inThreadParserModule()` in `apps/desktop/src/renderer/src/components/Markdown/worker/connection.test-support.ts` stops reading that global; the setup file, its `setupFiles` line and `NAPI_RS_FORCE_WASI` in `apps/desktop/vitest/tier-projects.ts`, and its include in `apps/desktop/tsconfig.electron-test.json`; the Node loader's half of the Sätteri patch; the package's `knip.json` workspace and its lines in `.prettierignore`, `eslint.config.mjs` and `.gitattributes`; the `markdown-parser` scope in `commitlint.config.mjs` and `CONTRIBUTING.md`; its mentions in `AGENTS.md` and `packages/AGENTS.md`; the `ci.yml` step that installs its Rust and the anchor every desktop job repeats it through, and the markdown parser in the comment on the `tools/wasm-dist.ts` path filter; the renderer tests in the `pnpm-workspace.yaml` comment on the `wasm32` architecture; the Streaming markdown row's sentence on the package in `docs/architecture/desktop-implementation-notes.md`; the `tools/wasm-dist.ts` options only this package uses (`isCrateThirdParty`, `builtModulePath`, `linkedPackageDirectories`), and its fetching of license files from a crate's repository unless another build needs it; this entry is deleted.
+
+## BL-175: `worker-build` building the control plane in debug mode
+
+- Status: `blocked` (external-world wait — a `workers-rs` release carrying the fix for [cloudflare/workers-rs#1086](https://github.com/cloudflare/workers-rs/issues/1086))
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [ADR-013](./decisions/013-control-plane-api.md) (the control plane on `axum` and `worker`), [cloudflare/workers-rs#1086](https://github.com/cloudflare/workers-rs/issues/1086) (the report)
+- Summary: The control plane's Worker is built by `worker-build`'s release profile, local runs included. A `--dev` build panics in `worker::Delay` from compatibility date 2026-08-04, because `setTimeout` there returns a Node `Timeout` object; release builds and production are unaffected.
+- Named gate: a `workers-rs` release that fixes the debug build. Nothing in-tree blocks.
+- Exit Criteria: (a) the control plane on that release; (b) the release-only build removed, so a local run may use a debug build; (c) until then, each newest-release pass checks cloudflare/workers-rs#1086's state.
+
+## BL-176: `worker-build` reading an npm manifest in the crate root
+
+- Status: `blocked` (external-world wait — a `workers-rs` release carrying the fix for [cloudflare/workers-rs#1087](https://github.com/cloudflare/workers-rs/issues/1087))
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [ADR-013](./decisions/013-control-plane-api.md) (the control plane on `axum` and `worker`), [cloudflare/workers-rs#1087](https://github.com/cloudflare/workers-rs/issues/1087) (the report)
+- Summary: The control plane's Worker needs an npm manifest for its passkey module, and `worker-build` fails when the crate folder holds a `package.json` with dependencies (`invalid type: map, expected a string`), because it reads the manifest wasm-bindgen copies as a flat map of names to versions. The control plane keeps its npm manifest outside the crate root.
+- Named gate: a `workers-rs` release that reads such a manifest. Nothing in-tree blocks.
+- Exit Criteria: (a) the control plane on that release; (b) the workaround removed, so the npm manifest may sit in the crate root; (c) until then, each newest-release pass checks cloudflare/workers-rs#1087's state.
+
+## BL-177: mimalloc on Windows
+
+- Status: `blocked` (external-world wait — a `libmimalloc-sys` release bundling mimalloc 3.4.0 or newer, which [purpleprotocol/mimalloc_rust#169](https://github.com/purpleprotocol/mimalloc_rust/pull/169) carries)
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [purpleprotocol/mimalloc_rust#169](https://github.com/purpleprotocol/mimalloc_rust/pull/169) (the bump to mimalloc 3.4.0)
+- Summary: The service and its modes run on mimalloc on macOS and Linux and on the system allocator on Windows, because the mimalloc 3.3.2 that `libmimalloc-sys` bundles crashes on x64 processors without the POPCNT instruction, which Chrome's SSE3 floor still admits. The allocator choice lives in `sidekicks-platforms`.
+- Named gate: a `libmimalloc-sys` release that bundles mimalloc 3.4.0 or newer. Nothing in-tree blocks.
+- Exit Criteria: (a) the service on that release; (b) mimalloc running on Windows, the system-allocator branch removed; (c) until then, each newest-release pass checks the pull request's state with `gh pr view 169 -R purpleprotocol/mimalloc_rust`.

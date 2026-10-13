@@ -12,7 +12,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // `version.ceiling_exceeded` reasons are about the wire protocol
 // (local-ipc-payloads.md §JSON-RPC Handshake `protocolVersion` Field), not this brand.
 type EventEnvelopeVersion = string & { readonly __brand: "EventEnvelopeVersion" };
-// Format: /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/ — validated at envelope construction.
+// Format: ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ — validated at envelope construction.
 
 // EventEnvelope — canonical event message
 interface EventEnvelope {
@@ -44,9 +44,9 @@ interface EventEnvelope {
 // registered because no run-scoped family payload carries a native position key, and
 // the supersede cutoff (turn > targetPosition) cannot rank a late row against its
 // epoch's surviving prefix without one. Admission is keyed on run-scopedness, not
-// family membership: only run-scoped SessionEventSchema branches of those families
+// family membership: only run-scoped SessionEvent arms of those families
 // admit the pair (via Plan-004 T1.8's withEpochStamp helper, whose pairing
-// refinement requires both keys + runId on any stamped payload); variants without
+// garde check requires both keys + runId on any stamped payload); variants without
 // run attribution — the account-plane usage.rate_limit_update foremost — and every
 // run_lifecycle branch never admit it (stragglers absorb, never append). Absent on
 // every current-epoch row — absence means current-epoch, and the stamp is never
@@ -61,10 +61,10 @@ interface EventEnvelope {
 // Spec-003-owned (§Required Behavior + Run State Machine §Invariants): 0 before any
 // rollback, advancing with each accepted run.rolled_back rewind regardless of the
 // file-leg disposition. The key names are pinned by SOURCE_EPOCH_PAYLOAD_KEY /
-// SOURCE_POSITION_PAYLOAD_KEY in packages/contracts/src/event/envelope.ts — a rename is
+// SOURCE_POSITION_PAYLOAD_KEY in crates/sidekicks-contracts/src/event/envelope.rs — a rename is
 // forbidden-non-additive per ADR-017 §Decision #8.
-type SourceEpoch = number; // int >= 0 — SourceEpochSchema in packages/contracts/src/event/envelope.ts (Plan-004 T1.8)
-type SourcePosition = number; // int >= 0 — SourcePositionSchema, same file (Plan-004 T1.8); Spec-003 targetPosition vocabulary
+type SourceEpoch = number; // int >= 0 — SourceEpoch in crates/sidekicks-contracts/src/event/envelope.rs (Plan-004 T1.8)
+type SourcePosition = number; // int >= 0 — SourcePosition, same file (Plan-004 T1.8); Spec-003 targetPosition vocabulary
 
 type EventCategory =
   | "run_lifecycle"
@@ -96,12 +96,12 @@ type EventCategory =
 // Individual event types within each category are enumerated in Spec-005 §Event Type Enumeration.
 
 // ---------------------------------------------------------------------------
-// Payload variants authored in packages/contracts/src/event/declared-variants.ts
+// Payload variants authored in crates/sidekicks-contracts/src/event/declared_variants.rs
 // (event.compacted and the event_maintenance base) and
-// packages/contracts/src/event/variant-types.ts (usage.model_rerouted, its
-// schema in packages/contracts/src/event/session.ts), which Plan-004
+// crates/sidekicks-contracts/src/event/variant_types.rs (usage.model_rerouted, its
+// arm in crates/sidekicks-contracts/src/event/session.rs), which Plan-004
 // owns, rather than imported from an emitting plan's module (contrast the
-// repo/workspace/worktree family, authored in repo/mount.ts / worktree/lifecycle.ts under
+// repo/workspace/worktree family, authored in repo/mount.rs / worktree/lifecycle.rs under
 // emitter-authors-payload); Plan-004 T1.10 registers event.compacted.
 // Registering a payload variant is additive-MINOR per ADR-017 §Decision #8;
 // these type strings are listed in Spec-005 §Event Type Summary, so
@@ -117,8 +117,8 @@ type EventCategory =
 // relay.pin_refused payload (security_events): the relay's host and the two key-hash prefixes, and
 // nothing else (Spec-005 §Security Events). The daemon records it on its sentinel session when a
 // pinned relay presents a key other than the one pinned when it was linked, and refuses the
-// connection. Emitted by the relay pin (Plan-025 Phase 3), not by Plan-004, so its schema,
-// RelayPinRefusedPayloadSchema, is authored in packages/contracts/src/relay.ts under
+// connection. Emitted by the relay pin (Plan-025 Phase 3), not by Plan-004, so its type,
+// RelayPinRefusedPayload, is authored in crates/sidekicks-contracts/src/relay.rs under
 // emitter-authors-payload and imported by the union, like the repo/workspace/worktree family.
 // Each prefix is the first 8 bytes of its key hash, never a token.
 interface RelayPinRefusedPayload {

@@ -43,21 +43,21 @@ The product has one user, so what exists only to sell to or govern an organizati
 Per [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md), V1 is one open-source codebase whose relay is the person's own, deployed for themself in one of two ways:
 
 - **The Workers relay, in the person's own Cloudflare account.** Cloudflare Workers and Durable Objects: nothing to keep running at home, and no open port. It counts requests on its sign-in routes in its per-identity Durable Object.
-- **The Compose relay, on the person's own server.** Node, Caddy and Postgres from one `docker-compose.yml`: everything on hardware the person holds. It counts requests on its sign-in routes in memory.
+- **The Compose relay, on the person's own server.** `sidekicks-control-plane`'s native program, Caddy and Postgres from one `docker-compose.yml`: everything on hardware the person holds. It counts requests on its sign-in routes in its own memory.
 
 The person picks per setup and can switch a machine between them; the daemon points at its relay through config (`RELAY_URL=…` or `--relay-url=…`). Both relays run one protocol and serve the same features, with one difference the person sees: shared ports in the web client exist only on the Compose relay, and on the Workers relay the web client says so. A machine signs in to its relay from the command line with `sidekicks sign-in`, the device-code flow, and a first run has nothing to answer ([Spec-022](../specs/022-first-run.md)). Community-supported via GitHub Issues and Security Advisories; no SLA. A relay serving other people — a project-operated public relay, or a hosted service — is out of scope for one user.
 
 ## Platform Support (V1)
 
-Per [ADR-018: Windows V1 Tier and PTY Sidecar Strategy](../decisions/018-windows-v1-tier-and-pty-sidecar.md), V1 ships Windows, macOS, and Linux as GA tiers on equal footing:
+Per [ADR-018: Windows V1 Tier and the PTY in the Daemon](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md), V1 ships Windows, macOS, and Linux as GA tiers on equal footing:
 
 | Platform | V1 Tier | PTY Backend |
 | --- | --- | --- |
-| macOS (arm64, x64) | GA | `NodePtyHost` (in-process `node-pty`) |
-| Linux (x64, arm64) | GA | `NodePtyHost` (in-process `node-pty`) |
-| Windows 10/11 (x64) | GA | `RustSidecarPtyHost` (child-process Rust sidecar on `portable-pty`) |
+| macOS (arm64, x64) | GA | `sidekicks-terminal` in the daemon (`alacritty_terminal`'s tty) |
+| Linux (x64, arm64) | GA | `sidekicks-terminal` in the daemon (`alacritty_terminal`'s tty) |
+| Windows 10/11 (x64) | GA | `sidekicks-terminal` in the daemon (`alacritty_terminal`'s tty, ConPTY) |
 
-Windows GA is contingent on the Rust PTY sidecar strategy in ADR-018, driven by the upstream `node-pty` ConPTY crash cluster (openai/codex#13973, microsoft/node-pty#904/#887/#894/#437/#647). Implementation detail lives in Plan-021. The `PtyHost` interface is declared in `packages/contracts/` so consumers never see the backend choice — see [Daemon Architecture §PTY Backend Strategy](./daemon.md#pty-backend-strategy).
+The terminal is `sidekicks-terminal` in the daemon on every system (`alacritty_terminal`'s tty, ConPTY on Windows), per ADR-018; the upstream `node-pty` ConPTY crash cluster (openai/codex#13973, microsoft/node-pty#904/#887/#894/#437/#647) is the reason `node-pty` is not used. Implementation detail lives in Plan-021 — see [Daemon Architecture §PTY Backend Strategy](./daemon.md#pty-backend-strategy).
 
 On every platform a chat session's managed workspace, the git folder the daemon owns for it, lives at `<home>/.ai-sidekicks/workspaces/<session-id>`.
 
@@ -81,15 +81,15 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 
 ## Backlog Coverage Assessment
 
-All V1 features and supporting V1 specs have implementation plans: Plan-001 and Plans 002–019 for the existing V1 features (Plan-013 for Multi-agent orchestration and Plan-014 for workflow authoring and execution among them), Plan-020 for the desktop app, Plan-021 for the PTY sidecar and a session's shells, Plan-022 for Spec-024 MCP governance, and [Plan-025](../plans/025-remote-control.md) for Spec-027 Remote Control and for the machine's registration and reachability (feature 2, Phase 3). Spec-022's first run is built by the plans that own its pieces: Plans 005, 015, 020, 023 and 025.
+All V1 features and supporting V1 specs have implementation plans: Plan-001 and Plans 002–019 for the existing V1 features (Plan-013 for Multi-agent orchestration and Plan-014 for workflow authoring and execution among them), Plan-020 for the desktop app, Plan-021 for the terminal and a session's shells, Plan-022 for Spec-024 MCP governance, and [Plan-025](../plans/025-remote-control.md) for Spec-027 Remote Control and for the machine's registration and reachability (feature 2, Phase 3). Spec-022's first run is built by the plans that own its pieces: Plans 005, 015, 020, 023 and 025.
 
 ## References
 
 - [ADR-014: V1 Feature Scope Definition](../decisions/014-v1-feature-scope-definition.md) — the governing decision for this scope.
 - [ADR-015: Electron Desktop App](../decisions/015-electron-desktop-app.md) — enables V1 feature 12 (Desktop GUI).
-- [ADR-018: Windows V1 Tier and PTY Sidecar Strategy](../decisions/018-windows-v1-tier-and-pty-sidecar.md) — Windows V1 tier decision.
+- [ADR-018: Windows V1 Tier and the PTY in the Daemon](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md) — Windows V1 tier decision.
 - [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md) — the person's own relay and the ways to deploy it.
-- [ADR-010: Tokens, Passkeys And The Remote Channel](../decisions/010-tokens-passkeys-and-the-remote-channel.md) — PASETO v4 tokens with a device-code sign-in and a DPoP-bound refresh token for the control plane, passkeys only in the web client, the phone apps and the device-code page, and the per-connection `Noise_KK_25519_ChaChaPoly_SHA256` channel between each device and each machine.
+- [ADR-010: Tokens, Passkeys And The Remote Channel](../decisions/010-tokens-passkeys-and-the-remote-channel.md) — PASETO v4 tokens with a device-code sign-in and a DPoP-bound refresh token for the control plane, passkeys only in the web client, the phone apps and the device-code page, and the per-connection Noise KK channel between each device and each machine, `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second.
 - [Vision](../vision.md) — signature features and build order.
 - [Backlog](../backlog.md) — open work items against V1 scope.
 - [Deployment Topology](./deployment-topology.md) — the topologies behind the person's own relay, on Workers or Compose.

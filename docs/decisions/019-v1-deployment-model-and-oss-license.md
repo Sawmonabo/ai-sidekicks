@@ -44,7 +44,7 @@ V1 ships as a **single codebase** under a **permissive OSS license**, and its re
 ### The Two Deployment Options
 
 1. **The Workers relay, in the person's own Cloudflare account.** Cloudflare Workers + Durable Objects, deployed by the person for themself: nothing to keep running at home, and no open port.
-2. **The Compose relay, on the person's own server.** Node, Caddy and Postgres from one `docker-compose.yml`: everything on hardware the person holds.
+2. **The Compose relay, on the person's own server.** `sidekicks-control-plane`'s native program, Caddy and Postgres from one `docker-compose.yml`: everything on hardware the person holds.
 
 The person picks per setup, and can switch a machine between them. The daemon points at its relay through config (`RELAY_URL=…` or `--relay-url=…`). Both relays run one protocol from one codebase and serve the same feature set, with one difference the person sees: shared ports in the web client exist only on the Compose relay, and on the Workers relay the web client says so. Community-supported via GitHub Issues and Security Advisories; no SLA.
 
@@ -65,7 +65,7 @@ The daemon pins the relay's TLS key only when the relay's certificate does not c
 ### Relay Infrastructure
 
 - **Workers relay:** Cloudflare Workers + Durable Objects, one Durable Object for the account as `deployment-topology.md` §Relay Scaling Strategy lays out, deployed into the person's own Cloudflare account.
-- **Compose relay:** Node.js WebSocket implementation of the same v2 relay protocol, shipped alongside the daemon in the same repo with a `docker-compose.yml` (Node, Caddy, Postgres) for single-command deployment on the person's own server. Its Caddy takes `ACME_PROFILE`, empty by default, which leaves Caddy's own profile; `shortlived` requests Let's Encrypt's 160-hour certificates.
+- **Compose relay:** `sidekicks-control-plane`'s native program, a second target of the crate the Worker is built from, serving the same v2 relay protocol from the same handlers, shipped alongside the daemon in the same repo with a `docker-compose.yml` (the relay's native program, Caddy, Postgres) for single-command deployment on the person's own server. Its Caddy takes `ACME_PROFILE`, empty by default, which leaves Caddy's own profile; `shortlived` requests Let's Encrypt's 160-hour certificates.
 
 Both backends implement the v2 relay protocol behind one shared contract so protocol-level changes land once and ship to both.
 
@@ -98,7 +98,7 @@ Asking the person to deploy a relay before a phone can reach their machine is fr
 
 A public relay serves other people, and serving other people brings billing, bans, per-person credentials and witnessing that one user does not need. Linear / Notion / Figma / Warp are not counter-examples — they are hosted-only products whose value is the hosted surface (sync, collaboration UX, account-side features). This product's value is the agent runtime itself, which works identically on either relay. The Workers relay deploys into the person's own Cloudflare account with nothing to keep running, which keeps the setup cost to one deployment. Two relays cost some QA-matrix work (bounded, covered by the rate-limiter abstraction and the shared protocol contract). The community-support drag is real and is managed via the Tripwires below.
 
-The QA-matrix cost is structurally limited by the decision to put both relay backends behind one protocol contract. The implementation of the Node.js self-hostable relay is mostly "here is the WebSocket server loop and here is the in-memory sign-in counter" — one codebase, not two.
+The QA-matrix cost is structurally limited by the decision to put both relay backends behind one protocol contract. The self-hostable relay is the same crate's native program, which adds mostly "here is the WebSocket server loop and here is the sign-in counter, kept in the program's own memory" — one codebase, not two.
 
 ## Alternatives Considered
 
@@ -166,7 +166,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 - Category-positioning matches developer-tool norm; OSS-first signal to the target audience from day one.
 - The person's traffic runs through a relay they deployed, on their own Cloudflare account or their own server.
 - One feature set on both relays; the one relay-specific feature, shared ports in the web client, is named where it is missing.
-- Shared protocol contract between Cloudflare-DO and Node-relay backends contains the QA-matrix cost.
+- Shared protocol contract between the Cloudflare-DO backend and the Compose relay's native program contains the QA-matrix cost.
 - License choice (permissive) signals open contribution and matches the category norm.
 
 ### Negative (accepted trade-offs)
@@ -237,7 +237,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 | Cloudflare blog — Durable Objects: Easy, Fast, Correct | Documentation | DO single-writer semantics: "exactly one location, one single thread, at a time"; input/output gates — supplements the generic CF DO row with the semantic-properties URL | <https://blog.cloudflare.com/durable-objects-easy-fast-correct-choose-three/> |
 | Cloudflare miniflare / workerd | GitHub Issue | workerd DO storage caveat: not production-suitable in 2026; DOs always run on the same machine as requested — anchors why a CF-DO-as-self-host shortcut is not viable | <https://github.com/cloudflare/miniflare> |
 | Cloudflare PartyKit / PartyServer | GitHub Issue | PartyKit is open-source DO wrapper, NOT a DO replacement — anchors why a self-hostable PartyKit shortcut does not apply | <https://github.com/cloudflare/partykit> |
-| Ably — Scaling Pub/Sub with WebSockets and Redis | Engineering blog | Industry-standard Node.js + Redis pubsub + WebSocket hub pattern for self-hosted DO replacement — anchors the chosen Node-relay self-host implementation pattern | <https://ably.com/blog/scaling-pub-sub-with-websockets-and-redis> |
+| Ably — Scaling Pub/Sub with WebSockets and Redis | Engineering blog | Industry-standard Node.js + Redis pubsub + WebSocket hub pattern for self-hosted DO replacement — anchors the self-host relay's WebSocket hub pattern | <https://ably.com/blog/scaling-pub-sub-with-websockets-and-redis> |
 
 ### Related ADRs
 

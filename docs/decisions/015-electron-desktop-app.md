@@ -31,15 +31,15 @@ Electron supports its latest three stable branches. V1 admits 44 alone because t
 
 Every release on a supported branch post-dates the fixed versions published in [GHSA-3c8v-cfp5-9885](https://github.com/electron/electron/security/advisories/GHSA-3c8v-cfp5-9885) for [CVE-2026-34776](https://nvd.nist.gov/vuln/detail/CVE-2026-34776) — an out-of-bounds heap read in the `requestSingleInstanceLock` second-instance IPC message parser on macOS and Linux, with Windows unaffected — so that floor is satisfied by construction and needs no separate check.
 
-The Electron main process starts the local daemon as a detached process, never as its own child, and reaches it through the daemon's local socket or named pipe; it handles native dialogs and auto-update via `electron-updater`, and hosts the preload bridge. A quit leaves the daemon, every run and every terminal running. The renderer runs React + Vite under Chromium on macOS, Linux and Windows, and the same front end runs as the web client.
+The Electron main process starts the local daemon as a detached process, never as its own child, and reaches it through the daemon client, the Rust client running as a Node-API addon in a `utilityProcess`; it handles native dialogs and auto-update via `electron-updater`, and hosts the preload bridge. A quit leaves the daemon, every run and every terminal running. The renderer runs React + Vite under Chromium on macOS, Linux and Windows, and the same front end runs as the web client.
 
 ### Thesis — Why This Option
 
 1. **One Chromium renderer on all three OSes.** Tauri and Wails use the OS-native webview — WKWebView on macOS, WebView2 on Windows, WebKitGTK on Linux — which triples the rendering-behavior QA matrix and, more concretely, triples the console's numbers. [Spec-021 §Console Design (Meridian)](../specs/021-desktop-app-and-renderer.md#console-design-meridian) §Budgets are single-number targets — ≤ 450 kB gzip initial bundle, p95 ≤ 16.7 ms frame time with four lanes streaming, ≤ 120 MB renderer heap at rest, ≤ 20 MiB per terminal instance — measured against the built bundle running in the desktop app, and the `@xterm/xterm` WebGL terminal tier is specified against Chromium's sixteen-context ceiling and its `onContextLoss` behavior ([Desktop App Implementation Notes §Console Libraries](../architecture/desktop-implementation-notes.md#console-libraries)). A native-webview framework needs three numbers per budget and three terminal tiers, which is a different product.
 2. **The `browser` pane kind.** It is a main-process `WebContentsView` hosted beside the renderer with a `devtools-protocol`-typed `webContents.debugger` channel, which the daemon's relay joins into one browser for the agent's tools without opening a debug port ([Desktop App Implementation Notes §Console Libraries](../architecture/desktop-implementation-notes.md#console-libraries); [Spec-021 §Console Design (Meridian)](../specs/021-desktop-app-and-renderer.md#console-design-meridian); [ADR-034](./034-embedded-browser-for-preview.md)). WKWebView, WebView2, and WebKitGTK expose neither one embedding API nor one debugging protocol across macOS, Windows and Linux.
-3. **A Node main process on the daemon's own contracts.** Main starts the daemon as its own service, never as its own child — on macOS the per-user login agent launchd runs, elsewhere a detached process — so a quit leaves the daemon, every run and every terminal running, and main reaches it through the daemon's local socket or named pipe ([Desktop App Implementation Notes §Service Launch](../architecture/desktop-implementation-notes.md#service-launch)). The daemon is the Node host for the `better-sqlite3` binding pinned to its Node-API line and the supervisor of the Rust PTY sidecar, and main imports the same `@ai-sidekicks/contracts` schemas the daemon and the client SDK are built on. A Rust or Go main process would restate those contracts in a second language.
+3. **A main process for the daemon's client, on types generated from the Rust contracts.** Main starts the daemon as its own service, never as its own child — on macOS the per-user login agent launchd runs, elsewhere a detached process — so a quit leaves the daemon, every run and every terminal running ([Desktop App Implementation Notes §Service Launch](../architecture/desktop-implementation-notes.md#service-launch)). The daemon client is the client helper: the Rust client (`sidekicks-client`) running as a Node-API addon in an Electron `utilityProcess`. The renderer's daemon and control-plane calls travel over a `MessagePort` that main hands the page through the preload; the helper checks each call against its method allowlist and params check, carries it on its own daemon connection, whose `daemon.hello` presented the session token, and returns only the sanitized reply. Main's own daemon calls reach the helper over `parentPort`, through the same allowlist, and main keeps the file tokens, so main's own thread carries no daemon traffic and neither main nor the renderer holds the session token. Main and the page take the TypeScript types and Ajv checks generated from the Rust contracts in `sidekicks-contracts`.
 4. **Mature cross-platform delivery ecosystem.** The app updates through `electron-updater` 6.8.10 as shipped: its stock GitHub provider, its SHA-512 check of the download, and the operating system's code signature on macOS and Windows. It ships as a dmg and a zip on macOS, an NSIS installer for x64 and arm64 on Windows, and an AppImage plus deb and rpm packages through a signed Cloudsmith repository on Linux, with delta downloads for the NSIS, macOS zip and AppImage channels; there is no Snap or Flatpak. Windows builds are signed through SignPath Foundation's free open-source program once it accepts the project, and publish unsigned until then; macOS builds carry the project's own self-signed code-signing identity, with the same bundle identifier on every build, until the Apple Developer certificate exists; both wait on [BL-108](../backlog.md#bl-108-windows--macos-signing-procurement-evidence). VS Code, Slack, Discord, Teams, Notion Desktop, 1Password (pre-8), and Figma Desktop all ship on Electron with large production footprints.
-5. **Ecosystem alignment with the product's TypeScript-native stack.** The main process is Node.js; all first-party code (daemon, CLI, control plane) is TypeScript; no language-in-critical-path cost is added. The preload-bridge trust model (`container-architecture.md` §Trust Boundaries; renderer untrusted, main process trusted, daemon trusted) maps cleanly onto Electron's `contextBridge` API.
+5. **The page's richness on Chromium's engine.** The console is a TypeScript and React renderer whose budgets, terminal tier and panes are built against one engine, Chromium's; that page and that engine are the reason for Electron, not a shared backend language, since the daemon, the CLI, the contracts' source and the control plane are Rust. The preload-bridge trust model (`container-architecture.md` §Trust Boundaries; renderer untrusted, main process trusted, daemon trusted) maps cleanly onto Electron's `contextBridge` API.
 
 ### Antithesis — The Strongest Case Against
 
@@ -47,7 +47,7 @@ Modern desktop users expect lightweight apps, and Electron's ~100 MB baseline bu
 
 ### Synthesis — Why It Still Holds
 
-The antithesis wins on bundle size and loses on the renderer and, once the product's own panes are open, on memory. What decides is §Thesis: one Chromium renderer carrying single-number console budgets and one terminal tier, an in-process `WebContentsView` with a debugger channel for the `browser` pane on macOS, Linux and Windows, and a Node main process on the daemon's own contracts. Items 1 and 2 are each independently sufficient against a native-webview framework.
+The antithesis wins on bundle size and loses on the renderer and, once the product's own panes are open, on memory. What decides is §Thesis: one Chromium renderer carrying single-number console budgets and one terminal tier, an in-process `WebContentsView` with a debugger channel for the `browser` pane on macOS, Linux and Windows, and a main process whose daemon client is the Rust addon in a `utilityProcess`. Items 1 and 2 are each independently sufficient against a native-webview framework.
 
 The memory claim does not hold for this product. Measured like for like on the session screen, on an Apple-silicon MacBook Pro with 16 GB running macOS 27, Electron with the Preview pane open used 418.6 MB across the app's own processes and Tauri with Chromium embedded for Preview used 380.5 MB, about 9% (38 to 46 MB across two runs) less. Opening Preview costs Electron 20 to 29 MB, one extra page process sharing the graphics and network processes it already has; it costs Tauri about 154 MB, because the embedded Chromium brings five processes of its own. At idle, Electron with Preview used 7.1% of one core against 13.5% for Tauri with Chromium. The processes that dominate the machine's memory are the providers' own, and the daemon stops an idle Claude Code session's process after 30 idle minutes, which is where memory is recovered.
 
@@ -58,7 +58,7 @@ Bundle size is addressed by asar packaging and by the fact that the target user 
 ### Option A: Electron (Chosen)
 
 - **What:** Chromium renderer with a Node.js main process, `contextBridge` preload, `electron-updater` 6.8.10 with its stock GitHub provider for auto-update with delta downloads, `electron-builder` for packaging into dmg and zip, NSIS x64 and arm64, AppImage, deb and rpm; Windows signing through SignPath Foundation.
-- **Steel man:** Uniform Chromium renderer on macOS, Linux and Windows — one set of console budget numbers, one terminal tier, and one `WebContentsView` + debugger path for the Preview pane's embedded browser; a Node main process that starts the daemon as a service of its own and shares its contracts; mature ecosystem (VS Code, Slack, Discord, Teams, Notion, Figma Desktop); TypeScript-native main process aligns with the rest of the stack; preload-bridge model maps to the renderer-untrusted trust boundary.
+- **Steel man:** Uniform Chromium renderer on macOS, Linux and Windows — one set of console budget numbers, one terminal tier, and one `WebContentsView` + debugger path for the Preview pane's embedded browser; a main process that starts the daemon as a service of its own and loads the Rust daemon client in a `utilityProcess`; mature ecosystem (VS Code, Slack, Discord, Teams, Notion, Figma Desktop); preload-bridge model maps to the renderer-untrusted trust boundary.
 - **Weaknesses:** 100 MB+ baseline bundle; 418.6 MB across the app's own processes on the session screen with Preview open, about 38 to 46 MB more than Tauri with Chromium for Preview; Chromium security-patch cadence tied to Electron release cadence; Node.js in the main process expands the attack surface vs a Rust or Go host.
 
 ### Option B: Tauri 2.x, with or without Chromium for Preview (Rejected)
@@ -70,7 +70,6 @@ Bundle size is addressed by asar packaging and by the fact that the target user 
   2. Triple-webview behavior drift (WKWebView vs WebView2 vs WebKitGTK) turns every renderer-behavior test into three tests. This is a documented migration driver for production teams moving from native-webview frameworks to Chromium-based ones. On the console's own screens in WebKit, the differences left after one missing character-set line was fixed included macOS focus rules (Tab skips buttons and links, a clicked button does not take focus), an unprefixed `user-select` WebKit ignores, a `ResizeObserver` loop error only WebKit raises, text sitting 1 to 5 px lower, and voice playback reaching its stream 0.5 to 0.8 s after `play()` against about 0.03 s in Chromium.
   3. Embedding Chromium for Preview puts four desktop engines in one product — three system webviews plus Chromium — and custom glue the project maintains in Rust, on macOS alone including a shim that adds Chromium's required application protocols to Tauri's own application class and an external message pump for Chromium under Tauri's event loop. It also reached the page over a remote-debugging port, which the product does not open ([ADR-034](./034-embedded-browser-for-preview.md)).
   4. The memory saving is small and moves the wrong way as panes open: about 9% (38 to 46 MB) with Preview open, while opening Preview costs Tauri about 154 MB against Electron's 20 to 29 MB, and Tauri with Chromium used 13.5% of one core at idle against Electron's 7.1%. The providers' own processes dominate the machine's memory, and the daemon's idle stop of a Claude Code session addresses them.
-  5. Rust in the main process adds a language-in-critical-path cost to a TypeScript-native team, and restates the daemon's contracts in a second language.
 
 ### Option C: Wails v3 (Rejected)
 
@@ -79,7 +78,7 @@ Bundle size is addressed by asar packaging and by the fact that the target user 
 - **Why rejected:**
   1. Same native-webview position as Tauri: the console constraints in §Thesis apply identically (Option B point 1), and the WebKit differences measured on the console's own screens (Option B point 2) are Wails' differences on macOS too.
   2. The Wails v3 status page lists v3 as alpha, with no flagship production apps on it. A desktop framework is a decade-scale foundation commitment; building on alpha tooling is insufficient risk management.
-  3. Team is TypeScript-native, not Go-native; introduces language-in-critical-path cost without the offsetting team-expertise benefit that would justify it.
+  3. Go would be a third language in the critical path, beside the Rust backend and the TypeScript renderer, with no team-expertise benefit to offset it.
 
 ### Option D: Native per-platform apps (Rejected)
 
@@ -95,7 +94,6 @@ Bundle size is addressed by asar packaging and by the fact that the target user 
   1. The product keeps one front end across the desktop app, the web client and the phone. GPUI either breaks that — a GPUI desktop beside a React web client — or ships the web client as WebAssembly, and no GPUI WebAssembly build found comes near the web client's 450 kB first-download budget: the GPUI component gallery is 9.9 MB gzip, 22 times the budget, and a shipped GPUI web client downloads 22.0 MB with brotli.
   2. A canvas-drawn web client exposes nothing to screen readers, on the browser and on the phone that reaches sessions through it.
   3. The `browser` pane and the Chromium-specific terminal tier still need Chromium, which GPUI does not carry.
-  4. Rust in the main process adds a language-in-critical-path cost to a TypeScript-native team.
 
 ## Assumptions Audit
 
@@ -104,8 +102,8 @@ Bundle size is addressed by asar packaging and by the fact that the target user 
 | 1 | Electron tracks Chromium security patches within 1–2 weeks of Chromium stable releases. | Electron has consistently met this cadence in 2025–2026 release history; Electron maintains a documented patch SLA across its supported stable branches. | We would need to monitor Chromium CVE feeds ourselves, or move to Chromium-Embedded-Framework directly, or change frameworks. |
 | 2 | Electron's branch 44 continues to publish point releases, and the supported set stays 42 / 43 / 44 until 42 ages out. | [releases.electronjs.org](https://releases.electronjs.org/) publishes the 44.x point releases; branch 41 reached end of support with the 44.0.0 release, and the published end-of-life dates are 2026-10-20 for 42, 2027-01-05 for 43, and 2027-03-02 for 44. Electron supports the latest three stable branches per the [electron/electron release timeline](https://www.electronjs.org/docs/latest/tutorial/electron-timelines). | Branch 44 ages out before V1 ships, and the V1 target moves to the next branch carrying the `WebContentsView` bounds fix; the build supervisor fails closed rather than selecting an end-of-life branch. |
 | 3 | `electron-updater` delta-patch flow is reliable across Windows, macOS, Linux. | Proven at scale by VS Code, 1Password (pre-8), Slack, and others. | Larger update payloads; ongoing bandwidth cost; user-visible update-time regression. |
-| 4 | The ~100 MB baseline bundle is acceptable to our target developer audience. | VS Code (~100 MB) and JetBrains IDEs (500 MB+) receive no material user pushback on install size. Our target user already has similar-footprint tools installed. | Competitive pressure from a lightweight alternative with feature parity; revisit trigger 4 fires. |
-| 5 | The app's own processes stay a small share of the machine's memory next to the providers' processes. | The session screen with Preview open used 418.6 MB across the app's own processes; the best alternative measured, Tauri with Chromium for Preview, saved 38 to 46 MB. | Revisit trigger 4 fires, and the saving an alternative offers is measured again on the same screens before any change. |
+| 4 | The ~100 MB baseline bundle is acceptable to our target developer audience. | VS Code (~100 MB) and JetBrains IDEs (500 MB+) receive no material user pushback on install size. Our target user already has similar-footprint tools installed. | Competitive pressure from a lightweight alternative with feature parity; revisit trigger 3 fires. |
+| 5 | The app's own processes stay a small share of the machine's memory next to the providers' processes. | The session screen with Preview open used 418.6 MB across the app's own processes; the best alternative measured, Tauri with Chromium for Preview, saved 38 to 46 MB. | Revisit trigger 3 fires, and the saving an alternative offers is measured again on the same screens before any change. |
 
 Plan-020's CI checks assumptions 2 and 3; release monitoring watches 1, 4 and 5.
 
@@ -115,7 +113,6 @@ Plan-020's CI checks assumptions 2 and 3; release monitoring watches 1, 4 and 5.
 | --- | --- | --- | --- | --- |
 | Electron security-patch cadence slips; Chromium CVE unpatched for weeks | Low | High | Automated release-tracking; Chromium CVE feed monitoring | Manual Chromium-patch integration on a maintenance branch; evaluate alternative frameworks |
 | Chromium memory-footprint regression under load | Med | Med | Runtime memory metrics via observability; daemon memory-budget alerts | Renderer-process isolation; lazy-load non-critical panels |
-| Team gains Rust-comfortable engineer with bandwidth (reversal trigger) | Low | Low (positive signal) | Team-composition change | Not a forcing failure; evaluate Tauri revisit window per revisit trigger 2 |
 | Electron removes or breaks the `contextBridge` preload model | Low | High | Electron release notes; contract conformance tests | Pin to previous Electron major; migrate to an alternative framework |
 | electron-updater signing pipeline breaks on code-signing-cert rotation | Low | Med | CI signing tests; cert-expiry monitoring | Standby cert; documented rotation runbook |
 
@@ -133,7 +130,6 @@ Plan-020's CI checks assumptions 2 and 3; release monitoring watches 1, 4 and 5.
 - The console's budgets, terminal tier, and `browser` pane are each specified once, against one engine, rather than three times.
 - Renderer QA matrix scales with feature count, not with platform count.
 - Mature `electron-updater` auto-update pipeline reduces custom infrastructure work.
-- TypeScript-native main process aligns with daemon, CLI, and control-plane language choice; no cross-language critical-path cost.
 
 ### Negative (accepted trade-offs)
 
@@ -155,14 +151,13 @@ Plan-020's CI checks assumptions 2 and 3; release monitoring watches 1, 4 and 5.
 | Desktop bundle size (post-asar, post-compression), without the Linux runtime archives a Windows installer carries | < 150 MB | CI artifact size check | When Plan-020's packaging lands |
 | Windows installer size with no Linux runtime archive, with the glibc archive and with both | Measured; no cap of its own, because the archives ship so the first start works offline | Release build size check ([Plan-020](../plans/020-desktop-app-and-renderer.md) T-020r-6-5) | When Plan-020's packaging lands |
 | Auto-update delta patches ship | Delta install < 30% of full bundle | `electron-updater` release test | When the first update ships |
-| Renderer-to-main IPC conformance with ADR-009 | 100% of IPC uses Content-Length JSON-RPC | Contract test suite | When Plan-020's preload bridge lands |
+| Daemon traffic conformance with ADR-009 | 100% of the daemon client's traffic uses JSON-RPC in the frame codec | Contract test suite | When Plan-020's preload bridge lands |
 
 ### Revisit Triggers
 
 1. A native-webview framework can meet the console constraints in §Thesis — one set of budget numbers, one terminal tier, and an in-process browser view with a debugger channel and no debug port on macOS, Linux and Windows — evaluate a Tauri re-assessment window if bundle-size pressure has materialized.
-2. Team gains a Rust-comfortable engineer with bandwidth to own a migration — evaluate Tauri re-assessment window with team composition supporting the Rust learning curve.
-3. Electron drops or materially changes the `contextBridge` preload model — evaluate alternative frameworks regardless of other factors.
-4. Desktop bundle size or memory footprint becomes a primary user complaint at a measurable rate — measure the alternatives again on the same screens, like for like, before choosing between them and optimizing within Electron.
+2. Electron drops or materially changes the `contextBridge` preload model — evaluate alternative frameworks regardless of other factors.
+3. Desktop bundle size or memory footprint becomes a primary user complaint at a measurable rate — measure the alternatives again on the same screens, like for like, before choosing between them and optimizing within Electron.
 
 ## References
 
@@ -186,7 +181,7 @@ Plan-020's CI checks assumptions 2 and 3; release monitoring watches 1, 4 and 5.
 
 - [ADR-010: Tokens, Passkeys And The Remote Channel](./010-tokens-passkeys-and-the-remote-channel.md) — the per-connection channel between the person's devices and machines, and passkeys kept to the web client, the phone apps and the device-code page, so the desktop app carries no WebAuthn.
 - [ADR-034: Embedded Browser For Preview](./034-embedded-browser-for-preview.md) — the `browser` pane's debugger relay with no debug port, which Thesis item 2 relies on.
-- [ADR-009: JSON-RPC IPC Wire Format](./009-json-rpc-ipc-wire-format.md) — the IPC wire format the preload bridge reuses between renderer and main.
+- [ADR-009: JSON-RPC IPC Wire Format](./009-json-rpc-ipc-wire-format.md) — the IPC wire format the client helper speaks to the daemon.
 - [ADR-014: V1 Feature Scope Definition](./014-v1-feature-scope-definition.md) — names Desktop GUI as a V1 feature; this ADR enables it.
 
 ### Related Docs

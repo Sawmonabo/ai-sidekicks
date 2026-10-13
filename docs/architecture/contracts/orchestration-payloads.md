@@ -4,7 +4,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ## Plan-013 — Multi-Agent Orchestration
 
-Contracts per D-013-1..20. Canonical TypeScript source: the topic modules [Plan-013 D-013-1](../../plans/013-multi-agent-orchestration.md#design-decisions) names, `packages/contracts/src/orchestration.ts` among them. `AgentId` is a new branded UUID (`brandedUuidIdSchema<AgentId>("AgentId")`). All mutations are daemon JSON-RPC (orchestration and agent authority is daemon-local, ADR-001/ADR-003 posture).
+Contracts per D-013-1..20. The Rust types live in the topic modules [Plan-013 D-013-1](../../plans/013-multi-agent-orchestration.md#design-decisions) names, `crates/sidekicks-contracts/src/orchestration.rs` among them; the generated TypeScript keeps `packages/contracts/src/orchestration.ts`. `AgentId` is a new branded UUID newtype. All mutations are daemon JSON-RPC (orchestration and agent authority is daemon-local, ADR-001/ADR-003 posture).
 
 ```ts
 interface OrchestrationRunConfig {
@@ -36,6 +36,7 @@ type OrchestrationRunCreateRequest = OrchestrationRunTarget & {
   sessionId: SessionId;
   parentRunId?: RunId; // present = child run; a child may create a child of its own to any depth, and no level is ever refused for being deep
   config?: OrchestrationRunConfig; // per-run override; admission resolves against session defaults and persists the merged result durably on run.queued (effectiveRunConfig — D-013-5 rebuild-stable enforcement)
+  clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first run, never a second
 };
 interface OrchestrationRunCreateResponse {
   runId: RunId; // minted at Plan-002 queue admission (run.queued); orchestration adds no second id
@@ -567,7 +568,7 @@ type RunQueuedPayload = {
 );
 
 // Orchestration queue-admission carrier (D-013-9) — IN-PROCESS seam type, not a wire shape, declared
-// in `packages/runtime-daemon/src/orchestration/` and never in `packages/contracts`:
+// in `crates/sidekicks-daemon/src/orchestration/` and never in `crates/sidekicks-contracts`:
 // the orchestration-run-service passes it to Plan-002's daemon queue-admission service after its
 // own admission pipeline passes; the run.queued event payload then carries these fields durably
 // (Spec-005 §Run Lifecycle run.queued row — additive optional fields). The wire run.queueCreate handler
@@ -580,19 +581,19 @@ interface OrchestrationRunLinkCarrier {
 }
 ```
 
-**Method-string registry — Plan-013** (daemon JSON-RPC):
+**Method-string registry — Plan-013** (daemon JSON-RPC; procedure types per [API Payload Contracts §Procedure Types](./api-payload-contracts.md#procedure-types)):
 
 | Method | Procedure type | Request → Response | Notes |
 | --- | --- | --- | --- |
-| `orchestration.runCreate` | RPC | `OrchestrationRunCreateRequest` → `OrchestrationRunCreateResponse` | Admission pipeline; composes with Plan-002 queue admission in-process |
-| `orchestration.childRunLinkRead` | RPC | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | A read of the daemon's parent-to-child index for the whole session: both kinds of child, their head facts, the badge counts, and event-folded `rejectedCreates` (zero-residue refusals, I-013-7) |
-| `orchestration.budgetRead` | RPC | `OrchestrationBudgetReadRequest` → `OrchestrationBudgetReadResponse` | Committed spend and the per-agent spend, in micro-dollars |
-| `orchestration.costReceiptRead` | RPC | `SessionCostReceiptRequest` → `SessionCostReceiptResponse` | Read-only decomposition of the committed-spend fold (D-013-16 — shapes below); served from the same accountant accessor as `orchestration.budgetRead`, so the two can never disagree |
-| `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | [Spec-014 §Session Goals](../../specs/014-multi-agent-orchestration.md#session-goals); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
-| `session.goalClear` | RPC | `SessionGoalClearRequest` → `SessionGoalClearResponse` | An accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
-| `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | The running agent's model, window, effort, speed, Ultracode and provider; never the account, which is `providerAccount.setCurrent` (provider-account-payloads.md §Plan-023). Settles with `agent.provider_binding_changed` or `agent.provider_binding_change_failed` |
-| `agent.list` | subscription | `AgentListRequest` → `AgentListResponse` | Agents-table projection, live: the list, then each change |
-| `session.terminalProviderSessionList` | RPC | `SessionTerminalProviderSessionListParams` → `SessionTerminalProviderSessionListResult` | The provider sessions typed in a terminal, each a `TerminalProviderSession` with its `provider`; shapes in local-ipc-payloads.md §Plan-005; empty while `Reach Codex sessions started in a terminal` is off |
+| `orchestration.runCreate` | `mutation` | `OrchestrationRunCreateRequest` → `OrchestrationRunCreateResponse` | Admission pipeline; composes with Plan-002 queue admission in-process |
+| `orchestration.childRunLinkRead` | `query` | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | A read of the daemon's parent-to-child index for the whole session: both kinds of child, their head facts, the badge counts, and event-folded `rejectedCreates` (zero-residue refusals, I-013-7) |
+| `orchestration.budgetRead` | `query` | `OrchestrationBudgetReadRequest` → `OrchestrationBudgetReadResponse` | Committed spend and the per-agent spend, in micro-dollars |
+| `orchestration.costReceiptRead` | `query` | `SessionCostReceiptRequest` → `SessionCostReceiptResponse` | Read-only decomposition of the committed-spend fold (D-013-16 — shapes below); served from the same accountant accessor as `orchestration.budgetRead`, so the two can never disagree |
+| `session.goalUpdate` | `mutation` | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | [Spec-014 §Session Goals](../../specs/014-multi-agent-orchestration.md#session-goals); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
+| `session.goalClear` | `mutation` | `SessionGoalClearRequest` → `SessionGoalClearResponse` | An accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
+| `agent.configUpdate` | `mutation` | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | The running agent's model, window, effort, speed, Ultracode and provider; never the account, which is `providerAccount.setCurrent` (provider-account-payloads.md §Plan-023). Settles with `agent.provider_binding_changed` or `agent.provider_binding_change_failed` |
+| `agent.list` | `subscription` | `AgentListRequest` → `AgentListResponse` | Agents-table projection, live: the list, then each change |
+| `session.terminalProviderSessionList` | `query` | `SessionTerminalProviderSessionListParams` → `SessionTerminalProviderSessionListResult` | The provider sessions typed in a terminal, each a `TerminalProviderSession` with its `provider`; shapes in local-ipc-payloads.md §Plan-005; empty while `Reach Codex sessions started in a terminal` is off |
 
 `session.maxStepsUpdate`, `session.spendLimitUpdate` and `session.tokensPerRunUpdate`, the session's own `Max steps per turn`, `Spend limit` and `Tokens per run`, are registered with their shapes in session-payloads.md §Session Method-Name Registry.
 

@@ -5,7 +5,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 ## Plan-007 — Worktree Lifecycle And Execution Modes
 
 ```ts
-// Branded IDs introduced by Plan-007 (canonical origin: packages/contracts/src/worktree/lifecycle.ts;
+// Branded IDs introduced by Plan-007 (Rust types in crates/sidekicks-contracts/src/worktree/lifecycle.rs;
 // declared in-block rather than under api-payload-contracts.md §Branded ID Types / api-payload-contracts.md §Shared Enums for cite stability)
 type BranchContextId = string & { readonly __brand: "BranchContextId" };
 // A worktree removed with `Discard and remove`, or a removed one the cleanup sweep found holding

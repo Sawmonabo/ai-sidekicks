@@ -676,7 +676,7 @@ interface ProviderAccountUsageWindow {
   // The live `usage_window_updated` notification already carries it; the snapshot carries the same
   // member so both paths key alike.
   accountId: ProviderAccountId;
-  limitId: string; // untrusted provider-adjacent string, `wireFreeFormString`-bounded; NOT a closed union — the provider's limit vocabulary is open and versioned
+  limitId: string; // untrusted provider-adjacent string, `FreeFormText<MAX>`-bounded; NOT a closed union — the provider's limit vocabulary is open and versioned
   windowMins: number;
   label?: string; // the provider's own display label where it publishes one; display-only, never parsed, never a key
   usedPercent: number; // NOT clamped to 100 on the wire: a provider may report over-consumption against a soft limit and clamping would misreport it. Renderers clamp for display.
