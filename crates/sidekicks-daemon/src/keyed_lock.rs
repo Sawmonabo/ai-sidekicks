@@ -102,8 +102,10 @@ impl<Key: Eq + Hash + Clone + Send + Sync + 'static> KeyedLock<Key> {
         critical: impl FnOnce() -> Critical,
     ) -> Output {
         let key = (self.canonical_key)(requested_key);
-        let held_keys = HeldKeys::current();
-        if held_keys.is_live(self.id, &key) {
+        if HOLDS
+            .try_with(|held_keys| held_keys.is_live(self.id, &key))
+            .unwrap_or(false)
+        {
             return critical().await;
         }
         let queue = Arc::clone(self.lock_queues().entry(key.clone()).or_default());
@@ -117,7 +119,7 @@ impl<Key: Eq + Hash + Clone + Send + Sync + 'static> KeyedLock<Key> {
         lease.guard = Some(queue.lock_owned().await);
         let is_released = Arc::new(AtomicBool::new(false));
         lease.is_released = Some(Arc::clone(&is_released));
-        let holds = held_keys.with(Hold {
+        let holds = HeldKeys::current().with(Hold {
             lock_id: self.id,
             key: Arc::new(key),
             is_released,

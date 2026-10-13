@@ -11,20 +11,16 @@ use crate::cleanup_failures::CleanupFailures;
 /// Applies what every connection to the daemon's database holds: a page cache of at most 2,000
 /// KiB, so a large purge or a full read of the session list stays within it on each connection; a
 /// check of each b-tree page as it is first read from disk, so a damaged page fails the read that
-/// meets it rather than spreading; and room for `statement_capacity` cached statements, the size of
-/// the statement set the connection runs.
-pub(crate) fn apply_connection_pragmas(
-    connection: &Connection,
-    statement_capacity: usize,
-) -> rusqlite::Result<()> {
+/// meets it rather than spreading.
+pub(crate) fn apply_connection_pragmas(connection: &Connection) -> rusqlite::Result<()> {
     connection.pragma_update(None, "cache_size", -2000)?;
-    connection.pragma_update(None, "cell_size_check", "ON")?;
-    connection.set_prepared_statement_cache_capacity(statement_capacity);
-    Ok(())
+    connection.pragma_update(None, "cell_size_check", "ON")
 }
 
 /// Opens a read-only connection on an existing database, set up as the writer's is, keeping
-/// SQLite's busy wait. Fails when the file is missing, closing the connection when its setup fails.
+/// SQLite's busy wait, with room for `statement_capacity` cached statements, the size of the
+/// statement set it runs. Fails when the file is missing, closing the connection when its setup
+/// fails.
 pub(crate) fn open_database_reader(
     database_path: &Path,
     statement_capacity: usize,
@@ -36,9 +32,8 @@ pub(crate) fn open_database_reader(
     .map_err(|open_failure| {
         CleanupFailures::new(open_failure, Vec::new(), "opening the database")
     })?;
-    prepare_or_close(connection, |connection| {
-        apply_connection_pragmas(connection, statement_capacity)
-    })
+    connection.set_prepared_statement_cache_capacity(statement_capacity);
+    prepare_or_close(connection, apply_connection_pragmas)
 }
 
 /// Runs `prepare` on a connection just opened and returns it. When `prepare` fails, the connection

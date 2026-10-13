@@ -2,7 +2,7 @@
 
 use uuid::Uuid;
 
-/// A new UUIDv7 from the process-wide context, so ids minted in one process strictly increase,
+/// A new version 7 UUID from the process-wide context, so ids minted in one process strictly increase,
 /// within one millisecond too; its text form is lowercase.
 #[expect(
     clippy::disallowed_methods,

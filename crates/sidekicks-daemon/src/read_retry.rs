@@ -31,6 +31,7 @@ where
             tokio::time::sleep(READ_RETRY_DELAY).await;
             read().await
         }
-        outcome => outcome,
+        Err(failure) => Err(failure),
+        Ok(output) => Ok(output),
     }
 }
