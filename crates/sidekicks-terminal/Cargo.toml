@@ -14,10 +14,12 @@ sidekicks-platforms.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-vte.workspace = true
+uuid.workspace = true
+vte = { workspace = true, features = ["ansi"] }
 
 [dev-dependencies]
 rstest.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

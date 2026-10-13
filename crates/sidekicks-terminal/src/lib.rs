@@ -1,1 +1,392 @@
 //! Terminals: the PTY each shell runs in, inside the daemon, and the screen copy of its output.
+//!
+//! [`Terminals`] starts each shell, carries its input, resize, pause and stops, and drains every
+//! shell at the service's stop; each shell's output and exit reach the caller through its
+//! [`TerminalOutput`], and its screen copy and scrollback through its [`TerminalScreen`].
+
+mod exit;
+mod kill;
+mod pty;
+mod read_loop;
+mod screen;
+mod scrollback;
+
+use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
+use std::fmt;
+use std::future::Future;
+use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
+
+use alacritty_terminal::event::EventListener;
+use bytes::Bytes;
+use sidekicks_platforms::{ProcessTreeEnd, terminal_ending_route, terminal_signal_route};
+use tokio::runtime::Handle;
+use tokio::task::JoinSet;
+use uuid::Uuid;
+
+pub use exit::TerminalExit;
+pub use kill::KillError;
+pub use pty::{
+    CommandLine, SHELL_ENVIRONMENT_PREFIX, ShellEnvironmentError, SpawnRequest, TerminalWriteError,
+    shell_environment,
+};
+pub use read_loop::{OutputFilter, TerminalEvent, TerminalOutput};
+pub use screen::TerminalScreen;
+pub use sidekicks_platforms::TerminalSignal;
+
+use crate::kill::{ChildEnding, Escalation};
+use crate::read_loop::TerminalControl;
+
+/// One terminal's handle for its life, minted at its spawn and stored nowhere.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TerminalHandle(Uuid);
+
+impl TerminalHandle {
+    fn mint() -> Self {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a terminal handle is an ephemeral token no row or event stores"
+        )]
+        let id = Uuid::now_v7();
+        Self(id)
+    }
+}
+
+impl fmt::Display for TerminalHandle {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+/// A shell just started: its handle, its program's process id where the system gives one, its
+/// screen copy and scrollback, and its output and exit.
+pub struct SpawnedTerminal<L: EventListener> {
+    /// The handle every later call names the terminal by.
+    pub handle: TerminalHandle,
+    /// The process id of the program the terminal started.
+    pub process_id: Option<u32>,
+    /// The screen copy and the scrollback window, under the lock the read loop takes them with.
+    pub screen: Arc<Mutex<TerminalScreen<L>>>,
+    /// The terminal's output, then its exit.
+    pub output: TerminalOutput,
+}
+
+/// Why a call on the terminals was refused or failed.
+#[derive(Debug, thiserror::Error)]
+pub enum TerminalError {
+    /// No live terminal has the handle: it was never started or has been closed.
+    #[error("no terminal has the handle {0}")]
+    UnknownTerminal(TerminalHandle),
+    /// The terminals are draining for the service's stop, so no shell starts.
+    #[error("the terminals are draining for the service's stop, so no shell starts")]
+    Draining,
+    /// The shell could not be started.
+    #[error("the shell could not be started")]
+    Spawn(#[source] io::Error),
+    /// The terminal could not be resized.
+    #[error("the terminal could not be resized")]
+    Resize(#[source] io::Error),
+    /// The input did not reach the terminal.
+    #[error(transparent)]
+    Write(#[from] TerminalWriteError),
+    /// A signal or a stop did not reach the program.
+    #[error(transparent)]
+    Kill(#[from] KillError),
+}
+
+/// How the drain at the service's stop ended the terminals that were still running.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DrainResult {
+    /// Terminals whose program exited on the graceful stop within the drain's bound.
+    pub drained: usize,
+    /// Terminals whose program was ended outright, by the bound's kill or a stop's escalation.
+    pub forced: usize,
+}
+
+/// The daemon's live terminals: each shell's PTY, its read loop and its stops.
+pub struct Terminals {
+    runtime: Handle,
+    console_helper: Arc<CommandLine>,
+    live: Mutex<HashMap<TerminalHandle, Arc<TerminalEntry>>>,
+    is_draining: AtomicBool,
+}
+
+impl Terminals {
+    /// Terminals whose read loops run on `runtime`, ended on Windows through `console_helper` (the
+    /// daemon's console-helper mode, to which each call adds the program's process id).
+    pub fn new(runtime: Handle, console_helper: CommandLine) -> Self {
+        Self {
+            runtime,
+            console_helper: Arc::new(console_helper),
+            live: Mutex::new(HashMap::new()),
+            is_draining: AtomicBool::new(false),
+        }
+    }
+
+    /// Starts a shell and its read loop; blocking, so it runs on the daemon's spawner thread, never
+    /// a runtime thread. `listener` hears the screen copy's events under its lock and must not
+    /// block; `filter` takes each chunk of output first. Refused while draining or when the shell
+    /// or its loop cannot start.
+    pub fn spawn<L, F>(
+        &self,
+        request: &SpawnRequest,
+        listener: L,
+        filter: F,
+    ) -> Result<SpawnedTerminal<L>, TerminalError>
+    where
+        L: EventListener + Send + 'static,
+        F: OutputFilter,
+    {
+        if self.is_draining.load(Ordering::SeqCst) {
+            return Err(TerminalError::Draining);
+        }
+        let pty = pty::open_pty(request).map_err(TerminalError::Spawn)?;
+        let handle = TerminalHandle::mint();
+        let started = read_loop::start_read_loop(
+            &self.runtime,
+            &format!("terminal {handle}"),
+            pty,
+            request.rows,
+            request.columns,
+            listener,
+            filter,
+        )
+        .map_err(TerminalError::Spawn)?;
+        let entry = Arc::new(TerminalEntry {
+            control: started.control,
+            escalation: Escalation::new(),
+            console_helper: Arc::clone(&self.console_helper),
+            is_escalated: AtomicBool::new(false),
+        });
+        let process_id = entry.control.process_id();
+        {
+            // The drain sets its flag under this lock, so a shell is either in its snapshot or
+            // refused here.
+            let mut live = self.lock_live();
+            if !self.is_draining.load(Ordering::SeqCst) {
+                live.insert(handle, Arc::clone(&entry));
+                return Ok(SpawnedTerminal {
+                    handle,
+                    process_id,
+                    screen: started.screen,
+                    output: started.output,
+                });
+            }
+        }
+        entry.control.begin_close();
+        self.runtime.spawn(async move {
+            if let Err(error) = kill::deliver_signal(
+                &entry,
+                &entry.escalation,
+                terminal_signal_route(TerminalSignal::Kill),
+            )
+            .await
+            {
+                tracing::warn!(%handle, %error, "a shell started as the drain began could not be killed");
+            }
+        });
+        Err(TerminalError::Draining)
+    }
+
+    /// Resizes the terminal and its screen copy; fails for an unknown handle or a refused resize.
+    pub async fn resize(
+        &self,
+        handle: TerminalHandle,
+        rows: u16,
+        columns: u16,
+    ) -> Result<(), TerminalError> {
+        let entry = self.entry(handle)?;
+        entry
+            .control
+            .resize(rows, columns)
+            .await
+            .map_err(TerminalError::Resize)
+    }
+
+    /// Writes `bytes` to the terminal's input, answering once every byte is written; fails for an
+    /// unknown handle and for a write the terminal's close or end left unwritten.
+    pub async fn write(&self, handle: TerminalHandle, bytes: Bytes) -> Result<(), TerminalError> {
+        let entry = self.entry(handle)?;
+        Ok(entry.control.write(bytes).await?)
+    }
+
+    /// Stops reading the terminal, so its output waits in the system's buffer and the program
+    /// blocks once that fills; fails only for an unknown handle.
+    pub fn pause(&self, handle: TerminalHandle) -> Result<(), TerminalError> {
+        self.entry(handle)?.control.pause();
+        Ok(())
+    }
+
+    /// Reads the terminal again; the output that waited arrives in order. Fails only for an
+    /// unknown handle.
+    pub fn resume(&self, handle: TerminalHandle) -> Result<(), TerminalError> {
+        self.entry(handle)?.control.resume();
+        Ok(())
+    }
+
+    /// Sends `signal` to the terminal's program as the system delivers it, answering once the
+    /// delivery has begun; a program that has exited gets nothing. Fails for an unknown handle and
+    /// a delivery the system refused.
+    pub async fn kill(
+        &self,
+        handle: TerminalHandle,
+        signal: TerminalSignal,
+    ) -> Result<(), TerminalError> {
+        let entry = self.entry(handle)?;
+        kill::deliver_signal(&entry, &entry.escalation, terminal_signal_route(signal)).await?;
+        Ok(())
+    }
+
+    /// Closes the terminal and answers once its program has exited, ending it by a hangup, a stop
+    /// and a kill in turn; nothing about it is reported once the close begins. An unknown handle
+    /// needs nothing; fails when the program outlives its kill.
+    pub async fn close(&self, handle: TerminalHandle) -> Result<(), TerminalError> {
+        let Some(entry) = self.lock_live().remove(&handle) else {
+            return Ok(());
+        };
+        entry.control.begin_close();
+        kill::end_through_endings(&*entry, &entry.escalation, terminal_ending_route).await?;
+        Ok(())
+    }
+
+    /// Ends every running shell at the service's stop: each gets the graceful stop and, once
+    /// `bound` passes without its exit, the kill. From here on no shell starts.
+    pub async fn drain(&self, bound: Duration) -> DrainResult {
+        let running: Vec<Arc<TerminalEntry>> = {
+            let live = self.lock_live();
+            self.is_draining.store(true, Ordering::SeqCst);
+            live.values()
+                .filter(|entry| !entry.control.is_exit_reported())
+                .cloned()
+                .collect()
+        };
+        let mut drains = JoinSet::new();
+        for entry in running {
+            drains.spawn_on(drain_terminal(entry, bound), &self.runtime);
+        }
+        let mut result = DrainResult::default();
+        while let Some(outcome) = drains.join_next().await {
+            match outcome {
+                Ok(DrainOutcome::Drained) => result.drained += 1,
+                Ok(DrainOutcome::Forced) => result.forced += 1,
+                Err(error) => {
+                    tracing::error!(%error, "a terminal's drain did not finish");
+                    result.forced += 1;
+                }
+            }
+        }
+        result
+    }
+
+    /// The process ids of the programs the live terminals started whose exit has not come; every
+    /// program a terminal runs descends from one of them.
+    pub fn process_ids(&self) -> Vec<u32> {
+        self.lock_live()
+            .values()
+            .filter(|entry| !entry.control.has_child_exited())
+            .filter_map(|entry| entry.control.process_id())
+            .collect()
+    }
+
+    fn entry(&self, handle: TerminalHandle) -> Result<Arc<TerminalEntry>, TerminalError> {
+        self.lock_live()
+            .get(&handle)
+            .cloned()
+            .ok_or(TerminalError::UnknownTerminal(handle))
+    }
+
+    fn lock_live(&self) -> MutexGuard<'_, HashMap<TerminalHandle, Arc<TerminalEntry>>> {
+        self.live
+            .lock()
+            .expect("no panic holds the terminals' lock, since a panic ends the daemon")
+    }
+}
+
+/// How one terminal's drain ended.
+enum DrainOutcome {
+    Drained,
+    Forced,
+}
+
+/// Gives one terminal the graceful stop, then the kill once `bound` passes without its exit.
+async fn drain_terminal(entry: Arc<TerminalEntry>, bound: Duration) -> DrainOutcome {
+    let stop = terminal_signal_route(TerminalSignal::Terminate);
+    if let Err(error) = kill::deliver_signal(&entry, &entry.escalation, stop).await {
+        tracing::warn!(%error, "the graceful stop did not reach a terminal at the drain");
+    }
+    if tokio::time::timeout(bound, entry.control.exit_reported())
+        .await
+        .is_ok()
+    {
+        return if entry.is_escalated.load(Ordering::SeqCst) {
+            DrainOutcome::Forced
+        } else {
+            DrainOutcome::Drained
+        };
+    }
+    let kill = terminal_signal_route(TerminalSignal::Kill);
+    if let Err(error) = kill::deliver_signal(&entry, &entry.escalation, kill).await {
+        tracing::warn!(%error, "the kill did not reach a terminal at the drain");
+    }
+    DrainOutcome::Forced
+}
+
+/// One live terminal: its loop's control, its pending escalation and how it is ended on Windows.
+struct TerminalEntry {
+    control: Arc<TerminalControl>,
+    escalation: Escalation,
+    console_helper: Arc<CommandLine>,
+    /// Set once an outright end of its tree began, so the drain counts its exit as forced.
+    is_escalated: AtomicBool,
+}
+
+impl ChildEnding for TerminalEntry {
+    fn process_id(&self) -> Option<u32> {
+        self.control.process_id()
+    }
+
+    fn send_signal(&self, signal: TerminalSignal) -> io::Result<()> {
+        self.control.send_signal(signal)
+    }
+
+    fn write_interrupt(&self) -> impl Future<Output = Result<(), TerminalWriteError>> + Send {
+        self.control.write(Bytes::from_static(&[0x03]))
+    }
+
+    fn send_console_break(&self, process_id: u32) -> impl Future<Output = io::Result<()>> + Send {
+        let console_helper = Arc::clone(&self.console_helper);
+        async move {
+            let arguments: Vec<OsString> = console_helper
+                .arguments
+                .iter()
+                .map(OsString::from)
+                .collect();
+            sidekicks_platforms::run_console_helper(
+                OsStr::new(&console_helper.program),
+                &arguments,
+                process_id,
+            )
+            .await
+        }
+    }
+
+    fn end_tree(&self, process_id: u32) -> impl Future<Output = io::Result<ProcessTreeEnd>> + Send {
+        self.is_escalated.store(true, Ordering::SeqCst);
+        sidekicks_platforms::end_process_tree(process_id)
+    }
+
+    fn has_child_exited(&self) -> bool {
+        self.control.has_child_exited()
+    }
+
+    fn child_exited(&self) -> impl Future<Output = ()> + Send {
+        self.control.child_exited()
+    }
+
+    fn report_forced_end(&self) {
+        self.control.report_forced_end();
+    }
+}
