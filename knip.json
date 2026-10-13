@@ -14,11 +14,13 @@
   // The per-symbol dead-code lever: knip reads JSDoc/TSDoc tags off an export, and `-consumedBy`
   // excludes every export carrying `@consumedBy` from the report (the documented `tags` option,
   // which root `AGENTS.md` engineering rule 13 binds to a plain-word reason). It is per symbol,
-  // unlike `ignore` (file globs) and `ignoreIssues` (issue types per file pattern), neither of
-  // which is used here: exempting a file would exempt every export it ever grows.
+  // unlike `ignore` (file globs), which is not used here: exempting a hand-written file would
+  // exempt every export it ever grows. `ignoreIssues` (issue types per file pattern) is used only
+  // for the files the contracts generator writes, which export every wire type the Rust contracts
+  // declare; the generator writes and prunes those entries, one exact path each.
   //
-  // The one per-file lever is `ignoreFiles`, for a whole file kept for a consumer that is not built
-  // yet: one exact path per entry, never a directory or a glob, each with a comment saying what the
+  // The per-file lever for hand-written code is `ignoreFiles`, for a whole file kept for a consumer
+  // that is not built yet: one exact path per entry, never a directory or a glob, each with a comment saying what the
   // unbuilt consumer is. The entry leaves in the change that builds its consumer. It clears only
   // the file it names, so a chain of unwired files takes one entry per file.
   //
