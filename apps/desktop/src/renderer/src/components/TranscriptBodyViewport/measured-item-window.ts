@@ -65,7 +65,6 @@ export class MeasuredItemWindow<Item> {
   #committedRows: readonly MeasuredWindowRow[] = [];
   /** The item whose height the virtualizer holds at each index, measured at the current type. */
   #measuredItems: (Item | undefined)[] = [];
-  #isTakingHeights = false;
 
   /** The off-screen measurement of the items the window has not measured drawn. */
   public readonly measurement: OffScreenMeasurement<Item>;
@@ -144,14 +143,6 @@ export class MeasuredItemWindow<Item> {
       },
       indexAttribute,
     );
-  }
-
-  /**
-   * Whether heights measured off screen are being handed to the virtualizer, whose changes are
-   * then told once, after the last.
-   */
-  public get isTakingHeights(): boolean {
-    return this.#isTakingHeights;
   }
 
   /** The items drawn for the library's `range`: on screen, and `bandScreenHeights` past them. */
@@ -325,20 +316,12 @@ export class MeasuredItemWindow<Item> {
     if (virtualizer === undefined) {
       return;
     }
-    this.#isTakingHeights = true;
     this.#placeHold.deferWrite();
-    try {
-      for (const { index, item, heightPx } of heights) {
-        if (index < this.#source.itemCount() && this.#source.itemAt(index) === item) {
-          this.#measuredItems[index] = item;
-          virtualizer.resizeItem(index, heightPx);
-          // Lays the items out again, so the next one's place, which the reader's hold judges,
-          // carries this one's change, as an item drawn and resized does.
-          virtualizer.getTotalSize();
-        }
+    for (const { index, item, heightPx } of heights) {
+      if (index < this.#source.itemCount() && this.#source.itemAt(index) === item) {
+        this.#measuredItems[index] = item;
+        virtualizer.resizeItem(index, heightPx);
       }
-    } finally {
-      this.#isTakingHeights = false;
     }
     if (this.differsFromCommittedRows(virtualizer.getVirtualItems(), virtualizer.getTotalSize())) {
       virtualizer.options.onChange?.(virtualizer, false);

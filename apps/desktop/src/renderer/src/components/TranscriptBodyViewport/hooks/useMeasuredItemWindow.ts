@@ -127,9 +127,6 @@ export function useMeasuredItemWindow<Item>(
   // spacer redraws here.
   const onChange = useCallback(
     (instance: MeasuredItemVirtualizer) => {
-      if (window.isTakingHeights) {
-        return;
-      }
       if (window.differsFromCommittedRows(instance.getVirtualItems(), instance.getTotalSize())) {
         redrawRows();
       }

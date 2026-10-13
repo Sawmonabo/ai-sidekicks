@@ -521,10 +521,12 @@ export class BlockWindowLayout implements TableBodyPlacement {
   /** Where a settled block's geometry is filed; the tail and an unmeasured body have none. */
   #addressOf(index: number): BlockGeometryAddress | undefined {
     const bodyType = this.#bodyType;
-    return index >= this.#blocks.settledCount || bodyType === undefined
+    const { records, settledCount } = this.#blocks;
+    return index >= settledCount || bodyType === undefined
       ? undefined
       : {
-          fingerprint: this.#blocks.records.fingerprintAt(index),
+          textLength: records.endOf(index) - records.startOf(index),
+          textHash: records.hashAt(index),
           bodyType,
           isFinal: index === this.blockCount - 1,
         };

@@ -3,7 +3,9 @@
 // but not for one the reader reads across, where an item drawn above the reader for the first time
 // moves the text being read. A nested window adds each such item's change here, and the scroller
 // moves once by their sum after the pass that measured them, before the frame paints: every item
-// of one pass is judged where it stood as the pass began, against the offset the pass began at.
+// of one pass is judged where it stood as the pass began, which is where the window still lays it
+// out, since a window lays its items out again only once the pass ends, against the offset the
+// pass began at.
 // Heights measured off screen are drawn only in a later commit, so their sum waits for it. A new
 // width or text size lays every item out anew at once, where no item's place as the pass began
 // is left to judge it by, so the item the reader reads in is held instead: its start stays put.
@@ -26,6 +28,9 @@ export class ReaderPlaceHold {
   readonly #scrollController: ScrollController;
   /** The changes added since the last write, in CSS pixels. */
   #pendingPx = 0;
+  /** The changes held through resized items in the pass under way, which their places omit. */
+  #passHeldPx = 0;
+  #isPassEndQueued = false;
   #isWriteQueued = false;
   #isWriteDeferred = false;
   /** Whether a whole layout is being laid out anew, whose items' changes the relayout holds. */
@@ -37,12 +42,14 @@ export class ReaderPlaceHold {
 
   /**
    * Holds the place through an item that resized by `deltaPx`, if it stood wholly above the
-   * scroller's top as the pass began: its end, less the changes held this pass above it, at or
-   * above the window's `scrollOffsetPx`.
+   * scroller's top as the pass began: `itemEndPx`, where the item ended then, at or above the
+   * window's `scrollOffsetPx` and the changes held in earlier passes and not yet written.
    */
   public holdThroughResizedItem(itemEndPx: number, deltaPx: number, scrollOffsetPx: number): void {
-    if (!this.#isRelayingOut && itemEndPx <= scrollOffsetPx + this.#pendingPx) {
+    if (!this.#isRelayingOut && itemEndPx <= scrollOffsetPx + this.#pendingPx - this.#passHeldPx) {
       this.add(deltaPx);
+      this.#passHeldPx += deltaPx;
+      this.#queuePassEnd();
     }
   }
 
@@ -88,6 +95,17 @@ export class ReaderPlaceHold {
     if (this.#isWriteDeferred) {
       this.#isWriteDeferred = false;
       this.#queueWrite();
+    }
+  }
+
+  /** Ends the pass once the task under way ends, where the window lays its items out again. */
+  #queuePassEnd(): void {
+    if (!this.#isPassEndQueued) {
+      this.#isPassEndQueued = true;
+      queueMicrotask(() => {
+        this.#isPassEndQueued = false;
+        this.#passHeldPx = 0;
+      });
     }
   }
 

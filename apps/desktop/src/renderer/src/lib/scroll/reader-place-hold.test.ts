@@ -40,12 +40,19 @@ describe("the reader's place held inside a row", () => {
     scroll.attach(scrollContainer);
     const hold = new ReaderPlaceHold(scroll);
 
+    // Each item is handed where it ended as the pass began: the window lays none out again until
+    // the pass ends, however much the items above it changed.
     hold.holdThroughResizedItem(500, 300, 1_000);
-    // The second item ended at 1,000 as the pass began; the first one's change moved it to 1,300.
-    hold.holdThroughResizedItem(1_300, 200, 1_000);
-    // The item the reader reads across, moved by both, grows below the reader's place.
-    hold.holdThroughResizedItem(1_800, 100, 1_000);
+    hold.holdThroughResizedItem(1_000, 200, 1_000);
+    // The item the reader reads across grows below the reader's place.
+    hold.holdThroughResizedItem(1_300, 100, 1_000);
     await Promise.resolve();
     expect(scrollContainer.scrollTop).toBe(1_500);
+
+    // The next pass judges its items against the offset alone: the last pass's changes are
+    // written, and its items laid out again.
+    hold.holdThroughResizedItem(1_500, 50, 1_500);
+    await Promise.resolve();
+    expect(scrollContainer.scrollTop).toBe(1_550);
   });
 });
