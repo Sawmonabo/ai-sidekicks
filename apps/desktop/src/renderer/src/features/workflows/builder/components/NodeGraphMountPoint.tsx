@@ -11,9 +11,9 @@ export interface NodeGraphMount {
   /** The definition being authored. Opaque and wire-verbatim; never parsed here. */
   readonly definitionId: string;
   /**
-   * The one durable home for canvas geometry, under the `layout` value class. Layout is
-   * client-local: dragging a node changes no definition byte, so it is never sent anywhere.
-   * Handed over whole so the body chooses its own serialization.
+   * The pane's UI-state store, handed over whole so the body chooses its own serialization.
+   * Canvas layout itself is saved on the definition through `workflow.layoutSet`, outside its
+   * hashed body, so dragging a node never makes a version.
    */
   readonly uiStateStore: UiStateStore;
 }

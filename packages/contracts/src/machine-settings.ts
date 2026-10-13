@@ -399,6 +399,11 @@ export interface MachineSettings {
   rememberSiteData: boolean;
   /** `Browser tools for sidekicks`. */
   browserToolsForAgents: boolean;
+  /**
+   * `Sandbox the background browser`: whether the headless browser every session and workflow
+   * shares starts with Chromium's sandbox, read at its next launch.
+   */
+  sandboxBackgroundBrowser: boolean;
   /** `Simplify for a screen reader`, carried into the Terminal pane's shells. */
   screenReaderMode: boolean;
   /** `Every project`'s environment rows. */
@@ -441,6 +446,7 @@ export const MACHINE_SETTINGS_DEFAULTS: Readonly<MachineSettings> = Object.freez
   },
   rememberSiteData: true,
   browserToolsForAgents: true,
+  sandboxBackgroundBrowser: false,
   screenReaderMode: false,
   environmentRows: [],
   backup: { automatic: false, folder: null },
@@ -469,6 +475,7 @@ const MACHINE_SETTINGS_MEMBER_SCHEMAS = {
   notifications: NotificationSettingsSchema,
   rememberSiteData: z.boolean(),
   browserToolsForAgents: z.boolean(),
+  sandboxBackgroundBrowser: z.boolean(),
   screenReaderMode: z.boolean(),
   environmentRows: z.array(EnvironmentRowSchema),
   backup: BackupSettingsSchema,

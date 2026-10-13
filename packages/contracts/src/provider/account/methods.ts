@@ -346,7 +346,9 @@ export const ProviderAccountProbeResponseSchema: z.ZodType<ProviderAccountProbeR
 
 /**
  * Copies the person's own provider memory into this account's home, once, never overwriting a
- * file. It answers with the outcome the account keeps, so a repeat never copies twice.
+ * file. On Claude Code it also copies the person's own agent notes into the service's one
+ * agent-memory folder, shared by every account, and counts them in the same outcome. It answers
+ * with the outcome the account keeps, so a repeat never copies twice.
  */
 export interface ProviderAccountMemoryImportRequest {
   accountId: ProviderAccountId;

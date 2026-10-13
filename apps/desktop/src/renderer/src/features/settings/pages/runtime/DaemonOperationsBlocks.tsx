@@ -67,7 +67,7 @@ const DAEMON_CONTROL_FAILED = "daemon-control-failed";
  * when the settlement clears the confirmation.
  */
 const DISPATCHED_REASON =
-  "Sent. It cannot be taken back, so both actions wait until the runtime answers.";
+  "Sent. It cannot be taken back, so both actions wait until the background service answers.";
 
 /** What each control does and the question its confirm asks. Written once. */
 const CONTROL_COPY: Readonly<

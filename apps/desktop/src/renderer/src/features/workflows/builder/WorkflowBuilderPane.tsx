@@ -2,7 +2,8 @@
 // earns.
 // The frame is the same on every arm, so a pane that refused its address is still closable.
 // An address is checked before use: a run id addressed here is refused, never read as a
-// definition id. Canvas geometry is client-local and is never persisted into the definition.
+// definition id. Canvas layout is saved on the definition outside its hashed body
+// (`workflow.layoutSet`), so it never makes a version.
 
 import { WorkflowStateStrip } from "../components/WorkflowStateStrip.js";
 import { refusedWorkflowStrip } from "../strip-state.js";

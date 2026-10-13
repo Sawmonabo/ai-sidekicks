@@ -16,7 +16,7 @@ import type {
   WorkflowVersionDiffReadResponse,
   WorkflowVersionReadRequest,
   WorkflowVersionReadResponse,
-} from "@ai-sidekicks/contracts/workflow/definition/methods";
+} from "@ai-sidekicks/contracts/workflow/definition/versions";
 
 import type { DatabaseConnections } from "../../../database/connection/lifecycle.js";
 import { DaemonDomainError } from "../../../ipc/domain-error.js";
