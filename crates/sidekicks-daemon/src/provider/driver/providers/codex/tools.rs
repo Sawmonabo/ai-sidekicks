@@ -115,7 +115,6 @@ fn read_codex_startup_state(state: &str) -> McpServerStatus {
     }
 }
 
-/// Adds one bounded pair to `result`: an emission, or the rejection the bound gave.
 fn ingest_mcp_server_status(
     result: &mut McpServerStatusIngestResult,
     server_name: &Value,

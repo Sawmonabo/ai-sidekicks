@@ -1,6 +1,6 @@
-//! The plan files Claude Code keeps for one conversation: `<slug>.md`, its `<slug>.workshop.md`, and
-//! each helper's `<slug>-agent-<agent id>.md`, in the plans folder its `plansDirectory` setting
-//! names, relative to the project and inside it, else `<config folder>/plans`.
+//! The plan files Claude Code keeps for one conversation: `<slug>.md`, its `<slug>.workshop.md`,
+//! and each helper's `<slug>-agent-<agent id>.md`, in the plans folder its `plansDirectory`
+//! setting names, relative to the project and inside it, else `<config folder>/plans`.
 
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
@@ -22,7 +22,7 @@ pub(crate) async fn find_claude_plan_files(
     project_folder: &Path,
     plan_slug: &str,
 ) -> io::Result<Vec<PathBuf>> {
-    let default_folder = resolve_path(read_folder_text(&config_folder.join("plans"))?)?;
+    let default_folder = resolve_path(to_folder_text(&config_folder.join("plans"))?)?;
     let configured_folder = read_configured_plans_folder(config_folder, project_folder).await?;
     let mut folders = vec![default_folder];
     if let Some(configured_folder) = configured_folder
@@ -86,7 +86,7 @@ async fn read_configured_plans_folder(
     let Some(configured) = configured else {
         return Ok(None);
     };
-    let project_root = resolve_path(read_folder_text(project_folder)?)?;
+    let project_root = resolve_path(to_folder_text(project_folder)?)?;
     let folder = resolve_path_against(&project_root, &configured)?;
     Ok(Path::new(&folder)
         .starts_with(&project_root)
@@ -94,7 +94,7 @@ async fn read_configured_plans_folder(
 }
 
 // The folder as text for the resolver, which folds paths as UTF-8 and never through a lossy step.
-fn read_folder_text(folder: &Path) -> io::Result<&str> {
+fn to_folder_text(folder: &Path) -> io::Result<&str> {
     folder
         .to_str()
         .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "a Claude Code folder is not UTF-8"))

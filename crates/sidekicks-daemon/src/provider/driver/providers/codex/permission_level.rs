@@ -128,11 +128,6 @@ pub(crate) struct CodexPermissionConfig {
     pub(crate) default_permissions: String,
 }
 
-/// The level's text in a profile name and a mode id.
-fn level_name(level: PermissionLevel) -> &'static str {
-    level.into()
-}
-
 /// The profile id a level selects for one repository: `sidekicks-<level>-<hash of the repository
 /// root>` below YOLO, so a profile the person defined never collides with it, and Codex's full
 /// access at YOLO.
@@ -158,7 +153,7 @@ pub(crate) fn compose_codex_profile_name(
                 repository_root.to_string_lossy().as_bytes(),
             ));
             hash.truncate(REPOSITORY_HASH_LENGTH);
-            format!("sidekicks-{}-{hash}", level_name(level))
+            format!("sidekicks-{}-{hash}", <&'static str>::from(level))
         }
     }
 }
@@ -262,7 +257,7 @@ fn compose_codex_daemon_profile(
     let denies = folders
         .deny_paths
         .iter()
-        .map(|denied| (path_key(denied), CodexFilesystemAccess::Deny));
+        .map(|denied| (compose_path_key(denied), CodexFilesystemAccess::Deny));
     let mut filesystem = BTreeMap::new();
     for (path, access) in entries.into_iter().chain(denies) {
         filesystem.insert(path, access);
@@ -284,25 +279,27 @@ fn compose_repository_entries(
     };
     let pointer = folders.working_directory.join(".git");
     let mut entries = vec![
-        (path_key(git_common_folder), CodexFilesystemAccess::Write),
         (
-            path_key(&git_common_folder.join("hooks")),
+            compose_path_key(git_common_folder),
+            CodexFilesystemAccess::Write,
+        ),
+        (
+            compose_path_key(&git_common_folder.join("hooks")),
             CodexFilesystemAccess::Read,
         ),
         (
-            path_key(&git_common_folder.join("config")),
+            compose_path_key(&git_common_folder.join("config")),
             CodexFilesystemAccess::Read,
         ),
     ];
     // In a plain checkout the `.git` folder is the git folder itself and stays writable.
     if pointer != git_common_folder {
-        entries.push((path_key(&pointer), CodexFilesystemAccess::Read));
+        entries.push((compose_path_key(&pointer), CodexFilesystemAccess::Read));
     }
     entries
 }
 
-/// A path as a profile entry's key.
-fn path_key(path: &Path) -> String {
+fn compose_path_key(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
@@ -317,10 +314,12 @@ pub(crate) fn list_codex_modes() -> Vec<ProviderMode> {
                 PermissionLevel::Readonly
                 | PermissionLevel::Ask
                 | PermissionLevel::Reviewed
-                | PermissionLevel::Sandboxed => format!("sidekicks-{}", level_name(level)),
+                | PermissionLevel::Sandboxed => {
+                    format!("sidekicks-{}", <&'static str>::from(level))
+                }
             };
             ProviderMode {
-                id: FreeFormText::new(level_name(level).to_owned())
+                id: FreeFormText::new(<&'static str>::from(level).to_owned())
                     .expect("a level's name is a short word"),
                 name: FreeFormText::new(name).expect("a level's profile name is a short word"),
             }

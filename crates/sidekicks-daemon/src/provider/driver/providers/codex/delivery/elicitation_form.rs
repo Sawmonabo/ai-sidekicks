@@ -290,8 +290,8 @@ fn read_prefixed_integer(text: &str) -> Option<f64> {
     if digits.is_empty() {
         return None;
     }
-    // Every digit is kept while it fits; past that, a digit only scales the value, and a nonzero one
-    // sets the lowest bit, which lies far below the rounding point and so rounds as the exact
+    // Every digit is kept while it fits; past that, a digit only scales the value, and a nonzero
+    // one sets the lowest bit, which lies far below the rounding point and so rounds as the exact
     // value does.
     let mut value: u128 = 0;
     let mut dropped_bits: u32 = 0;

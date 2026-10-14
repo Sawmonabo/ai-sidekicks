@@ -17,7 +17,7 @@ enum CodexPatchChangeKind {
     Update,
 }
 
-/// The change's kind, sent as `{type}` or as the bare word.
+// Codex sends the kind as {type} or as the bare word.
 fn read_change_kind(change: &Map<String, Value>) -> Option<CodexPatchChangeKind> {
     let kind = change.get("kind")?;
     let kind = kind

@@ -64,8 +64,8 @@ impl Serialize for ClaudeHookAnswer {
     }
 }
 
-/// How the pause answers one callback: at once, or held with no answer yet. `took_effect` marks
-/// the first hold of a helper's pause, the moment it took effect.
+/// How the pause answers one callback: at once, or held with no answer yet. `has_taken_effect`
+/// marks the first hold of a helper's pause, the moment it took effect.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudePauseAnswer {
     /// Answer the callback now.
@@ -73,7 +73,7 @@ pub(crate) enum ClaudePauseAnswer {
     /// Leave the callback unanswered until the helper continues.
     Hold {
         /// Whether this hold is the helper's pause taking effect.
-        took_effect: bool,
+        has_taken_effect: bool,
     },
 }
 
@@ -151,12 +151,12 @@ impl ClaudeRunPauses {
             return ClaudePauseAnswer::Answer(ClaudeHookAnswer::Pass);
         }
         let held = self.held_callbacks.entry(session_id.clone()).or_default();
-        let took_effect = !held.iter().any(|callback| callback.agent_id == agent_id);
+        let has_taken_effect = !held.iter().any(|callback| callback.agent_id == agent_id);
         held.push(HeldToolCallback {
             request_id: request_id.to_owned(),
             agent_id: agent_id.to_owned(),
         });
-        ClaudePauseAnswer::Hold { took_effect }
+        ClaudePauseAnswer::Hold { has_taken_effect }
     }
 
     /// Answers a post-batch callback: a paused lead's ends the turn after the step in flight.
@@ -307,11 +307,15 @@ mod tests {
 
         assert_eq!(
             pauses.answer_before_tool(&session_id, Some("helper-a"), "r1"),
-            ClaudePauseAnswer::Hold { took_effect: true }
+            ClaudePauseAnswer::Hold {
+                has_taken_effect: true
+            }
         );
         assert_eq!(
             pauses.answer_before_tool(&session_id, Some("helper-a"), "r2"),
-            ClaudePauseAnswer::Hold { took_effect: false }
+            ClaudePauseAnswer::Hold {
+                has_taken_effect: false
+            }
         );
         assert_eq!(
             pauses.answer_before_tool(&session_id, Some("helper-b"), "r3"),
@@ -338,7 +342,9 @@ mod tests {
         pauses.pause_helper(&session_id, "helper-a");
         assert_eq!(
             pauses.answer_before_tool(&session_id, Some("helper-a"), "r4"),
-            ClaudePauseAnswer::Hold { took_effect: true }
+            ClaudePauseAnswer::Hold {
+                has_taken_effect: true
+            }
         );
         assert_eq!(
             pauses.resume_helper(&session_id, "helper-a", None),

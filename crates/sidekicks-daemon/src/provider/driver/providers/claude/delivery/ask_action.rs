@@ -13,7 +13,7 @@ use crate::provider::driver::providers::claude::event_normalizer::CLAUDE_PLAN_EX
 use crate::provider::port::permission_ask::ProviderAskAction;
 use crate::provider::record_readers::read_non_empty_string;
 
-const EVERY_RULE_SCOPE: [RememberedScopeKind; 2] =
+const CLAUDE_RULE_SCOPES: [RememberedScopeKind; 2] =
     [RememberedScopeKind::Session, RememberedScopeKind::Project];
 
 // The member of an ask Claude Code's safety check sets to offer no standing allow.
@@ -51,7 +51,7 @@ pub(crate) fn read_claude_ask_action(
         rule_scopes: if is_provider_flagged {
             Vec::new()
         } else {
-            EVERY_RULE_SCOPE.to_vec()
+            CLAUDE_RULE_SCOPES.to_vec()
         },
         is_provider_flagged,
     }
