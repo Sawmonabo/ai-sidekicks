@@ -102,7 +102,12 @@ fn check_leaf(
             issues,
         ),
         WorkflowParamType::Agent => {
-            check_reference::<AgentDefinitionId>(value, "expected an agent id", place, issues);
+            check_reference::<AgentDefinitionId>(
+                value,
+                "expected an agent definition id",
+                place,
+                issues,
+            );
         }
         WorkflowParamType::Project => {
             check_reference::<ProjectId>(value, "expected a project id", place, issues);
