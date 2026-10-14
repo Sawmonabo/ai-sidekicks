@@ -7,8 +7,7 @@
 //! service start's text, whose paths the reply's sanitizing strips. Every other message names no
 //! path: a closed reason makes that certain, and the ones naming an id rely on ids being opaque.
 
-use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::project::ProjectId;
@@ -21,7 +20,7 @@ use sidekicks_contracts::repo::folders::{
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode, refusal_fields};
 
 /// Why a repository call was refused; nothing was written for any of them. Converts into the
 /// [`DomainError`] the reply carries.
@@ -139,28 +138,24 @@ impl From<RepoRefusal> for DomainError {
             RepoRefusal::ProjectNotFound { project_id } => (
                 RefusalCode::RepoNotFound,
                 InvalidParams,
-                Some(Map::from_iter([(
-                    "projectId".to_owned(),
-                    Value::from(project_id.as_str()),
-                )])),
+                Some(refusal_fields(json!({ "projectId": project_id.as_str() }))),
             ),
             RepoRefusal::MountNotFound { repo_mount_id } => (
                 RefusalCode::RepoNotFound,
                 InvalidParams,
-                Some(Map::from_iter([(
-                    "repoMountId".to_owned(),
-                    Value::from(repo_mount_id.as_str()),
-                )])),
+                Some(refusal_fields(
+                    json!({ "repoMountId": repo_mount_id.as_str() }),
+                )),
             ),
             RepoRefusal::RootResolutionFailed { reason } => (
                 RefusalCode::RepoRootResolutionFailed,
                 InternalError,
-                Some(fields_of(&RepoRootResolutionFailedDetails { reason })),
+                Some(refusal_fields(RepoRootResolutionFailedDetails { reason })),
             ),
             RepoRefusal::OutsideTrustEnvelope { reason } => (
                 RefusalCode::RepoOutsideTrustEnvelope,
                 InternalError,
-                Some(fields_of(&RepoOutsideTrustEnvelopeDetails { reason })),
+                Some(refusal_fields(RepoOutsideTrustEnvelopeDetails { reason })),
             ),
             RepoRefusal::AlreadyAttached {
                 conflicting_repo_mount_id,
@@ -168,7 +163,7 @@ impl From<RepoRefusal> for DomainError {
             } => (
                 RefusalCode::RepoAlreadyAttached,
                 InternalError,
-                Some(fields_of(&RepoAlreadyAttachedDetails {
+                Some(refusal_fields(RepoAlreadyAttachedDetails {
                     conflicting_repo_mount_id,
                     conflicting_project_id,
                 })),
@@ -176,23 +171,21 @@ impl From<RepoRefusal> for DomainError {
             RepoRefusal::DetachConflict { running_session_id } => (
                 RefusalCode::RepoDetachConflict,
                 InternalError,
-                Some(Map::from_iter([(
-                    "runningSessionId".to_owned(),
-                    Value::from(running_session_id.as_str()),
-                )])),
+                Some(refusal_fields(
+                    json!({ "runningSessionId": running_session_id.as_str() }),
+                )),
             ),
             RepoRefusal::MountManaged { repo_mount_id } => (
                 RefusalCode::RepoMountManaged,
                 InternalError,
-                Some(Map::from_iter([(
-                    "repoMountId".to_owned(),
-                    Value::from(repo_mount_id.as_str()),
-                )])),
+                Some(refusal_fields(
+                    json!({ "repoMountId": repo_mount_id.as_str() }),
+                )),
             ),
             RepoRefusal::ReattachRefused { repo_mount_id: _ } => (
                 RefusalCode::RepoReattachRefused,
                 InternalError,
-                Some(fields_of(&RepoReattachRefusedDetails {
+                Some(refusal_fields(RepoReattachRefusedDetails {
                     reason: RepoReattachRefusedReason::IdentityMatches,
                 })),
             ),
@@ -202,7 +195,7 @@ impl From<RepoRefusal> for DomainError {
             } => (
                 RefusalCode::RepoReattachConflict,
                 InternalError,
-                Some(fields_of(&RepoReattachConflictDetails {
+                Some(refusal_fields(RepoReattachConflictDetails {
                     running_session_id,
                     running_agent_id,
                 })),
@@ -213,7 +206,7 @@ impl From<RepoRefusal> for DomainError {
             RepoRefusal::CloneRefused { details } => (
                 RefusalCode::RepoCloneRefused,
                 InternalError,
-                Some(fields_of(&details)),
+                Some(refusal_fields(details)),
             ),
             RepoRefusal::CloneUnavailable { message: _ } => {
                 (RefusalCode::RepoCloneUnavailable, InternalError, None)
@@ -264,12 +257,4 @@ fn clone_refused_message(details: &RepoCloneRefusedDetails) -> &str {
             "the clone's destination is already there and is not empty"
         }
     }
-}
-
-// A refusal's `data.fields` written through its contract details type, which names each member
-// in its wire spelling.
-fn fields_of(details: &impl Serialize) -> Map<String, Value> {
-    serde_json::to_value(details)
-        .and_then(serde_json::from_value)
-        .expect("a refusal's details type is a struct or a tagged enum, which writes an object")
 }

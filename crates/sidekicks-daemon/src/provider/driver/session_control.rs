@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde_json::Map;
+use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResult;
@@ -47,13 +47,12 @@ pub(crate) struct RevokeRuleParams {
 /// `session.permission_level_unavailable`: the session's provider, its account or its model cannot
 /// run at `level`, so nothing was changed. The level goes out as the refusal's detail.
 pub(crate) fn permission_level_unavailable(level: PermissionLevel) -> DomainError {
-    let level = serde_json::to_value(level).expect("a permission level serializes as its name");
     DomainError::new(
         "The session's provider cannot run at that permission level.",
         RefusalCode::SessionPermissionLevelUnavailable,
         DomainErrorJsonRpcCode::InvalidParams,
     )
-    .with_detail(Map::from_iter([("level".to_owned(), level)]))
+    .with_detail(json!({ "level": level }))
 }
 
 /// The provider build a driver's sessions move from and to, as each build printed its version.
