@@ -52,6 +52,9 @@ interface WorkflowDefinitionReadResponse {
   document: WorkflowDocument;
   // The workflow's own level, which every run of it uses and the builder's level pill reads.
   permissionLevel: PermissionLevel;
+  // The browser the workflow's runs use in the background, which the builder's browser pill reads;
+  // a new workflow reads `settings_default`.
+  backgroundBrowser: "settings_default" | "sandboxed" | "not_sandboxed";
   createdAt: string;
   // The webhook token's dates, present only where the document's trigger is a webhook and a token
   // exists. The token itself is never read back — only its hash is kept, and
