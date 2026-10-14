@@ -223,12 +223,62 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use rstest::rstest;
-    use sidekicks_contracts::repo::mount::WorkspaceState;
+    use sidekicks_contracts::repo::mount::{RepoMountHealth, WorkspaceState};
     use sidekicks_contracts::wire::instant::WireInstant;
 
-    use super::{FilesystemPathProbe, WorkspaceHealthRow, compute_workspace_health};
+    use super::{
+        FilesystemPathProbe, RepoMountHealthRow, RepoMountIdentityObservation, WorkspaceHealthRow,
+        compute_repo_mount_health, compute_workspace_health,
+    };
 
     const ROOT: &str = "/repos/app";
+
+    fn checked_at() -> WireInstant {
+        WireInstant::try_from("2026-10-14T09:30:00.000Z".to_owned())
+            .expect("the instant is RFC 3339")
+    }
+
+    // `None` expects the projection refused.
+    #[rstest]
+    #[case::unreachable_root_owes_no_identity(
+        false,
+        true,
+        None,
+        Some(RepoMountHealth::Unreachable { checked_at: checked_at(), is_repository: None })
+    )]
+    #[case::unanchored_reachable_root_reads_healthy(
+        true,
+        false,
+        None,
+        Some(RepoMountHealth::Healthy { checked_at: checked_at(), is_repository: None })
+    )]
+    #[case::anchored_root_holding_its_repository_reads_healthy(
+        true,
+        true,
+        Some(RepoMountIdentityObservation::Anchored),
+        Some(RepoMountHealth::Healthy { checked_at: checked_at(), is_repository: None })
+    )]
+    #[case::owed_identity_missing_is_refused(true, true, None, None)]
+    fn a_mount_reads_unreachable_first_then_its_identity(
+        #[case] is_reachable: bool,
+        #[case] is_anchored: bool,
+        #[case] identity: Option<RepoMountIdentityObservation>,
+        #[case] expected: Option<RepoMountHealth>,
+    ) {
+        let probe = FilesystemPathProbe {
+            probed_path: PathBuf::from(ROOT),
+            is_reachable,
+            checked_at: checked_at(),
+        };
+        let row = RepoMountHealthRow {
+            canonical_root: Path::new(ROOT),
+            common_dir_anchor: is_anchored.then_some(Path::new("/repos/app/.git")),
+        };
+        assert_eq!(
+            compute_repo_mount_health(&row, &probe, identity).ok(),
+            expected
+        );
+    }
 
     #[rstest]
     #[case::missing_root_reads_stale_and_asks_for_the_write(
@@ -255,8 +305,7 @@ mod tests {
         let probe = probe_reachability.map(|is_reachable| FilesystemPathProbe {
             probed_path: PathBuf::from(ROOT),
             is_reachable,
-            checked_at: WireInstant::try_from("2026-10-14T09:30:00.000Z".to_owned())
-                .expect("the instant is RFC 3339"),
+            checked_at: checked_at(),
         });
         let row = WorkspaceHealthRow {
             state,
