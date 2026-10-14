@@ -1,5 +1,6 @@
 //! The step events a workflow run appends: a step started, finished, failed, skipped or canceled, a
-//! phase suspended, failed or held for memory, and a gate resolved, each naming its step by the
+//! phase admitted, started, progressed, canceling, retried, suspended, resumed, completed, failed
+//! or held for memory, a join's siblings canceled, and a gate resolved, each naming its step by the
 //! step record's key.
 
 use schemars::JsonSchema;
@@ -14,10 +15,10 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::Never;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::ComposedText;
 use crate::workflow::definition::document::WorkflowNodeId;
 use crate::workflow::definition::item::WorkflowStepError;
 use crate::workflow::run::events::workflow_run_event;
+use crate::workflow::run::gate_resolution::WorkflowGateResolutionId;
 use crate::workflow::run::step::record::{WorkflowCost, WorkflowPayloadRef, workflow_step_key};
 
 ts_constants! {
@@ -262,6 +263,64 @@ workflow_step_event! {
     }
 }
 
+workflow_step_event! {
+    /// `workflow.phase_admitted`: the memory gate admitted the step, which may start.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowPhaseAdmittedPayload {}
+}
+
+workflow_step_event! {
+    /// `workflow.phase_started`: an admitted phase began.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowPhaseStartedPayload {}
+}
+
+workflow_step_event! {
+    /// `workflow.phase_progressed`: a phase reported progress, at its phase type's own cadence.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowPhaseProgressedPayload {}
+}
+
+workflow_step_event! {
+    /// `workflow.phase_canceling`: a phase was asked to stop and is winding down.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowPhaseCancelingPayload {}
+}
+
+workflow_step_event! {
+    /// `workflow.phase_retried`: a failed phase was retried; the step named is the new attempt.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowPhaseRetriedPayload {}
+}
+
+workflow_step_event! {
+    /// `workflow.phase_resumed`: a waiting step resumed.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowPhaseResumedPayload {}
+}
+
+workflow_step_event! {
+    /// `workflow.phase_completed`: a phase finished, and its gate may be answered.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowPhaseCompletedPayload {}
+}
+
+workflow_step_event! {
+    /// `workflow.parallel_join_cancellation`: one wave of running sibling branches was canceled at
+    /// the join, because the run ended failed or canceled or a first-to-arrive merge took its first
+    /// input; each sibling's own `workflow.step_canceled` follows.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowParallelJoinCancellationPayload {}
+}
+
 /// Why a step was skipped: its input carried no items, or its node is disabled.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
@@ -302,7 +361,7 @@ workflow_run_event! {
         /// The answer.
         pub outcome: ApprovalDecision,
         /// The answer's row in the gate resolutions.
-        pub gate_resolution_id: ComposedText,
+        pub gate_resolution_id: WorkflowGateResolutionId,
         /// The device that answered.
         pub device_id: DeviceId,
     }
@@ -312,8 +371,9 @@ workflow_run_event! {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/run/step/events",
     doc: "The step events a workflow run appends: a step started, finished, failed, skipped or \
-          canceled, a phase suspended, failed or held for memory, and a gate resolved, each naming \
-          its step by the step record's key.",
+          canceled, a phase admitted, started, progressed, canceling, retried, suspended, resumed, \
+          completed, failed or held for memory, a join's siblings canceled, and a gate resolved, \
+          each naming its step by the step record's key.",
     definitions: &[
         Definition::read::<WorkflowStepCanceledPayload>().checked(),
         Definition::read::<WorkflowStepStartedPayload>().checked(),
@@ -323,6 +383,14 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowPhaseCancellationReason>(),
         Definition::read::<WorkflowPhaseFailedPayload>().checked(),
         Definition::read::<WorkflowPhaseWaitingOnPoolPayload>().checked(),
+        Definition::read::<WorkflowPhaseAdmittedPayload>().checked(),
+        Definition::read::<WorkflowPhaseStartedPayload>().checked(),
+        Definition::read::<WorkflowPhaseProgressedPayload>().checked(),
+        Definition::read::<WorkflowPhaseCancelingPayload>().checked(),
+        Definition::read::<WorkflowPhaseRetriedPayload>().checked(),
+        Definition::read::<WorkflowPhaseResumedPayload>().checked(),
+        Definition::read::<WorkflowPhaseCompletedPayload>().checked(),
+        Definition::read::<WorkflowParallelJoinCancellationPayload>().checked(),
         Definition::read::<WorkflowStepSkipReason>(),
         Definition::read::<WorkflowStepSkippedPayload>().checked(),
         Definition::read::<WorkflowGateResolvedPayload>().checked(),

@@ -6,7 +6,7 @@ use crate::wire::id::UuidTextForm;
 use crate::wire::inline_scalar_definition;
 
 /// Declares a UUID id: `branded_uuid_id! { /// doc \n SessionId }` gives a newtype over the id's
-/// text that accepts only the UUID text form, branded `SessionId` in TypeScript.
+/// text that accepts only the UUID text form, held lowercased, branded `SessionId` in TypeScript.
 macro_rules! branded_uuid_id {
     ($(#[doc = $doc:literal])+ $name:ident) => {
         $(#[doc = $doc])+
@@ -15,12 +15,12 @@ macro_rules! branded_uuid_id {
         pub struct $name(String);
 
         impl $name {
-            /// Checks `text`; refuses anything but the RFC 9562 UUID text form.
+            /// Checks and lowercases `text`; refuses anything but the RFC 9562 UUID text form.
             pub fn new(text: String) -> Result<Self, $crate::wire::id::IdError> {
-                $crate::wire::id::check_uuid_text(&text).map(|()| Self(text))
+                $crate::wire::id::canonical_uuid_text(text).map(Self)
             }
 
-            /// The id's text as received.
+            /// The id's lowercase text.
             pub fn as_str(&self) -> &str {
                 &self.0
             }
@@ -67,3 +67,37 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: &[],
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use crate::session::id::SessionId;
+    use crate::wire::id::UuidTextForm;
+
+    #[rstest]
+    #[case(
+        "0190F1C4-7E3A-7B1C-9D2E-3F4A5B6C7D8E",
+        "0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e"
+    )]
+    #[case(
+        "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF",
+        "ffffffff-ffff-ffff-ffff-ffffffffffff"
+    )]
+    fn an_uppercase_uuid_reads_back_lowercase_and_equals_its_lowercase_spelling(
+        #[case] upper: &str,
+        #[case] lower: &str,
+    ) {
+        let read = |text: &str| -> SessionId {
+            serde_json::from_value(serde_json::Value::from(text)).expect("a UUID id reads")
+        };
+        assert_eq!(read(upper).as_str(), lower);
+        assert_eq!(read(upper), read(lower));
+        let form: UuidTextForm =
+            serde_json::from_value(serde_json::Value::from(upper)).expect("a UUID reads");
+        assert_eq!(
+            serde_json::to_value(&form).expect("writes"),
+            serde_json::Value::from(lower)
+        );
+    }
+}

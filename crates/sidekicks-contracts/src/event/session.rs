@@ -68,12 +68,19 @@ use crate::session::goal::{SessionGoalClearedPayload, SessionGoalUpdatedPayload}
 use crate::session::recovery::RecoveryDamagedEventsSkippedPayload;
 use crate::session::restore::SessionRestoreFinishedPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::workflow::definition::events::{
+    WorkflowCreatedPayload, WorkflowTriggerArmedPayload, WorkflowTriggerFiredPayload,
+};
 use crate::workflow::run::events::{
-    WorkflowCanceledPayload, WorkflowResultsPostedPayload, WorkflowResumedPayload,
-    WorkflowRunDeletedPayload, WorkflowStartedPayload,
+    WorkflowCanceledPayload, WorkflowCompletedPayload, WorkflowFailedPayload, WorkflowGatedPayload,
+    WorkflowResultsPostedPayload, WorkflowResumedPayload, WorkflowRunDeletedPayload,
+    WorkflowRunWaitingPayload, WorkflowStartedPayload,
 };
 use crate::workflow::run::step::events::{
-    WorkflowGateResolvedPayload, WorkflowPhaseFailedPayload, WorkflowPhaseSuspendedPayload,
+    WorkflowGateResolvedPayload, WorkflowParallelJoinCancellationPayload,
+    WorkflowPhaseAdmittedPayload, WorkflowPhaseCancelingPayload, WorkflowPhaseCompletedPayload,
+    WorkflowPhaseFailedPayload, WorkflowPhaseProgressedPayload, WorkflowPhaseResumedPayload,
+    WorkflowPhaseRetriedPayload, WorkflowPhaseStartedPayload, WorkflowPhaseSuspendedPayload,
     WorkflowPhaseWaitingOnPoolPayload, WorkflowStepCanceledPayload, WorkflowStepFailedPayload,
     WorkflowStepFinishedPayload, WorkflowStepSkippedPayload, WorkflowStepStartedPayload,
 };
@@ -360,6 +367,42 @@ session_events! {
     WorkflowStepSkipped(WorkflowStepSkippedPayload) = "workflow.step_skipped",
     /// Emitted when a workflow gate is answered.
     WorkflowGateResolved(WorkflowGateResolvedPayload) = "workflow.gate_resolved",
+    /// Emitted when a workflow is authored or a new version of it is written.
+    WorkflowCreated(WorkflowCreatedPayload) = "workflow.created",
+    /// Emitted when a workflow run reaches a gate that must be answered before it goes on.
+    WorkflowGated(WorkflowGatedPayload) = "workflow.gated",
+    /// Emitted when a workflow run ends on a failure.
+    WorkflowFailed(WorkflowFailedPayload) = "workflow.failed",
+    /// Emitted when a workflow run reaches its last steps and succeeds.
+    WorkflowCompleted(WorkflowCompletedPayload) = "workflow.completed",
+    /// Emitted when a workflow run starts waiting, on a person, its chain's question or a spent
+    /// provider account.
+    WorkflowRunWaiting(WorkflowRunWaitingPayload) = "workflow.run_waiting",
+    /// Emitted when a workflow's schedule is armed.
+    WorkflowScheduleArmed(WorkflowTriggerArmedPayload) = "workflow.schedule_armed",
+    /// Emitted when an armed schedule fires, starting a run.
+    WorkflowScheduleFired(#[garde(dive)] WorkflowTriggerFiredPayload) = "workflow.schedule_fired",
+    /// Emitted when a workflow's file watch, webhook or session-event filter is armed.
+    WorkflowTriggerArmed(WorkflowTriggerArmedPayload) = "workflow.trigger_armed",
+    /// Emitted when an armed trigger other than a schedule fires, starting a run.
+    WorkflowTriggerFired(#[garde(dive)] WorkflowTriggerFiredPayload) = "workflow.trigger_fired",
+    /// Emitted when the memory gate admits a workflow step, which may start.
+    WorkflowPhaseAdmitted(WorkflowPhaseAdmittedPayload) = "workflow.phase_admitted",
+    /// Emitted when an admitted workflow phase begins.
+    WorkflowPhaseStarted(WorkflowPhaseStartedPayload) = "workflow.phase_started",
+    /// Emitted when a workflow phase reports progress.
+    WorkflowPhaseProgressed(WorkflowPhaseProgressedPayload) = "workflow.phase_progressed",
+    /// Emitted when a workflow phase is asked to stop and is winding down.
+    WorkflowPhaseCanceling(WorkflowPhaseCancelingPayload) = "workflow.phase_canceling",
+    /// Emitted when a failed workflow phase is retried as a new attempt.
+    WorkflowPhaseRetried(WorkflowPhaseRetriedPayload) = "workflow.phase_retried",
+    /// Emitted when a waiting workflow step resumes.
+    WorkflowPhaseResumed(WorkflowPhaseResumedPayload) = "workflow.phase_resumed",
+    /// Emitted when a workflow phase finishes.
+    WorkflowPhaseCompleted(WorkflowPhaseCompletedPayload) = "workflow.phase_completed",
+    /// Emitted once per wave of running sibling branches a join cancels.
+    WorkflowParallelJoinCancellation(WorkflowParallelJoinCancellationPayload) =
+        "workflow.parallel_join_cancellation",
     /// Emitted when a backup run writes a backup.
     BackupCompleted(BackupCompletedPayload) = "backup.completed",
     /// Emitted when a backup run does not finish.
