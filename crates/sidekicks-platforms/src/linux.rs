@@ -1,10 +1,13 @@
 //! What Linux alone supplies: the machine's pretty host name, inside a WSL distribution the folders
-//! the Windows drives are mounted at, and reads at an offset rather than through a memory map.
+//! the Windows drives are mounted at, reads at an offset rather than through a memory map, a
+//! process's fields from its stat file, and the bound on a program's argument.
 
 use std::ffi::OsString;
 use std::io::{self, ErrorKind};
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
+
+use nix::unistd::SysconfVar;
 
 #[cfg(any(test, feature = "test-support"))]
 use crate::footprint::ProcessFootprint;
@@ -25,6 +28,15 @@ const KERNEL_RELEASE_PATH: &str = "/proc/sys/kernel/osrelease";
 
 // The mount table, one mount per line.
 const MOUNT_TABLE_PATH: &str = "/proc/self/mounts";
+
+// The first field of a process's stat file after its name, which proc(5) numbers 3.
+const FIRST_FIELD_AFTER_NAME: usize = 3;
+
+// The stat file's field holding the parent's id.
+const PARENT_FIELD: usize = 4;
+
+// The pages one argument string, its NUL included, may fill (`MAX_ARG_STRLEN`, execve(2)).
+const ARGUMENT_PAGES: usize = 32;
 
 /// The machine's pretty host name, from `PRETTY_HOSTNAME` in `/etc/machine-info`, or, when the file
 /// or the value is missing or empty, its host name. Fails with [`MachineNameError::Read`] when the
@@ -65,6 +77,74 @@ pub fn windows_drive_mounts() -> io::Result<Vec<PathBuf>> {
 /// Whether a reader that keeps a file open reads it through a memory map rather than by reads at
 /// an offset: no, since only macOS's footprint measures a mapped file smaller.
 pub const SHOULD_MEMORY_MAP_READS: bool = false;
+
+/// The id of the parent of process `process_id`, field 4 of its stat file; `None` when no process
+/// has the id. Fails with `InvalidData` when the field is missing or no id, and with the read's
+/// error otherwise.
+pub fn read_parent_process_id(process_id: u32) -> io::Result<Option<u32>> {
+    let Some(parent) = read_process_stat_field(process_id, PARENT_FIELD)? else {
+        return Ok(None);
+    };
+    parent
+        .parse()
+        .map(Some)
+        .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))
+}
+
+/// A bound in bytes that no single argument a program can start with reaches: 32 pages, the
+/// kernel's limit on one argument string, which counts its NUL. Fails with the system's error when
+/// the page size cannot be read, and with `Other` when the system reports none or the bound passes
+/// `usize`.
+pub fn read_command_argument_limit() -> io::Result<usize> {
+    let page_bytes = nix::unistd::sysconf(SysconfVar::PAGE_SIZE)?
+        .ok_or_else(|| io::Error::other("the system reports no page size"))?;
+    usize::try_from(page_bytes)
+        .map_err(io::Error::other)?
+        .checked_mul(ARGUMENT_PAGES)
+        .ok_or_else(|| io::Error::other("32 pages pass the largest size"))
+}
+
+/// Field `field` of `/proc/<process_id>/stat`, numbered from 1 as proc(5) numbers them and counted
+/// after the last `)`, since the name before it may hold spaces and parentheses; `None` when no
+/// process has the id, its file gone before the open or ending during the read (`ESRCH`). Fails
+/// with `InvalidInput` for a field before the third, `InvalidData` when the file lacks the field,
+/// and with the read's error otherwise.
+pub(crate) fn read_process_stat_field(process_id: u32, field: usize) -> io::Result<Option<String>> {
+    let index = field.checked_sub(FIRST_FIELD_AFTER_NAME).ok_or_else(|| {
+        io::Error::new(
+            ErrorKind::InvalidInput,
+            format!("field {field} of a stat file comes before the name's end"),
+        )
+    })?;
+    let stat_path = format!("/proc/{process_id}/stat");
+    let stat = match std::fs::read(&stat_path) {
+        Ok(stat) => stat,
+        Err(error)
+            if error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
+    let missing_field = || {
+        io::Error::new(
+            ErrorKind::InvalidData,
+            format!("{stat_path} has no field {field}"),
+        )
+    };
+    let name_end = stat
+        .iter()
+        .rposition(|byte| *byte == b')')
+        .ok_or_else(missing_field)?;
+    let value = stat[name_end + 1..]
+        .split(u8::is_ascii_whitespace)
+        .filter(|value| !value.is_empty())
+        .nth(index)
+        .ok_or_else(missing_field)?;
+    String::from_utf8(value.to_vec())
+        .map(Some)
+        .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))
+}
 
 /// This process's footprint, which only macOS reports. Always fails with `Unsupported`.
 #[cfg(any(test, feature = "test-support"))]

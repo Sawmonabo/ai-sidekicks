@@ -6,6 +6,8 @@ locale = "en-us"
 [default.extend-identifiers]
 writeable = "writeable"
 Writeable = "Writeable"
+# `windows-sys`' spelling of the Windows error a too-long command line gives.
+ERROR_FILENAME_EXCED_RANGE = "ERROR_FILENAME_EXCED_RANGE"
 
 [files]
 extend-exclude = ["*.md"]

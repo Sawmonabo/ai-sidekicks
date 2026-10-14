@@ -288,6 +288,46 @@ execution_posture! {
     }
 }
 
+impl ExecutionPosture {
+    /// The credential deny list handed to the provider, the same member on every level.
+    pub fn credential_policy_ref(&self) -> &CredentialPolicyRef {
+        match self {
+            Self::Readonly {
+                credential_policy_ref,
+                ..
+            }
+            | Self::Ask {
+                credential_policy_ref,
+                ..
+            }
+            | Self::Reviewed {
+                credential_policy_ref,
+                ..
+            }
+            | Self::Sandboxed {
+                credential_policy_ref,
+                ..
+            }
+            | Self::Yolo {
+                credential_policy_ref,
+                ..
+            } => credential_policy_ref,
+        }
+    }
+
+    /// The folders a run may write: empty on `readonly` and `yolo`.
+    pub fn writable_roots(&self) -> &[FilesystemPath] {
+        match self {
+            Self::Readonly { writable_roots, .. } | Self::Yolo { writable_roots, .. } => {
+                writable_roots.as_slice()
+            }
+            Self::Ask { writable_roots, .. }
+            | Self::Reviewed { writable_roots, .. }
+            | Self::Sandboxed { writable_roots, .. } => writable_roots,
+        }
+    }
+}
+
 /// The TypeScript module of what a driver offers.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/driver/capabilities",
