@@ -207,7 +207,7 @@ pattern_text! {
     /// The answer to one of git's questions: one line with no NUL, possibly empty (an empty
     /// passphrase), since git's askpass program prints it as one line and a break would cut it
     /// short or smuggle a second.
-    pub struct AskpassAnswer("^[^\\x00\\r\\n]*$", max = REPO_CLONE_ANSWER_MAX_LEN);
+    pub struct AskpassAnswer("^[^\\x00\\r\\n]*$", max = REPO_CLONE_ANSWER_MAX_LEN) redacted;
 }
 
 /// `repo.cloneAnswer`: the answer to one of git's questions. The daemon hands it to git's askpass

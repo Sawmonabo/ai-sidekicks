@@ -438,6 +438,7 @@ mod tests {
     use super::{
         WorkflowSecretCreateRequest, WorkflowSecretReference, WorkflowSecretReplaceRequest,
     };
+    use crate::repo::clone::RepoCloneAnswerRequest;
     use crate::workflow::definition::builder::WorkflowWebhookTokenRotateResponse;
 
     /// The secret every leak case carries.
@@ -492,6 +493,11 @@ mod tests {
         "definitionId": RECORD_ID,
         "token": SECRET,
         "createdAt": "2026-10-13T12:00:00.000Z",
+    })))]
+    #[case::clone_answer(&debug_of::<RepoCloneAnswerRequest>(json!({
+        "projectId": RECORD_ID,
+        "questionId": RECORD_ID,
+        "answer": SECRET,
     })))]
     fn a_write_only_value_never_reaches_a_debug_form(#[case] debug: &str) {
         assert!(!debug.contains(SECRET), "{debug}");
