@@ -4,10 +4,12 @@
     unsafe_code,
     reason = "the terminal's window size, console and library-search calls, the shell start's \
               signal and console-handler calls, the parent check `scutil`'s child runs in \
-              `pre_exec`, the Windows host-name and free-room calls, and the measurement tests' \
-              footprint read on macOS are C interfaces"
+              `pre_exec`, the Windows host-name, free-room and entry-identity calls, the macOS \
+              parent-process read, and the measurement tests' footprint read on macOS are C \
+              interfaces"
 )]
 
+mod entry_identity;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
 #[cfg(target_os = "linux")]
@@ -18,24 +20,36 @@ mod macos;
 #[cfg(unix)]
 mod posix;
 mod shell_start;
+mod socket_path;
 mod spawner;
 mod terminal;
 #[cfg(target_os = "windows")]
 mod windows;
 
+pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::process_footprint;
 #[cfg(target_os = "linux")]
 pub use linux::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
+#[cfg(target_os = "linux")]
+pub use linux::{read_command_argument_limit, read_parent_process_id};
 pub use machine_name::MachineNameError;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::process_footprint;
 #[cfg(target_os = "macos")]
 pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
+#[cfg(target_os = "macos")]
+pub use macos::{read_command_argument_limit, read_parent_process_id};
+#[cfg(unix)]
+pub use posix::askpass::askpass_listener;
+#[cfg(unix)]
+pub use posix::caller_process::read_peer_process_id;
 #[cfg(unix)]
 pub use posix::disk::{flush_file, flush_folder, read_exact_at, volume_free_bytes};
+#[cfg(unix)]
+pub use posix::entry_identity::entry_identity;
 #[cfg(unix)]
 pub use posix::error_codes::{
     is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
@@ -51,6 +65,8 @@ pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
 #[cfg(unix)]
+pub use posix::socket_path::check_socket_path;
+#[cfg(unix)]
 pub use posix::terminal::{
     TerminalWatch, child_process_id, end_process_tree, exit_signal, read_console, release_terminal,
     restrict_library_search, run_console_helper, run_terminal_loop, send_console_break,
@@ -61,6 +77,7 @@ pub use posix::terminal::{abnormal_exit, echo_program, pass_through_start, waiti
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::uptime::uptime_line;
 pub use shell_start::{ShellStart, ShellStartError};
+pub use socket_path::SocketPathRefused;
 pub use spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
 pub use terminal::{AbnormalExit, TestProgram};
@@ -69,10 +86,18 @@ pub use terminal::{
     TerminalWake, TerminalWaker,
 };
 #[cfg(target_os = "windows")]
+pub use windows::askpass::askpass_listener;
+#[cfg(target_os = "windows")]
+pub use windows::caller_process::{read_parent_process_id, read_peer_process_id};
+#[cfg(target_os = "windows")]
+pub use windows::command_argument_limit::read_command_argument_limit;
+#[cfg(target_os = "windows")]
 pub use windows::disk::{
     FlushFailure, SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, read_exact_at,
     volume_free_bytes, windows_drive_mounts,
 };
+#[cfg(target_os = "windows")]
+pub use windows::entry_identity::entry_identity;
 #[cfg(target_os = "windows")]
 pub use windows::error_codes::{
     is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
@@ -91,6 +116,8 @@ pub use windows::real_path::real_path;
 pub use windows::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
+#[cfg(target_os = "windows")]
+pub use windows::socket_path::check_socket_path;
 #[cfg(target_os = "windows")]
 pub use windows::terminal::{
     TerminalWatch, child_process_id, end_process_tree, exit_signal, read_console, release_terminal,
