@@ -269,7 +269,7 @@ function renderUsageReading(reading: UsageReading | undefined, clockLocale: stri
   }
   return (
     <span>
-      <WireFigure value={reading.figure} hoverLabel={reading.exactValue} /> · as of{" "}
+      <WireFigure value={reading.figure} hoverLabel={reading.exactValue} /> · Last updated{" "}
       <WireFigure
         value={formatClockTime(reading.readAt, clockLocale)}
         hoverLabel={formatZonedDateTime(reading.readAt, clockLocale)}
