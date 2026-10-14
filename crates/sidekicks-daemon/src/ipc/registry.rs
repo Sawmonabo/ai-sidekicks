@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::ipc::domain_error::DomainError;
+use crate::ipc::in_flight_mutations::RecordedCallId;
 use crate::ipc::stream::feed::{Feed, SendGate};
 
 /// A dotted method name: lowercase-led camelCase segments, at least two (`session.create`).
@@ -53,6 +54,9 @@ pub(crate) struct HandlerContext {
     pub(crate) caller_process_id: Option<u32>,
     /// Canceled when the client sends `$/cancelRequest` for this call.
     pub(crate) cancellation: CancellationToken,
+    /// The call's place among the mutating calls the daemon is running, which a flush or a stop
+    /// waits behind; `None` for a call that is not recorded.
+    pub(crate) recorded_call: Option<RecordedCallId>,
 }
 
 /// A handler's failure: a classified refusal, or a fault the client is told nothing of.
@@ -64,6 +68,9 @@ pub(crate) enum HandlerError {
     /// A fault inside the daemon, answered `-32603` with no detail.
     #[error(transparent)]
     Internal(Box<dyn Error + Send + Sync>),
+    /// The call ended unanswered: its client canceled it or its connection closed (`-32800`).
+    #[error("the call was canceled")]
+    Canceled,
 }
 
 /// Why a dispatch produced no reply. No arm's message names the method or quotes the call.
@@ -102,6 +109,7 @@ impl From<HandlerError> for DispatchError {
         match error {
             HandlerError::Refused(error) => Self::Refused(error),
             HandlerError::Internal(error) => Self::Internal(error),
+            HandlerError::Canceled => Self::Canceled,
         }
     }
 }
@@ -134,6 +142,8 @@ pub(crate) enum Reply {
     Subscription {
         /// The acknowledgement, which carries `subscription_id`.
         acknowledgement: EncodedValue,
+        /// The subscribe method's wire name, which the subscription's log lines carry.
+        method: &'static str,
         /// The subscription's id, minted by the registry.
         subscription_id: SubscriptionId,
         /// The subscription's emissions.
@@ -188,6 +198,9 @@ pub(crate) enum RegistrationError {
     },
 }
 
+/// What a query's or a mutation's handler returns: its result, or why it gave none.
+type HandlerAnswer<T> = BoxFuture<'static, Result<T, HandlerError>>;
+
 /// One registered method's call with its types erased: params and attachments in, reply out.
 type Call = Box<
     dyn Fn(
@@ -218,17 +231,14 @@ impl MethodRegistryBuilder {
     }
 
     /// Registers a query's or a mutation's `handler`; fails on a subscribe method, a malformed name
-    /// and a name already registered. A query's handler is dropped when its call is canceled; a mutation's
-    /// runs to its own answer and checks `cancellation` at its commit point itself.
+    /// and a name already registered. A query's handler is dropped when its call is canceled; a
+    /// mutation's runs to its own answer and checks `cancellation` at its commit point itself.
     pub(crate) fn register<M, Handler>(&mut self, handler: Handler) -> Result<(), RegistrationError>
     where
         M: Method + 'static,
         M::Params: Send + 'static,
         M::Result: Send + 'static,
-        Handler: Fn(M::Params, HandlerContext) -> BoxFuture<'static, Result<M::Result, HandlerError>>
-            + Send
-            + Sync
-            + 'static,
+        Handler: Fn(M::Params, HandlerContext) -> HandlerAnswer<M::Result> + Send + Sync + 'static,
     {
         if M::DESCRIPTOR.procedure_type == ProcedureType::Subscription {
             return Err(RegistrationError::WrongForm {
@@ -356,7 +366,7 @@ async fn answer_call<M, Handler>(
 where
     M: Method + 'static,
     M::Params: 'static,
-    Handler: Fn(M::Params, HandlerContext) -> BoxFuture<'static, Result<M::Result, HandlerError>>,
+    Handler: Fn(M::Params, HandlerContext) -> HandlerAnswer<M::Result>,
 {
     if context.cancellation.is_cancelled() {
         return Err(DispatchError::Canceled);
@@ -408,6 +418,7 @@ where
         .ok_or(DispatchError::Canceled)??;
     Ok(Reply::Subscription {
         acknowledgement: encode_checked(&acknowledgement)?,
+        method: M::DESCRIPTOR.method,
         subscription_id,
         feed: Box::new(CheckedFeed { feed }),
     })
@@ -486,28 +497,18 @@ mod tests {
 
     use futures::FutureExt as _;
     use rstest::rstest;
-    use schemars::JsonSchema;
-    use serde::{Deserialize, Serialize};
     use serde_json::json;
     use serde_json::value::RawValue;
     use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType};
     use sidekicks_contracts::schema::received_check;
-    use sidekicks_contracts::trust_statement::DeviceId;
     use sidekicks_contracts::typescript::TypeName;
     use sidekicks_contracts::wire::attachment::ReceivedError;
-    use tokio_util::sync::CancellationToken;
 
     use super::{
         Dispatch as _, DispatchError, HandlerContext, MethodRegistryBuilder, RegistrationError,
-        Request, TransportId,
+        Request,
     };
-
-    #[derive(Debug, Serialize, Deserialize, JsonSchema, garde::Validate)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    struct Named {
-        #[garde(length(max = 4))]
-        name: String,
-    }
+    use crate::ipc::call_fixtures::{Named, context};
 
     /// The wire names the markers register under, by index.
     const NAMES: [&str; 6] = [
@@ -544,15 +545,6 @@ mod tests {
         builder.register::<Marker<NAME>, _>(|named: Named, _context: HandlerContext| {
             async move { Ok(named) }.boxed()
         })
-    }
-
-    fn context() -> HandlerContext {
-        HandlerContext {
-            transport_id: TransportId(1),
-            device_id: DeviceId::new("device".to_owned()).expect("the id is well formed"),
-            caller_process_id: None,
-            cancellation: CancellationToken::new(),
-        }
     }
 
     fn request(params: Option<&str>) -> Request {
@@ -607,7 +599,7 @@ mod tests {
                 async move { Ok(named) }.boxed()
             })
             .expect("the name registers");
-        let answer = builder.freeze().dispatch(request(params), context()).await;
+        let answer = builder.freeze().dispatch(request(params), context(1)).await;
         let refusal = match answer {
             Err(DispatchError::InvalidParams(refusal)) => refusal,
             Err(error) => panic!("expected invalid params, got {error:?}"),
@@ -638,7 +630,7 @@ mod tests {
             .expect("the name registers");
         let answer = builder
             .freeze()
-            .dispatch(request(Some(r#"{"name": "ok"}"#)), context())
+            .dispatch(request(Some(r#"{"name": "ok"}"#)), context(1))
             .await;
         match answer {
             Err(DispatchError::InvalidResult { value, .. }) => {

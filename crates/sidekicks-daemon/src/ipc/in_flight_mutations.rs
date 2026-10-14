@@ -3,7 +3,7 @@
 //! flush waits for those calls before it answers, and a stop, for a bounded time, before it closes
 //! the database.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::pin::pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -17,13 +17,13 @@ use crate::ipc::registry::{
     Dispatch, DispatchError, HandlerContext, MethodRegistry, Reply, Request,
 };
 
-tokio::task_local! {
-    /// The id of the recorded call this task runs, so a wait inside it skips its own call.
-    static RECORDED_CALL_ID: u64;
-}
+/// A recorded mutating call's place: ids rise in the order the gate records calls, so a call
+/// recorded earlier has a smaller id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct RecordedCallId(u64);
 
 /// The gate that records every mutating call as it is dispatched, before the gateway reads the
-/// connection's next call; a wait made inside a recorded call (a flush) skips that call.
+/// connection's next call, and hands the call its id in its `HandlerContext`.
 pub(crate) struct InFlightMutations {
     /// The dispatch the calls go on to.
     next: Arc<dyn Dispatch>,
@@ -38,15 +38,15 @@ pub(crate) struct InFlightMutations {
 struct RecordedCalls {
     /// The id the next recorded call takes.
     next_id: u64,
-    /// Each running call's completion handle, canceled once the call ends.
-    running: HashMap<u64, CancellationToken>,
+    /// Each running call's completion handle, canceled once the call ends, in the order recorded.
+    running: BTreeMap<RecordedCallId, CancellationToken>,
 }
 
 /// One recorded call: dropped when the call's future finishes or is dropped, which forgets it and
 /// settles its completion handle.
 struct RecordedCall {
     calls: Arc<Mutex<RecordedCalls>>,
-    id: u64,
+    id: RecordedCallId,
     completion: CancellationToken,
 }
 
@@ -68,19 +68,24 @@ impl InFlightMutations {
         }
     }
 
-    /// Resolves once every mutating call taken before this wait began has finished, answered or
-    /// failed. A call taken afterward does not extend the wait, so a busy daemon still answers its
-    /// flush.
-    pub(crate) async fn wait_for_pending(&self) {
-        for completion in self.running_calls() {
+    /// Resolves once every mutating call recorded before `caller` has finished, answered or
+    /// failed; `caller` is the waiting call's own `recorded_call`, and `None` (a wait outside a
+    /// recorded call) waits for every call running now. A call recorded later never extends the
+    /// wait, so a busy daemon still answers its flush and two flushes never wait on each other.
+    pub(crate) async fn wait_for_pending(&self, caller: Option<RecordedCallId>) {
+        for completion in self.running_calls(caller) {
             completion.cancelled().await;
         }
     }
 
     /// As `wait_for_pending`, giving up after `bound`; answers how many of those calls were still
     /// running then, `0` when every one finished in time.
-    pub(crate) async fn wait_for_pending_within(&self, bound: Duration) -> usize {
-        let running = self.running_calls();
+    pub(crate) async fn wait_for_pending_within(
+        &self,
+        caller: Option<RecordedCallId>,
+        bound: Duration,
+    ) -> usize {
+        let running = self.running_calls(caller);
         let all_finished = pin!(async {
             for completion in &running {
                 completion.cancelled().await;
@@ -95,15 +100,14 @@ impl InFlightMutations {
         }
     }
 
-    /// The completion handles of the calls running now, but the one this wait runs inside.
-    fn running_calls(&self) -> Vec<CancellationToken> {
-        let own_call = RECORDED_CALL_ID.try_with(|id| *id).ok();
-        lock(&self.calls)
-            .running
-            .iter()
-            .filter(|&(id, _)| Some(*id) != own_call)
-            .map(|(_, completion)| completion.clone())
-            .collect()
+    /// The completion handles of the calls running now that were recorded before `caller`.
+    fn running_calls(&self, caller: Option<RecordedCallId>) -> Vec<CancellationToken> {
+        let calls = lock(&self.calls);
+        let running = match caller {
+            Some(caller) => calls.running.range(..caller),
+            None => calls.running.range(..),
+        };
+        running.map(|(_, completion)| completion.clone()).collect()
     }
 }
 
@@ -111,23 +115,23 @@ impl Dispatch for InFlightMutations {
     fn dispatch(
         &self,
         request: Request,
-        context: HandlerContext,
+        mut context: HandlerContext,
     ) -> BoxFuture<'static, Result<Reply, DispatchError>> {
         let is_mutating = self
             .registry
             .descriptor(&request.method)
             .is_some_and(|descriptor| descriptor.is_mutating);
-        let call = self.next.dispatch(request, context);
         if !is_mutating {
-            return call;
+            return self.next.dispatch(request, context);
         }
         let recorded = record(Arc::clone(&self.calls));
-        RECORDED_CALL_ID
-            .scope(recorded.id, async move {
-                let _recorded = recorded;
-                call.await
-            })
-            .boxed()
+        context.recorded_call = Some(recorded.id);
+        let call = self.next.dispatch(request, context);
+        async move {
+            let _recorded = recorded;
+            call.await
+        }
+        .boxed()
     }
 }
 
@@ -136,7 +140,7 @@ fn record(calls: Arc<Mutex<RecordedCalls>>) -> RecordedCall {
     let completion = CancellationToken::new();
     let id = {
         let mut recorded = lock(&calls);
-        let id = recorded.next_id;
+        let id = RecordedCallId(recorded.next_id);
         recorded.next_id += 1;
         recorded.running.insert(id, completion.clone());
         id
@@ -160,24 +164,16 @@ mod tests {
     use std::time::Duration;
 
     use futures::FutureExt as _;
-    use schemars::JsonSchema;
-    use serde::{Deserialize, Serialize};
     use serde_json::value::RawValue;
     use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType};
     use sidekicks_contracts::schema::received_check;
-    use sidekicks_contracts::trust_statement::DeviceId;
     use sidekicks_contracts::typescript::TypeName;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
     use super::InFlightMutations;
-    use crate::ipc::registry::{
-        Dispatch, HandlerContext, MethodRegistryBuilder, Request, TransportId,
-    };
-
-    #[derive(Debug, Serialize, Deserialize, JsonSchema, garde::Validate)]
-    #[serde(deny_unknown_fields)]
-    struct Nothing {}
+    use crate::ipc::call_fixtures::{Nothing, context};
+    use crate::ipc::registry::{Dispatch, HandlerContext, MethodRegistryBuilder, Request};
 
     struct Write;
 
@@ -220,15 +216,6 @@ mod tests {
         call("test.write")
     }
 
-    fn context() -> HandlerContext {
-        HandlerContext {
-            transport_id: TransportId(1),
-            device_id: DeviceId::new("device".to_owned()).expect("the id is well formed"),
-            caller_process_id: None,
-            cancellation: CancellationToken::new(),
-        }
-    }
-
     #[tokio::test(start_paused = true)]
     async fn a_mutation_taken_after_the_wait_began_does_not_extend_it() {
         // Each call runs until the test releases it, in the order the calls start.
@@ -262,11 +249,11 @@ mod tests {
             .expect("no test thread panics holding it")
             .extend([first_release.clone(), later_release.clone()]);
 
-        let first = tokio::spawn(in_flight.dispatch(write(), context()));
+        let first = tokio::spawn(in_flight.dispatch(write(), context(1)));
         has_started.recv().await.expect("the first call starts");
-        let mut wait = pin!(in_flight.wait_for_pending());
+        let mut wait = pin!(in_flight.wait_for_pending(None));
         assert!(futures::poll!(wait.as_mut()).is_pending(), "the wait began");
-        let later = tokio::spawn(in_flight.dispatch(write(), context()));
+        let later = tokio::spawn(in_flight.dispatch(write(), context(1)));
         has_started.recv().await.expect("the later call starts");
         assert!(
             tokio::time::timeout(Duration::from_secs(1), wait.as_mut())
@@ -286,7 +273,7 @@ mod tests {
         assert!(!later.is_finished());
         assert_eq!(
             in_flight
-                .wait_for_pending_within(Duration::from_millis(10))
+                .wait_for_pending_within(None, Duration::from_millis(10))
                 .await,
             1,
             "the later call is still running at the bound"
@@ -295,7 +282,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_flush_waits_for_the_write_before_it_and_never_for_itself() {
+    async fn a_flush_waits_for_the_write_before_it_and_never_for_itself_or_a_later_flush() {
         let release = CancellationToken::new();
         let handler_release = release.clone();
         let gate: Arc<OnceLock<Arc<InFlightMutations>>> = Arc::default();
@@ -312,10 +299,10 @@ mod tests {
             })
             .expect("the write registers");
         builder
-            .register::<Flush, _>(move |nothing, _context| {
+            .register::<Flush, _>(move |nothing, context: HandlerContext| {
                 let in_flight = Arc::clone(handler_gate.get().expect("the gate is built"));
                 async move {
-                    in_flight.wait_for_pending().await;
+                    in_flight.wait_for_pending(context.recorded_call).await;
                     Ok(nothing)
                 }
                 .boxed()
@@ -331,9 +318,10 @@ mod tests {
             "the gate is set once"
         );
 
-        // Both calls are dispatched before either runs, as the gateway reads one connection's calls.
-        let write = in_flight.dispatch(write(), context());
-        let mut flush = pin!(in_flight.dispatch(call("test.flush"), context()));
+        // Every call is dispatched before any runs, as the gateway reads one connection's calls.
+        let write = in_flight.dispatch(write(), context(1));
+        let mut flush = pin!(in_flight.dispatch(call("test.flush"), context(1)));
+        let later_flush = in_flight.dispatch(call("test.flush"), context(2));
         let write = tokio::spawn(write);
         assert!(
             tokio::time::timeout(Duration::from_secs(1), flush.as_mut())
@@ -346,9 +334,13 @@ mod tests {
             .await
             .expect("the write ran")
             .expect("the write answers");
-        tokio::time::timeout(Duration::from_secs(1), flush)
-            .await
-            .expect("the flush does not wait for itself")
-            .expect("the flush answers");
+        let (flushed, later_flushed) = tokio::time::timeout(
+            Duration::from_secs(1),
+            futures::future::join(flush, later_flush),
+        )
+        .await
+        .expect("neither flush waits for itself or for a flush after it");
+        flushed.expect("the flush answers");
+        later_flushed.expect("the later flush answers");
     }
 }
