@@ -579,7 +579,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use serde_json::json;
-    use sidekicks_contracts::event::envelope::{EventCategory, EventEnvelopeType, EventOccurredAt};
+    use sidekicks_contracts::event::envelope::{EventCategory, EventOccurredAt};
     use sidekicks_contracts::event::registry::SessionEventType;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::FreeFormText;
@@ -591,6 +591,7 @@ mod tests {
     };
     use crate::database::writer::test_database::{TestDatabase, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WritesHeldError};
+    use crate::events::session::appender::envelope_type;
     use crate::events::session::followers::SessionEventFollowers;
     use crate::events::session::version::SESSION_EVENT_VERSION;
     use crate::uuid_v7::mint_uuid_v7;
@@ -653,10 +654,7 @@ mod tests {
             occurred_at: EventOccurredAt::from_timestamp(jiff::Timestamp::now())
                 .expect("now is after year 0000"),
             category: EventCategory::ToolActivity,
-            event_type: EventEnvelopeType(
-                FreeFormText::new(SessionEventType::ToolInvoked.as_str().to_owned())
-                    .expect("an event type's name is free-form text"),
-            ),
+            event_type: envelope_type(SessionEventType::ToolInvoked),
             actor: None,
             payload,
             correlation_id: None,
