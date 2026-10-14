@@ -173,6 +173,7 @@ mod tests {
     use crate::jsonrpc::streaming::SubscriptionCancelParams;
     use crate::provider::tools::{SessionSendArguments, TaskOutputArguments, TaskStopArguments};
     use crate::schema::received_check;
+    use crate::workflow::run::tool::WorkflowRunToolInput;
 
     #[test]
     fn every_received_type_builds_its_check() {
@@ -204,6 +205,10 @@ mod tests {
                 ),
                 ("task_output", received_check::<TaskOutputArguments>().err()),
                 ("task_stop", received_check::<TaskStopArguments>().err()),
+                (
+                    "workflow_run",
+                    received_check::<WorkflowRunToolInput>().err(),
+                ),
             ]
             .into_iter()
             .filter_map(|(method, error)| Some(format!("{method}: {:?}", error?))),

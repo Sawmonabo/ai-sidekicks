@@ -1,11 +1,19 @@
-//! Providers: the drivers that run Claude Code and Codex, their capabilities, hand-over and the
+//! Providers: the drivers that run each provider's process, their capabilities, hand-over and the
 //! searches a provider needs.
 
 pub(crate) mod compaction_wait;
-mod driver;
+pub(crate) mod declared_output_speed;
+pub(crate) mod driver;
+pub(crate) mod event_disposition;
+pub(crate) mod left_conversations;
 mod operating_system;
 pub(crate) mod outbound_text;
+pub(crate) mod output_validation;
 pub(crate) mod port;
+pub(crate) mod project_rule_folders;
 pub(crate) mod record_readers;
+pub(crate) mod terminal_emission_gate;
+pub(crate) mod thread_frame_router;
 pub(crate) mod tool_server_name;
 pub(crate) mod turn_evidence;
+pub(crate) mod usage_delta_accountant;

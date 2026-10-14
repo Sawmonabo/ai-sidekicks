@@ -1,1 +1,227 @@
-//! The Linux side of the interface.
+//! What Linux alone supplies: the machine's pretty host name, inside a WSL distribution the folders
+//! the Windows drives are mounted at, and reads at an offset rather than through a memory map.
+
+use std::ffi::OsString;
+use std::io::{self, ErrorKind};
+use std::os::unix::ffi::OsStringExt;
+use std::path::PathBuf;
+
+#[cfg(any(test, feature = "test-support"))]
+use crate::footprint::ProcessFootprint;
+use crate::machine_name::{MachineNameError, require_machine_name};
+use crate::spawner::Spawner;
+
+// The environment-style file systemd keeps the pretty host name in.
+const MACHINE_INFO_PATH: &str = "/etc/machine-info";
+
+// What the fallback name is read from.
+const HOST_NAME_SOURCE: &str = "gethostname";
+
+// The key of the pretty host name in the machine-info file.
+const PRETTY_HOSTNAME_KEY: &str = "PRETTY_HOSTNAME=";
+
+// The kernel's release, which names Microsoft on WSL's own kernels.
+const KERNEL_RELEASE_PATH: &str = "/proc/sys/kernel/osrelease";
+
+// The mount table, one mount per line.
+const MOUNT_TABLE_PATH: &str = "/proc/self/mounts";
+
+/// The machine's pretty host name, from `PRETTY_HOSTNAME` in `/etc/machine-info`, or, when the file
+/// or the value is missing or empty, its host name. Fails with [`MachineNameError::Read`] when the
+/// file exists but cannot be read or the host name cannot be, and with
+/// [`MachineNameError::Empty`] when the host name is empty.
+pub async fn machine_name(_spawner: &Spawner) -> Result<String, MachineNameError> {
+    // Read as bytes, so a file that is not UTF-8 reads lossily as the host name does.
+    let pretty_hostname = match tokio::fs::read(MACHINE_INFO_PATH).await {
+        Ok(machine_info) => pretty_hostname_in(&String::from_utf8_lossy(&machine_info)),
+        Err(failure) if failure.kind() == ErrorKind::NotFound => None,
+        Err(source) => {
+            return Err(MachineNameError::Read {
+                source_name: MACHINE_INFO_PATH,
+                source,
+            });
+        }
+    };
+    if let Some(name) = pretty_hostname.filter(|name| !name.is_empty()) {
+        return Ok(name);
+    }
+    let host_name = nix::unistd::gethostname().map_err(|errno| MachineNameError::Read {
+        source_name: HOST_NAME_SOURCE,
+        source: errno.into(),
+    })?;
+    require_machine_name(host_name.to_string_lossy().into_owned(), HOST_NAME_SOURCE)
+}
+
+/// The folders the Windows drives are mounted at inside a WSL distribution, where a Windows
+/// program found under them fails, read from the kernel release and the mount table; empty outside
+/// one. Fails with the system's error when either file cannot be read.
+pub fn windows_drive_mounts() -> io::Result<Vec<PathBuf>> {
+    // Read as bytes, since a mount point need not be UTF-8.
+    let kernel_release = std::fs::read(KERNEL_RELEASE_PATH)?;
+    let mount_table = std::fs::read(MOUNT_TABLE_PATH)?;
+    Ok(drive_mounts_in(&kernel_release, &mount_table))
+}
+
+/// Whether a reader that keeps a file open reads it through a memory map rather than by reads at
+/// an offset: no, since only macOS's footprint measures a mapped file smaller.
+pub const SHOULD_MEMORY_MAP_READS: bool = false;
+
+/// This process's footprint, which only macOS reports. Always fails with `Unsupported`.
+#[cfg(any(test, feature = "test-support"))]
+pub fn process_footprint() -> io::Result<ProcessFootprint> {
+    Err(io::Error::new(
+        ErrorKind::Unsupported,
+        "only macOS reports a process's footprint",
+    ))
+}
+
+// The value of the first `PRETTY_HOSTNAME=` line in an environment-style file: `KEY=VALUE` lines,
+// `#` comments, and values that may be quoted, with backslash escapes inside double quotes.
+fn pretty_hostname_in(machine_info: &str) -> Option<String> {
+    let value = machine_info
+        .split('\n')
+        .find_map(|line| line.trim().strip_prefix(PRETTY_HOSTNAME_KEY))?;
+    if let Some(quoted) = value
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+    {
+        return Some(unescape(quoted));
+    }
+    if let Some(quoted) = value
+        .strip_prefix('\'')
+        .and_then(|rest| rest.strip_suffix('\''))
+    {
+        return Some(quoted.to_owned());
+    }
+    Some(value.to_owned())
+}
+
+// Each backslash and the character after it read as that character; a backslash before a line
+// break, or at the end, stays as written.
+fn unescape(quoted: &str) -> String {
+    let mut unescaped = String::with_capacity(quoted.len());
+    let mut characters = quoted.chars().peekable();
+    while let Some(character) = characters.next() {
+        if character == '\\'
+            && let Some(escaped) =
+                characters.next_if(|next| !matches!(*next, '\r' | '\u{2028}' | '\u{2029}'))
+        {
+            unescaped.push(escaped);
+        } else {
+            unescaped.push(character);
+        }
+    }
+    unescaped
+}
+
+// The mount points of the Windows drives in `mount_table`, when `kernel_release` names a WSL
+// kernel: WSL 1 mounts a drive as `drvfs`, WSL 2 over `9p` with `aname=drvfs` among its options,
+// and every `virtiofs` mount is a drive, since WSL mounts nothing else that way.
+fn drive_mounts_in(kernel_release: &[u8], mount_table: &[u8]) -> Vec<PathBuf> {
+    // `5.15.167.4-microsoft-standard-WSL2` on WSL 2, `4.4.0-19041-Microsoft` on WSL 1.
+    let microsoft = b"microsoft";
+    let is_wsl = kernel_release
+        .windows(microsoft.len())
+        .any(|word| word.eq_ignore_ascii_case(microsoft));
+    if !is_wsl {
+        return Vec::new();
+    }
+    let mut mounts = Vec::new();
+    for line in mount_table.split(|byte| *byte == b'\n') {
+        let mut fields = line.split(|byte| *byte == b' ').skip(1);
+        let (Some(mount_point), Some(file_system), Some(options)) =
+            (fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        let is_drive = file_system == b"drvfs"
+            || file_system == b"virtiofs"
+            || (file_system == b"9p"
+                && options
+                    .split(|byte| *byte == b',' || *byte == b';')
+                    .any(|option| option == b"aname=drvfs"));
+        if is_drive {
+            mounts.push(PathBuf::from(OsString::from_vec(unescape_mount_point(
+                mount_point,
+            ))));
+        }
+    }
+    mounts
+}
+
+// The mount table writes a space, tab, newline or backslash in a path as `\` and three octal
+// digits; each decodes to its byte, and one above `\377`, which names no byte, stays as written.
+fn unescape_mount_point(escaped: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(escaped.len());
+    let mut rest = escaped;
+    while let Some((&byte, after)) = rest.split_first() {
+        if byte == b'\\'
+            && let [
+                high @ b'0'..=b'3',
+                middle @ b'0'..=b'7',
+                low @ b'0'..=b'7',
+                ..,
+            ] = after
+        {
+            bytes.push(((high - b'0') << 6) | ((middle - b'0') << 3) | (low - b'0'));
+            rest = &after[3..];
+        } else {
+            bytes.push(byte);
+            rest = after;
+        }
+    }
+    bytes
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use rstest::rstest;
+
+    use super::drive_mounts_in;
+
+    #[rstest]
+    #[case::wsl_1_drvfs(
+        "4.4.0-19041-Microsoft",
+        "rootfs / lxfs rw,noatime 0 0\nC:\\134 /mnt/c drvfs rw,noatime,uid=1000,gid=1000 0 0\n",
+        vec!["/mnt/c"]
+    )]
+    #[case::wsl_2_plan9_between_comma_and_semicolon(
+        "5.15.167.4-microsoft-standard-WSL2",
+        "drivers /usr/lib/wsl/drivers 9p ro,dirsync,aname=drivers;fmask=222,trans=fd 0 0\n\
+         C:\\134 /mnt/c 9p rw,dirsync,aname=drvfs;path=C:\\134;uid=1000,trans=fd 0 0\n",
+        vec!["/mnt/c"]
+    )]
+    #[case::wsl_2_plan9_between_semicolons(
+        "5.15.167.4-microsoft-standard-WSL2",
+        "D:\\134 /mnt/d 9p rw;aname=drvfs;path=D:\\134 0 0\n\
+         E:\\134 /mnt/e 9p rw,aname=drvfsx;path=E:\\134 0 0\n",
+        vec!["/mnt/d"]
+    )]
+    #[case::virtiofs(
+        "6.6.36.6-microsoft-standard-WSL2",
+        "drvfsC /mnt/c virtiofs rw,relatime 0 0\n",
+        vec!["/mnt/c"]
+    )]
+    #[case::octal_escapes(
+        "5.15.167.4-microsoft-standard-WSL2",
+        "C:\\134 /mnt/my\\040drive drvfs rw 0 0\nD:\\134 /mnt/odd\\400name drvfs rw 0 0\n",
+        vec!["/mnt/my drive", "/mnt/odd\\400name"]
+    )]
+    #[case::not_wsl(
+        "6.8.0-45-generic",
+        "C:\\134 /mnt/c drvfs rw 0 0\nshare /mnt/s virtiofs rw 0 0\n",
+        vec![]
+    )]
+    fn finds_the_windows_drive_mounts(
+        #[case] kernel_release: &str,
+        #[case] mount_table: &str,
+        #[case] expected: Vec<&str>,
+    ) {
+        assert_eq!(
+            drive_mounts_in(kernel_release.as_bytes(), mount_table.as_bytes()),
+            expected.into_iter().map(PathBuf::from).collect::<Vec<_>>()
+        );
+    }
+}

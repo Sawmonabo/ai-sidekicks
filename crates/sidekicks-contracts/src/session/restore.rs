@@ -242,7 +242,7 @@ pub struct SessionRestoreResend {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend(
-    "if" = { "required": ["resend"] },
+    "if" = { "properties": { "resend": true }, "required": ["resend"] },
     "then" = { "properties": { "scope": { "const": "conversation-and-files" } } },
 ))]
 pub struct SessionRestoreRequest {
@@ -365,7 +365,7 @@ pub enum SessionRestoreResult {
     #[schemars(extend("allOf" = [
         {
             "if": { "properties": { "restored": { "enum": ["conversation-and-files", "files"] } } },
-            "then": { "required": ["files"] },
+            "then": { "properties": { "files": true }, "required": ["files"] },
             "else": { "not": { "required": ["files"] } },
         },
         {
@@ -377,7 +377,13 @@ pub enum SessionRestoreResult {
             },
             "then": {
                 "required": ["failures"],
-                "properties": { "failures": { "type": "object", "required": ["conversation"] } },
+                "properties": {
+                    "failures": {
+                        "type": "object",
+                        "properties": { "conversation": true },
+                        "required": ["conversation"],
+                    },
+                },
             },
         },
         {
@@ -389,7 +395,13 @@ pub enum SessionRestoreResult {
             },
             "then": {
                 "required": ["failures"],
-                "properties": { "failures": { "type": "object", "required": ["files"] } },
+                "properties": {
+                    "failures": {
+                        "type": "object",
+                        "properties": { "files": true },
+                        "required": ["files"],
+                    },
+                },
             },
         },
     ]))]

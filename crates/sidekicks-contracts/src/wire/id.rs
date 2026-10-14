@@ -1,6 +1,6 @@
 //! What every id on the wire checks. A UUID id accepts any RFC 9562 text form in either case, the
 //! Nil and Max UUIDs among them, since the daemon mints version 7 and the control plane's rows take
-//! version 4.
+//! version 4, and holds it lowercased, so two spellings of one UUID are one id.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -30,28 +30,30 @@ pub enum IdError {
     NotUuid,
 }
 
-/// Checks `text` against the UUID text form.
-pub fn check_uuid_text(text: &str) -> Result<(), IdError> {
-    if UUID_TEXT_FORM.is_match(text) {
-        Ok(())
+/// Checks `text` against the UUID text form and lowercases it, the one form RFC 9562 §4 writes;
+/// refuses anything else with [`IdError::NotUuid`].
+pub(crate) fn canonical_uuid_text(mut text: String) -> Result<String, IdError> {
+    if UUID_TEXT_FORM.is_match(&text) {
+        text.make_ascii_lowercase();
+        Ok(text)
     } else {
         Err(IdError::NotUuid)
     }
 }
 
-/// A UUID whose brand another contract declares: the same accept set as every UUID id, read as a
-/// plain string.
+/// A UUID whose brand another contract declares: the same accept set as every UUID id, held
+/// lowercased, read as a plain string.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct UuidTextForm(String);
 
 impl UuidTextForm {
-    /// Checks `text`; refuses anything but the UUID text form.
+    /// Checks and lowercases `text`; refuses anything but the UUID text form.
     pub fn new(text: String) -> Result<Self, IdError> {
-        check_uuid_text(&text).map(|()| Self(text))
+        canonical_uuid_text(text).map(Self)
     }
 
-    /// The text as received.
+    /// The UUID's lowercase text.
     pub fn as_str(&self) -> &str {
         &self.0
     }

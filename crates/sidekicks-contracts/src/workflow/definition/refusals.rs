@@ -3,6 +3,7 @@
 //! at save, so both refuse the same shapes.
 
 use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasher;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -131,23 +132,21 @@ pub struct WorkflowNodeHandles {
 
 /// The findings for the rules that need only the document and the kinds' handles: the trigger, an
 /// empty document, each edge's nodes and ends, the inputs over their connection limit, cycles, then
-/// orphans, each in document order. `resolve_node_handles` answers a node's handles, or `None` for
-/// a kind the catalog does not list, whose handles and category then go unchecked though its edges
-/// still count toward cycles and reach. An edge naming a node the document does not hold is
-/// `node_missing` and is checked no further at that end.
-pub fn check_workflow_graph(
+/// orphans, each in document order. `node_handles` holds each node's handles by node id, built by
+/// the caller from the kinds table; a node missing from it is of a kind the catalog does not list,
+/// whose handles and category then go unchecked though its edges still count toward cycles and
+/// reach. An edge naming a node the document does not hold is `node_missing` and is checked no
+/// further at that end.
+pub fn check_workflow_graph<S: BuildHasher>(
     document: &WorkflowDraftDocument,
-    resolve_node_handles: impl Fn(&WorkflowNode) -> Option<WorkflowNodeHandles>,
+    node_handles: &HashMap<WorkflowNodeId, WorkflowNodeHandles, S>,
 ) -> Vec<WorkflowDefinitionFinding> {
     let trigger = document.trigger.as_ref().map(WorkflowNode::from);
     let nodes: Vec<&WorkflowNode> = trigger.iter().chain(&document.nodes).collect();
     let graph = GraphFacts {
         trigger_id: trigger.as_ref().map(|trigger| &trigger.id),
         node_by_id: nodes.iter().map(|&node| (&node.id, node)).collect(),
-        handles_by_id: nodes
-            .iter()
-            .map(|&node| (&node.id, resolve_node_handles(node)))
-            .collect(),
+        node_handles,
         edges: document
             .edges
             .iter()
@@ -276,17 +275,17 @@ impl ParsedEdge<'_> {
 }
 
 /// What the check reads of the document: its nodes, the trigger first, by id, with their handles.
-struct GraphFacts<'a> {
+struct GraphFacts<'a, S> {
     trigger_id: Option<&'a WorkflowNodeId>,
     nodes: Vec<&'a WorkflowNode>,
     node_by_id: HashMap<&'a WorkflowNodeId, &'a WorkflowNode>,
-    handles_by_id: HashMap<&'a WorkflowNodeId, Option<WorkflowNodeHandles>>,
+    node_handles: &'a HashMap<WorkflowNodeId, WorkflowNodeHandles, S>,
     edges: Vec<ParsedEdge<'a>>,
 }
 
-impl<'a> GraphFacts<'a> {
+impl<'a, S: BuildHasher> GraphFacts<'a, S> {
     fn handles_of(&self, node_id: &WorkflowNodeId) -> Option<&WorkflowNodeHandles> {
-        self.handles_by_id.get(node_id).and_then(Option::as_ref)
+        self.node_handles.get(node_id)
     }
 
     // A node in the trigger's place whose kind the catalog lists under another category.
@@ -631,11 +630,15 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use rstest::rstest;
     use serde_json::{Value, json};
 
     use super::{WorkflowNodeHandles, check_workflow_graph};
-    use crate::workflow::definition::document::{WorkflowDraftDocument, WorkflowNode, node};
+    use crate::workflow::definition::document::{
+        WorkflowDraftDocument, WorkflowNode, WorkflowNodeId, node,
+    };
     use crate::workflow::kind::WorkflowNodeKindCategory;
 
     fn edge(source: &str, source_handle: &str, target: &str, target_handle: &str) -> Value {
@@ -752,7 +755,13 @@ mod tests {
             "edges": edges,
         }))
         .expect("the document reads");
-        let found = check_workflow_graph(&document, handles_of);
+        let trigger = document.trigger.as_ref().map(WorkflowNode::from);
+        let node_handles: HashMap<WorkflowNodeId, WorkflowNodeHandles> = trigger
+            .iter()
+            .chain(&document.nodes)
+            .filter_map(|node| Some((node.id.clone(), handles_of(node)?)))
+            .collect();
+        let found = check_workflow_graph(&document, &node_handles);
         assert_eq!(
             serde_json::to_value(found).expect("the findings write"),
             findings

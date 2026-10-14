@@ -1,0 +1,40 @@
+//! Where a driver hands a block the provider's own reviewer made at Reviewed, so the approval
+//! pipeline records it once and can later allow it once through the driver's `override_denial`.
+
+use std::error::Error;
+
+use futures::future::BoxFuture;
+use serde_json::value::RawValue;
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::id::SessionId;
+
+/// One tool call the provider's reviewer blocked: the call, the reviewer's reason (absent where it
+/// gave none), whether the provider lets it be allowed once, and the provider's own record of the
+/// block, kept verbatim so `override_denial` hands it back unchanged.
+#[derive(Debug)]
+pub(crate) struct ProviderReviewerDenial {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The run.
+    pub(crate) run_id: RunId,
+    /// The blocked tool call.
+    pub(crate) tool_call_id: String,
+    /// The reviewer's reason.
+    pub(crate) reason: Option<String>,
+    /// Whether the provider lets the block be allowed once.
+    pub(crate) is_overridable: bool,
+    /// The provider's own record of the block, relayed and stored as received.
+    pub(crate) provider_denial: Box<RawValue>,
+}
+
+/// The approval pipeline's intake of reviewer blocks, registered through a `PortRegistration`.
+/// Until it is registered, a block stays the provider's own: the agent is told why and nothing is
+/// recorded.
+pub(crate) trait ReviewerDenialPort: Send + Sync {
+    /// Records `denial`, waiting for the blocked call's row when the block arrives first. An error
+    /// when it could not be recorded.
+    fn take_denial(
+        &self,
+        denial: ProviderReviewerDenial,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+}
