@@ -35,6 +35,16 @@
     "bytes": 5
   },
   {
+    "note": "negative zero",
+    "valueText": "-0.0",
+    "bytes": 1
+  },
+  {
+    "note": "an integer past 2^53, which JavaScript rounds",
+    "valueText": "99999999999999999",
+    "bytes": 18
+  },
+  {
     "note": "a small number",
     "valueText": "0.000001",
     "bytes": 8
