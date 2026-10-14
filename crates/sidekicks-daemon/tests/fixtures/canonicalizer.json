@@ -231,11 +231,25 @@
   ],
   "nesting": [
     {
+      "container": "array",
       "containerLevels": 64,
       "leaf": "scalar-at-depth-65",
       "isRefused": false
     },
     {
+      "container": "array",
+      "containerLevels": 65,
+      "leaf": "scalar-at-depth-66",
+      "isRefused": true
+    },
+    {
+      "container": "object",
+      "containerLevels": 64,
+      "leaf": "scalar-at-depth-65",
+      "isRefused": false
+    },
+    {
+      "container": "object",
       "containerLevels": 64,
       "leaf": {},
       "isRefused": true

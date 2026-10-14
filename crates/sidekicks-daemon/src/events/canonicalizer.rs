@@ -182,10 +182,19 @@ mod tests {
         expected: Expected,
     }
 
-    /// `leaf` wrapped in `container_levels` objects, and whether the depth ceiling refuses it.
+    /// The container a nesting case wraps its leaf in.
+    #[derive(Clone, Copy, Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    enum Container {
+        Object,
+        Array,
+    }
+
+    /// `leaf` wrapped in `container_levels` containers, and whether the depth ceiling refuses it.
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct NestingCase {
+        container: Container,
         container_levels: usize,
         leaf: Value,
         is_refused: bool,
@@ -224,15 +233,20 @@ mod tests {
             assert_eq!(bytes.ok(), Some(case.expected.bytes()), "{}", case.name);
         }
         for case in cases.nesting {
-            let nested = (0..case.container_levels).fold(case.leaf, |inner, _| {
-                Value::Object([("a".to_owned(), inner)].into_iter().collect())
-            });
+            let nested =
+                (0..case.container_levels).fold(case.leaf, |inner, _| match case.container {
+                    Container::Object => {
+                        Value::Object([("a".to_owned(), inner)].into_iter().collect())
+                    }
+                    Container::Array => Value::Array(vec![inner]),
+                });
             let refusal = canonicalize_json(&nested).err();
             assert_eq!(
                 matches!(refusal, Some(CanonicalizationRefusal::TooDeep)),
                 case.is_refused,
-                "{} levels",
-                case.container_levels
+                "{} levels of {:?}",
+                case.container_levels,
+                case.container
             );
             assert_eq!(refusal.is_some(), case.is_refused);
         }
