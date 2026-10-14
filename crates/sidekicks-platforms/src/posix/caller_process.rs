@@ -37,18 +37,26 @@ mod tests {
     use crate::read_parent_process_id;
 
     #[test]
-    fn reads_this_process_as_its_own_peer_and_its_parent_and_no_parent_for_a_free_id() {
+    fn reads_this_process_as_its_own_peer_until_it_closes_and_its_parent_and_no_parent_for_a_free_id()
+     {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_io()
             .build()
             .expect("a runtime");
         let _entered = runtime.enter();
-        let (near, _far) = tokio::net::UnixStream::pair().expect("a connected socket pair");
+        let (near, far) = tokio::net::UnixStream::pair().expect("a connected socket pair");
         let stream = Stream::from(UnixSocketStream::from(near));
 
         assert_eq!(
             read_peer_process_id(&stream).expect("the peer reads"),
             Some(std::process::id())
+        );
+        // Once the other end closes, Linux keeps the id recorded at the connect; macOS has none.
+        drop(far);
+        let peer_after_close = (!cfg!(target_os = "macos")).then(std::process::id);
+        assert_eq!(
+            read_peer_process_id(&stream).expect("a closed peer reads"),
+            peer_after_close
         );
         assert_eq!(
             read_parent_process_id(std::process::id()).expect("the parent reads"),
