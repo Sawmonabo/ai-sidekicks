@@ -9,6 +9,7 @@ pub mod run;
 /// The topic's TypeScript modules, its folders' among them.
 pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &definition::document::TYPESCRIPT_MODULE,
+    &definition::events::TYPESCRIPT_MODULE,
     &definition::handle::TYPESCRIPT_MODULE,
     &definition::item::TYPESCRIPT_MODULE,
     &definition::refusals::TYPESCRIPT_MODULE,
