@@ -124,7 +124,8 @@ fn flush_opened(path: &Path) -> io::Result<()> {
 mod tests {
     use std::ffi::OsString;
     use std::fs;
-    use std::path::PathBuf;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::{Path, PathBuf};
 
     use rstest::rstest;
 
@@ -133,16 +134,37 @@ mod tests {
     enum FolderForm {
         PastMaxPath,
         NameEndingInDot,
+        ForwardSlashVerbatim,
+        ForwardSlashDevice,
     }
 
-    // Both folders are reached only through the verbatim path: the system's own parsing cuts a
-    // path at 260 characters and drops a name's trailing dot.
+    // `folder` written after `prefix` with every `\` as `/`, as `//?/C:/x` or `//./C:/x`.
+    fn forward_slash_form(prefix: &str, folder: &Path) -> PathBuf {
+        let backslash = u16::from(b'\\');
+        let units: Vec<u16> = prefix
+            .encode_utf16()
+            .chain(folder.as_os_str().encode_wide().map(|unit| {
+                if unit == backslash {
+                    u16::from(b'/')
+                } else {
+                    unit
+                }
+            }))
+            .collect();
+        PathBuf::from(OsString::from_wide(&units))
+    }
+
+    // Each folder is reached only through the verbatim path: the system's own parsing cuts a path
+    // at 260 characters and drops a name's trailing dot, and a `//?/` or `//./` path read as a
+    // share names no server.
     #[rstest]
     #[case::past_max_path(FolderForm::PastMaxPath)]
     #[case::name_ending_in_dot(FolderForm::NameEndingInDot)]
+    #[case::forward_slash_verbatim(FolderForm::ForwardSlashVerbatim)]
+    #[case::forward_slash_device(FolderForm::ForwardSlashDevice)]
     fn the_free_room_reads_on_a_folder_only_its_verbatim_path_reaches(#[case] form: FolderForm) {
         let scratch = tempfile::tempdir().expect("a scratch folder");
-        let folder = match form {
+        let asked = match form {
             FolderForm::PastMaxPath => {
                 let folder = scratch
                     .path()
@@ -159,7 +181,9 @@ mod tests {
                 fs::create_dir(PathBuf::from(verbatim)).expect("the folder is made");
                 folder
             }
+            FolderForm::ForwardSlashVerbatim => forward_slash_form("//?/", scratch.path()),
+            FolderForm::ForwardSlashDevice => forward_slash_form("//./", scratch.path()),
         };
-        volume_free_bytes(&folder).expect("the free room reads");
+        volume_free_bytes(&asked).expect("the free room reads");
     }
 }

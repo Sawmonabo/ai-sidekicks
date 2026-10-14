@@ -13,14 +13,12 @@ use windows_sys::Win32::Foundation::ERROR_INVALID_HANDLE;
 const VERBATIM_SHARE_PREFIX: &str = r"\\?\UNC\";
 const VERBATIM_PREFIX: &str = r"\\?\";
 
-// The prefix of a device path, which the system already takes as it is.
-const DEVICE_PREFIX: &str = r"\\.\";
-
-// The UTF-16 units of `\`, `/`, `:` and `.`.
+// The UTF-16 units of `\`, `/`, `:`, `.` and `?`.
 const BACKSLASH: u16 = 0x5C;
 const SLASH: u16 = 0x2F;
 const COLON: u16 = 0x3A;
 const DOT: u16 = 0x2E;
+const QUESTION_MARK: u16 = 0x3F;
 
 /// The absolute path `path` names with every link resolved, its verbatim prefix stripped:
 /// `\\?\UNC\server\share` reads `\\server\share` and `\\?\C:\x` reads `C:\x`, as the desktop's
@@ -60,7 +58,7 @@ fn strip_verbatim_prefix(resolved: &[u16]) -> io::Result<Vec<u16>> {
 /// units with no NUL, so a system call takes it past 260 units without a long-path manifest. An
 /// absolute path is normalized by its text alone (`/` read as `\`, `.` and `..` collapsed), so a
 /// name ending in a dot or a space keeps it; a relative one is made absolute by the system first;
-/// a verbatim or device path stays as it is. Fails with `InvalidInput` for a NUL in the path or a
+/// a verbatim or device path keeps its names, its separators read as `\`. Fails with `InvalidInput` for a NUL in the path or a
 /// share's path naming no share, and with the system's error when a relative path cannot be made
 /// absolute.
 pub(crate) fn verbatim_path(path: &Path) -> io::Result<Vec<u16>> {
@@ -70,9 +68,6 @@ pub(crate) fn verbatim_path(path: &Path) -> io::Result<Vec<u16>> {
             io::ErrorKind::InvalidInput,
             "the path holds a NUL",
         ));
-    }
-    if has_prefix(&units, VERBATIM_PREFIX) || has_prefix(&units, DEVICE_PREFIX) {
-        return Ok(units);
     }
     if let Some(verbatim) = absolute_verbatim(&units) {
         return Ok(verbatim);
@@ -90,9 +85,20 @@ pub(crate) fn verbatim_path(path: &Path) -> io::Result<Vec<u16>> {
 }
 
 // The verbatim form of a drive-rooted path (`C:\x`) or a share's path (`\\server\share\x`), its
-// names collapsed by their text; `None` for any other form.
+// names collapsed by their text; a device or verbatim path (`\\.\x`, `\\?\x`, either written with
+// `/`) as it is, its separators `\`; `None` for any other form.
 fn absolute_verbatim(units: &[u16]) -> Option<Vec<u16>> {
     let (mut verbatim, names) = match units {
+        [first, second, DOT | QUESTION_MARK, fourth, ..]
+            if is_separator(*first) && is_separator(*second) && is_separator(*fourth) =>
+        {
+            return Some(
+                units
+                    .iter()
+                    .map(|unit| if *unit == SLASH { BACKSLASH } else { *unit })
+                    .collect(),
+            );
+        }
         [drive, colon, separator, names @ ..]
             if u8::try_from(*drive).is_ok_and(|drive| drive.is_ascii_alphabetic())
                 && *colon == COLON
