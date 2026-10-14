@@ -37,13 +37,13 @@ keyring-core.workspace = true
 polling.workspace = true
 process-wrap = { workspace = true, features = ["creation-flags", "process-session"] }
 sysinfo.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
-tempfile.workspace = true
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libmimalloc-sys.workspace = true
@@ -68,6 +68,7 @@ async-io.workspace = true
 junction.workspace = true
 tokio-util = { workspace = true, features = ["compat"] }
 uds_windows.workspace = true
+walkdir.workspace = true
 windows = { workspace = true, features = ["UI_Notifications"] }
 windows-native-keyring-store.workspace = true
 windows-sys = {

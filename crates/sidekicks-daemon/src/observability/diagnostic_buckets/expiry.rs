@@ -11,6 +11,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use crate::daemon::service_log::is_service_log_file_name;
+use crate::missing_entry::MissingEntry;
 
 /// How often the expiry runs: hourly, so no log outlives its bound by more than an hour.
 pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_hours(1);
@@ -24,9 +25,9 @@ pub(crate) async fn expire_diagnostic_logs(
     keep: Duration,
     now: SystemTime,
 ) {
-    let names = match list_service_log_names(logs_folder).await {
-        Ok(names) => names,
-        Err(failure) if failure.kind() == io::ErrorKind::NotFound => return,
+    let names = match list_service_log_names(logs_folder).await.none_if_missing() {
+        Ok(Some(names)) => names,
+        Ok(None) => return,
         Err(failure) => {
             tracing::warn!(
                 folder = %logs_folder.display(),
@@ -47,8 +48,9 @@ pub(crate) async fn expire_diagnostic_logs(
         }
         let path = logs_folder.join(name);
         // A file deleted since the listing is already gone.
-        if let Err(failure) = delete_if_written_before(&path, cutoff).await
-            && failure.kind() != io::ErrorKind::NotFound
+        if let Err(failure) = delete_if_written_before(&path, cutoff)
+            .await
+            .none_if_missing()
         {
             tracing::warn!(
                 file = %path.display(),

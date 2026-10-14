@@ -136,19 +136,14 @@ impl Directory for FolderDirectory {
         })
     }
 
-    // Written beside the target, flushed to disk, then renamed over it, so a reader sees the old
-    // file or the new one whole. Tantivy syncs the folder before it writes a commit's `meta.json`,
-    // which makes the commit's files and every earlier rename durable, but not after, so the
-    // folder is synced once more here: a commit that has returned survives a crash of the system.
+    // Written through a temporary file beside the target, flushed to disk, then renamed over it,
+    // so a reader sees the old file or the new one whole. Tantivy syncs the folder before it writes
+    // a commit's `meta.json`, which makes the commit's files and every earlier rename durable, but
+    // not after, so the folder is synced once more here: a commit that has returned survives a
+    // crash of the system. The mode is the one Tantivy's own atomic write gives.
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        let mut temporary_name = path.as_os_str().to_owned();
-        temporary_name.push(".tmp");
-        let temporary = self.root.join(temporary_name);
-        let mut file = File::create(&temporary)?;
-        file.write_all(data)?;
-        file.sync_data()?;
-        drop(file);
-        fs::rename(&temporary, self.root.join(path))?;
+        sidekicks_platforms::replace_file_atomically(&self.root.join(path), data, 0o600)
+            .map_err(|error| io::Error::new(error.failure.kind(), error))?;
         if path == Path::new(COMMIT_FILE) {
             self.sync_directory()?;
         }
@@ -201,7 +196,7 @@ impl Write for DurableFile {
 impl TerminatingWrite for DurableFile {
     fn terminate_ref(&mut self, _: AntiCallToken) -> io::Result<()> {
         self.0.flush()?;
-        self.0.sync_data()
+        sidekicks_platforms::flush_open_file(&self.0)
     }
 }
 

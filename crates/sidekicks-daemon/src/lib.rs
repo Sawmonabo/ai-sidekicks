@@ -21,6 +21,7 @@ pub mod issue_path;
 pub mod javascript_key_order;
 pub mod keyed_lock;
 pub mod mcp;
+pub mod missing_entry;
 pub mod observability;
 pub mod operating_system;
 pub mod orchestration;

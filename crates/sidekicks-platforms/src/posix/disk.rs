@@ -1,5 +1,6 @@
 //! The disk on macOS and Linux: the free room on a folder's volume, a read at a file offset, and a
-//! written file or a changed folder flushed so it survives a power loss.
+//! written file (by path, or through a handle already open with `flush_open_file`) or a changed
+//! folder flushed so it survives a power loss.
 
 use std::fs::File;
 use std::io;
@@ -50,17 +51,19 @@ fn available_blocks(folder: &Path) -> io::Result<(u64, u64)> {
     Ok((volume.blocks_available(), volume.fragment_size()))
 }
 
-// A file is closed when dropped; a failure a close could report is one `sync` already reported.
+// A file is closed when dropped; a failure a close could report is one the flush already reported.
 fn flush_opened(path: &Path) -> io::Result<()> {
     let opened = File::open(path)?;
-    sync(&opened)
+    flush_open_file(&opened)
 }
 
+/// Flushes `opened`, a file already open, to disk; any open works, a read-only one included. Fails
+/// with the flush's error.
 // macOS's `fsync` leaves the drive's own cache unflushed, so the full flush goes first; a file
 // system that refuses it takes the barrier flush, then a plain `fsync`, so a share that has
 // neither still flushes.
 #[cfg(target_os = "macos")]
-fn sync(opened: &File) -> io::Result<()> {
+pub fn flush_open_file(opened: &File) -> io::Result<()> {
     use nix::fcntl::{FcntlArg, fcntl};
 
     if fcntl(opened, FcntlArg::F_FULLFSYNC).is_ok()
@@ -72,7 +75,9 @@ fn sync(opened: &File) -> io::Result<()> {
     Ok(())
 }
 
+/// Flushes `opened`, a file already open, to disk; any open works, a read-only one included. Fails
+/// with the flush's error.
 #[cfg(target_os = "linux")]
-fn sync(opened: &File) -> io::Result<()> {
+pub fn flush_open_file(opened: &File) -> io::Result<()> {
     opened.sync_all()
 }
