@@ -27,6 +27,7 @@ use sidekicks_search::index::{
     IndexRowKind, SearchIndex, SearchIndexError, SearchQuery, SessionFind,
 };
 
+use crate::database::stored_column::rowid_column;
 use crate::ipc::domain_error::DomainError;
 use crate::session::not_found::session_not_found;
 use crate::session::search::hits::{HitLine, HitLineReader};
@@ -35,7 +36,6 @@ use crate::session::search::index::rows::IndexRowReader;
 use crate::session::search::query::parse_find_query;
 use crate::session::search::rowid_floors::RowidFloorLog;
 use crate::session::search::service::SearchServiceDeps;
-use crate::session::stored_column::rowid_column;
 
 const SESSION_KEY_SQL: &str = "SELECT rowid FROM sessions WHERE id = ?";
 

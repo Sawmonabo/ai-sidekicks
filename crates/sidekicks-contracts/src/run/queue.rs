@@ -5,6 +5,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::IntoStaticStr;
 
 use crate::agent::definition::binding::ProviderToken;
 use crate::agent::tree::ChildHandle;
@@ -35,8 +36,11 @@ branded_uuid_id! {
 }
 
 /// Where a queued message stands: waiting, sent to the run, replaced, canceled, or never sent.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum QueueItemState {
     /// Waiting for the agent's next step.
     Queued,
@@ -52,8 +56,11 @@ pub enum QueueItemState {
 
 /// Why a taken message was never delivered: it waited past the daemon's own delivery timeout, or
 /// its delivery failed outright. Either way it can be sent again.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum QueueItemNotDeliveredReason {
     /// It waited past the delivery timeout.
     TimedOut,

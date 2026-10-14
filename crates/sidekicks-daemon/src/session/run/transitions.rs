@@ -7,11 +7,17 @@ use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::state::{RUN_TERMINAL_STATES, RunState};
 use strum::VariantArray as _;
 
+use crate::database::sql_list::sql_list_of;
+
 /// The event types that enter a terminal state, one per state: `run.completed` and the rest.
 pub(crate) static RUN_TERMINAL_EVENT_TYPES: LazyLock<[String; RUN_TERMINAL_STATES.len()]> =
     LazyLock::new(|| {
         RUN_TERMINAL_STATES.map(|state| format!("run.{}", <&'static str>::from(state)))
     });
+
+/// The terminal states as a SQL list of quoted words, for a `state IN (…)` condition.
+pub(crate) static RUN_TERMINAL_STATES_SQL: LazyLock<String> =
+    LazyLock::new(|| sql_list_of(RUN_TERMINAL_STATES.map(<&'static str>::from)));
 
 /// The states from which a run may move to `to`, in the states' declared order.
 pub(crate) fn states_that_may_enter(to: RunStateChangeState) -> Vec<RunState> {

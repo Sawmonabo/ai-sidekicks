@@ -3,6 +3,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::IntoStaticStr;
 
 use crate::provider::driver::length_limits::DRIVER_FALLBACK_ACTION_MAX_LEN;
 use crate::provider::driver::methods::DRIVER_WIRE_REASON_MAX_LEN;
@@ -33,8 +34,11 @@ pub struct InterruptRunParams {
 /// How a caller acts on a live run, as its intervention row records it: interrupt, or retry on a
 /// faster model, which the daemon carries out by stopping the turn and sending its message again on
 /// the named model. A person's message mid-turn is a queue send, never an intervention.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum InterventionType {
     /// Stops the turn.
     Interrupt,

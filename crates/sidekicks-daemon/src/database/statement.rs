@@ -26,6 +26,17 @@ pub(crate) fn text_binding(name: &'static str, text: &str) -> (Cow<'static, str>
     (Cow::Borrowed(name), Value::Text(text.to_owned()))
 }
 
+/// A named binding of `text`, `NULL` when it is `None`, its `name` written with its `@`.
+pub(crate) fn nullable_text_binding(
+    name: &'static str,
+    text: Option<&str>,
+) -> (Cow<'static, str>, Value) {
+    (
+        Cow::Borrowed(name),
+        text.map_or(Value::Null, |text| Value::Text(text.to_owned())),
+    )
+}
+
 /// One SQL statement for the writer to run.
 #[derive(Clone, Debug)]
 pub(crate) struct WriteStatement {

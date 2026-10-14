@@ -59,6 +59,7 @@ mod tests {
     use sidekicks_contracts::provider::driver::capabilities::CredentialPolicyRef;
 
     use super::*;
+    use crate::policy::execution_posture_service::CURATED_CREDENTIAL_POLICY_REF;
 
     fn workflow_id() -> WorkflowDefinitionId {
         WorkflowDefinitionId::new("0190c8a0-0000-7000-8000-000000000002".to_owned())
@@ -72,8 +73,10 @@ mod tests {
             .expect("the text is a version 7 UUID");
         let workflow_id = workflow_id();
         let ask = ExecutionPosture::Ask {
-            credential_policy_ref: CredentialPolicyRef::new("curated-credentials".to_owned())
-                .expect("a short name is a valid reference"),
+            credential_policy_ref: CredentialPolicyRef::new(
+                CURATED_CREDENTIAL_POLICY_REF.to_owned(),
+            )
+            .expect("a short name is a valid reference"),
             writable_roots: Vec::new(),
         };
 
