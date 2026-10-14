@@ -168,6 +168,14 @@ pub struct AgentBindingSwitchTarget {
     )]
     #[schemars(with = "ProviderToken")]
     pub output_speed: Option<ProviderToken>,
+    /// Ultracode on or off.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "bool")]
+    pub ultracode: Option<bool>,
     /// The window in tokens, or `null` for the model's default.
     #[serde(
         default,

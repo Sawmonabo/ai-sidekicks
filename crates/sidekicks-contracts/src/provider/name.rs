@@ -5,13 +5,14 @@ use std::collections::BTreeMap;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::VariantArray;
+use strum::{EnumString, VariantArray};
 
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::literal;
 
 /// A provider the daemon drives. The set is closed because the provider selects the driver, the
-/// credential-home layout and the quota words, so an unknown value has no safe reading.
+/// credential-home layout and the quota words, so an unknown value has no safe reading. Text parses
+/// to a name with `str::parse` in the spelling serde writes.
 #[derive(
     Clone,
     Copy,
@@ -25,8 +26,10 @@ use crate::wire::literal;
     Deserialize,
     JsonSchema,
     VariantArray,
+    EnumString,
 )]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum ProviderName {
     /// Claude Code.
     Claude,

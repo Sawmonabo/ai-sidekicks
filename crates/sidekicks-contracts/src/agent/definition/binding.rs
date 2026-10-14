@@ -22,7 +22,8 @@ pub type ProviderToken = FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>;
 pub(crate) type NullableProviderToken = crate::wire::NullableSchema<ProviderToken>;
 
 /// Declares a struct holding a provider binding's members, the provider, the model, the effort,
-/// the output speed and the larger window, with the struct's own members after the model.
+/// the output speed, Ultracode and the larger window, with the struct's own members after the
+/// model.
 macro_rules! provider_binding {
     ($(#[$attribute:meta])+ pub struct $name:ident { $($own:tt)* }) => {
         $(#[$attribute])+
@@ -44,6 +45,14 @@ macro_rules! provider_binding {
             )]
             #[schemars(with = "crate::agent::definition::binding::ProviderToken")]
             pub output_speed: Option<$crate::agent::definition::binding::ProviderToken>,
+            /// Ultracode on or off, where it was set; a saved definition leaves it absent.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "bool")]
+            pub ultracode: Option<bool>,
             /// The larger window chosen, in tokens, recorded when picked and sent on every resume
             /// and turn; absent is the model's default window.
             #[serde(
@@ -183,6 +192,14 @@ macro_rules! listed_binding_arm {
             )]
             #[schemars(with = "ProviderToken")]
             pub output_speed: Option<ProviderToken>,
+            /// Ultracode on or off; a saved definition leaves it absent.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "bool")]
+            pub ultracode: Option<bool>,
             /// The larger window chosen, in tokens.
             #[serde(
                 default,

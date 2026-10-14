@@ -134,6 +134,9 @@ pub enum DriverCapabilityFlag {
     ProviderCommands,
     /// A faster-output mode the person sets and the provider declares a state for.
     OutputSpeed,
+    /// A switch the person sets that stays on at any effort, applied between turns and declared
+    /// back by the provider.
+    Ultracode,
 }
 
 ts_constants! {
@@ -145,6 +148,24 @@ ts_constants! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct DriverCapabilityFlags(BTreeMap<DriverCapabilityFlag, bool>);
+
+impl DriverCapabilityFlags {
+    /// Every flag's value, asked of `value_of` once per flag, so no flag can be left out.
+    pub fn from_fn(value_of: impl Fn(DriverCapabilityFlag) -> bool) -> Self {
+        Self(
+            DRIVER_CAPABILITY_FLAGS
+                .iter()
+                .map(|flag| (*flag, value_of(*flag)))
+                .collect(),
+        )
+    }
+
+    /// Whether the driver declares `flag`. Every flag is held: the constructor asks for each one
+    /// and deserializing refuses a map that misses one.
+    pub fn is_on(&self, flag: DriverCapabilityFlag) -> bool {
+        self.0[&flag]
+    }
+}
 
 impl<'de> Deserialize<'de> for DriverCapabilityFlags {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {

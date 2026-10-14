@@ -69,6 +69,15 @@ macro_rules! agent_entry {
             #[schemars(with = "crate::provider::driver::output_speed::ProviderOutputSpeedState")]
             pub observed_output_speed:
                 Option<$crate::provider::driver::output_speed::ProviderOutputSpeedState>,
+            /// The Ultracode state the provider reported on the live binding; absent where its
+            /// driver declares no Ultracode or no binding is live, never read as off.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "crate::provider::driver::ultracode::ObservedUltracode")]
+            pub observed_ultracode: Option<$crate::provider::driver::ultracode::ObservedUltracode>,
             /// Present exactly while a switch waits, so every client learns of it, after a
             /// restart too.
             #[serde(
@@ -120,8 +129,8 @@ pub struct AgentListAck {
     pub agents: Vec<AgentListEntry>,
 }
 
-/// Moves a running agent's model, window, effort, speed or provider: an omitted member is
-/// unchanged and at least one moves, settled by the binding events. A provider switch applies at
+/// Moves a running agent's model, window, effort, speed, Ultracode or provider: an omitted member
+/// is unchanged and at least one moves, settled by the binding events. A provider switch applies at
 /// the end of the run in flight; the account is no member, since it follows the provider's
 /// current account. A model move names its window.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -164,6 +173,14 @@ pub struct AgentConfigUpdateRequest {
     )]
     #[schemars(with = "ProviderToken")]
     pub output_speed: Option<ProviderToken>,
+    /// Ultracode on or off, refused by a driver that declares no Ultracode.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "bool")]
+    pub ultracode: Option<bool>,
     /// The window in tokens, or `null` back to the model's default.
     #[serde(
         default,
@@ -192,11 +209,12 @@ fn update_moves_a_member(request: &AgentConfigUpdateRequest, (): &()) -> garde::
         || request.model_id.is_some()
         || request.effort.is_some()
         || request.output_speed.is_some()
+        || request.ultracode.is_some()
         || request.larger_window.is_some();
     if !moves_a_member {
         return Err(garde::Error::new(
-            "an update moves at least one of driverName, modelId, largerWindow, effort or \
-             outputSpeed",
+            "an update moves at least one of driverName, modelId, largerWindow, effort, \
+             outputSpeed or ultracode",
         ));
     }
     model_move_names_window(request.model_id.as_ref(), request.larger_window.as_ref())
@@ -209,6 +227,7 @@ fn add_moves_a_member_rule(schema: &mut Schema) {
         "modelId",
         "effort",
         "outputSpeed",
+        "ultracode",
         "largerWindow",
     ]
     .map(required_member)
