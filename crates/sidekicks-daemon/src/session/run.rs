@@ -7,4 +7,5 @@ pub(crate) mod refusals;
 pub(crate) mod setup_gates;
 pub(crate) mod start_request;
 pub(crate) mod stored_state_change;
+pub(crate) mod superseded;
 pub(crate) mod transitions;
