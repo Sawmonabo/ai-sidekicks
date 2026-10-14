@@ -93,7 +93,7 @@ impl SessionEventFollowers {
         for event in events {
             *committed_by_session.entry(&event.session_id).or_default() += 1;
         }
-        let mut change_counts = self.lock_change_counts();
+        let change_counts = self.lock_change_counts();
         for (session_id, committed) in committed_by_session {
             if let Some(change_count) = change_counts.get(session_id) {
                 change_count.send_modify(|count| *count += committed);

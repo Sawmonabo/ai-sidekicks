@@ -111,7 +111,7 @@ pub(crate) struct FailedBatch {
 
 /// The thread's answer to one batch: every write's outcome, in the batch's order, once it
 /// committed; or why it did not.
-pub(crate) type BatchAnswer = Result<Vec<WriteJobOutcome>, FailedBatch>;
+pub(crate) type BatchAnswer = Result<Vec<WriteJobOutcome>, Box<FailedBatch>>;
 
 /// The thread's answer to one checkpoint: what SQLite reports of it, or its failure, beside the
 /// failure of putting the busy timeout back when that failed too.

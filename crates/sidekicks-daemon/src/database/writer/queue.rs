@@ -443,7 +443,7 @@ impl WriteQueue {
             send_answer(hold.started, ());
         }
         if !self.active_holds.is_empty() {
-            let (passive, truncating): (Vec<_>, VecDeque<_>) =
+            let (passive, truncating): (VecDeque<_>, VecDeque<_>) =
                 std::mem::take(&mut self.checkpoints)
                     .into_iter()
                     .partition(|checkpoint| checkpoint.mode == CheckpointMode::Passive);
@@ -510,7 +510,7 @@ impl WriteQueue {
         self.depth -= waiters.iter().map(|waiter| waiter.size).sum::<usize>();
         match answer {
             Ok(Ok(outcomes)) => self.settle_committed_batch(waiters, outcomes),
-            Ok(Err(failure)) => self.settle_failed_batch(waiters, failure),
+            Ok(Err(failure)) => self.settle_failed_batch(waiters, *failure),
             Err(_unanswered) => {
                 let reason = self.end_writer(Arc::new(ThreadStopped));
                 self.count_unfinished_at_bound(waiters.len());

@@ -176,8 +176,8 @@ fn run_batch(connection: &mut Connection, jobs: &[WriteJob], stop: &ThreadStop) 
     let mut outcomes = Vec::with_capacity(jobs.len());
     match run_transaction(connection, jobs, stop, &mut outcomes) {
         Ok(()) => Ok(outcomes),
-        Err(failure) => Err(FailedBatch {
-            failure,
+        Err(failure) => Err(Box::new(FailedBatch {
+            failure: *failure,
             earlier_write_failures: outcomes
                 .into_iter()
                 .filter_map(|outcome| match outcome {
@@ -185,7 +185,7 @@ fn run_batch(connection: &mut Connection, jobs: &[WriteJob], stop: &ThreadStop) 
                     WriteJobOutcome::Committed { .. } | WriteJobOutcome::Refused { .. } => None,
                 })
                 .collect(),
-        }),
+        })),
     }
 }
 
@@ -197,37 +197,47 @@ fn run_transaction(
     jobs: &[WriteJob],
     stop: &ThreadStop,
     outcomes: &mut Vec<WriteJobOutcome>,
-) -> Result<(), CleanupFailures<BatchFailure, rusqlite::Error>> {
+) -> Result<(), Box<CleanupFailures<BatchFailure, rusqlite::Error>>> {
     if stop.is_stopped() {
-        return Err(batch_failure(BatchFailure::Stopped, Vec::new(), stop));
+        return Err(Box::new(batch_failure(
+            BatchFailure::Stopped,
+            Vec::new(),
+            stop,
+        )));
     }
     let mut transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|failure| batch_failure(BatchFailure::Begin(failure), Vec::new(), stop))?;
+        .map_err(|failure| {
+            Box::new(batch_failure(
+                BatchFailure::Begin(failure),
+                Vec::new(),
+                stop,
+            ))
+        })?;
     // Every end below is explicit, so no drop runs SQL whose failure no one sees.
     transaction.set_drop_behavior(DropBehavior::Ignore);
     for (job_index, job) in jobs.iter().enumerate() {
         if stop.is_stopped() {
-            return Err(roll_back(
+            return Err(Box::new(roll_back(
                 transaction,
                 BatchFailure::Stopped,
                 Vec::new(),
                 stop,
-            ));
+            )));
         }
         match run_job(&transaction, job, stop) {
             JobEnd::Settled(outcome) => outcomes.push(outcome),
             JobEnd::Stopped => {
-                return Err(roll_back(
+                return Err(Box::new(roll_back(
                     transaction,
                     BatchFailure::Stopped,
                     Vec::new(),
                     stop,
-                ));
+                )));
             }
             JobEnd::TransactionEnded(source) => {
                 let failure = BatchFailure::TransactionEnded { job_index, source };
-                return Err(roll_back(transaction, failure, Vec::new(), stop));
+                return Err(Box::new(roll_back(transaction, failure, Vec::new(), stop)));
             }
             JobEnd::SavepointNotEnded {
                 failure,
@@ -237,33 +247,33 @@ fn run_transaction(
                     job_index,
                     source: failure,
                 };
-                return Err(roll_back(
+                return Err(Box::new(roll_back(
                     transaction,
                     failure,
                     vec![savepoint_failure],
                     stop,
-                ));
+                )));
             }
         }
     }
     if stop.is_stopped() {
-        return Err(roll_back(
+        return Err(Box::new(roll_back(
             transaction,
             BatchFailure::Stopped,
             Vec::new(),
             stop,
-        ));
+        )));
     }
     // COMMIT runs through the transaction rather than `commit`, which consumes it, so a failed
     // commit that left the transaction open is still rolled back below.
     match transaction.execute_batch("COMMIT") {
         Ok(()) => Ok(()),
-        Err(commit_failure) => Err(roll_back(
+        Err(commit_failure) => Err(Box::new(roll_back(
             transaction,
             BatchFailure::Commit(commit_failure),
             Vec::new(),
             stop,
-        )),
+        ))),
     }
 }
 

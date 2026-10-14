@@ -95,6 +95,10 @@ pub(crate) struct UnsequencedEventEnvelope {
     /// The event's type.
     pub(crate) event_type: EventEnvelopeType,
     /// Who acted: absent, `null` or a person's or an agent's id; absent is stored as `null`.
+    #[expect(
+        clippy::option_option,
+        reason = "the envelope's actor tells absent from null, and this repeats it"
+    )]
     pub(crate) actor: Option<Option<FreeFormText<EVENT_FIELD_MAX_LEN>>>,
     /// The category's own members.
     pub(crate) payload: Map<String, Value>,

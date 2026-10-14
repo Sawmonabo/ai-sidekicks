@@ -2,8 +2,8 @@
 //! for one request, the request they are minted for, the headers it hands back, and the check
 //! that refuses headers which would not carry a DPoP-bound token.
 //!
-//! The calls use DPoP, not a bearer token. A bearer token works for anyone who holds it, so a
-//! logged header, a proxy buffer or a crash dump would hand out something replayable; DPoP binds
+//! The calls use `DPoP`, not a bearer token. A bearer token works for anyone who holds it, so a
+//! logged header, a proxy buffer or a crash dump would hand out something replayable; `DPoP` binds
 //! the token to a key the sender proves it holds on every request. Two headers travel together,
 //! both the provider's to produce:
 //!
@@ -24,7 +24,7 @@ use sidekicks_contracts::runtime_node::id::NodeId;
 use sidekicks_contracts::session::id::SessionId;
 use url::Url;
 
-/// The header carrying the per-request DPoP proof; header names are case-insensitive, so it is
+/// The header carrying the per-request `DPoP` proof; header names are case-insensitive, so it is
 /// held in the lowercase form `HeaderMap` keys by.
 #[cfg_attr(
     not(test),

@@ -45,7 +45,7 @@ use crate::events::session::insert::SessionEventRow;
 pub(crate) const WRITE_QUEUE_CAPACITY: usize = 10_000;
 
 /// How often the passive WAL checkpoint job runs on the scheduler.
-pub(crate) const PASSIVE_CHECKPOINT_INTERVAL: Duration = Duration::from_secs(5 * 60);
+pub(crate) const PASSIVE_CHECKPOINT_INTERVAL: Duration = Duration::from_mins(5);
 
 /// The writer thread's name, as a debugger or a crash report shows it.
 const WRITER_THREAD_NAME: &str = "database-writer";
@@ -666,7 +666,7 @@ impl ThreadStop {
 /// The SQLite result code `error` or the first of its sources to carry one holds; `None` when
 /// none does.
 fn sqlite_error_code(error: &(dyn Error + 'static)) -> Option<ErrorCode> {
-    std::iter::successors(Some(error), |error| error.source())
+    std::iter::successors(Some(error), |&error| error.source())
         .find_map(|error| error.downcast_ref::<rusqlite::Error>()?.sqlite_error_code())
 }
 
