@@ -192,7 +192,7 @@ pub(crate) enum ProviderPermissionAnswer {
 /// not be kept there; the call is answered and nothing is held.
 #[derive(Debug, thiserror::Error)]
 #[error("the answer reached the provider, but the rule it made could not be kept there")]
-pub(crate) struct ProviderRuleNotKept {
+pub(crate) struct ProviderRuleNotKeptError {
     /// Why the rule could not be kept.
     #[source]
     pub(crate) source: Box<dyn Error + Send + Sync>,

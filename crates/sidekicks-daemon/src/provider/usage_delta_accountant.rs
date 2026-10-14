@@ -376,7 +376,7 @@ impl UsageDeltaAccountant {
     reason = "the pricing step sets each request's cost and its source through this ladder"
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum UsageCostSource {
+pub(crate) enum UsageCostSource {
     /// The provider's own figure.
     ProviderReported,
     /// The price list's entry for the model's exact id, applied to the full breakdown.
@@ -390,9 +390,9 @@ enum UsageCostSource {
     reason = "the pricing step sets each request's cost and its source through this ladder"
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct DerivedCostQuote {
+pub(crate) struct DerivedCostQuote {
     /// The derived cost.
-    cost_usd_micros: UsdMicros,
+    pub(crate) cost_usd_micros: UsdMicros,
 }
 
 /// The cost of one usage frame. A model the price list does not price gets no cost update: its
@@ -403,7 +403,7 @@ struct DerivedCostQuote {
     reason = "the pricing step sets each request's cost and its source through this ladder"
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CostUpdateResolution {
+pub(crate) enum CostUpdateResolution {
     /// A cost update with its figure and where the figure came from.
     CostUpdate {
         /// Where the figure came from.
@@ -422,7 +422,7 @@ enum CostUpdateResolution {
     dead_code,
     reason = "the pricing step sets each request's cost and its source through this ladder"
 )]
-fn resolve_cost_update_provenance(
+pub(crate) fn resolve_cost_update_provenance(
     provider: ProviderName,
     provider_reported_cost_usd_micros: Option<f64>,
     derived_quote: Option<DerivedCostQuote>,

@@ -118,7 +118,7 @@ pub(crate) fn read_left_conversations(
 /// A stored account id that is not a valid one: empty or past its length bound.
 #[derive(Debug, thiserror::Error)]
 #[error("the stored provider account id is not a valid account id")]
-struct StoredAccountIdInvalid;
+struct StoredAccountIdInvalidError;
 
 // The stored account id, `None` on the node's default home; a value that is no valid id fails the
 // read rather than pass as the default home.
@@ -129,7 +129,7 @@ fn read_provider_account_id(stored: Option<String>) -> rusqlite::Result<Option<P
                 rusqlite::Error::FromSqlConversionFailure(
                     1,
                     Type::Text,
-                    Box::new(StoredAccountIdInvalid),
+                    Box::new(StoredAccountIdInvalidError),
                 )
             })
         })

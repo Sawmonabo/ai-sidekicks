@@ -40,7 +40,7 @@ use crate::provider::driver::rewind::{RewindConversationParams, RewindConversati
 use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     FasterModelRetryOutcome, FasterModelRetryParams, OverrideDenialParams, PauseRunParams,
-    ResumeRunParams, SteerTurnEnded, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    ResumeRunParams, SteerTurnEndedError, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::provider::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ProviderBuildChange,
@@ -68,7 +68,7 @@ pub(crate) enum DriverError {
     Refused(#[from] DomainError),
     /// The turn a steer was handed for ended before it was sent.
     #[error(transparent)]
-    SteerTurnEnded(#[from] SteerTurnEnded),
+    SteerTurnEnded(#[from] SteerTurnEndedError),
     /// The driver or its provider failed.
     #[error("the provider driver failed")]
     Internal(#[source] Box<dyn Error + Send + Sync>),

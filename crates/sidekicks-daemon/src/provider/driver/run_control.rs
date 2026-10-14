@@ -69,7 +69,7 @@ pub(crate) enum ApplyInterventionParams {
 /// reached the provider, and the message is left for the run's next turn.
 #[derive(Debug, thiserror::Error)]
 #[error("the turn of run {} ended before the steer was sent", .run_id.as_str())]
-pub(crate) struct SteerTurnEnded {
+pub(crate) struct SteerTurnEndedError {
     /// The run whose turn ended.
     pub(crate) run_id: RunId,
 }
