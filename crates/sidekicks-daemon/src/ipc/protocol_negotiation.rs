@@ -15,7 +15,7 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 
 use futures::FutureExt as _;
 use futures::future::{BoxFuture, Shared};
-use serde_json::{Map, Value};
+use serde_json::json;
 use sidekicks_contracts::daemon::recovery::{DaemonRepairProgress, DaemonRepairingDetails};
 use sidekicks_contracts::jsonrpc::negotiation::{
     DAEMON_HELLO_METHOD, DaemonHandshake, DaemonHello, DaemonHelloAck,
@@ -139,12 +139,8 @@ enum HelloTurn {
 
 /// A hello the daemon could not answer: a fault, never the client's.
 #[derive(Debug, thiserror::Error)]
-enum HelloFault {
-    #[error("the connection's caller process could not be read")]
-    CallerRead(#[source] Arc<dyn Error + Send + Sync>),
-    #[error("the connection closed while its caller process was read")]
-    ConnectionClosed,
-}
+#[error("the connection's caller process could not be read")]
+struct CallerReadFault(#[source] Arc<dyn Error + Send + Sync>);
 
 /// Keeps each connection's negotiation and answers `daemon.hello`. The gateway calls
 /// `cleanup_transport` as each connection closes, or the state keeps one entry per connection.
@@ -270,17 +266,14 @@ impl ProtocolNegotiator {
             return Err(ConnectionRefusal::TokenInvalid.error().into());
         }
         // A hello always fails, so a client keeps waiting for the repair to end.
-        let detail: Map<String, Value> = serde_json::to_value(DaemonRepairingDetails {
-            progress: read_progress(),
-        })
-        .and_then(serde_json::from_value)
-        .expect("a repair's counts serialize to a JSON object");
         Err(DomainError::new(
             REPAIRING_MESSAGE,
             RefusalCode::DaemonRepairing,
             DomainErrorJsonRpcCode::InvalidRequest,
         )
-        .with_detail(detail)
+        .with_detail(DaemonRepairingDetails {
+            progress: read_progress(),
+        })
         .into())
     }
 
@@ -326,12 +319,14 @@ impl ProtocolNegotiator {
         };
         let is_refused_caller = caller_read
             .await
-            .map_err(|error| HandlerError::Internal(Box::new(HelloFault::CallerRead(error))))?;
+            .map_err(|error| HandlerError::Internal(Box::new(CallerReadFault(error))))?;
         let mut connections = self.connections();
         match connections.get(&transport) {
-            None => Err(HandlerError::Internal(Box::new(
-                HelloFault::ConnectionClosed,
-            ))),
+            // An ordinary disconnect: nothing can be sent, and no fault is logged.
+            None => {
+                tracing::debug!("A connection closed while its caller process was read");
+                Err(HandlerError::Canceled)
+            }
             Some(ConnectionNegotiation::Refused(refusal)) => Err(refusal.error().into()),
             Some(ConnectionNegotiation::ReadingCaller(_) | ConnectionNegotiation::Latched(_))
                 if is_refused_caller =>
@@ -414,13 +409,12 @@ impl Dispatch for NegotiationGate {
 
 /// The refusal of a mutating call after an incompatible hello, carrying its `reason`.
 fn version_mismatch(reason: NegotiationIncompatibleReason) -> DomainError {
-    let reason = serde_json::to_value(reason).expect("a negotiation reason serializes as its text");
     DomainError::new(
         VERSION_MISMATCH_MESSAGE,
         RefusalCode::ProtocolVersionMismatch,
         DomainErrorJsonRpcCode::InvalidRequest,
     )
-    .with_detail(Map::from_iter([("reason".to_owned(), reason)]))
+    .with_detail(json!({ "reason": reason }))
 }
 
 /// The version `hello` and the daemon agree on, the newest both speak, or why there is none:
@@ -503,8 +497,6 @@ mod tests {
 
     use futures::FutureExt as _;
     use rstest::rstest;
-    use schemars::JsonSchema;
-    use serde::{Deserialize, Serialize};
     use serde_json::json;
     use serde_json::value::RawValue;
     use sidekicks_contracts::jsonrpc::negotiation::{
@@ -514,21 +506,17 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType};
     use sidekicks_contracts::schema::received_check;
-    use sidekicks_contracts::trust_statement::DeviceId;
     use sidekicks_contracts::typescript::TypeName;
-    use tokio_util::sync::CancellationToken;
+    use tokio::sync::{Notify, mpsc};
 
-    use super::ProtocolNegotiator;
+    use super::{NegotiationGate, ProtocolNegotiator, RefusedCallerCheck};
+    use crate::ipc::call_fixtures::{Nothing, context};
     use crate::ipc::domain_error::DomainErrorJsonRpcCode;
     use crate::ipc::registry::{
-        Dispatch, DispatchError, HandlerContext, MethodRegistryBuilder, Reply, Request, TransportId,
+        Dispatch, DispatchError, HandlerContext, MethodRegistryBuilder, Reply, Request,
     };
 
     const SESSION_TOKEN: &str = "the-session-token";
-
-    #[derive(Debug, Serialize, Deserialize, JsonSchema, garde::Validate)]
-    #[serde(deny_unknown_fields)]
-    struct Nothing {}
 
     /// A method that reads (`false`) or mutates (`true`).
     struct Probe<const IS_MUTATING: bool>;
@@ -591,6 +579,32 @@ mod tests {
         }
     }
 
+    /// The negotiation gate over a registry serving the hello, a read and a write, its callers
+    /// checked by `is_refused_caller`.
+    fn gate_over(is_refused_caller: RefusedCallerCheck) -> NegotiationGate {
+        let negotiator = ProtocolNegotiator::new(SESSION_TOKEN.to_owned(), is_refused_caller);
+        let mut builder = MethodRegistryBuilder::new();
+        negotiator
+            .register_handshake(&mut builder)
+            .expect("the hello registers");
+        builder
+            .register::<Probe<false>, _>(|nothing, _context| async move { Ok(nothing) }.boxed())
+            .expect("the read registers");
+        builder
+            .register::<Probe<true>, _>(|nothing, _context| async move { Ok(nothing) }.boxed())
+            .expect("the write registers");
+        let registry = Arc::new(builder.freeze());
+        negotiator.gate(Arc::clone(&registry) as Arc<dyn Dispatch>, registry)
+    }
+
+    /// The context of a call on connection 1 from the process `caller_process_id`.
+    fn caller_context(caller_process_id: Option<u32>) -> HandlerContext {
+        HandlerContext {
+            caller_process_id,
+            ..context(1)
+        }
+    }
+
     #[rstest]
     #[case::wrong_token_latches_refused(Some(7), false, &[
         (Call::Hello("a-wrong-token", CURRENT_PROTOCOL_VERSION),
@@ -637,33 +651,13 @@ mod tests {
         #[case] is_agent_process: bool,
         #[case] calls: &[(Call, Answer)],
     ) {
-        let negotiator = ProtocolNegotiator::new(
-            SESSION_TOKEN.to_owned(),
-            Arc::new(move |_process_id: u32| {
-                futures::future::ready(Ok::<_, Arc<dyn Error + Send + Sync>>(is_agent_process))
-                    .boxed()
-            }),
-        );
-        let mut builder = MethodRegistryBuilder::new();
-        negotiator
-            .register_handshake(&mut builder)
-            .expect("the hello registers");
-        builder
-            .register::<Probe<false>, _>(|nothing, _context| async move { Ok(nothing) }.boxed())
-            .expect("the read registers");
-        builder
-            .register::<Probe<true>, _>(|nothing, _context| async move { Ok(nothing) }.boxed())
-            .expect("the write registers");
-        let registry = Arc::new(builder.freeze());
-        let gate = negotiator.gate(Arc::clone(&registry) as Arc<dyn Dispatch>, registry);
+        let gate = gate_over(Arc::new(move |_process_id: u32| {
+            futures::future::ready(Ok::<_, Arc<dyn Error + Send + Sync>>(is_agent_process)).boxed()
+        }));
         for &(call, expected) in calls {
-            let context = HandlerContext {
-                transport_id: TransportId(1),
-                device_id: DeviceId::new("device".to_owned()).expect("the id is well formed"),
-                caller_process_id,
-                cancellation: CancellationToken::new(),
-            };
-            let answer = gate.dispatch(request(call), context).await;
+            let answer = gate
+                .dispatch(request(call), caller_context(caller_process_id))
+                .await;
             match (answer, expected) {
                 (Ok(Reply::Result(encoded)), Answer::Ack(compatible, reason)) => {
                     let ack: DaemonHelloAck =
@@ -690,5 +684,55 @@ mod tests {
                 (Ok(_), _) => panic!("{call:?}: expected {expected:?}, got another reply"),
             }
         }
+    }
+
+    #[tokio::test]
+    async fn a_refusal_latched_during_the_caller_read_wins_over_its_success() {
+        let (read_started, mut has_read_started) = mpsc::unbounded_channel();
+        let release = Arc::new(Notify::new());
+        let read_release = Arc::clone(&release);
+        let gate = gate_over(Arc::new(move |_process_id: u32| {
+            read_started.send(()).expect("the test listens");
+            let release = Arc::clone(&read_release);
+            async move {
+                release.notified().await;
+                Ok::<_, Arc<dyn Error + Send + Sync>>(false)
+            }
+            .boxed()
+        }));
+
+        let hello = tokio::spawn(gate.dispatch(
+            request(Call::Hello(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION)),
+            caller_context(Some(7)),
+        ));
+        has_read_started
+            .recv()
+            .await
+            .expect("the caller read starts");
+        let wrong = gate
+            .dispatch(
+                request(Call::Hello("a-wrong-token", CURRENT_PROTOCOL_VERSION)),
+                caller_context(Some(7)),
+            )
+            .await;
+        assert!(matches!(
+            wrong,
+            Err(DispatchError::Refused(refusal)) if refusal.code == RefusalCode::AuthTokenInvalid
+        ));
+
+        // The read then finds the caller is no agent's, and the latched refusal still answers.
+        release.notify_one();
+        let answer = hello.await.expect("the hello ran");
+        assert!(matches!(
+            answer,
+            Err(DispatchError::Refused(refusal)) if refusal.code == RefusalCode::AuthTokenInvalid
+        ));
+        let read = gate
+            .dispatch(request(Call::Read), caller_context(Some(7)))
+            .await;
+        assert!(matches!(
+            read,
+            Err(DispatchError::Refused(refusal)) if refusal.code == RefusalCode::AuthTokenInvalid
+        ));
     }
 }
