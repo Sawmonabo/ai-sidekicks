@@ -44,8 +44,8 @@ pub(crate) struct SearchSnapshotLimits {
 /// still lets go of its index version, so merged files are not kept on disk behind it.
 pub(crate) const DEFAULT_SEARCH_SNAPSHOT_LIMITS: SearchSnapshotLimits = SearchSnapshotLimits {
     max_held: NonZeroUsize::new(16).expect("sixteen is not zero"),
-    idle: Duration::from_secs(5 * 60),
-    lifetime: Duration::from_secs(30 * 60),
+    idle: Duration::from_mins(5),
+    lifetime: Duration::from_mins(30),
 };
 
 // A held search and when it was held and last paged, by the wall clock.

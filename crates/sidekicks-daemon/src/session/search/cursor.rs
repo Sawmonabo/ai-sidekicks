@@ -127,17 +127,14 @@ mod tests {
         #[case] expected: Option<SearchPagePosition>,
     ) {
         let cursor = SessionSearchCursor::new(text.to_owned()).expect("a cursor's length");
-        match expected {
-            Some(position) => {
-                assert_eq!(encode_search_cursor(SNAPSHOT_ID, position), cursor);
-                let decoded = decode_search_cursor(&cursor).expect("a written cursor reads back");
-                assert_eq!(decoded.snapshot_id, SNAPSHOT_ID);
-                assert_eq!(decoded.position, position);
-            }
-            None => {
-                let refusal = decode_search_cursor(&cursor).expect_err("the cursor is refused");
-                assert_eq!(refusal.code, RefusalCode::SessionSearchCursorUnresolvable);
-            }
+        if let Some(position) = expected {
+            assert_eq!(encode_search_cursor(SNAPSHOT_ID, position), cursor);
+            let decoded = decode_search_cursor(&cursor).expect("a written cursor reads back");
+            assert_eq!(decoded.snapshot_id, SNAPSHOT_ID);
+            assert_eq!(decoded.position, position);
+        } else {
+            let refusal = decode_search_cursor(&cursor).expect_err("the cursor is refused");
+            assert_eq!(refusal.code, RefusalCode::SessionSearchCursorUnresolvable);
         }
     }
 }

@@ -1,4 +1,4 @@
-//! How related two linked sessions are: personalized PageRank from one session, cut at two steps.
+//! How related two linked sessions are: personalized `PageRank` from one session, cut at two steps.
 //! A link's weight is its kind's, grown with its use count and halved for every 30 days since its
 //! last use; a pair's links add up, each walk step goes to a neighbor in proportion to the pair's
 //! weight, and a two-step walk counts half of a direct one. Only linked sessions are scored, since
@@ -11,7 +11,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::links::SessionLinkKind;
 
 /// How long a link goes unused before its weight halves.
-const HALVING_PERIOD: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+const HALVING_PERIOD: Duration = Duration::from_hours(30 * 24);
 
 /// What a walk that took a second step keeps of the first step's share.
 const SECOND_STEP_FACTOR: f64 = 0.5;

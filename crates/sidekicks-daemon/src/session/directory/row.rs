@@ -492,7 +492,7 @@ pub(crate) fn fold_directory_row(
             });
         }
         Some(DirectoryChange::Column(write)) => {
-            write.value.write_into(&mut next, write.keeps_first)
+            write.value.write_into(&mut next, write.keeps_first);
         }
         None => {}
     }

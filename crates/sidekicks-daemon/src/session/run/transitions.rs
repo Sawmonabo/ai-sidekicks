@@ -48,7 +48,7 @@ fn next_states(from: RunState) -> &'static [RunStateChangeState] {
             Next::Failed,
             Next::Stopped,
         ],
-        RunState::WaitingForApproval => &[
+        RunState::WaitingForApproval | RunState::Paused => &[
             Next::Running,
             Next::Interrupted,
             Next::Failed,
@@ -56,12 +56,6 @@ fn next_states(from: RunState) -> &'static [RunStateChangeState] {
         ],
         RunState::WaitingForInput => &[Next::Running, Next::Interrupted, Next::Failed],
         RunState::Pausing => &[Next::Paused, Next::Running, Next::Interrupted, Next::Failed],
-        RunState::Paused => &[
-            Next::Running,
-            Next::Interrupted,
-            Next::Failed,
-            Next::WaitingForInput,
-        ],
         RunState::Completed | RunState::Stopped => &[Next::Running],
         RunState::Interrupted => &[Next::Running, Next::Stopped],
         RunState::Failed => &[],
