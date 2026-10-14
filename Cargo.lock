@@ -8220,6 +8220,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uds_windows",
+ "walkdir",
  "windows",
  "windows-native-keyring-store",
  "windows-sys 0.61.2",

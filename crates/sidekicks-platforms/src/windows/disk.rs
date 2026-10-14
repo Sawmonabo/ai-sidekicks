@@ -1,6 +1,7 @@
 //! The disk on Windows: the free room on a folder's volume, a read at a file offset, and a written
-//! file flushed so it survives a power loss; a folder has no flush there, and a rename is on disk
-//! when it returns.
+//! file (by path, or through a handle open for writing with `flush_open_file`) flushed so it
+//! survives a power loss; a folder has no flush there, and `rename_replacing` is on disk when it
+//! returns.
 
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
@@ -127,8 +128,8 @@ pub fn read_exact_at(file: &File, mut buffer: &mut [u8], mut offset: u64) -> io:
     Ok(())
 }
 
-/// Does nothing: Windows has no flush of a folder's entries, and a rename is on disk when it
-/// returns. Never fails.
+/// Does nothing: Windows has no flush of a folder's entries, and `rename_replacing` is on disk when
+/// it returns. Never fails.
 pub fn flush_folder(_folder: &Path) -> io::Result<()> {
     Ok(())
 }
@@ -139,9 +140,15 @@ pub fn windows_drive_mounts() -> io::Result<Vec<PathBuf>> {
     Ok(Vec::new())
 }
 
-// A file is closed when dropped; a failure a close could report is one `sync_all` already reported.
+/// Flushes `opened`, a file already open, to disk; the flush needs the handle open for writing.
+/// Fails with the flush's error.
+pub fn flush_open_file(opened: &File) -> io::Result<()> {
+    opened.sync_all()
+}
+
+// A file is closed when dropped; a failure a close could report is one the flush already reported.
 fn flush_opened(path: &Path) -> io::Result<()> {
-    OpenOptions::new().write(true).open(path)?.sync_all()
+    flush_open_file(&OpenOptions::new().write(true).open(path)?)
 }
 
 #[cfg(test)]

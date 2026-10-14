@@ -4,6 +4,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::free_form_string::FilesystemPath;
 use crate::method::methods;
@@ -94,8 +95,21 @@ pub struct WorkflowDefinitionReadRequest {
 
 /// What a webhook fire came to: a run started, skipped because a run was still going, waiting to
 /// run once the going run finishes, or refused for a token that did not match.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum WorkflowWebhookFireOutcome {
     /// A run started.
     Started,

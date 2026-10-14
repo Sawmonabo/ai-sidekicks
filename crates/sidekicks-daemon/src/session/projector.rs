@@ -70,8 +70,7 @@ pub(crate) fn rebuild_session(
     let newest = later.last().unwrap_or(created);
     Ok(Some(DaemonSessionRecord {
         directory_row,
-        as_of_sequence: i64::try_from(newest.sequence.get())
-            .expect("a sequence is a safe integer, below 2^53"),
+        as_of_sequence: i64::from(newest.sequence),
         // A system-emitted bootstrap names no actor, which stays `None` rather than an invented
         // owner.
         owner_actor: created

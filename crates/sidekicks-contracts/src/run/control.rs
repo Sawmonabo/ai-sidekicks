@@ -4,7 +4,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::VariantArray;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::command::ExitCode;
 use crate::event::envelope::SourcePosition;
@@ -54,9 +54,20 @@ branded_uuid_id! {
 /// Where an intervention stands, from request to outcome; each state has its own event. `failed`
 /// is a dispatch that threw, so a request never stays `accepted` for good.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
 )]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum InterventionState {
     /// Asked for.
     Requested,

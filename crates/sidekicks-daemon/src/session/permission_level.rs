@@ -9,7 +9,7 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::session::stored_column::{closed_word, text_column};
+use crate::database::stored_column::{closed_word, text_column};
 
 /// The statement storing the level a session moved to; the write refuses a session with no row.
 pub(crate) fn permission_level_change_statement(

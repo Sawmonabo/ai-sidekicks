@@ -150,6 +150,19 @@ static STORED_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+/// Answers the sequence a damaged session's reads stop before, `None` for a session that reads
+/// whole.
+pub(crate) type DamagedFromSequenceReader = dyn Fn(&SessionId) -> Option<i64> + Send + Sync;
+
+/// Whether the event aliased `event_alias` is one the log can read: before `@read_bound`, which
+/// [`session_read_bound`] gives, and outside every range its session skipped as damaged.
+pub(crate) fn readable_event_sql(event_alias: &str) -> String {
+    format!(
+        "{event_alias}.sequence < @read_bound AND {}",
+        outside_skipped_ranges_sql(event_alias)
+    )
+}
+
 /// The sequence a read of `session_id` stops before: the earlier of the read's own
 /// `before_sequence` and the session's last good point while its history is damaged, which
 /// `read_damaged_from_sequence` answers, else past every sequence.

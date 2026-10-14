@@ -13,7 +13,7 @@ pub mod events;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::VariantArray;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::internal::branded::branded_uuid_id;
@@ -89,8 +89,21 @@ pub enum ApprovalState {
 }
 
 /// The person's answer to an ask.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum ApprovalDecision {
     /// Approved.
     Approved,

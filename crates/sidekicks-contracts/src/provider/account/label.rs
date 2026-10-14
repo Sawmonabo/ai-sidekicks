@@ -2,7 +2,7 @@
 //! carries: the identity its provider reported, or for a pasted token or API key the name the
 //! person gave it beside the credential's kind. Never the account's id.
 
-use crate::provider::account::record::{ProviderAccount, ProviderAuthMode};
+use crate::provider::account::record::{AccountLabelFields, ProviderAuthMode};
 use crate::provider::name::ProviderName;
 
 /// The plan id a provider sends when it cannot say which plan the account is on.
@@ -62,12 +62,11 @@ fn credential_kind(provider: ProviderName, mode: ProviderAuthMode) -> Option<Str
     }
 }
 
-/// The label every screen names `account` by, or `None` for an account still signing in that its
-/// provider has not named yet. A token or API-key account reads its typed name beside the
+/// The label every screen names an account by, drawn from its `fields`, or `None` for an account
+/// still signing in that its provider has not named yet. A token or API-key account reads its typed name beside the
 /// credential's kind (`Work · Codex API key`); every other account reads the email, the plan in
 /// its provider's own word, then the organization (`sam@example.org · Business · Example Inc`).
-pub fn account_label(account: &ProviderAccount) -> Option<String> {
-    let fields = account.label_fields();
+pub fn account_label(fields: &AccountLabelFields<'_>) -> Option<String> {
     if let Some(display_label) = fields.display_label {
         let kind = fields
             .observed_auth_mode
@@ -126,7 +125,12 @@ mod tests {
             members.extend(case.overrides);
             let account: ProviderAccount =
                 serde_json::from_value(Value::Object(members)).expect("the case's account parses");
-            assert_eq!(account_label(&account), case.label, "{}", case.name);
+            assert_eq!(
+                account_label(&account.label_fields()),
+                case.label,
+                "{}",
+                case.name
+            );
         }
     }
 }

@@ -8,6 +8,7 @@ use std::fmt;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::session::controls::methods::PermissionLevel;
 use crate::tag::TagList;
@@ -133,8 +134,22 @@ pub struct WorkflowPermissionLevelUpdateResponse {
 /// The browser a workflow's runs use in the background, picked on the builder's browser pill: the
 /// machine setting's choice, or sandboxed or not whatever that setting says. A new workflow reads
 /// `settings_default`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum WorkflowBackgroundBrowser {
     /// Whatever the machine's setting picks.
     #[default]

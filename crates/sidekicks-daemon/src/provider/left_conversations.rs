@@ -6,12 +6,14 @@
 use std::borrow::Cow;
 
 use rusqlite::Connection;
-use rusqlite::types::{Type, Value};
+use rusqlite::types::Type;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::name::ProviderName;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
+use crate::database::statement::{
+    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+};
 
 /// A conversation a session moved off, on the account whose home holds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,19 +65,19 @@ pub(crate) fn compose_left_conversation_insert(
     left_at: &str,
     conversation: &LeftConversation,
 ) -> WriteStatement {
-    let provider_account_id = conversation
-        .provider_account_id
-        .as_ref()
-        .map_or(Value::Null, |account_id| {
-            Value::Text(account_id.as_str().to_owned())
-        });
     WriteStatement {
         sql: Cow::Borrowed(INSERT_LEFT_CONVERSATION_SQL),
         bindings: StatementBindings::Named(vec![
             text_binding("@binding_id", binding_id),
             text_binding("@left_at", left_at),
             text_binding("@session_id", conversation.session_id.as_str()),
-            (Cow::Borrowed("@provider_account_id"), provider_account_id),
+            nullable_text_binding(
+                "@provider_account_id",
+                conversation
+                    .provider_account_id
+                    .as_ref()
+                    .map(ProviderAccountId::as_str),
+            ),
             text_binding("@conversation_id", &conversation.conversation_id),
         ]),
         expected_row_count: None,

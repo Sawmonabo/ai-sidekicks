@@ -14,6 +14,7 @@ use std::str::FromStr;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::internal::branded::branded_uuid_id;
 use crate::keychain::KeychainRefusalCause;
@@ -51,8 +52,21 @@ pattern_text! {
 
 /// Where a secret is visible: the runs that work in one project, or every run on this machine.
 /// Never a session.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum WorkflowSecretScope {
     /// The runs that work in one project.
     Project,

@@ -3,7 +3,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::VariantArray;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 
@@ -11,9 +11,20 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 /// question or a spent provider account; it is never swept to `crashed` when the daemon starts and
 /// never pruned, so a waiting run survives a restart.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
 )]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum WorkflowRunStatus {
     /// Started, with no step run yet.
     New,
@@ -36,9 +47,20 @@ pub enum WorkflowRunStatus {
 /// not started yet, which needs nobody. `canceled` is a step that was running or waiting when its
 /// run ended failed or canceled, or a branch a first-to-arrive merge stopped.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
 )]
 #[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
 pub enum WorkflowStepStatus {
     /// Not started.
     Pending,
@@ -61,9 +83,20 @@ pub enum WorkflowStepStatus {
 /// What a waiting step waits on: a person's approval, form or chat reply, its chain's question, or
 /// a spent provider account. Only the account wait needs nobody.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
 )]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum WorkflowWaitCause {
     /// A person's approval.
     Approval,
