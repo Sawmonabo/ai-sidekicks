@@ -1,6 +1,5 @@
-//! JSON text a provider sends, read so that what Node parsed still parses: bytes that are not
-//! UTF-8 become U+FFFD, and a lone UTF-16 surrogate escape becomes `\uFFFD`, which `serde_json`
-//! would otherwise refuse.
+//! JSON text a provider sends, repaired where `serde_json` refuses what Node reads: bytes that are
+//! not UTF-8 become U+FFFD, and a lone UTF-16 surrogate escape becomes `\uFFFD`.
 
 use std::borrow::Cow;
 
@@ -9,9 +8,8 @@ use memchr::memchr;
 // The length of a `\uXXXX` escape, in bytes.
 const UNICODE_ESCAPE_LEN: usize = 6;
 
-/// Provider-sent JSON `bytes` as text `serde_json` parses wherever Node's `Buffer.toString` and
-/// `JSON.parse` would: invalid UTF-8 and lone surrogate escapes read as U+FFFD. Borrows `bytes`
-/// when nothing needs repair.
+/// Provider-sent JSON `bytes` as text, with invalid UTF-8 and lone surrogate escapes repaired to
+/// U+FFFD and nothing else changed. Borrows `bytes` when nothing needs repair.
 pub(crate) fn decode_inbound_json(bytes: &[u8]) -> Cow<'_, str> {
     let text = String::from_utf8_lossy(bytes);
     // In valid JSON a reverse solidus only starts an escape, so text without one has none.
