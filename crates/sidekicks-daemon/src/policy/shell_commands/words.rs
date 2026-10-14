@@ -538,7 +538,11 @@ impl<'s> WordBuilder<'s> {
                         self.push_line(child.byte_range(), PieceKind::Expansion);
                         position = child.end_byte();
                     }
-                    "\"" if child.start_byte() > string.start_byte() => end = child.start_byte(),
+                    // The closing quote's token can start at the blanks after a line break, so
+                    // the text ends at its last byte; a missing quote spans nothing.
+                    "\"" if !child.is_missing() && child.start_byte() > string.start_byte() => {
+                        end = child.end_byte() - 1;
+                    }
                     _ => {}
                 }
                 if !cursor.goto_next_sibling() {
