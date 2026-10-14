@@ -5,8 +5,6 @@
 
 use std::fmt;
 
-use jsonschema::error::ValidationErrorKind;
-use serde::de::value::MapDeserializer;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::declared_variants::{
     CONTENT_LENGTH_PAYLOAD_KEY, CONTENT_PAYLOAD_PLAINTEXT_MAX, CONTENT_TRUNCATED_PAYLOAD_KEY,
@@ -14,7 +12,9 @@ use sidekicks_contracts::event::declared_variants::{
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
-use sidekicks_contracts::jsonrpc::issue::{IssuePathSegment, reader_issue_path, shape_faults};
+use sidekicks_contracts::jsonrpc::issue::{
+    ISSUES_MAX, IssuePathSegment, reader_issue_path, shape_faults,
+};
 use sidekicks_contracts::schema::{ReceivedCheckError, received_check};
 
 use crate::issue_path::resolve_issue_path;
@@ -130,16 +130,10 @@ pub(crate) fn compose_content_row(
 /// Whether the envelope parses as its registered variant. A type this build registers no payload
 /// variant for is kept as a stub and counts as parsing.
 pub(crate) fn parses_as_registered_variant(envelope: &EventEnvelope) -> bool {
+    use SessionEventReadError::{CategoryMismatch, Check, NoPayloadVariant, Payload, UnknownType};
     match SessionEvent::from_envelope(envelope) {
-        Ok(_)
-        | Err(SessionEventReadError::UnknownType(_) | SessionEventReadError::NoPayloadVariant(_)) => {
-            true
-        }
-        Err(
-            SessionEventReadError::CategoryMismatch { .. }
-            | SessionEventReadError::Payload(_)
-            | SessionEventReadError::Check(_),
-        ) => false,
+        Ok(_) | Err(UnknownType(_) | NoPayloadVariant(_)) => true,
+        Err(CategoryMismatch { .. } | Payload(_) | Check(_)) => false,
     }
 }
 
@@ -157,7 +151,7 @@ pub(crate) struct VariantIssue {
 /// Why an envelope about to be stored was refused by the registered-variant check.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RegisteredVariantRefusal {
-    /// Its registered variant rejects it.
+    /// Its registered variant rejects it; the envelope is not kept.
     #[error(
         "{refuser} refuses to store an event of type {event_type} that its own registered \
          variant rejects: {}. Storing it would write a row that fails the strict read on the \
@@ -169,7 +163,8 @@ pub(crate) enum RegisteredVariantRefusal {
         refuser: &'static str,
         /// The envelope's type, a registered one.
         event_type: String,
-        /// Every member the variant refuses that the check could name, at least one.
+        /// The members the variant refuses that the check names, at least one: the shape's first
+        /// fault, or each unknown member or broken rule up to the issue cap.
         issues: Vec<VariantIssue>,
     },
     /// The shape check of the session event could not be built, so the refused members could not
@@ -178,18 +173,21 @@ pub(crate) enum RegisteredVariantRefusal {
     ShapeCheck(#[source] ReceivedCheckError),
 }
 
-/// Refuses an envelope about to be stored unless it parses as its registered variant. It is the
-/// last check on both append branches; a type with no registered variant passes, since a reader
-/// must keep an unknown type as a version stub, never reject it.
+/// Refuses an envelope about to be stored unless it parses as its registered variant, answering
+/// the envelope when it does. It is the last check on both append branches; a type with no
+/// registered variant passes, since a reader must keep an unknown type as a version stub, never
+/// reject it. A refused envelope's payload is read in place for its issues, never copied.
 pub(crate) fn assert_registered_variant_parses(
-    envelope: &EventEnvelope,
+    envelope: EventEnvelope,
     refuser: &'static str,
-) -> Result<(), RegisteredVariantRefusal> {
-    let issues = match SessionEvent::from_envelope(envelope) {
+) -> Result<EventEnvelope, RegisteredVariantRefusal> {
+    let read = SessionEvent::from_envelope(&envelope);
+    let event_type = envelope.event_type.as_str().to_owned();
+    let issues = match read {
         Ok(_)
         | Err(SessionEventReadError::UnknownType(_) | SessionEventReadError::NoPayloadVariant(_)) =>
         {
-            return Ok(());
+            return Ok(envelope);
         }
         Err(SessionEventReadError::CategoryMismatch { .. }) => vec![VariantIssue {
             path: vec![member("category")],
@@ -198,9 +196,10 @@ pub(crate) fn assert_registered_variant_parses(
         // garde's messages can quote the value, so only its paths are kept. garde roots the
         // payload at the variant's one field, which serde writes as `payload` itself.
         Err(SessionEventReadError::Check(report)) => {
-            let payload = Value::Object(envelope.payload.clone());
+            let payload = Value::Object(envelope.payload);
             report
                 .iter()
+                .take(ISSUES_MAX)
                 .map(|(check_path, _)| VariantIssue {
                     path: [member("payload")]
                         .into_iter()
@@ -212,63 +211,42 @@ pub(crate) fn assert_registered_variant_parses(
         }
         // serde's error quotes the value and names only its first fault, so the members are read
         // from the shape check instead.
-        Err(SessionEventReadError::Payload(_)) => {
-            shape_issues(envelope).map_err(RegisteredVariantRefusal::ShapeCheck)?
-        }
+        Err(SessionEventReadError::Payload(_)) => shape_issues(&event_type, envelope.payload)
+            .map_err(RegisteredVariantRefusal::ShapeCheck)?,
     };
     Err(RegisteredVariantRefusal::Rejected {
         refuser,
-        event_type: envelope.event_type.as_str().to_owned(),
+        event_type,
         issues,
     })
 }
 
-/// The members the session event's shape check refuses in the arm `envelope`'s type selects, each
-/// by its path and keyword. Where the shape holds every member but the type's own reader still
-/// refuses one (a scalar's bound, which the shape leaves to the reader), the reader's first fault
-/// is named instead, by its path.
-fn shape_issues(envelope: &EventEnvelope) -> Result<Vec<VariantIssue>, ReceivedCheckError> {
-    let event_type = Value::String(envelope.event_type.as_str().to_owned());
-    let payload = Value::Object(envelope.payload.clone());
-    let instance = Value::Object(
-        [
-            ("type".to_owned(), event_type.clone()),
-            ("payload".to_owned(), payload.clone()),
-        ]
-        .into_iter()
-        .collect(),
-    );
+/// The first fault the session event's shape check finds in an event of `event_type` carrying
+/// `payload`, inside the arm its type selects, by path and keyword, or each unknown member up to
+/// the issue cap. Where the shape holds every member but the type's own reader still refuses one
+/// (a scalar's bound, which the shape leaves to the reader), the reader's first fault is named
+/// instead, by its path. The event the check reads is the one the reader then takes.
+fn shape_issues(
+    event_type: &str,
+    payload: Map<String, Value>,
+) -> Result<Vec<VariantIssue>, ReceivedCheckError> {
+    // `type` comes first so the reader takes the payload as its variant's, its path tracked.
+    let event = Value::Object(Map::from_iter([
+        ("type".to_owned(), Value::String(event_type.to_owned())),
+        ("payload".to_owned(), Value::Object(payload)),
+    ]));
     let check = received_check::<SessionEvent>()?;
-    let mut issues = Vec::new();
-    for error in check.iter_errors(&instance) {
-        // The root's arms, one error list each; the root's other keywords only repeat that no arm
-        // read the event.
-        let ValidationErrorKind::AnyOf { context } = error.kind() else {
-            continue;
-        };
-        // Every arm but the one the type selects refuses `/type`.
-        let selected_arm = context.iter().find(|arm_errors| {
-            arm_errors
-                .iter()
-                .all(|arm_error| arm_error.instance_path().as_str() != "/type")
-        });
-        for arm_error in selected_arm.into_iter().flatten() {
-            issues.extend(shape_faults(arm_error, &instance).into_iter().map(|fault| {
-                VariantIssue {
-                    path: fault.path,
-                    kind: fault.keyword,
-                }
-            }));
-        }
+    if let Err(error) = check.validate(&event) {
+        let faults = shape_faults(&error, &event);
+        return Ok(faults
+            .into_iter()
+            .map(|fault| VariantIssue {
+                path: fault.path,
+                kind: fault.keyword,
+            })
+            .collect());
     }
-    if !issues.is_empty() {
-        return Ok(issues);
-    }
-    // `type` is read first so the payload is read as its variant's, with its path tracked.
-    let fields = MapDeserializer::<_, serde_json::Error>::new(
-        [("type", event_type), ("payload", payload)].into_iter(),
-    );
-    let path = serde_path_to_error::deserialize::<_, SessionEvent>(fields)
+    let path = serde_path_to_error::deserialize::<_, SessionEvent>(event)
         .err()
         .map_or_else(
             || vec![member("payload")],
@@ -383,7 +361,7 @@ mod tests {
         #[case] expected: &[(&[&str], &str)],
     ) {
         let refusal =
-            assert_registered_variant_parses(&tool_invoked(category, &extra_members), "test")
+            assert_registered_variant_parses(tool_invoked(category, &extra_members), "test")
                 .expect_err("the variant refuses the event");
         let message = refusal.to_string();
         let RegisteredVariantRefusal::Rejected { issues, .. } = refusal else {
