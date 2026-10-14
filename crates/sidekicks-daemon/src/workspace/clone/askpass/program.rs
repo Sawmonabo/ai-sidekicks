@@ -36,10 +36,9 @@ pub(crate) fn run_git_askpass() -> ExitCode {
     let Some(socket_path) = env::var_os(ASKPASS_SOCKET_VARIABLE) else {
         return ExitCode::FAILURE;
     };
-    let owner = match env::var(ASKPASS_OWNER_VARIABLE) {
-        Ok(owner) if !owner.is_empty() => owner,
-        // No owner, or one that is no daemon's id, has no one to answer.
-        Ok(_) | Err(_) => return ExitCode::FAILURE,
+    // No owner, or one that is no daemon's id, has no one to answer.
+    let Ok(owner) = env::var(ASKPASS_OWNER_VARIABLE) else {
+        return ExitCode::FAILURE;
     };
     let prompt = env::args_os()
         .nth(1)
@@ -54,8 +53,13 @@ pub(crate) fn run_git_askpass() -> ExitCode {
 }
 
 // Asks the broker at `socket_path` and writes its answer to `output` as one line: 0 once written,
-// 1 with nothing written when the broker refuses, is gone, or the answer cannot be written.
+// 1 with nothing written when the owner is empty, the broker refuses, is gone, or the answer cannot
+// be written.
 fn ask_broker(socket_path: &Path, owner: &str, prompt: &str, output: &mut impl Write) -> ExitCode {
+    // An empty owner is no daemon's id, so nothing is asked.
+    if owner.is_empty() {
+        return ExitCode::FAILURE;
+    }
     let Ok(Some(answer)) = read_answer(socket_path, owner, prompt) else {
         // Git reads a refusal and a failure alike: no answer from a program that exits 1.
         return ExitCode::FAILURE;
@@ -82,13 +86,16 @@ fn read_answer(socket_path: &Path, owner: &str, prompt: &str) -> io::Result<Opti
 
 #[cfg(test)]
 mod tests {
+    use std::io::{BufRead, BufReader, Write};
     use std::path::PathBuf;
     use std::process::ExitCode;
 
+    use interprocess::local_socket::traits::Listener as _;
+    use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
     use sidekicks_contracts::repo::clone::AskpassAnswer;
     use tokio::sync::mpsc;
 
-    use super::{ASKPASS_OWNER_VARIABLE, ASKPASS_SOCKET_VARIABLE, ask_broker};
+    use super::{ASKPASS_OWNER_VARIABLE, ASKPASS_SOCKET_VARIABLE, ask_broker, read_answer};
     use crate::workspace::clone::askpass::broker::{AskpassBroker, AskpassOwner};
 
     // The socket and owner the daemon gives git, as the mode reads them.
@@ -151,5 +158,43 @@ mod tests {
         assert_eq!(exit, ExitCode::FAILURE);
         assert_eq!(output, b"");
         broker.close().await.expect("the broker closes");
+    }
+
+    #[test]
+    fn refuses_an_empty_owner_without_asking() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let socket_path = scratch.path().join("answers.sock");
+        let listener = ListenerOptions::new()
+            .name(
+                socket_path
+                    .as_path()
+                    .to_fs_name::<GenericFilePath>()
+                    .expect("a socket name"),
+            )
+            .create_sync()
+            .expect("the socket listens");
+        // Answers the first asker, so a mode that asked would print the answer.
+        let answerer = std::thread::spawn(move || {
+            let stream = listener.accept().expect("an asker connects");
+            let mut request = String::new();
+            BufReader::new(&stream)
+                .read_line(&mut request)
+                .expect("the request reads");
+            (&stream)
+                .write_all(b"hunter2\n")
+                .expect("the answer is sent");
+        });
+
+        let mut output = Vec::new();
+        let exit = ask_broker(&socket_path, "", "Password: ", &mut output);
+
+        assert_eq!(exit, ExitCode::FAILURE);
+        assert_eq!(output, b"");
+        // The first asker is the test itself, so the mode never connected.
+        assert_eq!(
+            read_answer(&socket_path, "owner", "Password: ").expect("the test asks"),
+            Some("hunter2".to_owned())
+        );
+        answerer.join().expect("the answerer ends");
     }
 }
