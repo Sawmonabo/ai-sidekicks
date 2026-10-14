@@ -337,9 +337,9 @@ pub struct WorkflowDraftReadResponse {
 // workflow.expressionPreview
 
 /// The `workflow.expressionPreview` input: one expression of one node, evaluated in the daemon
-/// against an item of the last run. The node is read from the workflow's held draft, else its
-/// latest saved version; with no `definitionId`, from the new workflow's draft. It never resolves a
-/// secret: a sensitive field previews the secret's name.
+/// against an item of the last run, the node read from the held draft, else the latest saved
+/// version, or with no `definitionId` the new workflow's draft. It never resolves a secret: a
+/// sensitive field previews the secret's name.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

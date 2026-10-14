@@ -386,10 +386,9 @@ impl ListKey for WorkflowHumanFormPathAnswer {
 }
 
 workflow_step_key! {
-    /// The `workflow.humanFormSubmit` input. `expectedRevision` is the form's revision when it was
-    /// read; a submit carrying a stale one is refused and never overwrites an accepted answer.
-    /// Every answer but a `path` field's is in `fields`; a `path` field's is in `paths`, at most
-    /// once per field. A form has no artifact field.
+    /// The `workflow.humanFormSubmit` input: every answer is in `fields` but a `path` field's, in
+    /// `paths` at most once per field, and a form has no artifact field. `expectedRevision` is the
+    /// form's revision when read; a stale one is refused and never overwrites an accepted answer.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]

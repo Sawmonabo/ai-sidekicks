@@ -350,9 +350,9 @@ pub enum WorkflowWaitingRunSummary {
     Chain(#[garde(dive)] WorkflowPersonWaitingRunSummary),
 }
 
-/// One row of the runs table, built from the run's record and told apart by its `status`. A row
-/// carries no version; the run's own page reads it. A going run carries its live step and no
-/// duration, an ended one its duration, and a failed run parked on its failed step neither.
+/// One row of the runs table, told apart by its `status`, carrying no version (the run's own page
+/// reads it). A going run carries its live step and no duration, an ended one its duration, and a
+/// failed run parked on its failed step neither.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum WorkflowRunSummary {

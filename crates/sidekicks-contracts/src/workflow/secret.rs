@@ -231,10 +231,9 @@ workflow_secret_place! {
 }
 
 workflow_secret_place! {
-    /// The `workflow.secretCreate` input. The daemon seals `secretValue` in the keychain before it
-    /// writes the record, so a keychain that cannot take it leaves no record. `name` is checked by
-    /// the daemon, which refuses a name that breaks the rule or that the place already holds with
-    /// `workflow.secret_name_invalid`.
+    /// The `workflow.secretCreate` input: the daemon seals `secretValue` in the keychain before it
+    /// writes the record, so a keychain that cannot take it leaves no record. A `name` that breaks
+    /// the rule or that the place already holds is refused with `workflow.secret_name_invalid`.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(
         tag = "scope",
@@ -264,9 +263,9 @@ pub struct WorkflowSecretReplaceRequest {
     pub secret_value: WorkflowSecretValue,
 }
 
-/// The `workflow.secretDelete` input. The daemon records the removal first, then removes the
-/// keychain entry and the record, so a crash between the two finishes the removal. A version that
-/// still names the secret fails its step with `workflow.secret_not_found`.
+/// The `workflow.secretDelete` input: the daemon records the removal, then removes the keychain
+/// entry and the record, so a crash between the two finishes it. A version that still names the
+/// secret fails its step with `workflow.secret_not_found`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

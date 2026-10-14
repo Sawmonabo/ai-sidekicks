@@ -40,10 +40,9 @@ use crate::workflow::run::status::WorkflowRunStatus;
 
 // workflow.definitionCreate
 
-/// The `workflow.definitionCreate` input. Saving a new workflow, duplicating one and importing a
-/// file all send this one shape. The name is the document's own and is held once across the one
-/// library, compared ignoring case: a name another workflow holds is refused with
-/// `workflow.definition_refused`, finding `name_taken`.
+/// The `workflow.definitionCreate` input, which saving a new workflow, duplicating one and
+/// importing a file all send. A name another workflow holds, compared ignoring case, is refused
+/// with `workflow.definition_refused`, finding `name_taken`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -207,9 +206,9 @@ workflow_definition_read! {
     }
 }
 
-/// The `workflow.definitionRead` result. The webhook token is never read back, only its hash is
-/// kept, so the reply carries the token's dates and the last fire's outcome instead; a last use
-/// appears only beside the token's creation. The tags ride the document.
+/// The `workflow.definitionRead` result, its tags riding the document. The webhook token is never
+/// read back, only its hash is kept, so the reply carries the token's dates and the last fire's
+/// outcome, a last use only beside the token's creation.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum WorkflowDefinitionReadResponse {
@@ -225,9 +224,8 @@ pub enum WorkflowDefinitionReadResponse {
 const WORKFLOW_DEFINITION_LIST_CURSOR_MAX_LEN: usize = 256;
 
 branded_text! {
-    /// Where the next `workflow.definitionList` page starts. The daemon writes it and owns its
-    /// format; a client passes it back unchanged. One the daemon did not write is refused as
-    /// `invalid_params`.
+    /// Where the next `workflow.definitionList` page starts, written by the daemon and passed back
+    /// unchanged. One the daemon did not write is refused as `invalid_params`.
     pub struct WorkflowDefinitionListCursor(1..=WORKFLOW_DEFINITION_LIST_CURSOR_MAX_LEN);
 }
 
@@ -374,13 +372,12 @@ pub struct WorkflowDefinitionListResponse {
 
 // workflow.definitionUpdate and workflow.definitionDelete
 
-/// The `workflow.definitionUpdate` input: Save, Restore, and a schedule change. It writes a new
-/// version and never changes one, and only when `expectedVersionNumber` is still the latest;
-/// otherwise it is refused with `workflow.version_stale`. A document identical to the latest
-/// version writes none and answers with that version. A Restore names the older version it repeats
-/// in `restoredVersionNumber`, whose package locks the new version keeps. A name another workflow
-/// in the one library holds, compared ignoring case, is refused with `workflow.definition_refused`,
-/// finding `name_taken`.
+/// The `workflow.definitionUpdate` input (Save, Restore, a schedule change): it writes a new
+/// version only while `expectedVersionNumber` is the latest, else refuses `workflow.version_stale`,
+/// and a document identical to the latest writes none and answers with that version. A Restore
+/// names the version it repeats in `restoredVersionNumber`, whose package locks it keeps, and a
+/// name another workflow holds, compared ignoring case, is refused with
+/// `workflow.definition_refused`, finding `name_taken`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -443,9 +440,9 @@ pub struct WorkflowDefinitionDeleteResponse {
 
 // workflow.definitionExport and workflow.definitionImport
 
-/// The `workflow.definitionExport` input. The daemon writes one version's canonical file, its body
-/// and, unless `includeLayout` is false, its layout, with each Code node's package lock.
-/// `filePath` is the path main forwards in place of the token the platform's save chooser returned.
+/// The `workflow.definitionExport` input: the daemon writes one version's canonical file, its body
+/// and, unless `includeLayout` is false, its layout, with each Code node's package lock. `filePath`
+/// is the path main forwards in place of the token the platform's save chooser returned.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -484,12 +481,11 @@ pub struct WorkflowDefinitionExportResponse {
     pub content_hash: WorkflowContentHash,
 }
 
-/// The `workflow.definitionImport` input. The daemon reads the file the person picked and creates
-/// the definition through the create path with its whole check, all or nothing, so a name another
-/// workflow in the one library holds, compared ignoring case, is refused with
-/// `workflow.definition_refused`, finding `name_taken`, and a schema version the daemon does not
-/// know with `workflow.import_schema_unknown`. `filePath` is the path main forwards in place of the
-/// token the platform's open chooser returned.
+/// The `workflow.definitionImport` input: the daemon reads the picked file at `filePath` (main
+/// forwards it in place of the open chooser's token) and creates the definition through the create
+/// path, all or nothing. A name another workflow holds, compared ignoring case, is refused with
+/// `workflow.definition_refused`, finding `name_taken`, and an unknown schema version with
+/// `workflow.import_schema_unknown`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
