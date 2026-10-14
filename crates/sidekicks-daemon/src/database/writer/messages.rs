@@ -74,9 +74,20 @@ pub(crate) enum BatchFailure {
     TransactionEnded {
         /// The position of the write that met it in the batch.
         job_index: usize,
-        /// That write's failure.
+        /// That write's failure; absent when the write was refused.
         #[source]
-        source: WriteJobFailure,
+        source: Option<WriteJobFailure>,
+    },
+    /// A write's savepoint could not be rolled back or released while the transaction stayed
+    /// open, so that write's work could not be kept apart from the batch's; the savepoint's own
+    /// failure is beside this one.
+    #[error("the savepoint of write {job_index} could not be ended")]
+    SavepointNotEnded {
+        /// The position of the write in the batch.
+        job_index: usize,
+        /// That write's failure; absent when the write was refused or ran whole.
+        #[source]
+        source: Option<WriteJobFailure>,
     },
     /// The commit failed.
     #[error("the batch's commit failed")]
@@ -87,7 +98,8 @@ pub(crate) enum BatchFailure {
 }
 
 /// The thread's answer to one batch: every write's outcome, in the batch's order, once it
-/// committed; or why it did not, beside the rollback's own failure when that failed too.
+/// committed; or why it did not, beside the failures of ending a write's savepoint and of rolling
+/// the batch back, when those failed too.
 pub(crate) type BatchAnswer =
     Result<Vec<WriteJobOutcome>, CleanupFailures<BatchFailure, rusqlite::Error>>;
 
@@ -95,8 +107,9 @@ pub(crate) type BatchAnswer =
 /// failure of putting the busy timeout back when that failed too.
 pub(crate) type CheckpointAnswer = Result<CheckpointResult, CleanupFailures<rusqlite::Error>>;
 
-/// The thread's last answer, as it exits: its connection's close, or why that failed.
-pub(crate) type ThreadExit = Result<(), rusqlite::Error>;
+/// The thread's last answer, as it exits: its connection's close, or why that failed, beside the
+/// close's own failure when turning off an ended writer's closing checkpoint failed first.
+pub(crate) type ThreadExit = Result<(), CleanupFailures<rusqlite::Error>>;
 
 /// What the pump asks of the thread, one request at a time. The thread closes its connection and
 /// exits once the pump drops its sender.
