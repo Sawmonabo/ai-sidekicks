@@ -302,7 +302,7 @@ mod tests {
     )]
     #[case::one_brace_short_is_read_as_a_reference(
         json!({ "definition": "={{}" }),
-        &[("definition", "")],
+        &[("definition", "the id is not an RFC 9562 UUID text form")],
     )]
     fn the_params_check_refuses_what_could_leak_a_secret(
         #[case] params: Value,
