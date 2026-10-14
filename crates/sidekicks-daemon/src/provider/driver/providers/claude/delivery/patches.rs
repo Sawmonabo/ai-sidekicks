@@ -36,12 +36,12 @@ pub(crate) fn read_claude_patch_file(tool_use_result: &Value) -> Option<WholePat
         .get("structuredPatch")
         .and_then(Value::as_array)
         .and_then(|hunks| read_structured_patch(&path, hunks));
-    Some(from_hunks.unwrap_or_else(|| {
-        WholePatchFile::Unavailable(TranscriptPatchFileUnavailable {
+    Some(from_hunks.unwrap_or(WholePatchFile::Unavailable(
+        TranscriptPatchFileUnavailable {
             path,
             unavailable: HydratedContentUnavailableReason::Absent,
-        })
-    }))
+        },
+    )))
 }
 
 fn read_git_diff(result: &Map<String, Value>) -> Option<WholePatchFile> {

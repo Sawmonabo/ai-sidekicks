@@ -49,7 +49,11 @@ pub(crate) async fn find_claude_plan_files(
             };
             if file_name == plan_file_name
                 || file_name == workshop_file_name
-                || (file_name.starts_with(&helper_file_prefix) && file_name.ends_with(".md"))
+                // The prefix leaves a stem, so the extension is exactly the `.md` the name ends in.
+                || (file_name.starts_with(&helper_file_prefix)
+                    && Path::new(file_name)
+                        .extension()
+                        .is_some_and(|extension| extension == "md"))
             {
                 found.push(entry.path());
             }
