@@ -1,12 +1,9 @@
-//! The newest-value feed: a subscription whose states are whole, each replacing the one before (a
-//! list sent entire, a card's whole state), beside events that are never replaced (a removal, a
-//! schedule's `fired` or `skipped`). While the subscription's gate is closed the events wait in
-//! order and only the newest state waits, so a slow reader costs at most one state beyond the
-//! events it has not read, and always ends on the newest state.
+//! The newest-value feed: a subscription whose every value is whole and replaces the one before
+//! (a list sent entire, a card's whole state). While the subscription's gate is closed only the
+//! newest value waits, so a slow reader costs at most one value and always ends on the newest.
 
-use std::collections::VecDeque;
 use std::future::Future;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -15,18 +12,10 @@ use tokio::sync::Notify;
 use crate::ipc::registry::HandlerError;
 use crate::ipc::stream::feed::{Feed, SendGate};
 
-/// One value waiting to be read.
-enum WaitingValue<Emission> {
-    /// A whole state; a later state replaces it.
-    State(Emission),
-    /// An event; nothing replaces it.
-    Event(Emission),
-}
-
 /// What waits between a source and its feed.
-struct WaitingValues<Emission> {
-    /// Events in the order sent, and at most one state, after every event sent before it.
-    values: VecDeque<WaitingValue<Emission>>,
+struct WaitingValue<Emission> {
+    /// The newest value not yet read; a later send replaces it.
+    newest: Option<Emission>,
     /// Why the source stopped following, answered by the feed's next read.
     failure: Option<HandlerError>,
     /// The source dropped its outlet or failed, so nothing more is sent.
@@ -35,66 +24,49 @@ struct WaitingValues<Emission> {
     is_feed_gone: bool,
 }
 
-/// The values a source sent, and the signal that wakes the feed on each send.
-struct SourceValues<Emission> {
-    waiting: Mutex<WaitingValues<Emission>>,
+/// The value a source sent, and the signal that wakes the feed on each send.
+struct SourceValue<Emission> {
+    waiting: Mutex<WaitingValue<Emission>>,
     sent: Notify,
 }
 
-impl<Emission> SourceValues<Emission> {
-    fn lock(&self) -> MutexGuard<'_, WaitingValues<Emission>> {
-        self.waiting
-            .lock()
-            .expect("a panic ends the daemon, so no holder leaves the values poisoned")
+impl<Emission> SourceValue<Emission> {
+    fn lock(&self) -> MutexGuard<'_, WaitingValue<Emission>> {
+        self.waiting.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
 /// What a source hands its feed values through. Every call does nothing once the feed dropped or
-/// the source failed; dropping it ends the stream once what waits is read.
+/// the source failed; dropping it ends the stream once the waiting value is read.
 pub(crate) struct LatestValueOutlet<Emission> {
-    values: Arc<SourceValues<Emission>>,
+    value: Arc<SourceValue<Emission>>,
 }
 
 impl<Emission> LatestValueOutlet<Emission> {
-    /// Sends a whole state, replacing the state still waiting; it waits behind every event sent
-    /// before it.
-    pub(crate) fn send_state(&self, state: Emission) {
-        self.update(|waiting| {
-            let replaced = waiting
-                .values
-                .iter()
-                .position(|value| matches!(value, WaitingValue::State(_)));
-            if let Some(index) = replaced {
-                waiting.values.remove(index);
-            }
-            waiting.values.push_back(WaitingValue::State(state));
-        });
-    }
-
-    /// Sends an event, which waits in order and is never replaced.
-    pub(crate) fn send_event(&self, event: Emission) {
-        self.update(|waiting| waiting.values.push_back(WaitingValue::Event(event)));
+    /// Sends a whole value, replacing the one still waiting.
+    pub(crate) fn send(&self, value: Emission) {
+        self.update(|waiting| waiting.newest = Some(value));
     }
 
     /// Stops the stream for a source that can no longer follow: the feed's next read answers
-    /// `failure`, so the subscription ends refused, and what waits is dropped.
+    /// `failure`, so the subscription ends refused, and the waiting value is dropped.
     pub(crate) fn fail(&self, failure: HandlerError) {
         self.update(|waiting| {
-            waiting.values.clear();
+            waiting.newest = None;
             waiting.failure = Some(failure);
             waiting.has_source_stopped = true;
         });
     }
 
-    fn update(&self, change: impl FnOnce(&mut WaitingValues<Emission>)) {
+    fn update(&self, change: impl FnOnce(&mut WaitingValue<Emission>)) {
         {
-            let mut waiting = self.values.lock();
+            let mut waiting = self.value.lock();
             if waiting.is_feed_gone || waiting.has_source_stopped {
                 return;
             }
             change(&mut waiting);
         }
-        self.values.sent.notify_one();
+        self.value.sent.notify_one();
     }
 }
 
@@ -104,27 +76,28 @@ impl<Emission> Drop for LatestValueOutlet<Emission> {
     }
 }
 
-/// A subscription's newest-value feed: it reads only once its gate lets a frame through, events
-/// first in order, and finishes once the source dropped its outlet and nothing waits. Dropping it
-/// runs the source's detach.
+/// A subscription's newest-value feed: it reads only once its gate lets a frame through, and then
+/// the newest value sent, so the reader ends on the newest value; it finishes once the source
+/// dropped its outlet and nothing waits. Dropping it runs the source's detach.
 pub(crate) struct LatestValueFeed<Emission, Detach: FnOnce() + Send> {
-    values: Arc<SourceValues<Emission>>,
+    value: Arc<SourceValue<Emission>>,
     /// What stops the source following; `None` only while `open` waits for it.
     detach: Option<Detach>,
 }
 
 impl<Emission, Detach: FnOnce() + Send> LatestValueFeed<Emission, Detach> {
     /// Opens a feed: `follow` starts following the source, which may send at once through the
-    /// outlet, and answers the detach the feed runs when it drops. A follow that fails opens
+    /// outlet, and answers the detach the feed runs when it drops. The detach runs synchronously,
+    /// so a source whose release must await spawns that release from it. A follow that fails opens
     /// nothing, and its failure is the subscribe call's.
     pub(crate) async fn open<Follow, Following>(follow: Follow) -> Result<Self, HandlerError>
     where
         Follow: FnOnce(LatestValueOutlet<Emission>) -> Following,
         Following: Future<Output = Result<Detach, HandlerError>>,
     {
-        let values = Arc::new(SourceValues {
-            waiting: Mutex::new(WaitingValues {
-                values: VecDeque::new(),
+        let value = Arc::new(SourceValue {
+            waiting: Mutex::new(WaitingValue {
+                newest: None,
                 failure: None,
                 has_source_stopped: false,
                 is_feed_gone: false,
@@ -133,10 +106,10 @@ impl<Emission, Detach: FnOnce() + Send> LatestValueFeed<Emission, Detach> {
         });
         // Held before the follow, so a failed follow drops it and the outlet's calls do nothing.
         let mut feed = Self {
-            values: Arc::clone(&values),
+            value: Arc::clone(&value),
             detach: None,
         };
-        feed.detach = Some(follow(LatestValueOutlet { values }).await?);
+        feed.detach = Some(follow(LatestValueOutlet { value }).await?);
         Ok(feed)
     }
 }
@@ -154,20 +127,19 @@ impl<Emission: Send, Detach: FnOnce() + Send> Feed for LatestValueFeed<Emission,
                     return Ok(None);
                 }
                 {
-                    let mut waiting = self.values.lock();
+                    let mut waiting = self.value.lock();
                     if let Some(failure) = waiting.failure.take() {
                         return Err(failure);
                     }
-                    match waiting.values.pop_front() {
-                        Some(WaitingValue::State(value) | WaitingValue::Event(value)) => {
-                            return Ok(Some(value));
-                        }
-                        None if waiting.has_source_stopped => return Ok(None),
-                        None => {}
+                    if let Some(value) = waiting.newest.take() {
+                        return Ok(Some(value));
+                    }
+                    if waiting.has_source_stopped {
+                        return Ok(None);
                     }
                 }
                 // A send between the check and this wait leaves a permit, so none is missed.
-                self.values.sent.notified().await;
+                self.value.sent.notified().await;
             }
         }
         .boxed()
@@ -178,9 +150,9 @@ impl<Emission, Detach: FnOnce() + Send> Drop for LatestValueFeed<Emission, Detac
     fn drop(&mut self) {
         // Marked first, so a send the detach sets off is ignored.
         {
-            let mut waiting = self.values.lock();
+            let mut waiting = self.value.lock();
             waiting.is_feed_gone = true;
-            waiting.values.clear();
+            waiting.newest = None;
         }
         if let Some(detach) = self.detach.take() {
             detach();
@@ -195,16 +167,8 @@ mod tests {
     use super::*;
     use crate::ipc::stream::feed::CreditGate;
 
-    #[derive(Debug, PartialEq)]
-    enum Change {
-        Projects(u32),
-        Removed(u32),
-        Fired(u32),
-        Skipped(u32),
-    }
-
     #[tokio::test]
-    async fn events_survive_a_burst_of_states_sent_while_the_gate_is_closed() {
+    async fn a_burst_sent_while_the_gate_is_closed_is_read_as_the_newest_alone() {
         let detached = Arc::new(AtomicBool::new(false));
         let mut outlet = None;
         let source_detached = Arc::clone(&detached);
@@ -219,37 +183,21 @@ mod tests {
         let gate = Arc::new(CreditGate::with_credit(0));
         let reader_gate = Arc::clone(&gate);
         let reader = tokio::spawn(async move {
-            let mut read = Vec::new();
-            for _ in 0..4 {
-                let value = feed.next(&*reader_gate).await;
-                read.push(
-                    value
-                        .expect("the source never fails")
-                        .expect("the source still follows"),
-                );
-            }
-            (read, feed)
+            let first = feed.next(&*reader_gate).await;
+            (first, feed)
         });
-
-        outlet.send_state(Change::Projects(1));
-        outlet.send_event(Change::Removed(7));
-        outlet.send_state(Change::Projects(2));
-        outlet.send_state(Change::Projects(3));
-        outlet.send_event(Change::Fired(8));
-        outlet.send_state(Change::Projects(4));
-        outlet.send_event(Change::Skipped(9));
-        outlet.send_state(Change::Projects(5));
+        for projects in 1..=5_u32 {
+            outlet.send(projects);
+        }
         gate.credit.add_permits(1);
+        let (first, mut feed) = reader.await.expect("the reader ran");
+        assert_eq!(first.expect("the source never fails"), Some(5));
 
-        let (read, feed) = reader.await.expect("the reader ran");
+        // Nothing older waits behind the newest: once the source stops, the stream ends.
+        drop(outlet);
         assert_eq!(
-            read,
-            vec![
-                Change::Removed(7),
-                Change::Fired(8),
-                Change::Skipped(9),
-                Change::Projects(5),
-            ]
+            feed.next(&*gate).await.expect("the source never fails"),
+            None
         );
         drop(feed);
         assert!(detached.load(Ordering::SeqCst), "the source was detached");
