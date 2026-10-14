@@ -1,37 +1,29 @@
-//! The service's one scheduler: every background job runs at a deadline on the monotonic clock, all
-//! of them behind one task's one timer, one job at a time in deadline order.
+//! The service's one scheduler: every background job runs from one task, one at a time, in the
+//! order it falls due.
 //!
-//! - A deadline is kept on tokio's monotonic clock, the one its timer sleeps on, and checked again
-//!   each time the timer fires, so setting the wall clock back or forward neither holds a job back
-//!   nor runs it early. tokio's clock stops while the machine sleeps, so time asleep does not count
-//!   toward a deadline; the wake signal tells the jobs that must catch up. A test pauses and
-//!   advances tokio's clock, and stands a sleep in through the injected wall clock.
-//! - The wake signal: when more wall-clock time than the wake gap passed between arming the timer
-//!   and its firing, or the wall clock has moved that much further than the monotonic clock since
-//!   the last look, the machine slept (or its clock was set forward, or the runtime was held that
-//!   long), and every receiver hears it once.
-//! - The timer is never armed further ahead than the wake check, so a wake is noticed within it
-//!   even while no job is due; with no job and no receiver the task waits for a change alone.
+//! - A job set a delay away runs at a deadline on tokio's monotonic clock, the one its timer sleeps
+//!   on, so setting the wall clock back or forward neither holds it back nor runs it early.
+//! - A job set for an instant on the wall clock runs at that instant through the operating
+//!   system's wall-clock timer, which fires at it across sleep and across any change to the clock;
+//!   when the timer fires, every such job whose instant the wall clock has reached runs, and the
+//!   timer is armed again for the next.
+//! - The wake signal is the operating system's own resume event, which every receiver hears once.
+//! - While no job is due nothing is armed and no clock is read: the task waits for a job, the
+//!   operating system's timer or a wake.
 
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, SystemTime};
 
 use futures::future::BoxFuture;
+use sidekicks_platforms::{WakeWatch, WakeWatchError, WallClockTimer};
 use tokio::sync::{Notify, broadcast};
 use tokio::task::{JoinError, JoinHandle};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
-
-// The longest the timer waits before the scheduler looks at the wall clock again, which bounds how
-// late a wake is noticed: 15 seconds, so a wake is heard within moments at little cost.
-const WAKE_CHECK_INTERVAL: Duration = Duration::from_secs(15);
-
-// The wall-clock gap past which a wake is counted: one and a half wake checks, so a timer that
-// fires a little late is not taken for a sleep.
-const WAKE_GAP_THRESHOLD: Duration = Duration::from_millis(22_500);
 
 // Wakes a receiver may fall behind before it reads a lag; wakes are rare.
 const WAKE_SIGNAL_CAPACITY: usize = 16;
@@ -44,17 +36,12 @@ pub(crate) type ScheduledJobOutcome = Result<(), Box<dyn Error + Send + Sync>>;
 type ScheduledJobRun =
     Box<dyn FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send>;
 
-/// One wake: when it was noticed and the wall-clock gap that marked it.
+/// One wake of the machine from sleep, as the operating system announced it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct WakeSignal {
-    /// The wall-clock time the scheduler noticed the wake.
-    pub(crate) noticed_at: SystemTime,
-    /// How long the process was away, on the wall clock.
-    pub(crate) away: Duration,
-}
+pub(crate) struct WakeSignal;
 
-/// The wall clock the scheduler compares with tokio's monotonic clock, injectable so a test can
-/// stand a sleep in; `SystemTime::now` in the daemon.
+/// The wall clock a job's instant is compared with once the operating system's timer fires;
+/// `SystemTime::now` in the daemon, injectable for tests.
 pub(crate) type WallClock = Arc<dyn Fn() -> SystemTime + Send + Sync>;
 
 /// The refusal to schedule a job once the scheduler has stopped.
@@ -72,8 +59,8 @@ pub(crate) struct ScheduledJobHandle {
     is_canceled: Arc<AtomicBool>,
 }
 
-/// The daemon's one scheduler and its wake signal: jobs run one at a time in deadline order, and a
-/// job scheduled after [`Scheduler::stop`] is refused.
+/// The daemon's one scheduler and its wake signal: jobs run one at a time in the order they fall
+/// due, and a job scheduled after [`Scheduler::stop`] is refused.
 pub(crate) struct Scheduler {
     shared: Arc<SchedulerShared>,
     task: Mutex<Option<JoinHandle<()>>>,
@@ -83,22 +70,29 @@ pub(crate) struct Scheduler {
 struct SchedulerShared {
     wall_now: WallClock,
     state: Mutex<SchedulerState>,
-    // Told whenever the pending runs or the wake receivers change, so the task arms again.
+    // Told whenever the pending runs change, so the task arms again.
     head_changed: Notify,
     // Canceled at the stop, so the job running then ends early.
     stop: CancellationToken,
 }
 
 struct SchedulerState {
-    // Ordered by deadline, then by scheduling order, so the first entry is always the next due run.
-    pending: BTreeMap<(Instant, u64), PendingRun>,
+    // Ordered by deadline, then by scheduling order, so the first entry is always the next due.
+    pending_by_deadline: BTreeMap<(Instant, u64), PendingRun>,
+    // Ordered by wall-clock instant, then by scheduling order.
+    pending_by_instant: BTreeMap<(SystemTime, u64), PendingRun>,
     next_sequence: u64,
     next_job_id: u64,
     is_stopped: bool,
     // Dropped at the stop, which closes every receiver.
     wake_sender: Option<broadcast::Sender<WakeSignal>>,
-    last_wall_look: SystemTime,
-    last_monotonic_look: Instant,
+}
+
+// When a run falls due: a deadline on tokio's monotonic clock or an instant on the wall clock.
+#[derive(Clone, Copy)]
+enum RunDue {
+    Deadline(Instant),
+    WallClockInstant(SystemTime),
 }
 
 struct PendingRun {
@@ -111,18 +105,26 @@ struct PendingRun {
     is_canceled: Arc<AtomicBool>,
 }
 
+// What ended one of the task's waits, other than the stop and a change to the pending runs.
+enum SchedulerEvent {
+    DeadlineReached,
+    WallClockTimerFired(io::Result<()>),
+    MachineWoke(Result<(), WakeWatchError>),
+}
+
 impl Scheduler {
-    /// Starts the scheduler's one task on the running tokio runtime, comparing tokio's clock with
-    /// `wall_now`.
-    pub(crate) fn start(wall_now: WallClock) -> Self {
+    /// Starts the scheduler's one task on the running tokio runtime, comparing a wall-clock job's
+    /// instant with `wall_now` and telling each wake `wake_watch` hears; with no watch, receivers
+    /// hear no wake. Fails when the operating system refuses the wall-clock timer.
+    pub(crate) fn start(wall_now: WallClock, wake_watch: Option<WakeWatch>) -> io::Result<Self> {
+        let wall_clock_timer = WallClockTimer::new()?;
         let state = SchedulerState {
-            pending: BTreeMap::new(),
+            pending_by_deadline: BTreeMap::new(),
+            pending_by_instant: BTreeMap::new(),
             next_sequence: 0,
             next_job_id: 0,
             is_stopped: false,
             wake_sender: Some(broadcast::channel(WAKE_SIGNAL_CAPACITY).0),
-            last_wall_look: wall_now(),
-            last_monotonic_look: Instant::now(),
         };
         let shared = Arc::new(SchedulerShared {
             wall_now,
@@ -130,11 +132,11 @@ impl Scheduler {
             head_changed: Notify::new(),
             stop: CancellationToken::new(),
         });
-        let task = tokio::spawn(Arc::clone(&shared).run());
-        Self {
+        let task = tokio::spawn(Arc::clone(&shared).run(wall_clock_timer, wake_watch));
+        Ok(Self {
             shared,
             task: Mutex::new(Some(task)),
-        }
+        })
     }
 
     /// Schedules one run of `run`, named `name` in the service log, `delay` from now on the
@@ -148,7 +150,27 @@ impl Scheduler {
     where
         Run: FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static,
     {
-        self.add(name, delay, None, Box::new(run))
+        self.add(
+            name,
+            RunDue::Deadline(Instant::now() + delay),
+            None,
+            Box::new(run),
+        )
+    }
+
+    /// Schedules one run of `run` at `instant` on the wall clock, which it reaches across sleep and
+    /// clock changes; an instant already past runs it at once. Refused once the scheduler has
+    /// stopped.
+    pub(crate) fn schedule_at<Run>(
+        &self,
+        name: &'static str,
+        instant: SystemTime,
+        run: Run,
+    ) -> Result<ScheduledJobHandle, SchedulerStoppedError>
+    where
+        Run: FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static,
+    {
+        self.add(name, RunDue::WallClockInstant(instant), None, Box::new(run))
     }
 
     /// Schedules `run` `first_delay` from now, then again `interval` after each run ends, so two
@@ -163,34 +185,40 @@ impl Scheduler {
     where
         Run: FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static,
     {
-        self.add(name, first_delay, Some(interval), Box::new(run))
+        self.add(
+            name,
+            RunDue::Deadline(Instant::now() + first_delay),
+            Some(interval),
+            Box::new(run),
+        )
     }
 
     /// A receiver of every wake from now on; dropping it detaches. Once the scheduler has stopped
     /// the receiver is closed, since no wake comes again.
     pub(crate) fn on_wake(&self) -> broadcast::Receiver<WakeSignal> {
-        let receiver = self
-            .shared
+        self.shared
             .lock_state()
             .wake_sender
             .as_ref()
-            .map_or_else(|| broadcast::channel(1).1, broadcast::Sender::subscribe);
-        // A receiver makes the task look at the clocks even while no job is due.
-        self.shared.head_changed.notify_one();
-        receiver
+            .map_or_else(|| broadcast::channel(1).1, broadcast::Sender::subscribe)
     }
 
     /// Runs nothing more: drops every pending run, closes the wake receivers, cancels the token
     /// the running job was given, then waits for it. Fails only when the task panicked.
     pub(crate) async fn stop(&self) -> Result<(), JoinError> {
-        let (pending, wake_sender) = {
+        let (pending_by_deadline, pending_by_instant, wake_sender) = {
             let mut state = self.shared.lock_state();
             state.is_stopped = true;
-            (std::mem::take(&mut state.pending), state.wake_sender.take())
+            (
+                std::mem::take(&mut state.pending_by_deadline),
+                std::mem::take(&mut state.pending_by_instant),
+                state.wake_sender.take(),
+            )
         };
         self.shared.stop.cancel();
         // Dropped outside the lock, since a job's work may hold anything.
-        drop(pending);
+        drop(pending_by_deadline);
+        drop(pending_by_instant);
         drop(wake_sender);
         let task = self
             .task
@@ -206,11 +234,10 @@ impl Scheduler {
     fn add(
         &self,
         name: &'static str,
-        delay: Duration,
+        due: RunDue,
         repeat_interval: Option<Duration>,
         run: ScheduledJobRun,
     ) -> Result<ScheduledJobHandle, SchedulerStoppedError> {
-        let run_at = Instant::now() + delay;
         let is_canceled = Arc::new(AtomicBool::new(false));
         let job_id = {
             let mut state = self.shared.lock_state();
@@ -220,7 +247,7 @@ impl Scheduler {
             let job_id = state.next_job_id;
             state.next_job_id += 1;
             state.insert(
-                run_at,
+                due,
                 PendingRun {
                     job_id,
                     name,
@@ -255,11 +282,15 @@ impl ScheduledJobHandle {
         };
         let mut state = shared.lock_state();
         self.is_canceled.store(true, Ordering::Relaxed);
-        let pending_count = state.pending.len();
+        let pending_count = state.pending_by_deadline.len() + state.pending_by_instant.len();
         state
-            .pending
+            .pending_by_deadline
             .retain(|_, pending| pending.job_id != self.job_id);
-        let was_pending = state.pending.len() < pending_count;
+        state
+            .pending_by_instant
+            .retain(|_, pending| pending.job_id != self.job_id);
+        let was_pending =
+            state.pending_by_deadline.len() + state.pending_by_instant.len() < pending_count;
         drop(state);
         if was_pending {
             shared.head_changed.notify_one();
@@ -268,10 +299,18 @@ impl ScheduledJobHandle {
 }
 
 impl SchedulerState {
-    fn insert(&mut self, run_at: Instant, pending: PendingRun) {
+    fn insert(&mut self, due: RunDue, pending: PendingRun) {
         let sequence = self.next_sequence;
         self.next_sequence += 1;
-        self.pending.insert((run_at, sequence), pending);
+        match due {
+            RunDue::Deadline(deadline) => {
+                self.pending_by_deadline
+                    .insert((deadline, sequence), pending);
+            }
+            RunDue::WallClockInstant(instant) => {
+                self.pending_by_instant.insert((instant, sequence), pending);
+            }
+        }
     }
 }
 
@@ -280,47 +319,77 @@ impl SchedulerShared {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    // The task: arms one timer for the next due run or the next wake check, whichever is sooner,
-    // and arms it again whenever the pending runs change, until the stop.
-    async fn run(self: Arc<Self>) {
+    // The task: sleeps until the first deadline, keeps the operating system's timer armed for the
+    // first wall-clock instant, and hears the machine's wakes, until the stop.
+    async fn run(
+        self: Arc<Self>,
+        mut wall_clock_timer: WallClockTimer,
+        mut wake_watch: Option<WakeWatch>,
+    ) {
+        let mut armed_instant = None;
         loop {
-            let deadline = self.next_deadline();
-            let armed_at_wall = (self.wall_now)();
-            let timer = async move {
-                match deadline {
-                    Some(deadline) => tokio::time::sleep_until(deadline).await,
-                    None => std::future::pending().await,
+            let (first_deadline, first_instant) = self.first_due();
+            if first_instant != armed_instant {
+                let armed = match first_instant {
+                    Some(instant) => wall_clock_timer.arm(instant),
+                    None => wall_clock_timer.disarm(),
+                };
+                if let Err(failure) = armed {
+                    tracing::error!(
+                        error = &failure as &(dyn Error + 'static),
+                        "The wall-clock timer could not be set"
+                    );
                 }
-            };
-            tokio::select! {
+                armed_instant = first_instant;
+            }
+            let event = tokio::select! {
                 biased;
                 () = self.stop.cancelled() => return,
                 () = self.head_changed.notified() => continue,
-                () = timer => {}
+                () = sleep_until_deadline(first_deadline) => SchedulerEvent::DeadlineReached,
+                fired = wait_for_timer(&mut wall_clock_timer, armed_instant.is_some()) => {
+                    SchedulerEvent::WallClockTimerFired(fired)
+                }
+                woke = wait_for_wake(wake_watch.as_mut()) => SchedulerEvent::MachineWoke(woke),
+            };
+            match event {
+                SchedulerEvent::DeadlineReached => {}
+                SchedulerEvent::WallClockTimerFired(fired) => {
+                    if let Err(failure) = fired {
+                        tracing::error!(
+                            error = &failure as &(dyn Error + 'static),
+                            "The wall-clock timer could not be read"
+                        );
+                    }
+                    // A firing or a clock change spends the timer, so it is armed again.
+                    armed_instant = None;
+                }
+                SchedulerEvent::MachineWoke(Ok(())) => self.send_wake(),
+                SchedulerEvent::MachineWoke(Err(failure)) => {
+                    tracing::warn!(
+                        error = &failure as &(dyn Error + 'static),
+                        "The machine's wakes are no longer heard"
+                    );
+                    wake_watch = None;
+                }
             }
-            // A wall clock set back reads as no gap.
-            let timer_gap = (self.wall_now)()
-                .duration_since(armed_at_wall)
-                .unwrap_or_default();
-            self.look_for_wake(timer_gap);
             self.drain_due_runs().await;
         }
     }
 
-    // When the first run is due, never later than the next wake check; `None` when no run is
-    // pending and no one receives wakes, so the task waits for a change alone.
-    fn next_deadline(&self) -> Option<Instant> {
+    // The first pending deadline and the first pending wall-clock instant.
+    fn first_due(&self) -> (Option<Instant>, Option<SystemTime>) {
         let state = self.lock_state();
-        let is_heard = state
-            .wake_sender
-            .as_ref()
-            .is_some_and(|sender| sender.receiver_count() > 0);
-        let wake_check = Instant::now() + WAKE_CHECK_INTERVAL;
-        match state.pending.first_key_value() {
-            Some((&(run_at, _), _)) => Some(run_at.min(wake_check)),
-            None if is_heard => Some(wake_check),
-            None => None,
-        }
+        (
+            state
+                .pending_by_deadline
+                .first_key_value()
+                .map(|(&(deadline, _), _)| deadline),
+            state
+                .pending_by_instant
+                .first_key_value()
+                .map(|(&(instant, _), _)| instant),
+        )
     }
 
     async fn drain_due_runs(&self) {
@@ -333,22 +402,26 @@ impl SchedulerShared {
                 );
             }
             self.arm_again(due);
-            // A long run can span a sleep, so the clocks are compared again before the next one.
-            self.look_for_wake(Duration::ZERO);
         }
     }
 
-    // Takes the first pending run when it is due and the scheduler still runs.
+    // Takes the first pending run that is due while the scheduler still runs; the wall clock is
+    // read only while a wall-clock run is pending.
     fn take_due_run(&self) -> Option<PendingRun> {
         let mut state = self.lock_state();
         if state.is_stopped {
             return None;
         }
-        let (&(run_at, _), _) = state.pending.first_key_value()?;
-        if run_at > Instant::now() {
+        if let Some((&(deadline, _), _)) = state.pending_by_deadline.first_key_value()
+            && deadline <= Instant::now()
+        {
+            return state.pending_by_deadline.pop_first().map(|(_, due)| due);
+        }
+        let (&(instant, _), _) = state.pending_by_instant.first_key_value()?;
+        if instant > (self.wall_now)() {
             return None;
         }
-        state.pending.pop_first().map(|(_, due)| due)
+        state.pending_by_instant.pop_first().map(|(_, due)| due)
     }
 
     // Schedules a repeating job's next run `interval` after this one ended, unless it was canceled
@@ -357,40 +430,43 @@ impl SchedulerShared {
         let Some(interval) = due.repeat_interval else {
             return;
         };
-        let run_at = Instant::now() + interval;
+        let deadline = Instant::now() + interval;
         let mut state = self.lock_state();
         if !state.is_stopped && !due.is_canceled.load(Ordering::Relaxed) {
-            state.insert(run_at, due);
+            state.insert(RunDue::Deadline(deadline), due);
         }
     }
 
-    // `timer_gap` is the wall-clock time between arming the timer and its firing; the timer is
-    // never armed for longer than a wake check, so a gap past the threshold is time the process
-    // missed.
-    fn look_for_wake(&self, timer_gap: Duration) {
-        let wall_now = (self.wall_now)();
-        let monotonic_now = Instant::now();
-        let mut state = self.lock_state();
-        let monotonic_elapsed = monotonic_now.saturating_duration_since(state.last_monotonic_look);
-        // A wall clock set back reads as no gap.
-        let clock_gap = wall_now
-            .duration_since(state.last_wall_look)
-            .unwrap_or_default()
-            .saturating_sub(monotonic_elapsed);
-        state.last_wall_look = wall_now;
-        state.last_monotonic_look = monotonic_now;
-        let away = timer_gap.max(clock_gap);
-        if away <= WAKE_GAP_THRESHOLD {
-            return;
+    fn send_wake(&self) {
+        let state = self.lock_state();
+        if let Some(sender) = &state.wake_sender {
+            // A send fails only when no receiver is attached, and then no one waits for the wake.
+            let _unheard = sender.send(WakeSignal);
         }
-        let Some(sender) = &state.wake_sender else {
-            return;
-        };
-        let wake = WakeSignal {
-            noticed_at: wall_now,
-            away,
-        };
-        // A send fails only when no receiver is attached, and then no one waits for the wake.
-        let _unheard = sender.send(wake);
+    }
+}
+
+// Sleeps until `deadline`, or forever when there is none.
+async fn sleep_until_deadline(deadline: Option<Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
+    }
+}
+
+// Waits for the wall-clock timer while it is armed, or forever when it is not.
+async fn wait_for_timer(timer: &mut WallClockTimer, is_armed: bool) -> io::Result<()> {
+    if is_armed {
+        timer.wait().await
+    } else {
+        std::future::pending().await
+    }
+}
+
+// Waits for the machine's next wake, or forever when no watch hears them.
+async fn wait_for_wake(wake_watch: Option<&mut WakeWatch>) -> Result<(), WakeWatchError> {
+    match wake_watch {
+        Some(wake_watch) => wake_watch.next_wake().await,
+        None => std::future::pending().await,
     }
 }
