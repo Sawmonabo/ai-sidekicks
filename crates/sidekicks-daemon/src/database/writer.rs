@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use rusqlite::{Connection, InterruptHandle};
+use rusqlite::{Connection, ErrorCode, InterruptHandle};
 use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
@@ -640,6 +640,18 @@ impl ThreadStop {
     fn is_ended(&self) -> bool {
         self.state.load(Ordering::Acquire) == StopKind::Ended as u8
     }
+}
+
+/// The SQLite result code `error` or the first of its sources to carry one holds; `None` when
+/// none does.
+fn sqlite_error_code(error: &(dyn Error + 'static)) -> Option<ErrorCode> {
+    std::iter::successors(Some(error), |error| error.source())
+        .find_map(|error| error.downcast_ref::<rusqlite::Error>()?.sqlite_error_code())
+}
+
+/// Whether `error` carries SQLite's interrupt, which only the writer's stop raises.
+fn is_interrupt(error: &(dyn Error + 'static)) -> bool {
+    sqlite_error_code(error) == Some(ErrorCode::OperationInterrupted)
 }
 
 /// The writer's thread as its write queue reaches it.

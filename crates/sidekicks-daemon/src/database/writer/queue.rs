@@ -16,14 +16,14 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::writer::depth_sampler::DepthSampler;
 use crate::database::writer::messages::{
-    BatchAnswer, BatchFailure, CheckpointAnswer, ThreadExit, ThreadRequest, WriteJob,
+    BatchAnswer, BatchFailure, CheckpointAnswer, FailedBatch, ThreadExit, ThreadRequest, WriteJob,
     WriteJobOutcome,
 };
 use crate::database::writer::{
     CheckpointError, CloseOutcome, CommitHook, CommittedWrite, DatabaseWriterOptions, EndReason,
     QueueMessage, StopKind, ThreadJoinError, WRITE_QUEUE_CAPACITY, WriteError,
     WriteFailureListener, WriteRequest, WriterCloseError, WriterShared, WritesHeldError,
-    join_thread,
+    is_interrupt, join_thread,
 };
 
 /// A batch goes to the thread once it holds this many entries, or once its oldest write has
@@ -567,12 +567,17 @@ impl WriteQueue {
         }
     }
 
-    fn settle_failed_batch(
-        &mut self,
-        waiters: Vec<Waiter>,
-        failure: CleanupFailures<BatchFailure, rusqlite::Error>,
-    ) {
+    /// Settles a batch that did not commit: each failure SQLite raised in it is reported first,
+    /// the writes that failed alone before it among them, then every caller hears.
+    fn settle_failed_batch(&mut self, waiters: Vec<Waiter>, failed: FailedBatch) {
         self.count_unfinished_at_bound(waiters.len());
+        let FailedBatch {
+            failure,
+            earlier_write_failures,
+        } = failed;
+        for earlier_write_failure in &earlier_write_failures {
+            self.report_unless_interrupted(earlier_write_failure);
+        }
         let is_stopped = match failure.original() {
             BatchFailure::Stopped => true,
             BatchFailure::Begin(_)
@@ -581,7 +586,11 @@ impl WriteQueue {
             | BatchFailure::Commit(_) => false,
         };
         if is_stopped {
-            // The writer's own stop rolled the batch back, so each write fails as the stop's do.
+            // The writer's own stop rolled the batch back, so each write fails as the stop's do;
+            // a rollback that failed is still reported.
+            for cleanup_failure in failure.cleanup_failures() {
+                self.report_unless_interrupted(cleanup_failure);
+            }
             let reason = self.shared.end_reason();
             for waiter in waiters {
                 let error = match &reason {
@@ -609,6 +618,18 @@ impl WriteQueue {
     ) {
         let result = match answer {
             Ok(Ok(result)) => Ok(result),
+            // The stop interrupted the checkpoint, which fails as the stop's writes do.
+            Ok(Err(failure))
+                if self.shared.stop.is_stopped() && is_interrupt(failure.original()) =>
+            {
+                for cleanup_failure in failure.cleanup_failures() {
+                    self.report_unless_interrupted(cleanup_failure);
+                }
+                Err(self
+                    .shared
+                    .end_reason()
+                    .map_or(CheckpointError::Closed, CheckpointError::Ended))
+            }
             Ok(Err(failure)) => {
                 self.report_failure(&failure);
                 Err(CheckpointError::Failed(failure))
@@ -623,6 +644,13 @@ impl WriteQueue {
     fn report_failure(&self, failure: &(dyn Error + 'static)) {
         if let Some(on_write_failed) = &self.on_write_failed {
             on_write_failed(failure);
+        }
+    }
+
+    /// Reports `failure` unless it is the stop's own interrupt, which says nothing of the file.
+    fn report_unless_interrupted(&self, failure: &(dyn Error + 'static)) {
+        if !(self.shared.stop.is_stopped() && is_interrupt(failure)) {
+            self.report_failure(failure);
         }
     }
 

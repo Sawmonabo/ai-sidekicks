@@ -68,8 +68,8 @@ pub(crate) enum BatchFailure {
     /// The batch's transaction could not begin.
     #[error("the batch's transaction could not begin")]
     Begin(#[source] rusqlite::Error),
-    /// SQLite ended the transaction itself (a full disk, an I/O error, an interrupted write) while
-    /// a write ran, so the writes after it would have committed one by one.
+    /// SQLite ended the transaction itself (a full disk, an I/O error, a statement that ended it)
+    /// while a write ran, so the writes after it would have committed one by one.
     #[error("SQLite ended the batch's transaction while write {job_index} ran")]
     TransactionEnded {
         /// The position of the write that met it in the batch.
@@ -92,16 +92,26 @@ pub(crate) enum BatchFailure {
     /// The commit failed.
     #[error("the batch's commit failed")]
     Commit(#[source] rusqlite::Error),
-    /// The writer was closed at its drain bound or ended before the batch committed.
+    /// The writer was closed at its drain bound or ended before the batch committed; SQLite's
+    /// interrupt of the batch's work is the stop's own and reads as this.
     #[error("the database writer stopped before the batch committed")]
     Stopped,
 }
 
+/// A batch that did not commit: why, beside the failures of ending a write's savepoint and of
+/// rolling the batch back when those failed too, and how each write that failed alone before it
+/// failed.
+#[derive(Debug)]
+pub(crate) struct FailedBatch {
+    /// Why the batch did not commit.
+    pub(crate) failure: CleanupFailures<BatchFailure, rusqlite::Error>,
+    /// The failures of the batch's writes that failed alone before it failed or stopped, in order.
+    pub(crate) earlier_write_failures: Vec<WriteJobFailure>,
+}
+
 /// The thread's answer to one batch: every write's outcome, in the batch's order, once it
-/// committed; or why it did not, beside the failures of ending a write's savepoint and of rolling
-/// the batch back, when those failed too.
-pub(crate) type BatchAnswer =
-    Result<Vec<WriteJobOutcome>, CleanupFailures<BatchFailure, rusqlite::Error>>;
+/// committed; or why it did not.
+pub(crate) type BatchAnswer = Result<Vec<WriteJobOutcome>, FailedBatch>;
 
 /// The thread's answer to one checkpoint: what SQLite reports of it, or its failure, beside the
 /// failure of putting the busy timeout back when that failed too.

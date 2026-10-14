@@ -7,19 +7,19 @@
 use rusqlite::config::DbConfig;
 use rusqlite::types::Value;
 use rusqlite::{
-    Connection, DropBehavior, InterruptHandle, Params, Statement, Transaction, TransactionBehavior,
-    params_from_iter,
+    Connection, DropBehavior, ErrorCode, InterruptHandle, Params, Statement, Transaction,
+    TransactionBehavior, params_from_iter,
 };
 use tokio::sync::{mpsc, oneshot};
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{StatementBindings, StatementResult, WriteStatement};
-use crate::database::writer::ThreadStop;
 use crate::database::writer::messages::{
-    BatchAnswer, BatchFailure, CheckpointAnswer, ThreadExit, ThreadRequest, WriteJob,
+    BatchAnswer, BatchFailure, CheckpointAnswer, FailedBatch, ThreadExit, ThreadRequest, WriteJob,
     WriteJobFailure, WriteJobOutcome,
 };
+use crate::database::writer::{ThreadStop, is_interrupt, sqlite_error_code};
 use crate::events::session::insert::insert_session_event;
 
 /// Prepared statements the connection keeps, least recently used dropped first; bounded, since a
@@ -169,44 +169,64 @@ impl UnkeptWrite {
     }
 }
 
-/// Runs `jobs` as one immediate transaction and answers every write's outcome once it committed.
-/// The stop is read before each write, each statement and the commit, so a stop that lands
-/// between statements, where SQLite's interrupt does not reach, still keeps the batch from
-/// committing.
+/// Runs `jobs` as one immediate transaction and answers every write's outcome once it committed,
+/// or the batch's failure beside the failures of the writes that failed alone before it.
 fn run_batch(connection: &mut Connection, jobs: &[WriteJob], stop: &ThreadStop) -> BatchAnswer {
-    if stop.is_stopped() {
-        return Err(CleanupFailures::new(
-            BatchFailure::Stopped,
-            Vec::new(),
-            BATCH_OPERATION,
-        ));
+    let mut outcomes = Vec::with_capacity(jobs.len());
+    match run_transaction(connection, jobs, stop, &mut outcomes) {
+        Ok(()) => Ok(outcomes),
+        Err(failure) => Err(FailedBatch {
+            failure,
+            earlier_write_failures: outcomes
+                .into_iter()
+                .filter_map(|outcome| match outcome {
+                    WriteJobOutcome::Failed(failure) => Some(failure),
+                    WriteJobOutcome::Committed { .. } | WriteJobOutcome::Refused { .. } => None,
+                })
+                .collect(),
+        }),
     }
-    let mut transaction = match connection.transaction_with_behavior(TransactionBehavior::Immediate)
-    {
-        Ok(transaction) => transaction,
-        Err(failure) => {
-            return Err(CleanupFailures::new(
-                BatchFailure::Begin(failure),
-                Vec::new(),
-                BATCH_OPERATION,
-            ));
-        }
-    };
+}
+
+/// Runs `jobs` in one transaction, pushing each write's outcome onto `outcomes`, and commits. The
+/// stop is read before each write, each statement and the commit, so a stop that lands between
+/// statements, where SQLite's interrupt does not reach, still keeps the batch from committing.
+fn run_transaction(
+    connection: &mut Connection,
+    jobs: &[WriteJob],
+    stop: &ThreadStop,
+    outcomes: &mut Vec<WriteJobOutcome>,
+) -> Result<(), CleanupFailures<BatchFailure, rusqlite::Error>> {
+    if stop.is_stopped() {
+        return Err(batch_failure(BatchFailure::Stopped, Vec::new(), stop));
+    }
+    let mut transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|failure| batch_failure(BatchFailure::Begin(failure), Vec::new(), stop))?;
     // Every end below is explicit, so no drop runs SQL whose failure no one sees.
     transaction.set_drop_behavior(DropBehavior::Ignore);
-    let mut outcomes = Vec::with_capacity(jobs.len());
     for (job_index, job) in jobs.iter().enumerate() {
         if stop.is_stopped() {
-            return Err(roll_back(transaction, BatchFailure::Stopped, Vec::new()));
+            return Err(roll_back(
+                transaction,
+                BatchFailure::Stopped,
+                Vec::new(),
+                stop,
+            ));
         }
         match run_job(&transaction, job, stop) {
             JobEnd::Settled(outcome) => outcomes.push(outcome),
             JobEnd::Stopped => {
-                return Err(roll_back(transaction, BatchFailure::Stopped, Vec::new()));
+                return Err(roll_back(
+                    transaction,
+                    BatchFailure::Stopped,
+                    Vec::new(),
+                    stop,
+                ));
             }
             JobEnd::TransactionEnded(source) => {
                 let failure = BatchFailure::TransactionEnded { job_index, source };
-                return Err(roll_back(transaction, failure, Vec::new()));
+                return Err(roll_back(transaction, failure, Vec::new(), stop));
             }
             JobEnd::SavepointNotEnded {
                 failure,
@@ -216,21 +236,32 @@ fn run_batch(connection: &mut Connection, jobs: &[WriteJob], stop: &ThreadStop) 
                     job_index,
                     source: failure,
                 };
-                return Err(roll_back(transaction, failure, vec![savepoint_failure]));
+                return Err(roll_back(
+                    transaction,
+                    failure,
+                    vec![savepoint_failure],
+                    stop,
+                ));
             }
         }
     }
     if stop.is_stopped() {
-        return Err(roll_back(transaction, BatchFailure::Stopped, Vec::new()));
+        return Err(roll_back(
+            transaction,
+            BatchFailure::Stopped,
+            Vec::new(),
+            stop,
+        ));
     }
     // COMMIT runs through the transaction rather than `commit`, which consumes it, so a failed
     // commit that left the transaction open is still rolled back below.
     match transaction.execute_batch("COMMIT") {
-        Ok(()) => Ok(outcomes),
+        Ok(()) => Ok(()),
         Err(commit_failure) => Err(roll_back(
             transaction,
             BatchFailure::Commit(commit_failure),
             Vec::new(),
+            stop,
         )),
     }
 }
@@ -241,12 +272,37 @@ fn roll_back(
     transaction: Transaction<'_>,
     failure: BatchFailure,
     mut cleanup_failures: Vec<rusqlite::Error>,
+    stop: &ThreadStop,
 ) -> CleanupFailures<BatchFailure, rusqlite::Error> {
     if !transaction.is_autocommit()
         && let Err(rollback_failure) = transaction.rollback()
     {
         cleanup_failures.push(rollback_failure);
     }
+    batch_failure(failure, cleanup_failures, stop)
+}
+
+/// `failure` beside `cleanup_failures`, read as [`BatchFailure::Stopped`] when the stop's own
+/// interrupt caused it: once stopped, SQLite interrupted the batch's work, or, where that work
+/// failed with no SQLite error of its own, a cleanup. Any other SQLite error is kept, so a damaged
+/// file met past the drain bound is still reported.
+fn batch_failure(
+    failure: BatchFailure,
+    cleanup_failures: Vec<rusqlite::Error>,
+    stop: &ThreadStop,
+) -> CleanupFailures<BatchFailure, rusqlite::Error> {
+    let is_stops_own = stop.is_stopped()
+        && match sqlite_error_code(&failure) {
+            Some(code) => code == ErrorCode::OperationInterrupted,
+            None => cleanup_failures
+                .iter()
+                .any(|cleanup_failure| is_interrupt(cleanup_failure)),
+        };
+    let failure = if is_stops_own {
+        BatchFailure::Stopped
+    } else {
+        failure
+    };
     CleanupFailures::new(failure, cleanup_failures, BATCH_OPERATION)
 }
 
