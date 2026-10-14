@@ -30,7 +30,8 @@ use crate::database::sql_list::sql_list_of;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::provider::driver::run_control::PickedSkill;
 use crate::session::stored_column::{
-    closed_word, closed_word_text, optional_text_column, safe_int_column, text_column,
+    closed_word, closed_word_text, optional_text_column, safe_int_column, stored_integer,
+    text_column,
 };
 
 /// What a queued message carries, as its payload stores it: the words and what rides with them.
@@ -809,11 +810,6 @@ fn nullable_text_binding(name: &'static str, text: Option<&str>) -> (Cow<'static
         Cow::Borrowed(name),
         text.map_or(SqlValue::Null, |text| SqlValue::Text(text.to_owned())),
     )
-}
-
-/// A safe integer as SQLite stores it.
-pub(super) fn stored_integer(value: SafeInt<0>) -> i64 {
-    i64::try_from(value.get()).expect("a safe integer fits SQLite's INTEGER")
 }
 
 /// A read's row cap as SQLite binds it; a cap past its range reads every row.

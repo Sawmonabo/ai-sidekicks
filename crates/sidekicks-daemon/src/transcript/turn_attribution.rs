@@ -30,7 +30,7 @@ use crate::session::run::superseded::{
     read_superseded_turns,
 };
 use crate::session::run::transitions::RUN_TERMINAL_EVENT_TYPES;
-use crate::session::stored_column::json_object_column;
+use crate::session::stored_column::{json_object_column, stored_integer};
 
 /// Why an event could not be attributed to its turn.
 #[derive(Debug, thiserror::Error)]
@@ -277,7 +277,7 @@ impl SessionTurnAttribution {
         DamagedFrom: Fn(&SessionId) -> Option<i64>,
     {
         let event_type = event.event_type.as_str();
-        let sequence = stored_sequence_of(event);
+        let sequence = stored_integer(event.sequence);
         if event_type == TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE {
             return self.attribute_rollback(reads, event).map(Some);
         }
@@ -332,7 +332,7 @@ impl SessionTurnAttribution {
     where
         DamagedFrom: Fn(&SessionId) -> Option<i64>,
     {
-        let sequence = stored_sequence_of(event);
+        let sequence = stored_integer(event.sequence);
         let rollback = parse_stored_rollback(&event.payload, &self.session_id, sequence)?;
         let mut fold = self.take_fold(reads, &rollback.run_id, sequence)?;
         let rewound_epoch = fold.standing.epoch;
@@ -382,7 +382,7 @@ impl SessionTurnAttribution {
                 &self.session_id,
                 run_id,
                 tool_call_id,
-                stored_sequence_of(event),
+                stored_integer(event.sequence),
             )?
             .unwrap_or(fold.standing))
     }
@@ -402,8 +402,4 @@ impl SessionTurnAttribution {
             None => reads.read_seed(&self.session_id, run_id, sequence),
         }
     }
-}
-
-fn stored_sequence_of(event: &EventEnvelope) -> i64 {
-    i64::try_from(event.sequence.get()).expect("a safe integer fits SQLite's INTEGER")
 }

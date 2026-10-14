@@ -1,17 +1,19 @@
 //! A session's own console settings, over the `session_console_state` table: the advisor a session
 //! on a provider that offers an advisor keeps from its creation, changed only by the session's
-//! advisor command, and the Build or Plan mode the provider last took. Every process the daemon
-//! starts for the session reads the advisor at launch, and a restart resumes in the mode.
+//! advisor command, the Build or Plan mode the provider last took, and the session's own bound on
+//! the steps one turn may take. Every process the daemon starts for the session reads the advisor
+//! at launch, a restart resumes in the mode, and `session.read` answers with the step bound.
 
 use std::borrow::Cow;
 
-use rusqlite::types::Value;
+use rusqlite::types::{Type, Value};
 use rusqlite::{Connection, OptionalExtension};
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::session::stored_column::{closed_word, text_column};
+use crate::session::stored_column::{closed_word, safe_int_column, text_column};
 
 /// The row a session on a provider that offers an advisor is born with, its advisor copied from
 /// the machine's default; it binds the session id, the advisor and the time, in that order.
@@ -93,4 +95,27 @@ pub(crate) fn read_session_mode(
         })
         .optional()?;
     Ok(session_mode.unwrap_or(SessionMode::Build))
+}
+
+/// The session's own bound on the steps one turn may take, `None` where the person set none or the
+/// session has no row. Fails when the read fails, and with
+/// `rusqlite::Error::FromSqlConversionFailure`, naming the value, for a stored bound outside 1 to
+/// 2^53 − 1.
+pub(crate) fn read_session_max_steps_per_turn(
+    reader: &Connection,
+    session_id: &SessionId,
+) -> rusqlite::Result<Option<SafeInt<1>>> {
+    let max_steps_per_turn = reader
+        .prepare_cached(
+            "SELECT max_steps_per_turn FROM session_console_state WHERE session_id = ?",
+        )?
+        .query_row([session_id.as_str()], |row| {
+            if row.get_ref(0)?.data_type() == Type::Null {
+                Ok(None)
+            } else {
+                safe_int_column::<1>(row, 0).map(Some)
+            }
+        })
+        .optional()?;
+    Ok(max_steps_per_turn.flatten())
 }

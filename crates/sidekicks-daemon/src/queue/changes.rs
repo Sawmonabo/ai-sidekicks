@@ -22,10 +22,9 @@ use tokio::sync::watch;
 use crate::database::sql_list::sql_list_of;
 use crate::events::session::read::{SessionEventReads, SessionLogReadError};
 use crate::queue::store::{
-    COLUMN_COUNT, COLUMNS, QUEUE_ORDER, QueueItemRecord, record_of, stored_integer, stored_limit,
-    summary_of,
+    COLUMN_COUNT, COLUMNS, QUEUE_ORDER, QueueItemRecord, record_of, stored_limit, summary_of,
 };
-use crate::session::stored_column::safe_int_column;
+use crate::session::stored_column::{safe_int_column, stored_integer};
 
 /// One queue: the lead's of a session, or a child's by its handle.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -318,7 +317,7 @@ pub(crate) fn read_queue_changes_after(
                 "@after": cursor.sequence,
                 "@limit": stored_limit(max),
             },
-            |row| Ok((record_of(row)?, safe_int_column(row, COLUMN_COUNT)?)),
+            |row| Ok((record_of(row)?, safe_int_column::<0>(row, COLUMN_COUNT)?)),
         )?
         .map(|changed| {
             let (record, sequence) = changed?;

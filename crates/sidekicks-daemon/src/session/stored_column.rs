@@ -61,6 +61,11 @@ pub(crate) fn closed_word_text(word: &impl Serialize) -> String {
         .expect("a closed-set word serializes as a string")
 }
 
+/// A safe integer as SQLite stores it.
+pub(crate) fn stored_integer<const MIN: u64>(value: SafeInt<MIN>) -> i64 {
+    i64::try_from(value.get()).expect("a safe integer fits SQLite's INTEGER")
+}
+
 /// A rowid, or a key built from one, as unsigned: SQLite holds it signed, so a negative one fails
 /// the read with `rusqlite::Error::FromSqlConversionFailure`, keeping why.
 pub(crate) fn rowid_column(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {

@@ -12,5 +12,6 @@ pub(crate) mod records;
 pub(crate) mod related;
 pub(crate) mod run;
 pub(crate) mod search;
+pub(crate) mod service;
 pub(crate) mod stored_column;
 pub(crate) mod working_folder;
