@@ -11,6 +11,7 @@ use std::error::Error;
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::{
@@ -326,7 +327,7 @@ pub(crate) struct CreateSessionParams {
     pub(crate) config: Map<String, Value>,
     /// The session's model. A provider that takes it at process start applies a usage-credits
     /// prompt's `switch_default` to this session alone, never to the account's saved default.
-    pub(crate) model: String,
+    pub(crate) model: ProviderToken,
     /// The larger window chosen for the model, in tokens, as recorded when it was picked; `None`
     /// runs the model's default window. A provider whose model id names the window refuses one.
     pub(crate) larger_window: Option<SafeInt<1>>,
@@ -335,7 +336,7 @@ pub(crate) struct CreateSessionParams {
     /// The agent's accepted output-speed level (gated on `output_speed`), sent when the process
     /// starts and never refused: a level the model does not list runs at standard. The provider's
     /// declared state is read through `observed_output_speed_for`, never written back here.
-    pub(crate) output_speed: Option<String>,
+    pub(crate) output_speed: Option<ProviderToken>,
     /// The agent's Ultracode switch, sent when the process starts; `None` leaves the provider's
     /// default. A driver that does not declare `ultracode` refuses a value as
     /// `driver.capability_unsupported`, and what the provider reports is read through
@@ -374,7 +375,7 @@ pub(crate) struct ResumeSessionParams {
     /// The provider's own handle of the conversation.
     pub(crate) resume_handle: String,
     /// The session's current model, given by the caller since a later switch moves the session.
-    pub(crate) model: String,
+    pub(crate) model: ProviderToken,
     /// The recorded larger window, sent as recorded whatever the catalog offers now.
     pub(crate) larger_window: Option<SafeInt<1>>,
     /// Build or Plan, which the resumed provider runs in from its first turn.
@@ -383,7 +384,7 @@ pub(crate) struct ResumeSessionParams {
     pub(crate) execution_posture: Option<ExecutionPosture>,
     /// The agent's accepted output-speed level; left out, the leg would relaunch at the
     /// provider's default.
-    pub(crate) output_speed: Option<String>,
+    pub(crate) output_speed: Option<ProviderToken>,
     /// The agent's Ultracode switch; left out, the leg would relaunch at the provider's default.
     pub(crate) ultracode: Option<bool>,
     /// The daemon's callback tools.
@@ -418,13 +419,13 @@ pub(crate) struct StartRunParams {
     /// that applies it between turns sends it before this run's turn only when it differs from
     /// the level the process last applied; one that takes it per turn sends it with this turn.
     /// `None` keeps the level the process holds.
-    pub(crate) output_speed: Option<String>,
+    pub(crate) output_speed: Option<ProviderToken>,
     /// The Ultracode switch, applied between turns before this run's turn like `output_speed`;
     /// `None` keeps what the process holds. A driver that does not declare `ultracode` refuses a
     /// value as `driver.capability_unsupported`.
     pub(crate) ultracode: Option<bool>,
     /// A level for this run's turn alone; the next run carries the agent's own level again.
-    pub(crate) output_speed_for_turn: Option<String>,
+    pub(crate) output_speed_for_turn: Option<ProviderToken>,
     /// The run's effective posture. A provider that binds posture at spawn meets a change by
     /// relaunching the session, never by applying part of it.
     pub(crate) execution_posture: Option<ExecutionPosture>,
@@ -500,7 +501,7 @@ pub(crate) struct GetCapabilitiesResult {
     /// The output-speed levels of a driver whose provider lists none per model: present only
     /// when `output_speed` is on and the driver declares a fixed set. With neither this nor a
     /// per-model set, a person's request for a level refuses. It survives a cache rebuild.
-    pub(crate) output_speed_levels: Option<Vec<String>>,
+    pub(crate) output_speed_levels: Option<Vec<ProviderToken>>,
 }
 
 /// What a resume did, built by the driver from provider output. A failed resume carries why and
@@ -696,11 +697,11 @@ pub(crate) struct SubagentDefinition {
     /// When the lead should hand work to it.
     pub(crate) description: String,
     /// Its model.
-    pub(crate) model: Option<String>,
+    pub(crate) model: Option<ProviderToken>,
     /// The tools it may use.
     pub(crate) tools: Option<Vec<String>>,
     /// Its reasoning effort.
-    pub(crate) effort: Option<String>,
+    pub(crate) effort: Option<ProviderToken>,
     /// How many turns it may take.
     pub(crate) max_turns: Option<SafeInt<1>>,
 }

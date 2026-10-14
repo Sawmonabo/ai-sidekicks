@@ -21,6 +21,11 @@ pub(crate) enum StatementBindings {
     Named(Vec<(Cow<'static, str>, Value)>),
 }
 
+/// A named binding of `text`, its `name` written with its `@`.
+pub(crate) fn text_binding(name: &'static str, text: &str) -> (Cow<'static, str>, Value) {
+    (Cow::Borrowed(name), Value::Text(text.to_owned()))
+}
+
 /// One SQL statement for the writer to run.
 #[derive(Clone, Debug)]
 pub(crate) struct WriteStatement {

@@ -13,6 +13,7 @@ lru = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 sidekicks-platforms = { workspace = true, optional = true }
+strum = { workspace = true, optional = true }
 # The memory map, built on every platform; `sidekicks-platforms` says where the index maps files.
 tantivy = { workspace = true, features = ["mmap"], optional = true }
 # Tantivy's own bit set, at the version Tantivy builds with, so the two crates share the type.
@@ -38,6 +39,7 @@ index = [
   "dep:serde",
   "dep:serde_json",
   "dep:sidekicks-platforms",
+  "dep:strum",
   "dep:tantivy",
   "dep:tantivy-common",
   "dep:thiserror",

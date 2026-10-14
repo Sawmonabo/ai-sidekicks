@@ -31,6 +31,11 @@ impl<const MIN: u64> SafeInt<MIN> {
     }
 }
 
+impl SafeInt<0> {
+    /// Zero: an empty count or the first position.
+    pub const ZERO: Self = Self(0);
+}
+
 impl<'de, const MIN: u64> Deserialize<'de> for SafeInt<MIN> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = u64::deserialize(deserializer)?;

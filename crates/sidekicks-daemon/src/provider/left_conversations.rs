@@ -11,7 +11,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::name::ProviderName;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::database::statement::{StatementBindings, WriteStatement};
+use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 
 /// A conversation a session moved off, on the account whose home holds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,20 +72,11 @@ pub(crate) fn compose_left_conversation_insert(
     WriteStatement {
         sql: Cow::Borrowed(INSERT_LEFT_CONVERSATION_SQL),
         bindings: StatementBindings::Named(vec![
-            (
-                Cow::Borrowed("@binding_id"),
-                Value::Text(binding_id.to_owned()),
-            ),
-            (Cow::Borrowed("@left_at"), Value::Text(left_at.to_owned())),
-            (
-                Cow::Borrowed("@session_id"),
-                Value::Text(conversation.session_id.as_str().to_owned()),
-            ),
+            text_binding("@binding_id", binding_id),
+            text_binding("@left_at", left_at),
+            text_binding("@session_id", conversation.session_id.as_str()),
             (Cow::Borrowed("@provider_account_id"), provider_account_id),
-            (
-                Cow::Borrowed("@conversation_id"),
-                Value::Text(conversation.conversation_id.clone()),
-            ),
+            text_binding("@conversation_id", &conversation.conversation_id),
         ]),
         expected_row_count: None,
     }

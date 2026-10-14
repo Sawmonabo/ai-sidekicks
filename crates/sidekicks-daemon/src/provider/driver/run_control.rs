@@ -9,6 +9,7 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::driver::intervention::ApplyInterventionRequest;
 use sidekicks_contracts::run::id::RunId;
@@ -192,7 +193,7 @@ pub(crate) struct FasterModelRetryParams {
     /// The provider turn the safety check holds.
     pub(crate) expected_turn_id: String,
     /// The model to resend it on.
-    pub(crate) model: String,
+    pub(crate) model: ProviderToken,
 }
 
 /// How a faster-model retry ended: sent again, or refused with its reason. A failure after the

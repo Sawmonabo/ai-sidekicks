@@ -33,13 +33,10 @@ pub struct EpochPosition {
     pub position: SourcePosition,
 }
 
-/// The first epoch, and the position before a run's first turn.
-const ZERO: SafeInt<0> = SafeInt::new(0).expect("0 lies in the range");
-
 /// Where every run starts: the first epoch, before its first turn.
 pub const RUN_START_POSITION: EpochPosition = EpochPosition {
-    epoch: SourceEpoch(ZERO),
-    position: SourcePosition(ZERO),
+    epoch: SourceEpoch(SafeInt::ZERO),
+    position: SourcePosition(SafeInt::ZERO),
 };
 
 /// One epoch's cut: the point its turns above are superseded from.

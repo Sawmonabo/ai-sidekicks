@@ -10,7 +10,7 @@ use serde_json::{Map, Value};
 use crate::event::declared_variants::{
     CONTENT_LENGTH_PAYLOAD_KEY, CONTENT_PAYLOAD_PLAINTEXT_MAX, CONTENT_TRUNCATED_PAYLOAD_KEY,
 };
-use crate::event::envelope::HydratedContentUnavailableReason;
+use crate::event::envelope::{HydratedContentUnavailableReason, HydratedSessionEventContent};
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::byte_length::{fits_budget, json_utf8_byte_length};
@@ -97,6 +97,26 @@ fn echoed_body_facts_of(
         .filter(|is_truncated| *is_truncated)
         .map(|_| BoolLiteral);
     (content_length, content_truncated)
+}
+
+/// An event's stored body as a hydrated read pairs it with its event: `Unavailable { Absent }`
+/// when no body is stored, else the whole stored body with the payload's own length and truncation
+/// mark.
+pub fn hydrated_content_of(
+    payload: Option<&Map<String, Value>>,
+    stored_body: Option<String>,
+) -> HydratedSessionEventContent {
+    let Some(body) = stored_body else {
+        return HydratedSessionEventContent::Unavailable {
+            reason: HydratedContentUnavailableReason::Absent,
+        };
+    };
+    let (content_length, content_truncated) = echoed_body_facts_of(payload);
+    HydratedSessionEventContent::Available {
+        body,
+        content_length,
+        content_truncated,
+    }
 }
 
 /// A `transcript.bodyRead` offset that is no place to resume from: inside a character, or past

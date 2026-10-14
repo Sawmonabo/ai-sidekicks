@@ -44,8 +44,12 @@ pub enum SearchIndexError {
     Index(#[from] TantivyError),
 }
 
-/// What an index row holds; the daemon's index key scheme gives each its own slot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// What an index row holds; the daemon's index key scheme gives each its own slot, in this order,
+/// and stores each by its lowercase name.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, strum::VariantArray, strum::IntoStaticStr, strum::EnumString,
+)]
+#[strum(serialize_all = "lowercase")]
 pub enum IndexRowKind {
     /// A settled message or tool call of a session's log.
     Event,
@@ -119,7 +123,7 @@ pub struct GroupMembers {
 }
 
 /// What the search box or the find box asks for.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SearchQuery {
     /// The typed words in order, as typed; the index tokenizes and folds each into a phrase.
     pub words: Vec<String>,

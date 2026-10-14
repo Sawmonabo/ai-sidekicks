@@ -52,6 +52,24 @@ pub enum RunStateChangeState {
     Failed,
 }
 
+/// The run state a change enters; a state change never enters `queued`.
+impl From<RunStateChangeState> for RunState {
+    fn from(state: RunStateChangeState) -> Self {
+        match state {
+            RunStateChangeState::Starting => Self::Starting,
+            RunStateChangeState::Running => Self::Running,
+            RunStateChangeState::WaitingForApproval => Self::WaitingForApproval,
+            RunStateChangeState::WaitingForInput => Self::WaitingForInput,
+            RunStateChangeState::Pausing => Self::Pausing,
+            RunStateChangeState::Paused => Self::Paused,
+            RunStateChangeState::Completed => Self::Completed,
+            RunStateChangeState::Interrupted => Self::Interrupted,
+            RunStateChangeState::Stopped => Self::Stopped,
+            RunStateChangeState::Failed => Self::Failed,
+        }
+    }
+}
+
 literal! {
     /// The `newState` of a `run.starting` payload.
     pub enum RunStartingNewState = "starting";

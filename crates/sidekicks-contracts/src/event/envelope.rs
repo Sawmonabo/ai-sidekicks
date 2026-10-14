@@ -130,77 +130,133 @@ const OCCURRED_AT_PATTERN: &str = concat!(
      (?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"
 );
 
-/// Reads an `occurredAt` component by component, the instant it names in UTC to the millisecond;
-/// `None` where a part is missing, out of range or not a real date.
-fn parse_occurred_at(text: &str) -> Option<jiff::Timestamp> {
-    let mut rest = text.as_bytes();
-    let year = take_digits(&mut rest, 4)?;
-    take_byte(&mut rest, b'-')?;
-    let month = take_digits(&mut rest, 2)?;
-    take_byte(&mut rest, b'-')?;
-    let day = take_digits(&mut rest, 2)?;
-    take_byte(&mut rest, b'T')?;
-    let hour = take_digits(&mut rest, 2)?;
-    take_byte(&mut rest, b':')?;
-    let minute = take_digits(&mut rest, 2)?;
-    let mut second = 0;
-    let mut millisecond = 0;
-    if take_byte(&mut rest, b':').is_some() {
-        second = take_digits(&mut rest, 2)?;
-        if take_byte(&mut rest, b'.').is_some() {
-            let digit_count = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
-            let (fraction, after) = rest.split_at(digit_count);
-            // Trailing zeros fold away; any other digit past the millisecond would be lost.
-            if fraction.is_empty() || fraction.iter().skip(3).any(|digit| *digit != b'0') {
-                return None;
-            }
-            millisecond = fraction
-                .iter()
-                .chain(std::iter::repeat(&b'0'))
-                .take(3)
-                .fold(0, |value, digit| value * 10 + u32::from(digit - b'0'));
-            rest = after;
-        }
+/// Why an `occurredAt` was refused. The checks run in the variants' order and the first that fails
+/// is the one reported, so a sub-millisecond digit is named before a calendar fault.
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum OccurredAtRefusal {
+    /// Not an RFC 3339 date and time with an uppercase `T`, its hour, minute and second in range,
+    /// and `Z` or a `±HH:MM` offset up to `23:59`.
+    #[error(
+        "an occurredAt is an RFC 3339 date and time with an uppercase `T` and `Z` or a `±HH:MM` \
+         offset"
+    )]
+    Shape,
+    /// A non-zero fraction digit past the millisecond, which the stored form cannot keep;
+    /// refused, never cut, since a cut would store a different instant.
+    #[error("an occurredAt holds a non-zero fraction digit past the millisecond")]
+    SubMillisecond,
+    /// A date the calendar does not have (February 30, month 13).
+    #[error("an occurredAt names a date the calendar does not have")]
+    NotACalendarDate,
+    /// Folded to UTC, an instant outside the range it can be stored in.
+    #[error("an occurredAt folds to UTC outside the range it can be stored in")]
+    OutOfRange,
+}
+
+/// Reads an `occurredAt` component by component, the instant it names in UTC to the millisecond.
+/// Refuses with the first [`OccurredAtRefusal`] that applies: every shape check, ranges included,
+/// runs before the sub-millisecond check, which runs before the calendar check.
+pub fn parse_occurred_at(text: &str) -> Result<jiff::Timestamp, OccurredAtRefusal> {
+    let parts = OccurredAtParts::read(text).ok_or(OccurredAtRefusal::Shape)?;
+    // Trailing zeros fold away; any other digit past the millisecond would be lost.
+    if parts.fraction.iter().skip(3).any(|digit| *digit != b'0') {
+        return Err(OccurredAtRefusal::SubMillisecond);
     }
-    let offset_seconds = match rest {
-        [b'Z'] => 0,
-        [sign @ (b'+' | b'-'), offset @ ..] => {
-            let mut offset = offset;
-            let offset_hour = take_digits(&mut offset, 2)?;
-            take_byte(&mut offset, b':')?;
-            let offset_minute = take_digits(&mut offset, 2)?;
-            if !offset.is_empty() || offset_hour > 23 || offset_minute > 59 {
-                return None;
-            }
-            let seconds = i32::try_from(offset_hour * 3600 + offset_minute * 60).ok()?;
-            if *sign == b'-' { -seconds } else { seconds }
-        }
-        _ => return None,
-    };
-    if hour > 23 || minute > 59 || second > 59 {
-        return None;
-    }
-    let date = jiff::civil::Date::new(
-        i16::try_from(year).ok()?,
-        i8::try_from(month).ok()?,
-        i8::try_from(day).ok()?,
-    )
-    .ok()?;
+    let millisecond = parts
+        .fraction
+        .iter()
+        .chain(std::iter::repeat(&b'0'))
+        .take(3)
+        .fold(0, |value, digit| value * 10 + i32::from(digit - b'0'));
+    // jiff's error names the received part and its value, so it is not kept as the cause.
+    let date = jiff::civil::Date::new(parts.year, parts.month, parts.day)
+        .ok()
+        .ok_or(OccurredAtRefusal::NotACalendarDate)?;
     let time = jiff::civil::Time::new(
-        i8::try_from(hour).ok()?,
-        i8::try_from(minute).ok()?,
-        i8::try_from(second).ok()?,
-        i32::try_from(millisecond * 1_000_000).ok()?,
+        parts.hour,
+        parts.minute,
+        parts.second,
+        millisecond * 1_000_000,
     )
-    .ok()?;
-    jiff::tz::Offset::from_seconds(offset_seconds)
-        .ok()?
+    .expect("the hour, minute and second are checked in range");
+    jiff::tz::Offset::from_seconds(parts.offset_seconds)
+        .expect("an offset up to 23:59 is in range")
         .to_timestamp(date.to_datetime(time))
         .ok()
+        .ok_or(OccurredAtRefusal::OutOfRange)
+}
+
+/// An `occurredAt`'s lexical parts, every range but the calendar's checked.
+struct OccurredAtParts<'text> {
+    year: i16,
+    month: i8,
+    day: i8,
+    hour: i8,
+    minute: i8,
+    second: i8,
+    /// The fraction's digits, unchecked past the third.
+    fraction: &'text [u8],
+    offset_seconds: i32,
+}
+
+impl<'text> OccurredAtParts<'text> {
+    /// The parts of `text`, or `None` where its shape or a time or offset range is wrong.
+    fn read(text: &'text str) -> Option<Self> {
+        let mut rest = text.as_bytes();
+        let year = take_digits(&mut rest, 4)?;
+        take_byte(&mut rest, b'-')?;
+        let month = take_digits(&mut rest, 2)?;
+        take_byte(&mut rest, b'-')?;
+        let day = take_digits(&mut rest, 2)?;
+        take_byte(&mut rest, b'T')?;
+        let hour = take_digits(&mut rest, 2)?;
+        take_byte(&mut rest, b':')?;
+        let minute = take_digits(&mut rest, 2)?;
+        let mut second = 0;
+        let mut fraction: &[u8] = &[];
+        if take_byte(&mut rest, b':').is_some() {
+            second = take_digits(&mut rest, 2)?;
+            if take_byte(&mut rest, b'.').is_some() {
+                let digit_count = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
+                if digit_count == 0 {
+                    return None;
+                }
+                (fraction, rest) = rest.split_at(digit_count);
+            }
+        }
+        let offset_seconds = match rest {
+            [b'Z'] => 0,
+            [sign @ (b'+' | b'-'), offset @ ..] => {
+                let mut offset = offset;
+                let offset_hour = take_digits(&mut offset, 2)?;
+                take_byte(&mut offset, b':')?;
+                let offset_minute = take_digits(&mut offset, 2)?;
+                if !offset.is_empty() || offset_hour > 23 || offset_minute > 59 {
+                    return None;
+                }
+                let seconds = i32::from(offset_hour) * 3600 + i32::from(offset_minute) * 60;
+                if *sign == b'-' { -seconds } else { seconds }
+            }
+            _ => return None,
+        };
+        if hour > 23 || minute > 59 || second > 59 {
+            return None;
+        }
+        Some(Self {
+            year: i16::try_from(year).ok()?,
+            month: i8::try_from(month).ok()?,
+            day: i8::try_from(day).ok()?,
+            hour: i8::try_from(hour).ok()?,
+            minute: i8::try_from(minute).ok()?,
+            second: i8::try_from(second).ok()?,
+            fraction,
+            offset_seconds,
+        })
+    }
 }
 
 /// Takes `count` ASCII digits off the front of `rest` as their number.
-fn take_digits(rest: &mut &[u8], count: usize) -> Option<u32> {
+fn take_digits(rest: &mut &[u8], count: usize) -> Option<u16> {
     let (digits, after) = rest.split_at_checked(count)?;
     if !digits.iter().all(u8::is_ascii_digit) {
         return None;
@@ -209,7 +265,7 @@ fn take_digits(rest: &mut &[u8], count: usize) -> Option<u32> {
     Some(
         digits
             .iter()
-            .fold(0, |value, digit| value * 10 + u32::from(digit - b'0')),
+            .fold(0, |value, digit| value * 10 + u16::from(digit - b'0')),
     )
 }
 
@@ -229,13 +285,9 @@ fn take_byte(rest: &mut &[u8], expected: u8) -> Option<()> {
     reason = "garde passes a check's context by reference"
 )]
 fn is_occurred_at(text: &str, (): &()) -> garde::Result {
-    match parse_occurred_at(text) {
-        Some(_) => Ok(()),
-        None => Err(garde::Error::new(
-            "an occurredAt is a real date and time with `Z` or an offset, and no non-zero \
-             fraction digit past the millisecond",
-        )),
-    }
+    parse_occurred_at(text)
+        .map(|_| ())
+        .map_err(|refusal| garde::Error::new(refusal.to_string()))
 }
 
 /// When an incoming event occurred, as a peer sent it: its seconds may be left out, and its
@@ -255,7 +307,7 @@ impl EventOccurredAt {
     /// The instant, for the append path to store in UTC to the millisecond; `None` where the
     /// text breaks the rule its garde check holds.
     pub fn timestamp(&self) -> Option<jiff::Timestamp> {
-        parse_occurred_at(&self.0)
+        parse_occurred_at(&self.0).ok()
     }
 }
 

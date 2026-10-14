@@ -1,0 +1,258 @@
+{
+  "jsonText": [
+    {
+      "name": "the RFC 8785 section 3.2.2 sample document",
+      "source": "{\n  \"numbers\": [333333333.33333329, 1E30, 4.50,\n              2e-3, 0.000000000000000000000000001],\n  \"string\": \"\\u20ac$\\u000F\\u000aA'\\u0042\\u0022\\u005c\\\\\\\"\\/\",\n  \"literals\": [null, true, false]\n}",
+      "expected": {
+        "canonicalHex": [
+          "7b 22 6c 69 74 65 72 61 6c 73 22 3a 5b 6e 75 6c 6c 2c 74 72",
+          "75 65 2c 66 61 6c 73 65 5d 2c 22 6e 75 6d 62 65 72 73 22 3a",
+          "5b 33 33 33 33 33 33 33 33 33 2e 33 33 33 33 33 33 33 2c 31",
+          "65 2b 33 30 2c 34 2e 35 2c 30 2e 30 30 32 2c 31 65 2d 32 37",
+          "5d 2c 22 73 74 72 69 6e 67 22 3a 22 e2 82 ac 24 5c 75 30 30",
+          "30 66 5c 6e 41 27 42 5c 22 5c 5c 5c 5c 5c 22 2f 22 7d"
+        ]
+      }
+    },
+    {
+      "name": "the RFC 8785 section 3.2.3 sorting sample, ordered by UTF-16 code units",
+      "source": "{\n  \"\\u20ac\": \"Euro Sign\",\n  \"\\r\": \"Carriage Return\",\n  \"\\ufb33\": \"Hebrew Letter Dalet With Dagesh\",\n  \"1\": \"One\",\n  \"\\ud83d\\ude00\": \"Emoji: Grinning Face\",\n  \"\\u0080\": \"Control\",\n  \"\\u00f6\": \"Latin Small Letter O With Diaeresis\"\n}",
+      "expected": {
+        "canonical": "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"\u0080\":\"Control\",\"\u00f6\":\"Latin Small Letter O With Diaeresis\",\"\u20ac\":\"Euro Sign\",\"\ud83d\ude00\":\"Emoji: Grinning Face\",\"\ufb33\":\"Hebrew Letter Dalet With Dagesh\"}"
+      }
+    }
+  ],
+  "numbers": [
+    {
+      "ieee754Hex": "0000000000000000",
+      "canonical": "0"
+    },
+    {
+      "ieee754Hex": "8000000000000000",
+      "canonical": "0"
+    },
+    {
+      "ieee754Hex": "0000000000000001",
+      "canonical": "5e-324"
+    },
+    {
+      "ieee754Hex": "8000000000000001",
+      "canonical": "-5e-324"
+    },
+    {
+      "ieee754Hex": "7fefffffffffffff",
+      "canonical": "1.7976931348623157e+308"
+    },
+    {
+      "ieee754Hex": "ffefffffffffffff",
+      "canonical": "-1.7976931348623157e+308"
+    },
+    {
+      "ieee754Hex": "4340000000000000",
+      "canonical": "9007199254740992"
+    },
+    {
+      "ieee754Hex": "c340000000000000",
+      "canonical": "-9007199254740992"
+    },
+    {
+      "ieee754Hex": "4430000000000000",
+      "canonical": "295147905179352830000"
+    },
+    {
+      "ieee754Hex": "44b52d02c7e14af5",
+      "canonical": "9.999999999999997e+22"
+    },
+    {
+      "ieee754Hex": "44b52d02c7e14af6",
+      "canonical": "1e+23"
+    },
+    {
+      "ieee754Hex": "44b52d02c7e14af7",
+      "canonical": "1.0000000000000001e+23"
+    },
+    {
+      "ieee754Hex": "444b1ae4d6e2ef4e",
+      "canonical": "999999999999999700000"
+    },
+    {
+      "ieee754Hex": "444b1ae4d6e2ef4f",
+      "canonical": "999999999999999900000"
+    },
+    {
+      "ieee754Hex": "444b1ae4d6e2ef50",
+      "canonical": "1e+21"
+    },
+    {
+      "ieee754Hex": "3eb0c6f7a0b5ed8c",
+      "canonical": "9.999999999999997e-7"
+    },
+    {
+      "ieee754Hex": "3eb0c6f7a0b5ed8d",
+      "canonical": "0.000001"
+    },
+    {
+      "ieee754Hex": "41b3de4355555553",
+      "canonical": "333333333.3333332"
+    },
+    {
+      "ieee754Hex": "41b3de4355555554",
+      "canonical": "333333333.33333325"
+    },
+    {
+      "ieee754Hex": "41b3de4355555555",
+      "canonical": "333333333.3333333"
+    },
+    {
+      "ieee754Hex": "41b3de4355555556",
+      "canonical": "333333333.3333334"
+    },
+    {
+      "ieee754Hex": "41b3de4355555557",
+      "canonical": "333333333.33333343"
+    },
+    {
+      "ieee754Hex": "becbf647612f3696",
+      "canonical": "-0.0000033333333333333333"
+    },
+    {
+      "ieee754Hex": "43143ff3c1cb0959",
+      "canonical": "1424953923781206.2"
+    }
+  ],
+  "envelopes": [
+    {
+      "name": "the golden envelope",
+      "envelope": {
+        "id": "01960b3c-e1d0-7a41-b2c9-5f8e37d6a204",
+        "sessionId": "0192f3a4-5b6c-7d8e-9f01-234567890abc",
+        "sequence": 9007199254740991,
+        "occurredAt": "2026-03-04T05:06:07.008Z",
+        "category": "event_maintenance",
+        "type": "event.compacted",
+        "actor": "user-7f3a",
+        "payload": {
+          "zebra": "sorts-last",
+          "alpha": "sorts-first",
+          "nested": {
+            "\u00e9": "e-acute",
+            "B": "upper-b",
+            "a": "lower-a"
+          },
+          "ratio": 333333333.3333332
+        },
+        "correlationId": "correlation-9c2e",
+        "causationId": "causation-4b1d",
+        "version": "1.0"
+      },
+      "expected": {
+        "canonicalHex": [
+          "7b 22 61 63 74 6f 72 22 3a 22 75 73 65 72 2d 37 66 33 61 22",
+          "2c 22 63 61 74 65 67 6f 72 79 22 3a 22 65 76 65 6e 74 5f 6d",
+          "61 69 6e 74 65 6e 61 6e 63 65 22 2c 22 63 61 75 73 61 74 69",
+          "6f 6e 49 64 22 3a 22 63 61 75 73 61 74 69 6f 6e 2d 34 62 31",
+          "64 22 2c 22 63 6f 72 72 65 6c 61 74 69 6f 6e 49 64 22 3a 22",
+          "63 6f 72 72 65 6c 61 74 69 6f 6e 2d 39 63 32 65 22 2c 22 69",
+          "64 22 3a 22 30 31 39 36 30 62 33 63 2d 65 31 64 30 2d 37 61",
+          "34 31 2d 62 32 63 39 2d 35 66 38 65 33 37 64 36 61 32 30 34",
+          "22 2c 22 6f 63 63 75 72 72 65 64 41 74 22 3a 22 32 30 32 36",
+          "2d 30 33 2d 30 34 54 30 35 3a 30 36 3a 30 37 2e 30 30 38 5a",
+          "22 2c 22 70 61 79 6c 6f 61 64 22 3a 7b 22 61 6c 70 68 61 22",
+          "3a 22 73 6f 72 74 73 2d 66 69 72 73 74 22 2c 22 6e 65 73 74",
+          "65 64 22 3a 7b 22 42 22 3a 22 75 70 70 65 72 2d 62 22 2c 22",
+          "61 22 3a 22 6c 6f 77 65 72 2d 61 22 2c 22 c3 a9 22 3a 22 65",
+          "2d 61 63 75 74 65 22 7d 2c 22 72 61 74 69 6f 22 3a 33 33 33",
+          "33 33 33 33 33 33 2e 33 33 33 33 33 33 32 2c 22 7a 65 62 72",
+          "61 22 3a 22 73 6f 72 74 73 2d 6c 61 73 74 22 7d 2c 22 73 65",
+          "71 75 65 6e 63 65 22 3a 39 30 30 37 31 39 39 32 35 34 37 34",
+          "30 39 39 31 2c 22 73 65 73 73 69 6f 6e 49 64 22 3a 22 30 31",
+          "39 32 66 33 61 34 2d 35 62 36 63 2d 37 64 38 65 2d 39 66 30",
+          "31 2d 32 33 34 35 36 37 38 39 30 61 62 63 22 2c 22 74 79 70",
+          "65 22 3a 22 65 76 65 6e 74 2e 63 6f 6d 70 61 63 74 65 64 22",
+          "2c 22 76 65 72 73 69 6f 6e 22 3a 22 31 2e 30 22 7d"
+        ]
+      }
+    },
+    {
+      "name": "a null actor",
+      "envelope": {
+        "id": "01960b3c-e1d0-7a41-b2c9-5f8e37d6a204",
+        "sessionId": "0192f3a4-5b6c-7d8e-9f01-234567890abc",
+        "sequence": 9007199254740991,
+        "occurredAt": "2026-03-04T05:06:07.008Z",
+        "category": "event_maintenance",
+        "type": "event.compacted",
+        "actor": null,
+        "payload": {
+          "zebra": "sorts-last",
+          "alpha": "sorts-first",
+          "nested": {
+            "\u00e9": "e-acute",
+            "B": "upper-b",
+            "a": "lower-a"
+          },
+          "ratio": 333333333.3333332
+        },
+        "correlationId": "correlation-9c2e",
+        "causationId": "causation-4b1d",
+        "version": "1.0"
+      },
+      "expected": {
+        "canonical": "{\"actor\":null,\"category\":\"event_maintenance\",\"causationId\":\"causation-4b1d\",\"correlationId\":\"correlation-9c2e\",\"id\":\"01960b3c-e1d0-7a41-b2c9-5f8e37d6a204\",\"occurredAt\":\"2026-03-04T05:06:07.008Z\",\"payload\":{\"alpha\":\"sorts-first\",\"nested\":{\"B\":\"upper-b\",\"a\":\"lower-a\",\"\u00e9\":\"e-acute\"},\"ratio\":333333333.3333332,\"zebra\":\"sorts-last\"},\"sequence\":9007199254740991,\"sessionId\":\"0192f3a4-5b6c-7d8e-9f01-234567890abc\",\"type\":\"event.compacted\",\"version\":\"1.0\"}"
+      }
+    },
+    {
+      "name": "an absent actor",
+      "envelope": {
+        "id": "01960b3c-e1d0-7a41-b2c9-5f8e37d6a204",
+        "sessionId": "0192f3a4-5b6c-7d8e-9f01-234567890abc",
+        "sequence": 9007199254740991,
+        "occurredAt": "2026-03-04T05:06:07.008Z",
+        "category": "event_maintenance",
+        "type": "event.compacted",
+        "payload": {
+          "zebra": "sorts-last",
+          "alpha": "sorts-first",
+          "nested": {
+            "\u00e9": "e-acute",
+            "B": "upper-b",
+            "a": "lower-a"
+          },
+          "ratio": 333333333.3333332
+        },
+        "correlationId": "correlation-9c2e",
+        "causationId": "causation-4b1d",
+        "version": "1.0"
+      },
+      "expected": {
+        "canonical": "{\"category\":\"event_maintenance\",\"causationId\":\"causation-4b1d\",\"correlationId\":\"correlation-9c2e\",\"id\":\"01960b3c-e1d0-7a41-b2c9-5f8e37d6a204\",\"occurredAt\":\"2026-03-04T05:06:07.008Z\",\"payload\":{\"alpha\":\"sorts-first\",\"nested\":{\"B\":\"upper-b\",\"a\":\"lower-a\",\"\u00e9\":\"e-acute\"},\"ratio\":333333333.3333332,\"zebra\":\"sorts-last\"},\"sequence\":9007199254740991,\"sessionId\":\"0192f3a4-5b6c-7d8e-9f01-234567890abc\",\"type\":\"event.compacted\",\"version\":\"1.0\"}"
+      }
+    }
+  ],
+  "nesting": [
+    {
+      "container": "array",
+      "containerLevels": 64,
+      "leaf": "scalar-at-depth-65",
+      "isRefused": false
+    },
+    {
+      "container": "array",
+      "containerLevels": 65,
+      "leaf": "scalar-at-depth-66",
+      "isRefused": true
+    },
+    {
+      "container": "object",
+      "containerLevels": 64,
+      "leaf": "scalar-at-depth-65",
+      "isRefused": false
+    },
+    {
+      "container": "object",
+      "containerLevels": 64,
+      "leaf": {},
+      "isRefused": true
+    }
+  ]
+}
