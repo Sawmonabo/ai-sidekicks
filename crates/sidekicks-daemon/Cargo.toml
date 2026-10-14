@@ -138,6 +138,7 @@ llrt_stream_web.workspace = true
 llrt_timers.workspace = true
 llrt_util.workspace = true
 lru.workspace = true
+memchr.workspace = true
 minidumper.workspace = true
 notify.workspace = true
 opentelemetry-proto.workspace = true
