@@ -150,12 +150,13 @@ pub fn send_console_break(pid: u32) -> io::Result<()> {
     Ok(())
 }
 
-/// Reads which processes the console of the process `pid` holds and how it takes input; run
-/// inside the console helper, which it moves onto that console. Fails with the system's error when
-/// the helper cannot attach, list the console's processes or read its input mode.
+/// Reads which processes the console of the process `pid`, the `shell-start` process that started
+/// the shell, holds and how it takes input; run inside the console helper, which it moves onto that
+/// console. Fails with the system's error when the helper cannot attach, list the console's
+/// processes or read its input mode.
 pub fn read_console(pid: u32) -> io::Result<ConsoleReading> {
     attach_to_console(pid)?;
-    let process_ids = console_process_ids()?;
+    let process_ids = console_process_ids(pid)?;
     let input_mode = console_input_mode()?;
     Ok(ConsoleReading {
         process_ids,
@@ -415,8 +416,9 @@ fn attach_to_console(pid: u32) -> io::Result<()> {
     Ok(())
 }
 
-/// The ids of every process on the attached console, the helper itself left out.
-fn console_process_ids() -> io::Result<Vec<u32>> {
+/// The ids of every process on the attached console, the helper itself and `start_process_id`
+/// left out.
+fn console_process_ids(start_process_id: u32) -> io::Result<Vec<u32>> {
     let mut process_ids = vec![0_u32; CONSOLE_PROCESS_LIST_START_LENGTH];
     loop {
         let capacity =
@@ -436,7 +438,8 @@ fn console_process_ids() -> io::Result<Vec<u32>> {
         process_ids.resize(count, 0);
     }
     let helper_process_id = std::process::id();
-    process_ids.retain(|process_id| *process_id != helper_process_id);
+    process_ids
+        .retain(|process_id| *process_id != helper_process_id && *process_id != start_process_id);
     Ok(process_ids)
 }
 

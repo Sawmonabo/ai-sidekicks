@@ -73,7 +73,8 @@ pub enum ProcessTreeEnd {
 /// What a console helper read from the console of a shell's program.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConsoleReading {
-    /// Every process attached to the console, the helper itself left out.
+    /// Every process attached to the console, the helper and the `shell-start` process that
+    /// started the shell left out.
     pub process_ids: Vec<u32>,
     /// Whether the console echoes what is typed (`ENABLE_ECHO_INPUT`); off at a password prompt.
     pub is_echo_input: bool,
