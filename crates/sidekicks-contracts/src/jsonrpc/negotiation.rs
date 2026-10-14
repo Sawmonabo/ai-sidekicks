@@ -5,8 +5,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::method::{Method, MethodDescriptor, ProcedureType};
+use crate::schema::received_check;
 use crate::trust_statement::DeviceId;
-use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::typescript::{Definition, TypeName, TypeScriptModule, ts_constants};
 use crate::wire;
 use crate::wire::list::BoundedVec;
 use crate::wire::text::{BoundedText, pattern_text};
@@ -148,6 +150,31 @@ pub struct DaemonHelloAck {
     #[schemars(with = "BoundedVec<ProtocolVersion, 0, SUPPORTED_PROTOCOLS_MAX_LEN>")]
     pub daemon_supported_protocols:
         Option<BoundedVec<ProtocolVersion, 0, SUPPORTED_PROTOCOLS_MAX_LEN>>,
+}
+
+/// `daemon.hello` as a method the daemon answers, outside every method table: a read, so the
+/// version gate never refuses it, answering a wrong or missing token, a refused caller, or a
+/// service still repairing its database file.
+#[derive(Clone, Copy, Debug)]
+pub struct DaemonHandshake;
+
+impl Method for DaemonHandshake {
+    type Params = DaemonHello;
+    type Result = DaemonHelloAck;
+    const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
+        method: DAEMON_HELLO_METHOD,
+        procedure_type: ProcedureType::Query,
+        is_mutating: false,
+        params: TypeName::of::<DaemonHello>(),
+        result: TypeName::of::<DaemonHelloAck>(),
+        emission: None,
+        refusals: &[
+            RefusalCode::AuthTokenInvalid,
+            RefusalCode::AuthCallerRefused,
+            RefusalCode::DaemonRepairing,
+        ],
+        received_check: received_check::<DaemonHello>,
+    };
 }
 
 /// The TypeScript module of the handshake.

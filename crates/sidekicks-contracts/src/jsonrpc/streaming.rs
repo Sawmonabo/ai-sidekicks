@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::message::JsonRpcError;
-use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::method::{Method, MethodDescriptor, ProcedureType};
+use crate::schema::received_check;
+use crate::typescript::{Definition, TypeName, TypeScriptModule, ts_constants};
 use crate::wire::AnyValue;
 
 ts_constants! {
@@ -130,6 +132,26 @@ pub struct SubscriptionCancelParams {
 pub struct SubscriptionCancelResult {
     /// Whether the subscription was canceled.
     pub canceled: bool,
+}
+
+/// `$/subscription/cancel` as a method the daemon answers, outside every method table: a read, so
+/// a client whose version is incompatible can still tear its subscriptions down.
+#[derive(Clone, Copy, Debug)]
+pub struct SubscriptionCancel;
+
+impl Method for SubscriptionCancel {
+    type Params = SubscriptionCancelParams;
+    type Result = SubscriptionCancelResult;
+    const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
+        method: SUBSCRIPTION_CANCEL_METHOD,
+        procedure_type: ProcedureType::Query,
+        is_mutating: false,
+        params: TypeName::of::<SubscriptionCancelParams>(),
+        result: TypeName::of::<SubscriptionCancelResult>(),
+        emission: None,
+        refusals: &[],
+        received_check: received_check::<SubscriptionCancelParams>,
+    };
 }
 
 /// The TypeScript module of the subscription wire.
