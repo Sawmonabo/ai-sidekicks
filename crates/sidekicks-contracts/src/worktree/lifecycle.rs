@@ -4,6 +4,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::agent::definition::AgentId;
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
@@ -40,8 +41,21 @@ branded_uuid_id! {
 /// A worktree's lifecycle state. `retired` and `failed` are not live; moving to `failed` emits no
 /// `worktree.*` event (the failure is evented as `workspace.stale`), and failed rows stay readable
 /// through `repo.worktreeStatusRead`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum WorktreeState {
     /// Being made.
     Creating,

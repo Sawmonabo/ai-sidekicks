@@ -41,7 +41,19 @@ static INSTANT_REGEX: LazyLock<Regex> =
 #[garde(transparent)]
 pub struct WireInstant(#[garde(pattern(INSTANT_REGEX))] String);
 
+/// Text the instant's pattern refuses; it names no value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("the text is not an RFC 3339 instant with its offset")]
+pub struct NotAnInstant;
+
 impl WireInstant {
+    /// `timestamp` as the UTC text every stored or sent instant takes, three fraction digits and
+    /// `Z`, as `Date.prototype.toISOString` writes it; a clock reading always falls in the
+    /// four-digit years the pattern holds.
+    pub fn from_timestamp(timestamp: jiff::Timestamp) -> Self {
+        Self(timestamp.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+    }
+
     /// The text as received.
     pub fn as_str(&self) -> &str {
         &self.0
@@ -77,6 +89,19 @@ impl WireInstant {
     }
 }
 
+impl TryFrom<String> for WireInstant {
+    type Error = NotAnInstant;
+
+    /// Takes stored text back as an instant, refusing what the pattern refuses.
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        if INSTANT_REGEX.is_match(&text) {
+            Ok(Self(text))
+        } else {
+            Err(NotAnInstant)
+        }
+    }
+}
+
 impl JsonSchema for WireInstant {
     fn schema_name() -> Cow<'static, str> {
         "WireInstant".into()
@@ -88,5 +113,49 @@ impl JsonSchema for WireInstant {
             "type": "string",
             "pattern": INSTANT_PATTERN,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use garde::Validate;
+    use rstest::rstest;
+
+    use super::WireInstant;
+
+    #[rstest]
+    #[case::a_lower_case_t("2025-01-01t00:00:00Z", false)]
+    #[case::a_lower_case_z("2025-01-01T00:00:00z", false)]
+    #[case::a_space_for_t("2025-01-01 00:00:00Z", false)]
+    #[case::an_offset_without_its_colon("2025-01-01T00:00:00+0100", false)]
+    #[case::an_offset_past_23("2025-01-01T00:00:00+24:00", false)]
+    #[case::a_leap_second("2016-12-31T23:59:60Z", false)]
+    #[case::a_day_the_year_lacks("2025-02-29T00:00:00Z", false)]
+    #[case::no_seconds("2025-01-01T00:00Z", false)]
+    #[case::a_ten_digit_fraction("2025-01-01T00:00:00.1234567890Z", true)]
+    #[case::an_offset("2024-02-29T23:59:59.5-05:30", true)]
+    fn the_pattern_takes_only_rfc_3339_instants_with_an_offset(
+        #[case] text: &str,
+        #[case] is_instant: bool,
+    ) {
+        assert_eq!(WireInstant::try_from(text.to_owned()).is_ok(), is_instant);
+        let received: WireInstant =
+            serde_json::from_value(serde_json::Value::String(text.to_owned()))
+                .expect("any string reads as a received instant before its check");
+        assert_eq!(received.validate().is_ok(), is_instant);
+    }
+
+    #[test]
+    fn a_clock_reading_is_written_in_the_stored_form_and_read_back_equal() {
+        let timestamp: jiff::Timestamp = "2026-10-14T04:05:06.789123Z"
+            .parse()
+            .expect("the literal is an instant");
+        let instant = WireInstant::from_timestamp(timestamp);
+        assert_eq!(instant.as_str(), "2026-10-14T04:05:06.789Z");
+        assert!(instant.validate().is_ok());
+        assert_eq!(
+            WireInstant::try_from(instant.as_str().to_owned()),
+            Ok(instant)
+        );
     }
 }

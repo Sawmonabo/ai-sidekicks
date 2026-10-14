@@ -8,6 +8,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
@@ -38,8 +39,21 @@ pub type ProjectName = FreeFormText<PROJECT_NAME_MAX_LEN>;
 /// A project's life: `cloning` from the first press of `Clone` until the clone attaches (a failed
 /// or canceled clone stays `cloning`, so it can be run again), then `active`, and `archived` while
 /// it sits in the archived group.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum ProjectState {
     /// Its clone has not attached yet.
     Cloning,

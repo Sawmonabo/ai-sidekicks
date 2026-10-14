@@ -4,6 +4,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::internal::branded::branded_uuid_id;
@@ -24,8 +25,21 @@ branded_uuid_id! {
 
 /// How a workspace uses its mount: `bound-root` works in the root already bound to it (the mount's
 /// own checkout), `provisioned-worktree` in a worktree the daemon provisions for it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
+)]
 #[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
 pub enum ExecutionMode {
     /// The mount's own checkout.
     BoundRoot,
@@ -35,8 +49,21 @@ pub enum ExecutionMode {
 
 /// A workspace's lifecycle state. `stale` means its path became unavailable and write runs are
 /// blocked until repair.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum WorkspaceState {
     /// Being prepared.
     Preparing,
@@ -50,8 +77,21 @@ pub enum WorkspaceState {
 
 /// A mount's lifecycle state. `detached` is terminal: re-attaching creates a new mount rather than
 /// reviving the old one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum RepoMountState {
     /// Attached.
     Attached,
@@ -63,8 +103,21 @@ pub enum RepoMountState {
 
 /// The version-control system behind a mount. `repo.attach` refuses a path that is not a git
 /// repository, so every mount is `git`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum VcsType {
     /// Git.
     Git,

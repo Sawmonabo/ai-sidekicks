@@ -270,6 +270,35 @@ pub struct RepoOutsideTrustEnvelopeDetails {
     pub reason: RepoOutsideTrustEnvelopeReason,
 }
 
+/// Why a path's canonical repository root could not be resolved: the path is missing, unreadable
+/// or not absolute, git could not answer for it, its working tree is not one git names for the
+/// repository, or git reports a folder with no visible `.git` entry is not a repository.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RepoRootResolutionReason {
+    /// The path does not exist.
+    PathNotFound,
+    /// The path or its root cannot be read.
+    NotReadable,
+    /// Git could not answer for the path, or its repository metadata is damaged.
+    VcsError,
+    /// The path does not name one complete location.
+    NotAbsolute,
+    /// The working tree is neither the main one git names nor one git lists for the repository.
+    RootMismatch,
+    /// Git reports the folder is not a repository and no `.git` entry contradicts it.
+    NotARepository,
+}
+
+/// The details of a `repo.root_resolution_failed` refusal: its reason and no path, since the
+/// message never echoes the path tried.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RepoRootResolutionFailedDetails {
+    /// Why.
+    pub reason: RepoRootResolutionReason,
+}
+
 /// The details of a `repo.already_attached` refusal: the mount that holds the repository and its
 /// project, `null` when the holder is a chat's own workspace. No path.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -340,6 +369,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RepoDetachResponse>().checked(),
         Definition::read::<RepoOutsideTrustEnvelopeReason>(),
         Definition::read::<RepoOutsideTrustEnvelopeDetails>(),
+        Definition::read::<RepoRootResolutionReason>(),
+        Definition::read::<RepoRootResolutionFailedDetails>(),
         Definition::read::<RepoAlreadyAttachedDetails>(),
         Definition::read::<RepoMountReattachResponse>(),
         Definition::read::<RepoReattachRefusedReason>(),

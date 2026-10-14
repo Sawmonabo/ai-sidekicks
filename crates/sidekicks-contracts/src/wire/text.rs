@@ -36,6 +36,10 @@ macro_rules! ecmascript_whitespace {
 
 pub(crate) use ecmascript_whitespace;
 
+/// The body of a regex class holding ECMAScript's `\s` set, for a caller outside this crate that
+/// builds a pattern at run time; inside the crate, `concat!` takes the macro.
+pub const ECMASCRIPT_WHITESPACE_CLASS: &str = ecmascript_whitespace!();
+
 /// A pattern Rust's `regex` and ECMAScript read alike: text with no NUL and at least one character
 /// outside ECMAScript's `\s` set.
 pub(crate) const NON_BLANK_NUL_FREE_PATTERN: &str =
