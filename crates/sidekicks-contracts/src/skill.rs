@@ -199,8 +199,9 @@ pub struct SkillFileReadRequest {
 }
 
 /// The file's text as it is on disk.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SkillFileReadResponse {
     /// The text.
     pub content: String,
@@ -392,8 +393,9 @@ pub struct SkillCallFormCollision {
 
 /// What the typed name would be called by on each provider once saved, derived by the same code
 /// that builds the session pack, and the folder it collides with, or `null` when none does.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SkillCallFormReadResponse {
     /// What it would be called by.
     pub call_forms: SkillCallForms,
@@ -418,8 +420,11 @@ pub struct SkillAvailabilityUpdateRequest {
 }
 
 /// The availability the record now holds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SkillAvailabilityUpdateResponse {
     /// The availability.
     pub availability: SkillAvailability,
@@ -463,8 +468,9 @@ pub struct SkillScanFinding {
 /// Every file the scan found something in; empty when the folder names no other provider's tools.
 /// A read that stores nothing: the warning it feeds is derived from the availability setting and
 /// never kept.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SkillScanResponse {
     /// The findings.
     pub findings: Vec<SkillScanFinding>,
@@ -493,8 +499,9 @@ pub struct SkillRecordDiscardRequest {
 }
 
 /// A discard's answer.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SkillRecordDiscardResponse {
     /// Always true.
     pub discarded: True,

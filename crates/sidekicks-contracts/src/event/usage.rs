@@ -346,6 +346,7 @@ pub struct UsageRateLimitUpdatePayload {
         deserialize_with = "crate::wire::present"
     )]
     #[schemars(with = "WireInstant")]
+    #[garde(dive)]
     pub resets_at: Option<WireInstant>,
 }
 

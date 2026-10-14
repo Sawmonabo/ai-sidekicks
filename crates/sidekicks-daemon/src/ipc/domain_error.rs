@@ -4,6 +4,7 @@
 
 use std::error::Error;
 
+use serde::Serialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -65,25 +66,20 @@ impl DomainError {
     }
 
     /// The refusal for a session id that resolves to no session the daemon holds: the id is a bad
-    /// parameter, and `fields` (the offending id) goes out as the reply's `data.fields`.
-    pub(crate) fn session_not_found(
-        message: impl Into<String>,
-        fields: Option<Map<String, Value>>,
-    ) -> Self {
-        Self {
-            detail: fields,
-            ..Self::new(
-                message,
-                RefusalCode::SessionNotFound,
-                DomainErrorJsonRpcCode::InvalidParams,
-            )
-        }
+    /// parameter, and `details` (the offending id) go out as the reply's `data.fields`.
+    pub(crate) fn session_not_found(message: impl Into<String>, details: impl Serialize) -> Self {
+        Self::new(
+            message,
+            RefusalCode::SessionNotFound,
+            DomainErrorJsonRpcCode::InvalidParams,
+        )
+        .with_detail(details)
     }
 
-    /// The same refusal carrying `detail`, sent as the reply's `data.fields` once sanitized.
-    pub(crate) fn with_detail(self, detail: Map<String, Value>) -> Self {
+    /// The same refusal carrying `details`, sent as the reply's `data.fields` once sanitized.
+    pub(crate) fn with_detail(self, details: impl Serialize) -> Self {
         Self {
-            detail: Some(detail),
+            detail: Some(refusal_fields(details)),
             ..self
         }
     }
@@ -95,4 +91,13 @@ impl DomainError {
             ..self
         }
     }
+}
+
+/// A refusal's `data.fields` from `details`, a contract's details type or a `json!` object, each
+/// member as it writes; every refusal's fields are built here. Panics only on details that write
+/// no object, which neither form does.
+pub(crate) fn refusal_fields(details: impl Serialize) -> Map<String, Value> {
+    serde_json::to_value(details)
+        .and_then(serde_json::from_value)
+        .expect("a refusal's details write an object")
 }

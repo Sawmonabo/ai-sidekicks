@@ -43,8 +43,9 @@ pub type PreviewFileName = BoundedText<1, FILE_PATH_MAX_LEN>;
 /// The folder main writes a relayed download into, read once per connection: `null` on a Windows
 /// computer whose daemon runs inside WSL 2, where no Windows path crosses and main stages in a
 /// folder of its own.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPageStagingFolderReadResponse {
     /// The folder.
     #[serde(deserialize_with = "crate::wire::nullable")]
@@ -98,8 +99,11 @@ pub enum PreviewDownloadVerdict {
 }
 
 /// The daemon's answer to a download report.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPageDownloadReportResponse {
     /// What it did.
     pub verdict: PreviewDownloadVerdict,
@@ -129,8 +133,9 @@ pub struct PreviewPageFileReadRequest {
 }
 
 /// One part of a staged file and whether it is the last.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewFilePartResponse {
     /// The part's bytes.
     pub part: PreviewFilePart,

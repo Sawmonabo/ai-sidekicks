@@ -158,12 +158,10 @@ fn require_marker_to_outrank_row(
     superseded: Option<&SupersededMarker>,
 ) -> garde::Result {
     match superseded {
-        Some(marker) if position <= marker.target_position => Err(garde::Error::new(format!(
-            "a superseded row ranks above the rewind cutoff: position {} does not exceed \
-             targetPosition {}",
-            position.0.get(),
-            marker.target_position.0.get()
-        ))),
+        Some(marker) if position <= marker.target_position => Err(garde::Error::new(
+            "a superseded row ranks above the rewind cutoff: its position does not exceed \
+             targetPosition",
+        )),
         _ => Ok(()),
     }
 }
@@ -272,10 +270,10 @@ impl TranscriptEntry {
         if SessionEventType::from_wire_name(event_type)
             .is_some_and(is_transcript_run_scoped_event_type)
         {
-            return Err(garde::Error::new(format!(
-                "the event type {event_type:?} names a run in every form of its payload, so it \
-                 belongs to the run arm"
-            )));
+            return Err(garde::Error::new(
+                "the event type names a run in every form of its payload, so it belongs to the \
+                 run arm",
+            ));
         }
         if transcript_run_id_of(Some(&self.payload)).is_some() {
             return Err(garde::Error::new(
@@ -358,20 +356,19 @@ impl RunScopedTranscriptEntry {
                 && named.as_str() != Some(self.run_id.as_str())
             {
                 return Err(garde::Error::new(format!(
-                    "payload {attribution_key} {named} disagrees with the row's own runId"
+                    "payload {attribution_key} disagrees with the row's own runId"
                 )));
             }
         }
-        for (payload_key, outer) in [
-            (SOURCE_EPOCH_PAYLOAD_KEY, self.epoch.0),
-            (SOURCE_POSITION_PAYLOAD_KEY, self.position.0),
+        for (payload_key, outer, member) in [
+            (SOURCE_EPOCH_PAYLOAD_KEY, self.epoch.0, "epoch"),
+            (SOURCE_POSITION_PAYLOAD_KEY, self.position.0, "position"),
         ] {
             if let Some(echoed) = payload.get(payload_key)
                 && !is_same_number(echoed, outer)
             {
                 return Err(garde::Error::new(format!(
-                    "payload {payload_key} {echoed} disagrees with the row's own {}",
-                    outer.get()
+                    "payload {payload_key} disagrees with the row's own {member}"
                 )));
             }
         }

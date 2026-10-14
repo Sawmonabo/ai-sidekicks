@@ -19,6 +19,19 @@ pub struct EmptyPayload {}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct NullPayload;
 
+/// `null` holds no rule; garde's derive takes no unit struct, so the empty check is written out.
+impl garde::Validate for NullPayload {
+    type Context = ();
+
+    fn validate_into(
+        &self,
+        (): &Self::Context,
+        _parent: &mut dyn FnMut() -> garde::Path,
+        _report: &mut garde::Report,
+    ) {
+    }
+}
+
 /// The TypeScript module of what every method table shares.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "method-descriptor",

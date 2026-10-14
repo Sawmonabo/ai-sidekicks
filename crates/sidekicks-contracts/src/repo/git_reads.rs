@@ -197,13 +197,14 @@ pub enum RepoFileReadRequest {
 /// The `repo.fileRead` result: the lines read; `stale` when the working-tree side no longer holds
 /// the blob the diff was read at, so the pane shows its reload mark; `binary` when the file is not
 /// text.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "outcome",
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum RepoFileReadResponse {
     /// The lines read, starting at `firstLine`, with the file's `totalLines`.
     Lines {

@@ -387,8 +387,9 @@ pub enum SessionCreateRequest {
 
 /// What `session.create` answers. `lead` is the binding the daemon resolved for the lead, the
 /// account among it.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionCreateResponse {
     /// The session.
     pub session_id: SessionId,
@@ -424,13 +425,14 @@ pub struct SessionForkRequest {
 
 /// The fork. A project fork lands on a new worktree cut from the parent's current one; a chat fork
 /// gets its own managed workspace and has no worktree.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "shape",
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum SessionForkResponse {
     /// A project fork.
     Project {
@@ -470,8 +472,9 @@ pub enum SessionWorkingFolderDisposition {
 }
 
 /// The `session.setWorkingFolder` result.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionSetWorkingFolderResponse {
     /// The session.
     pub session_id: SessionId,
@@ -549,8 +552,9 @@ pub struct SessionOverviewRemoteControl {
 /// What the terminal pane draws: every session with its agents and Remote Control's state, read
 /// from the projections behind `session.list` and `agent.list`. The next read sends `revision`
 /// back as `afterRevision`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionOverviewReadResponse {
     /// The revision drawn.
     pub revision: SafeInt<0>,

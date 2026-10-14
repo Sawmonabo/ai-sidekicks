@@ -88,13 +88,14 @@ macro_rules! preview_screencast_element {
         }
     ) => {
         $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "kind",
             rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
+        #[garde(allow_unvalidated)]
         pub enum $name {$(
             $(#[doc = $arm_doc])+
             $arm {
@@ -383,8 +384,9 @@ pub struct PreviewScreencastInputRequest {
 }
 
 /// The id the daemon gave the input, which a menu, a file chooser or a download it raised names.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewScreencastInputResponse {
     /// The input's id.
     pub message_id: PreviewInputMessageId,
@@ -428,8 +430,11 @@ pub struct PreviewScreencastEditRequest {
 }
 
 /// The menu's act reached the page.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewMenuEditResponse {
     /// Always `true`.
     pub applied: True,
@@ -483,8 +488,11 @@ pub struct PreviewScreencastFileChooseRequest {
 }
 
 /// How many files the page received: set on the input, or dropped for a picker.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewScreencastFileChooseResponse {
     /// The count.
     pub set: SafeInt<0>,

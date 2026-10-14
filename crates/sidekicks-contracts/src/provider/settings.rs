@@ -425,8 +425,9 @@ pub enum ProviderProtectedPath {
 }
 
 /// The paths one provider refuses.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderProtectedPathListResponse {
     /// The provider.
     pub provider: ProviderName,
@@ -479,8 +480,9 @@ pub struct ProviderStandingRule {
 }
 
 /// One provider's standing rules on this machine; an empty list means it holds none.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderStandingRuleListResponse {
     /// The provider.
     pub provider: ProviderName,
@@ -511,8 +513,9 @@ pub enum ProviderStandingRuleRevokeOutcome {
 }
 
 /// The reply of a revoke.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderStandingRuleRevokeResponse {
     /// The rule.
     pub rule_id: ProviderStandingRuleId,
@@ -522,13 +525,14 @@ pub struct ProviderStandingRuleRevokeResponse {
 
 /// Where one provider's install has got to. The install runs the provider's own installer as the
 /// person, keyed by provider, and the stream's first message is that provider's last outcome.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "state",
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum ProviderInstallProgress {
     /// The installer runs.
     Running {

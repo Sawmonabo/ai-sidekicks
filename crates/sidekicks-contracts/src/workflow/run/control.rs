@@ -225,8 +225,9 @@ pub enum WorkflowRunStartStatus {
 
 /// The `workflow.runStart` result, which `workflow.runRerun` also answers with: the new run, the
 /// session it lives in, and its status.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowRunStartResponse {
     /// The new run.
     pub workflow_run_id: WorkflowRunId,
@@ -361,8 +362,9 @@ literal! {
 /// failed run parked on its failed step; `alreadyCanceled` is true when the run was already
 /// canceled and this call returned the first cancel's saved result, `canceledEventId` naming the
 /// original event and no second one written.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowRunCancelResponse {
     /// The run.
     pub workflow_run_id: WorkflowRunId,
@@ -556,8 +558,9 @@ pub struct WorkflowNodeExecuteRequest {
 }
 
 /// The `workflow.nodeExecute` result: the nodes the daemon ran, in order, and those it reused.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowNodeExecuteResponse {
     /// The run the node run made.
     pub workflow_run_id: WorkflowRunId,
@@ -580,8 +583,9 @@ pub struct WorkflowResultsPostRequest {
 }
 
 /// The `workflow.resultsPost` result.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowResultsPostResponse {
     /// The run.
     pub workflow_run_id: WorkflowRunId,

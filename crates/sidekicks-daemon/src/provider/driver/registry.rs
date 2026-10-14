@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
-use serde_json::{Map, Value};
+use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::capabilities::{
     DriverCapabilities, DriverCapabilityFlag,
@@ -24,7 +24,7 @@ pub(crate) fn driver_unavailable(provider: ProviderName) -> DomainError {
         RefusalCode::DriverUnavailable,
         DomainErrorJsonRpcCode::InternalError,
     )
-    .with_detail(Map::from_iter([driver_id_detail(provider)]))
+    .with_detail(json!({ "driverId": provider.as_str() }))
 }
 
 /// The refusal for a call gated on `flag` that the driver does not declare; its detail carries only
@@ -34,20 +34,12 @@ pub(crate) fn driver_capability_unsupported(
     provider: ProviderName,
     flag: DriverCapabilityFlag,
 ) -> DomainError {
-    let flag = serde_json::to_value(flag).expect("a capability flag serializes as its name");
     DomainError::new(
         DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE,
         RefusalCode::DriverCapabilityUnsupported,
         DomainErrorJsonRpcCode::InvalidRequest,
     )
-    .with_detail(Map::from_iter([
-        driver_id_detail(provider),
-        ("flag".to_owned(), flag),
-    ]))
-}
-
-fn driver_id_detail(provider: ProviderName) -> (String, Value) {
-    ("driverId".to_owned(), Value::from(provider.as_str()))
+    .with_detail(json!({ "driverId": provider.as_str(), "flag": flag }))
 }
 
 /// A driver and the capability snapshot it was registered with.

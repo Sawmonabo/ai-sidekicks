@@ -17,13 +17,10 @@ branded_text! {
 pub const START_OF_LOG_POSITION: i64 = -1;
 
 /// A cursor that names no log position: it is not a canonical decimal integer of at least -1
-/// within JavaScript's safe range. Holds the refused cursor, so the refusal can name it.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("the event cursor {cursor:?} does not name a position in the session's log")]
-pub struct EventCursorUnresolvable {
-    /// The refused cursor's text.
-    pub cursor: String,
-}
+/// within JavaScript's safe range. It never quotes the cursor, which the client sent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("the event cursor does not name a position in the session's log")]
+pub struct EventCursorUnresolvable;
 
 /// A position no cursor can name: below the start of the log or past JavaScript's safe range.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -62,9 +59,7 @@ pub fn decode_event_cursor(cursor: &EventCursor) -> Result<i64, EventCursorUnres
                 .ok()
                 .is_none_or(|at| at <= MAX_SAFE_INTEGER)
         });
-    position.ok_or_else(|| EventCursorUnresolvable {
-        cursor: text.to_owned(),
-    })
+    position.ok_or(EventCursorUnresolvable)
 }
 
 #[cfg(test)]

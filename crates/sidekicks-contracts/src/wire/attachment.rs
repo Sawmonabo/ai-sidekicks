@@ -12,6 +12,7 @@ use serde::de::{DeserializeOwned, Error as _};
 use serde::ser::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::jsonrpc::issue::{IssuePathSegment, ShapeFault, reader_issue_path, shape_faults};
 use crate::schema::{ReceivedCheckError, received_check};
 
 /// Why a message's attachments do not match its JSON.
@@ -88,23 +89,27 @@ pub fn parse<T: DeserializeOwned>(
     json: &[u8],
     attachments: Vec<ByteBuffer>,
 ) -> Result<T, AttachmentError> {
-    read_with_attachments(attachments, || serde_json::from_slice::<T>(json))
+    read_with_attachments(attachments, || serde_json::from_slice::<T>(json)).map_err(|error| {
+        match error {
+            AttachmentReadError::Read(error) => AttachmentError::Json(error),
+            AttachmentReadError::Unreferenced { index } => AttachmentError::Unreferenced { index },
+        }
+    })
 }
 
-/// Why a received message was refused.
+/// Why a received message was refused. No arm's `Display` quotes the message; a source may.
 #[derive(Debug, thiserror::Error)]
 pub enum ReceivedError {
     /// The JSON does not parse.
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
-    /// The message breaks its contract's schema, an array where an object belongs among the ways.
-    /// It keeps only where and which keyword failed, never the value, which may be a secret.
-    #[error("the message breaks its contract's schema at `{instance_path}` ({keyword})")]
+    #[error("the message is not JSON")]
+    Json(#[source] serde_json::Error),
+    /// The message breaks its contract's schema, an array where an object belongs among the ways:
+    /// the first place it does, by path and keyword, or each member an object closed by
+    /// `unevaluatedProperties` does not allow, never the value, which may be a secret.
+    #[error("the message breaks its contract's schema")]
     Shape {
-        /// The failing value's JSON Pointer, empty for the whole message.
-        instance_path: String,
-        /// The schema keyword the value failed.
-        keyword: String,
+        /// The fault, or each unknown member up to the issue cap.
+        faults: Vec<ShapeFault>,
     },
     /// The contract's check could not be built.
     #[error(transparent)]
@@ -112,7 +117,13 @@ pub enum ReceivedError {
     /// The message passed its schema but its type refused a value in it: a malformed id, say, or
     /// an attachment placeholder naming no attachment sent with it.
     #[error("the message passed its schema but does not read as its type")]
-    Read(#[source] serde_json::Error),
+    Read {
+        /// Where the reader stopped, in the message's own names, as far as it could name it.
+        path: Vec<IssuePathSegment>,
+        /// serde's refusal, which can quote the value.
+        #[source]
+        source: serde_json::Error,
+    },
     /// The message was read but an attachment sent with it is referenced by no placeholder.
     #[error("attachment {index} is not referenced")]
     Unreferenced {
@@ -121,8 +132,15 @@ pub enum ReceivedError {
     },
     /// The message was read but breaks a rule no schema shape holds, a repeated list key among
     /// them.
-    #[error(transparent)]
-    Rule(#[from] garde::Report),
+    #[error("the message breaks a rule of its contract")]
+    Rule {
+        /// Each broken rule at its path in the type's own names.
+        #[source]
+        report: garde::Report,
+        /// The JSON the value was read from, which those paths resolve against to the wire's
+        /// names.
+        received: serde_json::Value,
+    },
 }
 
 /// Parses a message a server received, a request's or a notification's params or an attachment
@@ -134,29 +152,46 @@ where
     T: DeserializeOwned + JsonSchema + garde::Validate<Context = ()> + 'static,
 {
     let check = received_check::<T>()?;
-    let value: serde_json::Value = serde_json::from_slice(json)?;
-    check
-        .validate(&value)
-        .map_err(|error| ReceivedError::Shape {
-            instance_path: error.instance_path().as_str().to_owned(),
-            keyword: error.kind().keyword().to_owned(),
-        })?;
-    let received = read_with_attachments(attachments, || T::deserialize(value)).map_err(
-        |error| match error {
-            AttachmentError::Json(error) => ReceivedError::Read(error),
-            AttachmentError::Unreferenced { index } => ReceivedError::Unreferenced { index },
+    let received: serde_json::Value = serde_json::from_slice(json).map_err(ReceivedError::Json)?;
+    // The check stops at its first fault, so a large malformed message costs no more than its read.
+    if let Err(error) = check.validate(&received) {
+        let faults = shape_faults(&error, &received);
+        return Err(ReceivedError::Shape { faults });
+    }
+    let value = read_with_attachments(attachments, || {
+        serde_path_to_error::deserialize::<_, T>(received)
+    })
+    .map_err(|error| match error {
+        AttachmentReadError::Read(error) => ReceivedError::Read {
+            path: reader_issue_path(error.path()),
+            source: error.into_inner(),
         },
-    )?;
-    received.validate()?;
-    Ok(received)
+        AttachmentReadError::Unreferenced { index } => ReceivedError::Unreferenced { index },
+    })?;
+    match value.validate() {
+        Ok(()) => Ok(value),
+        Err(report) => {
+            // The read took the JSON; it is read again only for a refusal, after the value goes.
+            drop(value);
+            let received = serde_json::from_slice(json).expect("these bytes parsed above");
+            Err(ReceivedError::Rule { report, received })
+        }
+    }
+}
+
+/// Why a read inside an attachment context failed: the reader's own refusal, or an attachment no
+/// placeholder took.
+enum AttachmentReadError<Read> {
+    Read(Read),
+    Unreferenced { index: usize },
 }
 
 /// Runs `read` with `attachments` as the thread's attachment context, then refuses an attachment
 /// no placeholder took.
-fn read_with_attachments<T>(
+fn read_with_attachments<T, Read>(
     attachments: Vec<ByteBuffer>,
-    read: impl FnOnce() -> serde_json::Result<T>,
-) -> Result<T, AttachmentError> {
+    read: impl FnOnce() -> Result<T, Read>,
+) -> Result<T, AttachmentReadError<Read>> {
     let is_taken = vec![false; attachments.len()];
     let guard = ContextGuard::enter(
         &INCOMING,
@@ -169,9 +204,9 @@ fn read_with_attachments<T>(
     let incoming = guard
         .take()
         .expect("the guard holds this parse's attachments");
-    let value = parsed?;
+    let value = parsed.map_err(AttachmentReadError::Read)?;
     match incoming.is_taken.iter().position(|is_taken| !is_taken) {
-        Some(index) => Err(AttachmentError::Unreferenced { index }),
+        Some(index) => Err(AttachmentReadError::Unreferenced { index }),
         None => Ok(value),
     }
 }
@@ -307,11 +342,13 @@ mod tests {
     use proptest::prelude::*;
     use rstest::rstest;
     use schemars::JsonSchema;
+    use serde::de::DeserializeOwned;
     use serde::{Deserialize, Serialize};
 
     use super::{AttachmentError, Bytes, ReceivedError, parse, parse_received, write};
     use crate::artifacts::ingest::AttachmentIngestChunkRequest;
-    use crate::preview::page::{PreviewPageOpenRequest, PreviewPageTarget};
+    use crate::jsonrpc::issue::IssuePathSegment;
+    use crate::session::goal::SessionGoalUpdatedPayload;
     use crate::session::links::SessionLinkRequest;
     use crate::tag::TagList;
     use crate::workflow::secret::WorkflowSecretReplaceRequest;
@@ -408,8 +445,6 @@ mod tests {
     #[rstest]
     #[case::at_the_top(r#"[{"x":1},{"kind":"Holder","leaf":{"x":2}}]"#)]
     #[case::inside_a_struct(r#"{"leaf":[1],"arm":{"kind":"Holder","leaf":{"x":2}}}"#)]
-    #[case::as_a_tagged_arm(r#"{"leaf":{"x":1},"arm":["Holder",{"x":2}]}"#)]
-    #[case::inside_a_tagged_arm(r#"{"leaf":{"x":1},"arm":{"kind":"Holder","leaf":[2]}}"#)]
     fn a_received_message_refuses_an_array_where_an_object_belongs(#[case] json: &str) {
         serde_json::from_str::<Received>(json).expect("serde alone reads the array by position");
         assert!(
@@ -432,6 +467,186 @@ mod tests {
         assert_eq!((outer, inner), (1, 2));
     }
 
+    #[derive(Debug, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(untagged, deny_unknown_fields)]
+    #[expect(
+        dead_code,
+        reason = "the read is the subject; no test reads a member back"
+    )]
+    enum Either {
+        Count {
+            #[garde(skip)]
+            count: u8,
+        },
+        Label {
+            #[garde(skip)]
+            label: String,
+        },
+    }
+
+    #[derive(Debug, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(deny_unknown_fields)]
+    struct Choice {
+        #[garde(dive)]
+        either: Either,
+    }
+
+    #[derive(Debug, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(deny_unknown_fields)]
+    struct Nullable {
+        #[serde(default)]
+        #[garde(dive)]
+        leaf: Option<Leaf>,
+        #[serde(default)]
+        #[garde(dive)]
+        arm: Option<Arm>,
+    }
+
+    /// An untagged union inlined into its tagged arm, which the closing pass closes with
+    /// `unevaluatedProperties`, so the arm's members come from the inner union.
+    #[derive(Debug, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(untagged)]
+    #[schemars(inline)]
+    #[expect(
+        dead_code,
+        reason = "the read is the subject; no test reads a member back"
+    )]
+    enum Figure {
+        Circle {
+            #[garde(skip)]
+            radius: u8,
+        },
+        Square {
+            #[garde(skip)]
+            side: u8,
+        },
+    }
+
+    #[derive(Debug, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(tag = "kind")]
+    enum Drawing {
+        Figure(#[garde(dive)] Figure),
+        Blank {},
+    }
+
+    /// Where `json` breaks `T`'s shape: each fault's path and keyword; `None` when `T` reads it.
+    fn shape_refusal<T>(json: &str) -> Option<Vec<(Vec<String>, String)>>
+    where
+        T: DeserializeOwned + JsonSchema + garde::Validate<Context = ()> + 'static,
+    {
+        match parse_received::<T>(json.as_bytes(), Vec::new()) {
+            Ok(_) => None,
+            Err(ReceivedError::Shape { faults }) => Some(
+                faults
+                    .into_iter()
+                    .map(|fault| {
+                        let path = fault.path.iter().map(|segment| match segment {
+                            IssuePathSegment::Member(name) => name.clone(),
+                            IssuePathSegment::Index(index) => index.get().to_string(),
+                        });
+                        (path.collect(), fault.keyword)
+                    })
+                    .collect(),
+            ),
+            Err(error) => panic!("{json} is refused past its shape: {error:?}"),
+        }
+    }
+
+    type ShapeRead = fn(&str) -> Option<Vec<(Vec<String>, String)>>;
+
+    // Each union kind reads its valid messages, and a refusal names one fault: inside the arm a
+    // tag selects, at an untagged union as `anyOf`, or each unknown member.
+    #[rstest]
+    #[case::tagged(
+        shape_refusal::<Received>,
+        r#"{"leaf":{"x":1},"arm":{"kind":"Holder","leaf":{"x":2}}}"#,
+        None
+    )]
+    #[case::tagged_arm_malformed(
+        shape_refusal::<Received>,
+        r#"{"leaf":{"x":1},"arm":{"kind":"Holder","leaf":[2]}}"#,
+        Some(&[(&["arm", "leaf"][..], "type")][..])
+    )]
+    #[case::tagged_arm_as_an_array(
+        shape_refusal::<Received>,
+        r#"{"leaf":{"x":1},"arm":["Holder",{"x":2}]}"#,
+        Some(&[(&["arm"][..], "type")][..])
+    )]
+    #[case::tag_unknown(
+        shape_refusal::<Received>,
+        r#"{"leaf":{"x":1},"arm":{"kind":"Other","leaf":{"x":2}}}"#,
+        Some(&[(&["arm", "kind"][..], "enum")][..])
+    )]
+    #[case::tag_missing(
+        shape_refusal::<Received>,
+        r#"{"leaf":{"x":1},"arm":{"leaf":{"x":2}}}"#,
+        Some(&[(&["arm"][..], "required")][..])
+    )]
+    #[case::two_faults_name_one(
+        shape_refusal::<Received>,
+        r#"{"leaf":{"x":"a"},"arm":{"kind":"Holder","leaf":{"x":"b"}}}"#,
+        Some(&[(&["leaf", "x"][..], "type")][..])
+    )]
+    #[case::unknown_member(
+        shape_refusal::<Received>,
+        r#"{"leaf":{"x":1,"note":"a"},"arm":{"kind":"Holder","leaf":{"x":2}}}"#,
+        Some(&[(&["leaf", "note"][..], "additionalProperties")][..])
+    )]
+    #[case::untagged(shape_refusal::<Choice>, r#"{"either":{"label":"a"}}"#, None)]
+    #[case::untagged_malformed(
+        shape_refusal::<Choice>,
+        r#"{"either":{"count":"a"}}"#,
+        Some(&[(&["either"][..], "anyOf")][..])
+    )]
+    #[case::nullable(shape_refusal::<Nullable>, r#"{"leaf":null,"arm":null}"#, None)]
+    #[case::nullable_malformed(
+        shape_refusal::<Nullable>,
+        r#"{"leaf":{"x":"a"}}"#,
+        Some(&[(&["leaf", "x"][..], "type")][..])
+    )]
+    #[case::nullable_tagged(
+        shape_refusal::<Nullable>,
+        r#"{"arm":{"kind":"Holder","leaf":{"x":2}}}"#,
+        None
+    )]
+    #[case::nullable_tagged_malformed(
+        shape_refusal::<Nullable>,
+        r#"{"arm":{"kind":"Holder","leaf":[2]}}"#,
+        Some(&[(&["arm", "leaf"][..], "type")][..])
+    )]
+    #[case::closed_by_unevaluated(shape_refusal::<Drawing>, r#"{"kind":"Figure","side":3}"#, None)]
+    #[case::closed_by_unevaluated_unknown(
+        shape_refusal::<Drawing>,
+        r#"{"kind":"Figure","side":3,"note":"a","tone":"b"}"#,
+        Some(&[
+            (&["note"][..], "unevaluatedProperties"),
+            (&["tone"][..], "unevaluatedProperties"),
+        ][..])
+    )]
+    #[case::hand_written_if_then_else(
+        shape_refusal::<SessionGoalUpdatedPayload>,
+        r#"{"sessionId":"0192f0a0-0000-7000-8000-000000000001",
+            "agentId":"0192f0a0-0000-7000-8000-000000000002",
+            "goal":{"text":"ship it"},"status":"impossible","reason":"no time"}"#,
+        None
+    )]
+    fn a_received_message_names_its_first_shape_fault(
+        #[case] read: ShapeRead,
+        #[case] json: &str,
+        #[case] expected: Option<&[(&[&str], &str)]>,
+    ) {
+        let expected = expected.map(|faults| {
+            faults
+                .iter()
+                .map(|(path, keyword)| {
+                    let path = path.iter().map(|name| (*name).to_owned()).collect();
+                    (path, (*keyword).to_owned())
+                })
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(read(json), expected, "{json}");
+    }
+
     #[test]
     fn a_received_message_passes_its_schema_then_its_garde_rules() {
         const SESSION: &str = "0192f0a0-0000-7000-8000-000000000001";
@@ -442,14 +657,8 @@ mod tests {
         let self_link = format!(r#"{{"sessionId":"{SESSION}","targetSessionId":"{SESSION}"}}"#);
         assert!(matches!(
             parse_received::<SessionLinkRequest>(self_link.as_bytes(), Vec::new()),
-            Err(ReceivedError::Rule(_))
+            Err(ReceivedError::Rule { .. })
         ));
-
-        let open =
-            format!(r#"{{"sessionId":"{SESSION}","target":{{"kind":"devServer","port":5173}}}}"#);
-        let open = parse_received::<PreviewPageOpenRequest>(open.as_bytes(), Vec::new())
-            .expect("a tagged arm is read");
-        assert!(matches!(open.target, PreviewPageTarget::DevServer { .. }));
 
         let chunk = parse_received::<AttachmentIngestChunkRequest>(
             br#"{"ingestId":"ingest","sequenceNumber":0,"chunk":{"$bytes":0}}"#,
@@ -462,7 +671,7 @@ mod tests {
         assert!(
             matches!(
                 parse_received::<TagList>(br#"["Ops","ops"]"#, Vec::new()),
-                Err(ReceivedError::Rule(_))
+                Err(ReceivedError::Rule { .. })
             ),
             "the schema passes a repeat in another case, and garde refuses it"
         );

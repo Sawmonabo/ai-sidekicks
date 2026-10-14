@@ -33,8 +33,9 @@ pub struct TurnSubscribeRequest {
 /// The tokens received this turn: the provider's own output count for each model round, summed
 /// across the turn, with reasoning already inside it. Cumulative rather than a delta, so a
 /// subscriber that joins mid-turn reads the true figure.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct TurnUsageUpdate {
     /// The run.
     pub run_id: RunId,
@@ -69,8 +70,9 @@ pub struct TurnTask {
 /// The turn's whole task list in the agent's order, sent whole on every change, because a provider
 /// replaces its list rather than patching it. The list goes when the turn is interrupted and
 /// returns with the next turn's list.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct TurnTasksUpdate {
     /// The run.
     pub run_id: RunId,

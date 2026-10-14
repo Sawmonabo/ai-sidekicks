@@ -161,13 +161,14 @@ pub enum VoiceDictationFailure {
 /// One push of a `voice.dictationSubscribe` stream: `words` carries the settled words and the
 /// words still in progress, which the draft shows in that order with a space between; `ended`
 /// closes the recording, with its failure or `null`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum VoiceDictationFrame {
     /// The words so far.
     Words {
@@ -201,8 +202,9 @@ pub struct VoiceCallStartRequest {
 }
 
 /// Codex's WebRTC answer to the window's offer.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct VoiceCallStartResponse {
     /// The answer.
     pub answer_sdp: NonEmptyText,
@@ -290,8 +292,9 @@ call_frame! {
 
 /// One push of a `voice.callSubscribe` stream: the call started; the words the call hears from the
 /// person as they arrive, then settled; the voice's reply, settled; the call ended, with its cause.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
+#[garde(allow_unvalidated)]
 pub enum VoiceCallFrame {
     /// The call started.
     Started(VoiceCallStartedFrame),
@@ -310,8 +313,9 @@ pub enum VoiceCallFrame {
 }
 
 /// The voices Codex offers a call, and the one it uses until the person picks another.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct VoiceListResponse {
     /// The voices.
     pub voices: Vec<NonEmptyText>,

@@ -40,8 +40,9 @@ pub struct WorkspaceBindRequest {
 
 /// The `repo.workspaceBind` result: the new workspace, its bound mode and its state, which may be
 /// other than `preparing`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkspaceBindResponse {
     /// The workspace.
     pub workspace_id: WorkspaceId,
@@ -99,8 +100,9 @@ pub struct WorkspaceListEntry {
 }
 
 /// The `repo.workspaceList` result.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkspaceListResponse {
     /// The workspaces.
     pub workspaces: Vec<WorkspaceListEntry>,

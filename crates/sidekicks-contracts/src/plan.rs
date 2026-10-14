@@ -137,13 +137,14 @@ pub enum PlanResolveRequest {
 /// The `plan.resolve` result: the plan's state after the verdict, or the state an earlier verdict
 /// settled, never `waiting`; only a handed-off plan names its fresh session, so the caller switches
 /// to it without another read.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "state",
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum PlanResolveResponse {
     /// Being built here.
     Accepted {

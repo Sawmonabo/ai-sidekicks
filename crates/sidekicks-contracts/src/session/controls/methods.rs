@@ -35,8 +35,9 @@ pub struct SessionAddressedRequest {
 }
 
 /// The acknowledgement an operation with nothing more to say answers with.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionAcknowledgement {
     /// The session.
     pub session_id: SessionId,
@@ -86,8 +87,9 @@ pub struct SessionPermissionLevelUpdateRequest {
 }
 
 /// The level the session now stands at.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionPermissionLevelUpdateResponse {
     /// The session.
     pub session_id: SessionId,
@@ -120,8 +122,9 @@ pub struct SessionModeUpdateRequest {
 }
 
 /// The mode the session now runs in.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionModeUpdateResponse {
     /// The session.
     pub session_id: SessionId,
@@ -152,8 +155,9 @@ pub struct SessionAutoCompactUpdateRequest {
 }
 
 /// The bound the session compacts at from its next turn, and whether it is its own.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionAutoCompactUpdateResponse {
     /// The session.
     pub session_id: SessionId,
@@ -188,8 +192,9 @@ pub struct SessionMcpServer {
 }
 
 /// The session's whole server list, sent again on every change.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionMcpServerList {
     /// The session.
     pub session_id: SessionId,
@@ -211,8 +216,9 @@ pub struct SessionMcpServerUpdateRequest {
 }
 
 /// The switch as the session now holds it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionMcpServerUpdateResponse {
     /// The session.
     pub session_id: SessionId,
@@ -276,8 +282,9 @@ pub struct SessionMcpResource {
 }
 
 /// The server's resources.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionMcpResourceListResponse {
     /// The session.
     pub session_id: SessionId,
@@ -316,8 +323,9 @@ pub struct SessionServerPrompt {
 /// The live `/` list's provider half: the running process's slash commands, as its provider
 /// publishes them, and each working server's prompts. It is sent whole on every change: a new
 /// process, the provider's own list-changed push, a server coming up or going down.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionProviderCommandList {
     /// The session.
     pub session_id: SessionId,
@@ -350,8 +358,9 @@ pub struct SessionSideQuestionAskRequest {
 }
 
 /// The id the answer will carry; the answer arrives later as an event.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionSideQuestionAskResponse {
     /// The session.
     pub session_id: SessionId,
@@ -397,8 +406,9 @@ pub struct SessionMaxStepsUpdateRequest {
 }
 
 /// The stored override; absent after a clear.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionMaxStepsUpdateResponse {
     /// The session.
     pub session_id: SessionId,
@@ -468,8 +478,9 @@ pub struct TerminalProviderSession {
 
 /// The provider sessions typed in a terminal, read off the same directory entries the agents'
 /// `session_list` names. Empty while `Reach Codex sessions started in a terminal` is off.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionTerminalProviderSessionListResponse {
     /// The sessions.
     pub sessions: Vec<TerminalProviderSession>,

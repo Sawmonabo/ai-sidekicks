@@ -66,16 +66,16 @@ pub struct MethodTable {
 pub trait Method {
     /// The request.
     type Params: Serialize + DeserializeOwned + JsonSchema + garde::Validate<Context = ()>;
-    /// The result, or a subscription's acknowledgement.
-    type Result: Serialize + DeserializeOwned + JsonSchema;
+    /// The result, or a subscription's acknowledgement, held to its garde rules before it is sent.
+    type Result: Serialize + DeserializeOwned + JsonSchema + garde::Validate<Context = ()>;
     /// The method's table entry.
     const DESCRIPTOR: MethodDescriptor;
 }
 
 /// A subscription method, whose stream carries `Emission` values after the acknowledgement.
 pub trait SubscriptionMethod: Method {
-    /// One value the stream carries.
-    type Emission: Serialize + DeserializeOwned + JsonSchema;
+    /// One value the stream carries, held to its garde rules before it is sent.
+    type Emission: Serialize + DeserializeOwned + JsonSchema + garde::Validate<Context = ()>;
 }
 
 /// Declares a module's method table and a marker type per method:

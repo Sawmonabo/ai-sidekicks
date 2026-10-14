@@ -10,6 +10,8 @@ ignore = [
 # A duplicate version is reported, not refused.
 multiple-versions = "warn"
 wildcards = "deny"
+# A workspace crate reached by `path` is no wildcard: every crate here is `publish = false`.
+allow-wildcard-paths = true
 
 [sources]
 # crates.io only, plus the git sources the JavaScript engines' web APIs and the bash grammar's

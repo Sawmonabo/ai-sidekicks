@@ -291,26 +291,43 @@ impl<const MAX: usize> JsonSchema for NulFreeText<MAX> {
 /// }
 /// ```
 ///
-/// Writing `, max = N` after the pattern also caps the text at `N` code points, and `branded` after
-/// the parentheses gives the TypeScript type a brand of the type's name. The pattern spells every
-/// class out, so Rust and ECMAScript read it alike.
+/// Writing `, max = N` after the pattern also caps the text at `N` code points; `branded` after the
+/// parentheses gives the TypeScript type a brand of the type's name, and `redacted` keeps the text
+/// out of its `Debug` form, for a secret. The pattern spells every class out, so Rust and
+/// ECMAScript read it alike.
 macro_rules! pattern_text {
     (@ts_type $name:ident branded) => {
         Some(concat!("string & { readonly __brand: \"", stringify!($name), "\" }"))
     };
-    (@ts_type $name:ident) => {
+    (@ts_type $name:ident $($option:ident)?) => {
         None::<&str>
+    };
+    (@debug $name:ident redacted) => {
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("<redacted>")
+            }
+        }
+    };
+    (@debug $name:ident $($option:ident)?) => {
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.debug_tuple(stringify!($name)).field(&self.0).finish()
+            }
+        }
     };
     (@max_length) => { None::<usize> };
     (@max_length $max:expr) => { Some($max) };
     ($(
         $(#[doc = $doc:literal])+
-        pub struct $name:ident($pattern:expr $(, max = $max:expr)?) $($branded:ident)?;
+        pub struct $name:ident($pattern:expr $(, max = $max:expr)?) $($option:ident)?;
     )+) => {$(
         $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
+        #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
         #[serde(transparent)]
         pub struct $name(String);
+
+        $crate::wire::text::pattern_text!(@debug $name $($option)?);
 
         impl $name {
             /// The type's pattern.
@@ -359,7 +376,7 @@ macro_rules! pattern_text {
                 if let Some(max) = $crate::wire::text::pattern_text!(@max_length $($max)?) {
                     schema.insert("maxLength".into(), max.into());
                 }
-                let ts_type = $crate::wire::text::pattern_text!(@ts_type $name $($branded)?);
+                let ts_type = $crate::wire::text::pattern_text!(@ts_type $name $($option)?);
                 if let Some(ts_type) = ts_type {
                     schema.insert("tsType".into(), ts_type.into());
                 }

@@ -149,8 +149,9 @@ pub struct ExecutionRootPrepareRequest {
 
 /// The `repo.executionRootPrepare` result: the prepared root and the rows it names. A prepare
 /// resolves a root or refuses; there is no partial success.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ExecutionRootPrepareResponse {
     /// The root.
     pub execution_root: FilesystemPath,
@@ -197,8 +198,9 @@ pub struct KeptWorktree {
 
 /// The `repo.worktreeRetire` result: the worktree, now `retired`, and the kept copy when a discard
 /// kept one. A refusal is an error, never a reply with the unchanged state.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorktreeRetireResponse {
     /// The worktree.
     pub worktree_id: WorktreeId,

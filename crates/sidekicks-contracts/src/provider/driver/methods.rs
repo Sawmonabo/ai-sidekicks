@@ -71,8 +71,9 @@ pub struct DriverCapabilityReport {
 }
 
 /// The reply of `driver.listCapabilities`: one report per driver.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ListCapabilitiesResult {
     /// The reports.
     pub drivers: Vec<DriverCapabilityReport>,
@@ -89,8 +90,9 @@ pub struct DriverModelReport {
 }
 
 /// The reply of `driver.listModels`: one group per driver.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ListModelsResult {
     /// The groups.
     pub drivers: Vec<DriverModelReport>,
@@ -107,8 +109,9 @@ pub struct DriverModeReport {
 }
 
 /// The reply of `driver.listModes`: one group per driver.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ListModesResult {
     /// The groups.
     pub drivers: Vec<DriverModeReport>,

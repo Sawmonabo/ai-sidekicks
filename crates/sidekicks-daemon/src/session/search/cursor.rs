@@ -5,7 +5,7 @@
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde_json::{Map, Value};
+use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::methods::SessionSearchCursor;
 
@@ -85,13 +85,7 @@ pub(crate) fn search_cursor_unresolvable(cursor: &SessionSearchCursor) -> Domain
         RefusalCode::SessionSearchCursorUnresolvable,
         DomainErrorJsonRpcCode::InvalidParams,
     )
-    .with_detail(
-        std::iter::once((
-            "cursor".to_owned(),
-            Value::String(cursor.as_str().to_owned()),
-        ))
-        .collect::<Map<String, Value>>(),
-    )
+    .with_detail(json!({ "cursor": cursor.as_str() }))
 }
 
 #[cfg(test)]

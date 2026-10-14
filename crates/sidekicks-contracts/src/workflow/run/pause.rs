@@ -19,8 +19,9 @@ pub struct WorkflowRunsPauseSetRequest {
 
 /// The hold and how many starts wait behind it, as the `workflow.runsPauseSet` reply and the
 /// `workflow.subscribe` stream carry it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowRunsPauseState {
     /// Whether the hold is on.
     pub paused: bool,

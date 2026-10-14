@@ -133,8 +133,9 @@ pub struct CommandStopRequest {
 }
 
 /// The command was stopped.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CommandStopResponse {
     /// The command.
     pub command_id: CommandId,
@@ -156,8 +157,9 @@ pub struct CommandBackgroundRequest {
 }
 
 /// The command no longer holds the agent's turn.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CommandBackgroundResponse {
     /// The command.
     pub command_id: CommandId,

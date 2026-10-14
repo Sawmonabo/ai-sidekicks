@@ -135,16 +135,18 @@ pub struct ProjectListEntry {
 
 /// One `repo.projectList` emission: every project, sent once on subscribe and again on each
 /// change, so a project attached or cloned from another device appears at once.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProjectList {
     /// Every project.
     pub projects: Vec<ProjectListEntry>,
 }
 
 /// The project an edit acts on, as every project edit's reply returns it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProjectEditResponse {
     /// The project as edited.
     pub project: ProjectListEntry,

@@ -102,8 +102,9 @@ pub struct BrowserSiteRequest {
 
 /// The site opened in a page of its own that belongs to no session, over the machine's site data,
 /// showing the address line and nothing else. What the site saves there is kept for every browser.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct BrowserSiteSignInResponse {
     /// Always true.
     pub opened: True,
@@ -111,8 +112,9 @@ pub struct BrowserSiteSignInResponse {
 
 /// The site's cookies are gone across its registrable domain, and nothing else: its storage, cache
 /// and service workers stay. It claims nothing about signing out.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct BrowserSiteCookiesClearResponse {
     /// The site.
     pub origin: SiteOrigin,
@@ -121,8 +123,9 @@ pub struct BrowserSiteCookiesClearResponse {
 }
 
 /// Every kind of data the site saved is gone; a site holding nothing answers the same.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct BrowserSiteDataForgetResponse {
     /// The site.
     pub origin: SiteOrigin,
@@ -131,8 +134,9 @@ pub struct BrowserSiteDataForgetResponse {
 }
 
 /// Every site's saved data is gone.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct BrowserSiteDataClearResponse {
     /// Always true.
     pub cleared: True,
@@ -231,8 +235,9 @@ pub enum BrowserChromiumReadResponse {
 }
 
 /// The fetch started; its progress is a flow row. A fetch asked for during one joins it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct BrowserChromiumFetchResponse {
     /// Always true.
     pub started: True,
