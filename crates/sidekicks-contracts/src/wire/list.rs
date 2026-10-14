@@ -7,6 +7,8 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::jsonrpc::issue::ISSUES_MAX;
+
 /// A list of `MIN..=MAX` items (`usize::MAX` leaves it bounded only by the message cap).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
@@ -106,14 +108,14 @@ pub trait ListKey {
     /// The item's key.
     fn list_key(&self) -> Self::Key;
 
-    /// Checks the item itself, at `parent`; an item with no rule of its own checks nothing.
-    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
-    }
+    /// Checks the item itself, at `parent`: its own check where it derives one, nothing where its
+    /// read holds every rule it has.
+    fn validate_item(&self, parent: &mut dyn FnMut() -> garde::Path, report: &mut garde::Report);
 }
 
 /// A list of `MIN..=MAX` items no two of which share their [`ListKey`]; its check reports each
-/// repeat at the repeat's index, as Zod's does. Its schema states `uniqueItems`, which refuses
-/// equal items only, so the key check stays garde's.
+/// repeat at the repeat's index, as Zod's does, until the report holds [`ISSUES_MAX`] entries. Its
+/// schema states `uniqueItems`, which refuses equal items only, so the key check stays garde's.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct UniqueList<T, const MIN: usize, const MAX: usize>(BoundedVec<T, MIN, MAX>);
@@ -157,6 +159,10 @@ impl<T: ListKey, const MIN: usize, const MAX: usize> garde::Validate for UniqueL
     ) {
         let mut first_index_of = std::collections::HashMap::new();
         for (index, item) in self.as_slice().iter().enumerate() {
+            // A refusal lists no more issues, so a long list of repeats builds no more entries.
+            if report.iter().nth(ISSUES_MAX - 1).is_some() {
+                return;
+            }
             let mut item_path = || parent().join(index);
             item.validate_item(&mut item_path, report);
             match first_index_of.entry(item.list_key()) {

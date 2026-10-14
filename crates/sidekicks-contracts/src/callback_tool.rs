@@ -35,8 +35,9 @@ pub struct CallbackToolEntry {
 }
 
 /// The daemon's callback tools.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CallbackToolListResponse {
     /// The tools.
     pub tools: Vec<CallbackToolEntry>,

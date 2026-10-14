@@ -215,13 +215,14 @@ macro_rules! workflow_secret_place {
 
 workflow_secret_place! {
     /// One secret as the chooser lists it: its place and name, and never its value.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(
         tag = "scope",
         rename_all = "snake_case",
         rename_all_fields = "camelCase",
         deny_unknown_fields
     )]
+    #[garde(allow_unvalidated)]
     pub enum WorkflowSecretSummary {
         /// The record's id.
         secret_id: WorkflowSecretId,
@@ -275,8 +276,9 @@ pub struct WorkflowSecretDeleteRequest {
 }
 
 /// The secret a replace or a delete acted on.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowSecretActResponse {
     /// The secret.
     pub secret_id: WorkflowSecretId,
@@ -285,8 +287,9 @@ pub struct WorkflowSecretActResponse {
 /// The `workflow.secretList` result: every secret by name, shared and each project's, one row
 /// each, and no member carries a value. The request names nothing: a workflow belongs to no
 /// project, so the chooser lists them all.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowSecretListResponse {
     /// The secrets.
     pub secrets: Vec<WorkflowSecretSummary>,
@@ -435,6 +438,7 @@ mod tests {
     use super::{
         WorkflowSecretCreateRequest, WorkflowSecretReference, WorkflowSecretReplaceRequest,
     };
+    use crate::repo::clone::RepoCloneAnswerRequest;
     use crate::workflow::definition::builder::WorkflowWebhookTokenRotateResponse;
 
     /// The secret every leak case carries.
@@ -489,6 +493,11 @@ mod tests {
         "definitionId": RECORD_ID,
         "token": SECRET,
         "createdAt": "2026-10-13T12:00:00.000Z",
+    })))]
+    #[case::clone_answer(&debug_of::<RepoCloneAnswerRequest>(json!({
+        "projectId": RECORD_ID,
+        "questionId": RECORD_ID,
+        "answer": SECRET,
     })))]
     fn a_write_only_value_never_reaches_a_debug_form(#[case] debug: &str) {
         assert!(!debug.contains(SECRET), "{debug}");

@@ -81,12 +81,14 @@ pub struct WorkflowLayoutSetRequest {
 
 /// When a setting kept beside the definition was stored; `workflow.layoutSet` and
 /// `workflow.tagsSet` answer with it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowDefinitionSettingResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// When the setting was stored.
+    #[garde(dive)]
     pub updated_at: WireInstant,
 }
 
@@ -118,8 +120,9 @@ pub struct WorkflowPermissionLevelUpdateRequest {
 }
 
 /// The level the workflow now runs at.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowPermissionLevelUpdateResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
@@ -156,8 +159,9 @@ pub struct WorkflowBackgroundBrowserUpdateRequest {
 }
 
 /// The background-browser pick the workflow's runs now use.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowBackgroundBrowserUpdateResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
@@ -183,8 +187,9 @@ pub struct WorkflowPinDataSetRequest {
 }
 
 /// The `workflow.pinDataSet` result: whether the node is pinned now.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowPinDataSetResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
@@ -290,10 +295,12 @@ pub enum WorkflowDraftUpdateRequest {
 }
 
 /// When the daemon stored the draft.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowDraftUpdateResponse {
     /// When it was stored.
+    #[garde(dive)]
     pub updated_at: WireInstant,
 }
 
@@ -325,12 +332,14 @@ pub enum WorkflowDraft {
 
 /// The `workflow.draftRead` result. A draft that is no longer held is an answer, `null`, not an
 /// error.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowDraftReadResponse {
     /// The held draft, or `null`.
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<WorkflowDraft>")]
+    #[garde(dive)]
     pub draft: Option<WorkflowDraft>,
 }
 
@@ -405,8 +414,9 @@ pub struct WorkflowExpressionUnresolved {
 
 /// The `workflow.expressionPreview` result: the value, or why the expression does not resolve
 /// against that item.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
+#[garde(allow_unvalidated)]
 pub enum WorkflowExpressionPreviewResponse {
     /// The value.
     Resolved(WorkflowExpressionResolved),
@@ -461,14 +471,16 @@ impl JsonSchema for WorkflowWebhookToken {
 
 /// The `workflow.webhookTokenRotate` result: the new token, shown once. Only its hash is kept, so
 /// no later read returns it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowWebhookTokenRotateResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// The token.
     pub token: WorkflowWebhookToken,
     /// When it was made.
+    #[garde(dive)]
     pub created_at: WireInstant,
 }
 
@@ -485,8 +497,9 @@ pub enum WorkflowWebhookListenerState {
 
 /// The `workflow.webhookListenerRead` result: the one loopback port the listener binds, and
 /// whether it listens.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowWebhookListenerReadResponse {
     /// The port.
     pub port: Port,

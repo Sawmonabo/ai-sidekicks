@@ -22,8 +22,11 @@ ts_constants! {
 }
 
 /// The two bounds, each in whole days.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DaemonRetentionBounds {
     /// The service's own logs and, in each account home, what the provider writes and never reads
     /// back for a session. Any period is taken as set.
@@ -84,8 +87,11 @@ pub struct DaemonRetentionPurgeRequest {
 }
 
 /// How many sessions the purge removed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DaemonRetentionPurgeResponse {
     /// The sessions removed.
     pub deleted_session_count: SafeInt<0>,

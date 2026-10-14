@@ -21,8 +21,9 @@ pub struct WorkflowRunDeleteRequest {
 }
 
 /// The `workflow.runDelete` result.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowRunDeleteResponse {
     /// The run.
     pub workflow_run_id: WorkflowRunId,
@@ -44,8 +45,9 @@ pub struct WorkflowRunsDeleteRequest {
 
 /// The `workflow.runsDeletePreview` result, read before the confirm: how many runs the delete would
 /// remove, and how many older runs it would leave because they are kept or waiting.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowRunsDeletePreviewResponse {
     /// The runs it would remove.
     pub delete_count: SafeInt<0>,
@@ -57,8 +59,9 @@ pub struct WorkflowRunsDeletePreviewResponse {
 
 /// The `workflow.runsDelete` result. Runs may start or end between the preview and the delete, so
 /// this count, not the preview's, is what was removed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowRunsDeleteResponse {
     /// The runs removed.
     pub deleted_count: SafeInt<0>,

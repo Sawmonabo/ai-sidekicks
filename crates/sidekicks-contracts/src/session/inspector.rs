@@ -125,8 +125,9 @@ pub struct SessionContextUsage {
 /// section alike so the two never disagree. Every figure is the provider's own, read at creation,
 /// on every model change and on each usage report. `usage` is `null` until the provider has
 /// reported one, which on Codex is the first turn's report.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionContextReading {
     /// The session.
     pub session_id: SessionId,
@@ -179,8 +180,9 @@ pub struct SessionAutoMemory {
 
 /// The inspector's `Memory` section: the account home the memory lives under, the `Auto memory`
 /// switch and the memory paths.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionMemoryReadResponse {
     /// The session.
     pub session_id: SessionId,
@@ -214,8 +216,9 @@ pub enum SessionAutoMemoryAppliesAt {
 }
 
 /// The switch, and when it takes effect: at once on Codex, at the next start on Claude Code.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionAutoMemoryUpdateResponse {
     /// The session.
     pub session_id: SessionId,
@@ -317,13 +320,14 @@ pub struct ProviderHookFile {
 /// The inspector's `Hooks` section, by what it lists: `loadedHooks` where the provider reports the
 /// hooks it loaded (Codex), `hookFiles` where it reports none and the section lists the files it
 /// reads hooks from (Claude Code). The daemon's own hooks are never listed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum SessionHookListResponse {
     /// The hooks the provider loaded, by folder.
     LoadedHooks {

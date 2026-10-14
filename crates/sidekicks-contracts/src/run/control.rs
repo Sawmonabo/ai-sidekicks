@@ -223,13 +223,14 @@ macro_rules! intervention_request_response {
         }
     ) => {
         $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "state",
             rename_all = "snake_case",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
+        #[garde(allow_unvalidated)]
         pub enum $name {
             $(
                 $(#[doc = $plain_doc])+
@@ -615,8 +616,9 @@ pub struct RunResumeRequest {
 
 /// The run's state after a run-control call and its advanced `runVersion`, so the caller can guard
 /// its next request without reading `run.subscribeState`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RunControlAck {
     /// The run.
     pub run_id: RunId,

@@ -274,8 +274,9 @@ pub struct McpMutationResult {
 }
 
 /// What removing a binding answers with. There is no row left to return.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct McpRemoveServerResult {
     /// Where the change took effect.
     pub applied: McpApplicationGrade,
@@ -340,8 +341,9 @@ pub struct McpToolOverrideMutationResult {
 /// What starting a sign-in answers with: the sign-in page's address for the client to open. A
 /// retry answered with the saved result comes without it, because the address is used once and
 /// never stored; that caller starts a new sign-in under a new key.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct McpOauthLoginResponse {
     /// The sign-in page, `http:` or `https:`.
     #[serde(
@@ -458,8 +460,9 @@ pub struct McpRegistryServer {
 }
 
 /// One page of registry search results.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct McpRegistrySearchResponse {
     /// The results.
     pub servers: Vec<McpRegistryServer>,
@@ -506,11 +509,11 @@ mod tests {
             .expect("an address within the cap is read");
         assert!(matches!(
             parse_received::<McpUpsertServerRequest>(upsert(&padded).as_bytes(), vec![]),
-            Err(ReceivedError::Read(_))
+            Err(ReceivedError::Read { .. })
         ));
         assert!(matches!(
             parse_received::<McpOauthLogoutRequest>(logout(&padded).as_bytes(), vec![]),
-            Err(ReceivedError::Read(_))
+            Err(ReceivedError::Read { .. })
         ));
     }
 }

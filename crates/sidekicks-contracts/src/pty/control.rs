@@ -117,8 +117,9 @@ pub struct SessionTakeControlRequest {
 }
 
 /// The shell and the calling device, which now holds it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionTakeControlResponse {
     /// The shell.
     pub terminal_id: TerminalId,
@@ -144,8 +145,9 @@ pub struct SessionSetTerminalFlowControlRequest {
 }
 
 /// The declared state was taken; nothing is read back.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionSetTerminalFlowControlResponse {
     /// Always true.
     pub accepted: True,

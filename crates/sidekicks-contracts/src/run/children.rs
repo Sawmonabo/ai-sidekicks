@@ -73,8 +73,9 @@ pub struct ChildInterruptRequest {
 
 /// Where the child stands after the interrupt. A child that had already finished answers the state
 /// it finished in.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ChildInterruptResponse {
     /// The child.
     pub child_handle: ChildHandle,
@@ -139,8 +140,9 @@ pub struct ChildPauseSetNotPaused {
 }
 
 /// Where the child stands after the set; a lost hold never comes with `paused: true`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
+#[garde(allow_unvalidated)]
 pub enum ChildPauseSetResponse {
     /// Held paused.
     Paused(ChildPauseSetPaused),
@@ -203,8 +205,9 @@ pub enum ChildStopOutcome {
 }
 
 /// Every child the stop reached, each with its own outcome; nothing is atomic.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ChildrenStopResponse {
     /// One row per child.
     pub children: Vec<ChildStopOutcome>,

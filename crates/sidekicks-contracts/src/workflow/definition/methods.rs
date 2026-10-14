@@ -54,8 +54,9 @@ pub struct WorkflowDefinitionCreateRequest {
 
 /// The `workflow.definitionCreate` result: the new definition and its first version, with what a
 /// caller needs to pin or start that version without a second read.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowDefinitionCreateResponse {
     /// The new workflow.
     pub definition_id: WorkflowDefinitionId,
@@ -66,6 +67,7 @@ pub struct WorkflowDefinitionCreateResponse {
     /// That version's id, the one a run start takes.
     pub workflow_version_id: WorkflowVersionId,
     /// When it was saved.
+    #[garde(dive)]
     pub created_at: WireInstant,
 }
 
@@ -106,10 +108,12 @@ pub enum WorkflowWebhookFireOutcome {
 }
 
 /// The last call to a workflow's webhook address and what became of it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowWebhookLastFire {
     /// When the call came.
+    #[garde(dive)]
     pub at: WireInstant,
     /// What became of it.
     pub outcome: WorkflowWebhookFireOutcome,
@@ -123,8 +127,9 @@ macro_rules! workflow_definition_read {
         pub struct $name:ident { $($token_dates:tt)* }
     )+) => {$(
         $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        #[garde(allow_unvalidated)]
         pub struct $name {
             /// The workflow.
             pub id: WorkflowDefinitionId,
@@ -137,6 +142,7 @@ macro_rules! workflow_definition_read {
             /// The hash of that version's hashed body.
             pub content_hash: WorkflowContentHash,
             /// That version's document.
+            #[garde(dive)]
             pub document: WorkflowDocument,
             /// The workflow's own level, which every run of it uses and the builder's level pill
             /// reads.
@@ -145,6 +151,7 @@ macro_rules! workflow_definition_read {
             /// pill reads; a new workflow reads `settings_default`.
             pub background_browser: WorkflowBackgroundBrowser,
             /// When the workflow was made.
+            #[garde(dive)]
             pub created_at: WireInstant,
             /// The last call to the workflow's webhook address and what became of it.
             #[serde(
@@ -153,6 +160,7 @@ macro_rules! workflow_definition_read {
                 deserialize_with = "crate::wire::present"
             )]
             #[schemars(with = "WorkflowWebhookLastFire")]
+            #[garde(dive)]
             pub webhook_last_fire: Option<WorkflowWebhookLastFire>,
             /// When the workflow was deleted, absent while it is not. A deleted workflow still
             /// reads, so a run filter can name it; the builder opens no deleted workflow.
@@ -162,6 +170,7 @@ macro_rules! workflow_definition_read {
                 deserialize_with = "crate::wire::present"
             )]
             #[schemars(with = "WireInstant")]
+            #[garde(dive)]
             pub deleted_at: Option<WireInstant>,
             $($token_dates)*
         }
@@ -173,6 +182,7 @@ workflow_definition_read! {
     /// call last presented it.
     pub struct WorkflowDefinitionReadWithWebhookToken {
         /// When the webhook token was made.
+        #[garde(dive)]
         pub webhook_token_created_at: WireInstant,
         /// When a call last presented the token; absent until one has.
         #[serde(
@@ -181,6 +191,7 @@ workflow_definition_read! {
             deserialize_with = "crate::wire::present"
         )]
         #[schemars(with = "WireInstant")]
+        #[garde(dive)]
         pub webhook_token_last_used_at: Option<WireInstant>,
     }
 
@@ -209,13 +220,14 @@ workflow_definition_read! {
 /// The `workflow.definitionRead` result, its tags riding the document. The webhook token is never
 /// read back, only its hash is kept, so the reply carries the token's dates and the last fire's
 /// outcome, a last use only beside the token's creation.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
+#[garde(allow_unvalidated)]
 pub enum WorkflowDefinitionReadResponse {
     /// The workflow holds a webhook token.
-    WithWebhookToken(WorkflowDefinitionReadWithWebhookToken),
+    WithWebhookToken(#[garde(dive)] WorkflowDefinitionReadWithWebhookToken),
     /// The workflow holds none.
-    WithoutWebhookToken(WorkflowDefinitionReadWithoutWebhookToken),
+    WithoutWebhookToken(#[garde(dive)] WorkflowDefinitionReadWithoutWebhookToken),
 }
 
 // workflow.definitionList
@@ -258,21 +270,24 @@ pub struct WorkflowDefinitionListRequest {
 }
 
 /// A workflow's last run: its status and start.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowDefinitionLastRun {
     /// The run.
     pub workflow_run_id: WorkflowRunId,
     /// Its status.
     pub status: WorkflowRunStatus,
     /// When it started.
+    #[garde(dive)]
     pub started_at: WireInstant,
 }
 
 /// A workflow's schedule in words, with its next fire computed in the schedule trigger's own time
 /// zone.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowDefinitionSchedule {
     /// The schedule's expression.
     pub expression: NonEmptyText,
@@ -285,24 +300,29 @@ pub struct WorkflowDefinitionSchedule {
         deserialize_with = "crate::wire::present"
     )]
     #[schemars(with = "WireInstant")]
+    #[garde(dive)]
     pub next_fire_at: Option<WireInstant>,
 }
 
 /// A fire the trigger's overlap choice skipped because a run was still going, with that run's
 /// start; a skipped fire is never a run.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowSkippedFire {
     /// The occurrence that was skipped.
+    #[garde(dive)]
     pub scheduled_at: WireInstant,
     /// When the run still going had started.
+    #[garde(dive)]
     pub running_since: WireInstant,
 }
 
 /// One definition in a list, with what a catalog row shows beside the name, so the table needs no
 /// second read per row.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowDefinitionSummary {
     /// The workflow.
     pub id: WorkflowDefinitionId,
@@ -324,6 +344,7 @@ pub struct WorkflowDefinitionSummary {
         deserialize_with = "crate::wire::present"
     )]
     #[schemars(with = "WorkflowDefinitionLastRun")]
+    #[garde(dive)]
     pub last_run: Option<WorkflowDefinitionLastRun>,
     /// The schedule; absent where the workflow declares none.
     #[serde(
@@ -332,6 +353,7 @@ pub struct WorkflowDefinitionSummary {
         deserialize_with = "crate::wire::present"
     )]
     #[schemars(with = "WorkflowDefinitionSchedule")]
+    #[garde(dive)]
     pub schedule: Option<WorkflowDefinitionSchedule>,
     /// The last fire the trigger's overlap choice skipped.
     #[serde(
@@ -340,25 +362,31 @@ pub struct WorkflowDefinitionSummary {
         deserialize_with = "crate::wire::present"
     )]
     #[schemars(with = "WorkflowSkippedFire")]
+    #[garde(dive)]
     pub last_skipped_fire: Option<WorkflowSkippedFire>,
     /// Whether the workflow's triggers are armed: the toggle's own truth, so the row reverts
     /// visibly when the daemon refuses rather than holding an optimistic value.
     pub enabled: bool,
     /// The workflow's tags.
+    #[garde(dive)]
     pub tags: TagList,
     /// How many runs it has.
     pub run_count: SafeInt<0>,
     /// When it was made.
+    #[garde(dive)]
     pub created_at: WireInstant,
     /// When it last changed.
+    #[garde(dive)]
     pub updated_at: WireInstant,
 }
 
 /// The `workflow.definitionList` result: one page of definitions, each listed once across pages.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowDefinitionListResponse {
     /// The page.
+    #[garde(dive)]
     pub definitions: Vec<WorkflowDefinitionSummary>,
     /// Where the next page starts; absent on the last.
     #[serde(
@@ -401,8 +429,9 @@ pub struct WorkflowDefinitionUpdateRequest {
 
 /// The `workflow.definitionUpdate` result: the new version of the requested definition, or its
 /// latest where the document was identical to it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowDefinitionUpdateResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
@@ -413,6 +442,7 @@ pub struct WorkflowDefinitionUpdateResponse {
     /// The hash of its hashed body.
     pub content_hash: WorkflowContentHash,
     /// When it was saved.
+    #[garde(dive)]
     pub created_at: WireInstant,
 }
 
@@ -427,8 +457,9 @@ pub struct WorkflowDefinitionDeleteRequest {
 
 /// The `workflow.definitionDelete` result. The delete is soft: the runs that pinned the
 /// definition's versions stay readable, and the reply counts them.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowDefinitionDeleteResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
@@ -470,8 +501,9 @@ pub struct WorkflowDefinitionExportRequest {
 }
 
 /// The `workflow.definitionExport` result: the version written and its content hash.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowDefinitionExportResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,

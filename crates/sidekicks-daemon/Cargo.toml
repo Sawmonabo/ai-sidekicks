@@ -71,8 +71,6 @@ ignored = [
   # The relay channel: its Noise sessions and the relay's certificate check.
   "rustls-platform-verifier",
   "snow",
-  # The workflow agent tools' input schemas.
-  "schemars",
   # YAML front matter, skills and the workflow step that parses YAML, read and edited in place.
   "serde-saphyr",
   "yaml-edit",
@@ -123,7 +121,6 @@ interprocess.workspace = true
 jiff.workspace = true
 jsonata-core.workspace = true
 jsonc-parser.workspace = true
-jsonschema.workspace = true
 jwt-simple.workspace = true
 lettre.workspace = true
 # Its version is the one `rusqlite` bundles, whose SQLite the vendored shell is checked against.
@@ -175,7 +172,6 @@ strum.workspace = true
 subtle.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
-tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
@@ -206,7 +202,8 @@ mockall.workspace = true
 proptest.workspace = true
 rstest.workspace = true
 standardwebhooks.workspace = true
-# The paused clock the clone progress gate's test drives.
+tempfile.workspace = true
+# The paused clock the clone progress gate's and the stream batcher's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 x-wing.workspace = true
 

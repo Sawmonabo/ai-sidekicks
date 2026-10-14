@@ -197,8 +197,9 @@ pub struct SessionRestorePreviewRequest {
 /// started after the point that are still running, which the undo stops first. `ignored_folders`
 /// and `commands_ran_after_point` feed the notice shown whenever a command ran after the point;
 /// `also_changed_by` names the paths another session changed since the point.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionRestorePreviewResponse {
     /// The files it would put back.
     pub file_count: SafeInt<0>,

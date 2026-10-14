@@ -30,13 +30,16 @@ pub enum CompactionFailure {
 
 /// The result of a compaction attempt: `applied` only after the provider's compaction frame was
 /// seen, `refused` when nothing was sent, `failed` when something was sent and no boundary came.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(
     tag = "status",
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum DriverCompactionResult {
     /// The provider compacted.
     Applied {

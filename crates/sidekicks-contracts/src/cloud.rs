@@ -186,8 +186,9 @@ pub struct CloudSession {
 }
 
 /// One piece of a session's cloud work, with only the state its provider reported.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
+#[garde(allow_unvalidated)]
 pub enum CloudWork {
     /// A task its provider reported without an error.
     Task(CloudTaskReported),
@@ -227,8 +228,9 @@ pub struct CloudTaskStartRequest {
 }
 
 /// The new work's id.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CloudTaskStartResponse {
     /// The new work.
     pub task_id: CloudTaskId,
@@ -245,8 +247,9 @@ pub struct CloudTaskListRequest {
 
 /// The session's whole set of cloud work, sent first on subscribing and again on each change, so a
 /// subscriber never composes changes into a set of its own.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CloudTaskListFrame {
     /// The session.
     pub session_id: SessionId,
@@ -282,8 +285,9 @@ pub struct CloudTaskAttemptRequest {
 }
 
 /// The attempt's diff as the provider prints it, for the review pane to show read-only.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct CloudTaskDiffReadResponse {
     /// The task.
     pub task_id: CloudTaskId,
@@ -295,13 +299,14 @@ pub struct CloudTaskDiffReadResponse {
 
 /// What bringing cloud work back did: for a task, what the apply reported; for a cloud session,
 /// the new session the returned work opened as.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum CloudTaskApplyResponse {
     /// A task's attempt was applied to the session's folder after a file checkpoint.
     Task {

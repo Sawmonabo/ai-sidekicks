@@ -56,8 +56,11 @@ pub struct SessionConvertSkippedFile {
 
 /// How many of the workspace's files were copied into the repository and how many were not. A
 /// file not copied stays in the chat's workspace, which the session keeps, and nothing is merged.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionConvertResponse {
     /// Files copied.
     pub copied_count: SafeInt<0>,

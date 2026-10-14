@@ -74,8 +74,9 @@ pub struct RepoMountListEntry {
 }
 
 /// The `repo.mountList` result.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoMountListResponse {
     /// Every folder.
     pub mounts: Vec<RepoMountListEntry>,
@@ -138,8 +139,9 @@ pub struct RepoFolderPathSegment {
 /// The `repo.folderList` result: the folder in view as the service writes its path, the path's
 /// segments from the top down (the last is the folder in view), its folders, and `more` when the
 /// filter would narrow further.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoFolderListResponse {
     /// The folder in view.
     pub path: FilesystemPath,
@@ -164,8 +166,9 @@ pub struct RepoAttachRequest {
 }
 
 /// The `repo.attach` result: the new mount and the root its path resolved to.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoAttachResponse {
     /// The mount.
     pub repo_mount_id: RepoMountId,
@@ -234,8 +237,9 @@ pub struct RepoMountReadResponse {
 /// The `repo.detach` result. Detaching is a project's `Delete`: the mount turns `detached` for
 /// good, every dependent workspace is archived, the project record is forgotten with its setup
 /// steps, and the project's sessions are archived and stay readable. Nothing on disk is touched.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoDetachResponse {
     /// The mount.
     pub repo_mount_id: RepoMountId,
@@ -314,8 +318,9 @@ pub struct RepoAlreadyAttachedDetails {
 
 /// The `repo.mountReattach` result: the new mount. The old one turns `detached` and the folder is
 /// attached fresh under the same project record, keeping its sessions and their workspaces.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoMountReattachResponse {
     /// The new mount.
     pub repo_mount_id: RepoMountId,

@@ -37,8 +37,9 @@ pub struct DataExportRequest {
 }
 
 /// The export job the request started; its progress streams on `daemon.dataExportSubscribe`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DataExportResponse {
     /// The job.
     pub job_id: DataExportJobId,

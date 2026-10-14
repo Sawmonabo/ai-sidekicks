@@ -1,15 +1,17 @@
 //! The wire shapes of a streaming subscription: the acknowledgement every `*.subscribe` method
 //! answers with, the `$/subscription/notify` frame carrying one value, the `$/subscription/end`
 //! frame the daemon ends a stream with, and the `$/subscription/cancel` call a client tears one
-//! down with. A subscription holds only its place, never a queue: a stream either loses nothing or
-//! marks a drop.
+//! down with. A subscription holds only its place, never a queue, so a stream loses nothing; only a
+//! shell's output stream marks a drop, when a watcher falls behind its scrollback.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::message::JsonRpcError;
-use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::method::{Method, MethodDescriptor, ProcedureType};
+use crate::schema::received_check;
+use crate::typescript::{Definition, TypeName, TypeScriptModule, ts_constants};
 use crate::wire::AnyValue;
 
 ts_constants! {
@@ -59,8 +61,9 @@ pub enum SubscriptionEndParams {
 
 /// The acknowledgement every `*.subscribe` method answers with: the id the daemon allocated.
 /// Values follow as notify frames, and the acknowledgement settles before any of them.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SubscribeAckResponse {
     /// The subscription's id, which routes its notify frames.
     pub subscription_id: SubscriptionId,
@@ -125,11 +128,32 @@ pub struct SubscriptionCancelParams {
 
 /// The result of a cancel call. `canceled` is false when the id is unknown or another
 /// connection's; the two are not told apart, so one connection cannot probe for another's.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SubscriptionCancelResult {
     /// Whether the subscription was canceled.
     pub canceled: bool,
+}
+
+/// `$/subscription/cancel` as a method the daemon answers, outside every method table: a read, so
+/// a client whose version is incompatible can still tear its subscriptions down.
+#[derive(Clone, Copy, Debug)]
+pub struct SubscriptionCancel;
+
+impl Method for SubscriptionCancel {
+    type Params = SubscriptionCancelParams;
+    type Result = SubscriptionCancelResult;
+    const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
+        method: SUBSCRIPTION_CANCEL_METHOD,
+        procedure_type: ProcedureType::Query,
+        is_mutating: false,
+        params: TypeName::of::<SubscriptionCancelParams>(),
+        result: TypeName::of::<SubscriptionCancelResult>(),
+        emission: None,
+        refusals: &[],
+        received_check: received_check::<SubscriptionCancelParams>,
+    };
 }
 
 /// The TypeScript module of the subscription wire.

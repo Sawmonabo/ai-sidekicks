@@ -240,8 +240,9 @@ pub struct TrustedMachineKey {
 
 /// What the new device needs to show the six digits: the linking side's name and key, and the
 /// machine keys it trusts.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DeviceLinkRedeemResponse {
     /// The linking side's name.
     pub linking_name: TrustName,

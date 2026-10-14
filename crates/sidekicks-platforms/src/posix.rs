@@ -6,6 +6,7 @@ pub(crate) mod caller_process;
 pub(crate) mod disk;
 pub(crate) mod entry_identity;
 pub(crate) mod error_codes;
+pub(crate) mod file_system;
 pub(crate) mod login_shell;
 pub(crate) mod private_folder;
 pub(crate) mod real_path;

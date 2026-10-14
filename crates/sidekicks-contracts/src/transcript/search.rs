@@ -75,10 +75,9 @@ fn require_hits_counted(hits: &[TranscriptSearchHit], match_count: SafeInt<0>) -
         .map(|hit| hit.match_ranges.as_slice().len())
         .sum();
     if u64::try_from(page_match_count).is_ok_and(|count| count > match_count.get()) {
-        return Err(garde::Error::new(format!(
-            "matchCount counts the whole session, so it is at least the {page_match_count} matches \
-             this page carries"
-        )));
+        return Err(garde::Error::new(
+            "matchCount counts the whole session, so it is at least the matches this page carries",
+        ));
     }
     Ok(())
 }

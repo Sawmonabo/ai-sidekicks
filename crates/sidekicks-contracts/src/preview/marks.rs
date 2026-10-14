@@ -155,8 +155,9 @@ pub struct PreviewMarksSendRequest {
 }
 
 /// The attachment staged in the session's composer, which reads `<N> marks on <path>`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewMarksSendResponse {
     /// The staged attachment.
     pub staged: SessionAttachmentSummary,

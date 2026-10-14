@@ -31,8 +31,9 @@ pub struct SessionGroupCreateRequest {
 }
 
 /// The group `session.groupCreate` made.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionGroupCreateResponse {
     /// The group.
     pub group_id: SessionGroupId,

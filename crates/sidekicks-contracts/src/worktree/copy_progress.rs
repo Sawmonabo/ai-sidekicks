@@ -67,8 +67,9 @@ pub enum WorktreeCopy {
 }
 
 /// One `repo.worktreeCopySubscribe` emission: every copy under way, sent whole on each change.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorktreeCopyProgress {
     /// The copies.
     pub copies: Vec<WorktreeCopy>,

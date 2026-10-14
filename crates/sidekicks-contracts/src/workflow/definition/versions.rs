@@ -31,8 +31,9 @@ pub struct WorkflowVersionReadRequest {
 
 /// The `workflow.versionRead` result: one saved version, which never changes. A soft-deleted
 /// definition's versions still read, because a run pins its version.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowVersionReadResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
@@ -43,8 +44,10 @@ pub struct WorkflowVersionReadResponse {
     /// The hash of its hashed body.
     pub content_hash: WorkflowContentHash,
     /// The document.
+    #[garde(dive)]
     pub document: WorkflowDocument,
     /// When it was saved.
+    #[garde(dive)]
     pub created_at: WireInstant,
 }
 
@@ -105,8 +108,9 @@ pub struct WorkflowVersionChangeCounts {
 
 /// One version in a chain: the id a re-pin carries, the number a person reads, when it was saved
 /// and by whom, and what it changed over the version before it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowVersionChainEntry {
     /// The version's id.
     pub workflow_version_id: WorkflowVersionId,
@@ -115,6 +119,7 @@ pub struct WorkflowVersionChainEntry {
     /// The hash of its hashed body.
     pub content_hash: WorkflowContentHash,
     /// When it was saved.
+    #[garde(dive)]
     pub created_at: WireInstant,
     /// Who saved it.
     pub saved_by: WorkflowVersionSavedBy,
@@ -130,12 +135,14 @@ pub struct WorkflowVersionChainEntry {
 
 /// The `workflow.versionChainRead` result: every version of the pinned version's definition, oldest
 /// first, never empty.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowVersionChainReadResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// Its versions, oldest first.
+    #[garde(dive)]
     pub versions: BoundedVec<WorkflowVersionChainEntry, 1, { usize::MAX }>,
 }
 
@@ -165,8 +172,9 @@ pub struct WorkflowVersionNodeChange {
 
 /// The `workflow.versionDiffRead` result: the structural difference, computed in the daemon over
 /// the hashed body only, so a moved node is never a change. The trigger counts as a node.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowVersionDiffReadResponse {
     /// Nodes added.
     pub nodes_added: Vec<WorkflowNode>,
