@@ -1,9 +1,6 @@
 # Code is spelled in American English; documents are not checked.
 [default]
 locale = "en-us"
-# Spellings other code owns: tokio-util's `CancellationToken::cancelled()` and the download
-# state Electron reports as `"cancelled"`.
-extend-ignore-re = ['\.cancelled\(\)', '"cancelled"']
 
 # ICU4X's `writeable` crate and its trait.
 [default.extend-identifiers]
