@@ -8,6 +8,7 @@ pub(crate) mod mcp_server_status;
 pub(crate) mod plan_record;
 mod providers;
 pub(crate) mod question_answers;
+pub(crate) mod registry;
 pub(crate) mod reorder_buffer;
 pub(crate) mod rewind;
 pub(crate) mod run_control;

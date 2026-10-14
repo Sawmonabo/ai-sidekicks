@@ -463,18 +463,6 @@ pub(crate) struct DriverCliVersionReport {
     pub(crate) parsed_version: Option<String>,
 }
 
-/// Rebuilds a stored version report from its two columns; a null parse is a version that did not
-/// parse.
-pub(crate) fn read_cli_version_columns(
-    raw_version: String,
-    parsed_version: Option<String>,
-) -> DriverCliVersionReport {
-    DriverCliVersionReport {
-        raw_version,
-        parsed_version,
-    }
-}
-
 /// How one flag's value was reached on a live reading: probed, or taken from the driver's own
 /// table where no probe is admissible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
