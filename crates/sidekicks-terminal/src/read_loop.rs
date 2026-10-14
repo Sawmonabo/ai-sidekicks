@@ -1,6 +1,7 @@
 //! Each shell's read loop: it reads the terminal's output into the screen copy and to the caller,
 //! writes the caller's input in order, and reports the program's exit after its last output.
 
+use std::error::Error;
 use std::io;
 use std::process::ExitStatus;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -454,7 +455,7 @@ fn release_off_runtime(name: &str, release: Release) {
         .spawn(move || run_release(&thread_slot));
     if let Err(error) = started {
         tracing::warn!(
-            %error,
+            error = &error as &(dyn Error + 'static),
             terminal = name,
             "a terminal's release thread could not start, so the blocking pool releases it"
         );
@@ -515,14 +516,17 @@ where
         let mut watch = match TerminalWatch::new(pty, &self.control.waker) {
             Ok(watch) => watch,
             Err((error, pty)) => {
-                tracing::error!(%error, "the terminal could not be watched");
+                tracing::error!(
+                    error = &error as &(dyn Error + 'static),
+                    "the terminal could not be watched"
+                );
                 self.control.report_exit(TerminalExit::unconfirmed());
                 self.end_output();
                 let control = Arc::clone(&self.control);
                 release_off_runtime(
                     &self.name,
                     Box::new(move || {
-                        sidekicks_platforms::release_terminal(pty, || control.mark_exited());
+                        sidekicks_platforms::release_terminal(*pty, || control.mark_exited());
                     }),
                 );
                 return;
@@ -571,7 +575,10 @@ where
                 Ok(TerminalWake::Wrote(count)) => self.queue.advance(count),
                 Ok(TerminalWake::InputEnded) => self.end_input(),
                 Ok(TerminalWake::WriteFailed(error)) => {
-                    tracing::warn!(%error, "a write to the terminal failed");
+                    tracing::warn!(
+                        error = &error as &(dyn Error + 'static),
+                        "a write to the terminal failed"
+                    );
                     self.queue.fail(error);
                 }
                 Ok(TerminalWake::ChildEvent) => {
@@ -582,7 +589,10 @@ where
                 Ok(TerminalWake::Woken) => {}
                 Ok(TerminalWake::Deadline) => self.stop_sync(),
                 Err(error) => {
-                    tracing::error!(%error, "the terminal's read or wait failed");
+                    tracing::error!(
+                        error = &error as &(dyn Error + 'static),
+                        "the terminal's read or wait failed"
+                    );
                     return LoopEnd::WaitFailed;
                 }
             }
@@ -649,7 +659,10 @@ where
                     | TerminalWake::Woken,
                 ) => {}
                 Err(error) => {
-                    tracing::error!(%error, "the terminal's output could not be drained");
+                    tracing::error!(
+                        error = &error as &(dyn Error + 'static),
+                        "the terminal's output could not be drained"
+                    );
                     self.is_output_ended = true;
                 }
             }

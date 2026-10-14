@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use flexi_logger::writers::{ArcFileLogWriter, FileLogWriter, FileLogWriterHandle};
 use flexi_logger::{Cleanup, Criterion, FileSpec, FlexiLoggerError, Naming};
 use jiff::{Timestamp, Zoned};
+use sidekicks_platforms::create_private_folder;
 use tracing::Dispatch;
 use tracing_subscriber::filter::{LevelFilter, Targets};
 use tracing_subscriber::fmt::writer::MakeWriter;
@@ -160,24 +161,22 @@ impl ServiceLogFiles {
     }
 }
 
-/// Builds the service log over `data_folder`'s `logs/`, which `create_private_folder` makes, with
-/// its parents, readable by the person alone, and opens its first file. Never fails: a folder or
-/// file that cannot be opened leaves `standard_error` alone carrying the log, which
-/// [`ServiceLog::install`] says once.
+/// Builds the service log over `data_folder`'s `logs/`, made with its parents readable by the
+/// person alone (mode 0700 on macOS and Linux; on Windows the folder keeps the profile's access
+/// list), and opens its first file. Never fails: a folder or file that cannot be opened
+/// leaves `standard_error` alone carrying the log, which [`ServiceLog::install`] says once.
 pub fn open_service_log<StandardError>(
     data_folder: &Path,
     standard_error: StandardError,
-    create_private_folder: fn(&Path) -> io::Result<()>,
 ) -> ServiceLog
 where
     StandardError: Write + Send + 'static,
 {
     let folder = service_log_folder(data_folder);
-    let (file, file_handle, open_failure) =
-        match open_service_log_file(&folder, create_private_folder) {
-            Ok((file, handle)) => (Some(Mutex::new(file)), Some(handle), None),
-            Err(failure) => (None, None, Some(failure)),
-        };
+    let (file, file_handle, open_failure) = match open_service_log_file(&folder) {
+        Ok((file, handle)) => (Some(Mutex::new(file)), Some(handle), None),
+        Err(failure) => (None, None, Some(failure)),
+    };
     let sides = Arc::new(ServiceLogSides {
         standard_error: Mutex::new(StandardErrorSide {
             writer: Box::new(standard_error),
@@ -222,7 +221,6 @@ fn fits_template(name: &[u8], template: &[u8]) -> bool {
 // opened is known at start rather than at the first line.
 fn open_service_log_file(
     folder: &Path,
-    create_private_folder: fn(&Path) -> io::Result<()>,
 ) -> Result<(FileSide, FileLogWriterHandle), ServiceLogFileError> {
     let open_failure = |source| ServiceLogFileError::Open {
         folder: folder.to_path_buf(),
@@ -494,16 +492,11 @@ impl Write for &ServiceLogSides {
 #[cfg(test)]
 mod tests {
     use std::io;
-    use std::path::Path;
 
     use super::{
         STANDARD_ERROR_GONE_NOTICE, ServiceLogFiles, is_service_log_file_name, open_service_log,
         service_log_folder,
     };
-
-    fn create_folder(folder: &Path) -> io::Result<()> {
-        std::fs::create_dir_all(folder)
-    }
 
     #[test]
     fn a_gone_standard_error_leaves_every_line_and_one_notice_in_the_file() {
@@ -511,7 +504,7 @@ mod tests {
         let (reader, writer) = io::pipe().expect("a pipe");
         // With the reader gone, each write to the pipe fails with `BrokenPipe`.
         drop(reader);
-        let service_log = open_service_log(data_folder.path(), writer, create_folder);
+        let service_log = open_service_log(data_folder.path(), writer);
         assert!(service_log.open_failure.is_none());
 
         tracing::dispatcher::with_default(&service_log.dispatch, || {

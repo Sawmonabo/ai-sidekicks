@@ -12,6 +12,7 @@ mod screen;
 mod scrollback;
 
 use std::collections::HashMap;
+use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::future::Future;
@@ -205,7 +206,7 @@ impl Terminals {
             if let Err(error) = kill::deliver_signal(&entry, &entry.escalation, kill).await {
                 tracing::warn!(
                     %handle,
-                    %error,
+                    error = &error as &(dyn Error + 'static),
                     "a shell started as the drain began could not be killed"
                 );
             }
@@ -323,7 +324,10 @@ impl Terminals {
                 Ok(DrainOutcome::Drained) => result.drained += 1,
                 Ok(DrainOutcome::Forced) => result.forced += 1,
                 Err(error) => {
-                    tracing::error!(%error, "a terminal's drain did not finish");
+                    tracing::error!(
+                        error = &error as &(dyn Error + 'static),
+                        "a terminal's drain did not finish"
+                    );
                     result.forced += 1;
                 }
             }
@@ -372,7 +376,10 @@ async fn drain_terminal(entry: Arc<TerminalEntry>, bound: Duration) -> DrainOutc
     let stopped = tokio::time::timeout(bound, async {
         let stop = terminal_signal_route(TerminalSignal::Terminate);
         if let Err(error) = kill::deliver_signal(&entry, &entry.escalation, stop).await {
-            tracing::warn!(%error, "the graceful stop did not reach a terminal at the drain");
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the graceful stop did not reach a terminal at the drain"
+            );
         }
         entry.control.ended().await;
     })
@@ -386,7 +393,10 @@ async fn drain_terminal(entry: Arc<TerminalEntry>, bound: Duration) -> DrainOutc
     }
     let kill = terminal_signal_route(TerminalSignal::Kill);
     if let Err(error) = kill::deliver_signal(&entry, &entry.escalation, kill).await {
-        tracing::warn!(%error, "the kill did not reach a terminal at the drain");
+        tracing::warn!(
+            error = &error as &(dyn Error + 'static),
+            "the kill did not reach a terminal at the drain"
+        );
     }
     DrainOutcome::Forced
 }
