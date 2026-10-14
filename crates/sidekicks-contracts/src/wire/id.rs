@@ -32,7 +32,7 @@ pub enum IdError {
 
 /// Checks `text` against the UUID text form and lowercases it, the one form RFC 9562 §4 writes;
 /// refuses anything else with [`IdError::NotUuid`].
-pub fn canonical_uuid_text(mut text: String) -> Result<String, IdError> {
+pub(crate) fn canonical_uuid_text(mut text: String) -> Result<String, IdError> {
     if UUID_TEXT_FORM.is_match(&text) {
         text.make_ascii_lowercase();
         Ok(text)
