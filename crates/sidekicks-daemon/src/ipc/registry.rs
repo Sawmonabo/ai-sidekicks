@@ -179,6 +179,13 @@ pub(crate) enum RegistrationError {
         /// The method's wire name.
         method: &'static str,
     },
+    /// A subscribe method registered through `register`, or a query or mutation through
+    /// `register_subscription`.
+    #[error("method {method} is registered through the form of another kind of method")]
+    WrongForm {
+        /// The method's wire name.
+        method: &'static str,
+    },
 }
 
 /// One registered method's call with its types erased: params and attachments in, reply out.
@@ -210,8 +217,8 @@ impl MethodRegistryBuilder {
         Self::default()
     }
 
-    /// Registers a query's or a mutation's `handler`; fails on a malformed name and on a name
-    /// already registered. A query's handler is dropped when its call is canceled; a mutation's
+    /// Registers a query's or a mutation's `handler`; fails on a subscribe method, a malformed name
+    /// and a name already registered. A query's handler is dropped when its call is canceled; a mutation's
     /// runs to its own answer and checks `cancellation` at its commit point itself.
     pub(crate) fn register<M, Handler>(&mut self, handler: Handler) -> Result<(), RegistrationError>
     where
@@ -223,6 +230,11 @@ impl MethodRegistryBuilder {
             + Sync
             + 'static,
     {
+        if M::DESCRIPTOR.procedure_type == ProcedureType::Subscription {
+            return Err(RegistrationError::WrongForm {
+                method: M::DESCRIPTOR.method,
+            });
+        }
         let handler = Arc::new(handler);
         let call: Call = Box::new(
             move |params: Option<Box<RawValue>>,
@@ -258,6 +270,11 @@ impl MethodRegistryBuilder {
             + Sync
             + 'static,
     {
+        if M::DESCRIPTOR.procedure_type != ProcedureType::Subscription {
+            return Err(RegistrationError::WrongForm {
+                method: M::DESCRIPTOR.method,
+            });
+        }
         let handler = Arc::new(handler);
         let call: Call = Box::new(
             move |params: Option<Box<RawValue>>,
