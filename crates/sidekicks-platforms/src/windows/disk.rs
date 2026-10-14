@@ -3,19 +3,19 @@
 
 use std::fs::{self, OpenOptions};
 use std::io;
-use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::ptr;
 
 use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 
-// The UTF-16 units of `\` and `/`.
+use crate::windows::real_path::verbatim_path;
+
+// The UTF-16 unit of `\`, the only separator a verbatim path takes.
 const BACKSLASH: u16 = 0x5C;
-const SLASH: u16 = 0x2F;
 
 /// A file's flush failed, and so did setting its read-only attribute back afterwards.
 #[derive(Debug, thiserror::Error)]
-#[error("{flush}; setting the read-only attribute back after it failed too: {restore}")]
+#[error("setting the read-only attribute back after the flush failed too: {restore}")]
 pub struct FlushFailure {
     /// The flush's own failure.
     #[source]
@@ -24,19 +24,14 @@ pub struct FlushFailure {
     pub restore: io::Error,
 }
 
-/// The bytes the calling account may still write on the volume holding `folder`. Fails with
-/// `InvalidInput` when the path holds a NUL, and with the system's error when the volume cannot be
-/// read.
+/// The bytes the calling account may still write on the volume holding `folder`, read through its
+/// verbatim path so a folder past 260 characters needs no long-path manifest. Fails with
+/// `InvalidInput` when the path holds a NUL, and with the system's error when the path cannot be
+/// made absolute or the volume cannot be read.
 pub fn volume_free_bytes(folder: &Path) -> io::Result<u64> {
-    let mut directory: Vec<u16> = folder.as_os_str().encode_wide().collect();
-    if directory.contains(&0) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "the folder's path holds a NUL",
-        ));
-    }
+    let mut directory = verbatim_path(folder)?;
     // The call needs a share's path to end in a separator, and a folder's path may.
-    if !matches!(directory.last(), Some(&(BACKSLASH | SLASH))) {
+    if directory.last() != Some(&BACKSLASH) {
         directory.push(BACKSLASH);
     }
     directory.push(0);
