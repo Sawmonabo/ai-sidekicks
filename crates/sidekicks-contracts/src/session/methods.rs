@@ -5,6 +5,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::IntoStaticStr;
 
 use crate::agent::definition::AgentId;
 use crate::event::envelope::EventEnvelope;
@@ -37,8 +38,11 @@ use crate::wire::text::{BoundedText, FreeFormText, NulFreeText, branded_text};
 use crate::wire::{False, True};
 
 /// Where a session is in its lifecycle.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum SessionState {
     /// Being made.
     Provisioning,
@@ -55,8 +59,11 @@ pub enum SessionState {
 /// What a session is bound to, kept as a stored fact rather than a mode flag: a `chat` works in a
 /// managed workspace the daemon owns, a `project` in a repository the person attached. Converting
 /// a chat changes it in place, so it is read from the session, never fixed at creation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum SessionShape {
     /// A managed workspace.
     Chat,

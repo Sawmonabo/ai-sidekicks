@@ -6,6 +6,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::IntoStaticStr;
 
 use crate::agent::definition::binding::{AgentProviderBinding, provider_binding};
 use crate::free_form_string::FilesystemPath;
@@ -37,8 +38,11 @@ use crate::worktree::lifecycle::WorktreeId;
 /// What a session is doing, as the daemon derives it: exactly one of five, and no client invents a
 /// sixth. `waiting` is waiting on the person; `failed` is a session that died, kept apart from one
 /// that finished (`done`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum SessionActivity {
     /// Working.
     Running,
