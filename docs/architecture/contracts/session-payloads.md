@@ -121,17 +121,23 @@ type SubscriptionId = string & { readonly __brand: "SubscriptionId" }; // alloca
 interface SessionSubscribeResponse {
   subscriptionId: SubscriptionId;
 }
-// Each notify's value. The daemon coalesces the session's events into one frame per 16 ms or 50 events,
-// whichever comes first, the window opening on the first event so nothing waits longer than it. A frame
-// carries changes, never the whole transcript, oldest first, and every change carries its cursor. The
-// daemon never waits for a subscriber: changes that do not fit are dropped for it and `dropped` rides the
-// next frame that fits; the subscriber then repairs from the daemon's record by cursor, and past a gap of
-// 1,024 events reads `session.read`, then the `transcript.read` window at its latest cursor, and resumes
-// after that window instead of filling. When a subscriber that fell behind has caught up, the daemon
-// sends it one frame with no changes, carrying `dropped` and the newest cursor, so a session that goes
-// quiet right after a drop still tells the subscriber it is behind.
+// Each notify's value, framed by the rule of Spec-006 §Required Behavior: the first event of a quiet
+// stream goes at once and what follows is coalesced into frames. A frame carries changes, never the
+// whole transcript, oldest first, and every change carries its cursor. The daemon never waits for a
+// subscriber and drops nothing for it: the subscription holds only the subscriber's cursor and reads
+// its next frame from the daemon's record when the subscriber can take it, so a subscriber that falls
+// behind receives every change late, in order, and never a hole. A subscriber further behind the
+// record's newest than that rule's threshold when its next frame is read is sent one frame with no
+// changes carrying the newest cursor, which says it is behind; it then takes a snapshot read
+// (`session.read`, then the `transcript.read` window at its latest cursor) instead of every change, and
+// the stream carries on from the newest. A catch-up never moves the reader.
+// For a subscriber that asked for them, a frame also carries the code colors (the request's opt-in and
+// the frame's colors member are named when the streaming colors are built) of each code line that
+// finished since the previous frame, as 32-bit runs. Colors never hold a text frame back: they ride the
+// next frame after the colorer answers. They are derived from the text and never stored, so a replay
+// from a cursor computes them again. `highlight.read` stays the read for files, diffs and history.
 interface SessionStreamFrame {
-  // At most 50. EventEnvelope: session-event-payloads.md §Plan-004 — Session Event Taxonomy. `runStamp`
+  // At most `STREAM_FRAME_MAX_CHANGES`. EventEnvelope: session-event-payloads.md §Plan-004 — Session Event Taxonomy. `runStamp`
   // is present exactly on an event of a run: the daemon's turn position, execution epoch and superseded
   // marker for it, the same stamp a `transcript.read` row of that event carries, because the daemon
   // stamps a live change and a window row from one fold. A client marks the rows it already holds when
@@ -140,9 +146,8 @@ interface SessionStreamFrame {
   // the daemon's fold applies (on clients `addSupersedingCut` in `packages/contracts/src/transcript/turn-attribution.ts`,
   // hand-written TypeScript held to the daemon's Rust fold by one shared case table).
   changes: Array<{ cursor: EventCursor; event: EventEnvelope; runStamp?: TranscriptRunStamp }>;
-  dropped?: true;
-  // Present only on the frame with no changes, which always carries `dropped`: the newest cursor the
-  // daemon holds for the session. A frame with changes carries no frame cursor.
+  // Present only on the frame with no changes that tells a subscriber it is behind: the newest cursor
+  // the daemon holds for the session. A frame with changes carries no frame cursor.
   cursor?: EventCursor;
 }
 
