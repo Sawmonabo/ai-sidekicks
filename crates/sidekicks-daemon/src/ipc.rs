@@ -4,5 +4,6 @@
 pub(crate) mod caller_process;
 pub(crate) mod domain_error;
 pub(crate) mod in_flight_mutations;
+pub(crate) mod protocol_negotiation;
 pub(crate) mod registry;
 pub(crate) mod stream;
