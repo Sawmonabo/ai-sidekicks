@@ -1,6 +1,5 @@
-//! The payloads of the session events this module declares itself: event compaction, assistant
-//! and tool activity, and the provider's move of a turn onto another model, with the members the
-//! append path owns on every body-bearing payload.
+//! The payloads of the session events this module declares itself: event compaction and assistant
+//! and tool activity, with the members the append path owns on every body-bearing payload.
 //!
 //! An assistant or tool row's body lives outside the canonical bytes, in the stored row's content;
 //! its payload carries only the body's length and whether it was cut, and a reader pairs the two.
@@ -10,12 +9,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::agent::definition::AgentId;
 use crate::event::envelope::{
     EventOccurredAt, SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
-use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::run::id::RunId;
 use crate::runtime_node::id::NodeId;
 use crate::session::id::SessionId;
@@ -283,110 +280,11 @@ with_machine_content_descriptor! {
     }
 }
 
-/// How long a provider's move onto another model holds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ModelRerouteScope {
-    /// This turn.
-    Turn,
-    /// The rest of the session.
-    Session,
-    /// One helper's response: a subagent's, a side question's or a background fork's.
-    Local,
-}
-
-/// Why the provider moved a turn onto another model.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ModelRerouteCause {
-    /// The provider's safety check.
-    Safety,
-    /// The model was not available.
-    ModelUnavailable,
-    /// The model was blocked for the account.
-    ModelBlocked,
-    /// The account ran out of credits.
-    OutOfCredits,
-}
-
-/// The `usage.model_rerouted` payload: the provider moved a turn onto another model and the turn
-/// went on. `sentence`, `explanation` and `safetyCategory` are the provider's own. It takes the
-/// epoch stamp.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-#[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct UsageModelReroutedPayload {
-    /// The session.
-    pub session_id: SessionId,
-    /// The run whose turn moved.
-    pub run_id: RunId,
-    /// The agent whose turn moved.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "AgentId")]
-    pub agent_id: Option<AgentId>,
-    /// The model the turn was asked of.
-    pub from_model: FreeFormText<EVENT_FIELD_MAX_LEN>,
-    /// The model the turn ran on, and the model it is priced at.
-    pub to_model: FreeFormText<EVENT_FIELD_MAX_LEN>,
-    /// How long the move holds.
-    pub scope: ModelRerouteScope,
-    /// The provider's own sentence, absent when it sent none.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-    pub sentence: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
-    /// The provider's explanation, shown as sent.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-    pub explanation: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
-    /// Why the provider moved the turn.
-    pub cause: ModelRerouteCause,
-    /// The provider's open safety category, such as `cyber` or `bio`.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "FreeFormText<EVENT_FIELD_MAX_LEN>")]
-    pub safety_category: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
-    /// The execution epoch a late row is attributed to; comes with `sourcePosition`.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "SourceEpoch")]
-    #[garde(custom(|epoch: &Option<SourceEpoch>, (): &()| {
-        check_epoch_stamp(*epoch, self.source_position, true)
-    }))]
-    pub source_epoch: Option<SourceEpoch>,
-    /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "SourcePosition")]
-    pub source_position: Option<SourcePosition>,
-}
-
 /// The TypeScript module of the payloads declared here.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "event/declared-variants",
-    doc: "The payloads of the session events this module declares itself: event compaction, \
-          assistant and tool activity, and the provider's move of a turn onto another model.",
+    doc: "The payloads of the session events this module declares itself: event compaction and \
+          assistant and tool activity.",
     definitions: &[
         Definition::read::<EventCompactedRemovedSession>(),
         Definition::read::<EventCompactedPayload>().checked(),
@@ -394,9 +292,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<VoiceAssistantOutputPayload>(),
         Definition::read::<AssistantOutputPayload>().checked(),
         Definition::read::<ToolActivityPayload>().checked(),
-        Definition::read::<ModelRerouteScope>(),
-        Definition::read::<ModelRerouteCause>(),
-        Definition::read::<UsageModelReroutedPayload>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

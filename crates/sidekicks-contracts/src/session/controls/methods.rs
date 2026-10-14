@@ -8,7 +8,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::IntoStaticStr;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
@@ -46,7 +46,17 @@ pub struct SessionAcknowledgement {
 /// the first three ever ask the person; at `sandboxed` and `yolo` the daemon answers every ask
 /// itself. Plan is not a level: it is the session's mode.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
 )]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]

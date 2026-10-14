@@ -7,6 +7,7 @@ pub mod envelope;
 pub mod registry;
 pub mod session;
 pub mod type_categories;
+pub mod usage;
 pub mod version;
 
 /// The topic's TypeScript modules.
@@ -16,5 +17,6 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &registry::TYPESCRIPT_MODULE,
     &session::TYPESCRIPT_MODULE,
     &type_categories::TYPESCRIPT_MODULE,
+    &usage::TYPESCRIPT_MODULE,
     &version::TYPESCRIPT_MODULE,
 ];

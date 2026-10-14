@@ -23,10 +23,15 @@ use crate::daemon::recovery::{
     RecoveryAttemptedPayload, RecoveryFailedPayload, RecoverySucceededPayload,
 };
 use crate::event::declared_variants::{
-    AssistantOutputPayload, EventCompactedPayload, ToolActivityPayload, UsageModelReroutedPayload,
+    AssistantOutputPayload, EventCompactedPayload, ToolActivityPayload,
 };
 use crate::event::envelope::{EventCategory, EventEnvelope};
 use crate::event::registry::SessionEventType;
+use crate::event::usage::{
+    UsageApiRetryPayload, UsageContextCompactedPayload, UsageContextWindowUpdatePayload,
+    UsageCostUpdatePayload, UsageModelReroutedPayload, UsageRateLimitUpdatePayload,
+    UsageTokenCountPayload,
+};
 use crate::gitflow::local::GitSettledPayload;
 use crate::mcp::governance::McpServerOauthCompletedPayload;
 use crate::orchestration::OrchestrationRejectedPayload;
@@ -251,6 +256,19 @@ session_events! {
     RelayPinRefused(RelayPinRefusedPayload) = "relay.pin_refused",
     /// Emitted when a command ends; it takes the epoch stamp.
     CommandEnded(#[garde(dive)] CommandEndedPayload) = "command.ended",
+    /// Emitted when a turn's own token figures are recorded; it takes the epoch stamp.
+    UsageTokenCount(#[garde(dive)] UsageTokenCountPayload) = "usage.token_count",
+    /// Emitted when a request is priced; it takes the epoch stamp.
+    UsageCostUpdate(#[garde(dive)] UsageCostUpdatePayload) = "usage.cost_update",
+    /// Emitted when the context window's reading changes; it takes the epoch stamp.
+    UsageContextWindowUpdate(#[garde(dive)] UsageContextWindowUpdatePayload) =
+        "usage.context_window_update",
+    /// Emitted when a provider reports one of an account's quotas.
+    UsageRateLimitUpdate(#[garde(dive)] UsageRateLimitUpdatePayload) = "usage.rate_limit_update",
+    /// Emitted when the provider retries a request mid-run; it takes the epoch stamp.
+    UsageApiRetry(#[garde(dive)] UsageApiRetryPayload) = "usage.api_retry",
+    /// Emitted when the provider compacts a run's context; it takes the epoch stamp.
+    UsageContextCompacted(#[garde(dive)] UsageContextCompactedPayload) = "usage.context_compacted",
     /// Emitted when the provider moves a turn onto another model; it takes the epoch stamp.
     UsageModelRerouted(#[garde(dive)] UsageModelReroutedPayload) = "usage.model_rerouted",
     /// Emitted when a new session's storage is ready and it moves from provisioning to active.

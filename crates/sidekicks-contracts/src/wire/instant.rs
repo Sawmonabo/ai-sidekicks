@@ -30,6 +30,9 @@ const INSTANT_PATTERN: &str = concat!(
      (?:Z|([+-](?:[01][0-9]|2[0-3]):[0-5][0-9])))$"
 );
 
+/// The instant the year 0000 begins, the earliest the pattern's four-digit year holds.
+const YEAR_ZERO_BEGINS: jiff::Timestamp = jiff::Timestamp::constant(-62_167_219_200, 0);
+
 /// [`INSTANT_PATTERN`], compiled once for the garde check.
 static INSTANT_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(INSTANT_PATTERN).expect("the instant pattern is a valid regex"));
@@ -48,10 +51,11 @@ pub struct NotAnInstant;
 
 impl WireInstant {
     /// `timestamp` as the UTC text every stored or sent instant takes, three fraction digits and
-    /// `Z`, as `Date.prototype.toISOString` writes it; a clock reading always falls in the
-    /// four-digit years the pattern holds.
-    pub fn from_timestamp(timestamp: jiff::Timestamp) -> Self {
-        Self(timestamp.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+    /// `Z`, as `Date.prototype.toISOString` writes it; `None` before the year 0000, whose text the
+    /// pattern refuses.
+    pub fn from_timestamp(timestamp: jiff::Timestamp) -> Option<Self> {
+        (timestamp >= YEAR_ZERO_BEGINS)
+            .then(|| Self(timestamp.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()))
     }
 
     /// The text as received.
@@ -145,17 +149,25 @@ mod tests {
         assert_eq!(received.validate().is_ok(), is_instant);
     }
 
-    #[test]
-    fn a_clock_reading_is_written_in_the_stored_form_and_read_back_equal() {
-        let timestamp: jiff::Timestamp = "2026-10-14T04:05:06.789123Z"
-            .parse()
-            .expect("the literal is an instant");
+    #[rstest]
+    #[case::a_clock_reading(1_791_950_706, 789_123_000, Some("2026-10-14T04:05:06.789Z"))]
+    #[case::the_year_zero_begins(-62_167_219_200, 0, Some("0000-01-01T00:00:00.000Z"))]
+    #[case::before_the_year_zero(-62_167_219_201, 999_000_000, None)]
+    fn a_timestamp_is_written_in_the_stored_form_and_read_back_equal(
+        #[case] second: i64,
+        #[case] nanosecond: i32,
+        #[case] written: Option<&str>,
+    ) {
+        let timestamp =
+            jiff::Timestamp::new(second, nanosecond).expect("the case is in jiff's range");
         let instant = WireInstant::from_timestamp(timestamp);
-        assert_eq!(instant.as_str(), "2026-10-14T04:05:06.789Z");
-        assert!(instant.validate().is_ok());
-        assert_eq!(
-            WireInstant::try_from(instant.as_str().to_owned()),
-            Ok(instant)
-        );
+        assert_eq!(instant.as_ref().map(WireInstant::as_str), written);
+        if let Some(instant) = instant {
+            assert!(instant.validate().is_ok());
+            assert_eq!(
+                WireInstant::try_from(instant.as_str().to_owned()),
+                Ok(instant)
+            );
+        }
     }
 }
