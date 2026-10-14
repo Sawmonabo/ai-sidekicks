@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, ErrorKind, Read, Write};
 use std::num::NonZeroU32;
@@ -341,7 +342,10 @@ impl TerminalWatch {
         if self.interest.is_some()
             && let Err(error) = self.pty.deregister(&self.waker.poller)
         {
-            tracing::warn!(%error, "a terminal's watch could not be undone");
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "a terminal's watch could not be undone"
+            );
         }
         release_terminal(self.pty, mark_exited);
     }
@@ -482,7 +486,10 @@ fn console_input_mode() -> io::Result<CONSOLE_MODE> {
         (Ok(_), Err(close_error)) => Err(close_error),
         (Err(mode_error), Ok(())) => Err(mode_error),
         (Err(mode_error), Err(close_error)) => {
-            tracing::warn!(error = %close_error, "the console input handle could not be closed");
+            tracing::warn!(
+                error = &close_error as &(dyn Error + 'static),
+                "the console input handle could not be closed"
+            );
             Err(mode_error)
         }
     }

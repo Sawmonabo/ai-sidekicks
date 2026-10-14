@@ -1,6 +1,7 @@
 //! What a terminal's read loop and its stops take from the operating system, in the shapes every
 //! platform shares; each platform's module implements the calls behind them.
 
+use std::error::Error;
 use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -108,7 +109,10 @@ impl TerminalWaker {
     pub fn wake(&self) {
         self.is_woken.store(true, Ordering::SeqCst);
         if let Err(error) = self.poller.notify() {
-            tracing::warn!(error = %error, "the terminal's read loop could not be woken");
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the terminal's read loop could not be woken"
+            );
         }
     }
 

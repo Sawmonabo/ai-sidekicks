@@ -2,6 +2,7 @@
 //! poller over the terminal and its program's exit, whose descriptor the runtime watches.
 
 use std::collections::HashMap;
+use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::future::{pending, ready};
@@ -147,13 +148,17 @@ pub fn run_terminal_loop(
 pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
     let process_id = pty.child().id();
     if let Err(error) = send_signal(process_id, TerminalSignal::Hangup) {
-        tracing::warn!(process_id, %error, "a released terminal's program got no hangup");
+        tracing::warn!(
+            process_id,
+            error = &error as &(dyn Error + 'static),
+            "a released terminal's program got no hangup"
+        );
     }
     // The program is left unreaped, so its id stays its own until the drop below reaps it.
     if let Err(error) = wait_without_reaping(process_id) {
         tracing::error!(
             process_id,
-            %error,
+            error = &error as &(dyn Error + 'static),
             "a released terminal's program could not be waited for"
         );
     }
@@ -205,7 +210,7 @@ impl TerminalWatch {
             Err(error) => {
                 if let Err(deregister_error) = pty.deregister(&waker.poller) {
                     tracing::warn!(
-                        error = %deregister_error,
+                        error = &deregister_error as &(dyn Error + 'static),
                         "a terminal's watch could not be undone"
                     );
                 }
@@ -306,13 +311,19 @@ impl TerminalWatch {
         match self.pty.take() {
             Some(mut pty) => {
                 if let Err(error) = pty.deregister(self.poller.get_ref()) {
-                    tracing::warn!(%error, "a terminal's watch could not be undone");
+                    tracing::warn!(
+                        error = &error as &(dyn Error + 'static),
+                        "a terminal's watch could not be undone"
+                    );
                 }
                 release_terminal(pty, mark_exited);
             }
             None => {
                 if let Err(error) = self.poller.get_ref().delete(&self.master) {
-                    tracing::warn!(%error, "a terminal's watch could not be undone");
+                    tracing::warn!(
+                        error = &error as &(dyn Error + 'static),
+                        "a terminal's watch could not be undone"
+                    );
                 }
             }
         }
@@ -380,14 +391,20 @@ impl TerminalWatch {
         };
         let poller = self.poller.get_ref();
         if let Err(error) = pty.deregister(poller) {
-            tracing::warn!(%error, "a terminal's watch could not be moved off its PTY");
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "a terminal's watch could not be moved off its PTY"
+            );
         }
         drop(pty);
         // SAFETY: the duplicate is the watch's own and outlives the registration, which `release`
         // deletes before the watch is dropped.
         let added = unsafe { poller.add_with_mode(&self.master, self.interest, PollMode::Level) };
         if let Err(error) = added {
-            tracing::warn!(%error, "a terminal's watch could not be moved onto its master");
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "a terminal's watch could not be moved onto its master"
+            );
         }
     }
 }
