@@ -3,6 +3,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::IntoStaticStr;
 
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::jsonrpc::streaming::SubscribeAckResponse;
@@ -16,8 +17,11 @@ use crate::wire::text::FreeFormText;
 
 /// How two sessions are linked. Every kind but `related` is written by the daemon when the event
 /// that makes it happens; `related` is added on purpose and is the one a person removes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum SessionLinkKind {
     /// One session started the other.
     Started,

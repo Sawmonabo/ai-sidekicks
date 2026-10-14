@@ -8,6 +8,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::IntoStaticStr;
 
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
@@ -44,8 +45,11 @@ pub struct SessionAcknowledgement {
 /// The five permission levels, most careful first, the same five words on every provider. Only
 /// the first three ever ask the person; at `sandboxed` and `yolo` the daemon answers every ask
 /// itself. Plan is not a level: it is the session's mode.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum PermissionLevel {
     /// Reads only.
     Readonly,
@@ -82,8 +86,11 @@ pub struct SessionPermissionLevelUpdateResponse {
 }
 
 /// Whether the session's next turns plan or build: the composer's mode control.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum SessionMode {
     /// The turns change the work.
     Build,

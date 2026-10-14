@@ -2,7 +2,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::IntoStaticStr;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 
@@ -10,7 +10,17 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 /// run reads `paused` once nothing runs. `stopped` is a child ended by a stop that reached several
 /// agents: final on Claude Code, resumable by a send on Codex.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
 )]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
