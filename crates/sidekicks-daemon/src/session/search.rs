@@ -1,0 +1,9 @@
+//! Session search: the search box's query, its pages and cursors, the hit lines, and the index
+//! the search reads.
+
+pub(crate) mod cursor;
+pub(crate) mod index;
+pub(crate) mod marked_line;
+pub(crate) mod merging;
+pub(crate) mod query;
+pub(crate) mod rank_fusion;

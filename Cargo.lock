@@ -8152,6 +8152,7 @@ dependencies = [
  "snow",
  "sse-stream 0.3.0",
  "standardwebhooks",
+ "strum 0.28.0",
  "subtle",
  "sysinfo",
  "tar",
