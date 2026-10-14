@@ -13,7 +13,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::ipc::domain_error::DomainError;
-use crate::settle_all::SettleFailures;
+use crate::settle_all::{SettleFailures, settle_all};
 
 /// The run a setup gate checks. Its workspace is the session's own live one: the one the send
 /// that started it named, else the session's newest.
@@ -53,6 +53,23 @@ pub(crate) enum RunSetupGateError {
     /// Any other failure, which the run's failure cause carries by its words alone.
     #[error(transparent)]
     Failed(Box<dyn Error + Send + Sync>),
+}
+
+/// The terminal hooks that failed once a run ended, with the run and the state it ended in.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "a terminal hook failed after run {} ended {}",
+    .run_id.as_str(),
+    <&'static str>::from(*.terminal_state)
+)]
+pub(crate) struct RunTerminalReleaseError {
+    /// The run that ended.
+    pub(crate) run_id: RunId,
+    /// The state it ended in.
+    pub(crate) terminal_state: RunState,
+    /// Every hook that failed.
+    #[source]
+    pub(crate) failures: Box<SettleFailures<RunSetupGateError>>,
 }
 
 /// A check a run must pass in `starting` before its provider starts it. A failure from
@@ -101,24 +118,24 @@ impl RunSetupGates {
     }
 
     /// Runs every terminal hook in reverse registration order. A hook that fails does not stop the
-    /// rest; once all have run, their failures return together in [`SettleFailures::Many`].
+    /// rest; once all have run, their failures return together, beside the run and how it ended.
     pub(crate) async fn release_for_terminal(
         &self,
         context: &RunTerminalContext,
-    ) -> Result<(), SettleFailures<RunSetupGateError>> {
-        let mut failures = Vec::new();
+    ) -> Result<(), RunTerminalReleaseError> {
+        let mut outcomes = Vec::with_capacity(self.gates.len());
         for gate in self.gates.iter().rev() {
-            if let Err(failure) = gate.on_run_terminal(context).await {
-                failures.push(failure);
-            }
+            outcomes.push(gate.on_run_terminal(context).await);
         }
-        if failures.is_empty() {
-            Ok(())
-        } else {
-            Err(SettleFailures::Many {
-                operation: "releasing what a run's setup gates held once it ended",
-                failures,
-            })
-        }
+        settle_all(
+            outcomes,
+            "releasing what a run's setup gates held once it ended",
+        )
+        .map(drop)
+        .map_err(|failures| RunTerminalReleaseError {
+            run_id: context.run_id.clone(),
+            terminal_state: context.terminal_state,
+            failures: Box::new(failures),
+        })
     }
 }
