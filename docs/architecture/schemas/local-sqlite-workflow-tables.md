@@ -42,10 +42,19 @@ CREATE TABLE workflow_definitions (
   -- the definition only, so a pin mints no version; NULL = nothing pinned.
   pin_data_json        TEXT
                        CHECK(pin_data_json IS NULL OR (json_valid(pin_data_json) AND json_type(pin_data_json) = 'object')),
+  -- The last call to the workflow's webhook address and what became of it, which the trigger's
+  -- Address section reads: it started a run, the overlap choice skipped it, it waits for the going
+  -- run, or it was refused for a token that does not match (also while no token exists, so it lives
+  -- here and not on workflow_webhook_tokens). Written by the webhook listener; both NULL until the
+  -- address is first called.
+  webhook_last_fire_at       TEXT,
+  webhook_last_fire_outcome  TEXT
+                             CHECK(webhook_last_fire_outcome IS NULL OR webhook_last_fire_outcome IN ('started','skipped','waiting','token_mismatch')),
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- the device the save came from
   updated_at           TEXT NOT NULL,                  -- the last change to the row: a save, a rename, a layout, tags, level or pin write, or the soft delete; the Workflows tab's row reads it
-  deleted_at           TEXT                            -- the soft delete: set when the person deletes the workflow, whose runs keep their pinned versions; NULL while it is in the library
+  deleted_at           TEXT,                           -- the soft delete: set when the person deletes the workflow, whose runs keep their pinned versions; NULL while it is in the library
+  CHECK((webhook_last_fire_at IS NULL) = (webhook_last_fire_outcome IS NULL))
 ) STRICT;
 
 -- One library, so a name names one workflow: unique among the workflows not deleted ignoring case,
