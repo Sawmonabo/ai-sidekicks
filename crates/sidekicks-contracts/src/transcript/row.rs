@@ -361,7 +361,7 @@ impl RunScopedTranscriptEntry {
     fn require_payload_attribution_to_agree(&self, payload: &Map<String, Value>) -> garde::Result {
         for attribution_key in TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS {
             if let Some(named) = payload.get(attribution_key)
-                && named.as_str() != Some(self.run_id.as_str())
+                && named.as_str() != Some(self.run_id.text().as_str())
             {
                 return Err(garde::Error::new(format!(
                     "payload {attribution_key} disagrees with the row's own runId"

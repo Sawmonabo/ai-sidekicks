@@ -20,6 +20,7 @@ use sidekicks_contracts::session::events::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 use sidekicks_contracts::worktree::events::SessionBranchChangedPayload;
 
@@ -68,7 +69,7 @@ pub(crate) enum DirectoryRowError {
         event_type: String,
     },
     /// A second `session.created` would replace the session mid-stream.
-    #[error("session.created opens session {} once and is never folded in", .session_id.as_str())]
+    #[error("session.created opens session {session_id} once and is never folded in")]
     CreatedAgain {
         /// The session the row belongs to.
         session_id: SessionId,
@@ -457,7 +458,7 @@ pub(crate) fn open_directory_row(
         });
     };
     Ok(SessionDirectoryRow {
-        session_id: created.session_id.clone(),
+        session_id: *created.session_id,
         shape,
         state: SessionState::Provisioning,
         name: None,
@@ -486,7 +487,7 @@ pub(crate) fn fold_directory_row(
     match update.change {
         Some(DirectoryChange::Create { .. }) => {
             return Err(DirectoryRowError::CreatedAgain {
-                session_id: row.session_id.clone(),
+                session_id: row.session_id,
             });
         }
         Some(DirectoryChange::Column(write)) => {
@@ -530,10 +531,10 @@ pub(crate) fn directory_statements_for(
             return Ok(vec![WriteStatement {
                 sql: Cow::Borrowed(INSERT_CREATED_ROW_SQL),
                 bindings: StatementBindings::Positional(vec![
-                    SqlValue::Text(event.session_id.as_str().to_owned()),
+                    SqlValue::Text(event.session_id.to_string()),
                     SqlValue::Text(<&'static str>::from(shape).to_owned()),
-                    SqlValue::from(scratch_for_definition_id.map(|id| id.as_str().to_owned())),
-                    SqlValue::from(parent_session_id.map(|id| id.as_str().to_owned())),
+                    SqlValue::from(scratch_for_definition_id.map(|id| id.to_string())),
+                    SqlValue::from(parent_session_id.map(|id| id.to_string())),
                     SqlValue::Text(update.occurred_at.clone()),
                     SqlValue::Text(update.occurred_at.clone()),
                     SqlValue::Text(update.occurred_at),
@@ -563,7 +564,7 @@ pub(crate) fn directory_statements_for(
     if assignments.is_empty() {
         return Ok(Vec::new());
     }
-    values.push(SqlValue::Text(event.session_id.as_str().to_owned()));
+    values.push(SqlValue::Text(event.session_id.to_string()));
     Ok(vec![WriteStatement {
         sql: Cow::Owned(format!(
             "UPDATE sessions SET {} WHERE id = ?",
@@ -597,7 +598,7 @@ pub(crate) fn directory_row_statement(row: &SessionDirectoryRow) -> WriteStateme
     WriteStatement {
         sql: Cow::Borrowed(UPSERT_ROW_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@id", row.session_id.as_str()),
+            text_binding("@id", row.session_id.text().as_str()),
             text_binding("@shape", row.shape.into()),
             text_binding("@state", row.state.into()),
             (Cow::Borrowed("@name"), optional_text(row.name.as_deref())),
@@ -621,13 +622,19 @@ pub(crate) fn directory_row_statement(row: &SessionDirectoryRow) -> WriteStateme
                 Cow::Borrowed("@scratchForDefinitionId"),
                 optional_text(
                     row.scratch_for_definition_id
+                        .map(|id| id.text())
                         .as_ref()
-                        .map(AgentDefinitionId::as_str),
+                        .map(UuidText::as_str),
                 ),
             ),
             (
                 Cow::Borrowed("@parentSessionId"),
-                optional_text(row.parent_session_id.as_ref().map(SessionId::as_str)),
+                optional_text(
+                    row.parent_session_id
+                        .map(|id| id.text())
+                        .as_ref()
+                        .map(UuidText::as_str),
+                ),
             ),
             text_binding("@lastRunOutcome", row.last_run_outcome.into()),
             text_binding("@createdAt", &row.created_at),

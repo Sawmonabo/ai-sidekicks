@@ -213,8 +213,7 @@ impl RunSetupGate for ExecutionPostureService {
             let posture = resolve_posture(&context.execution_posture)
                 .await
                 .map_err(|rejection| RunSetupGateError::Failed(Box::new(rejection)))?;
-            self.resolved_postures()
-                .insert(context.run_id.clone(), posture);
+            self.resolved_postures().insert(context.run_id, posture);
             Ok(())
         })
     }

@@ -104,8 +104,7 @@ ts_constants! {
 /// 9562 Max UUID, which no versioned session id can equal. Built through the session id's own
 /// check, so a check that stops admitting it fails at first use rather than on the wire.
 pub static DAEMON_SCOPE_SENTINEL_SESSION_ID: LazyLock<SessionId> = LazyLock::new(|| {
-    SessionId::new("ffffffff-ffff-ffff-ffff-ffffffffffff".to_owned())
-        .expect("the Max UUID is a session id")
+    SessionId::new("ffffffff-ffff-ffff-ffff-ffffffffffff").expect("the Max UUID is a session id")
 });
 
 named_scalar! {

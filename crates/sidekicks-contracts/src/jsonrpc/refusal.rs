@@ -119,9 +119,8 @@ refusal_codes! {
     /// `data.fields.reason` names which bound it hit.
     ArtifactTooLarge = "artifact.too_large" (413);
     /// The type check on a payload's leading bytes could not run to an answer, at
-    /// `AttachmentIngestComplete` or a client's `artifact.publish`: it ran past its time bound, its
-    /// thread failed or ran out of its heap bound, too many payloads were already waiting for a
-    /// thread, or the daemon was stopping.
+    /// `AttachmentIngestComplete` or a client's `artifact.publish`, because the daemon was
+    /// stopping.
     ArtifactTypeCheckUnavailable = "artifact.type_check_unavailable" (503);
     /// The type detector ran over a payload's leading bytes and refused them, at
     /// `AttachmentIngestComplete` or a client's `artifact.publish`.
@@ -436,7 +435,7 @@ refusal_codes! {
     /// Per-request envelope-level `protocolVersion` field violates, the wrong JSON type, or fails
     /// the ISO 8601 `YYYY-MM-DD` shape.
     TransportInvalidProtocolVersion = "transport.invalid_protocol_version" (400);
-    /// An inbound message passed the 4 MiB cap on its JSON or its attachments.
+    /// An inbound message passed the 7 MiB cap on its JSON or the 4 MiB cap on its attachments.
     TransportMessageTooLarge = "transport.message_too_large" (413);
     /// A subscribe call found its connection already holding 10,000 open subscriptions; it may
     /// be sent again once one closes.
@@ -526,7 +525,8 @@ refusal_codes! {
     WorkflowStartDenied = "workflow.start_denied" (403);
     /// A form submitted, an approval answered or a form read on a step that is no longer waiting.
     WorkflowStepNotWaiting = "workflow.step_not_waiting" (409);
-    /// A quick step's engine that did not start in time.
+    /// A quick step's engine that could not be started: its thread, `rquickjs` runtime or context
+    /// could not be created.
     WorkflowStepThreadFailed = "workflow.step_thread_failed" (500);
     /// A step or a run cut by a time limit, read `failed · timed out`.
     WorkflowStepTimedOut = "workflow.step_timed_out" (504);

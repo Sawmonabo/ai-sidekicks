@@ -27,13 +27,13 @@ use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode, refusal_fiel
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RepoRefusal {
     /// The project record does not exist, or was forgotten (`repo.not_found`).
-    #[error("project {} does not exist", .project_id.as_str())]
+    #[error("project {project_id} does not exist")]
     ProjectNotFound {
         /// The project asked for.
         project_id: ProjectId,
     },
     /// The repository mount does not exist (`repo.not_found`).
-    #[error("repo mount {} does not exist", .repo_mount_id.as_str())]
+    #[error("repo mount {repo_mount_id} does not exist")]
     MountNotFound {
         /// The mount asked for.
         repo_mount_id: RepoMountId,
@@ -61,7 +61,7 @@ pub(crate) enum RepoRefusal {
     #[error(
         "repo attach refused: the folder's repository is already attached on this node as repo \
          mount {}; bind a workspace on that mount to work in this folder",
-        .conflicting_repo_mount_id.as_str()
+        .conflicting_repo_mount_id
     )]
     AlreadyAttached {
         /// The mount that holds the repository.
@@ -72,7 +72,7 @@ pub(crate) enum RepoRefusal {
     /// A detach while an agent runs anywhere in the project (`repo.detach_conflict`).
     #[error(
         "repo detach refused: session {} is running in the project",
-        .running_session_id.as_str()
+        .running_session_id
     )]
     DetachConflict {
         /// The session running there, so the refusal can say who holds the folder.
@@ -81,7 +81,7 @@ pub(crate) enum RepoRefusal {
     /// The mount is a chat's managed workspace, which only that chat binds and only its purge
     /// removes, so another session's bind, any detach and a move of the chat are refused
     /// (`repo.mount_managed`).
-    #[error("repo mount {} is a chat's managed workspace", .repo_mount_id.as_str())]
+    #[error("repo mount {repo_mount_id} is a chat's managed workspace")]
     MountManaged {
         /// The managed mount.
         repo_mount_id: RepoMountId,
@@ -90,7 +90,7 @@ pub(crate) enum RepoRefusal {
     /// recover (`repo.reattach_refused`).
     #[error(
         "repo mount {} still holds the repository attached there",
-        .repo_mount_id.as_str()
+        .repo_mount_id
     )]
     ReattachRefused {
         /// The mount asked for; named in the message, not in the detail.
@@ -99,8 +99,8 @@ pub(crate) enum RepoRefusal {
     /// A re-attach while an agent runs anywhere in the project (`repo.reattach_conflict`).
     #[error(
         "repo re-attach refused: agent {} is running in session {}",
-        .running_agent_id.as_str(),
-        .running_session_id.as_str()
+        .running_agent_id,
+        .running_session_id
     )]
     ReattachConflict {
         /// The session the agent runs in.
@@ -138,14 +138,12 @@ impl From<RepoRefusal> for DomainError {
             RepoRefusal::ProjectNotFound { project_id } => (
                 RefusalCode::RepoNotFound,
                 InvalidParams,
-                Some(refusal_fields(json!({ "projectId": project_id.as_str() }))),
+                Some(refusal_fields(json!({ "projectId": project_id }))),
             ),
             RepoRefusal::MountNotFound { repo_mount_id } => (
                 RefusalCode::RepoNotFound,
                 InvalidParams,
-                Some(refusal_fields(
-                    json!({ "repoMountId": repo_mount_id.as_str() }),
-                )),
+                Some(refusal_fields(json!({ "repoMountId": repo_mount_id }))),
             ),
             RepoRefusal::RootResolutionFailed { reason } => (
                 RefusalCode::RepoRootResolutionFailed,
@@ -172,15 +170,13 @@ impl From<RepoRefusal> for DomainError {
                 RefusalCode::RepoDetachConflict,
                 InternalError,
                 Some(refusal_fields(
-                    json!({ "runningSessionId": running_session_id.as_str() }),
+                    json!({ "runningSessionId": running_session_id }),
                 )),
             ),
             RepoRefusal::MountManaged { repo_mount_id } => (
                 RefusalCode::RepoMountManaged,
                 InternalError,
-                Some(refusal_fields(
-                    json!({ "repoMountId": repo_mount_id.as_str() }),
-                )),
+                Some(refusal_fields(json!({ "repoMountId": repo_mount_id }))),
             ),
             RepoRefusal::ReattachRefused { repo_mount_id: _ } => (
                 RefusalCode::RepoReattachRefused,

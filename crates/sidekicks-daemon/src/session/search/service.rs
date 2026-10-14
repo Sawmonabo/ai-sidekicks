@@ -504,7 +504,7 @@ fn read_sessions(
         Ok((
             rowid_column(row, 0)?,
             SessionRow {
-                session_id: text_column(row, 1, SessionId::new)?,
+                session_id: text_column(row, 1, |text| SessionId::new(&text))?,
                 name: optional_text_column(row, 2, FreeFormText::new)?,
             },
         ))

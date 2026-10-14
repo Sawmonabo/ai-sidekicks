@@ -72,7 +72,7 @@ impl WaitingPlace {
         Self {
             position: record.position,
             created_at: record.created_at.clone(),
-            id: record.id.clone(),
+            id: record.id,
         }
     }
 }
@@ -327,7 +327,7 @@ pub(crate) fn read_queue_changes_after(
         .prepare_cached(&CHANGED_AFTER_SQL)?
         .query_map(
             named_params! {
-                "@session_id": queue.session_id.as_str(),
+                "@session_id": queue.session_id.text().as_str(),
                 "@child_handle": queue.child_handle.as_ref().map(ChildHandle::as_str),
                 "@after": cursor.sequence,
                 "@read_bound": read_bound,
@@ -403,7 +403,8 @@ fn read_waiting_page(
     waiting_page: WaitingPage<'_>,
     room: usize,
 ) -> rusqlite::Result<Vec<QueueItemRecord>> {
-    let session_id = queue.session_id.as_str();
+    let session_id_text = queue.session_id.text();
+    let session_id = session_id_text.as_str();
     let child_handle = queue.child_handle.as_ref().map(ChildHandle::as_str);
     let limit = count_bound(room);
     match waiting_page {
@@ -430,7 +431,7 @@ fn read_waiting_page(
                     "@read_bound": read_bound,
                     "@position": i64::from(place.position),
                     "@created_at": place.created_at.as_str(),
-                    "@id": place.id.as_str(),
+                    "@id": place.id.text().as_str(),
                     "@limit": limit,
                 },
                 record_of,

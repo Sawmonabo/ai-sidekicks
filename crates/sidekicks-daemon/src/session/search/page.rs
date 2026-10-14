@@ -188,7 +188,7 @@ fn group_of(selection: PageCandidate) -> SessionSearchGroup {
 fn count_hits_fitting_one_group(group: &SessionSearchGroup) -> usize {
     let hits = group.hits.as_slice();
     let group_with_first_hit = SessionSearchGroup {
-        session_id: group.session_id.clone(),
+        session_id: group.session_id,
         name: group.name.clone(),
         hits: BoundedVec::new(hits[..1].to_vec()).expect("a group holds at least one hit"),
     };

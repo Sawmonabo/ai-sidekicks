@@ -183,12 +183,10 @@ mod tests {
             acknowledged_turn_id,
         }));
         let params = ApplyInterventionParams::Steer {
-            target_run_id: RunId::new("0192f0c8-7a3e-7b4c-9d2e-3f4a5b6c7d8e".to_owned()).unwrap(),
+            target_run_id: RunId::new("0192f0c8-7a3e-7b4c-9d2e-3f4a5b6c7d8e").unwrap(),
             expected_run_version: SafeInt::new(0).unwrap(),
-            client_idempotency_key: QueueItemId::new(
-                "0192f0c8-7a3e-7b4c-9d2e-3f4a5b6c7d8f".to_owned(),
-            )
-            .unwrap(),
+            client_idempotency_key: QueueItemId::new("0192f0c8-7a3e-7b4c-9d2e-3f4a5b6c7d8f")
+                .unwrap(),
             payload: SteerPayload {
                 content: MessageContent::new("also check the tests".to_owned()).unwrap(),
                 attachments: Vec::new(),

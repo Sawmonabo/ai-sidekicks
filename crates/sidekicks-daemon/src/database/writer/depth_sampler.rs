@@ -33,7 +33,7 @@ impl DepthSampler {
     /// Keeps `event`, the latest queued, for a warning to name.
     pub(super) fn note_event(&mut self, event: &SessionEventRow) {
         self.latest_event_tags = Some(EventTags {
-            session_id: event.session_id.clone(),
+            session_id: event.session_id,
             category: event.category,
         });
     }
@@ -74,7 +74,7 @@ impl DepthSampler {
         if depth >= ALERT_DEPTH {
             let tags = self.latest_event_tags.as_ref();
             tracing::warn!(
-                session_id = tags.map(|tags| tags.session_id.as_str()),
+                session_id = tags.map(|tags| tracing::field::display(tags.session_id)),
                 event_category = tags.map(|tags| tags.category.as_str()),
                 depth,
                 capacity = WRITE_QUEUE_CAPACITY,

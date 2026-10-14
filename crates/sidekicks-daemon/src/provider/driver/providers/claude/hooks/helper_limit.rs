@@ -62,7 +62,7 @@ impl ClaudeHelperLimit {
     /// Sets the session's limit on helpers running at once, starting its count afresh.
     pub(crate) fn limit_session(&mut self, session_id: &SessionId, limit: NonZeroUsize) {
         self.sessions.insert(
-            session_id.clone(),
+            *session_id,
             ClaudeSessionHelpers {
                 limit,
                 admitted_starts: HashSet::new(),
@@ -160,8 +160,8 @@ mod tests {
 
     // A session limited to one helper at once, with `r1` admitted and `r2` held behind it.
     fn one_admitted_one_held() -> (ClaudeHelperLimit, SessionId) {
-        let session_id = SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d".to_owned())
-            .expect("a valid session id");
+        let session_id =
+            SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id");
         let mut limit = ClaudeHelperLimit::default();
         limit.limit_session(&session_id, NonZeroUsize::MIN);
         assert_eq!(

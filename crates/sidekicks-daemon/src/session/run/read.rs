@@ -86,9 +86,9 @@ impl<'connection> RunStateReader<'connection> {
     pub(crate) fn read_run(&self, run_id: &RunId) -> rusqlite::Result<Option<RunRead>> {
         self.reader
             .prepare_cached(SELECT_RUN_SQL)?
-            .query_row([run_id.as_str()], |row| {
+            .query_row([run_id.text().as_str()], |row| {
                 Ok(RunRead {
-                    session_id: text_column(row, 0, SessionId::new)?,
+                    session_id: text_column(row, 0, |text| SessionId::new(&text))?,
                     state: text_column(row, 1, closed_word)?,
                     version: row.get(2)?,
                 })
@@ -102,13 +102,13 @@ impl<'connection> RunStateReader<'connection> {
             .prepare_cached(&SELECT_LIVE_RUNS_SQL)?
             .query_map([], |row| {
                 Ok(LiveRun {
-                    run_id: text_column(row, 0, RunId::new)?,
+                    run_id: text_column(row, 0, |text| RunId::new(&text))?,
                     run: RunRead {
-                        session_id: text_column(row, 1, SessionId::new)?,
+                        session_id: text_column(row, 1, |text| SessionId::new(&text))?,
                         state: text_column(row, 2, closed_word)?,
                         version: row.get(3)?,
                     },
-                    parent_run_id: optional_text_column(row, 4, RunId::new)?,
+                    parent_run_id: optional_text_column(row, 4, |text| RunId::new(&text))?,
                     reached_by: optional_text_column(row, 5, closed_word)?,
                 })
             })?
@@ -123,8 +123,8 @@ impl<'connection> RunStateReader<'connection> {
     ) -> rusqlite::Result<Vec<RunId>> {
         self.reader
             .prepare_cached(&SELECT_LIVE_PROVIDER_SUBAGENTS_SQL)?
-            .query_map(named_params! { "@run_id": run_id.as_str() }, |row| {
-                text_column(row, 0, RunId::new)
+            .query_map(named_params! { "@run_id": run_id.text().as_str() }, |row| {
+                text_column(row, 0, |text| RunId::new(&text))
             })?
             .collect()
     }

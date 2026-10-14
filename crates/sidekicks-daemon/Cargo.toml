@@ -81,6 +81,8 @@ ignored = [
   "toml_edit",
   # Wiping the command channel's keys.
   "zeroize",
+  # The stored-body codec: a transcript body of 1 KiB or more kept compressed.
+  "zstd",
 ]
 
 [dependencies]
@@ -194,6 +196,7 @@ x25519-dalek.workspace = true
 yaml-edit.workspace = true
 zeroize.workspace = true
 zip.workspace = true
+zstd.workspace = true
 
 [dev-dependencies]
 dhat.workspace = true

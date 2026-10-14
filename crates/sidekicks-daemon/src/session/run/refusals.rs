@@ -107,7 +107,7 @@ impl From<RunRefusal> for DomainError {
                 RefusalCode::RunNotFound,
                 DomainErrorJsonRpcCode::InvalidParams,
             )
-            .with_detail(json!({ "runId": run_id.as_str() })),
+            .with_detail(json!({ "runId": run_id })),
             RunRefusal::VersionStale {
                 run_id,
                 expected_run_version,
@@ -118,7 +118,7 @@ impl From<RunRefusal> for DomainError {
                 DomainErrorJsonRpcCode::InvalidRequest,
             )
             .with_detail(json!({
-                "runId": run_id.as_str(),
+                "runId": run_id,
                 "expectedRunVersion": expected_run_version,
                 "runVersion": run_version,
             })),
@@ -145,7 +145,7 @@ impl From<RunRefusal> for DomainError {
                 DomainErrorJsonRpcCode::InternalError,
             )
             .with_detail(json!({
-                "sessionId": session_id.as_str(),
+                "sessionId": session_id,
                 "reason": "session_turn_in_flight",
             })),
         }
@@ -166,7 +166,7 @@ fn transition_refusal(
         DomainErrorJsonRpcCode::InvalidRequest,
     )
     .with_detail(json!({
-        "runId": run_id.as_str(),
+        "runId": run_id,
         "fromState": <&'static str>::from(from_state),
         "toState": <&'static str>::from(RunState::from(to_state)),
     }))

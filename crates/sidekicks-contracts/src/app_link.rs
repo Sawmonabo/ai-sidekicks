@@ -48,12 +48,12 @@ const WORKFLOW_RUN_HOST: &str = "workflow-run";
 /// An id is a UUID, whose characters a URI leaves unescaped, so the link needs no encoding.
 pub fn compose_app_link(target: &AppLinkTarget) -> String {
     let (host, id) = match target {
-        AppLinkTarget::Session { session_id } => (SESSION_HOST, session_id.as_str()),
+        AppLinkTarget::Session { session_id } => (SESSION_HOST, session_id.text()),
         AppLinkTarget::WorkflowRun { workflow_run_id } => {
-            (WORKFLOW_RUN_HOST, workflow_run_id.as_str())
+            (WORKFLOW_RUN_HOST, workflow_run_id.text())
         }
     };
-    format!("{APP_LINK_SCHEME}://{host}/{id}")
+    format!("{APP_LINK_SCHEME}://{host}/{}", id.as_str())
 }
 
 /// Reads a link back into its target, or `None` when the text is not exactly a link
@@ -63,10 +63,10 @@ pub fn parse_app_link(address: &str) -> Option<AppLinkTarget> {
     let rest = address.strip_prefix(APP_LINK_SCHEME)?.strip_prefix("://")?;
     let (host, id) = rest.split_once('/')?;
     match host {
-        SESSION_HOST => SessionId::new(id.to_owned())
+        SESSION_HOST => SessionId::new(id)
             .ok()
             .map(|session_id| AppLinkTarget::Session { session_id }),
-        WORKFLOW_RUN_HOST => WorkflowRunId::new(id.to_owned())
+        WORKFLOW_RUN_HOST => WorkflowRunId::new(id)
             .ok()
             .map(|workflow_run_id| AppLinkTarget::WorkflowRun { workflow_run_id }),
         _ => None,

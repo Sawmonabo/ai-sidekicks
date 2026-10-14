@@ -81,7 +81,7 @@ pub fn add_superseding_cut(turns: &SupersededTurns, point: SourcePosition) -> Su
         point,
     });
     SupersededTurns {
-        run_id: turns.run_id.clone(),
+        run_id: turns.run_id,
         cuts,
     }
 }

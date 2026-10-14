@@ -64,7 +64,7 @@ impl SessionEventFollowers {
         let mut change_counts = self.lock_change_counts();
         change_counts.retain(|_, sender| sender.receiver_count() > 0);
         change_counts
-            .entry(session_id.clone())
+            .entry(*session_id)
             .or_insert_with(|| watch::Sender::new(0))
             .subscribe()
     }
@@ -80,7 +80,7 @@ impl SessionEventFollowers {
             for follower in &followers {
                 if let Err(error) = follower(event) {
                     tracing::error!(
-                        session_id = event.session_id.as_str(),
+                        session_id = %event.session_id,
                         sequence = event.sequence.get(),
                         error = &*error as &(dyn Error + 'static),
                         "a follower of every session failed on a committed event; it stays attached"

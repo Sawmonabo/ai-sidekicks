@@ -103,8 +103,8 @@ pub(crate) fn session_group_placement_statement(
     WriteStatement {
         sql: Cow::Borrowed(PLACE_SESSION_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
-            text_binding("@sessionId", session_id.as_str()),
-            text_binding("@groupId", group_id.as_str()),
+            text_binding("@sessionId", session_id.text().as_str()),
+            text_binding("@groupId", group_id.text().as_str()),
         ]),
         expected_row_count: Some(1),
     }
@@ -114,7 +114,10 @@ pub(crate) fn session_group_placement_statement(
 pub(crate) fn project_session_statement(session_id: &SessionId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(PROJECT_SESSION_SQL.as_str()),
-        bindings: StatementBindings::Named(vec![text_binding("@sessionId", session_id.as_str())]),
+        bindings: StatementBindings::Named(vec![text_binding(
+            "@sessionId",
+            session_id.text().as_str(),
+        )]),
         expected_row_count: Some(1),
     }
 }
@@ -127,7 +130,7 @@ pub(crate) fn group_name_free_in_session_project_statement(
     WriteStatement {
         sql: Cow::Borrowed(GROUP_NAME_FREE_IN_SESSION_PROJECT_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
-            text_binding("@sessionId", session_id.as_str()),
+            text_binding("@sessionId", session_id.text().as_str()),
             text_binding("@nameFolded", name_folded),
         ]),
         expected_row_count: Some(0),
@@ -139,8 +142,8 @@ pub(crate) fn insert_group_statement(group: &NewSessionGroup) -> WriteStatement 
     WriteStatement {
         sql: Cow::Borrowed(INSERT_GROUP_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
-            text_binding("@groupId", group.group_id.as_str()),
-            text_binding("@sessionId", group.session_id.as_str()),
+            text_binding("@groupId", group.group_id.text().as_str()),
+            text_binding("@sessionId", group.session_id.text().as_str()),
             text_binding("@name", &group.name),
             text_binding("@nameFolded", &group.name_folded),
             text_binding("@createdAt", &group.created_at),
@@ -153,7 +156,10 @@ pub(crate) fn insert_group_statement(group: &NewSessionGroup) -> WriteStatement 
 pub(crate) fn leave_group_statement(session_id: &SessionId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(LEAVE_GROUP_SQL),
-        bindings: StatementBindings::Named(vec![text_binding("@sessionId", session_id.as_str())]),
+        bindings: StatementBindings::Named(vec![text_binding(
+            "@sessionId",
+            session_id.text().as_str(),
+        )]),
         expected_row_count: Some(1),
     }
 }
@@ -165,7 +171,10 @@ pub(crate) fn remove_empty_groups_of_session_project_statement(
 ) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(REMOVE_EMPTY_GROUPS_OF_SESSION_PROJECT_SQL.as_str()),
-        bindings: StatementBindings::Named(vec![text_binding("@sessionId", session_id.as_str())]),
+        bindings: StatementBindings::Named(vec![text_binding(
+            "@sessionId",
+            session_id.text().as_str(),
+        )]),
         expected_row_count: None,
     }
 }
@@ -183,7 +192,7 @@ pub(crate) fn group_name_free_for_rename_statement(
     WriteStatement {
         sql: Cow::Borrowed(GROUP_NAME_FREE_FOR_RENAME_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@groupId", group_id.as_str()),
+            text_binding("@groupId", group_id.text().as_str()),
             text_binding("@nameFolded", name_folded),
         ]),
         expected_row_count: Some(0),
@@ -204,7 +213,7 @@ pub(crate) fn rename_group_statement(
     WriteStatement {
         sql: Cow::Borrowed(RENAME_GROUP_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@groupId", group_id.as_str()),
+            text_binding("@groupId", group_id.text().as_str()),
             text_binding("@name", name),
             text_binding("@nameFolded", name_folded),
         ]),
@@ -230,7 +239,10 @@ fn group_statement(
 ) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(sql),
-        bindings: StatementBindings::Named(vec![text_binding("@groupId", group_id.as_str())]),
+        bindings: StatementBindings::Named(vec![text_binding(
+            "@groupId",
+            group_id.text().as_str(),
+        )]),
         expected_row_count,
     }
 }

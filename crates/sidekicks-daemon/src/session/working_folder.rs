@@ -66,7 +66,7 @@ pub(crate) fn read_working_folder(
 ) -> Result<SessionWorkingFolder, WorkingFolderReadError> {
     reader
         .prepare_cached(WORKING_FOLDER_SQL.as_str())?
-        .query_row([session_id.as_str()], |row| {
+        .query_row([session_id.text().as_str()], |row| {
             Ok(SessionWorkingFolder {
                 shape: text_column(row, 0, closed_word)?,
                 working_folder: row.get::<_, Option<String>>(1)?.map(PathBuf::from),

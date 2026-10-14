@@ -104,7 +104,9 @@ fn answer(
 ) -> Result<TranscriptSearchResponse, TranscriptSearchError> {
     let session_key: Option<u64> = reader
         .prepare_cached(SESSION_KEY_SQL)?
-        .query_row([request.session_id.as_str()], |row| rowid_column(row, 0))
+        .query_row([request.session_id.text().as_str()], |row| {
+            rowid_column(row, 0)
+        })
         .optional()?;
     let Some(session_key) = session_key else {
         return Err(session_not_found(&request.session_id).into());
@@ -224,7 +226,7 @@ fn highest_key_before(
 ) -> rusqlite::Result<Option<u64>> {
     let rowid = reader
         .prepare_cached(LAST_ROWID_BEFORE_SQL)?
-        .query_row((session_id.as_str(), before_sequence), |row| {
+        .query_row((session_id.text().as_str(), before_sequence), |row| {
             rowid_column(row, 0)
         })
         .optional()?;

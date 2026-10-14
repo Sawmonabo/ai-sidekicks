@@ -21,7 +21,7 @@ pub(crate) fn permission_level_change_statement(
             "UPDATE sessions SET permission_level = @permissionLevel WHERE id = @sessionId",
         ),
         bindings: StatementBindings::Named(vec![
-            text_binding("@sessionId", session_id.as_str()),
+            text_binding("@sessionId", session_id.text().as_str()),
             text_binding("@permissionLevel", <&'static str>::from(permission_level)),
         ]),
         expected_row_count: Some(1),
@@ -36,7 +36,7 @@ pub(crate) fn read_session_permission_level(
 ) -> rusqlite::Result<PermissionLevel> {
     let level = reader
         .prepare_cached("SELECT permission_level FROM sessions WHERE id = ?")?
-        .query_row([session_id.as_str()], |row| {
+        .query_row([session_id.text().as_str()], |row| {
             text_column(row, 0, closed_word)
         })
         .optional()?;

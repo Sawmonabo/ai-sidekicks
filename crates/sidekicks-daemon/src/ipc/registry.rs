@@ -411,7 +411,7 @@ where
     let params = read_params::<M>(params.as_deref(), attachments)?;
     let cancellation = context.cancellation.clone();
     let subscription_id = mint_subscription_id();
-    let answer = (*handler)(params, context, subscription_id.clone());
+    let answer = (*handler)(params, context, subscription_id);
     let (acknowledgement, feed) = cancellation
         .run_until_cancelled(answer)
         .await
@@ -463,7 +463,7 @@ fn mint_subscription_id() -> SubscriptionId {
         reason = "a subscription id is an ephemeral token no row or event stores"
     )]
     let uuid = Uuid::now_v7();
-    SubscriptionId::new(uuid.to_string()).expect("a UUID's text is the UUID text form")
+    SubscriptionId::try_from(uuid).expect("a version 7 UUID is a subscription id")
 }
 
 /// A subscribe handler's typed feed, each emission held to its rules and written for the wire.

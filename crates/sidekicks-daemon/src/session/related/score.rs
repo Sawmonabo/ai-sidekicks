@@ -66,7 +66,7 @@ fn step_shares(
     {
         let weight = session_link_weight(link, now);
         let place = *place_of.entry(&link.other_session_id).or_insert_with(|| {
-            shares.push((link.other_session_id.clone(), 0.0));
+            shares.push((link.other_session_id, 0.0));
             shares.len() - 1
         });
         shares[place].1 += weight;

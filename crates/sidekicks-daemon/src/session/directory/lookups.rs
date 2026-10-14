@@ -35,7 +35,10 @@ pub(crate) const SESSION_EXISTS_SQL: &str = "SELECT 1 FROM sessions WHERE id = @
 pub(crate) fn session_exists_statement(session_id: &SessionId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(SESSION_EXISTS_SQL),
-        bindings: StatementBindings::Named(vec![text_binding("@sessionId", session_id.as_str())]),
+        bindings: StatementBindings::Named(vec![text_binding(
+            "@sessionId",
+            session_id.text().as_str(),
+        )]),
         expected_row_count: Some(1),
     }
 }

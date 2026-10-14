@@ -59,7 +59,7 @@ pub(crate) enum RunSetupGateError {
 #[derive(Debug, thiserror::Error)]
 #[error(
     "a terminal hook failed after run {} ended {}",
-    .run_id.as_str(),
+    .run_id,
     <&'static str>::from(*.terminal_state)
 )]
 pub(crate) struct RunTerminalReleaseError {
@@ -133,7 +133,7 @@ impl RunSetupGates {
         )
         .map(drop)
         .map_err(|failures| RunTerminalReleaseError {
-            run_id: context.run_id.clone(),
+            run_id: context.run_id,
             terminal_state: context.terminal_state,
             failures: Box::new(failures),
         })

@@ -35,9 +35,9 @@ impl CodexConfigWarnings {
         let owed: Vec<SessionId> = session_ids
             .iter()
             .filter(|session_id| !told.contains(*session_id))
-            .cloned()
+            .copied()
             .collect();
-        told.extend(owed.iter().cloned());
+        told.extend(owed.iter().copied());
         // A warning sent again keeps its place and takes the newest params, as a map entry does.
         match self
             .current
@@ -56,7 +56,7 @@ impl CodexConfigWarnings {
         let mut owed = Vec::new();
         for (key, params) in &self.current {
             let told = self.told_by_warning.entry(key.clone()).or_default();
-            if told.insert(session_id.clone()) {
+            if told.insert(*session_id) {
                 owed.push(params.clone());
             }
         }

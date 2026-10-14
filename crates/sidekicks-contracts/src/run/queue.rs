@@ -599,7 +599,7 @@ impl ListKey for QueueItemId {
     type Key = Self;
 
     fn list_key(&self) -> Self {
-        self.clone()
+        *self
     }
 
     // An id carries no rule its read does not hold.

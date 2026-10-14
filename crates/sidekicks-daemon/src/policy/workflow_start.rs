@@ -48,7 +48,7 @@ pub(crate) fn check_workflow_start(
         action: "workflow::start",
         resource: PolicyResource {
             entity_type: "Workflow",
-            id: start.workflow_id.as_str(),
+            id: start.workflow_id.text().as_str(),
         },
         context,
     })
@@ -62,14 +62,14 @@ mod tests {
     use crate::policy::execution_posture_service::CURATED_CREDENTIAL_POLICY_REF;
 
     fn workflow_id() -> WorkflowDefinitionId {
-        WorkflowDefinitionId::new("0190c8a0-0000-7000-8000-000000000002".to_owned())
+        WorkflowDefinitionId::new("0190c8a0-0000-7000-8000-000000000002")
             .expect("the text is a version 7 UUID")
     }
 
     #[test]
     fn the_owner_may_start_with_or_without_a_posture() {
         let authorizer = Authorizer::load_built_in().expect("the built-in rules load");
-        let owner = UserId::new("0190c8a0-0000-7000-8000-000000000001".to_owned())
+        let owner = UserId::new("0190c8a0-0000-7000-8000-000000000001")
             .expect("the text is a version 7 UUID");
         let workflow_id = workflow_id();
         let ask = ExecutionPosture::Ask {

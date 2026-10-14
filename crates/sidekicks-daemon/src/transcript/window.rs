@@ -271,7 +271,7 @@ where
             .iter()
             .filter_map(TranscriptReadRow::run_id)
             .filter(|run_id| named.insert(*run_id))
-            .cloned()
+            .copied()
             .collect();
         TranscriptRunFactsReader::new(self.reader, self.read_damaged_from_sequence).read(
             self.session_id,

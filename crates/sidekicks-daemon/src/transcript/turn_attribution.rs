@@ -150,9 +150,9 @@ where
         let mut last_rollback_sequence = START_OF_LOG_POSITION;
         let mut rollbacks = self.reader.prepare_cached(&SELECT_ROLLBACKS_BEFORE_SQL)?;
         let mut rollback_rows = rollbacks.query(named_params! {
-            "@session_id": session_id.as_str(),
+            "@session_id": session_id.text().as_str(),
             "@type": TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
-            "@run_id": run_id.as_str(),
+            "@run_id": run_id.text().as_str(),
             "@before_sequence": before_sequence,
             "@read_bound": read_bound,
         })?;
@@ -166,9 +166,9 @@ where
         // Turns before the last rollback do not move the run: the rollback set its position.
         let mut turns = self.reader.prepare_cached(&SELECT_TURNS_BETWEEN_SQL)?;
         let mut turn_rows = turns.query(named_params! {
-            "@session_id": session_id.as_str(),
+            "@session_id": session_id.text().as_str(),
             "@type": TURN_STARTED_EVENT_TYPE,
-            "@run_id": run_id.as_str(),
+            "@run_id": run_id.text().as_str(),
             "@after_sequence": last_rollback_sequence,
             "@before_sequence": before_sequence,
             "@read_bound": read_bound,
@@ -195,9 +195,9 @@ where
             .prepare_cached(&SELECT_TOOL_CALL_OPENING_SQL)?
             .query_row(
                 named_params! {
-                    "@session_id": session_id.as_str(),
+                    "@session_id": session_id.text().as_str(),
                     "@type": TOOL_CALL_OPENING_EVENT_TYPE,
-                    "@run_id": run_id.as_str(),
+                    "@run_id": run_id.text().as_str(),
                     "@tool_call_id": tool_call_id,
                     "@before_sequence": before_sequence,
                     "@read_bound": read_bound,
@@ -275,12 +275,11 @@ impl SessionTurnAttribution {
         let Some(payload_run_id) = transcript_run_id_of(Some(&event.payload)) else {
             return Ok(None);
         };
-        let run_id = RunId::new(payload_run_id.to_owned()).map_err(|cause| {
-            TurnAttributionError::PayloadRunId {
+        let run_id =
+            RunId::new(payload_run_id).map_err(|cause| TurnAttributionError::PayloadRunId {
                 sequence: event.sequence.get(),
                 cause,
-            }
-        })?;
+            })?;
         let mut fold = self.take_fold(reads, &run_id, sequence)?;
         let stamp = if event_type == TURN_STARTED_EVENT_TYPE {
             fold.standing = standing_after_turn_started(fold.standing, &event.payload);
@@ -306,7 +305,7 @@ impl SessionTurnAttribution {
             .iter()
             .any(|terminal_type| terminal_type == event_type)
         {
-            self.fold_by_run_id.insert(run_id.clone(), fold);
+            self.fold_by_run_id.insert(run_id, fold);
         }
         Ok(Some(RunEventAttribution {
             run_id,
@@ -338,9 +337,9 @@ impl SessionTurnAttribution {
         };
         fold.standing = standing_after_rollback(fold.standing, rollback.target_position);
         let stamp = transcript_run_stamp_at(&fold.turns, boundary);
-        self.fold_by_run_id.insert(rollback.run_id.clone(), fold);
+        self.fold_by_run_id.insert(rollback.run_id, fold);
         Ok(RunEventAttribution {
-            run_id: rollback.run_id.clone(),
+            run_id: rollback.run_id,
             stamp,
             rollback: Some(rollback),
         })

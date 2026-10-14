@@ -111,9 +111,9 @@ impl ClaudeRunPauses {
     /// Pauses the session's lead run from its next hook on; a pause already in place is kept.
     pub(crate) fn pause_lead(&mut self, session_id: &SessionId, run_id: &RunId) {
         self.lead_pauses
-            .entry(session_id.clone())
+            .entry(*session_id)
             .or_insert_with(|| ClaudeLeadPause {
-                run_id: run_id.clone(),
+                run_id: *run_id,
                 is_stop_answered: false,
                 is_effect_reported: false,
             });
@@ -122,7 +122,7 @@ impl ClaudeRunPauses {
     /// Pauses one helper from its next tool call on.
     pub(crate) fn pause_helper(&mut self, session_id: &SessionId, agent_id: &str) {
         self.paused_agents
-            .entry(session_id.clone())
+            .entry(*session_id)
             .or_default()
             .insert(agent_id.to_owned());
     }
@@ -150,7 +150,7 @@ impl ClaudeRunPauses {
         if !is_paused {
             return ClaudePauseAnswer::Answer(ClaudeHookAnswer::Pass);
         }
-        let held = self.held_callbacks.entry(session_id.clone()).or_default();
+        let held = self.held_callbacks.entry(*session_id).or_default();
         let has_taken_effect = !held.iter().any(|callback| callback.agent_id == agent_id);
         held.push(HeldToolCallback {
             request_id: request_id.to_owned(),
@@ -189,7 +189,7 @@ impl ClaudeRunPauses {
             return None;
         }
         lead_pause.is_effect_reported = true;
-        Some(lead_pause.run_id.clone())
+        Some(lead_pause.run_id)
     }
 
     /// The lead run whose pause already took effect and still holds, or `None`.
@@ -262,8 +262,7 @@ mod tests {
     use super::{ClaudeHookAnswer, ClaudePauseAnswer, ClaudeReleasedCallback, ClaudeRunPauses};
 
     fn session_id() -> SessionId {
-        SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d".to_owned())
-            .expect("a valid session id")
+        SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id")
     }
 
     fn bytes_of(answer: ClaudePauseAnswer) -> String {
@@ -276,8 +275,7 @@ mod tests {
     #[test]
     fn a_paused_lead_is_denied_then_stopped_in_the_bytes_claude_code_reads() {
         let session_id = session_id();
-        let run_id =
-            RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5e".to_owned()).expect("a valid run id");
+        let run_id = RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5e").expect("a valid run id");
         let mut pauses = ClaudeRunPauses::default();
         assert_eq!(
             bytes_of(pauses.answer_before_tool(&session_id, None, "r0")),

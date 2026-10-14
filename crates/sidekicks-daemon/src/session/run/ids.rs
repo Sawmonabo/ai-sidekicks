@@ -30,8 +30,8 @@ pub(crate) fn run_in_session_statement(session_id: &SessionId, run_id: &RunId) -
     WriteStatement {
         sql: Cow::Borrowed(RUN_IN_SESSION_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@sessionId", session_id.as_str()),
-            text_binding("@runId", run_id.as_str()),
+            text_binding("@sessionId", session_id.text().as_str()),
+            text_binding("@runId", run_id.text().as_str()),
         ]),
         expected_row_count: Some(1),
     }
