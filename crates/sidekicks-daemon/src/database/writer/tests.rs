@@ -1,20 +1,28 @@
 use std::borrow::Cow;
+use std::error::Error;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use rstest::rstest;
 use rusqlite::Connection;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
+use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
+use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{StatementBindings, WriteStatement};
-use crate::database::writer::messages::{BatchFailure, ThreadRequest, WriteJob, WriteJobOutcome};
+use crate::database::writer::messages::{
+    BatchFailure, ThreadExit, ThreadRequest, WriteJob, WriteJobOutcome,
+};
 use crate::database::writer::test_file::{TestDatabase, session_event_row, test_session_id};
 use crate::database::writer::{
-    CommittedWrite, DatabaseWriter, DatabaseWriterOptions, PendingWrite, ThreadStop,
-    WRITE_QUEUE_CAPACITY, WriteError, WriteOptions, WriterThread, WritesHeldError,
+    CheckpointError, CommittedWrite, DatabaseWriter, DatabaseWriterOptions, PendingWrite,
+    ThreadStop, WRITE_QUEUE_CAPACITY, WriteError, WriteFailureListener, WriteOptions, WriterThread,
+    WritesHeldError,
 };
 
 /// A read that counts to a million: slow enough that a write running it has not committed when
@@ -22,9 +30,12 @@ use crate::database::writer::{
 const SLOW_READ_SQL: &str = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c \
                              WHERE x < 1000000) SELECT count(*) FROM c";
 
-/// A read that never ends, in constant memory, until it is interrupted.
-const ENDLESS_READ_SQL: &str =
-    "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c";
+/// A write that never ends, in constant memory, until it is interrupted: its insert waits on a
+/// count that never finishes.
+const ENDLESS_WRITE_SQL: &str = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) \
+                                 INSERT INTO projection_cursors (id, session_id, last_sequence, \
+                                 state, updated_at) SELECT 'endless', 'endless', count(*), \
+                                 'stale', 'now' FROM c";
 
 fn statement(sql: &'static str, expected_row_count: Option<usize>) -> WriteStatement {
     WriteStatement {
@@ -44,14 +55,50 @@ fn append(session_id: &SessionId, event_type: SessionEventType) -> WriteJob {
 async fn open_writer(
     database: &TestDatabase,
     writes_held_until: Option<oneshot::Receiver<Result<(), WritesHeldError>>>,
+    on_write_failed: Option<WriteFailureListener>,
 ) -> DatabaseWriter {
     let options = DatabaseWriterOptions {
         writes_held_until,
-        on_write_failed: None,
+        on_write_failed,
     };
     DatabaseWriter::open(database.opener(), options)
         .await
         .expect("the writer opens its database")
+}
+
+/// A listener that counts the failures it hears.
+fn counting_listener() -> (Arc<AtomicUsize>, WriteFailureListener) {
+    let heard = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&heard);
+    let listener: WriteFailureListener = Box::new(move |_failure: &(dyn Error + 'static)| {
+        counter.fetch_add(1, Ordering::Relaxed);
+    });
+    (heard, listener)
+}
+
+/// A writer whose thread the test stands in for: it receives each request the thread would. The
+/// writer serves while the returned exit sender lives.
+fn stand_in_writer(
+    options: DatabaseWriterOptions,
+) -> (
+    DatabaseWriter,
+    mpsc::Receiver<ThreadRequest>,
+    oneshot::Sender<ThreadExit>,
+) {
+    let (requests, thread_requests) = mpsc::channel(1);
+    let (exit, exited) = oneshot::channel();
+    let interrupt_source = Connection::open_in_memory().expect("an in-memory connection opens");
+    let writer = DatabaseWriter::serve(
+        WriterThread {
+            requests,
+            interrupt: interrupt_source.get_interrupt_handle(),
+            stop: Arc::new(ThreadStop::new()),
+            exit: exited,
+            join: None,
+        },
+        options,
+    );
+    (writer, thread_requests, exit)
 }
 
 fn queue(writer: &DatabaseWriter, job: WriteJob) -> PendingWrite {
@@ -80,7 +127,7 @@ fn sequences(written: Result<CommittedWrite, WriteError>) -> Vec<u64> {
 async fn a_refused_write_rolls_back_alone_and_uses_no_sequence() {
     let database = TestDatabase::new();
     let (release, writes_held_until) = oneshot::channel();
-    let writer = open_writer(&database, Some(writes_held_until)).await;
+    let writer = open_writer(&database, Some(writes_held_until), None).await;
     let session_id = test_session_id();
     // Held, the three writes go out as one batch once released.
     let first = queue(
@@ -137,7 +184,7 @@ async fn a_refused_write_rolls_back_alone_and_uses_no_sequence() {
 #[tokio::test]
 async fn flush_answers_once_a_queued_write_has_committed() {
     let database = TestDatabase::new();
-    let writer = open_writer(&database, None).await;
+    let writer = open_writer(&database, None, None).await;
     let session_id = test_session_id();
     let written = queue(
         &writer,
@@ -161,7 +208,7 @@ async fn flush_answers_once_a_queued_write_has_committed() {
 async fn a_write_at_the_cap_waits_and_is_stored() {
     let database = TestDatabase::new();
     let (release, writes_held_until) = oneshot::channel();
-    let writer = open_writer(&database, Some(writes_held_until)).await;
+    let writer = open_writer(&database, Some(writes_held_until), None).await;
     let session_id = test_session_id();
     let filling = queue(
         &writer,
@@ -188,19 +235,7 @@ async fn a_write_at_the_cap_waits_and_is_stored() {
 
 #[tokio::test(start_paused = true)]
 async fn a_waited_on_write_skips_the_batch_window() {
-    let (requests, mut thread_requests) = mpsc::channel(1);
-    let (_exit, exit) = oneshot::channel();
-    let interrupt_source = Connection::open_in_memory().expect("an in-memory connection opens");
-    let writer = DatabaseWriter::serve(
-        WriterThread {
-            requests,
-            interrupt: interrupt_source.get_interrupt_handle(),
-            stop: Arc::new(ThreadStop::new()),
-            exit,
-            join: None,
-        },
-        DatabaseWriterOptions::default(),
-    );
+    let (writer, mut thread_requests, _exit) = stand_in_writer(DatabaseWriterOptions::default());
     let queued_at = Instant::now();
     let written = writer
         .enqueue(
@@ -226,9 +261,50 @@ async fn a_waited_on_write_skips_the_batch_window() {
 }
 
 #[tokio::test]
+async fn no_checkpoint_runs_while_the_writer_holds_its_writes() {
+    let (release, writes_held_until) = oneshot::channel();
+    let (writer, mut thread_requests, _exit) = stand_in_writer(DatabaseWriterOptions {
+        writes_held_until: Some(writes_held_until),
+        on_write_failed: None,
+    });
+    let mut truncating = Box::pin(writer.checkpoint(CheckpointMode::Truncate));
+    assert!(futures::poll!(&mut truncating).is_pending());
+
+    // The flush answers once the queue has taken the checkpoint.
+    writer.flush().await;
+
+    assert!(matches!(
+        thread_requests.try_recv(),
+        Err(TryRecvError::Empty)
+    ));
+    assert!(matches!(
+        writer.checkpoint(CheckpointMode::Passive).await,
+        Err(CheckpointError::Held)
+    ));
+    release.send(Ok(())).expect("the writer waits on its hold");
+    let Some(ThreadRequest::Checkpoint {
+        mode: CheckpointMode::Truncate,
+        reply,
+    }) = thread_requests.recv().await
+    else {
+        panic!("the writer sends the truncating checkpoint once the hold is let go");
+    };
+    let result = CheckpointResult {
+        is_busy: false,
+        log_frames: 0,
+        checkpointed_frames: 0,
+    };
+    reply
+        .send(Ok(result))
+        .expect("the writer waits on the checkpoint");
+    assert_eq!(truncating.await.expect("the checkpoint runs"), result);
+}
+
+#[tokio::test]
 async fn a_close_at_its_drain_bound_rolls_back_the_batch_in_flight() {
     let database = TestDatabase::new();
-    let writer = open_writer(&database, None).await;
+    let (failures_heard, on_write_failed) = counting_listener();
+    let writer = open_writer(&database, None, Some(on_write_failed)).await;
     // Sent back to back, the two writes go out as one batch.
     let inserted = queue(
         &writer,
@@ -237,7 +313,7 @@ async fn a_close_at_its_drain_bound_rolls_back_the_batch_in_flight() {
     let endless = queue(
         &writer,
         WriteJob {
-            statements: vec![statement(ENDLESS_READ_SQL, None)],
+            statements: vec![statement(ENDLESS_WRITE_SQL, None)],
             events: Vec::new(),
         },
     );
@@ -257,26 +333,56 @@ async fn a_close_at_its_drain_bound_rolls_back_the_batch_in_flight() {
     ));
     assert!(matches!(endless.await, Err(WriteError::ClosedAtDrainBound)));
     assert_eq!(stored_event_count(&database), 0);
+    // The stop's own interrupt says nothing of the file.
+    assert_eq!(failures_heard.load(Ordering::Relaxed), 0);
 }
 
+#[rstest]
+#[case::rollback(None, &[("ROLLBACK", None)], true, 1)]
+#[case::rollback_then_refused(
+    None,
+    &[
+        ("ROLLBACK", None),
+        ("UPDATE projection_cursors SET state = 'current' WHERE id = 'no-such-cursor'", Some(1)),
+    ],
+    false,
+    1,
+)]
+#[case::after_a_write_failed_alone(
+    Some("SELECT * FROM no_such_table"),
+    &[("ROLLBACK", None)],
+    true,
+    2,
+)]
 #[tokio::test]
-async fn sqlite_ending_the_transaction_fails_the_whole_batch() {
+async fn sqlite_ending_the_transaction_fails_the_whole_batch(
+    #[case] first_statement: Option<&'static str>,
+    #[case] middle_statements: &'static [(&'static str, Option<usize>)],
+    #[case] has_source: bool,
+    #[case] expected_failures_heard: usize,
+) {
     let database = TestDatabase::new();
     let (release, writes_held_until) = oneshot::channel();
-    let writer = open_writer(&database, Some(writes_held_until)).await;
+    let (failures_heard, on_write_failed) = counting_listener();
+    let writer = open_writer(&database, Some(writes_held_until), Some(on_write_failed)).await;
     let session_id = test_session_id();
+    let first = match first_statement {
+        Some(sql) => WriteJob {
+            statements: vec![statement(sql, None)],
+            events: Vec::new(),
+        },
+        None => append(&session_id, SessionEventType::AssistantMessage),
+    };
+    let middle = WriteJob {
+        statements: middle_statements
+            .iter()
+            .map(|&(sql, expected_row_count)| statement(sql, expected_row_count))
+            .collect(),
+        events: Vec::new(),
+    };
     let written = [
-        queue(
-            &writer,
-            append(&session_id, SessionEventType::AssistantMessage),
-        ),
-        queue(
-            &writer,
-            WriteJob {
-                statements: vec![statement("ROLLBACK", None)],
-                events: Vec::new(),
-            },
-        ),
+        queue(&writer, first),
+        queue(&writer, middle),
         queue(
             &writer,
             append(&session_id, SessionEventType::AssistantMessage),
@@ -288,11 +394,19 @@ async fn sqlite_ending_the_transaction_fails_the_whole_batch() {
         let Err(WriteError::BatchFailed(failure)) = write.await else {
             panic!("every write of the batch fails with it");
         };
-        assert!(matches!(
-            failure.original(),
-            BatchFailure::TransactionEnded { job_index: 1, .. }
-        ));
+        let BatchFailure::TransactionEnded {
+            job_index: 1,
+            source,
+        } = failure.original()
+        else {
+            panic!("SQLite ended the transaction while the middle write ran");
+        };
+        assert_eq!(source.is_some(), has_source);
     }
     assert_eq!(stored_event_count(&database), 0);
+    assert_eq!(
+        failures_heard.load(Ordering::Relaxed),
+        expected_failures_heard
+    );
     assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
 }

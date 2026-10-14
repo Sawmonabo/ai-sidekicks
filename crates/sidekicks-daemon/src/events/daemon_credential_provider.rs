@@ -136,7 +136,7 @@ pub(crate) trait DaemonCredentialProvider: Send + Sync {
                   refuse their headers with it"
     )
 )]
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum DpopCredentialRefusal {
     /// No `Authorization` header, or an empty one.
     #[error(
@@ -284,11 +284,14 @@ mod tests {
         let checked = check_dpop_credential_material(&DaemonCredentialMaterial::new(headers));
 
         match expected_refusal {
-            None => assert_eq!(checked, Ok(())),
+            None => assert!(checked.is_ok()),
             Some(expected_refusal) => {
                 let refusal = checked.expect_err("the material is refused");
                 let message = refusal.to_string();
-                assert_eq!(refusal, expected_refusal);
+                assert_eq!(
+                    std::mem::discriminant(&refusal),
+                    std::mem::discriminant(&expected_refusal)
+                );
                 for text in withheld {
                     assert!(!message.contains(text), "{message:?} echoes {text:?}");
                 }
