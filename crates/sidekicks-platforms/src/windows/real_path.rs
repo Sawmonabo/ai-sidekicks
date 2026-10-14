@@ -16,11 +16,11 @@ const VERBATIM_PREFIX: &str = r"\\?\";
 // The prefix of a device path, which the system already takes as it is.
 const DEVICE_PREFIX: &str = r"\\.\";
 
-// The start of a share's path, `\\server\share`.
-const SHARE_PREFIX: &str = r"\\";
-
-// The UTF-16 unit of `\`.
+// The UTF-16 units of `\`, `/`, `:` and `.`.
 const BACKSLASH: u16 = 0x5C;
+const SLASH: u16 = 0x2F;
+const COLON: u16 = 0x3A;
+const DOT: u16 = 0x2E;
 
 /// The absolute path `path` names with every link resolved, its verbatim prefix stripped:
 /// `\\?\UNC\server\share` reads `\\server\share` and `\\?\C:\x` reads `C:\x`, as the desktop's
@@ -33,42 +33,114 @@ pub fn real_path(path: &Path) -> io::Result<PathBuf> {
         .as_os_str()
         .encode_wide()
         .collect();
-    let stripped: Vec<u16> = if has_prefix(&resolved, VERBATIM_SHARE_PREFIX) {
+    Ok(PathBuf::from(OsString::from_wide(&strip_verbatim_prefix(
+        &resolved,
+    )?)))
+}
+
+// `\\?\UNC\server\share\x` becomes `\\server\share\x` and `\\?\C:\x` becomes `C:\x`; a resolved
+// path with neither prefix is a form no path the system resolved should take.
+fn strip_verbatim_prefix(resolved: &[u16]) -> io::Result<Vec<u16>> {
+    if has_prefix(resolved, VERBATIM_SHARE_PREFIX) {
         // `\\?\UNC\server` keeps the separator before `server` and gains one: `\\server`.
         let after_unc = VERBATIM_SHARE_PREFIX.len() - 1;
-        std::iter::once(BACKSLASH)
+        return Ok(std::iter::once(BACKSLASH)
             .chain(resolved[after_unc..].iter().copied())
-            .collect()
-    } else if has_prefix(&resolved, VERBATIM_PREFIX) {
-        resolved[VERBATIM_PREFIX.len()..].to_vec()
-    } else {
-        // Anything else is a form no path the system resolved should take.
-        return Err(io::Error::from_raw_os_error(
-            ERROR_INVALID_HANDLE.cast_signed(),
-        ));
-    };
-    Ok(PathBuf::from(OsString::from_wide(&stripped)))
+            .collect());
+    }
+    if has_prefix(resolved, VERBATIM_PREFIX) {
+        return Ok(resolved[VERBATIM_PREFIX.len()..].to_vec());
+    }
+    Err(io::Error::from_raw_os_error(
+        ERROR_INVALID_HANDLE.cast_signed(),
+    ))
 }
 
 /// `path` made absolute in its verbatim form, `\\?\C:\x` or `\\?\UNC\server\share\x`, as UTF-16
-/// units with no NUL, so a system call takes it past 260 units without a long-path manifest; a
-/// verbatim or device path stays as it is. Fails with `InvalidInput` for a NUL in the path, and
-/// with the system's error when it cannot be made absolute.
+/// units with no NUL, so a system call takes it past 260 units without a long-path manifest. An
+/// absolute path is normalized by its text alone (`/` read as `\`, `.` and `..` collapsed), so a
+/// name ending in a dot or a space keeps it; a relative one is made absolute by the system first;
+/// a verbatim or device path stays as it is. Fails with `InvalidInput` for a NUL in the path or a
+/// share's path naming no share, and with the system's error when a relative path cannot be made
+/// absolute.
 pub(crate) fn verbatim_path(path: &Path) -> io::Result<Vec<u16>> {
+    let units: Vec<u16> = path.as_os_str().encode_wide().collect();
+    if units.contains(&0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the path holds a NUL",
+        ));
+    }
+    if has_prefix(&units, VERBATIM_PREFIX) || has_prefix(&units, DEVICE_PREFIX) {
+        return Ok(units);
+    }
+    if let Some(verbatim) = absolute_verbatim(&units) {
+        return Ok(verbatim);
+    }
     let absolute: Vec<u16> = std::path::absolute(path)?
         .as_os_str()
         .encode_wide()
         .collect();
-    if has_prefix(&absolute, VERBATIM_PREFIX) || has_prefix(&absolute, DEVICE_PREFIX) {
-        return Ok(absolute);
+    absolute_verbatim(&absolute).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the path names no drive folder or share",
+        )
+    })
+}
+
+// The verbatim form of a drive-rooted path (`C:\x`) or a share's path (`\\server\share\x`), its
+// names collapsed by their text; `None` for any other form.
+fn absolute_verbatim(units: &[u16]) -> Option<Vec<u16>> {
+    let (mut verbatim, names) = match units {
+        [drive, colon, separator, names @ ..]
+            if u8::try_from(*drive).is_ok_and(|drive| drive.is_ascii_alphabetic())
+                && *colon == COLON
+                && is_separator(*separator) =>
+        {
+            let root: Vec<u16> = VERBATIM_PREFIX
+                .encode_utf16()
+                .chain([*drive, COLON])
+                .collect();
+            (root, names)
+        }
+        [first, second, rest @ ..] if is_separator(*first) && is_separator(*second) => {
+            let mut parts = rest.splitn(3, |unit| is_separator(*unit));
+            let server = parts.next().filter(|server| !server.is_empty())?;
+            let share = parts.next().filter(|share| !share.is_empty())?;
+            let root: Vec<u16> = VERBATIM_SHARE_PREFIX
+                .encode_utf16()
+                .chain(server.iter().copied())
+                .chain([BACKSLASH])
+                .chain(share.iter().copied())
+                .collect();
+            (root, parts.next().unwrap_or_default())
+        }
+        _ => return None,
+    };
+    let mut kept: Vec<&[u16]> = Vec::new();
+    for name in names.split(|unit| is_separator(*unit)) {
+        match name {
+            [] | [DOT] => {}
+            [DOT, DOT] => {
+                kept.pop();
+            }
+            _ => kept.push(name),
+        }
     }
-    if has_prefix(&absolute, SHARE_PREFIX) {
-        return Ok(VERBATIM_SHARE_PREFIX
-            .encode_utf16()
-            .chain(absolute[SHARE_PREFIX.len()..].iter().copied())
-            .collect());
+    for name in &kept {
+        verbatim.push(BACKSLASH);
+        verbatim.extend_from_slice(name);
     }
-    Ok(VERBATIM_PREFIX.encode_utf16().chain(absolute).collect())
+    // A drive's root is `C:\`, never `C:`.
+    if kept.is_empty() && !has_prefix(&verbatim, VERBATIM_SHARE_PREFIX) {
+        verbatim.push(BACKSLASH);
+    }
+    Some(verbatim)
+}
+
+fn is_separator(unit: u16) -> bool {
+    unit == BACKSLASH || unit == SLASH
 }
 
 // Whether `units` begins with the ASCII `prefix`, compared exactly, case and all.
@@ -82,35 +154,20 @@ fn has_prefix(units: &[u16], prefix: &str) -> bool {
 mod tests {
     use std::ffi::OsString;
     use std::fs;
-    use std::path::{Component, Path, PathBuf, Prefix};
+    use std::path::PathBuf;
 
     use rstest::rstest;
 
-    use super::real_path;
+    use super::{real_path, strip_verbatim_prefix};
 
     enum PathForm {
         Drive,
-        Share,
         NameEndingInDot,
         PastMaxPath,
     }
 
-    // `C:\x` as the machine's own administrative share sees it, `\\localhost\C$\x`.
-    fn share_path(drive_path: &Path) -> PathBuf {
-        let mut components = drive_path.components();
-        let Some(Component::Prefix(prefix)) = components.next() else {
-            panic!("a drive path starts with its drive");
-        };
-        let Prefix::Disk(letter) = prefix.kind() else {
-            panic!("a drive path's prefix is a disk");
-        };
-        let rest: PathBuf = components.skip(1).collect();
-        PathBuf::from(format!(r"\\localhost\{}$", char::from(letter))).join(rest)
-    }
-
     #[rstest]
     #[case::drive(PathForm::Drive)]
-    #[case::share(PathForm::Share)]
     #[case::name_ending_in_dot(PathForm::NameEndingInDot)]
     #[case::past_max_path(PathForm::PastMaxPath)]
     fn a_resolved_path_round_trips_without_its_verbatim_prefix(#[case] form: PathForm) {
@@ -122,12 +179,6 @@ mod tests {
                 let folder = base.join("folder");
                 fs::create_dir(&folder).expect("the folder is made");
                 (folder.clone(), folder)
-            }
-            PathForm::Share => {
-                let folder = base.join("shared");
-                fs::create_dir(&folder).expect("the folder is made");
-                let shared = share_path(&folder);
-                (shared.clone(), shared)
             }
             PathForm::NameEndingInDot => {
                 let plain = base.join("name.");
@@ -148,5 +199,17 @@ mod tests {
             }
         };
         assert_eq!(real_path(&asked).expect("the path resolves"), expected);
+    }
+
+    // The share form the system's resolution answers for a path on a share, which needs no share
+    // on the machine running the test.
+    #[test]
+    fn a_resolved_share_path_reads_as_its_share() {
+        let resolved: Vec<u16> = r"\\?\UNC\server\share\folder".encode_utf16().collect();
+        let stripped = strip_verbatim_prefix(&resolved).expect("the prefix strips");
+        assert_eq!(
+            String::from_utf16(&stripped).expect("UTF-16 text"),
+            r"\\server\share\folder"
+        );
     }
 }
