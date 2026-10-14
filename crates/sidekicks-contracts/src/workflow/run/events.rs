@@ -1,5 +1,5 @@
-//! The events a workflow run appends about the run as a whole: it started, was canceled, resumed
-//! or deleted, and its results were posted into a session.
+//! The events a workflow run appends about the run as a whole: it started, was gated, waited,
+//! failed, completed, was canceled, resumed or deleted, and its results were posted into a session.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -75,6 +75,36 @@ workflow_run_event! {
     pub struct WorkflowRunDeletedPayload {}
 }
 
+workflow_run_event! {
+    /// `workflow.gated`: the run reached a gate that must be answered before it goes on.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowGatedPayload {}
+}
+
+workflow_run_event! {
+    /// `workflow.failed`: the run ended on a failure, whose cause its failed step's own event
+    /// carries.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowFailedPayload {}
+}
+
+workflow_run_event! {
+    /// `workflow.completed`: the run reached its last steps and succeeded.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowCompletedPayload {}
+}
+
+workflow_run_event! {
+    /// `workflow.run_waiting`: the run started waiting, on a person, on its chain's question or on
+    /// a spent provider account; the waiting step's own `workflow.phase_suspended` says which.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowRunWaitingPayload {}
+}
+
 workflow_step_key! {
     position
     /// One step a resumed run picks up, by its node, its attempt and which execution of the node;
@@ -146,12 +176,17 @@ pub struct WorkflowResultsPostedPayload {
 /// The TypeScript module of the run events.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/run/events",
-    doc: "The events a workflow run appends about the run as a whole: it started, was canceled, \
-          resumed or deleted, and its results were posted into a session.",
+    doc: "The events a workflow run appends about the run as a whole: it started, was gated, \
+          waited, failed, completed, was canceled, resumed or deleted, and its results were posted \
+          into a session.",
     definitions: &[
         Definition::read::<WorkflowStartedPayload>().checked(),
         Definition::read::<WorkflowCanceledPayload>().checked(),
         Definition::read::<WorkflowRunDeletedPayload>().checked(),
+        Definition::read::<WorkflowGatedPayload>().checked(),
+        Definition::read::<WorkflowFailedPayload>().checked(),
+        Definition::read::<WorkflowCompletedPayload>().checked(),
+        Definition::read::<WorkflowRunWaitingPayload>().checked(),
         Definition::read::<WorkflowResumedStep>(),
         Definition::read::<WorkflowResumptionPoint>(),
         Definition::read::<WorkflowResumedPayload>().checked(),

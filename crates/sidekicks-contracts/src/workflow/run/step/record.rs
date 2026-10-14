@@ -246,8 +246,9 @@ pub(crate) use workflow_step_key;
 workflow_step_key! {
     /// The four members that address one step: the run, the node, the attempt and which
     /// execution. It is the whole input of a form read and a fix session.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
     pub struct WorkflowStepKey {}
 }
 

@@ -12,7 +12,7 @@
   "parsed": [
     {
       "link": "sidekicks://session/0190F1C4-7E3A-7B1C-9D2E-3F4A5B6C7D8E",
-      "target": { "kind": "session", "sessionId": "0190F1C4-7E3A-7B1C-9D2E-3F4A5B6C7D8E" }
+      "target": { "kind": "session", "sessionId": "0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e" }
     },
     { "link": "sidekicks://session/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e/", "target": null },
     { "link": "sidekicks://session/0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e?x=1", "target": null },

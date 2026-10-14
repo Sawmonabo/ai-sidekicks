@@ -98,8 +98,14 @@ pub enum ReceivedError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     /// The message breaks its contract's schema, an array where an object belongs among the ways.
-    #[error("the message breaks its contract's schema")]
-    Shape(#[source] Box<jsonschema::ValidationError<'static>>),
+    /// It keeps only where and which keyword failed, never the value, which may be a secret.
+    #[error("the message breaks its contract's schema at `{instance_path}` ({keyword})")]
+    Shape {
+        /// The failing value's JSON Pointer, empty for the whole message.
+        instance_path: String,
+        /// The schema keyword the value failed.
+        keyword: String,
+    },
     /// The contract's check could not be built.
     #[error(transparent)]
     Check(#[from] ReceivedCheckError),
@@ -131,7 +137,10 @@ where
     let value: serde_json::Value = serde_json::from_slice(json)?;
     check
         .validate(&value)
-        .map_err(|error| ReceivedError::Shape(Box::new(error.to_owned())))?;
+        .map_err(|error| ReceivedError::Shape {
+            instance_path: error.instance_path().as_str().to_owned(),
+            keyword: error.kind().keyword().to_owned(),
+        })?;
     let received = read_with_attachments(attachments, || T::deserialize(value)).map_err(
         |error| match error {
             AttachmentError::Json(error) => ReceivedError::Read(error),
@@ -305,6 +314,7 @@ mod tests {
     use crate::preview::page::{PreviewPageOpenRequest, PreviewPageTarget};
     use crate::session::links::SessionLinkRequest;
     use crate::tag::TagList;
+    use crate::workflow::secret::WorkflowSecretReplaceRequest;
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -405,7 +415,7 @@ mod tests {
         assert!(
             matches!(
                 parse_received::<Received>(json.as_bytes(), Vec::new()),
-                Err(ReceivedError::Shape(_))
+                Err(ReceivedError::Shape { .. })
             ),
             "{json} is refused"
         );
@@ -456,5 +466,25 @@ mod tests {
             ),
             "the schema passes a repeat in another case, and garde refuses it"
         );
+    }
+
+    // A value the schema refuses is never quoted, so a secret typed in the wrong JSON type reaches
+    // neither the reply nor a log through the refusal.
+    #[test]
+    fn a_shape_refusal_never_carries_the_refused_value() {
+        let message =
+            br#"{"secretId":"0192f0a0-0000-7000-8000-000000000001","secretValue":48213377}"#;
+        let error = parse_received::<WorkflowSecretReplaceRequest>(message, Vec::new())
+            .expect_err("a number where the secret's text belongs is refused");
+        assert!(matches!(error, ReceivedError::Shape { .. }), "{error:?}");
+        let mut source: Option<&dyn std::error::Error> = Some(&error);
+        while let Some(error) = source {
+            let text = error.to_string();
+            assert!(
+                !text.contains(|character: char| "48213377".contains(character)),
+                "{text}"
+            );
+            source = error.source();
+        }
     }
 }
