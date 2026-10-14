@@ -1,5 +1,5 @@
-//! The machine's name on Windows: its DNS host name without the domain, read as libuv reads it,
-//! never `%COMPUTERNAME%`, the 15-byte uppercase NetBIOS name.
+//! The machine's name on Windows: its DNS host name without the domain, the name the person gave
+//! it, never `%COMPUTERNAME%`, the 15-byte uppercase NetBIOS name.
 
 use std::ffi::OsString;
 use std::io;
@@ -14,14 +14,14 @@ use crate::spawner::Spawner;
 // What the name is read from.
 const HOST_NAME_SOURCE: &str = "GetHostNameW";
 
-// The host name's room in UTF-16 units, its NUL included, as libuv sizes it.
+// The host name's room in UTF-16 units, its NUL included: a DNS name holds at most 255 bytes.
 const HOST_NAME_CAPACITY: usize = 256;
 
-// Winsock 2.2, the version libuv asks for.
+// Winsock 2.2, the newest version, which every supported Windows has.
 const WINSOCK_VERSION: u16 = 0x0202;
 
 // What starting Winsock answered: zero, or the error that refused it. Winsock starts once for the
-// process, as libuv starts it, and is never cleaned up.
+// process, since `GetHostNameW` needs it, and is never cleaned up, since a later call needs it too.
 static WINSOCK_START: OnceLock<i32> = OnceLock::new();
 
 /// The machine's DNS host name without its domain, read on a blocking thread once Winsock has
@@ -39,7 +39,8 @@ pub async fn machine_name(_spawner: &Spawner) -> Result<String, MachineNameError
     require_machine_name(name, HOST_NAME_SOURCE)
 }
 
-// The host name, its UTF-16 decoded as Node decodes it, an unpaired surrogate read as U+FFFD.
+// The host name, its UTF-16 decoded lossily, an unpaired surrogate read as U+FFFD, as the desktop
+// reads it.
 fn host_name() -> io::Result<String> {
     start_winsock()?;
     let mut buffer = [0_u16; HOST_NAME_CAPACITY];

@@ -162,7 +162,8 @@ impl ServiceLogFiles {
 }
 
 /// Builds the service log over `data_folder`'s `logs/`, made with its parents readable by the
-/// person alone, and opens its first file. Never fails: a folder or file that cannot be opened
+/// person alone (mode 0700 on macOS and Linux; on Windows the folder keeps the profile's access
+/// list), and opens its first file. Never fails: a folder or file that cannot be opened
 /// leaves `standard_error` alone carrying the log, which [`ServiceLog::install`] says once.
 pub fn open_service_log<StandardError>(
     data_folder: &Path,

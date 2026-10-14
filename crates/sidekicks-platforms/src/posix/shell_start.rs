@@ -15,30 +15,27 @@ use nix::unistd::{AccessFlags, Pid, access, execve, getppid};
 
 use crate::shell_start::{ShellStart, ShellStartError};
 
-/// The shell started where the account's login shell cannot be: zsh, the system's own on macOS.
+// zsh, the system's own shell on macOS.
 #[cfg(target_os = "macos")]
 const DEFAULT_SHELL: &str = "/bin/zsh";
 
-/// The shell started where the account's login shell cannot be: `/bin/sh`, which Linux starts for
-/// an account that names none.
+// `/bin/sh`, which Linux starts for an account that names no shell.
 #[cfg(target_os = "linux")]
 const DEFAULT_SHELL: &str = "/bin/sh";
 
 /// The arguments that start a shell as a login shell.
 pub const LOGIN_SHELL_ARGUMENTS: &[&str] = &["-l"];
 
-/// The folders a bare program name is looked up in when the environment holds no `PATH`, as libuv
-/// looks it up.
+// Where a bare program name is looked up when the environment holds no `PATH`: the system's own
+// default search path, so a shell starts as it would from a login with no `PATH` set.
 const DEFAULT_SEARCH_PATH: &str = "/usr/bin:/bin";
 
-/// The error a parent check that finds another parent answers: no such process, the daemon.
+// No such process: the daemon, once another process is the parent.
 const DAEMON_GONE_ERRNO: Errno = Errno::ESRCH;
 
-/// Why arming the shell's process did not go through.
 enum ArmingFailure {
-    /// The daemon is no longer the parent.
     DaemonGone,
-    /// The system refused a call; only Linux makes one that can be refused.
+    // Only Linux makes a call the system can refuse.
     #[cfg(target_os = "linux")]
     Refused(Errno),
 }
@@ -109,7 +106,6 @@ fn exec_program(start: &ShellStart) -> io::Result<Infallible> {
     execve(&path, &argv, &envp).map_err(io::Error::from)
 }
 
-/// The `PATH` a bare program name is looked up on: the environment's own, else libuv's default.
 fn search_path(start: &ShellStart) -> &str {
     start
         .environment
@@ -118,8 +114,8 @@ fn search_path(start: &ShellStart) -> &str {
         .map_or(DEFAULT_SEARCH_PATH, |(_, value)| value.as_str())
 }
 
-/// The first `search_path` folder holding `name` as a regular file the user may run, an empty entry
-/// being the current folder as `execvp` reads it. Fails with `ENOENT` when none does.
+// The first folder holding `name` as a regular file the user may run; an empty entry is the
+// current folder, as `execvp` reads it.
 fn find_program(name: &OsStr, search_path: &str) -> io::Result<PathBuf> {
     search_path
         .split(':')
@@ -133,7 +129,6 @@ fn find_program(name: &OsStr, search_path: &str) -> io::Result<PathBuf> {
         .ok_or_else(|| io::Error::from(Errno::ENOENT))
 }
 
-/// Linux: arms the parent-death signal, then checks the parent, then clears the huge-page switch.
 #[cfg(target_os = "linux")]
 fn arm(daemon_pid: u32) -> Result<(), ArmingFailure> {
     set_pdeathsig(Signal::SIGHUP).map_err(ArmingFailure::Refused)?;
@@ -142,14 +137,13 @@ fn arm(daemon_pid: u32) -> Result<(), ArmingFailure> {
     set_thp_disable(false).map_err(ArmingFailure::Refused)
 }
 
-/// macOS: checks the parent, since macOS has no parent-death signal.
+// macOS has no parent-death signal, so the parent check is all there is.
 #[cfg(target_os = "macos")]
 fn arm(daemon_pid: u32) -> Result<(), ArmingFailure> {
     check_parent(daemon_pid)
 }
 
-/// Fails with [`ArmingFailure::DaemonGone`] unless `daemon_pid` is the parent; a pid past
-/// `i32::MAX` is never one.
+// A pid past `i32::MAX` is never the parent.
 fn check_parent(daemon_pid: u32) -> Result<(), ArmingFailure> {
     let is_parent =
         i32::try_from(daemon_pid).is_ok_and(|daemon_pid| getppid() == Pid::from_raw(daemon_pid));

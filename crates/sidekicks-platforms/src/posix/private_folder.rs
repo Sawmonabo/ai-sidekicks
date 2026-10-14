@@ -42,12 +42,14 @@ mod tests {
         let existing = scratch.path().join("existing");
         fs::create_dir(&existing).expect("the existing folder is made");
         fs::set_permissions(&existing, Permissions::from_mode(0o755)).expect("the mode is set");
-        let nested = scratch.path().join("fresh").join("nested");
+        let fresh = scratch.path().join("fresh");
+        let nested = fresh.join("nested");
 
         create_private_folder(&existing).expect("the existing folder is made private");
         create_private_folder(&nested).expect("the nested folder is made");
 
         assert_eq!(mode_of(&existing), 0o700);
+        assert_eq!(mode_of(&fresh), 0o700);
         assert_eq!(mode_of(&nested), 0o700);
     }
 }

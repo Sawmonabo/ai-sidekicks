@@ -27,8 +27,8 @@ pub fn flush_folder(folder: &Path) -> io::Result<()> {
     flush_opened(folder)
 }
 
-// The volume's available blocks and the bytes in each. macOS reads `statfs`, as libuv does, since
-// its `statvfs` holds block counts in 32 bits and wraps past 16 TiB.
+// The volume's available blocks and the bytes in each. macOS reads `statfs`, since its `statvfs`
+// holds block counts in 32 bits and wraps past 16 TiB.
 #[cfg(target_os = "macos")]
 fn available_blocks(folder: &Path) -> io::Result<(u64, u64)> {
     let volume = nix::sys::statfs::statfs(folder)?;
@@ -50,8 +50,8 @@ fn flush_opened(path: &Path) -> io::Result<()> {
 }
 
 // macOS's `fsync` leaves the drive's own cache unflushed, so the full flush goes first; a file
-// system that refuses it takes the barrier flush, then a plain `fsync`, as libuv does, so a share
-// that has neither still flushes.
+// system that refuses it takes the barrier flush, then a plain `fsync`, so a share that has
+// neither still flushes.
 #[cfg(target_os = "macos")]
 fn sync(opened: &File) -> io::Result<()> {
     use nix::fcntl::{FcntlArg, fcntl};
