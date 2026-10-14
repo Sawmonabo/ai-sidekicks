@@ -33,14 +33,14 @@ pub struct WorkflowStepTimedOutDetails {
     pub limit_ms: SafeInt<1>,
 }
 
-/// Why a quick step's engine failed: it was not ready 5 s after the step's start.
+/// Why a quick step's engine failed: it could not be started.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowStepThreadFailedReason {
-    /// The step's engine was not ready 5 s after the step's start.
-    StartTimeout,
+    /// The step's thread, `rquickjs` runtime or context could not be created.
+    StartFailed,
 }
 
 /// The engine failure's details: why the engine failed.
@@ -91,7 +91,7 @@ ts_constants! {
     WORKFLOW_STEP_TIMED_OUT_CODE = RefusalCode::WorkflowStepTimedOut;
     /// Every limit that cuts a step.
     WORKFLOW_STEP_TIMED_OUT_CAUSES = WorkflowStepTimedOutCause::VARIANTS;
-    /// A quick step's engine that did not start in time.
+    /// A quick step's engine that could not be started.
     WORKFLOW_STEP_THREAD_FAILED_CODE = RefusalCode::WorkflowStepThreadFailed;
     /// Every reason a quick step's engine fails.
     WORKFLOW_STEP_THREAD_FAILED_REASONS = WorkflowStepThreadFailedReason::VARIANTS;
