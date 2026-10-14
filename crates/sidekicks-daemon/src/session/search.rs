@@ -12,3 +12,4 @@ pub(crate) mod rank_fusion;
 pub(crate) mod rowid_floors;
 pub(crate) mod service;
 pub(crate) mod snapshots;
+pub(crate) mod transcript;

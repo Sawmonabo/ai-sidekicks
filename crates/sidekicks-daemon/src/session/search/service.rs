@@ -70,8 +70,8 @@ const READ_BATCH_GROWTH: usize = 4;
 // first page ranks once.
 const FIRST_RANKED_SESSIONS: usize = SESSION_SEARCH_PAGE_LIMIT_MAX + 1;
 
-/// What `session.search` and `transcript.search` each read: a read connection of the search
-/// thread's own, and the search index the thread shares between them.
+/// What `session.search` and `transcript.search` read: the search thread owns it, and each search
+/// borrows it per call, so both share one read connection and its statement cache.
 pub(crate) struct SearchServiceDeps {
     /// The read connection every read of the search runs on.
     pub(crate) reader: Connection,
@@ -96,12 +96,10 @@ pub(crate) enum SessionSearchError {
     HitPosition(#[from] EventCursorPositionOutOfRange),
 }
 
-/// Answers `session.search` from the search index and its own read connection, holding the
-/// searches whose later pages are still to be read. It runs no timer: its owner reads
+/// Answers `session.search` from the search index and the read connection its caller lends, holding
+/// the searches whose later pages are still to be read. It runs no timer: its owner reads
 /// [`SessionSearchService::next_held_search_expiry`] and lets go of what has expired.
 pub(crate) struct SessionSearchService {
-    reader: Connection,
-    index: Arc<SearchIndex>,
     snapshots: SearchSnapshots,
 }
 
@@ -113,32 +111,31 @@ struct PageResume<'request> {
 }
 
 impl SessionSearchService {
-    /// A service over `deps`, holding no search yet.
-    pub(crate) fn new(deps: SearchServiceDeps) -> Self {
+    /// A service holding no search yet.
+    pub(crate) fn new() -> Self {
         Self {
-            reader: deps.reader,
-            index: deps.index,
             snapshots: SearchSnapshots::new(DEFAULT_SEARCH_SNAPSHOT_LIMITS),
         }
     }
 
-    /// One page of the query's hits, grouped by session, from `after_cursor` when it is given; a
-    /// query that names nothing answers an empty last page. `applied_floor_position` is where the
-    /// rowid floor log stood when the index last matched the database, read before the call, and
-    /// `now` the wall time held searches expire by. A page reads the database in one read
-    /// transaction, and every page after the first reads the view the first one held. Fails with
-    /// `session.search_cursor_unresolvable` for a cursor that continues no search held for this
-    /// query, and as a database or index read fails.
+    /// One page of the query's hits, grouped by session, read on `deps`, from `after_cursor` when
+    /// it is given; a query that names nothing answers an empty last page.
+    /// `applied_floor_position` is where the rowid floor log stood when the index last matched the
+    /// database, read before the call, and `now` the wall time held searches expire by. A page
+    /// reads the database in one read transaction, and every page after the first reads the view
+    /// the first one held. Fails with `session.search_cursor_unresolvable` for a cursor that
+    /// continues no search held for this query, and as a database or index read fails.
     pub(crate) fn search(
         &mut self,
+        deps: &SearchServiceDeps,
         request: &SessionSearchRequest,
         applied_floor_position: i64,
         now: SystemTime,
     ) -> Result<SessionSearchResponse, SessionSearchError> {
-        let transaction = self.reader.unchecked_transaction()?;
+        let transaction = deps.reader.unchecked_transaction()?;
         let response = answer(
             &transaction,
-            &self.index,
+            &deps.index,
             &mut self.snapshots,
             request,
             applied_floor_position,
