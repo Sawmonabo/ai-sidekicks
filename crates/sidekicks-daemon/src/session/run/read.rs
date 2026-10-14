@@ -83,7 +83,7 @@ impl<'connection> RunStateReader<'connection> {
     }
 
     /// The run's current state and version, or `None` for a run the daemon has no row for.
-    pub(crate) fn get_run(&self, run_id: &RunId) -> rusqlite::Result<Option<RunRead>> {
+    pub(crate) fn read_run(&self, run_id: &RunId) -> rusqlite::Result<Option<RunRead>> {
         self.reader
             .prepare_cached(SELECT_RUN_SQL)?
             .query_row([run_id.as_str()], |row| {
