@@ -115,6 +115,7 @@ pub struct HighlightReadRequest {
     #[garde(custom(|source: &NonEmptyText, (): &()| {
         fits_budget(source, HIGHLIGHT_SOURCE_MAX_BYTES)
     }))]
+    #[schemars(extend("maxJsonBytes" = HIGHLIGHT_SOURCE_MAX_BYTES))]
     pub source: NonEmptyText,
     /// The code block on screen this read is for, unique among the client's blocks; a newer read
     /// with the same block id on the same connection replaces this one while it waits.
@@ -141,7 +142,7 @@ pub struct HighlightSpan {
 /// A source's color spans, read from and written as the flat `[offset, length, class, …]` list.
 /// The triples, a non-zero length and a known class are the type; source order without overlap
 /// and the reply's byte bound are its check. A schema cannot state a repeating triple in a flat
-/// array, so the TypeScript check accepts any list of whole numbers.
+/// array, so the TypeScript check accepts any list of whole numbers within the byte bound.
 #[derive(Clone, Debug, PartialEq, Eq, garde::Validate)]
 pub struct HighlightSpans(#[garde(custom(are_spans_paintable))] pub Vec<HighlightSpan>);
 
@@ -207,6 +208,7 @@ impl JsonSchema for HighlightSpans {
                 "A source's color spans: `[offset, length, class, …]` in source order.",
             "type": "array",
             "items": { "type": "integer", "minimum": 0, "maximum": MAX_SAFE_INTEGER },
+            "maxJsonBytes": HIGHLIGHT_SPANS_MAX_BYTES,
         })
     }
 }
