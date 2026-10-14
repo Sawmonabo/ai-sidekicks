@@ -525,7 +525,7 @@ type WorkflowExpressionPreviewResponse =
 
 // WorkflowVersionDiffRead — workflow.versionDiffRead. The structural difference between two versions,
 // computed in the daemon over the hashed body only, so node positions never count as a change. The
-// canvas highlight and the inspector's old and new params read it, and so does an agent reading what
+// canvas highlight and the inspector's old and new params, and the trigger's old and new inputs, read it, and so does an agent reading what
 // changed. A changed node carries the whole node before and after; the trigger counts as a node and
 // travels with its inputs, so a version that changed only the trigger's inputs names the trigger
 // changed and carries both input lists.
