@@ -4,7 +4,7 @@
 //! weight, and a two-step walk counts half of a direct one. Only linked sessions are scored, since
 //! each related entry names its link, so a two-step walk counts only where it ends on one.
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use sidekicks_contracts::session::id::SessionId;
@@ -50,24 +50,30 @@ pub(crate) fn session_link_weight(link: &SessionLinkEnd, now: jiff::Timestamp) -
     session_link_kind_weight(link.kind) * (1.0 + f64::from(link.use_count).log2()) * halving
 }
 
-/// Each neighbor's share of `session_id`'s walk: the pair's weight over the session's total.
+/// Each neighbor's share of `session_id`'s walk, the pair's weight over the session's total, in
+/// the order its links first name each neighbor.
 fn step_shares(
     links: &[SessionLinkEnd],
     session_id: &SessionId,
     now: jiff::Timestamp,
-) -> BTreeMap<SessionId, f64> {
-    let mut shares = BTreeMap::new();
+) -> Vec<(SessionId, f64)> {
+    let mut shares: Vec<(SessionId, f64)> = Vec::new();
+    let mut place_of: HashMap<&SessionId, usize> = HashMap::new();
     let mut total = 0.0;
     for link in links
         .iter()
         .filter(|link| link.other_session_id != *session_id)
     {
         let weight = session_link_weight(link, now);
-        *shares.entry(link.other_session_id.clone()).or_insert(0.0) += weight;
+        let place = *place_of.entry(&link.other_session_id).or_insert_with(|| {
+            shares.push((link.other_session_id.clone(), 0.0));
+            shares.len() - 1
+        });
+        shares[place].1 += weight;
         total += weight;
     }
     if total > 0.0 {
-        for share in shares.values_mut() {
+        for (_, share) in &mut shares {
             *share /= total;
         }
     }
@@ -75,20 +81,25 @@ fn step_shares(
 }
 
 /// Scores every session linked to `session_id`: its share of the walk's first step, plus half of
-/// what each two-step walk through another linked session brings it. `links_of` answers a
-/// session's links as that session sees them.
+/// what each two-step walk through another linked session brings it, each sum taken in the order
+/// the links arrive. `links_of` answers a session's links as that session sees them.
 pub(crate) fn score_related_sessions<'links>(
     session_id: &SessionId,
     links_of: impl Fn(&SessionId) -> &'links [SessionLinkEnd],
     now: jiff::Timestamp,
-) -> BTreeMap<SessionId, f64> {
+) -> Vec<(SessionId, f64)> {
     let first_shares = step_shares(links_of(session_id), session_id, now);
+    let place_of: HashMap<&SessionId, usize> = first_shares
+        .iter()
+        .enumerate()
+        .map(|(place, (neighbor_id, _))| (neighbor_id, place))
+        .collect();
     let mut scores = first_shares.clone();
     for (neighbor_id, first_share) in &first_shares {
         for (second_id, second_share) in step_shares(links_of(neighbor_id), neighbor_id, now) {
             // The session itself is never in `scores`, so a walk back to it adds nothing.
-            if let Some(score) = scores.get_mut(&second_id) {
-                *score += SECOND_STEP_FACTOR * first_share * second_share;
+            if let Some(place) = place_of.get(&second_id) {
+                scores[*place].1 += SECOND_STEP_FACTOR * first_share * second_share;
             }
         }
     }
