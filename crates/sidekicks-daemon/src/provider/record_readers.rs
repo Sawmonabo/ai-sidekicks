@@ -12,6 +12,14 @@ pub(crate) fn read_non_empty_string<'source>(
     source.get(key)?.as_str().filter(|text| !text.is_empty())
 }
 
+/// The member at `key` in `source` unless it is absent or `null`, as JavaScript's `??` reads it.
+pub(crate) fn read_present_member<'source>(
+    source: &'source Map<String, Value>,
+    key: &str,
+) -> Option<&'source Value> {
+    source.get(key).filter(|member| !member.is_null())
+}
+
 /// The count at `key` in `source`: a whole number from 0 to 2^53 − 1 as JavaScript's
 /// `Number.isInteger` reads one, so `5.0` and `1e3` count too; `None` for anything else.
 #[expect(
