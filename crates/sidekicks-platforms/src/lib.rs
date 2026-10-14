@@ -17,13 +17,13 @@ mod terminal;
 mod windows;
 
 #[cfg(unix)]
-pub use posix::{
+pub use posix::terminal::{
     TerminalWatch, child_process_id, end_process_tree, exit_signal, read_console, release_terminal,
     restrict_library_search, run_console_helper, run_terminal_loop, send_console_break,
     send_signal, terminal_ending_route, terminal_options, terminal_signal_route,
 };
 #[cfg(all(unix, any(test, feature = "test-support")))]
-pub use posix::{abnormal_exit, echo_program, pass_through_start, waiting_printer};
+pub use posix::terminal::{abnormal_exit, echo_program, pass_through_start, waiting_printer};
 pub use spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
 pub use terminal::{AbnormalExit, TestProgram};
@@ -32,10 +32,10 @@ pub use terminal::{
     TerminalWake, TerminalWaker,
 };
 #[cfg(target_os = "windows")]
-pub use windows::{
+pub use windows::terminal::{
     TerminalWatch, child_process_id, end_process_tree, exit_signal, read_console, release_terminal,
     restrict_library_search, run_console_helper, run_terminal_loop, send_console_break,
     send_signal, terminal_ending_route, terminal_options, terminal_signal_route,
 };
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
-pub use windows::{abnormal_exit, echo_program, pass_through_start, waiting_printer};
+pub use windows::terminal::{abnormal_exit, echo_program, pass_through_start, waiting_printer};
