@@ -6,4 +6,5 @@ pub(crate) mod question;
 pub(crate) mod registration;
 pub(crate) mod reviewer_denial;
 pub(crate) mod run_state_publisher;
+pub(crate) mod session_rules;
 pub(crate) mod tool_server_route;

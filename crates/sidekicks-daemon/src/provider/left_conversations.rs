@@ -7,6 +7,7 @@ use std::borrow::Cow;
 
 use rusqlite::Connection;
 use rusqlite::types::{Type, Value};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::name::ProviderName;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -18,7 +19,7 @@ pub(crate) struct LeftConversation {
     /// The session that left it.
     pub(crate) session_id: SessionId,
     /// The account whose home holds it; `None` on the node's default home.
-    pub(crate) provider_account_id: Option<String>,
+    pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// The provider's own id for the conversation.
     pub(crate) conversation_id: String,
 }
@@ -60,8 +61,10 @@ pub(crate) fn compose_left_conversation_insert(
 ) -> WriteStatement {
     let provider_account_id = conversation
         .provider_account_id
-        .clone()
-        .map_or(Value::Null, Value::Text);
+        .as_ref()
+        .map_or(Value::Null, |account_id| {
+            Value::Text(account_id.as_str().to_owned())
+        });
     WriteStatement {
         sql: Cow::Borrowed(INSERT_LEFT_CONVERSATION_SQL),
         bindings: StatementBindings::Named(vec![
@@ -102,7 +105,7 @@ pub(crate) fn read_left_conversations(
         Ok(LeftConversationRecord {
             conversation: LeftConversation {
                 session_id: session_id.clone(),
-                provider_account_id: row.get(1)?,
+                provider_account_id: read_provider_account_id(row.get(1)?)?,
                 conversation_id: row.get(2)?,
             },
             driver_name,
@@ -110,4 +113,25 @@ pub(crate) fn read_left_conversations(
         })
     })?;
     rows.collect()
+}
+
+/// A stored account id that is not a valid one: empty or past its length bound.
+#[derive(Debug, thiserror::Error)]
+#[error("the stored provider account id is not a valid account id")]
+struct StoredAccountIdInvalid;
+
+// The stored account id, `None` on the node's default home; a value that is no valid id fails the
+// read rather than pass as the default home.
+fn read_provider_account_id(stored: Option<String>) -> rusqlite::Result<Option<ProviderAccountId>> {
+    stored
+        .map(|text| {
+            ProviderAccountId::new(text).ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    1,
+                    Type::Text,
+                    Box::new(StoredAccountIdInvalid),
+                )
+            })
+        })
+        .transpose()
 }

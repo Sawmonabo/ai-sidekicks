@@ -4,6 +4,7 @@
 //! session events; a frame that reaches this channel is never silently dropped.
 
 use serde_json::{Map, Value};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::name::ProviderName;
 
 /// The closed set of diagnostic kinds; each names its counter, so a kind is never unmetered.
@@ -259,7 +260,7 @@ pub(crate) struct DriverDiagnosticRecord {
     pub(crate) provider: ProviderName,
     /// The account the record is about, which its counter is also counted by; `None` on the
     /// node's default home.
-    pub(crate) provider_account_id: Option<String>,
+    pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// What happened.
     pub(crate) kind: DriverDiagnosticKind,
     /// The wire type of the frame that caused it, when one did.
@@ -279,10 +280,95 @@ pub(crate) fn emit_driver_diagnostic(record: &DriverDiagnosticRecord) {
         counter = record.kind.counter_name(),
         kind = record.kind.as_str(),
         provider = record.provider.as_str(),
-        provider_account_id = record.provider_account_id.as_deref(),
+        provider_account_id = record
+            .provider_account_id
+            .as_ref()
+            .map(ProviderAccountId::as_str),
         raw_wire_type = record.raw_wire_type.as_deref(),
         disposition_reason = record.disposition_reason.as_str(),
         details = details.as_str(),
         "driver diagnostic"
     );
 }
+
+/// Test support: records the fields of every log event a test thread raises, so a test reads a
+/// diagnostic's `counter` and other fields as the service log would carry them.
+#[cfg(test)]
+mod recorded_events {
+    use std::collections::HashMap;
+    use std::fmt::Debug;
+    use std::sync::{Arc, Mutex};
+
+    use tracing::field::{Field, Visit};
+    use tracing::{Event, Subscriber};
+    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+
+    /// The fields of every log event a test thread raises, each as text.
+    #[derive(Clone, Default)]
+    pub(crate) struct RecordedEvents(Arc<Mutex<Vec<HashMap<String, String>>>>);
+
+    impl RecordedEvents {
+        /// Runs `test` with this recorder as the thread's subscriber.
+        pub(crate) fn record_during(&self, test: impl FnOnce()) {
+            let subscriber = tracing_subscriber::registry().with(self.clone());
+            tracing::subscriber::with_default(subscriber, test);
+        }
+
+        /// The counter of each diagnostic recorded, in order.
+        pub(crate) fn counters(&self) -> Vec<String> {
+            self.fields_where(|_fields| true, "counter")
+        }
+
+        /// The value of `field` on each diagnostic recorded under `counter`, in order.
+        pub(crate) fn field_on(&self, counter: &str, field: &str) -> Vec<String> {
+            self.fields_where(
+                |fields| {
+                    fields
+                        .get("counter")
+                        .is_some_and(|recorded| recorded == counter)
+                },
+                field,
+            )
+        }
+
+        fn fields_where(
+            &self,
+            is_picked: impl Fn(&HashMap<String, String>) -> bool,
+            field: &str,
+        ) -> Vec<String> {
+            self.0
+                .lock()
+                .expect("no test thread panics holding the lock")
+                .iter()
+                .filter(|fields| is_picked(fields))
+                .filter_map(|fields| fields.get(field).cloned())
+                .collect()
+        }
+    }
+
+    struct FieldRecorder(HashMap<String, String>);
+
+    impl Visit for FieldRecorder {
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.0.insert(field.name().to_owned(), value.to_owned());
+        }
+
+        fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
+            self.0.insert(field.name().to_owned(), format!("{value:?}"));
+        }
+    }
+
+    impl<S: Subscriber> Layer<S> for RecordedEvents {
+        fn on_event(&self, event: &Event<'_>, _context: Context<'_, S>) {
+            let mut fields = FieldRecorder(HashMap::new());
+            event.record(&mut fields);
+            self.0
+                .lock()
+                .expect("no test thread panics holding the lock")
+                .push(fields.0);
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) use recorded_events::RecordedEvents;
