@@ -503,7 +503,7 @@ Refusals of the delivery channels outside the app, the web address and the email
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `relay.connection_failed` | Relay connection to the upstream service failed | 502 |
+| `relay.connection_failed` | A relay connection to the service upstream of it failed, or the background service got no answer from the control plane to a call it forwards for the desktop app (`controlPlane.call`) within the deadline [Spec-027 §Interfaces And Contracts](../../specs/027-remote-control.md#interfaces-and-contracts) sets. `data.fields.reason`: `unreachable` when no connection was made, `timed_out` when one was made and no answer came in time | 502 |
 | `relay.authentication_failed` | Relay authentication failed | 401 |
 | `relay.spki_mismatch` | The machine refused a pinned relay whose key changed. The pin applies only to a relay whose certificate does not chain to a root the operating system trusts (a self-signed relay, or one on a private certificate authority); a relay with a publicly trusted certificate is checked by the platform's own validation and its host name, so a renewal never trips it. Recorded on the daemon's sentinel session as the `relay.pin_refused {relayHost, pinnedSpkiPrefix, presentedSpkiPrefix}` event, each prefix the first 8 bytes of its key's hash, never a token; the recovery is `sidekicks relay repin --force` with the new hash | 412 |
 | `relay.replay_rejected` | A channel frame failed the Noise transport's decryption — a replayed, reordered or altered frame, since each frame's nonce is the sender's own count — so the receiving end closes the channel, and the next connection runs a fresh handshake. Counted in the relay block of `sidekicks daemon status`, never drawn | 409 |

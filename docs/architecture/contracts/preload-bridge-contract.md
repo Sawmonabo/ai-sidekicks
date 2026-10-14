@@ -69,10 +69,19 @@ interface PlatformBridge {
     subscribeMove(handler: (move: ServiceMoveState) => void): Unsubscribe;
   };
 
-  // control-plane RPC — request/response over the control plane's HTTP routes, carried by the background service; the control plane pushes no presence: a device's connected state comes from `device.list`, and a machine's presence is read over its channel (`presence.read`, `presence.subscribe`); relay traffic rides the relay's binary wire frames. The control plane holds no session: another device reaches a session only through its machine over the relay ([Spec-027](../../specs/027-remote-control.md)), and this app reaches another machine's sessions the same way, through `daemon` on the machine in view. The `PlatformBridge` type matches this block, the desktop's preload API type carries the same namespaces, and a namespace joins them only where a spec section names its owner
+  // control-plane RPC — request/response over the control plane's HTTP routes, and its live reads over its Server-Sent Events streams, carried by the background service; the control plane pushes no presence: a device's connected state comes from `device.list`, and a machine's presence is read over its channel (`presence.read`, `presence.subscribe`); relay traffic rides the relay's binary wire frames. The control plane holds no session: another device reaches a session only through its machine over the relay ([Spec-027](../../specs/027-remote-control.md)), and this app reaches another machine's sessions the same way, through `daemon` on the machine in view. The `PlatformBridge` type matches this block, the desktop's preload API type carries the same namespaces, and a namespace joins them only where a spec section names its owner
   controlPlane: {
-    // one control-plane procedure, carried over the client helper's port to the background service, which sends it under this machine's credentials
+    // one control-plane procedure that answers once, carried over the client helper's port to the background service, which sends it under this machine's credentials
     call<P extends CpProcedure>(procedure: P, input: CpInput<P>): Promise<CpOutput<P>>;
+    // one control-plane live read (`device.list`), from the one stream the service holds per machine
+    // for every reader: each value `live`, `held` with when it was read and why, or `unread` with
+    // why; ends as `daemon.subscribe` does
+    subscribe<P extends CpSubscribeProcedure>(
+      procedure: P,
+      input: CpInput<P>,
+      handler: (frame: CpSubscribeFrame<P>) => void,
+      onEnded?: (end: DaemonSubscriptionEnd) => void,
+    ): Unsubscribe;
   };
 
   // native capabilities — renderer requests, main performs, sanitized result returned

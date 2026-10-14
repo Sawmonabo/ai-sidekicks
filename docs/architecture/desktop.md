@@ -47,7 +47,7 @@ Folder layout, ownership, naming and import rules: [`apps/desktop/AGENTS.md`](..
 
 ## Data Flow
 
-1. The renderer's features call their clients in `services/`, which reach the daemon through the renderer's `PlatformBridge` — on the desktop, the preload bridge's `daemon.call` and `daemon.subscribe`, carried over the `MessagePort` that main hands the page through the preload to the client helper — and the control plane through `controlPlane.call` on the same port. Neither the page nor the preload holds a credential.
+1. The renderer's features call their clients in `services/`, which reach the daemon through the renderer's `PlatformBridge` — on the desktop, the preload bridge's `daemon.call` and `daemon.subscribe`, carried over the `MessagePort` that main hands the page through the preload to the client helper — and the control plane through `controlPlane.call` and `controlPlane.subscribe` on the same port. Neither the page nor the preload holds a credential.
 2. The client helper talks to the local daemon over the daemon's socket on its own token-presenting connection: the handshake, the liveness check, and every call main and the renderer send through it. It reports the link's state to main, which reports the link and the version range to the renderer on the `daemon.status` topic.
 3. The preload bridge and main process provide native dialogs, updater events, file picking, and safe OS interactions. A picked or dropped file reaches the page as a token main minted, never as a path.
 4. For each open session, the session-events service subscribes to the daemon and the store applies every event; the features draw the session screen from the store and the window's own view state.
