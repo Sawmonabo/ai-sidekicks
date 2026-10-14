@@ -4,12 +4,12 @@
 use std::path::PathBuf;
 
 use rusqlite::Connection;
+use sidekicks_contracts::event::envelope::EventEnvelopeType;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
 use tempfile::TempDir;
 
 use crate::database::connection::setup::apply_connection_pragmas;
-use crate::events::session::appender::envelope_type;
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::uuid_v7::mint_uuid_v7;
@@ -105,7 +105,7 @@ pub(crate) fn session_event_row(
         occurred_at: "2026-10-14T12:00:00.000Z".to_owned(),
         monotonic_ns: monotonic_ns_now(),
         category: event_type.category(),
-        event_type: envelope_type(event_type),
+        event_type: EventEnvelopeType::from(event_type),
         actor: None,
         payload: "{}".to_owned(),
         correlation_id: None,

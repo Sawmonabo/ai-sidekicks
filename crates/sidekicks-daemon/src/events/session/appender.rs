@@ -184,7 +184,7 @@ impl SessionEventAppender {
             session_id: draft.session_id,
             occurred_at,
             category: draft.event_type.category(),
-            event_type: envelope_type(draft.event_type),
+            event_type: EventEnvelopeType::from(draft.event_type),
             actor: Some(draft.actor),
             payload: draft.payload,
             correlation_id,
@@ -192,14 +192,6 @@ impl SessionEventAppender {
             version: self.version.clone(),
         }
     }
-}
-
-/// The envelope's stored form of `event_type`.
-pub(crate) fn envelope_type(event_type: SessionEventType) -> EventEnvelopeType {
-    EventEnvelopeType(
-        FreeFormText::new(event_type.as_str().to_owned())
-            .expect("an event type's name is free-form text"),
-    )
 }
 
 /// The clock's instant in the stored form.
