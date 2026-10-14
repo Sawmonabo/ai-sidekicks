@@ -8232,6 +8232,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sidekicks-platforms",
+ "strum 0.28.0",
  "tantivy",
  "tantivy-common",
  "tempfile",

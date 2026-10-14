@@ -15,9 +15,7 @@ use rusqlite::types::Value;
 use sidekicks_search::index::IndexRowKind;
 
 use crate::database::statement::{StatementBindings, WriteStatement};
-use crate::session::search::index::columns::{
-    index_row_kind_of, index_row_kind_of_word, index_row_kind_word, source_rowid_of,
-};
+use crate::session::search::index::columns::{index_row_kind_of, source_rowid_of};
 use crate::session::stored_column::text_column;
 
 const NEWEST_ENTRY_SQL: &str = "SELECT max(id) FROM session_search_rowid_floors";
@@ -28,7 +26,7 @@ const FLOORS_SINCE_SQL: &str = "SELECT kind, min(highest_rowid) AS highest_rowid
 
 /// The SQL of the trigger that logs `table`'s highest rowid when a delete lowers it.
 pub(crate) fn rowid_floor_trigger_sql(table: &str, kind: IndexRowKind) -> String {
-    let kind = index_row_kind_word(kind);
+    let kind = <&'static str>::from(kind);
     let highest_rowid = format!("coalesce((SELECT max(rowid) FROM {table}), 0)");
     format!(
         "
@@ -115,7 +113,7 @@ impl<'connection> RowidFloorLog<'connection> {
         let mut statement = self.reader.prepare_cached(FLOORS_SINCE_SQL)?;
         let floors = statement.query_map([position], |row| {
             Ok((
-                text_column(row, 0, index_row_kind_of_word)?,
+                text_column(row, 0, |word| word.parse::<IndexRowKind>())?,
                 row.get::<_, i64>(1)?,
             ))
         })?;
@@ -129,5 +127,3 @@ impl<'connection> RowidFloorLog<'connection> {
         Ok(is_any_logged.then_some(check))
     }
 }
-
-// The word the log stores for each kind, also the trigger's name part.
