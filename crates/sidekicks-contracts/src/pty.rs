@@ -145,8 +145,9 @@ pub struct PtyOpenRequest {
 
 /// The new shell's id. A shell that fails to start still has one: its tab stays and its list entry
 /// reads `did_not_start` with the cause.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PtyOpenResponse {
     /// The shell.
     pub terminal_id: TerminalId,
@@ -553,5 +554,9 @@ impl ListKey for TerminalId {
 
     fn list_key(&self) -> Self {
         self.clone()
+    }
+
+    // An id carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
     }
 }

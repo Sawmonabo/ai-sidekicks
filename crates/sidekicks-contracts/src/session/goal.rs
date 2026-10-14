@@ -60,8 +60,9 @@ pub struct SessionGoalUpdateRequest {
 }
 
 /// The accepted goal, echoed exactly as the `session.goal_updated` event carries it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionGoalUpdateResponse {
     /// The session.
     pub session_id: SessionId,

@@ -201,8 +201,9 @@ pub struct ProviderAccountResetCredentialHomeRequest {
 }
 
 /// The account's new credential generation and health after the rebuild.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderAccountResetCredentialHomeResponse {
     /// The account.
     pub account_id: ProviderAccountId,
@@ -274,8 +275,11 @@ pub enum ProviderLoginCancelStatus {
 }
 
 /// How the cancel ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderAccountLoginCancelResponse {
     /// The outcome.
     pub status: ProviderLoginCancelStatus,

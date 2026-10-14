@@ -26,7 +26,11 @@ use crate::wire::record::{JsonRecord, Record};
 use crate::wire::text::{BoundedText, NonEmptyText, branded_text};
 use crate::wire::{literal, named_scalar};
 use crate::workflow::definition::item::WorkflowPinnedItem;
-use crate::workflow::definition::refusals::WorkflowDefinitionFinding;
+
+/// The message of the issue a document's read raises at a repeated node id (`nodes[i].id`). The
+/// daemon's refusal recognizes the rule by it and carries the repeat's `node_id_duplicate` finding,
+/// over the id at that path, as the issue's `params`.
+pub const NODE_ID_DUPLICATE_MESSAGE: &str = "this node id is already used by an earlier node";
 
 ts_constants! {
     /// The document schema version this contract reads and writes.
@@ -567,24 +571,8 @@ macro_rules! workflow_document {
             pub tags: Option<TagList>,
         }
 
-        impl $name {
-            /// Each repeat of a node id, the trigger's included, in document order: its index in
-            /// `nodes` and its `node_id_duplicate` finding, which the daemon's refusal carries.
-            pub fn repeated_node_id_findings(&self) -> Vec<(usize, WorkflowDefinitionFinding)> {
-                repeated_node_ids(self.trigger_ids(), &self.nodes)
-                    .into_iter()
-                    .map(|(index, id)| {
-                        let finding = WorkflowDefinitionFinding::NodeIdDuplicate {
-                            node_ids: vec![id.clone()],
-                        };
-                        (index, finding)
-                    })
-                    .collect()
-            }
-        }
-
-        /// The members' checks, then each repeated node id at its `nodes[i].id`, its message the
-        /// repeat's `node_id_duplicate` finding as JSON.
+        /// The members' checks, then each repeated node id at its `nodes[i].id`, with
+        /// [`NODE_ID_DUPLICATE_MESSAGE`].
         impl garde::Validate for $name {
             type Context = ();
 
@@ -602,12 +590,10 @@ macro_rules! workflow_document {
                 garde::Validate::validate_into(&self.pin_data, context, &mut pin_data_path, report);
                 let mut tags_path = || parent().join("tags");
                 garde::Validate::validate_into(&self.tags, context, &mut tags_path, report);
-                for (index, finding) in self.repeated_node_id_findings() {
-                    let message =
-                        serde_json::to_string(&finding).expect("a finding serializes as JSON");
+                for index in repeated_node_indices(self.trigger_ids(), &self.nodes) {
                     report.append(
                         parent().join("nodes").join(index).join("id"),
-                        garde::Error::new(message),
+                        garde::Error::new(NODE_ID_DUPLICATE_MESSAGE),
                     );
                 }
             }
@@ -662,18 +648,18 @@ impl WorkflowDraftDocument {
     }
 }
 
-/// Each repeat of a node id among the trigger's and the other nodes', in document order, with its
-/// index in `nodes`; the trigger comes first, so it is never the repeat.
-fn repeated_node_ids<'a>(
+/// The index in `nodes` of each repeat of a node id among the trigger's and the other nodes', in
+/// document order; the trigger comes first, so it is never the repeat.
+fn repeated_node_indices<'a>(
     trigger_ids: impl Iterator<Item = &'a WorkflowNodeId>,
     nodes: &'a [WorkflowNode],
-) -> Vec<(usize, &'a WorkflowNodeId)> {
+) -> Vec<usize> {
     let mut seen: HashSet<&WorkflowNodeId> = trigger_ids.collect();
     nodes
         .iter()
         .enumerate()
         .filter(|(_, node)| !seen.insert(&node.id))
-        .map(|(index, node)| (index, &node.id))
+        .map(|(index, _)| index)
         .collect()
 }
 
@@ -773,11 +759,10 @@ mod tests {
     use garde::Validate;
     use serde_json::json;
 
-    use super::{WorkflowDocument, node};
-    use crate::workflow::definition::refusals::WorkflowDefinitionFinding;
+    use super::{NODE_ID_DUPLICATE_MESSAGE, WorkflowDocument, node};
 
     #[test]
-    fn each_repeated_node_id_is_refused_at_its_own_place_with_its_finding() {
+    fn each_repeated_node_id_is_refused_at_its_own_place() {
         let document: WorkflowDocument = serde_json::from_value(json!({
             "schemaVersion": "2",
             "name": "Repeats",
@@ -789,22 +774,15 @@ mod tests {
         let report = document
             .validate()
             .expect_err("a repeated node id is refused");
-        let issues: Vec<(String, WorkflowDefinitionFinding)> = report
+        let issues: Vec<(String, &str)> = report
             .iter()
-            .map(|(path, error)| {
-                let finding = serde_json::from_str(error.message()).expect("the message is JSON");
-                (path.to_string(), finding)
-            })
+            .map(|(path, error)| (path.to_string(), error.message()))
             .collect();
-        let finding = |id: &str| -> WorkflowDefinitionFinding {
-            serde_json::from_value(json!({ "rule": "node_id_duplicate", "nodeIds": [id] }))
-                .expect("the finding reads")
-        };
         assert_eq!(
             issues,
             vec![
-                ("nodes[1].id".to_owned(), finding("t")),
-                ("nodes[2].id".to_owned(), finding("a")),
+                ("nodes[1].id".to_owned(), NODE_ID_DUPLICATE_MESSAGE),
+                ("nodes[2].id".to_owned(), NODE_ID_DUPLICATE_MESSAGE),
             ]
         );
     }

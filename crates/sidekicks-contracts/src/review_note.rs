@@ -220,8 +220,9 @@ pub struct ReviewNoteRemoveRequest {
 }
 
 /// The notes a remove discarded; an id the session did not hold is left out.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ReviewNoteRemoveResponse {
     /// The notes discarded.
     pub removed_note_ids: Vec<ReviewNoteId>,

@@ -229,8 +229,9 @@ pub struct SessionAttachmentRefusal {
 
 /// The whole staged set after the add, so a client draws what the daemon holds rather than merging
 /// its own add, and each item it did not stage with the cause.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionAttachmentAddResponse {
     /// The session.
     pub session_id: SessionId,
@@ -253,8 +254,9 @@ pub struct SessionAttachmentRemoveRequest {
 }
 
 /// The whole staged set left after the removal.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionAttachmentRemoveResponse {
     /// The session.
     pub session_id: SessionId,
@@ -291,8 +293,9 @@ pub struct SessionAttachmentCoverRequest {
 }
 
 /// The covered copy, which is now the staged attachment.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SessionAttachmentCoverResponse {
     /// The covered copy.
     pub attachment: SessionAttachmentSummary,

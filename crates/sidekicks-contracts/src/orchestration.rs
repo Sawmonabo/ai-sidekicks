@@ -124,8 +124,9 @@ pub enum OrchestrationRunCreateRequest {
 }
 
 /// The admitted run.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct OrchestrationRunCreateResponse {
     /// The run.
     pub run_id: RunId,

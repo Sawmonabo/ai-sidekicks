@@ -153,8 +153,9 @@ pub struct ProviderAccountRemoveRequest {
 }
 
 /// The removed account's id.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderAccountRemoveResponse {
     /// The account.
     pub account_id: ProviderAccountId,
@@ -230,8 +231,9 @@ pub struct ProviderAccountProbeRequest {
 }
 
 /// The account's health as the probe read it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderAccountProbeResponse {
     /// The account.
     pub account_id: ProviderAccountId,

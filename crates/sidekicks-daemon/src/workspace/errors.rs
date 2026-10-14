@@ -3,7 +3,7 @@
 
 use std::error::Error;
 
-use serde_json::{Map, Value};
+use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceId};
 
@@ -50,28 +50,21 @@ impl From<WorkspaceRefusal> for DomainError {
                 RefusalCode::WorkspaceNotFound,
                 // An id the call supplies that resolves to nothing is a bad parameter.
                 DomainErrorJsonRpcCode::InvalidParams,
-                Map::from_iter([("workspaceId".to_owned(), Value::from(workspace_id.as_str()))]),
+                json!({ "workspaceId": workspace_id.as_str() }),
             ),
             WorkspaceRefusal::ModeUnsupported { execution_mode } => (
                 RefusalCode::WorkspaceModeUnsupported,
                 DomainErrorJsonRpcCode::InternalError,
-                Map::from_iter([(
-                    "executionMode".to_owned(),
-                    Value::from(<&'static str>::from(execution_mode)),
-                )]),
+                json!({ "executionMode": <&'static str>::from(execution_mode) }),
             ),
             WorkspaceRefusal::Stale { workspace_id } => (
                 RefusalCode::WorkspaceStale,
                 DomainErrorJsonRpcCode::InternalError,
                 // A refused bind names no workspace, so its detail is empty.
-                workspace_id
-                    .map(|workspace_id| {
-                        Map::from_iter([(
-                            "workspaceId".to_owned(),
-                            Value::from(workspace_id.as_str()),
-                        )])
-                    })
-                    .unwrap_or_default(),
+                workspace_id.map_or_else(
+                    || json!({}),
+                    |workspace_id| json!({ "workspaceId": workspace_id.as_str() }),
+                ),
             ),
         };
         DomainError::new(message, code, json_rpc_code).with_detail(detail)

@@ -111,8 +111,9 @@ pub enum InterventionResultStatus {
 /// What a driver answers an intervention with, read as provider output. `fallbackAction` names
 /// the fallback of a `degraded` result. `deliveredRunId` names the run a delivered message went to
 /// when that is not its target.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DriverInterventionResult {
     /// Whether it landed as asked.
     pub status: InterventionResultStatus,

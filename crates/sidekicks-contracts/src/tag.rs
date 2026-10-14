@@ -119,4 +119,8 @@ impl ListKey for Tag {
     fn list_key(&self) -> String {
         fold_name(self.as_str())
     }
+
+    // A tag carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
 }

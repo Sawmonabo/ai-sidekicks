@@ -50,8 +50,9 @@ pub struct ConnectedDevice {
 
 /// The devices connected to this machine: `presence.read`'s reply, and each value
 /// `presence.subscribe` pushes when a device comes, goes or changes.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct MachinePresence {
     /// The devices.
     pub devices: Vec<ConnectedDevice>,

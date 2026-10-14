@@ -111,8 +111,9 @@ pub struct PluginCatalogListRequest {
 }
 
 /// A page of the catalog; `nextCursor` is present while more remain.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PluginCatalogListResponse {
     /// The page.
     pub plugins: Vec<PluginCatalogEntry>,
@@ -216,16 +217,18 @@ pub struct PluginReadResponse {
 /// The installed plugin. The same method serves a plugin installed in the person's own terminal:
 /// it installs that plugin, from the same marketplace, into the daemon's plugin home. An install
 /// reaches a live session the way a saved agent does.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PluginInstallResponse {
     /// The plugin.
     pub plugin: PluginSummary,
 }
 
 /// A removal's answer.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PluginUninstallResponse {
     /// Always true.
     pub uninstalled: True,
@@ -249,8 +252,9 @@ pub struct PluginInstalledListRequest {
 
 /// The plugins installed in the daemon's plugin homes, and those installed in the person's own
 /// terminal, each saying which.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PluginInstalledListResponse {
     /// The plugins.
     pub plugins: Vec<PluginSummary>,
@@ -271,8 +275,9 @@ pub struct PluginMarketplaceAddRequest {
 }
 
 /// The name the provider gave the added marketplace.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PluginMarketplaceAddResponse {
     /// The marketplace's name.
     pub name: PluginToken,
@@ -290,8 +295,9 @@ pub struct PluginMarketplaceRemoveRequest {
 }
 
 /// A marketplace removal's answer.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PluginMarketplaceRemoveResponse {
     /// Always true.
     pub removed: True,
@@ -338,8 +344,9 @@ pub struct PluginApp {
 }
 
 /// The plugin's apps.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PluginAppListResponse {
     /// The apps.
     pub apps: Vec<PluginApp>,

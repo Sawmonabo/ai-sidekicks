@@ -107,13 +107,14 @@ pub enum WorktreeRestoreRefusal {
 }
 
 /// The `repo.worktreeRestore` result: the tree made again, or the refusal.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "outcome",
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum WorktreeRestoreResponse {
     /// The tree made again at `path`, its own folder or the first free numbered `<name>-restored`
     /// (`-restored-2` and on), on its own branch, or on the new `<branch>-restored` of the same

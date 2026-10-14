@@ -545,8 +545,9 @@ git_act_request! {
 }
 
 /// The `gitflow.gitActionPreview` result: the exact commands the act will run, in order.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowGitActionPreviewResponse {
     /// The commands.
     pub commands: BoundedVec<NonEmptyText, 1, { usize::MAX }>,
@@ -555,8 +556,9 @@ pub struct GitflowGitActionPreviewResponse {
 /// The `gitflow.gitActionExecute` result: the act's id, whose progress `gitflow.gitActionSubscribe`
 /// streams, and the commands it runs. A failed command is a failed command on that stream, not an
 /// error reply.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowGitActionExecuteResponse {
     /// The act.
     pub act_id: GitActId,
@@ -594,8 +596,9 @@ pub struct GitActCommand {
 }
 
 /// One frame of `gitflow.gitActionSubscribe`: every command of the act and where it stands.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitActFrame {
     /// The act.
     pub act_id: GitActId,
@@ -604,8 +607,9 @@ pub struct GitActFrame {
 }
 
 /// The `gitflow.commitMessageGenerate` result.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowCommitMessageGenerateResponse {
     /// The subject.
     pub subject: NonEmptyText,
@@ -614,8 +618,9 @@ pub struct GitflowCommitMessageGenerateResponse {
 }
 
 /// The `gitflow.changeRequestTextGenerate` result.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowChangeRequestTextGenerateResponse {
     /// The title.
     pub title: NonEmptyText,

@@ -308,8 +308,9 @@ pub enum QuestionSettledState {
 }
 
 /// The `question.resolve` result: the record's settled state.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct QuestionResolveResponse {
     /// The question.
     pub question_id: QuestionId,

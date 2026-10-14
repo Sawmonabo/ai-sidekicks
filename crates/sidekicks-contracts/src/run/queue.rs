@@ -484,8 +484,9 @@ pub struct QueueItemCancelRequest {
 }
 
 /// The canceled message.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct QueueItemCancelResponse {
     /// The item.
     pub queue_item_id: QueueItemId,
@@ -592,5 +593,9 @@ impl ListKey for QueueItemId {
 
     fn list_key(&self) -> Self {
         self.clone()
+    }
+
+    // An id carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
     }
 }

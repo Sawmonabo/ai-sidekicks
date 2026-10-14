@@ -2,7 +2,7 @@
 
 use std::error::Error;
 
-use serde_json::{Map, Value};
+use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
@@ -107,7 +107,7 @@ impl From<RunRefusal> for DomainError {
                 RefusalCode::RunNotFound,
                 DomainErrorJsonRpcCode::InvalidParams,
             )
-            .with_detail(detail_of([("runId", run_id.as_str().into())])),
+            .with_detail(json!({ "runId": run_id.as_str() })),
             RunRefusal::VersionStale {
                 run_id,
                 expected_run_version,
@@ -117,11 +117,11 @@ impl From<RunRefusal> for DomainError {
                 RefusalCode::RunVersionStale,
                 DomainErrorJsonRpcCode::InvalidRequest,
             )
-            .with_detail(detail_of([
-                ("runId", run_id.as_str().into()),
-                ("expectedRunVersion", expected_run_version.into()),
-                ("runVersion", run_version.into()),
-            ])),
+            .with_detail(json!({
+                "runId": run_id.as_str(),
+                "expectedRunVersion": expected_run_version,
+                "runVersion": run_version,
+            })),
             RunRefusal::InvalidTransition {
                 run_id,
                 from_state,
@@ -144,10 +144,10 @@ impl From<RunRefusal> for DomainError {
                 RefusalCode::DriverUnavailable,
                 DomainErrorJsonRpcCode::InternalError,
             )
-            .with_detail(detail_of([
-                ("sessionId", session_id.as_str().into()),
-                ("reason", "session_turn_in_flight".into()),
-            ])),
+            .with_detail(json!({
+                "sessionId": session_id.as_str(),
+                "reason": "session_turn_in_flight",
+            })),
         }
     }
 }
@@ -165,19 +165,9 @@ fn transition_refusal(
         RefusalCode::RunInvalidTransition,
         DomainErrorJsonRpcCode::InvalidRequest,
     )
-    .with_detail(detail_of([
-        ("runId", run_id.as_str().into()),
-        ("fromState", <&'static str>::from(from_state).into()),
-        (
-            "toState",
-            <&'static str>::from(RunState::from(to_state)).into(),
-        ),
-    ]))
-}
-
-fn detail_of<const N: usize>(fields: [(&str, Value); N]) -> Map<String, Value> {
-    fields
-        .into_iter()
-        .map(|(name, value)| (name.to_owned(), value))
-        .collect()
+    .with_detail(json!({
+        "runId": run_id.as_str(),
+        "fromState": <&'static str>::from(from_state),
+        "toState": <&'static str>::from(RunState::from(to_state)),
+    }))
 }

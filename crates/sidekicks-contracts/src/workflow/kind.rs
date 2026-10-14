@@ -517,6 +517,10 @@ impl ListKey for WorkflowInputHandleSpec {
     fn list_key(&self) -> String {
         self.id_text()
     }
+
+    // A handle carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
 }
 
 impl ListKey for WorkflowOutputHandleSpec {
@@ -524,5 +528,9 @@ impl ListKey for WorkflowOutputHandleSpec {
 
     fn list_key(&self) -> String {
         self.id_text()
+    }
+
+    // A handle carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
     }
 }

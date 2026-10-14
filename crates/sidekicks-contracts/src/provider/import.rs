@@ -49,8 +49,11 @@ pub struct ProviderImportProviderRequest {
 
 /// How many projects the app does not have the import would attach. A count above zero is
 /// confirmed before the import runs, because attaching a project trusts its folder.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderImportPreviewResponse {
     /// The provider.
     pub provider: ProviderName,
@@ -59,8 +62,9 @@ pub struct ProviderImportPreviewResponse {
 }
 
 /// The import now running for that provider: a new one, or the one already running.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderImportStartResponse {
     /// The import.
     pub import_id: ProviderImportId,
@@ -119,13 +123,14 @@ pub enum ProviderImportOutcome {
 
 /// One message on a provider's import stream: the running import's count of conversations read so
 /// far, or how the last import ended.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum ProviderImportProgress {
     /// The running import's count so far.
     Progress {

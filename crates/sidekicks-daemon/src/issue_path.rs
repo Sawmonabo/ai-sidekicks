@@ -3,8 +3,7 @@
 
 use serde::Deserialize;
 use serde_json::Value;
-use sidekicks_contracts::jsonrpc::issue_path::IssuePathSegment;
-use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::jsonrpc::issue::IssuePathSegment;
 
 /// What one step of garde's path is, as garde's `serde` form names it.
 #[derive(Deserialize)]
@@ -50,18 +49,12 @@ pub(crate) fn resolve_issue_path(
                 let Some(element) = elements.get(index) else {
                     break;
                 };
-                segments.push(index_segment(index));
+                segments.push(IssuePathSegment::index(index));
                 at = element;
             }
         }
     }
     segments
-}
-
-/// The step naming the element at `index` of a received array, which cannot pass 2^53 − 1.
-pub(crate) fn index_segment(index: usize) -> IssuePathSegment {
-    let index = u64::try_from(index).ok().and_then(SafeInt::new);
-    IssuePathSegment::Index(index.expect("an index into a received array is a safe integer"))
 }
 
 // The member `received` holds for garde's key: the key as written, else its serde camelCase.
@@ -104,7 +97,7 @@ mod tests {
 
     use serde::Deserialize;
     use serde_json::json;
-    use sidekicks_contracts::jsonrpc::issue_path::IssuePathSegment;
+    use sidekicks_contracts::jsonrpc::issue::IssuePathSegment;
     use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::resolve_issue_path;

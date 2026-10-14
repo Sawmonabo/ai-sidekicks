@@ -14,7 +14,8 @@ pub fn json_utf8_byte_length<T: Serialize>(value: &T) -> serde_json::Result<usiz
 /// [`json_utf8_byte_length`] counts them; a value that does not serialize is refused too.
 pub fn fits_budget<T: Serialize>(value: &T, budget_bytes: usize) -> garde::Result {
     let measured_bytes = json_utf8_byte_length(value)
-        .map_err(|error| garde::Error::new(format!("the value does not serialize: {error}")))?;
+        // serde's message can quote a value, so the failure is named, never carried.
+        .map_err(|_unquoted| garde::Error::new("the value does not serialize as JSON"))?;
     if measured_bytes > budget_bytes {
         return Err(garde::Error::new(format!(
             "the value measures {measured_bytes} JSON bytes, over its {budget_bytes}-byte cap"

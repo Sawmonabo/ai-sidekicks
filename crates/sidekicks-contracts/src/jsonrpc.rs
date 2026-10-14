@@ -1,12 +1,12 @@
-//! JSON-RPC 2.0: the message, error codes, issue paths, negotiation, streaming, paging and byte
-//! lengths.
+//! JSON-RPC 2.0: the message, error codes, a refusal's issues, negotiation, streaming, paging and
+//! byte lengths.
 
 use crate::typescript::TypeScriptModule;
 
 pub mod byte_length;
 pub mod error_code;
 pub mod framing;
-pub mod issue_path;
+pub mod issue;
 pub mod message;
 pub mod negotiation;
 pub mod page;
@@ -17,7 +17,7 @@ pub mod streaming;
 pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &error_code::TYPESCRIPT_MODULE,
     &framing::TYPESCRIPT_MODULE,
-    &issue_path::TYPESCRIPT_MODULE,
+    &issue::TYPESCRIPT_MODULE,
     &message::TYPESCRIPT_MODULE,
     &negotiation::TYPESCRIPT_MODULE,
     &page::TYPESCRIPT_MODULE,
