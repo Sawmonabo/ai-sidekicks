@@ -630,10 +630,75 @@ mod tests {
         ],
         true
     )]
+    #[case::env_split_string_drops_every_blank_run(
+        "env -S '  git  push -f  '",
+        vec![command("git", &["push", "-f"], &["env"])],
+        true
+    )]
+    #[case::env_assignment_before_the_program(
+        "env FOO=1 git push --force",
+        vec![command("git", &["push", "--force"], &["env"])],
+        true
+    )]
+    #[case::env_name_starting_with_a_digit_is_the_program(
+        "env 1FOO=1 x",
+        vec![command("1FOO=1", &["x"], &["env"])],
+        true
+    )]
+    #[case::env_name_holding_a_dash_is_the_program(
+        "env FOO-BAR=1 x",
+        vec![command("FOO-BAR=1", &["x"], &["env"])],
+        true
+    )]
     #[case::assignments_only("FOO=1 BAR=2", vec![], true)]
     #[case::shell_command_string(
         "bash -lc 'git status'",
-        vec![command("bash", &["-lc", "git status"], &[])],
+        vec![command("bash", &["-lc", "git status"], &[]), command("git", &["status"], &[])],
+        true
+    )]
+    #[case::shell_options_before_c(
+        "bash -x -o errexit -c 'git status'",
+        vec![
+            command("bash", &["-x", "-o", "errexit", "-c", "git status"], &[]),
+            command("git", &["status"], &[]),
+        ],
+        true
+    )]
+    #[case::shell_c_last_in_a_cluster(
+        "bash -xc 'git status'",
+        vec![command("bash", &["-xc", "git status"], &[]), command("git", &["status"], &[])],
+        true
+    )]
+    #[case::shell_c_first_in_a_quoted_cluster(
+        "bash -'c'x 'git status'",
+        vec![command("bash", &["-cx", "git status"], &[]), command("git", &["status"], &[])],
+        true
+    )]
+    #[case::shell_cluster_without_c_runs_a_file(
+        "/usr/local/bin/bash -x 'git status'",
+        vec![command("bash", &["-x", "git status"], &[])],
+        true
+    )]
+    #[case::shell_long_option_holding_c_runs_a_file(
+        "bash --norc 'git status'",
+        vec![command("bash", &["--norc", "git status"], &[])],
+        true
+    )]
+    #[case::shell_c_with_no_string_after_its_options_end(
+        "bash -c -",
+        vec![command("bash", &["-c", "-"], &[])],
+        true
+    )]
+    #[case::program_path_slash_first("/git push", vec![command("git", &["push"], &[])], true)]
+    #[case::program_path_slash_inside(
+        "./bin/git push",
+        vec![command("git", &["push"], &[])],
+        true
+    )]
+    #[case::program_path_slash_last("git/ push", vec![command("", &["push"], &[])], true)]
+    #[case::ansi_c_program_path(
+        r"$'./bin/'git push",
+        vec![command("git", &["push"], &[])],
         true
     )]
     #[case::unterminated_quote(
@@ -650,6 +715,16 @@ mod tests {
     #[case::ansi_c_program(r"$'\147it' push -f", vec![command("git", &["push", "-f"], &[])], true)]
     #[case::ansi_c_nul_ends_its_part(
         r"$'gi\0zz't push -f",
+        vec![command("git", &["push", "-f"], &[])],
+        true
+    )]
+    #[case::ansi_c_hex_nul_ends_its_part(
+        r"$'gi\x00zz't push -f",
+        vec![command("git", &["push", "-f"], &[])],
+        true
+    )]
+    #[case::ansi_c_control_nul_ends_its_part(
+        r"$'gi\c@zz't push -f",
         vec![command("git", &["push", "-f"], &[])],
         true
     )]
@@ -681,10 +756,18 @@ mod tests {
         #[case] expected: Vec<ReadCommand>,
         #[case] is_whole: bool,
     ) {
-        let reading = ShellLineReader::new(LIMIT).read(line);
+        let mut reader = ShellLineReader::new(LIMIT);
+        let reading = reader.read(line);
 
         assert_eq!(reading.is_whole(), is_whole);
-        let commands = commands_of(&reading);
+        // Each command is followed by those of the line it hands a shell, as a caller reads them.
+        let mut commands = Vec::new();
+        for command in reading.commands() {
+            commands.push(ReadCommand::from(command));
+            if let Some(command_string) = reader.read_command_string(command) {
+                commands.extend(commands_of(&command_string));
+            }
+        }
         if is_whole {
             assert_eq!(commands, expected);
         } else {
