@@ -119,7 +119,7 @@ pub struct GroupMembers {
 }
 
 /// What the search box or the find box asks for.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SearchQuery {
     /// The typed words in order, as typed; the index tokenizes and folds each into a phrase.
     pub words: Vec<String>,
