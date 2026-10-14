@@ -319,15 +319,15 @@ mod tests {
         }
     }
 
-    fn progress_of(copies: Vec<WorktreeCopy>) -> Option<WorktreeCopyProgress> {
-        Some(WorktreeCopyProgress { copies })
+    fn progress_of(copies: Vec<WorktreeCopy>) -> WorktreeCopyProgress {
+        WorktreeCopyProgress { copies }
     }
 
     #[tokio::test(start_paused = true)]
     async fn sends_each_tick_counts_a_file_finished_mid_read_once_and_stops_at_the_end() {
         let copies = WorktreeCopiesUnderWay::default();
         let mut follower = copies.follow(None);
-        assert_eq!(follower.next().await, progress_of(Vec::new()));
+        assert_eq!(follower.next().await, Some(progress_of(Vec::new())));
 
         let reads = Arc::new(AtomicUsize::new(0));
         let (stalled_sender, stalled) = oneshot::channel();
@@ -343,38 +343,38 @@ mod tests {
                     None
                 };
                 async move {
-                    match stall {
-                        Some(stalled_sender) => {
-                            stalled_sender
-                                .send(())
-                                .expect("the test waits for the stall");
-                            std::future::pending().await
-                        }
-                        None => {
-                            tokio::time::sleep(READ_TIME).await;
-                            Ok::<_, std::io::Error>(IN_FLIGHT_BYTES)
-                        }
+                    if let Some(stalled_sender) = stall {
+                        stalled_sender
+                            .send(())
+                            .expect("the test waits for the stall");
+                        std::future::pending().await
+                    } else {
+                        tokio::time::sleep(READ_TIME).await;
+                        Ok::<_, std::io::Error>(IN_FLIGHT_BYTES)
                     }
                 }
             }
         });
-        assert_eq!(follower.next().await, progress_of(vec![removing(0)]));
+        assert_eq!(follower.next().await, Some(progress_of(vec![removing(0)])));
 
         // The first tick reads the file in flight and sends its bytes.
         assert_eq!(
             follower.next().await,
-            progress_of(vec![removing(IN_FLIGHT_BYTES)])
+            Some(progress_of(vec![removing(IN_FLIGHT_BYTES)]))
         );
 
         // The file in flight finishes while the second tick reads it: counted whole, not twice.
         tokio::time::sleep_until(began + 2 * COPY_PROGRESS_TICK + READ_TIME + READ_TIME / 2).await;
         report.add_copied(400);
-        assert_eq!(follower.next().await, progress_of(vec![removing(400)]));
+        assert_eq!(
+            follower.next().await,
+            Some(progress_of(vec![removing(400)]))
+        );
 
         // The copy ends while the third read is stalled: the ticking task is released at once.
         stalled.await.expect("the third read stalls");
         report.end();
-        assert_eq!(follower.next().await, progress_of(Vec::new()));
+        assert_eq!(follower.next().await, Some(progress_of(Vec::new())));
         tokio::task::yield_now().await;
         assert_eq!(Arc::strong_count(&reads), 1);
         assert!(
