@@ -58,9 +58,9 @@ fn strip_verbatim_prefix(resolved: &[u16]) -> io::Result<Vec<u16>> {
 /// units with no NUL, so a system call takes it past 260 units without a long-path manifest. An
 /// absolute path is normalized by its text alone (`/` read as `\`, `.` and `..` collapsed), so a
 /// name ending in a dot or a space keeps it; a relative one is made absolute by the system first;
-/// a verbatim or device path keeps its names, its separators read as `\`. Fails with `InvalidInput` for a NUL in the path or a
-/// share's path naming no share, and with the system's error when a relative path cannot be made
-/// absolute.
+/// a verbatim or device path keeps its names, its separators read as `\`. Fails with
+/// `InvalidInput` for a NUL in the path or a share's path naming no share, and with the system's
+/// error when a relative path cannot be made absolute.
 pub(crate) fn verbatim_path(path: &Path) -> io::Result<Vec<u16>> {
     let units: Vec<u16> = path.as_os_str().encode_wide().collect();
     if units.contains(&0) {
