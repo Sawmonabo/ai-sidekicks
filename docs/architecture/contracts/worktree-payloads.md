@@ -61,7 +61,7 @@ interface WorktreeStatusReadResponse {
   repoRoot: { path: string; branchName: string }; // the project's own checkout and the branch it is on
   worktrees: WorktreeStatusRecord[]; // every standing tree git lists for the repository, empty when it has none
   // Present when the LAST background fetch failed, and says when `ahead` and `behind` were last true,
-  // so a row can say `as of <time>` instead of silently reading stale numbers as current.
+  // so a row can say `Last updated <time>` instead of silently reading stale numbers as current.
   countsAsOf?: string;
   newWorktree?: NewWorktreeSuggestion; // present when the request named the asking session
 }
