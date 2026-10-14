@@ -98,4 +98,4 @@ The contract is `ExecutionMode = "bound-root" | "provisioned-worktree"`. `bound-
 
 ### Related ADRs
 
-- [SQLite Local State And Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md)
+- [SQLite Local State And Hosted Account](./004-sqlite-local-state-and-hosted-account.md)

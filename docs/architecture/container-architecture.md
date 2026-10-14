@@ -28,7 +28,7 @@ The system is split so that a user's devices can reach a session from anywhere w
 | `Local Runtime Daemon` | Session engine, provider drivers, git engine, terminal and tool execution, local persistence, rebuild, and local policy enforcement. |
 | `Control Plane` | The person's own control plane and relay: identity, the account's statement chain, the device and machine registry, machine registration, the relay between each device and each machine, delivery of push notices each machine has already sealed, and the web client. It keeps no session record. |
 | `Local Event Store And Projection Store` | Durable node-local record of run events, receipts, projections, and recovery state. |
-| `Shared Metadata Store` | Durable control-plane record of the account, the statement chain, the device registry and each machine's registration. |
+| `Hosted Account Store` | Durable control-plane record of the account, the statement chain, the device registry and each machine's registration, in SQLite inside the relay: the Durable Object's own storage on the Workers relay, a SQLite file on the Compose relay ([Deployment Topology §Account Storage](./deployment-topology.md#account-storage)). |
 
 ## Implementation Topology
 
@@ -91,5 +91,5 @@ The monorepo layout for implementation is:
 ## Related ADRs
 
 - [Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
-- [SQLite Local State And Postgres Control Plane](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)
+- [SQLite Local State And Hosted Account](../decisions/004-sqlite-local-state-and-hosted-account.md)
 - [Control Plane API](../decisions/013-control-plane-api.md)

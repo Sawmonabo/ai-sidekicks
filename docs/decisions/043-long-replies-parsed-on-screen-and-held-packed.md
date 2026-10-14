@@ -130,7 +130,7 @@ Every layer has precedent: an editor drops far blocks' parsed data and re-parses
 
 ### Negative (accepted trade-offs)
 
-- The page's parser costs about 3 MB to start and grew 13 MB over 19,200 parses; WebAssembly memory never shrinks and the page parser is never ended, so that memory stays for the app's life.
+- The page's parser costs about 3 MB to start and grew 13 MB over 19,200 parses, and WebAssembly memory never shrinks while an instance lives. Once the page's parser or the worker's has grown past its growth limit, the next quiet moment replaces it with a fresh instance, which takes 18.1 to 23.3 ms to start, paid while the app is quiet, so the growth is returned.
 - Starting it is an 18–23 ms task and its first parse 8.5–9.0 ms, both run while idle; until it is ready a body's first draw waits.
 - A far-jump frame costs about 0.2–0.3 ms more than reading kept trees, 4.3 ms at worst.
 - The loader and parser JavaScript, about 548 KB unminified in a scratch bundle, loads on its own lazy chunk.

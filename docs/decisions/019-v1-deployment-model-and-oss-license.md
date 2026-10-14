@@ -25,7 +25,7 @@ Related architectural choices already in place:
 
 - `deployment-topology.md` §Rate Limiting By Deployment names where each relay counts its sign-in routes: the per-identity Durable Object on the Workers relay, memory on the Compose relay.
 - `deployment-topology.md` §Relay Scaling Strategy describes how the Workers relay uses Cloudflare Workers + Durable Objects for one person: one Durable Object for the account.
-- ADR-004 commits to SQLite for local state and Postgres for the control plane on the Compose relay.
+- ADR-004 commits to SQLite for local state, and to SQLite inside the relay for the hosted account on both relays.
 
 ## Problem Statement
 
@@ -44,7 +44,7 @@ V1 ships as a **single codebase** under a **permissive OSS license**, and its re
 ### The Two Deployment Options
 
 1. **The Workers relay, in the person's own Cloudflare account.** Cloudflare Workers + Durable Objects, deployed by the person for themself: nothing to keep running at home, and no open port.
-2. **The Compose relay, on the person's own server.** `sidekicks-control-plane`'s native program, Caddy and Postgres from one `docker-compose.yml`: everything on hardware the person holds.
+2. **The Compose relay, on the person's own server.** `sidekicks-control-plane`'s native program and Caddy from one `docker-compose.yml`, the account's data in a SQLite file the program writes: everything on hardware the person holds.
 
 The person picks per setup, and can switch a machine between them. The daemon points at its relay through config (`RELAY_URL=…` or `--relay-url=…`). Both relays run one protocol from one codebase and serve the same feature set, with one difference the person sees: shared ports in the web client exist only on the Compose relay, and on the Workers relay the web client says so. Community-supported via GitHub Issues and Security Advisories; no SLA.
 
@@ -58,14 +58,14 @@ Runtime and bundled dependencies stay inside the MIT / Apache-2.0 / BSD / ISC no
 
 ### First-Run UX
 
-The machine signs in to the person's relay from the command line: `sidekicks sign-in` runs the device-code flow. It prints a code and an address, opens the address in the browser where one exists, and waits. Sign-in is refused while the service holds the data folder, naming `sidekicks daemon stop` or Runtime's `Stop`.
+The machine signs in to the person's relay through its background service, which never stops for it: Settings › Devices' `Sign in` on a machine not signed in, or `sidekicks sign-in`, which starts the service when it is stopped and signs in through it. The service runs a browser sign-in (an authorization code with PKCE, pushed authorization and DPoP), and the browser comes back to a one-time listener on `127.0.0.1` by itself, so the machine is signed in at once. Where no browser can reach the machine, the command line takes a code pasted from the sign-in page. A machine with no relay address set shows a `Relay address` field with its `Sign in` ([Spec-016](../specs/016-hosted-account-and-identity.md)).
 
 The daemon pins the relay's TLS key only when the relay's certificate does not chain to a root the operating system trusts (a self-signed relay, or one on a private certificate authority), because Caddy makes a new key at every renewal. A relay with a publicly trusted certificate is checked by the platform's own certificate validation and its host name, so a renewal never trips a refusal. When a pinned relay presents a different key, the daemon refuses the connection and records `relay.pin_refused {relayHost, pinnedSpkiPrefix, presentedSpkiPrefix}` on its sentinel session, each prefix the first 8 bytes of its hash, never a token; the error code is `relay.spki_mismatch` (412). `sidekicks daemon status` prints `refused: the relay's key does not match the one pinned when it was linked`, and the recovery is `sidekicks relay repin --force` with the new hash pasted. This pin is the transport's; the machine-key pin of the encrypted channel ([Spec-027](../specs/027-remote-control.md)) holds on both relays whatever their certificate.
 
 ### Relay Infrastructure
 
 - **Workers relay:** Cloudflare Workers + Durable Objects, one Durable Object for the account as `deployment-topology.md` §Relay Scaling Strategy lays out, deployed into the person's own Cloudflare account.
-- **Compose relay:** `sidekicks-control-plane`'s native program, a second target of the crate the Worker is built from, serving the same v2 relay protocol from the same handlers, shipped alongside the daemon in the same repo with a `docker-compose.yml` (the relay's native program, Caddy, Postgres) for single-command deployment on the person's own server. Its Caddy takes `ACME_PROFILE`, empty by default, which leaves Caddy's own profile; `shortlived` requests Let's Encrypt's 160-hour certificates.
+- **Compose relay:** `sidekicks-control-plane`'s native program, a second target of the crate the Worker is built from, serving the same v2 relay protocol from the same handlers, shipped alongside the daemon in the same repo with a `docker-compose.yml` (the relay's native program and Caddy) for single-command deployment on the person's own server, the account's data in a SQLite file on the server's disk. Its Caddy takes `ACME_PROFILE`, empty by default, which leaves Caddy's own profile; `shortlived` requests Let's Encrypt's 160-hour certificates.
 
 Both backends implement the v2 relay protocol behind one shared contract so protocol-level changes land once and ship to both.
 
@@ -138,7 +138,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 | --- | --- | --- | --- |
 | 1 | Target audience is developers who expect OSS-first tooling. | Vision's Product Goal section names "Codex and Claude support first" and targets software engineers building with agents; the developer-category norm for this audience is OSS tools with optional hosted tier (VS Code, Neovim, tmate, Supabase, Sentry pre-BSL). | Hosted-only posture (Option B) becomes more defensible; re-evaluate if audience signal skews enterprise-first. |
 | 2 | One codebase can serve both relays without fragmenting engineering. | Shared protocol contract + deployment-aware rate-limiter abstraction; precedents at Supabase, PostHog, Sentry, Mattermost, GitLab. | QA matrix doubles; consider dropping one relay. |
-| 3 | One person's traffic fits a Cloudflare account's low-usage pricing. | Cloudflare Workers + DO pricing is zero-cost at low usage and scales with traffic; per `deployment-topology.md` §Relay Scaling Strategy the expected throughput envelope fits free-tier / low-paid-tier budgets. | The Workers relay costs the person more than a small server; the Compose relay is the cheaper path. |
+| 3 | One person's traffic is light work for a relay object. | Measured on a Rust relay object ([Deployment Topology §Relay Cost And Delay](../architecture/deployment-topology.md#relay-cost-and-delay)): the object hibernates while its sockets are idle, and each incoming message costs well under a millisecond of processor time at the median. | The Workers relay costs the person more than a small server; the Compose relay is the cheaper path. |
 | 4 | Community-support drag is bounded by decisions we control (scope of support, GitHub Issues triage cadence). | Sentry, PostHog, Supabase have managed this drag; explicit scope-of-support policies limit it. | Community drag exceeds sustainable capacity; Tripwire 2 fires. |
 | 5 | A permissive license does not preclude future relicensing to FSL/BSL/ELv2 for the competitive-re-host case. | Sentry BSL→FSL precedent shows the path works; new code under new license, old code stays permissive, new-deployment enforcement via CLI bundling. | If enforcement proves impossible, revisit license pre-emptively. |
 
@@ -242,7 +242,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 ### Related ADRs
 
 - [ADR-002: Local Execution, Shared Control Plane](./002-local-execution-shared-control-plane.md) — trust-boundary framing: execution stays on the person's machines, and only coordination crosses their relay.
-- [ADR-004: SQLite Local State, Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md) — SQLite on the machine, Postgres behind the Compose relay.
+- [ADR-004: SQLite Local State And Hosted Account](./004-sqlite-local-state-and-hosted-account.md) — SQLite on the machine, and SQLite inside the relay for the account.
 - [ADR-014: V1 Feature Scope Definition](./014-v1-feature-scope-definition.md) — the V1 surface both relays serve.
 
 ### Related Docs

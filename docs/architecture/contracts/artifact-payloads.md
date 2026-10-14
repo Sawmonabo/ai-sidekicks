@@ -161,8 +161,8 @@ interface ArtifactListResponse {
 // carries idempotency state: a retried Init answers the first `ingestId`, a retried Chunk is acknowledged
 // without re-appending, and a retried Complete returns the saved result, its original response
 // verbatim, from a completion record the daemon holds on the stream's own registry entry. A Complete
-// refused artifact.type_check_unavailable, a type check that could not run to an answer, leaves the
-// stream open with its spool, so the same Complete is sent again. Calls on one ingestId are
+// refused artifact.type_check_unavailable, its type check cut off because the service was stopping,
+// leaves the stream open with its spool, so the same Complete is sent again. Calls on one ingestId are
 // additionally SINGLE-FLIGHT — sequence validation, spool append, running-count and digest advance,
 // and acknowledgment run as one critical section per stream — so an original racing its own retry
 // takes the retry path rather than double-appending; concurrent calls on DIFFERENT streams never

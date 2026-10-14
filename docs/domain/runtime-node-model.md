@@ -54,19 +54,19 @@ Reachability is read from the machine's relay connection and from nothing else, 
 
 ## Example Flows
 
-- Example: The user installs the app on their workstation. At its first start the service mints the machine's id and identity key and reads the computer's own friendly name; at its first connection to the control plane it registers under that id and the user's account, and the user's other devices see it as `Reachable`. Every session started there runs there.
+- Example: The user installs the app on their workstation. At its first start the service mints the machine's id and identity key and reads the computer's own friendly name; once it is signed in to the hosted account, through the sign-in its background service runs, it registers under that id and the user's account, and the user's other devices see it as `Reachable`. Every session started there runs there.
 - Example: A runtime node loses provider connectivity but still has local repo access. The machine stays `Reachable`; the failure is reported for that provider and the runs that use it, not as a state of the machine.
 
 ## Edge Cases
 
 - A session stays valid while its machine is not reachable; the user's devices show the machine as `Not reachable · last seen <when>`, and nothing queues on their behalf.
 - A runtime node can be reachable even when it is currently hosting no agents.
-- Removing a machine on the Devices page stops the user's devices reaching it; its sessions stay on it, and it comes back only by linking again, as a new computer joins. Linked again, it first mints a new identity key under its same machine id, and its new `runtimenode.added` moves every device's pin for that id; its store, sessions and id stay. Removing a machine does not touch the account.
+- Removing a machine on the Devices page stops the user's devices reaching it; its sessions stay on it, and it comes back only as a new computer joins, at its sign-in with one of the account's passkeys or by linking. Linked again, it first mints a new identity key under its same machine id, and its new `runtimenode.added` moves every device's pin for that id; its store, sessions and id stay. Removing a machine does not touch the account.
 
 ## Related Domain Docs
 
 - [User And Device Model](./user-and-device-model.md) — the user who owns the node, and the devices that drive it without executing anything themselves.
-- [Trust And Identity](./trust-and-identity.md) — a machine joins the account through the account's statement chain: the first machine opens the chain with a `runtimenode.added` statement it signs itself, and every later machine joins by linking, which records its `runtimenode.added` signed by the device or machine that links it. That is the whole of a machine's identity. What its agents may do is decided by the session's permission level, the approval rules the providers keep, and the trust given per project and per tool server, never by the machine.
+- [Trust And Identity](./trust-and-identity.md) — a machine joins the account through the account's statement chain: the first machine opens the chain with a `runtimenode.added` statement it signs itself, and every later machine joins either at its sign-in, its `runtimenode.added` signed by one of the account's passkeys, or by linking, which records its `runtimenode.added` signed by the device or machine that links it. That is the whole of a machine's identity. What its agents may do is decided by the session's permission level, the approval rules the providers keep, and the trust given per project and per tool server, never by the machine.
 
 ## Related Specs
 
