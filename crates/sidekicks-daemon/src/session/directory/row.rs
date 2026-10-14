@@ -20,6 +20,7 @@ use sidekicks_contracts::session::events::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 use sidekicks_contracts::worktree::events::SessionBranchChangedPayload;
 
@@ -68,7 +69,7 @@ pub(crate) enum DirectoryRowError {
         event_type: String,
     },
     /// A second `session.created` would replace the session mid-stream.
-    #[error("session.created opens session {} once and is never folded in", .session_id.text().as_str())]
+    #[error("session.created opens session {session_id} once and is never folded in")]
     CreatedAgain {
         /// The session the row belongs to.
         session_id: SessionId,
@@ -619,11 +620,21 @@ pub(crate) fn directory_row_statement(row: &SessionDirectoryRow) -> WriteStateme
             ),
             (
                 Cow::Borrowed("@scratchForDefinitionId"),
-                optional_text(row.scratch_for_definition_id.map(|id| id.text()).as_deref()),
+                optional_text(
+                    row.scratch_for_definition_id
+                        .map(|id| id.text())
+                        .as_ref()
+                        .map(UuidText::as_str),
+                ),
             ),
             (
                 Cow::Borrowed("@parentSessionId"),
-                optional_text(row.parent_session_id.map(|id| id.text()).as_deref()),
+                optional_text(
+                    row.parent_session_id
+                        .map(|id| id.text())
+                        .as_ref()
+                        .map(UuidText::as_str),
+                ),
             ),
             text_binding("@lastRunOutcome", row.last_run_outcome.into()),
             text_binding("@createdAt", &row.created_at),

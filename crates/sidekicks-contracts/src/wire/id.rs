@@ -5,7 +5,6 @@
 
 use std::borrow::Cow;
 use std::fmt;
-use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::LazyLock;
 
@@ -88,14 +87,6 @@ impl UuidText {
     /// The text.
     pub fn as_str(&self) -> &str {
         std::str::from_utf8(&self.0).expect("a UUID's text is hex digits and hyphens")
-    }
-}
-
-impl Deref for UuidText {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        self.as_str()
     }
 }
 

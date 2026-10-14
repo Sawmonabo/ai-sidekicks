@@ -69,7 +69,7 @@ pub(crate) enum ApplyInterventionParams {
 /// A driver's steer that was not sent because the turn it was handed for had ended first: nothing
 /// reached the provider, and the message is left for the run's next turn.
 #[derive(Debug, thiserror::Error)]
-#[error("the turn of run {} ended before the steer was sent", .run_id.text().as_str())]
+#[error("the turn of run {run_id} ended before the steer was sent")]
 pub(crate) struct SteerTurnEndedError {
     /// The run whose turn ended.
     pub(crate) run_id: RunId,
@@ -251,7 +251,7 @@ pub(crate) enum DaemonTurnBindingError {
         session_id: SessionId,
     },
     /// The run's binding could not be recorded.
-    #[error("the binding of a turn on session {} could not be recorded", .session_id.text().as_str())]
+    #[error("the binding of a turn on session {session_id} could not be recorded")]
     BindingNotRecorded {
         /// The session.
         session_id: SessionId,

@@ -140,7 +140,7 @@ pub(crate) enum SessionServiceError {
     #[error(transparent)]
     Log(#[from] SessionLogReadError),
     /// A live run's creation names no agent, which only a write outside admission can leave.
-    #[error("run {} of session {} names no agent", .run_id.text().as_str(), .session_id.text().as_str())]
+    #[error("run {run_id} of session {session_id} names no agent")]
     RunNamesNoAgent {
         /// The run.
         run_id: RunId,

@@ -67,7 +67,7 @@ impl TerminalEmissionGate {
     /// suppressed frame is a decision, never an error.
     pub(crate) fn admit_terminal_frame(
         &mut self,
-        frame: TerminalRunFrame,
+        frame: &TerminalRunFrame,
     ) -> TerminalEmissionDecision {
         if frame.route != ThreadFrameRoute::Project {
             return TerminalEmissionDecision::Suppressed {};
@@ -102,8 +102,8 @@ mod tests {
         };
         let mut gate = TerminalEmissionGate::new();
 
-        let first = gate.admit_terminal_frame(terminal());
-        let second = gate.admit_terminal_frame(terminal());
+        let first = gate.admit_terminal_frame(&terminal());
+        let second = gate.admit_terminal_frame(&terminal());
 
         assert_eq!(
             first,

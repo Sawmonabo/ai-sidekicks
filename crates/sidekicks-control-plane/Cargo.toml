@@ -35,7 +35,7 @@ sse-stream.workspace = true
 thiserror.workspace = true
 url.workspace = true
 
-# The Compose relay's program and the schema runner's native tests.
+# The Compose relay's native program.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 axum = { workspace = true, features = ["http1", "tokio"] }
 gcp_auth.workspace = true

@@ -81,14 +81,14 @@ pub(crate) enum WorktreeCreateFailureReason {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorktreeRefusal {
     /// The worktree id did not resolve (`worktree.not_found`).
-    #[error("worktree {} does not exist", .worktree_id.text().as_str())]
+    #[error("worktree {worktree_id} does not exist")]
     NotFound {
         /// The worktree asked for.
         worktree_id: WorktreeId,
     },
     /// No kept copy has the id, such as one a put-back or a deletion queued before it already
     /// removed (`worktree.removed_not_found`).
-    #[error("kept worktree {} does not exist", .removed_worktree_id.text().as_str())]
+    #[error("kept worktree {removed_worktree_id} does not exist")]
     RemovedNotFound {
         /// The kept copy asked for.
         removed_worktree_id: RemovedWorktreeId,
@@ -202,7 +202,7 @@ impl From<WorktreeRefusal> for DomainError {
                 WorktreeRefusal::CreateFailed { reason, source } => (
                     RefusalCode::WorktreeCreateFailed,
                     InternalError,
-                    create_failed_detail(reason),
+                    create_failed_detail(&reason),
                     source,
                 ),
                 WorktreeRefusal::BranchCollision {
@@ -316,15 +316,15 @@ fn create_failed_message(reason: &WorktreeCreateFailureReason) -> Cow<'_, str> {
 }
 
 // The reason by its name, and for a run in the way, the session and agent running there.
-fn create_failed_detail(reason: WorktreeCreateFailureReason) -> Map<String, Value> {
+fn create_failed_detail(reason: &WorktreeCreateFailureReason) -> Map<String, Value> {
     match reason {
         WorktreeCreateFailureReason::CarryCheckoutRunning {
             running_session_id,
             running_agent_id,
         } => refusal_fields(WorktreeCarryCheckoutRunningDetails {
             reason: CarryCheckoutRunningReason::Value,
-            running_session_id,
-            running_agent_id,
+            running_session_id: *running_session_id,
+            running_agent_id: *running_agent_id,
         }),
         WorktreeCreateFailureReason::BaseRefOptionLike
         | WorktreeCreateFailureReason::BaseRefUnresolved
@@ -336,7 +336,7 @@ fn create_failed_detail(reason: WorktreeCreateFailureReason) -> Map<String, Valu
         | WorktreeCreateFailureReason::ExecutionRootUnavailable
         | WorktreeCreateFailureReason::GitInvocationFailed
         | WorktreeCreateFailureReason::WorktreeFolderTaken => {
-            refusal_fields(json!({ "reason": <&'static str>::from(&reason) }))
+            refusal_fields(json!({ "reason": <&'static str>::from(reason) }))
         }
     }
 }

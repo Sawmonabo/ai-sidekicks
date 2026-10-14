@@ -1,6 +1,7 @@
 //! What deleting one run's snapshot refs needs besides the service: the run context key and row it
 //! reads, the snapshot ref listing parser, and the absence probe.
 
+use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -8,28 +9,28 @@ use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use uuid::Uuid;
 
-/// The key of one run's execution context row: an agent run's id or a workflow run's id, both the
-/// checked lowercase UUID text, so it is a safe ref path component.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RunContextKey(String);
+/// The key of one run's execution context row: an agent run's id or a workflow run's id. It
+/// writes as the UUID's lowercase hyphenated text, so it is a safe ref path component.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RunContextKey(Uuid);
 
-impl RunContextKey {
-    /// The key's UUID text.
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
+impl fmt::Display for RunContextKey {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0.hyphenated(), formatter)
     }
 }
 
-impl From<&RunId> for RunContextKey {
-    fn from(run_id: &RunId) -> Self {
-        Self(run_id.to_string())
+impl From<RunId> for RunContextKey {
+    fn from(run_id: RunId) -> Self {
+        Self(run_id.into())
     }
 }
 
-impl From<&WorkflowRunId> for RunContextKey {
-    fn from(workflow_run_id: &WorkflowRunId) -> Self {
-        Self(workflow_run_id.to_string())
+impl From<WorkflowRunId> for RunContextKey {
+    fn from(workflow_run_id: WorkflowRunId) -> Self {
+        Self(workflow_run_id.into())
     }
 }
 

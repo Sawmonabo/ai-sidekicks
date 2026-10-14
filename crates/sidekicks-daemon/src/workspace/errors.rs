@@ -15,7 +15,7 @@ use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
 pub(crate) enum WorkspaceRefusal {
     /// The named workspace does not exist (`workspace.not_found`); the one refusal here that
     /// answers `-32602`, as `repo.not_found` does.
-    #[error("workspace {} does not exist", .workspace_id.text().as_str())]
+    #[error("workspace {workspace_id} does not exist")]
     NotFound {
         /// The workspace asked for.
         workspace_id: WorkspaceId,

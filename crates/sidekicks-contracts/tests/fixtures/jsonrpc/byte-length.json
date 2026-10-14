@@ -35,6 +35,11 @@
     "bytes": 5
   },
   {
+    "note": "a large number JavaScript writes in full",
+    "valueText": "1e20",
+    "bytes": 21
+  },
+  {
     "note": "negative zero",
     "valueText": "-0.0",
     "bytes": 1

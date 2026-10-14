@@ -165,7 +165,7 @@ impl TurnSnapshotDiagnostic {
                 "A turn snapshot's scratch index could not be removed"
             ),
             Self::RunContextReadFailed { run_key, detail } => tracing::warn!(
-                run_id = run_key.as_str(),
+                run_id = %run_key,
                 error = &**detail as &(dyn Error + 'static),
                 "A run's context row could not be read, so its snapshots were not pruned"
             ),

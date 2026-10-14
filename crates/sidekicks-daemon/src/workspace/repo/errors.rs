@@ -27,13 +27,13 @@ use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode, refusal_fiel
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RepoRefusal {
     /// The project record does not exist, or was forgotten (`repo.not_found`).
-    #[error("project {} does not exist", .project_id.text().as_str())]
+    #[error("project {project_id} does not exist")]
     ProjectNotFound {
         /// The project asked for.
         project_id: ProjectId,
     },
     /// The repository mount does not exist (`repo.not_found`).
-    #[error("repo mount {} does not exist", .repo_mount_id.text().as_str())]
+    #[error("repo mount {repo_mount_id} does not exist")]
     MountNotFound {
         /// The mount asked for.
         repo_mount_id: RepoMountId,
@@ -81,7 +81,7 @@ pub(crate) enum RepoRefusal {
     /// The mount is a chat's managed workspace, which only that chat binds and only its purge
     /// removes, so another session's bind, any detach and a move of the chat are refused
     /// (`repo.mount_managed`).
-    #[error("repo mount {} is a chat's managed workspace", .repo_mount_id.text().as_str())]
+    #[error("repo mount {repo_mount_id} is a chat's managed workspace")]
     MountManaged {
         /// The managed mount.
         repo_mount_id: RepoMountId,

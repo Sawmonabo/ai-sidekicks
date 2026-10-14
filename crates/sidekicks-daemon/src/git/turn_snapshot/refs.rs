@@ -15,8 +15,8 @@ pub(crate) const USE_REPLACE_REFS_PIN: [&str; 2] = ["-c", "core.useReplaceRefs=f
 
 /// The prefix under which every snapshot ref of one run sits, with its trailing slash, so a listing
 /// of `run-A/` never reaches `run-AB`. A run's id is a UUID, so it is a safe ref path component.
-pub(crate) fn build_run_snapshot_ref_prefix(run_key: &RunContextKey) -> String {
-    format!("{SNAPSHOT_REF_ROOT}/{}/", run_key.as_str())
+pub(crate) fn build_run_snapshot_ref_prefix(run_key: RunContextKey) -> String {
+    format!("{SNAPSHOT_REF_ROOT}/{run_key}/")
 }
 
 /// The ref one turn's snapshot is written to. The epoch segment keeps a re-execution after a
@@ -24,6 +24,6 @@ pub(crate) fn build_run_snapshot_ref_prefix(run_key: &RunContextKey) -> String {
 pub(crate) fn build_turn_snapshot_ref(run_id: &RunId, epoch: u64, turn_ordinal: u64) -> String {
     format!(
         "{}epoch-{epoch}/turn-{turn_ordinal}",
-        build_run_snapshot_ref_prefix(&RunContextKey::from(run_id))
+        build_run_snapshot_ref_prefix(RunContextKey::from(*run_id))
     )
 }

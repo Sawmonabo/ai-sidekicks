@@ -29,7 +29,7 @@ const SELECT_LEAD_AGENT_SQL: &str = "
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RunAgentReadError {
     /// The log holds no `session.created` naming the session's lead.
-    #[error("session \"{}\" has no lead its log names", .session_id.text().as_str())]
+    #[error("session \"{session_id}\" has no lead its log names")]
     NoLeadAgent {
         /// The session read.
         session_id: SessionId,

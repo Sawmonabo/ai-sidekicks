@@ -22,7 +22,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::{ClientUuid, UuidText};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 
@@ -419,7 +419,10 @@ pub(crate) fn insert_queue_item_statement(item: &NewQueueItem) -> WriteStatement
             nullable_text_binding("@device_id", item.device_id.as_ref().map(DeviceId::as_str)),
             nullable_text_binding(
                 "@replaces_id",
-                item.replaces_queue_item_id.map(|id| id.text()).as_deref(),
+                item.replaces_queue_item_id
+                    .map(|id| id.text())
+                    .as_ref()
+                    .map(UuidText::as_str),
             ),
             text_binding(
                 "@client_idempotency_key",

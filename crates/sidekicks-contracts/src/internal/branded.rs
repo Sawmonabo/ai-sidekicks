@@ -39,6 +39,12 @@ macro_rules! branded_uuid_id {
             }
         }
 
+        impl From<$name> for uuid::Uuid {
+            fn from(id: $name) -> Self {
+                id.0
+            }
+        }
+
         impl std::fmt::Display for $name {
             fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 std::fmt::Display::fmt(&self.0.hyphenated(), formatter)
@@ -123,7 +129,7 @@ mod tests {
         let form: UuidTextForm =
             serde_json::from_value(serde_json::Value::from(upper)).expect("a UUID reads");
         assert_eq!(
-            serde_json::to_value(&form).expect("writes"),
+            serde_json::to_value(form).expect("writes"),
             serde_json::Value::from(lower)
         );
     }
