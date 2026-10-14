@@ -3,3 +3,5 @@
 
 pub(crate) mod caller_process;
 pub(crate) mod domain_error;
+pub(crate) mod registry;
+pub(crate) mod stream;
