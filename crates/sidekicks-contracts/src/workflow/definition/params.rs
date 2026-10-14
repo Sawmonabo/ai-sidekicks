@@ -96,7 +96,7 @@ fn check_leaf(
     }
     match spec.param_type {
         WorkflowParamType::Secret => {
-            check_reference::<WorkflowSecretReference>(value, place, issues)
+            check_reference::<WorkflowSecretReference>(value, place, issues);
         }
         WorkflowParamType::Agent => check_reference::<AgentDefinitionId>(value, place, issues),
         WorkflowParamType::Project => check_reference::<ProjectId>(value, place, issues),

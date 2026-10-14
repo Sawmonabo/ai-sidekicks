@@ -93,7 +93,7 @@ pub enum WorkflowSubscribeNotification {
         /// The step's run.
         workflow_run_id: WorkflowRunId,
         /// The step.
-        step: WorkflowStep,
+        step: Box<WorkflowStep>,
     },
     /// A schedule armed, disarmed, fired or skipped.
     Schedule {

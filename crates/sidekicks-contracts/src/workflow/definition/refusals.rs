@@ -3,6 +3,7 @@
 //! at save, so both refuse the same shapes.
 
 use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasher;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -136,9 +137,9 @@ pub struct WorkflowNodeHandles {
 /// whose handles and category then go unchecked though its edges still count toward cycles and
 /// reach. An edge naming a node the document does not hold is `node_missing` and is checked no
 /// further at that end.
-pub fn check_workflow_graph(
+pub fn check_workflow_graph<S: BuildHasher>(
     document: &WorkflowDraftDocument,
-    node_handles: &HashMap<WorkflowNodeId, WorkflowNodeHandles>,
+    node_handles: &HashMap<WorkflowNodeId, WorkflowNodeHandles, S>,
 ) -> Vec<WorkflowDefinitionFinding> {
     let trigger = document.trigger.as_ref().map(WorkflowNode::from);
     let nodes: Vec<&WorkflowNode> = trigger.iter().chain(&document.nodes).collect();
@@ -274,15 +275,15 @@ impl ParsedEdge<'_> {
 }
 
 /// What the check reads of the document: its nodes, the trigger first, by id, with their handles.
-struct GraphFacts<'a> {
+struct GraphFacts<'a, S> {
     trigger_id: Option<&'a WorkflowNodeId>,
     nodes: Vec<&'a WorkflowNode>,
     node_by_id: HashMap<&'a WorkflowNodeId, &'a WorkflowNode>,
-    node_handles: &'a HashMap<WorkflowNodeId, WorkflowNodeHandles>,
+    node_handles: &'a HashMap<WorkflowNodeId, WorkflowNodeHandles, S>,
     edges: Vec<ParsedEdge<'a>>,
 }
 
-impl<'a> GraphFacts<'a> {
+impl<'a, S: BuildHasher> GraphFacts<'a, S> {
     fn handles_of(&self, node_id: &WorkflowNodeId) -> Option<&WorkflowNodeHandles> {
         self.node_handles.get(node_id)
     }

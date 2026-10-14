@@ -162,7 +162,9 @@ pub enum WorkflowRunAttentionEntry {
 #[garde(allow_unvalidated)]
 pub struct WorkflowRunAttentionListResponse {
     /// The lines.
-    #[garde(dive, custom(lists_accounts_then_oldest_runs))]
+    #[garde(dive, custom(|entries: &Vec<WorkflowRunAttentionEntry>, (): &()| {
+        lists_accounts_then_oldest_runs(entries)
+    }))]
     pub entries: Vec<WorkflowRunAttentionEntry>,
     /// How many runs wait on a person.
     #[garde(custom(|count: &SafeInt<0>, (): &()| {
@@ -180,10 +182,7 @@ pub struct WorkflowRunAttentionListResponse {
 
 /// Refuses an account line below a run line, and a run line that waits since before the one above
 /// it.
-fn lists_accounts_then_oldest_runs(
-    entries: &[WorkflowRunAttentionEntry],
-    (): &(),
-) -> garde::Result {
+fn lists_accounts_then_oldest_runs(entries: &[WorkflowRunAttentionEntry]) -> garde::Result {
     let mut last_run_waiting_since: Option<i64> = None;
     for entry in entries {
         match entry {
