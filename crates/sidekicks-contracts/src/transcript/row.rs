@@ -136,8 +136,16 @@ pub struct SupersededMarker {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TranscriptOmittedPatch {
-    /// The file's path.
+    /// The file's path; a file the call moved is named by its new path.
     pub path: FilesystemPath,
+    /// The old path of a file the call moved.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FilesystemPath")]
+    pub old_path: Option<FilesystemPath>,
     /// The patch's size in bytes.
     pub size: SafeInt<0>,
 }

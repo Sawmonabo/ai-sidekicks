@@ -1,7 +1,7 @@
 //! A transcript row's body, and the reads for what a row does not carry: a row's large body or
 //! full output (`transcript.bodyRead`), and every file patch a tool call left out
 //! (`transcript.patchRead`). A body travels with its row unless it is large, when the row carries
-//! its size alone. Both reads answer with the stored text, or `absent` when none is stored.
+//! its size alone. Both reads answer with the stored text, or why there is none.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -19,7 +19,7 @@ use crate::session::id::SessionId;
 use crate::transcript::limits::TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::{BoundedText, FreeFormText};
-use crate::wire::{BoolLiteral, True};
+use crate::wire::{BoolLiteral, Never, True, literal};
 
 /// A stored body: at most [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points, the cap its event's
 /// payload holds it to.
@@ -312,13 +312,13 @@ pub enum TranscriptBodyReadResponse {
 }
 
 /// Where a part of a patch read starts: the left-out file's index in the call's `omittedPatches`
-/// order, and a UTF-8 byte offset into its patch, on a character boundary.
+/// order, and a UTF-8 byte offset into its patch or raw text, on a character boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TranscriptPatchCursor {
     /// The file's index.
     pub file_index: SafeInt<0>,
-    /// The byte offset into its patch.
+    /// The byte offset into its patch or raw text.
     pub offset: SafeInt<0>,
 }
 
@@ -341,48 +341,166 @@ pub struct TranscriptPatchReadRequest {
     pub cursor: Option<TranscriptPatchCursor>,
 }
 
-/// One file's patch with the lines it adds and removes. The counts come from the provider's own
-/// report where it sends them, else from the patch's lines.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[schemars(inline)]
-#[garde(allow_unvalidated)]
-pub struct TranscriptPatchFileRead {
-    /// The file's path.
-    pub path: FilesystemPath,
-    /// The patch.
-    pub patch: BoundedText<0, CONTENT_PAYLOAD_PLAINTEXT_MAX>,
-    /// The lines it adds.
-    pub additions: SafeInt<0>,
-    /// The lines it removes.
-    pub deletions: SafeInt<0>,
+literal! {
+    /// The `unavailable` word of a file whose provider sent no patch.
+    pub enum TranscriptPatchAbsentReason = "absent";
+
+    /// The `unavailable` word of a file whose patch came in a form this version cannot read.
+    pub enum TranscriptPatchUnreadableReason = "unreadable";
 }
 
-/// One file whose patch cannot be read, and why.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[schemars(inline)]
-pub struct TranscriptPatchFileUnavailable {
-    /// The file's path.
-    pub path: FilesystemPath,
-    /// Why its patch cannot be read.
-    pub unavailable: HydratedContentUnavailableReason,
+/// Declares one arm of [`TranscriptPatchFile`]: the file's path and, for a file the call moved,
+/// its old path, then the arm's own members.
+macro_rules! transcript_patch_file_arm {
+    ($(#[$attribute:meta])+ pub struct $name:ident { $($arm:tt)* }) => {
+        $(#[$attribute])+
+        pub struct $name {
+            /// The file's path; a file the call moved is named by its new path.
+            pub path: FilesystemPath,
+            /// The old path of a file the call moved.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "FilesystemPath")]
+            pub old_path: Option<FilesystemPath>,
+            $($arm)*
+        }
+    };
 }
 
-/// One file's patch, or why it cannot be read.
+transcript_patch_file_arm! {
+    /// One file's patch with the lines it adds and removes. The counts come from the provider's
+    /// own report where it sends them, else from the patch's lines.
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[schemars(inline)]
+    #[garde(allow_unvalidated)]
+    pub struct TranscriptPatchFileRead {
+        /// The patch.
+        pub patch: BoundedText<0, CONTENT_PAYLOAD_PLAINTEXT_MAX>,
+        /// The lines it adds.
+        pub additions: SafeInt<0>,
+        /// The lines it removes.
+        pub deletions: SafeInt<0>,
+        /// Never present: the patch was read.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub unavailable: Option<Never>,
+        /// Never present: the patch was read.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub raw_patch: Option<Never>,
+    }
+}
+
+transcript_patch_file_arm! {
+    /// One file whose provider sent no patch.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[schemars(inline)]
+    pub struct TranscriptPatchFileAbsent {
+        /// Always `absent`.
+        pub unavailable: TranscriptPatchAbsentReason,
+        /// Never present: no patch came.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub patch: Option<Never>,
+        /// Never present: no patch came.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub additions: Option<Never>,
+        /// Never present: no patch came.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub deletions: Option<Never>,
+        /// Never present: no patch came.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub raw_patch: Option<Never>,
+    }
+}
+
+transcript_patch_file_arm! {
+    /// One file whose patch came in a form this version cannot read, with the text as sent.
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[schemars(inline)]
+    #[garde(allow_unvalidated)]
+    pub struct TranscriptPatchFileUnreadable {
+        /// Always `unreadable`.
+        pub unavailable: TranscriptPatchUnreadableReason,
+        /// The patch as the provider sent it.
+        pub raw_patch: BoundedText<0, CONTENT_PAYLOAD_PLAINTEXT_MAX>,
+        /// Never present: the patch could not be read.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub patch: Option<Never>,
+        /// Never present: the patch could not be read.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub additions: Option<Never>,
+        /// Never present: the patch could not be read.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub deletions: Option<Never>,
+    }
+}
+
+/// One file's patch, or why there is none: no patch came, or one came that this version cannot
+/// read.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 pub enum TranscriptPatchFile {
     /// The patch.
     Read(#[garde(dive)] TranscriptPatchFileRead),
-    /// Why it cannot be read.
-    Unavailable(#[garde(skip)] TranscriptPatchFileUnavailable),
+    /// No patch came.
+    Absent(#[garde(skip)] TranscriptPatchFileAbsent),
+    /// The patch as sent, which this version cannot read.
+    Unreadable(#[garde(dive)] TranscriptPatchFileUnreadable),
 }
 
 /// The patches the call left out from the request's `cursor` on, as many as fit one page, so a
-/// call with several missing files is drawn from few reads. The first entry's patch starts at the
-/// cursor's offset and the last one's ends where `next` starts; the client joins the pieces of one
-/// file in order.
+/// call with several missing files is drawn from few reads. The first entry's patch or raw text
+/// starts at the cursor's offset and the last one's ends where `next` starts; the client joins the
+/// pieces of one file in order.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -400,13 +518,14 @@ pub struct TranscriptPatchReadResponse {
 #[cfg(test)]
 mod tests {
     use serde::Deserialize;
-    use serde_json::{Map, Value};
+    use serde_json::{Map, Value, json};
 
     use rstest::rstest;
 
     use super::{
         BodyReadOffsetRefused, StoredBodyText, StoredRowBody, TranscriptBodyReadResponse,
-        TranscriptRowContent, stored_body_content_of, transcript_row_content_of,
+        TranscriptPatchFile, TranscriptRowContent, stored_body_content_of,
+        transcript_row_content_of,
     };
     use crate::wire::integer::SafeInt;
 
@@ -508,5 +627,50 @@ mod tests {
                 })
             ),
         }
+    }
+
+    #[rstest]
+    #[case::read_with_its_old_path(
+        json!({
+            "path": "/w/new.rs",
+            "oldPath": "/w/old.rs",
+            "patch": "@@ -1 +1 @@\n-a\n+b",
+            "additions": 1,
+            "deletions": 1
+        }),
+        Some("read")
+    )]
+    #[case::absent(json!({"path": "/w/a.rs", "unavailable": "absent"}), Some("absent"))]
+    #[case::unreadable(
+        json!({"path": "/w/a.rs", "unavailable": "unreadable", "rawPatch": "5"}),
+        Some("unreadable")
+    )]
+    #[case::absent_with_raw_text(
+        json!({"path": "/w/a.rs", "unavailable": "absent", "rawPatch": "5"}),
+        None
+    )]
+    #[case::unreadable_without_raw_text(
+        json!({"path": "/w/a.rs", "unavailable": "unreadable"}),
+        None
+    )]
+    #[case::null_old_path(
+        json!({"path": "/w/a.rs", "oldPath": null, "unavailable": "absent"}),
+        None
+    )]
+    fn a_patch_file_reads_as_its_own_arm(#[case] file: Value, #[case] arm: Option<&str>) {
+        let read = serde_json::from_value::<TranscriptPatchFile>(file.clone());
+
+        let Some(arm) = arm else {
+            assert!(read.is_err(), "refused, got {read:?}");
+            return;
+        };
+        let read = read.expect("the file reads");
+        let read_arm = match &read {
+            TranscriptPatchFile::Read(_) => "read",
+            TranscriptPatchFile::Absent(_) => "absent",
+            TranscriptPatchFile::Unreadable(_) => "unreadable",
+        };
+        assert_eq!(read_arm, arm);
+        assert_eq!(serde_json::to_value(&read).expect("the file writes"), file);
     }
 }

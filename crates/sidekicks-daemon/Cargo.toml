@@ -40,9 +40,8 @@ ignored = [
   # The Standard Webhooks signature on a run's web address calls.
   "hmac",
   "standardwebhooks",
-  # Sealing a push notice to a linked device's push key, and the linking digits.
+  # Sealing a push notice to a linked device's push key.
   "hpke",
-  "sha2",
   "web-push-native",
   "x-wing",
   # A machine's certificate and the forward to its shared ports.
@@ -78,8 +77,7 @@ ignored = [
   # Fetching and unpacking the tools a workflow code step runs on.
   "tar",
   "zip",
-  # Reading and editing the providers' and tool servers' TOML settings.
-  "toml",
+  # Editing the providers' and tool servers' TOML settings in place.
   "toml_edit",
   # Wiping the command channel's keys.
   "zeroize",
