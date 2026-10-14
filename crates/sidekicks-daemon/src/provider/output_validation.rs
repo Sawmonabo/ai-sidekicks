@@ -4,6 +4,7 @@
 
 use sidekicks_contracts::provider::driver::methods::DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::provider::name::ProviderName;
+use sidekicks_contracts::wire::integer::MAX_SAFE_INTEGER;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::provider::driver::contract::DriverCliVersionReport;
@@ -17,10 +18,6 @@ const CLI_VERSION_RAW_MAX_LEN: usize = 128;
 /// The longest `DriverCliVersionReport::parsed_version`, in code points; equals the SQL CHECK
 /// bound.
 const CLI_VERSION_SEMVER_MAX_LEN: usize = 64;
-
-/// The largest integer a JavaScript reader holds exactly, 2^53 − 1, the bound of each version
-/// number.
-const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 
 /// A provider-declared value refused where it would be stored. It names the field and why, and the
 /// driver when one is known, but never the value, which is provider-supplied and may carry an
