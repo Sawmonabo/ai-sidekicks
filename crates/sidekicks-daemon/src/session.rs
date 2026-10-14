@@ -6,6 +6,7 @@ pub(crate) mod groups;
 pub(crate) mod links;
 pub(crate) mod not_found;
 pub(crate) mod permission_level;
+pub(crate) mod projector;
 pub(crate) mod records;
 pub(crate) mod related;
 pub(crate) mod run;

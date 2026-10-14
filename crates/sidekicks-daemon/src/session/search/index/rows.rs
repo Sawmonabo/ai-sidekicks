@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::num::TryFromIntError;
 use std::sync::LazyLock;
 
-use rusqlite::types::Type;
 use rusqlite::{Connection, Row, named_params};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_search::index::{IndexRow, IndexRowKind, IndexRowTag};
@@ -19,7 +18,7 @@ use sidekicks_search::index::{IndexRow, IndexRowKind, IndexRowTag};
 use crate::database::sql_list::sql_list_of;
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::session::search::index::columns::{index_key_sql, index_row_kind_of, source_rowid_of};
-use crate::session::stored_column::optional_text_column;
+use crate::session::stored_column::{optional_text_column, rowid_column};
 
 // The log rows the index holds: a person's message, an assistant's message and a tool call, each
 // stored once settled. A thinking update is narration a later event supersedes, so it is never
@@ -321,15 +320,6 @@ fn source_row_of(kind: IndexRowKind, row: &Row<'_>) -> rusqlite::Result<SourceRo
                 fold,
                 session_last_activity_ms,
             }),
-    })
-}
-
-// A rowid or a key built from one, which SQLite holds as a signed integer; a negative one fails
-// the read with `FromSqlConversionFailure`, keeping why.
-fn rowid_column(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
-    let value: i64 = row.get(index)?;
-    u64::try_from(value).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(index, Type::Integer, Box::new(error))
     })
 }
 

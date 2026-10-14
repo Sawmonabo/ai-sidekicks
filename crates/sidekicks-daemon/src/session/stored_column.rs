@@ -1,4 +1,5 @@
-//! Reading a stored TEXT column into a typed value, the parse failure kept as the read's cause.
+//! Reading a stored column into a typed value: TEXT through a parse, a rowid as unsigned, the
+//! failure kept as the read's cause.
 
 use std::error::Error;
 
@@ -39,6 +40,15 @@ where
 /// A word of a closed set, read by its serde spelling; fails for text that names no member.
 pub(crate) fn closed_word<Word: DeserializeOwned>(text: String) -> Result<Word, serde_json::Error> {
     serde_json::from_value(Value::String(text))
+}
+
+/// A rowid, or a key built from one, as unsigned: SQLite holds it signed, so a negative one fails
+/// the read with `rusqlite::Error::FromSqlConversionFailure`, keeping why.
+pub(crate) fn rowid_column(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
+    let value: i64 = row.get(index)?;
+    u64::try_from(value).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(index, Type::Integer, Box::new(error))
+    })
 }
 
 fn conversion_failure(
