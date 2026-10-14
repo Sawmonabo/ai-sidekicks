@@ -36,7 +36,7 @@ Damaged history is repaired before anything is given up, and it never stops the 
 
 ### Thesis — Why This Option
 
-SQLite is a strong fit for Local Runtime Daemon persistence: embedded, transactional, WAL-backed, and simple to ship with desktop and CLI execution nodes. The account's data is small (one person, a handful of machines and devices, and a statement chain that grows by a few statements a year) and every write to it already passes through the relay, so SQLite beside the connections gives it relational integrity and indexing with no outside database to host, pay for or suspend, and one SQL dialect on both relays. On Cloudflare, SQLite is the storage a Durable Object is built on, and it comes with point-in-time recovery ([Deployment Topology §Account Storage](../architecture/deployment-topology.md#account-storage)).
+SQLite is a strong fit for Local Runtime Daemon persistence: embedded, transactional, WAL-backed, and simple to ship with desktop and CLI execution nodes. The account's data is small (one person, a handful of machines and devices, and a statement chain that grows by a statement per link, rename or removal) and every write to it already passes through the relay, so SQLite beside the connections gives it relational integrity and indexing with no outside database to host, pay for or suspend, and one SQL dialect on both relays. On Cloudflare, SQLite is the storage a Durable Object is built on, and it comes with point-in-time recovery ([Deployment Topology §Account Storage](../architecture/deployment-topology.md#account-storage)).
 
 ### Antithesis — The Strongest Case Against
 
@@ -44,7 +44,7 @@ Two databases create operational and engineering complexity. JSON files are simp
 
 ### Synthesis — Why It Still Holds
 
-JSON files are too weak for rebuild-heavy, event-oriented runtime truth. A single hosted store would break the local-execution boundary and increase trust and offline dependence. SQLite's constraints are acceptable for Local Runtime Daemon workloads, especially with WAL and deliberate projection design. The two-database complexity is justified because the data domains are different, and both speak SQLite. Keeping the account's data in the relay adds no way to fail: a device that cannot reach the relay cannot reach a machine either.
+JSON files are too weak for rebuild-heavy, event-oriented runtime truth. A single hosted store would break the local-execution boundary and increase trust and offline dependence. SQLite's constraints are acceptable for Local Runtime Daemon workloads, especially with WAL and deliberate projection design. The two-database complexity is justified because the data domains are different, and both speak SQLite.
 
 ## Alternatives Considered
 

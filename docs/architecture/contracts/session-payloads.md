@@ -131,8 +131,7 @@ interface SessionSubscribeResponse {
 // changes carrying the newest cursor, which says it is behind; it then takes a snapshot read
 // (`session.read`, then the `transcript.read` window at its latest cursor) instead of every change, and
 // the stream carries on from the newest. A catch-up never moves the reader.
-// For a subscriber that asked for them, a frame also carries the code colors (the request's opt-in and
-// the frame's colors member are named when the streaming colors are built) of each code line that
+// For a subscriber that asked for them, a frame also carries the code colors of each code line that
 // finished since the previous frame, as 32-bit runs. Colors never hold a text frame back: they ride the
 // next frame after the colorer answers. They are derived from the text and never stored, so a replay
 // from a cursor computes them again. `highlight.read` stays the read for files, diffs and history.

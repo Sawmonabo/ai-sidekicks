@@ -31,7 +31,7 @@ The Control Plane exists so a user's devices can reach the machine a session run
 | `Relay Broker` | Relays one Noise channel between each of the user's devices and each of their machines without taking over execution. It holds at most one live connection per key, and it sees ids, the channel profile, frame sizes and times, never a method, a name or a byte of a session. |
 | `Notification Service` | Carries push notices each machine has already sealed to a device's push key, adding only the person's own APNs, FCM or VAPID credentials. It holds nothing that opens a notice and queues nothing. |
 | `Web Client Host` | Serves the web client: the same front end the desktop runs, which a browser opens or a phone adds to its Home Screen. |
-| `Hosted Account Store` | Persists the account, the statement chain, the device registry and each machine's registration in SQLite inside the relay, written by the relay alone: the Durable Object's own storage on the Workers relay, a SQLite file on the Compose relay ([Hosted Account Schema](./schemas/hosted-account-schema.md)). It keeps no session record: a device reaches a session only through its machine over the relay, and the machine's daemon is the session's one store. |
+| `Hosted Account Store` | Persists the account, the statement chain, the device registry and each machine's registration in SQLite inside the relay, written by the relay alone: the Durable Object's own storage on the Workers relay, a SQLite file on the Compose relay ([Hosted Account Schema](./schemas/hosted-account-schema.md)). It keeps no session record: a device reaches a session only through its machine, and the machine's daemon is the session's one store. |
 
 ## Implementation Home
 

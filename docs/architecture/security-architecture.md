@@ -69,7 +69,7 @@ The local daemon uses a layered trust model based on socket reachability **plus*
 | External process (same machine) | 256-bit session token (required) | Untrusted processes on the same machine must present a token. |
 | A process the daemon started (same machine) | Refused, token or not | A provider process, a command an agent runs, a repository's git hook or setup command, and anything they start in turn descend from the daemon; their hello is refused with `auth.caller_refused` (the caller check below). |
 | Desktop renderer (same machine) | Not a daemon client | All renderer-originated requests travel over the `MessagePort` main hands the page through the preload, to the client helper, which checks each against its method allowlist and forwards it over its own token-presenting connection. The renderer never holds the daemon session token, PASETO access tokens, or the DPoP key per [Spec-021 §Trust Stance](../specs/021-desktop-app-and-renderer.md#trust-stance). |
-| Another of the person's devices | Not a daemon-socket client | It reaches the daemon only over its end-to-end channel through the relay (§Relay Authentication And Encryption). The service binds no TCP port for its clients. |
+| Another of the person's devices | Not a daemon-socket client | It reaches the daemon only over its end-to-end channel (§Relay Authentication And Encryption). The service binds no TCP port for its clients. |
 
 **Session token specification:**
 
