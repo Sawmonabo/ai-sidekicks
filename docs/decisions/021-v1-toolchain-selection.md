@@ -16,7 +16,7 @@
 Constraints from accepted ADRs:
 
 - [ADR-015](./015-electron-desktop-app.md) — Electron 44.x, whose bundled Node (24.21) runs the app's main process and renderer; the daemon client runs there as the Rust client's Node-API addon.
-- [ADR-004](./004-sqlite-local-state-and-postgres-control-plane.md) — SQLite for local execution (`session_events`, `session_snapshots`), Postgres for shared state.
+- [ADR-004](./004-sqlite-local-state-and-hosted-account.md) — SQLite for local execution (`session_events`, `session_snapshots`), and SQLite inside the relay for the hosted account.
 - [ADR-013](./013-control-plane-api.md) — `axum` on `worker` for the Control Plane.
 - [ADR-009](./009-json-rpc-ipc-wire-format.md) — JSON-RPC 2.0 in the frame codec for daemon IPC.
 - [ADR-017](./017-cross-version-compatibility.md) — semver `MAJOR.MINOR` versions, with the app and the service agreeing a version range at the handshake; the toolchain pin and the `engines` declarations set the toolchain floors.
@@ -49,7 +49,7 @@ We will adopt the following V1 toolchain. Every choice is forward-declared as th
 | Rust tests | **cargo-nextest** (no retries; a `ci` profile, and an `endurance` profile for the one endurance binary) plus `cargo test --doc`, which nextest does not run; unit tests in `#[cfg(test)] mod tests`, one integration binary per crate (`tests/it/main.rs`), `rstest` where cases share a body or a fixture, cross-crate helpers behind a `test-support` feature, `proptest` for parsers, wire decoding and crypto, `insta` only where the snapshot is the behavior, and `cargo mutants --in-diff` on a pull request into `main` | nextest 0.9.148+, rstest 0.27.0, cargo-mutants 27.1.0 |
 | Unused code, advisories, spelling | **rustc's `dead_code` lints plus `cargo-shear`** (unused and misplaced dependencies and source files no module links); **`cargo-deny`** running only `advisories`, `bans` and `sources`; **`typos`** on code, Rust and TypeScript, with `locale = "en-us"`, documents excluded | cargo-shear 1.14+, cargo-deny 0.20+, typos-cli 1.51+ |
 | SQLite binding | **`rusqlite`** with `bundled`, which builds SQLite from `libsqlite3-sys`, WAL at boot, prepared-statement caching for hot paths | 0.40.2 exact (SQLite 3.53.2) |
-| Postgres client | On the Worker, **`tokio-postgres`** with `default-features = false, features = ["js"]`, queries only through typed statements (`query_typed`, `execute_typed`, `query_typed_one`, `query_typed_opt`, `batch_execute`) through Hyperdrive, and the schema apply on a second, direct client; on the Compose relay's native program, **`deadpool-postgres`** | tokio-postgres 0.7.18 |
+| Hosted account store | **SQLite inside the relay**: on the Worker, the relay's Durable Object's own SQLite storage, written only by that object; on the Compose relay's native program, one SQLite file only that program writes. Both relays run the same SQL over the [Hosted Account Schema](../architecture/schemas/hosted-account-schema.md) | SQLite |
 | TypeScript compilation | **`tsc -b`** per package, emitting each package's `.js` and `.d.ts` together; `isolatedModules: true` and `isolatedDeclarations: true` per package | TypeScript 7.0+ |
 | TypeScript test runner | **Vitest** with `projects` configuration; **happy-dom + `@testing-library/react`** for renderer component tests (Browser Mode is reserved for assertions that need a real layout engine; Playwright stays the E2E vehicle through Electron's `_electron` harness); the Worker's Durable Object and alarm tests under `@cloudflare/vitest-plugin` | 4.x |
 | TypeScript linter + formatter | **ESLint 10 flat-config + typescript-eslint + Prettier 3** | ESLint 10, TS-ESLint 8.71+, Prettier 3 |
@@ -95,7 +95,7 @@ A skeptical staff engineer would argue:
 
 ## Alternatives Considered
 
-### Option A: Rust 1.99.0 + Cargo workspace + Turbo + nextest + Clippy + `cargo-shear` + `rusqlite` + `tokio-postgres`; pnpm + Vitest + ESLint+Prettier for the TypeScript (Chosen)
+### Option A: Rust 1.99.0 + Cargo workspace + Turbo + nextest + Clippy + `cargo-shear` + `rusqlite`; pnpm + Vitest + ESLint+Prettier for the TypeScript (Chosen)
 
 - **What:** Per [Decision](#decision) table.
 - **Steel man:** Reinforcing constraints (one pinned toolchain, one task graph across Cargo and pnpm, a standard tool behind each repository rule, cheap tests) all push to the same combination. Adoption-validated by the largest comparable monorepos.
@@ -164,7 +164,7 @@ A skeptical staff engineer would argue:
 | 7 | `require(esm)` is stable on Node 22.12+ | Joyee Cheung's primary-source post 2025-12-30 (Node TSC member); unflagged in Node 22.12.0 / 20.19.0 late 2025; formally Stable in Node 25.4.0 | Top-level-await ESM modules can't be `require()`'d (still true and acceptable — our code has no TLA) |
 | 8 | typescript-eslint 8.71+ type-aware rules meet our perf bar via `--cache` and CI-only execution under ESLint 10 | `typescript-eslint.io/troubleshooting/typed-linting/performance` (canonical perf guide); ESLint `--cache` cuts repeat runs to a fraction; type-aware rules can be config-gated to CI; `typescript-eslint.io/users/dependency-versions` confirms `^10.0.0` officially supported by typescript-eslint 8.x | Lint runtime exceeds tolerable CI minutes on a 50k-LOC monorepo; migrate to Oxlint+tsgolint ahead of Re-evaluation Trigger 1 |
 | 9 | `CARGO_BUILD_WARNINGS=deny` fails CI on any warning without discarding the build cache | Stabilized in Cargo 1.97; Clippy prefers it to `-D warnings` because it "has the benefit of not invalidating build caches"; it covers `cargo doc`, so an unresolved doc link fails it, even replayed from cache | Warnings pass CI; CI sets `-D warnings` through `RUSTFLAGS` and accepts the cache loss |
-| 10 | `tokio-postgres` with its `js` feature reaches Postgres from the Worker through Hyperdrive | Measured in the full Worker: typed (unnamed) statements through Hyperdrive with caching off for authentication reads; the schema apply on a second, direct client keeping `pg_advisory_xact_lock`, since Hyperdrive lists advisory locks unsupported | Named statements or a custom column type would make the driver prepare statements Hyperdrive supports only for other drivers; the queries stay on typed statements and built-in column types |
+| 10 | The relay's Durable Object can hold the account's data in its own SQLite storage | Cloudflare offers SQLite-backed Durable Objects ([Deployment Topology §Account Storage](../architecture/deployment-topology.md#account-storage)) | The account's data needs a store outside the object, and the Worker a client for it |
 
 ---
 
@@ -187,7 +187,7 @@ A skeptical staff engineer would argue:
 
 ## Reversibility Assessment
 
-- **Reversal cost:** Medium-to-high. Per-primitive switching cost varies: a Rust toolchain bump is one file and the lints it brings; build-orchestrator swap (≈ 1 day, `turbo.json` → `nx.json`, or Cargo run outside Turbo); test-runner swap for the TypeScript (≈ 2–3 days, test-API rewrites); linter swap (≈ 1 day with migration tooling); package-manager swap (≈ 1–2 days, lockfile + CI rewrite); SQLite or Postgres driver swap (the queries move with it, behind the daemon's and the control plane's own modules).
+- **Reversal cost:** Medium-to-high. Per-primitive switching cost varies: a Rust toolchain bump is one file and the lints it brings; build-orchestrator swap (≈ 1 day, `turbo.json` → `nx.json`, or Cargo run outside Turbo); test-runner swap for the TypeScript (≈ 2–3 days, test-API rewrites); linter swap (≈ 1 day with migration tooling); package-manager swap (≈ 1–2 days, lockfile + CI rewrite); SQLite binding swap (the queries move with it, behind the daemon's and the control plane's own modules).
 - **Blast radius:** Every crate and package, every CI pipeline, all dev environments, all release artifacts.
 - **Migration path:** Adopt the new primitive in a feature branch; rebuild the lockfile; swap CI. For the package manager and the test runners specifically, the migration is invasive: every package's lockfile entries, scripts or tests move with it.
 - **Point of no return:** After Plan-001 lands and Plans 004, 015, 019 and 025 build on the one schema and the drivers. This ADR sets the floor before that boundary is crossed.
@@ -214,7 +214,7 @@ A skeptical staff engineer would argue:
 - ESLint runtime cost vs Oxlint speed (~45 s vs ~0.5 s on 10k files per pkgpulse 2026 benchmark; pinning ESLint 10 inherits the same general perf profile as ESLint 9). Mitigation: `--cache` for repeat runs; type-aware rules in CI only; the named migration trigger (Re-evaluation Trigger 1).
 - pnpm symlink layout learning curve (`node_modules/.pnpm/<pkg>/`). Acceptable in an AI-implementer-led project where the model has high familiarity with isolated layouts.
 - Turbo telemetry-on-by-default requires explicit `TURBO_TELEMETRY_DISABLED=1` plumbing in CI and dev-env docs.
-- Apache-2.0 OSS posture (per [ADR-019](./019-v1-deployment-model-and-oss-license.md)) is compatible with all primitive licenses (MIT for pnpm/Turbo/Vitest/ESLint/Prettier; MIT or Apache-2.0 for the Rust toolchain and the Cargo tools; MIT for `rusqlite`; MIT or Apache-2.0 for `tokio-postgres`).
+- Apache-2.0 OSS posture (per [ADR-019](./019-v1-deployment-model-and-oss-license.md)) is compatible with all primitive licenses (MIT for pnpm/Turbo/Vitest/ESLint/Prettier; MIT or Apache-2.0 for the Rust toolchain and the Cargo tools; MIT for `rusqlite`).
 
 ### Unknowns
 
@@ -297,9 +297,6 @@ Each of the following events triggers a re-evaluation of the named primitive:
 | Electron releases feed | Registry | `modules` (Node ABI) 145 for 41.x, 146 for 42.x, 148 for 43.x, **149** for 44.x; 44.7.0, the exact pinned release, bundles Node 24.21.0 (measured on the installed binary 2026-10-11: Electron 44.7.0 / Chromium 152.0.7977.130 / Node 24.21.0) | <https://releases.electronjs.org/releases.json> |
 | SQG SQLite Driver Benchmark 2026-01-19 | Primary benchmark | better-sqlite3 ahead of node:sqlite by 1.11×–1.67× across `getUserById` / `insertUser` / `updatePostViews` on Node 22 | <https://sqg.dev/blog/sqlite-driver-benchmark/> |
 | SQLCipher project | Documentation | Whole-database single-master-key encryption; not used, since nothing in the daemon's database is encrypted by the app | <https://www.zetetic.net/sqlcipher/> |
-| `brianc/node-postgres` CHANGELOG | Repository | pg 8.20 (2026-02): `onConnect` pool callback; 8.16 added min pool size; 8.15 native ESM imports; 9.0 breaking-changes discussion open #3598 | <https://github.com/brianc/node-postgres/blob/master/CHANGELOG.md> |
-| `andywer/pg-listen` | Repository | Production-grade LISTEN/NOTIFY wrapper with auto-reconnect + backoff — addresses pg's idle-disconnect fragility | <https://github.com/andywer/pg-listen> |
-| dev.to Node 22 driver benchmark | Independent benchmark | pg-native > pg > postgres.js with sub-µs gaps on Node 22; performance is config-dominated, not driver-dominated | <https://dev.to/nigrosimone/benchmarking-postgresql-drivers-in-nodejs-node-postgres-vs-postgresjs-17kl> |
 | Node.js release schedule | Documentation | Node 22 Maintenance LTS through 2027-04-30; Node 24 Active LTS through 2026-10 then Maintenance through 2028-04-30 | <https://endoflife.date/nodejs> |
 | Evolving the Node.js Release Schedule | Vendor announcement | Node 26 ships April 2026 (last under legacy odd/even); from Node 27 (April 2027) every release is LTS-eligible | <https://nodejs.org/en/blog/announcements/evolving-the-nodejs-release-schedule> |
 | `require(esm)` stability (Joyee Cheung) | Primary source (Node TSC member) | Unflagged in Node 22.12.0 / 20.19.0 late 2025; formally Stable in Node 25.4.0; top-level-await ESM still requires dynamic `import()` | <https://joyeecheung.github.io/blog/2025/12/30/require-esm-in-node-js-from-experiment-to-stability/> |
@@ -329,8 +326,6 @@ Each of the following events triggers a re-evaluation of the named primitive:
 | Tombi README | Repository | TOML formatter and linter with `tombi format --check` | <https://raw.githubusercontent.com/tombi-toml/tombi/main/README.md> |
 | `tamasfe/taplo#715` | Issue tracker | Taplo's author writes that he cannot see himself returning to the project | <https://github.com/tamasfe/taplo/issues/715> |
 | `rusqlite` 0.40.2 | Repository | The `bundled` feature compiles SQLite 3.53.2 from `libsqlite3-sys` | <https://raw.githubusercontent.com/rusqlite/rusqlite/v0.40.2/src/lib.rs> |
-| Hyperdrive with `tokio-postgres` | Documentation | `tokio-postgres` with the `js` feature connects from a Rust Worker through Hyperdrive | <https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-drivers-and-libraries/rust-postgres/> |
-| Hyperdrive supported features | Documentation | Advisory locks are listed as unsupported through the pooler | <https://developers.cloudflare.com/hyperdrive/reference/supported-databases-and-features/> |
 | thiserror, anyhow, tracing | Repository | `thiserror` derives library error types; `anyhow` carries errors in applications; `tracing` records spans with typed fields | <https://github.com/dtolnay/thiserror>, <https://github.com/dtolnay/anyhow>, <https://docs.rs/tracing/latest/tracing/> |
 | flexi_logger 0.31.10 | Repository | `FileLogWriter` rotates by size and by age | <https://static.crates.io/crates/flexi_logger/flexi_logger-0.31.10.crate> |
 | Adoption-evidence: ruff, uv and oxc toolchain files | Primary source | Each pins `channel = "1.99.0"` in `rust-toolchain.toml` | <https://raw.githubusercontent.com/astral-sh/ruff/main/rust-toolchain.toml>, <https://raw.githubusercontent.com/astral-sh/uv/main/rust-toolchain.toml>, <https://raw.githubusercontent.com/oxc-project/oxc/main/rust-toolchain.toml> |
@@ -338,7 +333,7 @@ Each of the following events triggers a re-evaluation of the named primitive:
 ### Related ADRs
 
 - [ADR-015: Electron Desktop App](./015-electron-desktop-app.md) — sets the Electron pin whose bundled Node the app runs: V1 runs on Electron 44.x, whose bundled Node is 24.21. The packages' `engines.node` floor is `>=24.21.0`, that same bundled Node.
-- [ADR-004: SQLite Local State and Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md) — sets the SQLite + Postgres engine pair this ADR selects bindings for.
+- [ADR-004: SQLite Local State And Hosted Account](./004-sqlite-local-state-and-hosted-account.md) — sets SQLite on the machine and inside the relay, the engine this ADR selects bindings for.
 - [ADR-013: Control Plane API](./013-control-plane-api.md) — the control plane's `axum` on `worker` stack, built by this toolchain's Cargo workspace.
 - [ADR-009: JSON-RPC IPC Wire Format](./009-json-rpc-ipc-wire-format.md) — the daemon wire format whose contracts crate and generated TypeScript the toolchain builds.
 - [ADR-017: Cross-Version Compatibility](./017-cross-version-compatibility.md) — the version-floor enforcement model this ADR's `engines.*` declarations and toolchain pin participate in.

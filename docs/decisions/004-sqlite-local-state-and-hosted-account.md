@@ -1,4 +1,4 @@
-# ADR-004: SQLite Local State And Postgres Control Plane
+# ADR-004: SQLite Local State And Hosted Account
 
 | Field         | Value                   |
 | ------------- | ----------------------- |
@@ -23,7 +23,7 @@ The data architecture and persistence specs require a concrete storage split bef
 
 ## Decision
 
-We will use SQLite for node-local execution state and Postgres for shared control-plane state.
+We will use SQLite for node-local execution state, and a separate SQLite database inside the relay for the hosted account. On Cloudflare the account's data lives in the relay's Durable Object, in its SQLite storage; on the self-hosted relay it is a SQLite file the relay's one process writes ([Deployment Topology §Account Storage](../architecture/deployment-topology.md#account-storage), [Hosted Account Schema](../architecture/schemas/hosted-account-schema.md)). The two databases never share a file, a table or a row.
 
 ### Damaged local state
 
@@ -36,27 +36,27 @@ Damaged history is repaired before anything is given up, and it never stops the 
 
 ### Thesis — Why This Option
 
-SQLite is a strong fit for Local Runtime Daemon persistence: embedded, transactional, WAL-backed, and simple to ship with desktop and CLI execution nodes. Postgres is a strong fit for shared Control Plane data that needs relational integrity, indexing, and operational visibility on the person's own control plane, whichever of its two deployments they run.
+SQLite is a strong fit for Local Runtime Daemon persistence: embedded, transactional, WAL-backed, and simple to ship with desktop and CLI execution nodes. The account's data is small (one person, a handful of machines and devices, and a statement chain that grows by a few statements a year) and every write to it already passes through the relay, so SQLite beside the connections gives it relational integrity and indexing with no outside database to host, pay for or suspend, and one SQL dialect on both relays. On Cloudflare, SQLite is the storage a Durable Object is built on, and it comes with point-in-time recovery ([Deployment Topology §Account Storage](../architecture/deployment-topology.md#account-storage)).
 
 ### Antithesis — The Strongest Case Against
 
-Two storage systems create operational and engineering complexity. JSON files are simpler locally. A single hosted relational store would simplify some analytics and cross-session querying. SQLite can struggle if local write volume or concurrency becomes unexpectedly high.
+Two databases create operational and engineering complexity. JSON files are simpler locally. A single hosted relational store would simplify some analytics and cross-session querying. SQLite can struggle if local write volume or concurrency becomes unexpectedly high.
 
 ### Synthesis — Why It Still Holds
 
-JSON files are too weak for rebuild-heavy, event-oriented runtime truth. A single hosted store would break the local-execution boundary and increase trust and offline dependence. SQLite's constraints are acceptable for Local Runtime Daemon workloads, especially with WAL and deliberate projection design. The dual-store complexity is justified because the data domains are different.
+JSON files are too weak for rebuild-heavy, event-oriented runtime truth. A single hosted store would break the local-execution boundary and increase trust and offline dependence. SQLite's constraints are acceptable for Local Runtime Daemon workloads, especially with WAL and deliberate projection design. The two-database complexity is justified because the data domains are different, and both speak SQLite. Keeping the account's data in the relay adds no way to fail: a device that cannot reach the relay cannot reach a machine either.
 
 ## Alternatives Considered
 
-### Option A: SQLite Local + Postgres Shared (Chosen)
+### Option A: SQLite Local + SQLite Inside The Relay (Chosen)
 
-- **What:** Use embedded SQLite per runtime node and Postgres for control-plane coordination services.
-- **Steel man:** Aligns storage technology with trust boundary and workload shape.
-- **Weaknesses:** Requires explicit replication boundaries and two operational models.
+- **What:** Use embedded SQLite per runtime node, and the relay's own SQLite for the hosted account: the Durable Object's storage on Cloudflare, a file on the self-hosted relay.
+- **Steel man:** Aligns each database with its trust boundary and workload shape, with no outside database service.
+- **Weaknesses:** Requires explicit boundaries between the machine's data and the account's, and the self-hosted relay's file needs a backup of its own.
 
-### Option B: File-Based Local Storage + Postgres Shared (Rejected)
+### Option B: File-Based Local Storage (Rejected)
 
-- **What:** Use JSON or file stores locally and Postgres remotely.
+- **What:** Use JSON or file stores on the machine.
 - **Steel man:** Simple local implementation and easy inspection.
 - **Why rejected:** Too weak for event sourcing, receipts, transactional queue state, and reliable rebuild.
 
@@ -79,7 +79,7 @@ JSON files are too weak for rebuild-heavy, event-oriented runtime truth. A singl
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
 | Local SQLite store is corrupted or unavailable | Low | High | A session's rebuild fails at restart, or `PRAGMA integrity_check` does not read `ok` | Heal first (copy aside, rebuild, `sqlite3_recover` or the newest backup, where one exists); else open the session at its last good point; else mark it `Damaged`; only that session refuses writes (§Damaged local state) |
-| Shared Postgres is unavailable | Med | High | Device linking, machine registration, or statement-chain reads fail | Preserve explicit `local-only` degraded mode |
+| The relay, and with it the account's database, is unavailable | Med | High | Device linking, machine registration, or statement-chain reads fail | Preserve explicit `local-only` degraded mode |
 | Artifact or metadata is written to the wrong boundary | Med | High | Visibility or audit anomalies appear | Enforce policy-aware manifest classification and tests |
 
 ## Reversibility Assessment
@@ -121,7 +121,7 @@ JSON files are too weak for rebuild-heavy, event-oriented runtime truth. A singl
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
 | `architecture/data-architecture.md` | Canonical architecture doc | Local and shared state belong to different trust and workload domains | [architecture/data-architecture.md](../architecture/data-architecture.md) |
-| `specs/013-persistence-and-recovery.md` | Canonical spec | SQLite and Postgres split is part of the correctness contract | [specs/013-persistence-and-recovery.md](../specs/013-persistence-and-recovery.md) |
+| `specs/013-persistence-and-recovery.md` | Canonical spec | The local SQLite store is part of the correctness contract | [specs/013-persistence-and-recovery.md](../specs/013-persistence-and-recovery.md) |
 | `operations/local-persistence-repair-and-restore.md` | Canonical operations doc | Local persistence integrity and restore behavior are explicit operational requirements | [operations/local-persistence-repair-and-restore.md](../operations/local-persistence-repair-and-restore.md) |
 | SQLite Recovery API | Official docs | `sqlite3_recover` rebuilds a damaged database into a fresh file, keeping what it can read | [sqlite.org/recovery.html](https://sqlite.org/recovery.html) |
 | Kafka log implementation | Official docs | At startup each record's CRC is checked and the log is cut back to the last valid record | [kafka.apache.org/42/implementation/log](https://kafka.apache.org/42/implementation/log/) |

@@ -26,7 +26,7 @@ Supported topologies:
 | --- | --- |
 | `Single-Device Local` | Desktop or CLI plus one local daemon on the same machine, operating in `local-only` continuity. No control-plane dependency. |
 | `Workers Relay` | The person's own control plane and relay on Cloudflare Workers and Durable Objects, deployed in their own Cloudflare account, holding the device and machine registry and the account's statement chain and relaying their channels. It serves that one person and no one else, per [ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md). |
-| `Compose Relay` | The same control plane and relay on the person's own server: `sidekicks-control-plane`'s native program, Caddy and Postgres from one `docker-compose.yml`, per [ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md). It serves the same features as the Workers relay, and it alone gives shared ports in the web client an address. Secure-defaults posture for this topology is normative per [Spec-023: Self-Host Secure Defaults](../specs/023-self-host-secure-defaults.md) with its hands-on companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-023 Acceptance Criterion). |
+| `Compose Relay` | The same control plane and relay on the person's own server: `sidekicks-control-plane`'s native program and Caddy from one `docker-compose.yml`, with the account's data in a SQLite file the program writes ([§Account Storage](#account-storage)), per [ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md). It serves the same features as the Workers relay, and it alone gives shared ports in the web client an address. Secure-defaults posture for this topology is normative per [Spec-023: Self-Host Secure Defaults](../specs/023-self-host-secure-defaults.md) with its hands-on companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-023 Acceptance Criterion). |
 | `Relay-Assisted Remote Access` | A device reaches the person's machines through their relay, one channel per device and machine, without moving execution into the control plane. |
 
 ## Data Flow
@@ -89,6 +89,14 @@ Frames either way, agent output and Preview's live picture included, are the ter
 [do-rules]: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/
 [do-changelog]: https://developers.cloudflare.com/changelog/product/durable-objects/
 
+## Relay Cost And Delay
+
+Measured on a Rust relay object built on `worker` 0.8.7. These are the figures every other doc links to.
+
+- **Hibernation.** A Rust Durable Object hibernates. After 15 seconds or more with its sockets idle, every wake ran in a new wasm instance, its memory back at its starting 1.2 MB; the isolate's peak memory was 22.9 MB of the 128 MB limit. A wake adds about 27 ms to a frame's round trip at the median.
+- **Cost per frame.** Processor time per incoming message is 351 µs at the median and 1.5 ms at p99. A minute of screencast (15 frames of 64 KiB a second, each acknowledged) bills 0.120 GB-s. One object awake all month uses 331,776 GB-s.
+- **Delay.** A 100 B frame's round trip from a device to the object and back to another device was 130 ms at the median, from Miami to an object in Newark; the distance is most of it.
+
 ## Failure Modes
 
 - `local-only` mode cannot be reached from the user's other devices when no control plane is available.
@@ -97,17 +105,16 @@ Frames either way, agent output and Preview's live picture included, are the ter
 
 ## Horizontal Scaling Strategy
 
-**Control plane and relay:** one person's relay needs no horizontal scale. The Compose relay is one native process beside Caddy and Postgres, and its durable state lives in Postgres; the relay holds only live connections. The Workers relay scales on Cloudflare as §Relay Scaling Strategy lays out.
+**Control plane and relay:** one person's relay needs no horizontal scale. The Compose relay is one native process beside Caddy, and its durable state lives in the account's SQLite file, which that process alone writes ([§Account Storage](#account-storage)). The Workers relay scales on Cloudflare as §Relay Scaling Strategy lays out.
 
 **Local daemon:** runs on each of the user's machines, any number of them. No scaling needed — it is per-machine by design. Each session has exactly one owning machine and is never silently migrated; a new session starts on the machine in view, and a device finds a session by asking each machine it can reach ([Spec-027 §One user, many devices, any number of machines](../specs/027-remote-control.md#one-user-many-devices-any-number-of-machines)).
 
-## Postgres Strategy
+## Account Storage
 
-**V1:** single Postgres instance with connection pooling (PgBouncer or built-in pool).
+The hosted account's data (the account, its sign-in state, the device and machine registry and the statement chain) lives in SQLite inside the relay, in the one schema [Hosted Account Schema](./schemas/hosted-account-schema.md) gives; no outside database runs on either relay.
 
-**Connection pool sizing:** 10 connections, one pool for the Compose relay's one process.
-
-**Backup:** automated daily snapshots + WAL archiving for point-in-time recovery.
+- **Workers relay:** the account's Durable Object keeps it in its own SQLite storage. Only that object reads or writes it, and a series of its writes with no await between them commits together. The object's storage keeps 30 days of point-in-time recovery.
+- **Compose relay:** a SQLite file on the server's disk, opened and written by the relay's one process alone. Its backup reads the database through SQLite while the relay runs, never as a plain copy of a file under a live writer, by the mechanism the Compose deployment names ([Plan-025](../plans/025-remote-control.md) Phase 8).
 
 ## Capacity Targets
 
@@ -118,17 +125,16 @@ Frames either way, agent output and Preview's live picture included, are the ter
 
 ## Infrastructure Requirements
 
-The workload is one person, their machines and their devices, on one relay. The Postgres and relay rows below are the budget for it: the relay's build measures against them and records the baseline.
+The workload is one person, their machines and their devices, on one relay. The relay row below is the budget for the Compose relay's process: the relay's build measures against it and records the baseline. The Workers relay's figures are under [§Relay Cost And Delay](#relay-cost-and-delay).
 
 | Component                  | CPU      | Memory | Disk                      |
 | -------------------------- | -------- | ------ | ------------------------- |
-| Postgres                   | 1 vCPU   | 1 GB   | 10 GB SSD                 |
-| Relay (per process)        | 1 vCPU   | 256 MB | —                         |
+| Relay (per process)        | 1 vCPU   | 256 MB | The account's SQLite file |
 | Local daemon (per machine) | 0.5 vCPU | 256 MB | 1 GB (SQLite + artifacts) |
 
 ### Local Daemon Memory Instrumentation And Budget
 
-The 256 MB local daemon budget above is an operating target derived from one user's session sizing on a developer workstation — a handful of concurrent runs, one working tree, and the relay connection that serves that user's other devices — not a hard ceiling. Budget violations MUST be observable, so that a budget raise or a deeper change is decided from the numbers.
+The 256 MB local daemon budget above is an operating target for one user's sessions on a developer workstation — a handful of concurrent runs, one working tree, and the relay connection that serves that user's other devices — not a hard ceiling. Budget violations MUST be observable, so that a budget raise or a deeper change is decided from the numbers.
 
 **Instrumentation requirement.** The daemon reads its own resident set size (RSS) and reports it in `daemon.status.read`, which Settings › Runtime and `sidekicks daemon status` show with the time the reading was taken ([Spec-018 §Interfaces And Contracts](../specs/018-observability-and-failure-recovery.md#interfaces-and-contracts)). RSS is the authoritative figure for process footprint: it counts SQLite's page cache, the terminals' buffers and every other allocation, where an allocator's own statistics can miss some.
 
@@ -142,7 +148,7 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 - **The daemon:** the 256 MB operating target above, the same inside a WSL 2 distribution.
 - **The service's Windows half,** on a computer whose service runs in WSL 2: 15 MB private working set or less at idle. Proposed; the baseline is measured on a Windows machine before the WSL phase lands.
-- **The channel's buffers:** bounded by the channel's `h2` settings on each end, its `max_send_buffer_size` of 128 MB, a 1 MiB stream window and a 16 MiB connection window, which are never a resident figure at idle.
+- **The channel's buffers:** bounded by the channel's `h2` settings on each end, every writer sending through the stream's granted capacity, `max_send_buffer_size` left at `h2`'s default, with a 1 MiB stream window and a 16 MiB connection window, which are never a resident figure at idle.
 - **The attached `wsl.exe`, and the channel's latency and throughput against a native pipe:** measured on a Windows machine before the WSL phase lands.
 - **The WSL virtual machine:** kept running for the service's whole life. Its memory cap defaults to half of RAM, with `autoMemoryReclaim` at `dropCache`, and the person's `.wslconfig` is never edited. Its idle cost with only the service running is measured on a Windows machine and stated here; it is not part of the Runtime figure, which counts the service's own processes (the daemon's process tree inside the distribution, plus the Windows half and its `wsl.exe` on Windows), because the VM's working set holds other distributions and the person's own WSL work.
 - **A folder on the other side's disk** (`/mnt/c` from Linux, `\\wsl.localhost` from Windows) is slower, because every file operation crosses 9P; its cost is measured before the WSL phase lands.
@@ -153,7 +159,7 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 **Relay:** Docker container, same base image.
 
-**Local daemon:** `sidekicks-daemon`, a signed native binary, beside the `sidekicks` command line, with no Node runtime and no Node native module. The Linux runtime is `sidekicks-daemon` and `sidekicks` for glibc and musl on x64 and arm64, each archive with its SHA-256, so an Alpine machine or distribution runs it; the musl `sidekicks-daemon` is the dynamic build with `libgcc_s.so.1` and `libpdfium.so` beside it, and the musl `sidekicks` is one static program, since it loads no PDFium. Each Windows installer carries the Linux runtime archives for its architecture, glibc and musl, with their SHA-256, so a WSL 2 distribution runs the bytes a Linux user downloads and its first start works offline. Distributed through GitHub Releases, as a direct download and inside the desktop app's installers, never on npm ([§CI/CD and Release](#cicd-and-release)).
+**Local daemon:** `sidekicks-daemon`, a signed native binary, beside the `sidekicks` command line. The Linux runtime is `sidekicks-daemon` and `sidekicks` for glibc and musl on x64 and arm64, each archive with its SHA-256, so an Alpine machine or distribution runs it; the musl `sidekicks-daemon` is the dynamic build with `libgcc_s.so.1` and `libpdfium.so` beside it, and the musl `sidekicks` is one static program, since it loads no PDFium. Each Windows installer carries the Linux runtime archives for its architecture, glibc and musl, with their SHA-256, so a WSL 2 distribution runs the bytes a Linux user downloads and its first start works offline. Distributed through GitHub Releases, as a direct download and inside the desktop app's installers, never on npm ([§CI/CD and Release](#cicd-and-release)).
 
 **Desktop app:** Electron app bundling the daemon. The daemon is the person's own background service on every platform, spawned detached or run by the operating system's service manager, never a child of the desktop app. A quit flushes and leaves the service, every run and every shell running; only Runtime's `Stop` and `Restart` end work ([Spec-006](../specs/006-local-ipc-and-daemon-control.md)).
 

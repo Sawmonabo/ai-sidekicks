@@ -135,4 +135,4 @@ Client-side queueing fails the durability and shared-observation requirements ou
 ### Related ADRs
 
 - [Local Execution Shared Control Plane](./002-local-execution-shared-control-plane.md)
-- [SQLite Local State And Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md)
+- [SQLite Local State And Hosted Account](./004-sqlite-local-state-and-hosted-account.md)

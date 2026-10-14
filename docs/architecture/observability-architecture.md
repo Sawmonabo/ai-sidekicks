@@ -63,4 +63,4 @@ An agentic coding runtime is only operable if the user and their agents can unde
 
 ## Related ADRs
 
-- [SQLite Local State And Postgres Control Plane](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)
+- [SQLite Local State And Hosted Account](../decisions/004-sqlite-local-state-and-hosted-account.md)
