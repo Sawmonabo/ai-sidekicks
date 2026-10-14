@@ -6,6 +6,7 @@
 //! syntax error; nothing here guesses at what it could not read. A reading owns its line once and
 //! holds its words as pieces of it, so its memory and each query's time grow with the line alone.
 
+pub(crate) mod reading_bound;
 mod words;
 mod wrappers;
 
@@ -143,7 +144,7 @@ impl<'r> ShellCommand<'r> {
 /// it. A string longer than `limit` bytes, a bound no argument a program starts with reaches, is
 /// not parsed; in all the reader parses at most twice `limit`, each distinct string once, and
 /// hands a repeat its kept reading, so a string past what is left reads not whole with no command.
-/// Reading blocks the thread for the parse, so async callers run it through `spawn_blocking`.
+/// Reading blocks the thread for the parse, so every ask reads through `ShellLineReadingBound`.
 pub(crate) struct ShellLineReader {
     parser: Parser,
     limit: usize,
