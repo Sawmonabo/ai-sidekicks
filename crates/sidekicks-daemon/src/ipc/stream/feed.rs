@@ -62,3 +62,32 @@ pub(crate) trait Feed: Send {
         gate: &'a dyn SendGate,
     ) -> BoxFuture<'a, Result<Option<Self::Emission>, HandlerError>>;
 }
+
+/// A test gate open while its lane holds credit; it spends none, so one permit keeps it open.
+#[cfg(test)]
+pub(crate) struct CreditGate {
+    /// The lane's credit; a closed semaphore is a closed subscription.
+    pub(crate) credit: tokio::sync::Semaphore,
+}
+
+#[cfg(test)]
+impl CreditGate {
+    /// A gate holding `permits` of credit.
+    pub(crate) fn with_credit(permits: usize) -> Self {
+        Self {
+            credit: tokio::sync::Semaphore::new(permits),
+        }
+    }
+}
+
+#[cfg(test)]
+impl SendGate for CreditGate {
+    fn ready(&self) -> BoxFuture<'_, Result<(), SubscriptionClosed>> {
+        Box::pin(async move {
+            match self.credit.acquire().await {
+                Ok(_permit) => Ok(()),
+                Err(_closed) => Err(SubscriptionClosed),
+            }
+        })
+    }
+}

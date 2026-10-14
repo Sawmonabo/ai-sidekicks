@@ -98,10 +98,9 @@ mod tests {
     use std::sync::Mutex;
 
     use futures::future::BoxFuture;
-    use tokio::sync::Semaphore;
 
     use super::*;
-    use crate::ipc::stream::feed::SubscriptionClosed;
+    use crate::ipc::stream::feed::CreditGate;
 
     /// A record of numbered changes, each change its own cursor.
     struct NumberedRecord {
@@ -163,28 +162,10 @@ mod tests {
         }
     }
 
-    /// A gate open while its lane holds credit; this test's frames spend none.
-    struct CreditGate {
-        credit: Semaphore,
-    }
-
-    impl SendGate for CreditGate {
-        fn ready(&self) -> BoxFuture<'_, Result<(), SubscriptionClosed>> {
-            Box::pin(async move {
-                match self.credit.acquire().await {
-                    Ok(_permit) => Ok(()),
-                    Err(_closed) => Err(SubscriptionClosed),
-                }
-            })
-        }
-    }
-
     #[tokio::test(start_paused = true)]
     async fn the_fiftieth_signaled_change_closes_the_window_at_once() {
         let record = NumberedRecord::new();
-        let gate = CreditGate {
-            credit: Semaphore::new(1),
-        };
+        let gate = CreditGate::with_credit(1);
         let mut batcher = FrameBatcher::new(Arc::clone(&record), 0);
         let started = Instant::now();
         let (frame, ()) = tokio::join!(batcher.next_frame(&gate), async {
@@ -201,9 +182,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn one_change_leaves_within_one_window() {
         let record = NumberedRecord::new();
-        let gate = CreditGate {
-            credit: Semaphore::new(1),
-        };
+        let gate = CreditGate::with_credit(1);
         let mut batcher = FrameBatcher::new(Arc::clone(&record), 0);
         let started = Instant::now();
         let (frame, ()) = tokio::join!(batcher.next_frame(&gate), async {
@@ -221,9 +200,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn frames_after_a_stretch_without_credit_carry_every_change_in_order() {
         let record = NumberedRecord::new();
-        let gate = Arc::new(CreditGate {
-            credit: Semaphore::new(0),
-        });
+        let gate = Arc::new(CreditGate::with_credit(0));
         let mut batcher = FrameBatcher::new(Arc::clone(&record), 0);
         let reader_gate = Arc::clone(&gate);
         let reader = tokio::spawn(async move {
