@@ -263,6 +263,7 @@ async fn read_folder_identity(path: PathBuf) -> Result<Option<EntryIdentity>, St
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::io::ErrorKind;
 
     use rstest::rstest;
 
@@ -386,5 +387,29 @@ mod tests {
                 .expect("the state reads"),
             DestinationState::Missing
         );
+
+        // A destination whose parent is gone answers the rename's own error and keeps the clone.
+        let staged = make_staged_clone(&destination)
+            .await
+            .expect("the folder is made");
+        let orphaned = scratch.path().join("gone").join("app");
+        let refusal = move_staged_clone_into_place(&staged, &orphaned)
+            .await
+            .expect_err("the move fails");
+        assert_eq!(refusal.kind(), ErrorKind::NotFound);
+        assert!(staged.path.is_dir());
+
+        // An absent destination takes the clone.
+        let placed = move_staged_clone_into_place(&staged, &destination)
+            .await
+            .expect("the move answers")
+            .expect("the clone moves into place");
+        assert_eq!(placed.path, destination);
+
+        // A staged clone already gone is removed without error.
+        fs::remove_dir(&placed.path).expect("the folder goes");
+        remove_staged_clone(&placed)
+            .await
+            .expect("the removal runs");
     }
 }
