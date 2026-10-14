@@ -11,7 +11,6 @@ pub mod cleanup_failures;
 pub mod crash_window;
 pub mod daemon;
 pub mod database;
-pub mod disk_flush;
 pub mod events;
 pub mod file;
 pub mod git;
