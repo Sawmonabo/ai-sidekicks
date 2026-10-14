@@ -1,8 +1,8 @@
 //! The wire shapes of a streaming subscription: the acknowledgement every `*.subscribe` method
 //! answers with, the `$/subscription/notify` frame carrying one value, the `$/subscription/end`
 //! frame the daemon ends a stream with, and the `$/subscription/cancel` call a client tears one
-//! down with. A subscription holds only its place, never a queue: a stream either loses nothing or
-//! marks a drop.
+//! down with. A subscription holds only its place, never a queue, so a stream loses nothing; only a
+//! shell's output stream marks a drop, when a watcher falls behind its scrollback.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
