@@ -264,11 +264,15 @@ async fn read_folder_identity(path: PathBuf) -> Result<Option<EntryIdentity>, St
 mod tests {
     use std::fs;
     use std::io::ErrorKind;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    #[cfg(unix)]
+    use std::path::Path;
 
     use rstest::rstest;
 
     use super::{
-        DestinationState, address_without_credentials, make_staged_clone,
+        DestinationState, StagedCloneError, address_without_credentials, make_staged_clone,
         move_staged_clone_into_place, read_destination_state, remove_staged_clone,
         repository_key_of, repository_name_of,
     };
@@ -411,5 +415,72 @@ mod tests {
         remove_staged_clone(&placed)
             .await
             .expect("the removal runs");
+
+        // A staged clone whose parent became a file answers the read's error.
+        let staged = make_staged_clone(&destination)
+            .await
+            .expect("the folder is made");
+        let parent = destination.parent().expect("the destination has a parent");
+        fs::rename(parent, scratch.path().join("projects-moved")).expect("the parent moves away");
+        fs::write(parent, "a file").expect("a file takes the parent's path");
+        let refusal = remove_staged_clone(&staged)
+            .await
+            .expect_err("the removal fails");
+        assert!(
+            matches!(&refusal, StagedCloneError::Io(error) if error.kind() == ErrorKind::NotADirectory),
+            "{refusal:?}"
+        );
+    }
+
+    // Makes a folder read-only, and gives its mode back when dropped so the scratch folder goes.
+    #[cfg(unix)]
+    struct ReadOnlyFolder<'f>(&'f Path);
+
+    #[cfg(unix)]
+    impl<'f> ReadOnlyFolder<'f> {
+        fn new(folder: &'f Path) -> Self {
+            fs::set_permissions(folder, fs::Permissions::from_mode(0o555))
+                .expect("the folder's mode is set");
+            Self(folder)
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for ReadOnlyFolder<'_> {
+        fn drop(&mut self) {
+            fs::set_permissions(self.0, fs::Permissions::from_mode(0o755))
+                .expect("the folder's mode is given back");
+        }
+    }
+
+    // Windows' read-only flag does not stop a removal, so only a folder's mode can refuse one.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_staged_clone_whose_removal_is_refused_fails_and_keeps_its_files() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let staged = make_staged_clone(&scratch.path().join("app"))
+            .await
+            .expect("the folder is made");
+        let locked = staged.path.join("objects");
+        fs::create_dir(&locked).expect("a folder is made inside");
+        fs::write(locked.join("pack"), "kept").expect("a file is written inside");
+        let _read_only = ReadOnlyFolder::new(&locked);
+        // Root's override would let the removal through and prove nothing.
+        assert_eq!(
+            fs::remove_file(locked.join("pack"))
+                .expect_err("the folder's mode refuses a removal")
+                .kind(),
+            ErrorKind::PermissionDenied
+        );
+
+        let refusal = remove_staged_clone(&staged)
+            .await
+            .expect_err("the removal fails");
+
+        assert!(
+            matches!(&refusal, StagedCloneError::Io(error) if error.kind() == ErrorKind::PermissionDenied),
+            "{refusal:?}"
+        );
+        assert!(locked.join("pack").is_file());
     }
 }
