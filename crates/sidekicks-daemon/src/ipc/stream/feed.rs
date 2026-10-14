@@ -15,11 +15,12 @@ use crate::ipc::registry::HandlerError;
 pub(crate) struct SubscriptionClosed;
 
 /// The send gate: one per subscription, implemented by the gateway. A feed awaits it before each
-/// frame.
+/// frame. It fails only after the subscription's token is canceled, so the gateway cancels the
+/// token before it closes the gate, and a closed gate never reads as a finished stream.
 pub(crate) trait SendGate: Send + Sync {
     /// Resolves once the subscription's lane has credit and the connection's writer has room,
     /// spending nothing, so a feed may await it more than once before one frame; fails with
-    /// `SubscriptionClosed` once the subscription closed.
+    /// `SubscriptionClosed` once the subscription closed, after its token was canceled.
     fn ready(&self) -> BoxFuture<'_, Result<(), SubscriptionClosed>>;
 }
 

@@ -1,15 +1,16 @@
 //! The daemon's open subscriptions: each one's connection and cancellation, the
 //! `$/subscription/cancel` call that tears one down from its own connection, and the frames the
-//! gateway writes for one once its acknowledgement is on the wire. A subscription owns its feed,
-//! and whatever the feed follows is released when the feed drops, on every end. The daemon's own
-//! end sends one `$/subscription/end` frame; a client's cancel and a closed connection send none.
+//! gateway writes for one once its acknowledgement is on the wire. A subscription owns its feed;
+//! what the feed follows is released in its `Drop`, which runs on every end, after the entry leaves
+//! the table. The daemon's own end sends one `$/subscription/end` frame; a client's cancel and a
+//! closed connection send none.
 
 use std::collections::hash_map::Entry as MapEntry;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use futures::FutureExt as _;
-use serde_json::{Map, Value};
+use serde_json::json;
 use sidekicks_contracts::jsonrpc::framing::incoming::MAX_OPEN_LANES;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::jsonrpc::streaming::{
@@ -17,6 +18,7 @@ use sidekicks_contracts::jsonrpc::streaming::{
     SubscriptionId,
 };
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument as _;
 
 use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
 use crate::ipc::jsonrpc_error_mapping::{CallFailure, json_rpc_error_of};
@@ -48,15 +50,16 @@ struct OpenSubscription {
 
 impl SubscriptionTable {
     /// Takes `subscription_id` out of both maps, dropping its connection's set once empty.
-    fn remove(&mut self, subscription_id: &SubscriptionId) -> Option<OpenSubscription> {
-        let open = self.by_id.remove(subscription_id)?;
+    fn remove(&mut self, subscription_id: &SubscriptionId) {
+        let Some(open) = self.by_id.remove(subscription_id) else {
+            return;
+        };
         if let MapEntry::Occupied(mut ids) = self.by_transport.entry(open.transport) {
             ids.get_mut().remove(subscription_id);
             if ids.get().is_empty() {
                 ids.remove();
             }
         }
-        Some(open)
     }
 }
 
@@ -83,13 +86,24 @@ impl Subscriptions {
         )
     }
 
-    /// Opens the subscription a subscribe call answered, owned by `transport`, before the gateway
-    /// writes its acknowledgement. Refused `transport.subscription_limit_reached` with `{limit}`
-    /// when the connection already holds `MAX_OPEN_LANES` open subscriptions; the feed is then
-    /// dropped and nothing opens.
+    /// Whether `transport` holds fewer than `MAX_OPEN_LANES` open subscriptions, so a subscribe
+    /// call on it may run; the gateway asks before it dispatches one, and `open` checks again for
+    /// a subscribe that raced it.
+    pub(crate) fn has_room(&self, transport: TransportId) -> bool {
+        self.lock()
+            .by_transport
+            .get(&transport)
+            .is_none_or(|ids| ids.len() < MAX_OPEN_LANES)
+    }
+
+    /// Opens the subscription a subscribe call to `method` answered, owned by `transport`, before
+    /// the gateway writes its acknowledgement. Refused `transport.subscription_limit_reached` with
+    /// `{limit}` when the connection already holds `MAX_OPEN_LANES` open subscriptions; the feed is
+    /// then dropped and nothing opens.
     pub(crate) fn open(
         self: &Arc<Self>,
         transport: TransportId,
+        method: &'static str,
         subscription_id: SubscriptionId,
         feed: Box<dyn EncodedFeed>,
     ) -> Result<Subscription, DomainError> {
@@ -112,76 +126,53 @@ impl Subscriptions {
         }
         Ok(Subscription {
             subscriptions: Arc::clone(self),
+            method,
             id: subscription_id,
             cancellation,
-            feed: Some(feed),
+            has_ended: false,
+            feed,
         })
     }
 
     /// Ends every subscription of the closed connection `transport`, with no end frame: each is
-    /// taken out of the table, then canceled, which releases its feed.
+    /// canceled, so its next frame ends it, and it leaves the table when the gateway drops it.
     pub(crate) fn cleanup_transport(&self, transport: TransportId) {
-        let closed: Vec<CancellationToken> = {
-            let mut guard = self.lock();
-            let table = &mut *guard;
-            let Some(ids) = table.by_transport.remove(&transport) else {
-                return;
-            };
-            ids.iter()
-                .filter_map(|subscription_id| table.by_id.remove(subscription_id))
-                .map(|open| open.cancellation)
-                .collect()
+        let table = self.lock();
+        let Some(ids) = table.by_transport.get(&transport) else {
+            return;
         };
-        for cancellation in closed {
-            cancellation.cancel();
+        for open in ids.iter().filter_map(|id| table.by_id.get(id)) {
+            open.cancellation.cancel();
         }
     }
 
-    /// A client's cancel from `transport`: true when it owns `subscription_id`, which is taken out
-    /// of the table, then canceled.
+    /// A client's cancel from `transport`: true when it owns `subscription_id` and had not canceled
+    /// it yet, which cancels it; it leaves the table when the gateway drops it.
     fn cancel(&self, subscription_id: &SubscriptionId, transport: TransportId) -> bool {
-        let removed = {
-            let mut table = self.lock();
-            let is_owner = table
-                .by_id
-                .get(subscription_id)
-                .is_some_and(|open| open.transport == transport);
-            if is_owner {
-                table.remove(subscription_id)
-            } else {
-                None
-            }
-        };
-        let Some(open) = removed else {
+        let table = self.lock();
+        let Some(open) = table.by_id.get(subscription_id) else {
             return false;
         };
+        if open.transport != transport || open.cancellation.is_cancelled() {
+            return false;
+        }
         open.cancellation.cancel();
         true
     }
 
-    /// Takes `subscription_id` out of the table, if it is still there.
-    fn remove(&self, subscription_id: &SubscriptionId) {
-        self.lock().remove(subscription_id);
-    }
-
     fn lock(&self) -> MutexGuard<'_, SubscriptionTable> {
-        self.table
-            .lock()
-            .expect("a panic ends the daemon, so no holder leaves the table poisoned")
+        self.table.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
 /// The refusal of a subscribe call on a connection that holds `MAX_OPEN_LANES` subscriptions.
 fn subscription_limit_reached() -> DomainError {
-    let detail: Map<String, Value> = [("limit".to_owned(), Value::from(MAX_OPEN_LANES))]
-        .into_iter()
-        .collect();
     DomainError::new(
         "the connection holds as many subscriptions as it may open",
         RefusalCode::TransportSubscriptionLimitReached,
         DomainErrorJsonRpcCode::InternalError,
     )
-    .with_detail(detail)
+    .with_detail(json!({ "limit": MAX_OPEN_LANES }))
 }
 
 /// One frame of a subscription's lane.
@@ -196,10 +187,13 @@ pub(crate) enum SubscriptionFrame {
 /// written. Dropping it takes it out of the table, then drops its feed.
 pub(crate) struct Subscription {
     subscriptions: Arc<Subscriptions>,
+    /// The subscribe method's wire name, which the subscription's log lines carry.
+    method: &'static str,
     id: SubscriptionId,
     cancellation: CancellationToken,
-    /// `None` once the subscription ended, so what the feed followed is released at the end.
-    feed: Option<Box<dyn EncodedFeed>>,
+    /// Set once the subscription ended, so no frame follows its end.
+    has_ended: bool,
+    feed: Box<dyn EncodedFeed>,
 }
 
 impl Subscription {
@@ -210,12 +204,31 @@ impl Subscription {
 
     /// The next frame once `gate` lets one through: a value, or the end frame (`completed` when
     /// the feed finished, `refused` with the mapped error when its read failed or an emission broke
-    /// its rule, logged once by the mapper). `None` once the subscription ended with nothing to
-    /// send (canceled by its client, or its connection closed, which also closes its gate) and
-    /// after its end frame. A cancel ends a feed that is waiting.
+    /// its rule, logged once by the mapper under a span naming the subscription and its method).
+    /// `None` once the subscription ended with nothing to send (canceled by its client, or its
+    /// connection closed, which also closes its gate) and after its end frame; the gateway then
+    /// drops it. A cancel ends a feed that is waiting.
     pub(crate) async fn next_frame(&mut self, gate: &dyn SendGate) -> Option<SubscriptionFrame> {
-        let feed = self.feed.as_mut()?;
-        let read = self.cancellation.run_until_cancelled(feed.next(gate)).await;
+        if self.has_ended {
+            return None;
+        }
+        let span = tracing::error_span!(
+            "subscription",
+            subscription_id = self.id.as_str(),
+            method = self.method,
+        );
+        let frame = self.read_frame(gate).instrument(span).await;
+        if !matches!(frame, Some(SubscriptionFrame::Notify(_))) {
+            self.has_ended = true;
+        }
+        frame
+    }
+
+    async fn read_frame(&mut self, gate: &dyn SendGate) -> Option<SubscriptionFrame> {
+        let read = self
+            .cancellation
+            .run_until_cancelled(self.feed.next(gate))
+            .await;
         // A subscription canceled from outside ends with no frame: its client asked, or is gone.
         // Its gate closes only once it is canceled, so a feed stopped by its gate lands here too.
         let is_canceled = self.cancellation.is_cancelled();
@@ -234,8 +247,6 @@ impl Subscription {
                 })
             }
         };
-        self.subscriptions.remove(&self.id);
-        self.feed = None;
         end.map(SubscriptionFrame::End)
     }
 }
@@ -243,17 +254,15 @@ impl Subscription {
 impl Drop for Subscription {
     fn drop(&mut self) {
         // Runs before the fields drop, so the entry leaves the table before the feed is released.
-        self.subscriptions.remove(&self.id);
+        self.subscriptions.lock().remove(&self.id);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use futures::future::BoxFuture;
-    use schemars::JsonSchema;
-    use serde::{Deserialize, Serialize};
-    use serde_json::json;
     use serde_json::value::RawValue;
+    use serde_json::{Value, json};
     use sidekicks_contracts::jsonrpc::streaming::{
         SUBSCRIPTION_CANCEL_METHOD, SubscribeAckResponse,
     };
@@ -261,12 +270,12 @@ mod tests {
         Method, MethodDescriptor, ProcedureType, SubscriptionMethod,
     };
     use sidekicks_contracts::schema::received_check;
-    use sidekicks_contracts::trust_statement::DeviceId;
     use sidekicks_contracts::typescript::TypeName;
     use tokio::sync::mpsc;
     use uuid::Uuid;
 
     use super::*;
+    use crate::ipc::call_fixtures::{Named, context};
     use crate::ipc::registry::{
         Dispatch as _, DispatchError, HandlerError, MethodRegistry, Reply, Request,
     };
@@ -295,17 +304,13 @@ mod tests {
         }
     }
 
+    /// The subscribe method the tests' subscriptions answer.
+    const METHOD: &str = "test.subscribe";
+
     /// A channel feed and its sender, which reads closed once the feed is released.
     fn channel_feed() -> (mpsc::UnboundedSender<Vec<u8>>, Box<dyn EncodedFeed>) {
         let (sender, values) = mpsc::unbounded_channel();
         (sender, Box::new(ChannelFeed { values }))
-    }
-
-    #[derive(Debug, Serialize, Deserialize, JsonSchema, garde::Validate)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    struct Named {
-        #[garde(length(max = 4))]
-        name: String,
     }
 
     /// A subscribe method whose emissions are `Named`.
@@ -315,7 +320,7 @@ mod tests {
         type Params = Named;
         type Result = SubscribeAckResponse;
         const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
-            method: "test.subscribe",
+            method: METHOD,
             procedure_type: ProcedureType::Subscription,
             is_mutating: false,
             params: TypeName::of::<Named>(),
@@ -351,15 +356,6 @@ mod tests {
         // A version-7 layout, so the id reads as the UUID text form.
         let uuid = Uuid::from_u128(0x7000_8000_0000_0000_0000 | number);
         SubscriptionId::new(uuid.to_string()).expect("the layout is a UUID's")
-    }
-
-    fn context(transport: u64) -> HandlerContext {
-        HandlerContext {
-            transport_id: TransportId(transport),
-            device_id: DeviceId::new("device".to_owned()).expect("the id is well formed"),
-            caller_process_id: None,
-            cancellation: CancellationToken::new(),
-        }
     }
 
     fn request(method: &str, params: &Value) -> Request {
@@ -418,7 +414,7 @@ mod tests {
         let (subscriptions, registry) = served();
         let (values, feed) = channel_feed();
         let mut subscription = subscriptions
-            .open(TransportId(1), subscription_id(1), feed)
+            .open(TransportId(1), METHOD, subscription_id(1), feed)
             .expect("the connection is under its limit");
 
         assert!(!cancel_from(&registry, 2, &subscription_id(1)).await);
@@ -436,6 +432,11 @@ mod tests {
         );
         assert!(canceled);
         assert!(frame.is_none());
+        assert!(
+            !cancel_from(&registry, 1, &owned).await,
+            "a second cancel finds it canceled"
+        );
+        drop(subscription);
         assert!(values.is_closed(), "the feed was released");
     }
 
@@ -445,7 +446,7 @@ mod tests {
         let (subscriptions, _registry) = served();
         let (values, feed) = channel_feed();
         let mut subscription = subscriptions
-            .open(TransportId(1), subscription_id(1), feed)
+            .open(TransportId(1), METHOD, subscription_id(1), feed)
             .expect("the connection is under its limit");
         drop(values);
 
@@ -463,14 +464,20 @@ mod tests {
         let (subscriptions, _registry) = served();
         let (values, feed) = channel_feed();
         let mut subscription = subscriptions
-            .open(TransportId(1), subscription_id(1), feed)
+            .open(TransportId(1), METHOD, subscription_id(1), feed)
             .expect("the connection is under its limit");
 
         let (frame, ()) = tokio::join!(subscription.next_frame(&gate), async {
             subscriptions.cleanup_transport(TransportId(1));
         });
         assert!(frame.is_none());
+        assert!(subscription.next_frame(&gate).await.is_none());
+        drop(subscription);
         assert!(values.is_closed(), "the feed was released");
+        assert!(
+            subscriptions.lock().by_id.is_empty(),
+            "the entry left the table"
+        );
     }
 
     #[tokio::test]
@@ -492,7 +499,7 @@ mod tests {
             panic!("a subscribe call answers a subscription");
         };
         let mut subscription = subscriptions
-            .open(TransportId(1), subscription_id, feed)
+            .open(TransportId(1), METHOD, subscription_id, feed)
             .expect("the connection is under its limit");
 
         let frame = subscription.next_frame(&gate).await;
@@ -527,13 +534,23 @@ mod tests {
         let mut open: Vec<Subscription> = (0..limit)
             .map(|number| {
                 subscriptions
-                    .open(TransportId(1), subscription_id(number), Box::new(IdleFeed))
+                    .open(
+                        TransportId(1),
+                        METHOD,
+                        subscription_id(number),
+                        Box::new(IdleFeed),
+                    )
                     .expect("the connection is under its limit")
             })
             .collect();
 
         let refusal = subscriptions
-            .open(TransportId(1), subscription_id(limit), Box::new(IdleFeed))
+            .open(
+                TransportId(1),
+                METHOD,
+                subscription_id(limit),
+                Box::new(IdleFeed),
+            )
             .err()
             .expect("the connection is at its limit");
         assert_eq!(refusal.code, RefusalCode::TransportSubscriptionLimitReached);
@@ -544,14 +561,23 @@ mod tests {
 
         open.push(
             subscriptions
-                .open(TransportId(2), subscription_id(limit), Box::new(IdleFeed))
+                .open(
+                    TransportId(2),
+                    METHOD,
+                    subscription_id(limit),
+                    Box::new(IdleFeed),
+                )
                 .expect("another connection has its own limit"),
         );
+        assert!(!subscriptions.has_room(TransportId(1)));
         assert!(cancel_from(&registry, 1, &subscription_id(0)).await);
+        drop(open.remove(0));
+        assert!(subscriptions.has_room(TransportId(1)));
         open.push(
             subscriptions
                 .open(
                     TransportId(1),
+                    METHOD,
                     subscription_id(limit + 1),
                     Box::new(IdleFeed),
                 )
