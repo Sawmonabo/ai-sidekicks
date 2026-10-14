@@ -1,5 +1,6 @@
-//! JSON text a provider sends, repaired where `serde_json` refuses what Node reads: bytes that are
-//! not UTF-8 become U+FFFD, and a lone UTF-16 surrogate escape becomes `\uFFFD`.
+//! JSON text a provider sends, repaired so that every line a provider writes parses: bytes that
+//! are not UTF-8 become U+FFFD, and a lone UTF-16 surrogate escape, which Claude Code writes as a
+//! Node program and `serde_json` refuses, becomes `\uFFFD`.
 
 use std::borrow::Cow;
 
@@ -137,7 +138,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn any_utf16_sequence_reads_as_node_reads_it(
+        fn any_utf16_sequence_reads_with_each_lone_surrogate_repaired(
             units in proptest::collection::vec(
                 (
                     prop_oneof![any::<u16>(), 0xD800_u16..=0xDFFF, 0x20_u16..=0x7E],

@@ -5,6 +5,7 @@
 
 use std::iter;
 use std::slice;
+use std::str::FromStr;
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::question::{
@@ -13,7 +14,6 @@ use sidekicks_contracts::question::{
 use sidekicks_contracts::wire::number::Number;
 use sidekicks_contracts::wire::text::{NonEmptyText, is_ecmascript_whitespace};
 
-use crate::javascript_key_order::members_in_javascript_order;
 use crate::provider::driver::providers::codex::ask_option_sets::{
     CodexAskOptionSetReading, ProviderAskOption, read_codex_elicitation_field_option_set,
 };
@@ -134,8 +134,8 @@ pub(crate) fn compose_codex_elicitation_content(
     content
 }
 
-// The fields of a `form` elicitation, in the order JavaScript lists its schema's properties; none
-// for any other mode. A field asked by nothing (no title, description, name or form message) is
+// The fields of a `form` elicitation, in the order Codex sends its schema's properties; none for
+// any other mode. A field asked by nothing (no title, description, name or form message) is
 // left out here, so the questions and the content pair every answer with the same field.
 fn read_codex_elicitation_fields(payload: &Map<String, Value>) -> Vec<CodexElicitationField<'_>> {
     if payload.get("mode").and_then(Value::as_str) != Some("form") {
@@ -149,8 +149,8 @@ fn read_codex_elicitation_fields(payload: &Map<String, Value>) -> Vec<CodexElici
     };
     let required_names = schema.get("required").and_then(Value::as_array);
     let message = read_non_empty_string(payload, "message");
-    members_in_javascript_order(properties)
-        .into_iter()
+    properties
+        .iter()
         .filter_map(|(name, property)| {
             let members = property.as_object()?;
             let text = read_non_empty_string(members, "title")
@@ -257,7 +257,7 @@ fn read_number_bound(members: &Map<String, Value>, bound: &str) -> Option<Number
 fn read_typed_answer(members: &Map<String, Value>, text: &str) -> Value {
     match members.get("type").and_then(Value::as_str) {
         Some("number" | "integer") => {
-            read_javascript_number(text).map_or_else(|| Value::from(text), write_number)
+            read_finite_number(text).map_or_else(|| Value::from(text), write_number)
         }
         Some("boolean") => match text {
             "true" => Value::Bool(true),
@@ -268,57 +268,16 @@ fn read_typed_answer(members: &Map<String, Value>, text: &str) -> Value {
     }
 }
 
-// The finite number JavaScript's `Number(text)` reads, or `None` where it reads `NaN`, an
-// infinity, or zero from blank text. Rust's decimal grammar is JavaScript's but for `inf`,
-// `infinity` and `nan`, which read only as numbers that are not finite.
-fn read_javascript_number(text: &str) -> Option<f64> {
-    let trimmed = text.trim_matches(is_ecmascript_whitespace);
-    let number = read_prefixed_integer(trimmed).or_else(|| trimmed.parse::<f64>().ok())?;
-    number.is_finite().then_some(number)
+// The finite decimal number `text` spells around its whitespace, or `None` for blank text, other
+// text, and an infinity or `NaN`.
+fn read_finite_number(text: &str) -> Option<f64> {
+    f64::from_str(text.trim_matches(is_ecmascript_whitespace))
+        .ok()
+        .filter(|number| number.is_finite())
 }
 
-// The number a `0x`, `0o` or `0b` literal (either case, no sign) spells, rounded to the nearest
-// `f64` as JavaScript rounds it; `None` for text that is no such literal.
-fn read_prefixed_integer(text: &str) -> Option<f64> {
-    let (radix, bits_per_digit) = match text.get(..2)? {
-        "0x" | "0X" => (16, 4),
-        "0o" | "0O" => (8, 3),
-        "0b" | "0B" => (2, 1),
-        _ => return None,
-    };
-    let digits = &text[2..];
-    if digits.is_empty() {
-        return None;
-    }
-    // Every digit is kept while it fits; past that, a digit only scales the value, and a nonzero
-    // one sets the lowest bit, which lies far below the rounding point and so rounds as the exact
-    // value does.
-    let mut value: u128 = 0;
-    let mut dropped_bits: u32 = 0;
-    for character in digits.chars() {
-        let digit = character.to_digit(radix)?;
-        if value >> (u128::BITS - bits_per_digit) == 0 {
-            value = (value << bits_per_digit) | u128::from(digit);
-        } else {
-            dropped_bits = dropped_bits.saturating_add(bits_per_digit);
-            value |= u128::from(digit != 0);
-        }
-    }
-    Some(scale_by_power_of_two(value, dropped_bits))
-}
-
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "the integer rounds to the nearest f64, as JavaScript rounds the literal"
-)]
-fn scale_by_power_of_two(value: u128, exponent: u32) -> f64 {
-    // An exponent past `i32` overflows to an infinity, as the exact value would.
-    let exponent = i32::try_from(exponent).unwrap_or(i32::MAX);
-    value as f64 * 2_f64.powi(exponent)
-}
-
-// A finite number as JavaScript writes it: a whole one within `i64` as an integer, since
-// `serde_json` writes `5.0` where JavaScript writes `5`.
+// A finite number as the answer's JSON: a whole one within `i64` is written as an integer literal,
+// so an integer field gets an integer.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "the number is whole and within i64, so the cast is exact"
@@ -391,14 +350,20 @@ mod tests {
         &["How many", "severity", "note"],
         r#"{"count":5,"severity":"p1"}"#
     )]
-    #[case::array_index_keys_first(
+    #[case::fields_in_the_order_codex_sends_them(
         form(
             &json!({"b": {"type": "string"}, "2": {"type": "string"}, "1": {"type": "string"}}),
             None,
         ),
-        vec![typed("one"), typed("two"), typed("bee")],
-        &["1", "2", "b"],
-        r#"{"1":"one","2":"two","b":"bee"}"#
+        vec![typed("bee"), typed("two"), typed("one")],
+        &["b", "2", "1"],
+        r#"{"b":"bee","2":"two","1":"one"}"#
+    )]
+    #[case::a_number_only_in_decimal(
+        form(&json!({"spaced": {"type": "number"}, "hex": {"type": "number"}}), None),
+        vec![typed("\u{a0}2.5\u{feff}"), typed("0x10")],
+        &["spaced", "hex"],
+        r#"{"spaced":2.5,"hex":"0x10"}"#
     )]
     #[case::a_field_asked_by_nothing_before_a_field(
         form(&json!({"": {}, "size": {"type": "string"}}), None),
