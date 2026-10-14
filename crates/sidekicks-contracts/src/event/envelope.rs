@@ -17,7 +17,7 @@ use serde_json::{Map, Value, json};
 use crate::event::version::{EVENT_FIELD_MAX_LEN, EventEnvelopeVersion};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::instant::calendar_date_pattern;
+use crate::wire::instant::{calendar_date_pattern, stored_instant_text};
 use crate::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use crate::wire::text::FreeFormText;
 use crate::wire::{NullableSchema, True, named_scalar};
@@ -308,6 +308,12 @@ impl EventOccurredAt {
     /// text breaks the rule its garde check holds.
     pub fn timestamp(&self) -> Option<jiff::Timestamp> {
         parse_occurred_at(&self.0).ok()
+    }
+
+    /// `timestamp` in the stored form, UTC to the millisecond (`YYYY-MM-DDTHH:MM:SS.sssZ`), a
+    /// sub-millisecond part cut; `None` before the year 0000, which the stored form cannot write.
+    pub fn from_timestamp(timestamp: jiff::Timestamp) -> Option<Self> {
+        stored_instant_text(timestamp).map(Self)
     }
 }
 
