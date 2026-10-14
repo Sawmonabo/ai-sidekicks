@@ -4,11 +4,10 @@
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
-use rusqlite::types::Value;
 use sidekicks_contracts::session::groups::SessionGroupId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::database::statement::{StatementBindings, WriteStatement};
+use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::session::directory::lookups::session_project_sql;
 
 // The project of the session bound as `@sessionId`.
@@ -234,8 +233,4 @@ fn group_statement(
         bindings: StatementBindings::Named(vec![text_binding("@groupId", group_id.as_str())]),
         expected_row_count,
     }
-}
-
-fn text_binding(name: &'static str, text: &str) -> (Cow<'static, str>, Value) {
-    (Cow::Borrowed(name), Value::Text(text.to_owned()))
 }

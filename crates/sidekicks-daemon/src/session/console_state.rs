@@ -10,7 +10,7 @@ use rusqlite::{Connection, OptionalExtension};
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::database::statement::{StatementBindings, WriteStatement};
+use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::session::stored_column::{closed_word, text_column};
 
 /// The row a session on a provider that offers an advisor is born with, its advisor copied from
@@ -39,18 +39,12 @@ pub(crate) fn advisor_model_change_statement(
     WriteStatement {
         sql: Cow::Borrowed(UPSERT_ADVISOR_MODEL_SQL),
         bindings: StatementBindings::Named(vec![
-            (
-                Cow::Borrowed("@sessionId"),
-                Value::Text(session_id.as_str().to_owned()),
-            ),
+            text_binding("@sessionId", session_id.as_str()),
             (
                 Cow::Borrowed("@advisorModel"),
                 advisor_model.map_or(Value::Null, |model| Value::Text(model.to_owned())),
             ),
-            (
-                Cow::Borrowed("@updatedAt"),
-                Value::Text(updated_at.to_owned()),
-            ),
+            text_binding("@updatedAt", updated_at),
         ]),
         expected_row_count: None,
     }
@@ -78,18 +72,9 @@ pub(crate) fn session_mode_change_statement(
     WriteStatement {
         sql: Cow::Borrowed(UPSERT_SESSION_MODE_SQL),
         bindings: StatementBindings::Named(vec![
-            (
-                Cow::Borrowed("@sessionId"),
-                Value::Text(session_id.as_str().to_owned()),
-            ),
-            (
-                Cow::Borrowed("@sessionMode"),
-                Value::Text(<&'static str>::from(session_mode).to_owned()),
-            ),
-            (
-                Cow::Borrowed("@updatedAt"),
-                Value::Text(updated_at.to_owned()),
-            ),
+            text_binding("@sessionId", session_id.as_str()),
+            text_binding("@sessionMode", <&'static str>::from(session_mode)),
+            text_binding("@updatedAt", updated_at),
         ]),
         expected_row_count: None,
     }

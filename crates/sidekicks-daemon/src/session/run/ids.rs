@@ -2,11 +2,10 @@
 
 use std::borrow::Cow;
 
-use rusqlite::types::Value;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::database::statement::{StatementBindings, WriteStatement};
+use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 
 /// The ids, in one `runId` column, of the runs of the session the `@sessionId` parameter names:
 /// the rows the rebuild wrote, every run its readable events name, so a run the rebuild never
@@ -31,14 +30,8 @@ pub(crate) fn run_in_session_statement(session_id: &SessionId, run_id: &RunId) -
     WriteStatement {
         sql: Cow::Borrowed(RUN_IN_SESSION_SQL),
         bindings: StatementBindings::Named(vec![
-            (
-                Cow::Borrowed("@sessionId"),
-                Value::Text(session_id.as_str().to_owned()),
-            ),
-            (
-                Cow::Borrowed("@runId"),
-                Value::Text(run_id.as_str().to_owned()),
-            ),
+            text_binding("@sessionId", session_id.as_str()),
+            text_binding("@runId", run_id.as_str()),
         ]),
         expected_row_count: Some(1),
     }

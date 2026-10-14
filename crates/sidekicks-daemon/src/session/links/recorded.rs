@@ -3,11 +3,10 @@
 
 use std::borrow::Cow;
 
-use rusqlite::types::Value;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::links::SessionLinkKind;
 
-use crate::database::statement::{StatementBindings, WriteStatement};
+use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 
 /// One link an event records, from the session that acted to the one it acted on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,22 +35,10 @@ pub(crate) fn recorded_session_link_statement(link: &RecordedSessionLink) -> Wri
     WriteStatement {
         sql: Cow::Borrowed(RECORD_LINK_SQL),
         bindings: StatementBindings::Named(vec![
-            (
-                Cow::Borrowed("@sourceSessionId"),
-                Value::Text(link.source_session_id.as_str().to_owned()),
-            ),
-            (
-                Cow::Borrowed("@targetSessionId"),
-                Value::Text(link.target_session_id.as_str().to_owned()),
-            ),
-            (
-                Cow::Borrowed("@kind"),
-                Value::Text(<&'static str>::from(link.kind).to_owned()),
-            ),
-            (
-                Cow::Borrowed("@occurredAt"),
-                Value::Text(link.occurred_at.clone()),
-            ),
+            text_binding("@sourceSessionId", link.source_session_id.as_str()),
+            text_binding("@targetSessionId", link.target_session_id.as_str()),
+            text_binding("@kind", <&'static str>::from(link.kind)),
+            text_binding("@occurredAt", &link.occurred_at),
         ]),
         expected_row_count: None,
     }

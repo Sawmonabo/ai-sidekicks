@@ -4,12 +4,11 @@
 
 use std::borrow::Cow;
 
-use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::database::statement::{StatementBindings, WriteStatement};
+use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::session::stored_column::{closed_word, text_column};
 
 /// The statement storing the level a session moved to; the write refuses a session with no row.
@@ -22,14 +21,8 @@ pub(crate) fn permission_level_change_statement(
             "UPDATE sessions SET permission_level = @permissionLevel WHERE id = @sessionId",
         ),
         bindings: StatementBindings::Named(vec![
-            (
-                Cow::Borrowed("@sessionId"),
-                Value::Text(session_id.as_str().to_owned()),
-            ),
-            (
-                Cow::Borrowed("@permissionLevel"),
-                Value::Text(<&'static str>::from(permission_level).to_owned()),
-            ),
+            text_binding("@sessionId", session_id.as_str()),
+            text_binding("@permissionLevel", <&'static str>::from(permission_level)),
         ]),
         expected_row_count: Some(1),
     }

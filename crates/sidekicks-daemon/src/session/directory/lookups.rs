@@ -5,10 +5,9 @@
 
 use std::borrow::Cow;
 
-use rusqlite::types::Value;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::database::statement::{StatementBindings, WriteStatement};
+use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 
 /// The subquery answering the project id of the session whose id `session_id_sql` reads (a bound
 /// parameter such as `@sessionId`, or a column such as `s.id`), or NULL for a chat, a session whose
@@ -36,10 +35,7 @@ pub(crate) const SESSION_EXISTS_SQL: &str = "SELECT 1 FROM sessions WHERE id = @
 pub(crate) fn session_exists_statement(session_id: &SessionId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(SESSION_EXISTS_SQL),
-        bindings: StatementBindings::Named(vec![(
-            Cow::Borrowed("@sessionId"),
-            Value::Text(session_id.as_str().to_owned()),
-        )]),
+        bindings: StatementBindings::Named(vec![text_binding("@sessionId", session_id.as_str())]),
         expected_row_count: Some(1),
     }
 }

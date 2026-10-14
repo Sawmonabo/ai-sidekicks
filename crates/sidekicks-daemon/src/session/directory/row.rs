@@ -23,7 +23,7 @@ use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 use sidekicks_contracts::worktree::events::SessionBranchChangedPayload;
 
-use crate::database::statement::{StatementBindings, WriteStatement};
+use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::events::canonicalizer::{OccurredAtNormalizationRefusal, normalize_occurred_at};
 use crate::session::directory::run_activity::run_outcome_of;
 use crate::session::records::SessionDirectoryRow;
@@ -595,14 +595,13 @@ const UPSERT_ROW_SQL: &str = "INSERT INTO sessions
 /// The statement that writes a folded row's every event-derived column over the session's row, or
 /// inserts the row when the database lost it; the columns services write and its group are kept.
 pub(crate) fn directory_row_statement(row: &SessionDirectoryRow) -> WriteStatement {
-    let text = |text: &str| SqlValue::Text(text.to_owned());
     let optional_text = |text: Option<&str>| SqlValue::from(text.map(str::to_owned));
     WriteStatement {
         sql: Cow::Borrowed(UPSERT_ROW_SQL),
         bindings: StatementBindings::Named(vec![
-            (Cow::Borrowed("@id"), text(row.session_id.as_str())),
-            (Cow::Borrowed("@shape"), closed_word_value(row.shape)),
-            (Cow::Borrowed("@state"), closed_word_value(row.state)),
+            text_binding("@id", row.session_id.as_str()),
+            text_binding("@shape", row.shape.into()),
+            text_binding("@state", row.state.into()),
             (Cow::Borrowed("@name"), optional_text(row.name.as_deref())),
             (
                 Cow::Borrowed("@firstMessagePreview"),
@@ -632,16 +631,10 @@ pub(crate) fn directory_row_statement(row: &SessionDirectoryRow) -> WriteStateme
                 Cow::Borrowed("@parentSessionId"),
                 optional_text(row.parent_session_id.as_ref().map(SessionId::as_str)),
             ),
-            (
-                Cow::Borrowed("@lastRunOutcome"),
-                closed_word_value(row.last_run_outcome),
-            ),
-            (Cow::Borrowed("@createdAt"), text(&row.created_at)),
-            (Cow::Borrowed("@updatedAt"), text(&row.updated_at)),
-            (
-                Cow::Borrowed("@lastActivityAt"),
-                text(&row.last_activity_at),
-            ),
+            text_binding("@lastRunOutcome", row.last_run_outcome.into()),
+            text_binding("@createdAt", &row.created_at),
+            text_binding("@updatedAt", &row.updated_at),
+            text_binding("@lastActivityAt", &row.last_activity_at),
         ]),
         expected_row_count: None,
     }
