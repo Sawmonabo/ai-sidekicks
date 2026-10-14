@@ -136,7 +136,7 @@ methods! {
             params: WorkflowSubscribeRequest,
             result: SubscribeAckResponse,
             emission: WorkflowSubscribeNotification,
-            refusals: [SessionNotFound, WorkflowNotFound, TransportSubscriptionLimitReached],
+            refusals: [SessionNotFound, WorkflowNotFound],
         },
     ];
 }

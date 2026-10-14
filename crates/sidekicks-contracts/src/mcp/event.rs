@@ -109,7 +109,7 @@ methods! {
             params: EmptyPayload,
             result: SubscribeAckResponse,
             emission: McpSubscribeEmission,
-            refusals: [TransportSubscriptionLimitReached],
+            refusals: [],
         },
     ];
 }
