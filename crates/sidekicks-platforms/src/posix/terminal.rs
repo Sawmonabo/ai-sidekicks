@@ -189,16 +189,16 @@ impl TerminalWatch {
     /// Makes the watch over `pty`, woken by `waker`; called inside the read loop, since it needs
     /// the runtime. Fails, handing the PTY back, when the master cannot be duplicated or the poller
     /// cannot be watched.
-    pub fn new(mut pty: Pty, waker: &TerminalWaker) -> Result<Self, (io::Error, Pty)> {
+    pub fn new(mut pty: Pty, waker: &TerminalWaker) -> Result<Self, (io::Error, Box<Pty>)> {
         let master = match pty.file().try_clone() {
             Ok(master) => master,
-            Err(error) => return Err((error, pty)),
+            Err(error) => return Err((error, Box::new(pty))),
         };
         let interest = Event::none(TERMINAL_KEY);
         // SAFETY: the PTY's descriptors outlive the registration, because the watch deletes it
         // before the PTY is dropped (`drop_pty`, `release`) and on the failure below.
         if let Err(error) = unsafe { pty.register(&waker.poller, interest, PollMode::Level) } {
-            return Err((error, pty));
+            return Err((error, Box::new(pty)));
         }
         let poller = match AsyncFd::with_interest(Arc::clone(&waker.poller), Interest::READABLE) {
             Ok(poller) => poller,
@@ -209,7 +209,7 @@ impl TerminalWatch {
                         "a terminal's watch could not be undone"
                     );
                 }
-                return Err((error, pty));
+                return Err((error, Box::new(pty)));
             }
         };
         Ok(Self {

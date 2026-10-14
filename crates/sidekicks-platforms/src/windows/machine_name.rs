@@ -1,5 +1,5 @@
 //! The machine's name on Windows: its DNS host name without the domain, the name the person gave
-//! it, never `%COMPUTERNAME%`, the 15-byte uppercase NetBIOS name.
+//! it, never `%COMPUTERNAME%`, the 15-byte uppercase `NetBIOS` name.
 
 use std::ffi::OsString;
 use std::io;

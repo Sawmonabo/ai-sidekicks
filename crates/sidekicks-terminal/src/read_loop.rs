@@ -522,7 +522,7 @@ where
                 release_off_runtime(
                     &self.name,
                     Box::new(move || {
-                        sidekicks_platforms::release_terminal(pty, || control.mark_exited());
+                        sidekicks_platforms::release_terminal(*pty, || control.mark_exited());
                     }),
                 );
                 return;

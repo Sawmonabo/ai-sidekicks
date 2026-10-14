@@ -245,7 +245,7 @@ pub struct TerminalWatch {
 
 impl TerminalWatch {
     /// Makes the watch over `pty`, woken by `waker`; never fails on Windows.
-    pub fn new(pty: Pty, waker: &TerminalWaker) -> Result<Self, (io::Error, Pty)> {
+    pub fn new(pty: Pty, waker: &TerminalWaker) -> Result<Self, (io::Error, Box<Pty>)> {
         Ok(Self {
             pty,
             waker: waker.clone(),
@@ -263,6 +263,7 @@ impl TerminalWatch {
     /// from the registration, a read or the wait.
     #[expect(
         clippy::unused_async,
+        clippy::unused_async_trait_impl,
         reason = "the wait blocks the shell's own thread on Windows, and keeps the signature the \
                   macOS and Linux wait has"
     )]
