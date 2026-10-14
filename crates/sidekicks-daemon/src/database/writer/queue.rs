@@ -8,14 +8,13 @@ use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
 
-use sidekicks_contracts::event::envelope::EventCategory;
-use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot::error::RecvError;
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::time::{Instant, Interval, MissedTickBehavior};
+use tokio::time::Instant;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
+use crate::database::writer::depth_sampler::DepthSampler;
 use crate::database::writer::messages::{
     BatchAnswer, BatchFailure, CheckpointAnswer, ThreadExit, ThreadRequest, WriteJob,
     WriteJobOutcome,
@@ -31,11 +30,6 @@ use crate::database::writer::{
 /// waited [`BATCH_WAIT`]. A larger write goes alone.
 const BATCH_ENTRY_LIMIT: usize = 50;
 const BATCH_WAIT: Duration = Duration::from_millis(10);
-
-/// The queue's depth is sampled this often while it holds anything; at [`ALERT_DEPTH`] a warning
-/// goes to the service log.
-const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
-const ALERT_DEPTH: usize = 8_000;
 
 const CLOSE_OPERATION: &str = "closing the database writer";
 
@@ -81,9 +75,7 @@ pub(super) struct WriteQueue {
     checkpoint: Option<InFlightCheckpoint>,
     is_batch_due: bool,
     batch_deadline: Option<Instant>,
-    sampler: Option<Interval>,
-    /// The session and category a backpressure warning names: the latest event queued.
-    latest_event_tags: Option<EventTags>,
+    sampler: DepthSampler,
     flushes: VecDeque<PendingFlush>,
     pending_holds: VecDeque<PendingHold>,
     active_holds: Vec<u64>,
@@ -131,11 +123,6 @@ struct PendingHold {
 struct PendingCheckpoint {
     mode: CheckpointMode,
     reply: oneshot::Sender<Result<CheckpointResult, CheckpointError>>,
-}
-
-struct EventTags {
-    session_id: SessionId,
-    category: EventCategory,
 }
 
 struct Closing {
@@ -196,8 +183,7 @@ impl WriteQueue {
             checkpoint: None,
             is_batch_due: false,
             batch_deadline: None,
-            sampler: None,
-            latest_event_tags: None,
+            sampler: DepthSampler::default(),
             flushes: VecDeque::new(),
             pending_holds: VecDeque::new(),
             active_holds: Vec::new(),
@@ -239,7 +225,7 @@ impl WriteQueue {
             () = output_of(batch_deadline.map(tokio::time::sleep_until)) => Wake::BatchDue,
             held = output_of(self.writes_held_until.as_mut()) => Wake::HoldEnded(held),
             message = self.messages.recv(), if self.is_receiving => Wake::Message(message),
-            _sampled_at = output_of(self.sampler.as_mut().map(Interval::tick)) => Wake::Sample,
+            () = self.sampler.next_sample() => Wake::Sample,
         }
     }
 
@@ -326,10 +312,7 @@ impl WriteQueue {
             return;
         }
         if let Some(event) = job.events.last() {
-            self.latest_event_tags = Some(EventTags {
-                session_id: event.session_id.clone(),
-                category: event.category,
-            });
+            self.sampler.note_event(event);
         }
         let write = QueuedWrite {
             job,
@@ -349,7 +332,7 @@ impl WriteQueue {
         } else {
             self.waiting.push_back(write);
         }
-        self.start_sampling();
+        self.sampler.start();
     }
 
     fn admit(&mut self, write: QueuedWrite) {
@@ -515,7 +498,7 @@ impl WriteQueue {
         }
         self.admit_waiting();
         if self.depth == 0 && self.waiting.is_empty() {
-            self.latest_event_tags = None;
+            self.sampler.forget_event();
         }
         if !self.queued.is_empty() {
             // Writes queued while the batch was out have waited long enough.
@@ -654,7 +637,7 @@ impl WriteQueue {
             );
         }
         self.batch_deadline = None;
-        self.sampler = None;
+        self.sampler.stop();
         // The thread wakes from its wait, or finishes its batch, and closes its connection.
         self.thread = None;
     }
@@ -760,37 +743,14 @@ impl WriteQueue {
         });
     }
 
-    fn start_sampling(&mut self) {
-        if self.sampler.is_none() {
-            let mut sampler =
-                tokio::time::interval_at(Instant::now() + SAMPLE_INTERVAL, SAMPLE_INTERVAL);
-            sampler.set_missed_tick_behavior(MissedTickBehavior::Delay);
-            self.sampler = Some(sampler);
-        }
-    }
-
-    /// Warns at the alert depth, counting the writes waiting past the cap, and stops sampling once
-    /// the queue is empty.
+    /// Samples the depth, counting the writes waiting past the cap.
     fn sample(&mut self) {
-        let depth = self.depth
-            + self
-                .waiting
-                .iter()
-                .map(|write| write.waiter.size)
-                .sum::<usize>();
-        if depth >= ALERT_DEPTH {
-            let tags = self.latest_event_tags.as_ref();
-            tracing::warn!(
-                session_id = tags.map(|tags| tags.session_id.as_str()),
-                event_category = tags.map(|tags| tags.category.as_str()),
-                depth,
-                capacity = WRITE_QUEUE_CAPACITY,
-                "persistence_backpressure: the write queue is nearly full"
-            );
-        }
-        if depth == 0 {
-            self.sampler = None;
-        }
+        let waiting_size = self
+            .waiting
+            .iter()
+            .map(|write| write.waiter.size)
+            .sum::<usize>();
+        self.sampler.sample(self.depth + waiting_size);
     }
 
     /// Publishes the close's outcome, then stops taking messages and answers each one still sent
@@ -799,7 +759,7 @@ impl WriteQueue {
         mut self,
         thread_outcome: Result<(), CleanupFailures<WriterCloseError, ThreadJoinError>>,
     ) {
-        self.sampler = None;
+        self.sampler.stop();
         let unfinished = self
             .closing
             .as_ref()

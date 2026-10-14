@@ -7,6 +7,7 @@
 //! dropped. A writer opened with a hold queues every write and sends none until the hold is let go,
 //! and work the writer is held for sees no commit and no checkpoint while it runs.
 
+mod depth_sampler;
 pub(crate) mod messages;
 mod queue;
 #[cfg(test)]
