@@ -214,19 +214,11 @@ pub struct SessionTranscriptCursors {
     pub earliest: EventCursor,
     /// The newest position.
     pub latest: EventCursor,
-    /// The position the person last acknowledged.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "EventCursor")]
-    pub acknowledged: Option<EventCursor>,
 }
 
 /// The `session.read` result: the session, its transcript cursors, its runs not yet ended and its
-/// standing events. A reader with no acknowledged position opens its window at `latest`; the live
-/// runs and the standing events give it what the events above that window settled.
+/// standing events. A reader opens its window at `latest`; the live runs and the standing events
+/// give it what the events above that window settled.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
