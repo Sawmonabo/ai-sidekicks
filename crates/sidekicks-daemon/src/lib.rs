@@ -17,6 +17,7 @@ pub mod git;
 pub mod highlight;
 pub mod interventions;
 pub mod ipc;
+pub mod issue_path;
 pub mod keyed_lock;
 pub mod mcp;
 pub mod observability;

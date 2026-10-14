@@ -5,6 +5,9 @@
 
 use std::fmt;
 
+use jsonschema::ValidationError;
+use jsonschema::error::ValidationErrorKind;
+use jsonschema::paths::{Location, LocationSegment};
 use serde::de::value::MapDeserializer;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::declared_variants::{
@@ -13,7 +16,10 @@ use sidekicks_contracts::event::declared_variants::{
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
+use sidekicks_contracts::jsonrpc::issue_path::IssuePathSegment;
 use sidekicks_contracts::schema::{ReceivedCheckError, received_check};
+
+use crate::issue_path::{index_segment, resolve_issue_path};
 
 /// The `payload` members only this module may set; `contentType` is the producer's.
 const CONTENT_DESCRIPTION_PAYLOAD_KEYS: [&str; 2] =
@@ -139,12 +145,12 @@ pub(crate) fn parses_as_registered_variant(envelope: &EventEnvelope) -> bool {
     }
 }
 
-/// One member the registered variant refuses: where it sits from the envelope down, and the kind
-/// of fault, never its value, since a payload can hold a person's words.
+/// One member the registered variant refuses: where it sits from the event down, in the wire's
+/// names, and the kind of fault, never its value, since a payload can hold a person's words.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct VariantIssue {
-    /// The member's path, dot-separated, empty for the event itself.
-    pub(crate) path: String,
+    /// The member's path, empty for the event itself.
+    pub(crate) path: Vec<IssuePathSegment>,
     /// The fault's kind: the schema keyword the member breaks, `check` for a rule of its type, or
     /// `shape` for a value its type's own reader refuses.
     pub(crate) kind: String,
@@ -188,17 +194,24 @@ pub(crate) fn assert_registered_variant_parses(
             return Ok(());
         }
         Err(SessionEventReadError::CategoryMismatch { .. }) => vec![VariantIssue {
-            path: "category".to_owned(),
+            path: vec![member("category")],
             kind: "const".to_owned(),
         }],
-        // garde's messages can quote the value, so only its paths are kept.
-        Err(SessionEventReadError::Check(report)) => report
-            .iter()
-            .map(|(check_path, _)| VariantIssue {
-                path: payload_member_path(&check_path.to_string()),
-                kind: "check".to_owned(),
-            })
-            .collect(),
+        // garde's messages can quote the value, so only its paths are kept. garde roots the
+        // payload at the variant's one field, which serde writes as `payload` itself.
+        Err(SessionEventReadError::Check(report)) => {
+            let payload = Value::Object(envelope.payload.clone());
+            report
+                .iter()
+                .map(|(check_path, _)| VariantIssue {
+                    path: [member("payload")]
+                        .into_iter()
+                        .chain(resolve_issue_path(check_path, &payload))
+                        .collect(),
+                    kind: "check".to_owned(),
+                })
+                .collect()
+        }
         // serde's error quotes the value and names only its first fault, so the members are read
         // from the shape check instead.
         Err(SessionEventReadError::Payload(_)) => {
@@ -228,35 +241,23 @@ fn shape_issues(envelope: &EventEnvelope) -> Result<Vec<VariantIssue>, ReceivedC
         .collect(),
     );
     let check = received_check::<SessionEvent>()?;
-    // The list output carries each unit's evaluation path, which runs through `$ref`, so an error
-    // inside a payload's definition still names the arm it was reached from; the error entries
-    // carry only the definition's own location.
-    let output = serde_json::to_value(check.evaluate(&instance).list())
-        .expect("an evaluation's list output is plain JSON");
-    let failed_units: Vec<FailedUnit<'_>> = output
-        .get("details")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(FailedUnit::of)
-        .collect();
-    // Every arm but the one the type selects refuses `/type`; its arm is the one that does not.
-    let other_arms: Vec<&str> = failed_units
-        .iter()
-        .filter(|unit| unit.instance_location == "/type")
-        .filter_map(|unit| arm_of(unit.evaluation_path))
-        .collect();
-    let issues: Vec<VariantIssue> = failed_units
-        .iter()
-        .filter(|unit| arm_of(unit.evaluation_path).is_some_and(|arm| !other_arms.contains(&arm)))
-        // The keywords only: each keyword's message can quote the value.
-        .flat_map(|unit| {
-            unit.errors.keys().map(|keyword| VariantIssue {
-                path: dotted_path(unit.instance_location),
-                kind: keyword.clone(),
-            })
-        })
-        .collect();
+    let mut issues = Vec::new();
+    for error in check.iter_errors(&instance) {
+        // The root's arms, one error list each; the root's other keywords only repeat that no arm
+        // read the event.
+        let ValidationErrorKind::AnyOf { context } = error.kind() else {
+            continue;
+        };
+        // Every arm but the one the type selects refuses `/type`.
+        let selected_arm = context.iter().find(|arm_errors| {
+            arm_errors
+                .iter()
+                .all(|arm_error| arm_error.instance_path().as_str() != "/type")
+        });
+        for arm_error in selected_arm.into_iter().flatten() {
+            issues.extend(issues_of(arm_error, &instance));
+        }
+    }
     if !issues.is_empty() {
         return Ok(issues);
     }
@@ -266,62 +267,77 @@ fn shape_issues(envelope: &EventEnvelope) -> Result<Vec<VariantIssue>, ReceivedC
     );
     let path = serde_path_to_error::deserialize::<_, SessionEvent>(fields)
         .err()
-        .map_or_else(|| "payload".to_owned(), |fault| fault.path().to_string());
+        .map_or_else(
+            || vec![member("payload")],
+            |fault| {
+                fault
+                    .path()
+                    .iter()
+                    .filter_map(reader_path_segment)
+                    .collect()
+            },
+        );
     Ok(vec![VariantIssue {
         path,
         kind: "shape".to_owned(),
     }])
 }
 
-/// One unit of the shape check's list output that carries errors.
-struct FailedUnit<'output> {
-    /// The schema path the check took to the unit, through every `$ref`.
-    evaluation_path: &'output str,
-    /// The JSON pointer of the member the unit checked.
-    instance_location: &'output str,
-    /// The unit's errors, keyed by keyword.
-    errors: &'output Map<String, Value>,
-}
-
-impl<'output> FailedUnit<'output> {
-    fn of(unit: &'output Value) -> Option<Self> {
-        Some(Self {
-            evaluation_path: unit.get("evaluationPath")?.as_str()?,
-            instance_location: unit.get("instanceLocation")?.as_str()?,
-            errors: unit.get("errors")?.as_object()?,
-        })
+/// The issues one shape error names: its member and keyword, and for a member the shape does not
+/// allow, each such member by name, never its value.
+fn issues_of(error: &ValidationError<'_>, instance: &Value) -> Vec<VariantIssue> {
+    let path = pointer_issue_path(error.instance_path(), instance);
+    let kind = error.kind().keyword().to_owned();
+    if let ValidationErrorKind::AdditionalProperties { unexpected }
+    | ValidationErrorKind::UnevaluatedProperties { unexpected } = error.kind()
+    {
+        return unexpected
+            .iter()
+            .map(|name| VariantIssue {
+                path: path.iter().cloned().chain([member(name)]).collect(),
+                kind: kind.clone(),
+            })
+            .collect();
     }
+    vec![VariantIssue { path, kind }]
 }
 
-/// A JSON pointer's segments, unescaped and joined with dots.
-fn dotted_path(pointer: &str) -> String {
+/// A JSON pointer's steps into `instance`: a digit step is an index only where it steps into an
+/// array, since an object's member may be named with digits.
+fn pointer_issue_path(pointer: &Location, instance: &Value) -> Vec<IssuePathSegment> {
+    let mut at = Some(instance);
     pointer
-        .split('/')
-        .skip(1)
-        .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
-        .collect::<Vec<_>>()
-        .join(".")
+        .segments()
+        .map(|step| match (step, at) {
+            (LocationSegment::Index(index), Some(Value::Array(elements))) => {
+                at = elements.get(index);
+                index_segment(index)
+            }
+            (LocationSegment::Index(index), _) => {
+                let name = index.to_string();
+                at = at.and_then(|node| node.get(&name));
+                IssuePathSegment::Member(name)
+            }
+            (LocationSegment::Property(name), _) => {
+                at = at.and_then(|node| node.get(name.as_ref()));
+                IssuePathSegment::Member(name.into_owned())
+            }
+        })
+        .collect()
 }
 
-/// The `anyOf` arm an evaluation path runs through first (`/anyOf/3` of
-/// `/anyOf/3/properties/payload/$ref/...`), `None` outside every arm.
-fn arm_of(evaluation_path: &str) -> Option<&str> {
-    let arm_start = evaluation_path.find("/anyOf/")? + "/anyOf/".len();
-    let arm_end = evaluation_path[arm_start..]
-        .find('/')
-        .map_or(evaluation_path.len(), |length| arm_start + length);
-    Some(&evaluation_path[..arm_end])
-}
-
-/// A garde path under the payload: garde names the variant's payload as its first field, `[0]`,
-/// and each member below it by its Rust field name.
-fn payload_member_path(check_path: &str) -> String {
-    let member = check_path.strip_prefix("[0]").unwrap_or(check_path);
-    match member.chars().next() {
-        None => "payload".to_owned(),
-        Some('.' | '[') => format!("payload{member}"),
-        Some(_) => format!("payload.{member}"),
+/// The step the payload reader's path names, `None` for a step it could not name.
+fn reader_path_segment(step: &serde_path_to_error::Segment) -> Option<IssuePathSegment> {
+    match step {
+        serde_path_to_error::Segment::Seq { index } => Some(index_segment(*index)),
+        serde_path_to_error::Segment::Map { key } => Some(member(key)),
+        serde_path_to_error::Segment::Enum { variant } => Some(member(variant)),
+        serde_path_to_error::Segment::Unknown => None,
     }
+}
+
+fn member(name: &str) -> IssuePathSegment {
+    IssuePathSegment::Member(name.to_owned())
 }
 
 // At most this many issues are named; the rest are counted.
@@ -336,17 +352,110 @@ impl fmt::Display for RenderedIssues<'_> {
             if index > 0 {
                 formatter.write_str("; ")?;
             }
-            let path = if issue.path.is_empty() {
-                "<envelope>"
-            } else {
-                issue.path.as_str()
-            };
-            write!(formatter, "{path} ({})", issue.kind)?;
+            if issue.path.is_empty() {
+                formatter.write_str("<envelope>")?;
+            }
+            for (step_index, step) in issue.path.iter().enumerate() {
+                if step_index > 0 {
+                    formatter.write_str(".")?;
+                }
+                match step {
+                    IssuePathSegment::Member(name) => formatter.write_str(name)?,
+                    IssuePathSegment::Index(position) => write!(formatter, "{}", position.get())?,
+                }
+            }
+            write!(formatter, " ({})", issue.kind)?;
         }
         let elided_count = self.0.len().saturating_sub(VARIANT_ISSUES_RENDERED_MAX);
         if elided_count > 0 {
             write!(formatter, "; and {elided_count} further issue(s)")?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::{Value, json};
+    use sidekicks_contracts::event::envelope::EventEnvelope;
+    use sidekicks_contracts::jsonrpc::issue_path::IssuePathSegment;
+
+    use super::{RegisteredVariantRefusal, VariantIssue, assert_registered_variant_parses};
+
+    // Text a person wrote, which no refusal may repeat.
+    const PRIVATE_WORDS: &str = "my locker code is 4921";
+
+    fn tool_invoked(category: &str, extra_members: &Value) -> EventEnvelope {
+        let mut payload = json!({
+            "sessionId": "0192f3a4-5b6c-7d8e-9f01-234567890abc",
+            "runId": "0192f3a4-5b6c-7d8e-9f01-234567890abd",
+            "toolName": "Read",
+        });
+        let members = payload.as_object_mut().expect("the payload is an object");
+        members.extend(
+            extra_members
+                .as_object()
+                .expect("the extra members are an object")
+                .clone(),
+        );
+        serde_json::from_value(json!({
+            "id": "01960b3c-e1d0-7a41-b2c9-5f8e37d6a204",
+            "sessionId": "0192f3a4-5b6c-7d8e-9f01-234567890abc",
+            "sequence": 1,
+            "occurredAt": "2026-03-04T05:06:07.008Z",
+            "category": category,
+            "type": "tool.invoked",
+            "payload": payload,
+            "version": "1.0",
+        }))
+        .expect("the envelope reads")
+    }
+
+    #[rstest]
+    #[case::category_mismatch(
+        "run_lifecycle",
+        json!({ "toolName": PRIVATE_WORDS }),
+        &[(&["category"][..], "const")]
+    )]
+    #[case::wrong_typed_member(
+        "tool_activity",
+        json!({ "toolName": 4921 }),
+        &[(&["payload", "toolName"][..], "type")]
+    )]
+    #[case::unknown_member(
+        "tool_activity",
+        json!({ "privateNote": PRIVATE_WORDS }),
+        &[(&["payload", "privateNote"][..], "additionalProperties")]
+    )]
+    #[case::rule_of_its_type(
+        "tool_activity",
+        json!({ "sourceEpoch": 4921 }),
+        &[(&["payload", "sourceEpoch"][..], "check")]
+    )]
+    fn a_refused_event_names_each_member_in_wire_names_never_its_value(
+        #[case] category: &str,
+        #[case] extra_members: Value,
+        #[case] expected: &[(&[&str], &str)],
+    ) {
+        let refusal =
+            assert_registered_variant_parses(&tool_invoked(category, &extra_members), "test")
+                .expect_err("the variant refuses the event");
+        let message = refusal.to_string();
+        let RegisteredVariantRefusal::Rejected { issues, .. } = refusal else {
+            panic!("the shape check builds: {message}");
+        };
+        let expected: Vec<VariantIssue> = expected
+            .iter()
+            .map(|(path, kind)| VariantIssue {
+                path: path
+                    .iter()
+                    .map(|name| IssuePathSegment::Member((*name).to_owned()))
+                    .collect(),
+                kind: (*kind).to_owned(),
+            })
+            .collect();
+        assert!(!message.contains("4921"), "{message}");
+        assert_eq!(issues, expected, "{message}");
     }
 }

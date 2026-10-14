@@ -8104,6 +8104,7 @@ dependencies = [
  "jiff",
  "jsonata-core",
  "jsonc-parser",
+ "jsonschema",
  "jwt-simple",
  "lettre",
  "libsqlite3-sys",

@@ -123,6 +123,7 @@ interprocess.workspace = true
 jiff.workspace = true
 jsonata-core.workspace = true
 jsonc-parser.workspace = true
+jsonschema.workspace = true
 jwt-simple.workspace = true
 lettre.workspace = true
 # Its version is the one `rusqlite` bundles, whose SQLite the vendored shell is checked against.
