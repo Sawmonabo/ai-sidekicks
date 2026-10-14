@@ -77,11 +77,12 @@ pub struct ShapeFault {
 /// union deciding. Never carries a value.
 pub fn shape_faults(error: &ValidationError<'_>, received: &Value) -> Vec<ShapeFault> {
     let path = pointer_issue_path(error.instance_path().as_str(), received);
-    let keyword = match error.kind() {
-        ValidationErrorKind::FalseSchema if is_union_refusal(error.schema_path().as_str()) => {
-            "anyOf"
-        }
-        kind => kind.keyword(),
+    let keyword = if matches!(error.kind(), ValidationErrorKind::FalseSchema)
+        && is_union_refusal(error.schema_path().as_str())
+    {
+        "anyOf"
+    } else {
+        error.kind().keyword()
     };
     if let ValidationErrorKind::AdditionalProperties { unexpected }
     | ValidationErrorKind::UnevaluatedProperties { unexpected } = error.kind()
