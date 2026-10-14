@@ -81,7 +81,7 @@ pub(crate) async fn resolve_message_attachments(
         return Ok(Vec::new());
     }
     resolver
-        .resolve_attachments(session_id.clone(), artifact_ids.to_vec())
+        .resolve_attachments(*session_id, artifact_ids.to_vec())
         .await
 }
 
@@ -96,7 +96,7 @@ pub(crate) fn compose_attachment_text(attachment: &ProviderAttachment) -> String
         ),
         ProviderAttachment::Unresolved(marker) => format!(
             "Attached file {} was not delivered: {}.",
-            marker.artifact_id.as_str(),
+            marker.artifact_id,
             marker.cause.reason()
         ),
     }

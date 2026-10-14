@@ -34,7 +34,7 @@ pub(crate) fn compose_plan_proposed_payload(source: PlanRecordSource) -> PlanPro
         .title
         .unwrap_or_else(|| read_first_line(&source.text).to_owned());
     PlanProposedPayload {
-        plan_id: PlanId::new(mint_uuid_v7().to_string())
+        plan_id: PlanId::try_from(mint_uuid_v7())
             .expect("a minted UUID is in the text form a plan id takes"),
         session_id: source.session_id,
         run_id: source.run_id,
@@ -277,8 +277,8 @@ mod tests {
         #[case] file_count: u64,
     ) {
         let payload = compose_plan_proposed_payload(PlanRecordSource {
-            session_id: SessionId::new(mint_uuid_v7().to_string()).expect("a minted UUID"),
-            run_id: RunId::new(mint_uuid_v7().to_string()).expect("a minted UUID"),
+            session_id: SessionId::try_from(mint_uuid_v7()).expect("a minted UUID"),
+            run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID"),
             text: markdown.to_owned(),
             plan_file_path: None,
         });

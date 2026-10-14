@@ -72,7 +72,7 @@ impl CodexServiceThreads {
             .values()
             .collect::<BTreeSet<_>>()
             .into_iter()
-            .cloned()
+            .copied()
             .collect()
     }
 

@@ -11,6 +11,6 @@ use crate::ipc::domain_error::DomainError;
 pub(crate) fn session_not_found(session_id: &SessionId) -> DomainError {
     DomainError::session_not_found(
         "This daemon holds no such session.",
-        json!({ "sessionId": session_id.as_str() }),
+        json!({ "sessionId": session_id }),
     )
 }

@@ -66,7 +66,7 @@ pub(crate) enum SessionEventInsertError {
     /// would read back as another.
     #[error(
         "session {}'s head sequence {head} has no next sequence within the safe integers",
-        .session_id.as_str()
+        .session_id
     )]
     NoNextSequence {
         /// The session.
@@ -114,7 +114,7 @@ pub(crate) fn insert_session_event(
 ) -> Result<SafeInt<0>, SessionEventInsertError> {
     let head: Option<i64> = connection
         .prepare_cached(HEAD_SEQUENCE_SQL)?
-        .query_row([row.session_id.as_str()], |head_row| head_row.get(0))
+        .query_row([row.session_id.text().as_str()], |head_row| head_row.get(0))
         .optional()?;
     let sequence = match head {
         None => SafeInt::ZERO,
@@ -123,7 +123,7 @@ pub(crate) fn insert_session_event(
             .and_then(|next| u64::try_from(next).ok())
             .and_then(SafeInt::new)
             .ok_or_else(|| SessionEventInsertError::NoNextSequence {
-                session_id: row.session_id.clone(),
+                session_id: row.session_id,
                 head,
             })?,
     };
@@ -132,7 +132,7 @@ pub(crate) fn insert_session_event(
         .prepare_cached(INSERT_SESSION_EVENT_SQL)?
         .execute(named_params! {
             "@id": row.id,
-            "@session_id": row.session_id.as_str(),
+            "@session_id": row.session_id.text().as_str(),
             "@sequence": stored_sequence,
             "@occurred_at": row.occurred_at,
             "@monotonic_ns": row.monotonic_ns,
@@ -150,7 +150,7 @@ pub(crate) fn insert_session_event(
         .prepare_cached(&ADVANCE_PROJECTION_CURSOR_SQL)?
         .execute(named_params! {
             "@id": mint_uuid_v7().to_string(),
-            "@session_id": row.session_id.as_str(),
+            "@session_id": row.session_id.text().as_str(),
             "@last_sequence": stored_sequence,
         })?;
     Ok(sequence)

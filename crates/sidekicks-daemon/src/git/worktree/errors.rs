@@ -81,14 +81,14 @@ pub(crate) enum WorktreeCreateFailureReason {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorktreeRefusal {
     /// The worktree id did not resolve (`worktree.not_found`).
-    #[error("worktree {} does not exist", .worktree_id.as_str())]
+    #[error("worktree {} does not exist", .worktree_id.text().as_str())]
     NotFound {
         /// The worktree asked for.
         worktree_id: WorktreeId,
     },
     /// No kept copy has the id, such as one a put-back or a deletion queued before it already
     /// removed (`worktree.removed_not_found`).
-    #[error("kept worktree {} does not exist", .removed_worktree_id.as_str())]
+    #[error("kept worktree {} does not exist", .removed_worktree_id.text().as_str())]
     RemovedNotFound {
         /// The kept copy asked for.
         removed_worktree_id: RemovedWorktreeId,
@@ -107,7 +107,7 @@ pub(crate) enum WorktreeRefusal {
     #[error(
         "worktree creation refused: branch {} already has a live checkout on repo mount {}",
         .branch_name.as_str(),
-        .repo_mount_id.as_str()
+        .repo_mount_id
     )]
     BranchCollision {
         /// The mount.
@@ -127,7 +127,7 @@ pub(crate) enum WorktreeRefusal {
     /// the app holds a file in it open; nothing was removed (`worktree.retire_folder_held`).
     #[error(
         "worktree {} cannot be moved aside: a program outside the app holds a file",
-        .worktree_id.as_str()
+        .worktree_id
     )]
     RetireFolderHeld {
         /// The worktree.
@@ -142,8 +142,8 @@ pub(crate) enum WorktreeRefusal {
     #[error(
         "worktree {} was copied to kept copy {}, but its original folder could not be removed \
          completely",
-        .details.worktree_id.as_str(),
-        .details.removed_worktree_id.as_str()
+        .details.worktree_id,
+        .details.removed_worktree_id
     )]
     RetireIncomplete {
         /// The tree and its kept copy.
@@ -168,7 +168,7 @@ pub(crate) enum WorktreeRefusal {
     #[error(
         "execution root prepare refused for workspace {}: a wire prepare must carry a branch \
          name, because the daemon derives one only when a run is set up",
-        .workspace_id.as_str()
+        .workspace_id
     )]
     BranchNameRequired {
         /// The workspace.
@@ -188,7 +188,7 @@ impl From<WorktreeRefusal> for DomainError {
                 WorktreeRefusal::NotFound { worktree_id } => (
                     RefusalCode::WorktreeNotFound,
                     InvalidParams,
-                    refusal_fields(json!({ "worktreeId": worktree_id.as_str() })),
+                    refusal_fields(json!({ "worktreeId": worktree_id })),
                     None,
                 ),
                 WorktreeRefusal::RemovedNotFound {
@@ -196,7 +196,7 @@ impl From<WorktreeRefusal> for DomainError {
                 } => (
                     RefusalCode::WorktreeRemovedNotFound,
                     InvalidParams,
-                    refusal_fields(json!({ "removedWorktreeId": removed_worktree_id.as_str() })),
+                    refusal_fields(json!({ "removedWorktreeId": removed_worktree_id })),
                     None,
                 ),
                 WorktreeRefusal::CreateFailed { reason, source } => (
@@ -212,7 +212,7 @@ impl From<WorktreeRefusal> for DomainError {
                     RefusalCode::WorktreeBranchCollision,
                     InternalError,
                     refusal_fields(json!({
-                        "repoMountId": repo_mount_id.as_str(),
+                        "repoMountId": repo_mount_id,
                         "branchName": branch_name.as_str(),
                     })),
                     None,
@@ -229,7 +229,7 @@ impl From<WorktreeRefusal> for DomainError {
                 } => (
                     RefusalCode::WorktreeRetireFolderHeld,
                     InternalError,
-                    refusal_fields(json!({ "worktreeId": worktree_id.as_str() })),
+                    refusal_fields(json!({ "worktreeId": worktree_id })),
                     Some(source.into()),
                 ),
                 WorktreeRefusal::RetireIncomplete { details, source } => (
@@ -244,10 +244,10 @@ impl From<WorktreeRefusal> for DomainError {
                 } => {
                     let detail = match cause_code_of(&cause) {
                         Some(cause_code) => json!({
-                            "workspaceId": workspace_id.as_str(),
+                            "workspaceId": workspace_id,
                             "causeCode": cause_code.as_str(),
                         }),
-                        None => json!({ "workspaceId": workspace_id.as_str() }),
+                        None => json!({ "workspaceId": workspace_id }),
                     };
                     (
                         RefusalCode::WorkspaceExecutionRootUnresolved,
@@ -259,7 +259,7 @@ impl From<WorktreeRefusal> for DomainError {
                 WorktreeRefusal::BranchNameRequired { workspace_id } => (
                     RefusalCode::WorkspaceBranchNameRequired,
                     InternalError,
-                    refusal_fields(json!({ "workspaceId": workspace_id.as_str() })),
+                    refusal_fields(json!({ "workspaceId": workspace_id })),
                     None,
                 ),
             };
@@ -347,14 +347,12 @@ fn retire_conflict_message(details: &WorktreeRetireConflictDetails) -> String {
             worktree_id,
             running_session_id,
         } => format!(
-            "worktree {} cannot be removed: session {} is running in it",
-            worktree_id.as_str(),
-            running_session_id.as_str()
+            "worktree {worktree_id} cannot be removed: session {running_session_id} is \
+             running in it"
         ),
         WorktreeRetireConflictDetails::HasChanges { worktree_id, .. } => format!(
-            "worktree {} cannot be removed without discarding: it holds uncommitted, ignored or \
-             unpushed work",
-            worktree_id.as_str()
+            "worktree {worktree_id} cannot be removed without discarding: it holds uncommitted, \
+             ignored or unpushed work"
         ),
     }
 }
@@ -375,13 +373,12 @@ fn execution_root_unresolved_message(
         Some(cause_code) => format!(
             "workspace {} has no resolved execution root: root preparation failed with {} and the \
              run ended failed",
-            workspace_id.as_str(),
+            workspace_id,
             cause_code.as_str()
         ),
         None => format!(
-            "workspace {} has no resolved execution root: root preparation failed and the run \
-             ended failed",
-            workspace_id.as_str()
+            "workspace {workspace_id} has no resolved execution root: root preparation failed and \
+             the run ended failed"
         ),
     }
 }

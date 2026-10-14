@@ -21,7 +21,7 @@ use crate::events::session::read::{readable_event_sql, session_read_bound};
 #[error(
     "the {TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE} event at sequence {sequence} of session {} does not \
      match its contract, so the run's history cannot be read",
-    .session_id.as_str()
+    .session_id
 )]
 pub(crate) struct StoredRollbackMismatchError {
     /// The session whose log holds the event.
@@ -52,7 +52,7 @@ pub(crate) fn parse_stored_rollback(
     sequence: i64,
 ) -> Result<RunRolledBackEvent, StoredRollbackMismatchError> {
     RunRolledBackEvent::deserialize(payload).map_err(|cause| StoredRollbackMismatchError {
-        session_id: session_id.clone(),
+        session_id: *session_id,
         sequence,
         cause,
     })
@@ -81,13 +81,13 @@ pub(crate) fn read_superseded_turns(
 ) -> Result<SupersededTurns, SupersededTurnsReadError> {
     let mut statement = reader.prepare_cached(SELECT_RUN_ROLLBACKS_SQL.as_str())?;
     let mut rows = statement.query(named_params! {
-        "@session_id": session_id.as_str(),
+        "@session_id": session_id.text().as_str(),
         "@type": TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
-        "@run_id": run_id.as_str(),
+        "@run_id": run_id.text().as_str(),
         "@read_bound": session_read_bound(read_damaged_from_sequence, session_id, None),
     })?;
     let mut turns = SupersededTurns {
-        run_id: run_id.clone(),
+        run_id: *run_id,
         cuts: Vec::new(),
     };
     while let Some(row) = rows.next()? {

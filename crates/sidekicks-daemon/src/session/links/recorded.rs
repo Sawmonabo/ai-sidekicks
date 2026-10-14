@@ -35,8 +35,8 @@ pub(crate) fn recorded_session_link_statement(link: &RecordedSessionLink) -> Wri
     WriteStatement {
         sql: Cow::Borrowed(RECORD_LINK_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@sourceSessionId", link.source_session_id.as_str()),
-            text_binding("@targetSessionId", link.target_session_id.as_str()),
+            text_binding("@sourceSessionId", link.source_session_id.text().as_str()),
+            text_binding("@targetSessionId", link.target_session_id.text().as_str()),
             text_binding("@kind", <&'static str>::from(link.kind)),
             text_binding("@occurredAt", &link.occurred_at),
         ]),

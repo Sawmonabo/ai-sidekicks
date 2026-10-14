@@ -128,7 +128,7 @@ impl TurnSnapshotDiagnostic {
                 failed_step,
                 detail,
             } => tracing::warn!(
-                run_id = run_id.as_str(),
+                run_id = %run_id,
                 epoch,
                 turn_ordinal,
                 snapshot_ref = snapshot_ref.as_str(),
@@ -143,7 +143,7 @@ impl TurnSnapshotDiagnostic {
                 snapshot_ref,
                 skipped_paths,
             } => tracing::warn!(
-                run_id = run_id.as_str(),
+                run_id = %run_id,
                 epoch,
                 turn_ordinal,
                 snapshot_ref = snapshot_ref.as_str(),
@@ -157,7 +157,7 @@ impl TurnSnapshotDiagnostic {
                 scratch_index_path,
                 detail,
             } => tracing::warn!(
-                run_id = run_id.as_str(),
+                run_id = %run_id,
                 epoch,
                 turn_ordinal,
                 scratch_index_path = %scratch_index_path.display(),

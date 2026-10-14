@@ -74,14 +74,14 @@ where
     DamagedFrom: Fn(&SessionId) -> Option<i64>,
 {
     let reads = RunTurnReads::new(reader, read_damaged_from_sequence);
-    let mut attribution = SessionTurnAttribution::new(session_id.clone());
+    let mut attribution = SessionTurnAttribution::new(*session_id);
     let sequences: Vec<u64> = events.iter().map(|event| event.sequence.get()).collect();
     let stored_body_by_sequence = reader
         .prepare_cached(SELECT_STORED_BODIES_SQL)?
         .query_map(
             params![
                 TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES,
-                session_id.as_str(),
+                session_id.text().as_str(),
                 serde_json::to_string(&sequences).expect("a list of integers serializes"),
             ],
             |row| {
@@ -136,7 +136,7 @@ fn row_of(
     else {
         return Ok(TranscriptReadRow::General(TranscriptEntry {
             id: event.id.clone(),
-            session_id: event.session_id.clone(),
+            session_id: event.session_id,
             sequence: event.sequence,
             cursor,
             actor,
@@ -152,7 +152,7 @@ fn row_of(
     Ok(match rollback {
         Some(rollback) => TranscriptReadRow::RollbackBoundary(TranscriptRollbackBoundary {
             id: event.id.clone(),
-            session_id: event.session_id.clone(),
+            session_id: event.session_id,
             sequence: event.sequence,
             cursor,
             actor,
@@ -170,7 +170,7 @@ fn row_of(
         }),
         None => TranscriptReadRow::Run(RunScopedTranscriptEntry {
             id: event.id.clone(),
-            session_id: event.session_id.clone(),
+            session_id: event.session_id,
             sequence: event.sequence,
             cursor,
             actor,

@@ -178,8 +178,8 @@ pub(crate) enum EventAppendError {
     #[error(
         "a preceding {preceding_type} event of session {} cannot share the write of an event of \
          session {}",
-        .preceding_session_id.as_str(),
-        .session_id.as_str()
+        .preceding_session_id,
+        .session_id
     )]
     PrecedingEventOfAnotherSession {
         /// The preceding event's type.
@@ -357,7 +357,7 @@ impl EventLogService {
             }
             written.push(compose_row(preceding, None, monotonic_ns)?);
         }
-        let session_id = envelope.session_id.clone();
+        let session_id = envelope.session_id;
         let composed = compose_row(envelope, content_body.as_deref(), monotonic_ns)?;
         let id = composed.stored_envelope.id.clone();
         written.push(composed);
@@ -554,7 +554,7 @@ fn compose_row(
     canonicalize_event(&composed)?;
     let row = SessionEventRow {
         id: composed.id.as_str().to_owned(),
-        session_id: composed.session_id.clone(),
+        session_id: composed.session_id,
         occurred_at: composed.occurred_at.as_str().to_owned(),
         monotonic_ns,
         category: composed.category,
@@ -650,14 +650,14 @@ mod tests {
     /// A `tool.invoked` event of `session_id` its registered variant takes.
     fn tool_invoked(session_id: &SessionId) -> UnsequencedEventEnvelope {
         let payload = serde_json::from_value(json!({
-            "sessionId": session_id.as_str(),
+            "sessionId": session_id,
             "runId": mint_uuid_v7().to_string(),
             "toolName": "Read",
         }))
         .expect("the payload is written as an object");
         UnsequencedEventEnvelope {
             id: FreeFormText::new(mint_uuid_v7().to_string()).expect("a minted UUID is an id"),
-            session_id: session_id.clone(),
+            session_id: *session_id,
             occurred_at: EventOccurredAt::from_timestamp(jiff::Timestamp::now())
                 .expect("now is after year 0000"),
             category: EventCategory::ToolActivity,
@@ -750,7 +750,7 @@ mod tests {
 
         let page = service
             .read_after_cursor(EventReadAfterCursorRequest {
-                session_id: session_id.clone(),
+                session_id,
                 after_cursor: None,
                 limit: None,
             })

@@ -5,31 +5,55 @@ use crate::typescript::TypeScriptModule;
 use crate::wire::id::UuidTextForm;
 use crate::wire::inline_scalar_definition;
 
-/// Declares a UUID id: `branded_uuid_id! { /// doc \n SessionId }` gives a newtype over the id's
-/// text that accepts only the UUID text form, held lowercased, branded `SessionId` in TypeScript.
+/// Declares a UUID id: `branded_uuid_id! { /// doc \n SessionId }` gives a newtype over a
+/// `uuid::Uuid` that accepts only the UUID text form, written lowercase, branded `SessionId` in
+/// TypeScript.
 macro_rules! branded_uuid_id {
     ($(#[doc = $doc:literal])+ $name:ident) => {
         $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
-        #[serde(transparent)]
-        pub struct $name(String);
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $name(uuid::Uuid);
 
         impl $name {
-            /// Checks and lowercases `text`; refuses anything but the RFC 9562 UUID text form.
-            pub fn new(text: String) -> Result<Self, $crate::wire::id::IdError> {
-                $crate::wire::id::canonical_uuid_text(text).map(Self)
+            /// Reads `text`; refuses anything but the RFC 9562 UUID text form.
+            pub fn new(text: &str) -> Result<Self, $crate::wire::id::IdError> {
+                $crate::wire::id::parse_uuid_text(text).map(Self)
             }
 
-            /// The id's lowercase text.
-            pub fn as_str(&self) -> &str {
-                &self.0
+            /// The id's lowercase text, held on the stack.
+            pub fn text(&self) -> $crate::wire::id::UuidText {
+                $crate::wire::id::UuidText::new(self.0)
+            }
+        }
+
+        impl TryFrom<uuid::Uuid> for $name {
+            type Error = $crate::wire::id::IdError;
+
+            /// Takes a UUID of a version from 1 to 8 with the RFC variant, or the Nil or Max UUID.
+            fn try_from(uuid: uuid::Uuid) -> Result<Self, Self::Error> {
+                if $crate::wire::id::is_uuid_text_form(uuid) {
+                    Ok(Self(uuid))
+                } else {
+                    Err($crate::wire::id::IdError::NotUuid)
+                }
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                std::fmt::Display::fmt(&self.0.hyphenated(), formatter)
+            }
+        }
+
+        impl serde::Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_str(self.text().as_str())
             }
         }
 
         impl<'de> serde::Deserialize<'de> for $name {
             fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                let text = <String as serde::Deserialize>::deserialize(deserializer)?;
-                Self::new(text).map_err(<D::Error as serde::de::Error>::custom)
+                $crate::wire::id::deserialize_uuid_text(deserializer).map(Self)
             }
         }
 
@@ -91,7 +115,10 @@ mod tests {
         let read = |text: &str| -> SessionId {
             serde_json::from_value(serde_json::Value::from(text)).expect("a UUID id reads")
         };
-        assert_eq!(read(upper).as_str(), lower);
+        assert_eq!(
+            serde_json::to_value(read(upper)).expect("writes"),
+            serde_json::Value::from(lower)
+        );
         assert_eq!(read(upper), read(lower));
         let form: UuidTextForm =
             serde_json::from_value(serde_json::Value::from(upper)).expect("a UUID reads");

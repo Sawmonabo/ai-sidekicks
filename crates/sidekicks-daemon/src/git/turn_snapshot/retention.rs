@@ -23,13 +23,13 @@ impl RunContextKey {
 
 impl From<&RunId> for RunContextKey {
     fn from(run_id: &RunId) -> Self {
-        Self(run_id.as_str().to_owned())
+        Self(run_id.to_string())
     }
 }
 
 impl From<&WorkflowRunId> for RunContextKey {
     fn from(workflow_run_id: &WorkflowRunId) -> Self {
-        Self(workflow_run_id.as_str().to_owned())
+        Self(workflow_run_id.to_string())
     }
 }
 

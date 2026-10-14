@@ -15,7 +15,7 @@ use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
 pub(crate) enum WorkspaceRefusal {
     /// The named workspace does not exist (`workspace.not_found`); the one refusal here that
     /// answers `-32602`, as `repo.not_found` does.
-    #[error("workspace {} does not exist", .workspace_id.as_str())]
+    #[error("workspace {} does not exist", .workspace_id.text().as_str())]
     NotFound {
         /// The workspace asked for.
         workspace_id: WorkspaceId,
@@ -50,7 +50,7 @@ impl From<WorkspaceRefusal> for DomainError {
                 RefusalCode::WorkspaceNotFound,
                 // An id the call supplies that resolves to nothing is a bad parameter.
                 DomainErrorJsonRpcCode::InvalidParams,
-                json!({ "workspaceId": workspace_id.as_str() }),
+                json!({ "workspaceId": workspace_id }),
             ),
             WorkspaceRefusal::ModeUnsupported { execution_mode } => (
                 RefusalCode::WorkspaceModeUnsupported,
@@ -63,7 +63,7 @@ impl From<WorkspaceRefusal> for DomainError {
                 // A refused bind names no workspace, so its detail is empty.
                 workspace_id.map_or_else(
                     || json!({}),
-                    |workspace_id| json!({ "workspaceId": workspace_id.as_str() }),
+                    |workspace_id| json!({ "workspaceId": workspace_id }),
                 ),
             ),
         };
@@ -73,10 +73,9 @@ impl From<WorkspaceRefusal> for DomainError {
 
 fn stale_message(workspace_id: Option<&WorkspaceId>) -> String {
     match workspace_id {
-        Some(workspace_id) => format!(
-            "workspace {} is stale: new runs are blocked until it is repaired",
-            workspace_id.as_str()
-        ),
+        Some(workspace_id) => {
+            format!("workspace {workspace_id} is stale: new runs are blocked until it is repaired")
+        }
         None => "workspace binding refused: the repo mount's execution root is no longer reachable"
             .to_owned(),
     }

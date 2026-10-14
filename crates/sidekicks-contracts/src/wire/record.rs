@@ -34,16 +34,28 @@ pub(crate) fn prototype_free<'de, D: Deserializer<'de>>(
     }
 }
 
+/// A record's member name, which can say whether it is the one name a record refuses.
+pub trait RecordKey {
+    /// Whether the name is `__proto__`.
+    fn is_prototype_key(&self) -> bool;
+}
+
+impl<T: AsRef<str>> RecordKey for T {
+    fn is_prototype_key(&self) -> bool {
+        self.as_ref() == PROTOTYPE_KEY
+    }
+}
+
 /// An object whose member names are `K` and whose values are `V`, in key order; the member
 /// `__proto__` is refused.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct Record<K: Ord, V>(BTreeMap<K, V>);
 
-impl<K: Ord + AsRef<str>, V> Record<K, V> {
+impl<K: Ord + RecordKey, V> Record<K, V> {
     /// The record of `members`, or `None` when a member is named `__proto__`.
     pub fn new(members: BTreeMap<K, V>) -> Option<Self> {
-        let is_prototype_free = !members.keys().any(|key| key.as_ref() == PROTOTYPE_KEY);
+        let is_prototype_free = !members.keys().any(RecordKey::is_prototype_key);
         is_prototype_free.then_some(Self(members))
     }
 }
@@ -86,7 +98,7 @@ where
 
 impl<'de, K, V> Deserialize<'de> for Record<K, V>
 where
-    K: Ord + Deserialize<'de> + AsRef<str>,
+    K: Ord + Deserialize<'de> + RecordKey,
     V: Deserialize<'de>,
 {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {

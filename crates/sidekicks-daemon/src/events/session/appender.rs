@@ -54,7 +54,7 @@ impl SessionEventDraft {
     ) -> Result<Self, serde_json::Error> {
         Ok(Self {
             event_type,
-            session_id: payload.session_id().clone(),
+            session_id: *payload.session_id(),
             actor: payload.actor().cloned(),
             payload: payload_members(payload)?,
         })

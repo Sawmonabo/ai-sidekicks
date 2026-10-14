@@ -91,7 +91,7 @@ impl TestDatabase {
 
 /// A fresh session's id.
 pub(crate) fn test_session_id() -> SessionId {
-    SessionId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a session id")
+    SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
 }
 
 /// An event row of `event_type` for `session_id`, with an empty payload and no body.
@@ -101,7 +101,7 @@ pub(crate) fn session_event_row(
 ) -> SessionEventRow {
     SessionEventRow {
         id: mint_uuid_v7().to_string(),
-        session_id: session_id.clone(),
+        session_id: *session_id,
         occurred_at: "2026-10-14T12:00:00.000Z".to_owned(),
         monotonic_ns: monotonic_ns_now(),
         category: event_type.category(),

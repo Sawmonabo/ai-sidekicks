@@ -93,10 +93,10 @@ mod tests {
 
     #[test]
     fn a_second_terminal_for_one_run_version_is_suppressed() {
-        let run_id = RunId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd".to_owned())
-            .expect("the text is a UUID");
+        let run_id =
+            RunId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd").expect("the text is a UUID");
         let terminal = || TerminalRunFrame {
-            run_id: run_id.clone(),
+            run_id,
             run_version: 1,
             route: ThreadFrameRoute::Project,
         };

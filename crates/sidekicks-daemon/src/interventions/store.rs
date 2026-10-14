@@ -163,8 +163,8 @@ pub(crate) fn insert_requested_intervention_statement(
     WriteStatement {
         sql: Cow::Borrowed(INSERT_REQUESTED_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
-            text_binding("@id", intervention.intervention_id.as_str()),
-            text_binding("@target_run_id", intervention.target_run_id.as_str()),
+            text_binding("@id", intervention.intervention_id.text().as_str()),
+            text_binding("@target_run_id", intervention.target_run_id.text().as_str()),
             text_binding(
                 "@type",
                 <&'static str>::from(intervention.intervention_type),
@@ -221,7 +221,7 @@ pub(crate) fn move_intervention_statement(
     WriteStatement {
         sql: Cow::Borrowed(MOVE_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
-            text_binding("@id", intervention_id.as_str()),
+            text_binding("@id", intervention_id.text().as_str()),
             text_binding("@from", <&'static str>::from(from)),
             text_binding("@to", <&'static str>::from(to)),
             nullable_text_binding("@rejection_reason", rejection_reason),
@@ -237,7 +237,7 @@ pub(crate) fn run_at_version_statement(run_id: &RunId, run_version: i64) -> Writ
     WriteStatement {
         sql: Cow::Borrowed(RUN_AT_VERSION_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@run_id", run_id.as_str()),
+            text_binding("@run_id", run_id.text().as_str()),
             (Cow::Borrowed("@run_version"), Value::Integer(run_version)),
         ]),
         expected_row_count: Some(1),
@@ -249,7 +249,7 @@ pub(crate) fn run_in_states_statement(run_id: &RunId, states: &[RunState]) -> Wr
     WriteStatement {
         sql: Cow::Borrowed(RUN_IN_STATES_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@run_id", run_id.as_str()),
+            text_binding("@run_id", run_id.text().as_str()),
             (
                 Cow::Borrowed("@states"),
                 Value::Text(
@@ -272,12 +272,12 @@ pub(crate) fn read_intervention_by_idempotency_key(
         .prepare_cached(SELECT_BY_IDEMPOTENCY_KEY_SQL)?
         .query_row(
             named_params! {
-                "@target_run_id": target_run_id.as_str(),
+                "@target_run_id": target_run_id.text().as_str(),
                 "@client_idempotency_key": client_idempotency_key.as_str(),
             },
             |row| {
                 Ok(SavedIntervention {
-                    intervention_id: text_column(row, 0, InterventionId::new)?,
+                    intervention_id: text_column(row, 0, |text| InterventionId::new(&text))?,
                     intervention_type: text_column(row, 1, closed_word)?,
                     state: text_column(row, 2, closed_word)?,
                     payload: row.get(3)?,

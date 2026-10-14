@@ -29,7 +29,7 @@ const SELECT_LEAD_AGENT_SQL: &str = "
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RunAgentReadError {
     /// The log holds no `session.created` naming the session's lead.
-    #[error("session \"{}\" has no lead its log names", .session_id.as_str())]
+    #[error("session \"{}\" has no lead its log names", .session_id.text().as_str())]
     NoLeadAgent {
         /// The session read.
         session_id: SessionId,
@@ -38,8 +38,8 @@ pub(crate) enum RunAgentReadError {
     /// run of a session born with its lead, so this is a broken log.
     #[error(
         "run \"{}\" of session \"{}\" has no agent its log names",
-        .run_id.as_str(),
-        .session_id.as_str()
+        .run_id,
+        .session_id
     )]
     NoRunAgent {
         /// The session read.
@@ -77,13 +77,13 @@ impl<'connection> RunAgentReader<'connection> {
         let agent_id: Option<String> = self
             .reader
             .prepare_cached(SELECT_LEAD_AGENT_SQL)?
-            .query_row([session_id.as_str()], |row| row.get(0))
+            .query_row([session_id.text().as_str()], |row| row.get(0))
             .optional()?
             .flatten();
         let agent_id = agent_id.ok_or_else(|| RunAgentReadError::NoLeadAgent {
-            session_id: session_id.clone(),
+            session_id: *session_id,
         })?;
-        AgentId::new(agent_id).map_err(RunAgentReadError::MalformedAgentId)
+        AgentId::new(&agent_id).map_err(RunAgentReadError::MalformedAgentId)
     }
 
     /// The agent the run is for. Fails with [`RunAgentReadError::NoRunAgent`] when the log names
@@ -98,17 +98,17 @@ impl<'connection> RunAgentReader<'connection> {
             .prepare_cached(SELECT_RUN_AGENT_SQL)?
             .query_row(
                 named_params! {
-                    "@session_id": session_id.as_str(),
-                    "@run_id": run_id.as_str(),
+                    "@session_id": session_id.text().as_str(),
+                    "@run_id": run_id.text().as_str(),
                 },
                 |row| row.get(0),
             )
             .optional()?
             .flatten();
         let agent_id = agent_id.ok_or_else(|| RunAgentReadError::NoRunAgent {
-            session_id: session_id.clone(),
-            run_id: run_id.clone(),
+            session_id: *session_id,
+            run_id: *run_id,
         })?;
-        AgentId::new(agent_id).map_err(RunAgentReadError::MalformedAgentId)
+        AgentId::new(&agent_id).map_err(RunAgentReadError::MalformedAgentId)
     }
 }

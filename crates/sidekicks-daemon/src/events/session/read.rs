@@ -209,7 +209,7 @@ where
         let head: Option<i64> = self
             .reader
             .prepare_cached(HEAD_SQL)?
-            .query_row([session_id.as_str()], |row| row.get(0))?;
+            .query_row([session_id.text().as_str()], |row| row.get(0))?;
         Ok(head
             .map(|head| head.min(self.read_bound(session_id, None) - 1))
             .filter(|&read_to| read_to >= 0))
@@ -228,12 +228,12 @@ where
         match filter.event_types {
             None => self.read_rows(
                 &AFTER_SQL,
-                params![session_id.as_str(), after_position, before, limit],
+                params![session_id.text().as_str(), after_position, before, limit],
             ),
             Some(event_types) => self.read_rows(
                 &AFTER_OF_TYPES_SQL,
                 params![
-                    session_id.as_str(),
+                    session_id.text().as_str(),
                     after_position,
                     before,
                     serde_json::to_string(event_types).expect("a list of strings serializes"),
@@ -253,7 +253,7 @@ where
         let mut rows = self.read_rows(
             &BEFORE_SQL,
             params![
-                session_id.as_str(),
+                session_id.text().as_str(),
                 before_position,
                 self.read_bound(session_id, None),
                 limit
@@ -273,7 +273,7 @@ where
         self.read_rows(
             &WINDOW_SQL,
             params![
-                session_id.as_str(),
+                session_id.text().as_str(),
                 from_sequence,
                 to_sequence,
                 self.read_bound(session_id, None)
@@ -290,7 +290,7 @@ where
         self.read_rows(
             &AT_SEQUENCES_SQL,
             params![
-                session_id.as_str(),
+                session_id.text().as_str(),
                 serde_json::to_string(sequences).expect("a list of integers serializes"),
                 self.read_bound(session_id, None)
             ],
@@ -308,7 +308,7 @@ where
             .prepare_cached(&STORED_ROW_SQL)?
             .query_row(
                 params![
-                    session_id.as_str(),
+                    session_id.text().as_str(),
                     event_id,
                     self.read_bound(session_id, None)
                 ],

@@ -308,9 +308,9 @@ mod tests {
 
     fn removing(copied_bytes: u64) -> WorktreeCopy {
         WorktreeCopy::Removing {
-            worktree_id: WorktreeId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd".to_owned())
+            worktree_id: WorktreeId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd")
                 .expect("the id is a UUID"),
-            project_id: ProjectId::new("0192f3a4-5b6c-7d8e-9f01-23456789abce".to_owned())
+            project_id: ProjectId::new("0192f3a4-5b6c-7d8e-9f01-23456789abce")
                 .expect("the id is a UUID"),
             name: FreeFormText::<FILE_PATH_MAX_LEN>::new("feature".to_owned())
                 .expect("the name is short text"),

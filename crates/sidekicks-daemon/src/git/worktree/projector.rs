@@ -92,7 +92,7 @@ pub(crate) enum WorktreeStatusProjectionError {
         "Worktree status-read projection refused a worktree record on a different project mount \
          than the one being read: record \"{}\". Projecting it would list another project's \
          worktrees, and no screen could detect it.",
-        .worktree_id.as_str()
+        .worktree_id
     )]
     ForeignMount {
         /// The record's worktree.
@@ -102,7 +102,7 @@ pub(crate) enum WorktreeStatusProjectionError {
     #[error(
         "Worktree status-read projection found no recorded base for worktree \"{}\", so its row \
          cannot name the branch it was cut off.",
-        .worktree_id.as_str()
+        .worktree_id
     )]
     NoRecordedBase {
         /// The record's worktree.
@@ -201,7 +201,7 @@ mod tests {
     }
 
     fn mount(id: &str) -> RepoMountId {
-        RepoMountId::new(id.to_owned()).expect("the id is a UUID")
+        RepoMountId::new(id).expect("the id is a UUID")
     }
 
     fn instant() -> WireInstant {
@@ -215,9 +215,9 @@ mod tests {
         has_base: bool,
     ) -> WorktreeStatusReading {
         let record = WorktreeRecordRow {
-            id: WorktreeId::new(WORKTREE.to_owned()).expect("the id is a UUID"),
+            id: WorktreeId::new(WORKTREE).expect("the id is a UUID"),
             repo_mount_id: mount(repo_mount_id),
-            created_by_session_id: SessionId::new(SESSION.to_owned()).expect("the id is a UUID"),
+            created_by_session_id: SessionId::new(SESSION).expect("the id is a UUID"),
             created_by_run_id: None,
             state,
             created_at: instant(),

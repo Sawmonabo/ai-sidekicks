@@ -70,7 +70,7 @@ pub(crate) fn compose_left_conversation_insert(
         bindings: StatementBindings::Named(vec![
             text_binding("@binding_id", binding_id),
             text_binding("@left_at", left_at),
-            text_binding("@session_id", conversation.session_id.as_str()),
+            text_binding("@session_id", conversation.session_id.text().as_str()),
             nullable_text_binding(
                 "@provider_account_id",
                 conversation
@@ -92,7 +92,7 @@ pub(crate) fn read_left_conversations(
     session_id: &SessionId,
 ) -> rusqlite::Result<Vec<LeftConversationRecord>> {
     let mut statement = reader.prepare_cached(SELECT_LEFT_CONVERSATIONS_SQL)?;
-    let rows = statement.query_map([session_id.as_str()], |row| {
+    let rows = statement.query_map([session_id.text().as_str()], |row| {
         let stored_driver_name: String = row.get(0)?;
         let driver_name = stored_driver_name
             .parse::<ProviderName>()
@@ -101,7 +101,7 @@ pub(crate) fn read_left_conversations(
             })?;
         Ok(LeftConversationRecord {
             conversation: LeftConversation {
-                session_id: session_id.clone(),
+                session_id: *session_id,
                 provider_account_id: read_provider_account_id(row.get(1)?)?,
                 conversation_id: row.get(2)?,
             },

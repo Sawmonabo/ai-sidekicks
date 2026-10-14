@@ -115,9 +115,9 @@ impl Subscriptions {
             if ids.len() >= MAX_OPEN_LANES {
                 return Err(subscription_limit_reached());
             }
-            ids.insert(subscription_id.clone());
+            ids.insert(subscription_id);
             table.by_id.insert(
-                subscription_id.clone(),
+                subscription_id,
                 OpenSubscription {
                     transport,
                     cancellation: cancellation.clone(),
@@ -214,7 +214,7 @@ impl Subscription {
         }
         let span = tracing::error_span!(
             "subscription",
-            subscription_id = self.id.as_str(),
+            subscription_id = %self.id,
             method = self.method,
         );
         let frame = self.read_frame(gate).instrument(span).await;
@@ -236,13 +236,13 @@ impl Subscription {
             Some(Ok(Some(value))) => return Some(SubscriptionFrame::Notify(value)),
             None => None,
             Some(Ok(None)) => (!is_canceled).then(|| SubscriptionEndParams::Completed {
-                subscription_id: self.id.clone(),
+                subscription_id: self.id,
             }),
             Some(Err(error)) => {
                 // Mapped even when no frame goes out, so a fault is still logged once.
                 let error = json_rpc_error_of(CallFailure::Dispatch(error));
                 (!is_canceled).then(|| SubscriptionEndParams::Refused {
-                    subscription_id: self.id.clone(),
+                    subscription_id: self.id,
                     error,
                 })
             }
@@ -355,7 +355,7 @@ mod tests {
     fn subscription_id(number: u128) -> SubscriptionId {
         // A version-7 layout, so the id reads as the UUID text form.
         let uuid = Uuid::from_u128(0x7000_8000_0000_0000_0000 | number);
-        SubscriptionId::new(uuid.to_string()).expect("the layout is a UUID's")
+        SubscriptionId::try_from(uuid).expect("the layout is a UUID's")
     }
 
     fn request(method: &str, params: &Value) -> Request {
@@ -393,7 +393,7 @@ mod tests {
         transport: u64,
         subscription_id: &SubscriptionId,
     ) -> bool {
-        let params = json!({ "subscriptionId": subscription_id.as_str() });
+        let params = json!({ "subscriptionId": subscription_id });
         let reply = registry
             .dispatch(
                 request(SUBSCRIPTION_CANCEL_METHOD, &params),

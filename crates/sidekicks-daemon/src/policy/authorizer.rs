@@ -209,7 +209,7 @@ impl Authorizer {
     // The engine's request, its context typed by the action's schema; an error is its text.
     fn engine_request(&self, request: PolicyRequest<'_>) -> Result<Request, String> {
         let schema = &self.rules.schema;
-        let principal = entity("User", request.principal.as_str())?;
+        let principal = entity("User", request.principal.text().as_str())?;
         let action = entity("Action", request.action)?;
         let resource = entity(request.resource.entity_type, request.resource.id)?;
         let context = Context::from_json_value(request.context, Some((schema, &action)))
@@ -253,8 +253,7 @@ mod tests {
     };
 
     fn user() -> UserId {
-        UserId::new("0190c8a0-0000-7000-8000-000000000001".to_owned())
-            .expect("the text is a version 7 UUID")
+        UserId::new("0190c8a0-0000-7000-8000-000000000001").expect("the text is a version 7 UUID")
     }
 
     #[test]

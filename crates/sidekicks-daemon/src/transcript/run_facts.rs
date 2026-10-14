@@ -110,7 +110,7 @@ where
         run_ids
             .iter()
             .map(|run_id| {
-                let run_id_text = run_id.as_str();
+                let run_id_text = run_id.text();
                 let mut beats = Vec::new();
                 for sql in [&*SELECT_CREATION_SQL, &*SELECT_FIRST_ACTOR_SQL] {
                     let beat = self
@@ -118,8 +118,8 @@ where
                         .prepare_cached(sql)?
                         .query_row(
                             named_params! {
-                                "@session_id": session_id.as_str(),
-                                "@run_id": run_id_text,
+                                "@session_id": session_id.text().as_str(),
+                                "@run_id": run_id_text.as_str(),
                                 "@read_bound": read_bound,
                             },
                             StoredBeat::from_row,
@@ -129,7 +129,7 @@ where
                 }
                 beats.extend(self.read_state_beats_from_newest_setting(
                     session_id,
-                    run_id_text,
+                    run_id_text.as_str(),
                     read_bound,
                 )?);
                 beats.sort_by_key(|beat| beat.sequence);
@@ -139,7 +139,7 @@ where
                         fold_transcript_run_facts(&facts, &beat.as_beat())
                     });
                 Ok(TranscriptRunFacts {
-                    run_id: run_id.clone(),
+                    run_id: *run_id,
                     actor: folded.actor,
                     admitted_provider_account_id: folded.admitted_provider_account_id,
                     state_event_type: folded.state_event_type,
@@ -162,7 +162,7 @@ where
             .reader
             .prepare_cached(&SELECT_STATE_BEATS_NEWEST_FIRST_SQL)?;
         let mut rows = statement.query(named_params! {
-            "@session_id": session_id.as_str(),
+            "@session_id": session_id.text().as_str(),
             "@run_id": run_id,
             "@read_bound": read_bound,
         })?;

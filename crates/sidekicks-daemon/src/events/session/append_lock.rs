@@ -17,6 +17,6 @@ use sidekicks_contracts::session::id::SessionId;
 use crate::keyed_lock::KeyedLock;
 
 /// The per-session append lock every service over the daemon's database shares. A session id is
-/// held lowercased, so either hex spelling of one id takes one lock.
+/// held as its 16 bytes, so either hex spelling of one id takes one lock.
 pub(crate) static SESSION_APPEND_LOCK: LazyLock<KeyedLock<SessionId>> =
     LazyLock::new(KeyedLock::new);

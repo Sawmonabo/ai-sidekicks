@@ -69,7 +69,7 @@ pub(crate) enum ApplyInterventionParams {
 /// A driver's steer that was not sent because the turn it was handed for had ended first: nothing
 /// reached the provider, and the message is left for the run's next turn.
 #[derive(Debug, thiserror::Error)]
-#[error("the turn of run {} ended before the steer was sent", .run_id.as_str())]
+#[error("the turn of run {} ended before the steer was sent", .run_id.text().as_str())]
 pub(crate) struct SteerTurnEndedError {
     /// The run whose turn ended.
     pub(crate) run_id: RunId,
@@ -235,7 +235,7 @@ pub(crate) enum DaemonTurnBindingError {
     /// The session's provider session was not opened in this process.
     #[error(
         "the provider session of session {} could not be opened: it has no provider session open",
-        .session_id.as_str()
+        .session_id
     )]
     NoProviderSession {
         /// The session.
@@ -244,14 +244,14 @@ pub(crate) enum DaemonTurnBindingError {
     /// The session has no conversation to run on.
     #[error(
         "the provider session of session {} could not be opened: it has no conversation to run on",
-        .session_id.as_str()
+        .session_id
     )]
     NoConversation {
         /// The session.
         session_id: SessionId,
     },
     /// The run's binding could not be recorded.
-    #[error("the binding of a turn on session {} could not be recorded", .session_id.as_str())]
+    #[error("the binding of a turn on session {} could not be recorded", .session_id.text().as_str())]
     BindingNotRecorded {
         /// The session.
         session_id: SessionId,

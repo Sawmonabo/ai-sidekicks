@@ -43,7 +43,7 @@ pub(crate) fn advisor_model_change_statement(
     WriteStatement {
         sql: Cow::Borrowed(UPSERT_ADVISOR_MODEL_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@sessionId", session_id.as_str()),
+            text_binding("@sessionId", session_id.text().as_str()),
             nullable_text_binding("@advisorModel", advisor_model),
             text_binding("@updatedAt", updated_at),
         ]),
@@ -59,7 +59,9 @@ pub(crate) fn read_session_advisor_model(
 ) -> rusqlite::Result<Option<String>> {
     let advisor_model = reader
         .prepare_cached("SELECT advisor_model FROM session_console_state WHERE session_id = ?")?
-        .query_row([session_id.as_str()], |row| row.get::<_, Option<String>>(0))
+        .query_row([session_id.text().as_str()], |row| {
+            row.get::<_, Option<String>>(0)
+        })
         .optional()?;
     Ok(advisor_model.flatten())
 }
@@ -73,7 +75,7 @@ pub(crate) fn session_mode_change_statement(
     WriteStatement {
         sql: Cow::Borrowed(UPSERT_SESSION_MODE_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@sessionId", session_id.as_str()),
+            text_binding("@sessionId", session_id.text().as_str()),
             text_binding("@sessionMode", <&'static str>::from(session_mode)),
             text_binding("@updatedAt", updated_at),
         ]),
@@ -89,7 +91,7 @@ pub(crate) fn read_session_mode(
 ) -> rusqlite::Result<SessionMode> {
     let session_mode = reader
         .prepare_cached("SELECT session_mode FROM session_console_state WHERE session_id = ?")?
-        .query_row([session_id.as_str()], |row| {
+        .query_row([session_id.text().as_str()], |row| {
             text_column(row, 0, closed_word)
         })
         .optional()?;
@@ -108,7 +110,7 @@ pub(crate) fn read_session_max_steps_per_turn(
         .prepare_cached(
             "SELECT max_steps_per_turn FROM session_console_state WHERE session_id = ?",
         )?
-        .query_row([session_id.as_str()], |row| {
+        .query_row([session_id.text().as_str()], |row| {
             if row.get_ref(0)?.data_type() == Type::Null {
                 Ok(None)
             } else {

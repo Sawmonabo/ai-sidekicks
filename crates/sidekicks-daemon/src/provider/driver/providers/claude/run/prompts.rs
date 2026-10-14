@@ -27,7 +27,7 @@ impl ClaudeSentPrompts {
     /// Records a message written to the session's process as its newest.
     pub(crate) fn record_sent(&mut self, session_id: &SessionId, message_uuid: &str) {
         self.newest_by_session
-            .insert(session_id.clone(), message_uuid.to_owned());
+            .insert(*session_id, message_uuid.to_owned());
     }
 
     /// Records a steer written into `run_id`'s turn as its newest message, not yet taken.
@@ -39,9 +39,9 @@ impl ClaudeSentPrompts {
     ) {
         self.record_sent(session_id, message_uuid);
         self.untaken_steers_by_run
-            .entry(run_id.clone())
+            .entry(*run_id)
             .or_insert_with(|| UntakenSteers {
-                session_id: session_id.clone(),
+                session_id: *session_id,
                 message_uuids: HashSet::new(),
             })
             .message_uuids
@@ -82,7 +82,7 @@ impl ClaudeSentPrompts {
                 untaken
                     .message_uuids
                     .remove(message_uuid)
-                    .then(|| run_id.clone())
+                    .then_some(*run_id)
             })
     }
 

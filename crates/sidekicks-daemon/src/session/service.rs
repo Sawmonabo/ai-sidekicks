@@ -140,7 +140,7 @@ pub(crate) enum SessionServiceError {
     #[error(transparent)]
     Log(#[from] SessionLogReadError),
     /// A live run's creation names no agent, which only a write outside admission can leave.
-    #[error("run {} of session {} names no agent", .run_id.as_str(), .session_id.as_str())]
+    #[error("run {} of session {} names no agent", .run_id.text().as_str(), .session_id.text().as_str())]
     RunNamesNoAgent {
         /// The run.
         run_id: RunId,
@@ -387,14 +387,14 @@ fn read_session(
     let head = event_reads.read_head(session_id)?;
     let Some(row) = snapshot
         .prepare_cached(SELECT_ROW_SQL)?
-        .query_row([session_id.as_str()], SessionRow::from_row)
+        .query_row([session_id.text().as_str()], SessionRow::from_row)
         .optional()?
     else {
         return Err(session_not_found(session_id).into());
     };
     let tags = snapshot
         .prepare_cached(SELECT_TAGS_SQL)?
-        .query_map([session_id.as_str()], |tag_row| {
+        .query_map([session_id.text().as_str()], |tag_row| {
             text_column(tag_row, 0, |text| Tag::new(text).ok_or(NotATag))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -411,7 +411,7 @@ fn read_session(
         .prepare_cached(&SELECT_STANDING_SEQUENCES_SQL)?
         .query_map(
             named_params! {
-                "@session_id": session_id.as_str(),
+                "@session_id": session_id.text().as_str(),
                 "@read_bound": read_bound,
             },
             |sequence_row| sequence_row.get::<_, i64>(0),
@@ -429,7 +429,7 @@ fn read_session(
     snapshot.commit()?;
     Ok(SessionLogRead {
         session: SessionReadRecord {
-            id: session_id.clone(),
+            id: *session_id,
             state: row.state,
             shape: row.shape,
             name: row.name,
@@ -466,16 +466,13 @@ fn read_live_runs(
         .prepare_cached(&SELECT_LIVE_RUNS_SQL)?
         .query_map(
             named_params! {
-                "@session_id": session_id.as_str(),
+                "@session_id": session_id.text().as_str(),
                 "@read_bound": read_bound,
             },
             LiveRunRow::from_row,
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let run_ids: Vec<RunId> = run_rows
-        .iter()
-        .map(|run_row| run_row.run_id.clone())
-        .collect();
+    let run_ids: Vec<RunId> = run_rows.iter().map(|run_row| run_row.run_id).collect();
     let head_sequence = FoldedThroughSequence::new(head.unwrap_or(START_OF_LOG_POSITION))
         .expect("the head is a safe sequence below the read bound");
     let run_facts = TranscriptRunFactsReader::new(reader, read_damaged_from_sequence).read(
@@ -500,7 +497,7 @@ fn live_run_of(
     let Some(agent_id) = row.agent_id else {
         return Err(SessionServiceError::RunNamesNoAgent {
             run_id: row.run_id,
-            session_id: session_id.clone(),
+            session_id: *session_id,
         });
     };
     Ok(SessionLiveRun {
@@ -610,12 +607,12 @@ struct LiveRunRow {
 impl LiveRunRow {
     fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
-            run_id: text_column(row, 0, RunId::new)?,
-            parent_run_id: optional_text_column(row, 1, RunId::new)?,
+            run_id: text_column(row, 0, |text| RunId::new(&text))?,
+            parent_run_id: optional_text_column(row, 1, |text| RunId::new(&text))?,
             is_apart: row.get(2)?,
             state: text_column(row, 3, closed_word)?,
             run_version: safe_int_column(row, 4)?,
-            agent_id: optional_text_column(row, 5, AgentId::new)?,
+            agent_id: optional_text_column(row, 5, |text| AgentId::new(&text))?,
             touched_at: optional_text_column(row, 6, WireInstant::try_from)?,
         })
     }

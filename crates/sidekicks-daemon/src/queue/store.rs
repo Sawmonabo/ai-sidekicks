@@ -412,16 +412,14 @@ pub(crate) fn insert_queue_item_statement(item: &NewQueueItem) -> WriteStatement
     WriteStatement {
         sql: Cow::Borrowed(INSERT_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
-            text_binding("@id", item.id.as_str()),
-            text_binding("@session_id", item.session_id.as_str()),
+            text_binding("@id", item.id.text().as_str()),
+            text_binding("@session_id", item.session_id.text().as_str()),
             text_binding("@payload", &payload),
-            text_binding("@target_run_id", item.target_run_id.as_str()),
+            text_binding("@target_run_id", item.target_run_id.text().as_str()),
             nullable_text_binding("@device_id", item.device_id.as_ref().map(DeviceId::as_str)),
             nullable_text_binding(
                 "@replaces_id",
-                item.replaces_queue_item_id
-                    .as_ref()
-                    .map(QueueItemId::as_str),
+                item.replaces_queue_item_id.map(|id| id.text()).as_deref(),
             ),
             text_binding(
                 "@client_idempotency_key",
@@ -452,7 +450,7 @@ pub(crate) fn leave_queued_statement(
     WriteStatement {
         sql: Cow::Borrowed(LEAVE_QUEUED_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
-            text_binding("@id", id.as_str()),
+            text_binding("@id", id.text().as_str()),
             text_binding("@to", <&'static str>::from(to)),
             nullable_text_binding("@reason", reason.map(<&'static str>::from)),
             text_binding("@now", now.as_str()),
@@ -484,8 +482,8 @@ pub(crate) fn retarget_statement(
     WriteStatement {
         sql: Cow::Borrowed(RETARGET_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
-            text_binding("@id", id.as_str()),
-            text_binding("@run_id", run_id.as_str()),
+            text_binding("@id", id.text().as_str()),
+            text_binding("@run_id", run_id.text().as_str()),
             text_binding("@now", now.as_str()),
         ]),
         expected_row_count: Some(1),
@@ -506,7 +504,7 @@ pub(crate) fn placement_statements(
         .map(|(item, position)| WriteStatement {
             sql: Cow::Borrowed(PLACE_SQL.as_str()),
             bindings: StatementBindings::Named(vec![
-                text_binding("@id", item.id.as_str()),
+                text_binding("@id", item.id.text().as_str()),
                 (
                     Cow::Borrowed("@position"),
                     SqlValue::Integer(i64::from(position)),
@@ -522,7 +520,7 @@ pub(crate) fn placement_statements(
 pub(crate) fn run_live_statement(run_id: &RunId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(RUN_LIVE_SQL.as_str()),
-        bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.as_str())]),
+        bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.text().as_str())]),
         expected_row_count: Some(1),
     }
 }
@@ -541,7 +539,7 @@ pub(crate) fn no_live_lead_run_statement(session_id: &SessionId) -> WriteStateme
 pub(crate) fn current_interrupted_lead_run_statement(run_id: &RunId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(CURRENT_INTERRUPTED_LEAD_RUN_SQL.as_str()),
-        bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.as_str())]),
+        bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.text().as_str())]),
         expected_row_count: Some(1),
     }
 }
@@ -563,8 +561,8 @@ pub(crate) fn take_over_interrupted_statement(
     WriteStatement {
         sql: Cow::Borrowed(TAKE_OVER_INTERRUPTED_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
-            text_binding("@session_id", session_id.as_str()),
-            text_binding("@run_id", run_id.as_str()),
+            text_binding("@session_id", session_id.text().as_str()),
+            text_binding("@run_id", run_id.text().as_str()),
             text_binding("@now", now.as_str()),
         ]),
         expected_row_count: None,
@@ -655,7 +653,7 @@ impl<'reader> QueueItemReader<'reader> {
     pub(crate) fn get(&self, id: &QueueItemId) -> rusqlite::Result<Option<QueueItemRecord>> {
         self.reader
             .prepare_cached(&SELECT_BY_ID_SQL)?
-            .query_row([id.as_str()], record_of)
+            .query_row([id.text().as_str()], record_of)
             .optional()
     }
 
@@ -668,7 +666,7 @@ impl<'reader> QueueItemReader<'reader> {
         self.reader
             .prepare_cached(&SELECT_BY_KEY_SQL)?
             .query_row(
-                [session_id.as_str(), client_idempotency_key.as_str()],
+                [session_id.text().as_str(), client_idempotency_key.as_str()],
                 record_of,
             )
             .optional()
@@ -686,7 +684,7 @@ impl<'reader> QueueItemReader<'reader> {
             .prepare_cached(&SELECT_QUEUE_SQL)?
             .query_map(
                 named_params! {
-                    "@session_id": session_id.as_str(),
+                    "@session_id": session_id.text().as_str(),
                     "@child_handle": child_handle.map(ChildHandle::as_str),
                     "@state": state.map(<&'static str>::from),
                 },
@@ -702,7 +700,7 @@ impl<'reader> QueueItemReader<'reader> {
     ) -> rusqlite::Result<Vec<QueueItemRecord>> {
         self.reader
             .prepare_cached(&SELECT_WAITING_FOR_RUN_SQL)?
-            .query_map([run_id.as_str()], record_of)?
+            .query_map([run_id.text().as_str()], record_of)?
             .collect()
     }
 
@@ -713,7 +711,9 @@ impl<'reader> QueueItemReader<'reader> {
     ) -> rusqlite::Result<Option<RunId>> {
         self.reader
             .prepare_cached(&LIVE_LEAD_RUN_SQL)?
-            .query_row([session_id.as_str()], |row| text_column(row, 0, RunId::new))
+            .query_row([session_id.text().as_str()], |row| {
+                text_column(row, 0, |text| RunId::new(&text))
+            })
             .optional()
     }
 
@@ -725,9 +725,9 @@ impl<'reader> QueueItemReader<'reader> {
     ) -> rusqlite::Result<Option<CurrentLeadRun>> {
         self.reader
             .prepare_cached(&CURRENT_LEAD_RUN_SQL)?
-            .query_row([session_id.as_str()], |row| {
+            .query_row([session_id.text().as_str()], |row| {
                 Ok(CurrentLeadRun {
-                    run_id: text_column(row, 0, RunId::new)?,
+                    run_id: text_column(row, 0, |text| RunId::new(&text))?,
                     state: text_column(row, 1, closed_word)?,
                 })
             })
@@ -741,7 +741,7 @@ impl<'reader> QueueItemReader<'reader> {
     ) -> rusqlite::Result<Option<SessionState>> {
         self.reader
             .prepare_cached(SELECT_SESSION_STATE_SQL)?
-            .query_row([session_id.as_str()], |row| {
+            .query_row([session_id.text().as_str()], |row| {
                 text_column(row, 0, closed_word)
             })
             .optional()
@@ -751,7 +751,7 @@ impl<'reader> QueueItemReader<'reader> {
     pub(crate) fn list_sessions_with_unstarted_waiting(&self) -> rusqlite::Result<Vec<SessionId>> {
         self.reader
             .prepare_cached(&SESSIONS_WITH_UNSTARTED_WAITING_SQL)?
-            .query_map([], |row| text_column(row, 0, SessionId::new))?
+            .query_map([], |row| text_column(row, 0, |text| SessionId::new(&text)))?
             .collect()
     }
 }
@@ -797,11 +797,11 @@ pub(super) fn record_of(row: &Row<'_>) -> rusqlite::Result<QueueItemRecord> {
         }
     };
     Ok(QueueItemRecord {
-        id: text_column(row, 0, QueueItemId::new)?,
-        session_id: text_column(row, 1, SessionId::new)?,
+        id: text_column(row, 0, |text| QueueItemId::new(&text))?,
+        session_id: text_column(row, 1, |text| SessionId::new(&text))?,
         state,
         body: text_column(row, 4, |text| serde_json::from_str::<QueueItemBody>(&text))?,
-        target_run_id: optional_text_column(row, 5, RunId::new)?,
+        target_run_id: optional_text_column(row, 5, |text| RunId::new(&text))?,
         child_handle: optional_text_column(row, 6, |text| {
             ChildHandle::new(text).ok_or(NotAChildHandle)
         })?,
@@ -821,7 +821,7 @@ fn item_change_statement(
     WriteStatement {
         sql: Cow::Borrowed(sql.as_str()),
         bindings: StatementBindings::Named(vec![
-            text_binding("@id", id.as_str()),
+            text_binding("@id", id.text().as_str()),
             text_binding("@now", now.as_str()),
         ]),
         expected_row_count: Some(1),
@@ -836,7 +836,10 @@ fn session_statement(
 ) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(sql.as_str()),
-        bindings: StatementBindings::Named(vec![text_binding("@session_id", session_id.as_str())]),
+        bindings: StatementBindings::Named(vec![text_binding(
+            "@session_id",
+            session_id.text().as_str(),
+        )]),
         expected_row_count: Some(expected_row_count),
     }
 }

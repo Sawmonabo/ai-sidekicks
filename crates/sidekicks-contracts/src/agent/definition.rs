@@ -4,8 +4,6 @@
 //! verb here appends an event. `AgentId` lives here beside the definition's id because every
 //! other agent module imports it.
 
-use std::fmt;
-
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -22,7 +20,7 @@ use crate::wire::inline_scalar_definition;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
-use crate::wire::record::{JsonRecord, Record};
+use crate::wire::record::{JsonRecord, Record, RecordKey};
 use crate::wire::text::{FreeFormText, NonEmptyText};
 
 pub mod binding;
@@ -46,17 +44,10 @@ branded_uuid_id! {
     AgentDefinitionId
 }
 
-/// A definition id names a member of a record keyed by definition.
-impl AsRef<str> for AgentDefinitionId {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-/// A definition id as a check's report names the member it keys.
-impl fmt::Display for AgentDefinitionId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
+/// A definition id names a member of a record keyed by definition, never `__proto__`.
+impl RecordKey for AgentDefinitionId {
+    fn is_prototype_key(&self) -> bool {
+        false
     }
 }
 
