@@ -138,6 +138,7 @@ reflink-copy = "0.1.30"
 sha3 = "0.12.0"
 tar = "0.4.46"
 typed-path = "0.12.3"
+walkdir = "2.5.0"
 zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 # Wire, contracts and network.

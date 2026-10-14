@@ -16,6 +16,7 @@ use sidekicks_platforms::{EntryIdentity, entry_identity};
 use tokio::task::JoinError;
 use url::Url;
 
+use crate::missing_entry::MissingEntry;
 use crate::path_resolution::resolve_path;
 use crate::random_hex::random_hex;
 
@@ -139,14 +140,13 @@ pub(crate) enum DestinationState {
 /// Reads whether `folder` is free to clone into: missing, or an empty folder. Fails with the read's
 /// error for anything but a missing folder, a file in its place included.
 pub(crate) async fn read_destination_state(folder: &Path) -> io::Result<DestinationState> {
-    match tokio::fs::read_dir(folder).await {
-        Ok(mut entries) => Ok(match entries.next_entry().await? {
-            Some(_) => DestinationState::Taken,
-            None => DestinationState::Empty,
-        }),
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(DestinationState::Missing),
-        Err(error) => Err(error),
-    }
+    let Some(mut entries) = tokio::fs::read_dir(folder).await.none_if_missing()? else {
+        return Ok(DestinationState::Missing);
+    };
+    Ok(match entries.next_entry().await? {
+        Some(_) => DestinationState::Taken,
+        None => DestinationState::Empty,
+    })
 }
 
 /// The folder the daemon made for a clone to run in, known by its identity.
@@ -170,9 +170,9 @@ pub(crate) enum StagedCloneError {
     /// A file-system call on the folder or its parent failed.
     #[error("a file-system call on the clone's folder failed")]
     Io(#[from] io::Error),
-    /// The read of the folder's identity stopped before it answered.
-    #[error("the read of the clone's folder stopped")]
-    Read(#[from] JoinError),
+    /// A file-system task on the folder stopped before it answered.
+    #[error("a file-system task on the clone's folder stopped before it answered")]
+    Interrupted(#[from] JoinError),
 }
 
 /// Makes the folder git clones into, hidden beside `destination` in its parent (made when
@@ -213,12 +213,10 @@ pub(crate) async fn remove_staged_clone(folder: &StagedClone) -> Result<(), Stag
     if identity != Some(folder.identity) {
         return Ok(());
     }
-    match tokio::fs::remove_dir_all(&folder.path).await {
-        Ok(()) => Ok(()),
-        // Gone already is what the removal wanted.
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.into()),
-    }
+    // A path gone already is what the removal wanted, which the removal answers `Ok`.
+    let path = folder.path.clone();
+    tokio::task::spawn_blocking(move || sidekicks_platforms::remove_tree(&path)).await??;
+    Ok(())
 }
 
 /// Renames a finished staged clone's folder to `destination`, first removing an empty folder
@@ -229,10 +227,9 @@ pub(crate) async fn move_staged_clone_into_place(
     destination: &Path,
 ) -> io::Result<Option<StagedClone>> {
     // Removing only an empty folder means a folder that filled is refused, never emptied.
-    match tokio::fs::remove_dir(destination).await {
-        Ok(()) => {}
+    match tokio::fs::remove_dir(destination).await.none_if_missing() {
+        Ok(_) => {}
         Err(error) if is_destination_filled(&error) => return Ok(None),
-        Err(error) if error.kind() == ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
     match tokio::fs::rename(&folder.path, destination).await {
