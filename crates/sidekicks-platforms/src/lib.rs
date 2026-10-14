@@ -3,8 +3,8 @@
 #![expect(
     unsafe_code,
     reason = "the terminal's window size, console and library-search calls, the shell start's \
-              signal and console-handler calls, and the Windows host-name and free-room calls are \
-              C interfaces"
+              signal and console-handler calls, the parent check `scutil`'s child runs in \
+              `pre_exec`, and the Windows host-name and free-room calls are C interfaces"
 )]
 
 #[cfg(target_os = "linux")]
