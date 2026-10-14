@@ -10,3 +10,8 @@ pub(super) const SEPARATOR: char = '/';
 pub(super) fn is_absolute(path: &str) -> bool {
     Utf8UnixPath::new(path).is_absolute()
 }
+
+/// `path` joined onto `base`, an absolute `path` replacing it.
+pub(super) fn join(base: &str, path: &str) -> String {
+    Utf8UnixPath::new(base).join(path).into_string()
+}

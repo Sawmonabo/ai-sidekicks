@@ -18,6 +18,7 @@ mod linux;
 mod machine_name;
 #[cfg(target_os = "macos")]
 mod macos;
+mod path;
 #[cfg(unix)]
 mod posix;
 mod shell_start;
@@ -44,6 +45,8 @@ pub use macos::process_footprint;
 pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
 #[cfg(target_os = "macos")]
 pub use macos::{read_command_argument_limit, read_parent_process_id};
+pub use path::resolution::{resolve_path, resolve_path_against};
+pub use path::rules::PathRules;
 #[cfg(unix)]
 pub use posix::askpass::askpass_listener;
 #[cfg(unix)]

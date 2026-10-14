@@ -6,8 +6,8 @@ use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
+use sidekicks_platforms::{PathRules, resolve_path, resolve_path_against};
 
-use crate::path_resolution::{resolve_path, resolve_path_against};
 use crate::provider::driver::providers::claude::session::settings_file::{
     is_unreadable_path, read_claude_settings_file,
 };
@@ -63,7 +63,8 @@ pub(crate) async fn find_claude_plan_files(
 }
 
 // The folder the settings name, resolved, or `None` when none names one inside the project or it
-// holds a backslash off Windows, either of which makes Claude Code fall back to the default folder.
+// holds a backslash where that separates nothing, either of which makes Claude Code fall back to the
+// default folder.
 // Where Claude Code reads `plansDirectory`, lowest precedence first: the home's settings, the
 // project's shared settings, then its local settings; an empty value names nothing.
 async fn read_configured_plans_folder(
@@ -91,9 +92,15 @@ async fn read_configured_plans_folder(
         return Ok(None);
     };
     let project_root = resolve_path(to_folder_text(project_folder)?)?;
-    let folder = resolve_path_against(&project_root, &configured)?;
+    // Claude Code, a JavaScript program, reads a bare drive naming the project's own (`C:`) as that
+    // drive's current folder, the project, where the shared join reads the drive's root.
+    let folder = if PathRules::HOST.is_drive_of(&configured, &project_root) {
+        project_root.clone()
+    } else {
+        resolve_path_against(&project_root, &configured)?
+    };
     let is_inside_project = Path::new(&folder).starts_with(&project_root);
-    let has_refused_backslash = !cfg!(windows) && folder.contains('\\');
+    let has_refused_backslash = !PathRules::HOST.is_separator('\\') && folder.contains('\\');
     Ok((is_inside_project && !has_refused_backslash).then_some(folder))
 }
 
@@ -111,6 +118,7 @@ mod tests {
 
     use rstest::rstest;
     use serde_json::json;
+    use sidekicks_platforms::PathRules;
 
     use super::find_claude_plan_files;
 
@@ -143,7 +151,7 @@ mod tests {
     #[case::a_folder_with_a_backslash(
         None,
         Some(r"sub\plans"),
-        cfg!(windows).then_some("sub/plans")
+        PathRules::HOST.is_separator('\\').then_some("sub/plans")
     )]
     #[case::an_empty_later_setting(Some("sub/plans"), Some(""), Some("sub/plans"))]
     #[tokio::test]

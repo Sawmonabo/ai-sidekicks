@@ -41,6 +41,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+typed-path.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true

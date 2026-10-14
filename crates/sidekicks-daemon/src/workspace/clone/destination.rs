@@ -12,12 +12,11 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
-use sidekicks_platforms::{EntryIdentity, entry_identity};
+use sidekicks_platforms::{EntryIdentity, PathRules, entry_identity, resolve_path};
 use tokio::task::JoinError;
 use url::Url;
 
 use crate::missing_entry::MissingEntry;
-use crate::path_resolution::resolve_path;
 use crate::random_hex::random_hex;
 
 // `git@github.com:team/app.git`: a user and host, a colon, then a path that is not `//`. The user
@@ -29,10 +28,6 @@ static SCP_LIKE_ADDRESS_WITH_USER: LazyLock<Regex> = LazyLock::new(|| {
 static SCP_LIKE_ADDRESS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^([^:/]+):([^\n\r\u{2028}\u{2029}]+)$").expect("the pattern is valid")
 });
-
-// A Windows drive path, `C:\work\app` or `C:/work/app`, which the address form above would match.
-static WINDOWS_DRIVE_PATH: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[A-Za-z]:[\\/]").expect("the pattern is valid"));
 
 // A network address's scheme and `//`.
 static NETWORK_ADDRESS: LazyLock<Regex> =
@@ -46,27 +41,66 @@ static ADDRESS_CREDENTIALS: LazyLock<Regex> = LazyLock::new(|| {
 // Random bytes in a staged clone's folder name, so two clones of one name never meet.
 const STAGED_CLONE_SUFFIX_BYTES: usize = 6;
 
-/// The repository's name as `git clone` reads it from the address: the last path part with any
-/// trailing slash, `/.git` and `.git` dropped (`https://host/team/app.git` reads `app`), or `None`
-/// when the address leaves no name, which no clone may use as a folder.
-pub(crate) fn repository_name_of(url: &str) -> Option<&str> {
-    let is_separator = |character: char| character == '/' || character == '\\';
-    let rest = url
-        .trim_matches(is_ecmascript_whitespace)
-        .trim_end_matches(is_separator);
-    let rest = rest
-        .strip_suffix("/.git")
-        .or_else(|| rest.strip_suffix("\\.git"))
-        .unwrap_or(rest)
-        .trim_end_matches(is_separator);
+/// The repository's name as `git clone` reads it from the address, by the running system's path
+/// separators: the last path part after the scheme, any user and a lone host's port, with trailing
+/// separators, `/.git` and `.git` dropped (`https://host/team/app.git` reads `app`), and each run of
+/// control characters and spaces made one space. `None` when the address leaves no name, which no
+/// clone may use as a folder.
+pub(crate) fn repository_name_of(url: &str) -> Option<String> {
+    let is_separator = |character: char| PathRules::HOST.is_separator(character);
+    let address = url.trim_matches(is_ecmascript_whitespace);
+    let mut rest = address.split_once("://").map_or(address, |(_, rest)| rest);
+    let host_end = rest.find(is_separator).unwrap_or(rest.len());
+    if let Some(user_end) = rest[..host_end].rfind('@') {
+        rest = &rest[user_end + 1..];
+    }
+    let rest = rest.trim_end_matches(|character| is_separator(character) || is_c_space(character));
+    let rest = match rest.strip_suffix(".git") {
+        Some(before) if before.len() > 1 && before.ends_with(is_separator) => {
+            before[..before.len() - 1].trim_end_matches(is_separator)
+        }
+        Some(_) | None => rest,
+    };
+    // A host alone (`host:2222`) loses its port, a colon and any digits after it.
+    let rest = match rest.rfind(':') {
+        Some(colon)
+            if !rest.contains('/')
+                && rest[colon + 1..].bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            &rest[..colon]
+        }
+        Some(_) | None => rest,
+    };
     let last_part = rest
-        .rfind(['/', '\\', ':'])
+        .rfind(|character| is_separator(character) || character == ':')
         .map_or(rest, |separator| &rest[separator + 1..]);
-    let name = last_part.strip_suffix(".git").unwrap_or(last_part);
-    match name {
+    let last_part = last_part.strip_suffix(".git").unwrap_or(last_part);
+    let mut name = String::with_capacity(last_part.len());
+    let mut is_after_space = true;
+    for character in last_part.chars() {
+        if character <= ' ' {
+            if is_after_space {
+                continue;
+            }
+            is_after_space = true;
+            name.push(' ');
+        } else {
+            is_after_space = false;
+            name.push(character);
+        }
+    }
+    if is_after_space {
+        name.pop();
+    }
+    match name.as_str() {
         "" | "." | ".." => None,
         _ => Some(name),
     }
+}
+
+// The C library's `isspace` set, which git trims from an address's end.
+fn is_c_space(character: char) -> bool {
+    matches!(character, ' ' | '\t' | '\n' | '\x0B' | '\x0C' | '\r')
 }
 
 /// The repository an address names, for comparing two addresses: host and path for a network
@@ -108,7 +142,8 @@ pub(crate) fn repository_key_of(url: &str) -> io::Result<String> {
 
 // The host and path of a `user@host:path` address whose path does not start `//`.
 fn scp_like_parts_of(address: &str) -> Option<(&str, &str)> {
-    if WINDOWS_DRIVE_PATH.is_match(address) {
+    // A drive path (`C:\work\app`) is local on a system that has drives.
+    if PathRules::HOST.has_drive_prefix(address) {
         return None;
     }
     [&*SCP_LIKE_ADDRESS_WITH_USER, &*SCP_LIKE_ADDRESS]
@@ -267,13 +302,13 @@ mod tests {
     use std::path::Path;
 
     use rstest::rstest;
+    use sidekicks_platforms::{PathRules, resolve_path};
 
     use super::{
         DestinationState, StagedCloneError, address_without_credentials, make_staged_clone,
         move_staged_clone_into_place, read_destination_state, remove_staged_clone,
         repository_key_of, repository_name_of,
     };
-    use crate::path_resolution::resolve_path;
 
     #[rstest]
     #[case::https("https://github.com/team/app.git", Some("app"))]
@@ -281,14 +316,22 @@ mod tests {
     #[case::dot_git_folder("/work/app/.git", Some("app"))]
     #[case::scp_like("git@github.com:team/app.git", Some("app"))]
     #[case::scp_like_no_path("git@github.com:app.git", Some("app"))]
-    #[case::windows_path("C:\\work\\app\\", Some("app"))]
+    #[case::drive_path("C:/work/app/", Some("app"))]
+    // A backslash separates folders only where the system reads it so, as git reads it.
+    #[case::backslashes(
+        r"C:\work\app\",
+        Some(if PathRules::HOST.is_separator('\\') { "app" } else { r"\work\app\" })
+    )]
     #[case::padded("  https://host/app.git \u{feff}", Some("app"))]
-    #[case::host_only("host:", None)]
+    #[case::host_only("host:", Some("host"))]
+    #[case::host_and_port("https://host:8443", Some("host"))]
+    #[case::user_and_host("ssh://ana@host", Some("host"))]
+    #[case::control_characters("https://host/my\tapp  name.git", Some("my app name"))]
     #[case::parent("team/..", None)]
     #[case::only_dot_git("https://host/.git", Some("host"))]
     #[case::empty("", None)]
     fn reads_the_name_git_reads(#[case] url: &str, #[case] name: Option<&str>) {
-        assert_eq!(repository_name_of(url), name);
+        assert_eq!(repository_name_of(url).as_deref(), name);
     }
 
     #[rstest]
