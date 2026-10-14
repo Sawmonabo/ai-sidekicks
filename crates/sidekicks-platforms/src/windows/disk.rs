@@ -1,8 +1,9 @@
-//! The disk on Windows: the free room on a folder's volume, and a written file flushed so it
-//! survives a power loss; a folder has no flush there, and a rename is on disk when it returns.
+//! The disk on Windows: the free room on a folder's volume, a read at a file offset, and a written
+//! file flushed so it survives a power loss; a folder has no flush there, and a rename is on disk
+//! when it returns.
 
 use std::ffi::OsString;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::windows::ffi::OsStringExt;
 use std::os::windows::fs::OpenOptionsExt;
@@ -101,6 +102,29 @@ pub fn flush_file(path: &Path) -> io::Result<()> {
             FlushFailure { flush, restore },
         )),
     }
+}
+
+/// Whether a reader that keeps a file open reads it through a memory map: never on Windows, where
+/// a mapped file cannot be deleted.
+pub const SHOULD_MEMORY_MAP_READS: bool = false;
+
+/// Fills `buffer` from `file` at byte `offset`; each read names its own offset, so threads sharing
+/// one handle read independently. Fails with `UnexpectedEof` when the file ends first, or with the
+/// read's error.
+pub fn read_exact_at(file: &File, mut buffer: &mut [u8], mut offset: u64) -> io::Result<()> {
+    // `seek_read` may return fewer bytes than asked, so it is called until the buffer is full.
+    while !buffer.is_empty() {
+        match std::os::windows::fs::FileExt::seek_read(file, buffer, offset) {
+            Ok(0) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
+            Ok(read) => {
+                buffer = &mut std::mem::take(&mut buffer)[read..];
+                offset += read as u64;
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 /// Does nothing: Windows has no flush of a folder's entries, and a rename is on disk when it

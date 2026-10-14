@@ -12,7 +12,9 @@ icu_casemap = { workspace = true, optional = true }
 lru = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
-tantivy = { workspace = true, optional = true }
+sidekicks-platforms = { workspace = true, optional = true }
+# The memory map is built on every platform, which says where the index reads through it.
+tantivy = { workspace = true, features = ["mmap"], optional = true }
 # Tantivy's own bit set, at the version Tantivy builds with, so the two crates share the type.
 tantivy-common = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
@@ -24,12 +26,9 @@ writeable = { workspace = true, optional = true }
 # The case fold the index's fold is held equal to.
 caseless.workspace = true
 rstest.workspace = true
+# The process's footprint the measurements read.
+sidekicks-platforms = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
-
-# The index reads by a memory map on macOS, where it measures the smaller footprint.
-[target.'cfg(target_os = "macos")'.dependencies]
-libc = { workspace = true, optional = true }
-tantivy = { workspace = true, features = ["mmap"], optional = true }
 
 [features]
 # The index, which only the daemon builds.
@@ -38,6 +37,7 @@ index = [
   "dep:lru",
   "dep:serde",
   "dep:serde_json",
+  "dep:sidekicks-platforms",
   "dep:tantivy",
   "dep:tantivy-common",
   "dep:thiserror",
@@ -46,7 +46,7 @@ index = [
   "dep:writeable",
 ]
 # The index's budget measurements, compiled into the tests only when asked for.
-measurements = ["dep:libc", "index"]
+measurements = ["index"]
 
 [lints]
 workspace = true

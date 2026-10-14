@@ -1,5 +1,5 @@
 //! The index's folder as Tantivy's `Directory`: files written durably, held with the operating
-//! system's file locks, and read by positioned reads or, on macOS, through a memory map.
+//! system's file locks, and read at an offset or through a memory map, as the platform prefers.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use lru::LruCache;
 
-#[cfg(target_os = "macos")]
 use tantivy::directory::MmapDirectory;
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{
@@ -24,36 +23,27 @@ use tantivy::{Directory, HasLen};
 /// How the index reads its files.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReadMode {
-    /// Each read copies its byte range out of the file with a positioned read, so concurrent reads
-    /// share one handle.
-    #[cfg_attr(
-        all(target_os = "macos", not(test)),
-        expect(
-            dead_code,
-            reason = "on macOS only the tests read positioned, as other platforms do"
-        )
-    )]
+    /// Each read copies its byte range out of the file at its offset, so concurrent reads share one
+    /// handle.
     Positioned,
-    /// Tantivy's memory map, built for macOS alone.
-    #[cfg(target_os = "macos")]
+    /// Tantivy's memory map.
     MemoryMap,
 }
 
 impl ReadMode {
-    /// The mode an index opens in: the memory map on macOS, where it holds the smaller footprint,
-    /// and positioned reads everywhere else.
-    #[cfg(target_os = "macos")]
-    pub(crate) const DEFAULT: ReadMode = ReadMode::MemoryMap;
-    /// The mode an index opens in: positioned reads, never a memory map.
-    #[cfg(not(target_os = "macos"))]
-    pub(crate) const DEFAULT: ReadMode = ReadMode::Positioned;
+    /// The mode an index opens in: the memory map where the platform prefers one, else reads at an
+    /// offset.
+    pub(crate) const DEFAULT: ReadMode = if sidekicks_platforms::SHOULD_MEMORY_MAP_READS {
+        ReadMode::MemoryMap
+    } else {
+        ReadMode::Positioned
+    };
 }
 
 /// The index's folder as Tantivy's `Directory`.
 #[derive(Clone, Debug)]
 pub(crate) struct FolderDirectory {
     root: PathBuf,
-    #[cfg(target_os = "macos")]
     memory_map: Option<MmapDirectory>,
 }
 
@@ -61,12 +51,8 @@ impl FolderDirectory {
     /// The existing folder `root`, its files read in `read_mode`; fails when the memory map cannot
     /// open the folder.
     pub(crate) fn open(root: &Path, read_mode: ReadMode) -> io::Result<FolderDirectory> {
-        // Off macOS positioned reads are the only mode, so the mode chooses nothing.
-        #[cfg(not(target_os = "macos"))]
-        let ReadMode::Positioned = read_mode;
         Ok(FolderDirectory {
             root: root.to_path_buf(),
-            #[cfg(target_os = "macos")]
             memory_map: match read_mode {
                 ReadMode::MemoryMap => Some(MmapDirectory::open(root).map_err(io::Error::other)?),
                 ReadMode::Positioned => None,
@@ -83,7 +69,6 @@ static NEXT_FILE_ID: AtomicU64 = AtomicU64::new(0);
 
 impl Directory for FolderDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
-        #[cfg(target_os = "macos")]
         if let Some(memory_map) = &self.memory_map {
             return memory_map.get_file_handle(path);
         }
@@ -170,16 +155,8 @@ impl Directory for FolderDirectory {
         Ok(())
     }
 
-    #[cfg(not(windows))]
     fn sync_directory(&self) -> io::Result<()> {
-        File::open(&self.root)?.sync_data()
-    }
-
-    // Windows makes a file's directory entry durable with the file; syncing a folder handle is not
-    // supported there.
-    #[cfg(windows)]
-    fn sync_directory(&self) -> io::Result<()> {
-        Ok(())
+        sidekicks_platforms::flush_folder(&self.root)
     }
 
     // An operating-system lock, released when its file closes, so a crashed process leaves no
@@ -248,33 +225,11 @@ impl FileHandle for PositionedFile {
             return Ok(bytes);
         }
         let mut buffer = vec![0u8; range.len()];
-        read_exactly_at(&self.file, &mut buffer, range.start as u64)?;
+        sidekicks_platforms::read_exact_at(&self.file, &mut buffer, range.start as u64)?;
         let bytes = OwnedBytes::new(buffer);
         ReadCache::store(key, &bytes);
         Ok(bytes)
     }
-}
-
-#[cfg(unix)]
-fn read_exactly_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<()> {
-    std::os::unix::fs::FileExt::read_exact_at(file, buffer, offset)
-}
-
-// `seek_read` may return fewer bytes than asked, so it is called until the buffer is full.
-#[cfg(windows)]
-fn read_exactly_at(file: &File, mut buffer: &mut [u8], mut offset: u64) -> io::Result<()> {
-    while !buffer.is_empty() {
-        match std::os::windows::fs::FileExt::seek_read(file, buffer, offset) {
-            Ok(0) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
-            Ok(read) => {
-                buffer = &mut std::mem::take(&mut buffer)[read..];
-                offset += read as u64;
-            }
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(())
 }
 
 type RangeKey = (u64, usize, usize);

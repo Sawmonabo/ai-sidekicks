@@ -4,9 +4,12 @@
     unsafe_code,
     reason = "the terminal's window size, console and library-search calls, the shell start's \
               signal and console-handler calls, the parent check `scutil`'s child runs in \
-              `pre_exec`, and the Windows host-name and free-room calls are C interfaces"
+              `pre_exec`, the Windows host-name and free-room calls, and the measurement tests' \
+              footprint read are C interfaces"
 )]
 
+#[cfg(any(test, feature = "test-support"))]
+mod footprint;
 #[cfg(target_os = "linux")]
 mod linux;
 mod machine_name;
@@ -20,13 +23,17 @@ mod terminal;
 #[cfg(target_os = "windows")]
 mod windows;
 
+#[cfg(any(test, feature = "test-support"))]
+pub use footprint::{ProcessFootprint, process_footprint};
 #[cfg(target_os = "linux")]
 pub use linux::{machine_name, windows_drive_mounts};
 pub use machine_name::MachineNameError;
 #[cfg(target_os = "macos")]
 pub use macos::{machine_name, windows_drive_mounts};
 #[cfg(unix)]
-pub use posix::disk::{flush_file, flush_folder, volume_free_bytes};
+pub use posix::disk::{
+    SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, read_exact_at, volume_free_bytes,
+};
 #[cfg(unix)]
 pub use posix::error_codes::{
     is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
@@ -59,7 +66,8 @@ pub use terminal::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::disk::{
-    FlushFailure, flush_file, flush_folder, volume_free_bytes, windows_drive_mounts,
+    FlushFailure, SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, read_exact_at,
+    volume_free_bytes, windows_drive_mounts,
 };
 #[cfg(target_os = "windows")]
 pub use windows::error_codes::{

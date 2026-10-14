@@ -8224,11 +8224,11 @@ version = "0.0.0"
 dependencies = [
  "caseless",
  "icu_casemap",
- "libc",
  "lru 0.18.5",
  "rstest",
  "serde",
  "serde_json",
+ "sidekicks-platforms",
  "tantivy",
  "tantivy-common",
  "tempfile",
