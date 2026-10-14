@@ -41,6 +41,10 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+[dev-dependencies]
+rstest.workspace = true
+tempfile.workspace = true
+
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libmimalloc-sys.workspace = true
 mimalloc.workspace = true
@@ -70,6 +74,7 @@ windows-sys = {
   workspace = true,
   features = [
     "Win32_Foundation",
+    "Win32_Networking_WinSock",
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_Console",

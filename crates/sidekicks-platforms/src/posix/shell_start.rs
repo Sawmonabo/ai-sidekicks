@@ -1,0 +1,161 @@
+//! The macOS and Linux pieces of the `shell-start` mode: the default shell, the parent check that
+//! keeps a shell from outliving the daemon, and the exec on the program's resolved path.
+
+use std::convert::Infallible;
+use std::ffi::{CString, OsStr};
+use std::io;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::path::{Path, PathBuf};
+
+use nix::errno::Errno;
+#[cfg(target_os = "linux")]
+use nix::sys::prctl::{set_pdeathsig, set_thp_disable};
+use nix::sys::signal::{SigHandler, Signal, signal};
+use nix::unistd::{AccessFlags, Pid, access, execve, getppid};
+
+use crate::shell_start::{ShellStart, ShellStartError};
+
+/// The shell started where the account's login shell cannot be: zsh, the system's own on macOS.
+#[cfg(target_os = "macos")]
+const DEFAULT_SHELL: &str = "/bin/zsh";
+
+/// The shell started where the account's login shell cannot be: `/bin/sh`, which Linux starts for
+/// an account that names none.
+#[cfg(target_os = "linux")]
+const DEFAULT_SHELL: &str = "/bin/sh";
+
+/// The arguments that start a shell as a login shell.
+pub const LOGIN_SHELL_ARGUMENTS: &[&str] = &["-l"];
+
+/// The folders a bare program name is looked up in when the environment holds no `PATH`, as libuv
+/// looks it up.
+const DEFAULT_SEARCH_PATH: &str = "/usr/bin:/bin";
+
+/// The error a parent check that finds another parent answers: no such process, the daemon.
+const DAEMON_GONE_ERRNO: Errno = Errno::ESRCH;
+
+/// Why arming the shell's process did not go through.
+enum ArmingFailure {
+    /// The daemon is no longer the parent.
+    DaemonGone,
+    /// The system refused a call; only Linux makes one that can be refused.
+    #[cfg(target_os = "linux")]
+    Refused(Errno),
+}
+
+/// The platform's default shell, started where the account's login shell cannot be.
+pub fn default_shell() -> PathBuf {
+    PathBuf::from(DEFAULT_SHELL)
+}
+
+/// Arms the process to end with the daemon `daemon_pid` and checks the daemon is still its parent;
+/// on Linux also clears the huge-page switch the daemon set for itself. Async-signal-safe and
+/// allocation-free, so a `Command`'s `pre_exec` calls it. Fails with `ESRCH` when the daemon is no
+/// longer the parent, and with the system's error when a call is refused.
+pub fn arm_parent_death(daemon_pid: u32) -> io::Result<()> {
+    arm(daemon_pid).map_err(|failure| match failure {
+        ArmingFailure::DaemonGone => io::Error::from(DAEMON_GONE_ERRNO),
+        #[cfg(target_os = "linux")]
+        ArmingFailure::Refused(errno) => io::Error::from(errno),
+    })
+}
+
+/// Prepares the `shell-start` mode's own process for its exec: arms it as [`arm_parent_death`]
+/// does, then sets `SIGPIPE` back to its default, since an ignored signal survives `execve`. Fails
+/// with [`ShellStartError::DaemonGone`] when the daemon is no longer the parent, and with the
+/// variant naming the call the system refused.
+pub fn prepare_shell_start(daemon_pid: u32) -> Result<(), ShellStartError> {
+    arm(daemon_pid).map_err(|failure| match failure {
+        ArmingFailure::DaemonGone => ShellStartError::DaemonGone,
+        #[cfg(target_os = "linux")]
+        ArmingFailure::Refused(errno) => ShellStartError::ArmingRefused(io::Error::from(errno)),
+    })?;
+    // SAFETY: the default disposition installs no handler, so no code of this program can run
+    // inside a signal.
+    unsafe { signal(Signal::SIGPIPE, SigHandler::SigDfl) }
+        .map(drop)
+        .map_err(|errno| ShellStartError::SignalResetRefused(io::Error::from(errno)))
+}
+
+/// Replaces the process with `start`'s program, with exactly its arguments and environment, and
+/// returns only on failure: `InvalidInput` for a NUL in the program, an argument or the
+/// environment, `ENOENT` for a bare name no `PATH` folder holds as a program, and otherwise the
+/// error `execve` answers. A bare name is looked up on the environment's own `PATH`, and the exec
+/// is `execve` on the resolved path, never `execvp`, which runs a file the kernel refuses through
+/// `/bin/sh`.
+pub fn start_program(start: &ShellStart) -> io::Error {
+    let Err(error) = exec_program(start);
+    error
+}
+
+fn exec_program(start: &ShellStart) -> io::Result<Infallible> {
+    let program = start.program.as_bytes();
+    let mut argv = Vec::with_capacity(start.arguments.len() + 1);
+    argv.push(CString::new(program)?);
+    for argument in &start.arguments {
+        argv.push(CString::new(argument.as_bytes())?);
+    }
+    let envp = start
+        .environment
+        .iter()
+        .map(|(name, value)| CString::new(format!("{name}={value}")))
+        .collect::<Result<Vec<_>, _>>()?;
+    let path = if program.contains(&b'/') {
+        CString::new(program)?
+    } else {
+        let resolved = find_program(&start.program, search_path(start))?;
+        CString::new(resolved.into_os_string().into_vec())?
+    };
+    execve(&path, &argv, &envp).map_err(io::Error::from)
+}
+
+/// The `PATH` a bare program name is looked up on: the environment's own, else libuv's default.
+fn search_path(start: &ShellStart) -> &str {
+    start
+        .environment
+        .iter()
+        .find(|(name, _)| name == "PATH")
+        .map_or(DEFAULT_SEARCH_PATH, |(_, value)| value.as_str())
+}
+
+/// The first `search_path` folder holding `name` as a regular file the user may run, an empty entry
+/// being the current folder as `execvp` reads it. Fails with `ENOENT` when none does.
+fn find_program(name: &OsStr, search_path: &str) -> io::Result<PathBuf> {
+    search_path
+        .split(':')
+        .map(|folder| Path::new(if folder.is_empty() { "." } else { folder }).join(name))
+        .find(|candidate| {
+            candidate
+                .metadata()
+                .is_ok_and(|metadata| metadata.is_file())
+                && access(candidate, AccessFlags::X_OK).is_ok()
+        })
+        .ok_or_else(|| io::Error::from(Errno::ENOENT))
+}
+
+/// Linux: arms the parent-death signal, then checks the parent, then clears the huge-page switch.
+#[cfg(target_os = "linux")]
+fn arm(daemon_pid: u32) -> Result<(), ArmingFailure> {
+    set_pdeathsig(Signal::SIGHUP).map_err(ArmingFailure::Refused)?;
+    // Checked after arming, so a daemon that ended before the signal was armed is still caught.
+    check_parent(daemon_pid)?;
+    set_thp_disable(false).map_err(ArmingFailure::Refused)
+}
+
+/// macOS: checks the parent, since macOS has no parent-death signal.
+#[cfg(target_os = "macos")]
+fn arm(daemon_pid: u32) -> Result<(), ArmingFailure> {
+    check_parent(daemon_pid)
+}
+
+/// Fails with [`ArmingFailure::DaemonGone`] unless `daemon_pid` is the parent; a pid past
+/// `i32::MAX` is never one.
+fn check_parent(daemon_pid: u32) -> Result<(), ArmingFailure> {
+    let is_parent =
+        i32::try_from(daemon_pid).is_ok_and(|daemon_pid| getppid() == Pid::from_raw(daemon_pid));
+    if is_parent {
+        Ok(())
+    } else {
+        Err(ArmingFailure::DaemonGone)
+    }
+}

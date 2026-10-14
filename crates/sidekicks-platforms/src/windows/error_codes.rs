@@ -1,0 +1,56 @@
+//! What a failed file call on Windows means, read from its system error code: out of open files, a
+//! busy entry, a volume with no hard links, a rename a held file stops.
+
+use std::io::{self, ErrorKind};
+
+use windows_sys::Win32::Foundation::{
+    ERROR_ACCESS_DENIED, ERROR_CANT_ACCESS_FILE, ERROR_ELEVATION_REQUIRED, ERROR_INVALID_FUNCTION,
+    ERROR_LOCK_VIOLATION, ERROR_NOT_SUPPORTED, ERROR_PIPE_BUSY, ERROR_PRIVILEGE_NOT_HELD,
+    ERROR_SHARING_VIOLATION, ERROR_TOO_MANY_OPEN_FILES,
+};
+use windows_sys::Win32::Networking::WinSock::{WSAEACCES, WSAEMFILE};
+
+/// Whether `error` says the process is out of open files (`ERROR_TOO_MANY_OPEN_FILES`, or
+/// `WSAEMFILE` for sockets).
+pub fn is_out_of_open_files(error: &io::Error) -> bool {
+    let code = win32_code(error);
+    code == Some(ERROR_TOO_MANY_OPEN_FILES) || error.raw_os_error() == Some(WSAEMFILE)
+}
+
+/// Whether `error` says the entry is busy: `ERROR_BUSY`, or a sharing, lock or pipe-busy refusal,
+/// which libuv also reads as busy.
+pub fn is_resource_busy(error: &io::Error) -> bool {
+    let code = win32_code(error);
+    error.kind() == ErrorKind::ResourceBusy
+        || code == Some(ERROR_SHARING_VIOLATION)
+        || code == Some(ERROR_LOCK_VIOLATION)
+        || code == Some(ERROR_PIPE_BUSY)
+}
+
+/// Whether `error` says the volume makes no hard links: `ERROR_NOT_SUPPORTED`, or the
+/// `ERROR_INVALID_FUNCTION` that `CreateHardLinkW` answers on exFAT and FAT32.
+pub fn is_hard_link_unsupported(error: &io::Error) -> bool {
+    let code = win32_code(error);
+    code == Some(ERROR_NOT_SUPPORTED) || code == Some(ERROR_INVALID_FUNCTION)
+}
+
+/// Whether `error` says a rename was refused because a program holds a file under it open, which
+/// Windows answers as a denied access, a sharing or lock violation or a privilege refusal.
+pub fn is_held_file_error(error: &io::Error) -> bool {
+    let code = win32_code(error);
+    code == Some(ERROR_ACCESS_DENIED)
+        || code == Some(ERROR_SHARING_VIOLATION)
+        || code == Some(ERROR_LOCK_VIOLATION)
+        || code == Some(ERROR_PIPE_BUSY)
+        || code == Some(ERROR_PRIVILEGE_NOT_HELD)
+        || code == Some(ERROR_ELEVATION_REQUIRED)
+        || code == Some(ERROR_CANT_ACCESS_FILE)
+        || error.raw_os_error() == Some(WSAEACCES)
+}
+
+// The error's system code as Windows types it; std holds it as an `i32`.
+fn win32_code(error: &io::Error) -> Option<u32> {
+    error
+        .raw_os_error()
+        .and_then(|code| u32::try_from(code).ok())
+}
