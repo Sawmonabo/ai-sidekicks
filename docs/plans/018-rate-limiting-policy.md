@@ -201,7 +201,7 @@ A 429 response must set:
 
 | Endpoint group (canonical key) | Route owner | Wiring owner + mechanism |
 | --- | --- | --- |
-| `auth.endpoint` | the sign-in and token-refresh routes, the four WebAuthn ceremony routes (`WebAuthnRegistrationOptionsIssue`, `WebAuthnRegistrationVerify`, `WebAuthnAuthenticationOptionsIssue`, `WebAuthnAuthenticationVerify`) and the device-code page's `Create an account` arm ([Plan-015](./015-hosted-account-and-identity.md)), and the device-linking routes ([Plan-025](./025-remote-control.md) Phase 5) | Plan-018 T18.3-3 |
+| `auth.endpoint` | the OAuth sign-in routes `/oauth/par`, `/oauth/authorize` with its sign-in page's `Create an account` arm, `/oauth/token` (the code's redemption and the refresh-token trade) and `/oauth/revoke`, and the four WebAuthn ceremony routes (`WebAuthnRegistrationOptionsIssue`, `WebAuthnRegistrationVerify`, `WebAuthnAuthenticationOptionsIssue`, `WebAuthnAuthenticationVerify`) ([Plan-015](./015-hosted-account-and-identity.md)), and the device-linking routes ([Plan-025](./025-remote-control.md) Phase 5) | Plan-018 T18.3-3 |
 
 ## Design Decisions
 
@@ -291,10 +291,10 @@ The phase builds on the contracts crate (Plan-001 Phase 1 T1.2).
   - **Spec coverage:** Spec-019 §Default Behavior, Spec-019 §Overflow Response (429; Retry-After)
   - **Verifies invariant:** I-018-1, I-018-4
   - **Consumes:** `check_admission` ← T18.3-1; the CP-018-1 router ← the control-plane host (§Preconditions).
-- **T18.3-3 — Wire the sign-in routes + the daemon's dependency boundary.** Apply `rate_limit_layer(RateLimitEndpointGroup::AuthEndpoint)` per the §Endpoint Wiring Ownership table as a `route_layer` on the sign-in, token-refresh and device-linking routes, the four WebAuthn ceremony routes and the device-code page's `Create an account` arm, inside the CP-018-1 mount seam (the Worker entry module, `src/worker.rs`, needs no edit). The daemon cannot reach `rate_limit_layer`: `sidekicks-daemon` does not depend on `sidekicks-control-plane`, so Cargo refuses any use of its `middleware` and `rate_limit` modules, and the wire types both read sit in `sidekicks-contracts`. The first route mounted here also proves the host's failure path, which no request reaches while the router is empty: an internal failure in it is logged with its request id and answered with the fixed message `Unexpected internal error`, never the failure's own text.
+- **T18.3-3 — Wire the sign-in routes + the daemon's dependency boundary.** Apply `rate_limit_layer(RateLimitEndpointGroup::AuthEndpoint)` per the §Endpoint Wiring Ownership table as a `route_layer` on the OAuth sign-in routes (`/oauth/par`, `/oauth/authorize` with its `Create an account` arm, `/oauth/token` and `/oauth/revoke`), the device-linking routes and the four WebAuthn ceremony routes, inside the CP-018-1 mount seam (the Worker entry module, `src/worker.rs`, needs no edit). The daemon cannot reach `rate_limit_layer`: `sidekicks-daemon` does not depend on `sidekicks-control-plane`, so Cargo refuses any use of its `middleware` and `rate_limit` modules, and the wire types both read sit in `sidekicks-contracts`. The first route mounted here also proves the host's failure path, which no request reaches while the router is empty: an internal failure in it is logged with its request id and answered with the fixed message `Unexpected internal error`, never the failure's own text.
   - **Spec coverage:** Spec-019 §Acceptance Criteria (`auth.endpoint`; daemon exclusion), Spec-019 §Scope (daemon scope exclusion)
   - **Verifies invariant:** I-018-1 (daemon-exclusion companion)
-  - **Consumes:** `rate_limit_layer` ← T18.3-2; the sign-in, token-refresh and device-linking routes (Plan-015, Plan-025 Phase 5); the WebAuthn ceremony routes (Plan-015 Phase 6) and the `Create an account` arm (Plan-015 T5.4).
+  - **Consumes:** `rate_limit_layer` ← T18.3-2; the OAuth sign-in routes and their `Create an account` arm (Plan-015 T5.4) and the device-linking routes (Plan-025 Phase 5); the WebAuthn ceremony routes (Plan-015 Phase 6).
 
 ### Phase 4 — Verification
 

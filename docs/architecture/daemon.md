@@ -20,7 +20,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 - execute tools and terminals within local trust policy
 - persist local events, receipts, projections, and runtime bindings
 - expose the local control surface used by the desktop app and CLI
-- sign the machine in and register it with the Control Plane over its HTTP routes, keep the account's statement chain in step, and keep one outbound relay connection while the service runs, carrying each linked device's channel as sealed Noise messages that hold the frames of the one frame codec — per ADR-013 and [Spec-027](../specs/027-remote-control.md)
+- sign the machine in to the hosted account itself, while it serves and with nothing stopped: a browser sign-in by authorization code with PKCE, PAR and DPoP, whose callback a one-time `127.0.0.1` listener takes, started by the desktop or the CLI through `account.signIn`; sign it out through `account.signOut`; register it with the Control Plane over its HTTP routes, keep the account's statement chain in step, and keep one outbound relay connection while the service runs, carrying each linked device's channel as sealed Noise messages that hold the frames of the one frame codec — per ADR-013 and [Spec-027](../specs/027-remote-control.md)
 - authenticate to the Control Plane using short-lived PASETO v4 tokens presented with a proof from the machine's own DPoP key
 
 ## Component Boundaries
@@ -44,7 +44,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 
 ## PTY Backend Strategy
 
-Per [ADR-018](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md), the terminal is `sidekicks-terminal` in the daemon on every system (`alacritty_terminal`'s tty, ConPTY on Windows): one in-process implementation, with no child process and no protocol of its own. ConPTY's faults are the reason `node-pty` is not used; the cost is that a native ConPTY crash takes the daemon down. Implementation detail (crate structure, test matrix) lives in [Plan-021](../plans/021-terminal.md).
+Per [ADR-018](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md), the terminal is `sidekicks-terminal` in the daemon on every system (`alacritty_terminal`'s tty, ConPTY on Windows): one in-process implementation, with no child process and no protocol of its own. the cost is that a native ConPTY crash takes the daemon down. Implementation detail (crate structure, test matrix) lives in [Plan-021](../plans/021-terminal.md).
 
 ## Data Flow
 
