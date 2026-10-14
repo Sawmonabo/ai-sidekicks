@@ -371,9 +371,12 @@ impl UsageDeltaAccountant {
 }
 
 /// Where a cost update's figure came from.
-#[expect(
-    dead_code,
-    reason = "the pricing step sets each request's cost and its source through this ladder"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the pricing step sets each request's cost and its source through this ladder"
+    )
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum UsageCostSource {
@@ -385,9 +388,12 @@ pub(crate) enum UsageCostSource {
 
 /// A price list's answer for one request: whole micro-dollars from the provider's full breakdown,
 /// for a model the list carries by its exact id, never by family.
-#[expect(
-    dead_code,
-    reason = "the pricing step sets each request's cost and its source through this ladder"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the pricing step sets each request's cost and its source through this ladder"
+    )
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct DerivedCostQuote {
@@ -398,9 +404,12 @@ pub(crate) struct DerivedCostQuote {
 /// The cost of one usage frame. A model the price list does not price gets no cost update: its
 /// request is held with its exact tokens until the list prices it, never given a made-up or zero
 /// cost.
-#[expect(
-    dead_code,
-    reason = "the pricing step sets each request's cost and its source through this ladder"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the pricing step sets each request's cost and its source through this ladder"
+    )
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CostUpdateResolution {
@@ -418,9 +427,12 @@ pub(crate) enum CostUpdateResolution {
 /// Resolves one cost update's source: a finite, non-negative provider figure (in micro-dollars,
 /// converted from the provider's unit and rounded to a whole micro-dollar) is `provider_reported`;
 /// else a price-list quote is `derived_exact`; else the request is held until priced.
-#[expect(
-    dead_code,
-    reason = "the pricing step sets each request's cost and its source through this ladder"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the pricing step sets each request's cost and its source through this ladder"
+    )
 )]
 pub(crate) fn resolve_cost_update_provenance(
     provider: ProviderName,
@@ -461,17 +473,21 @@ pub(crate) fn resolve_cost_update_provenance(
     }
 }
 
-// A finite, non-negative figure rounded half up to whole micro-dollars, `None` when it is not one
-// or rounds past what the wire's integer holds.
-#[expect(
-    dead_code,
-    reason = "the pricing step sets each request's cost and its source through this ladder"
+// A finite, non-negative figure rounded half to even to whole micro-dollars, `None` when it is not
+// one or rounds past what the wire's integer holds. The sign is checked before rounding, since a
+// figure just above -0.5 rounds to -0.0, which compares as not negative.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the pricing step sets each request's cost and its source through this ladder"
+    )
 )]
 fn whole_usd_micros(usd_micros: f64) -> Option<UsdMicros> {
-    let rounded = usd_micros.round();
-    if !rounded.is_finite() || rounded < 0.0 {
+    if !usd_micros.is_finite() || usd_micros < 0.0 {
         return None;
     }
+    let rounded = usd_micros.round_ties_even();
     // A float past `u64::MAX` saturates to it, which the wire's integer then refuses.
     #[expect(
         clippy::cast_possible_truncation,
@@ -606,5 +622,29 @@ mod tests {
 
         // A thread with no base is never metered.
         assert_eq!(accountant.meter_reading(reading("unknown", 10)), None);
+    }
+
+    #[test]
+    fn refuses_a_negative_provider_cost_before_rounding_it() {
+        let usd_micros = |whole| UsdMicros(SafeInt::new(whole).expect("a small whole figure"));
+        let derived_quote = DerivedCostQuote {
+            cost_usd_micros: usd_micros(7),
+        };
+
+        // -0.4 rounds to -0.0, which a sign check made after rounding would let through.
+        assert_eq!(
+            resolve_cost_update_provenance(PROVIDER_NAMES[0], Some(-0.4), Some(derived_quote)),
+            CostUpdateResolution::CostUpdate {
+                cost_source: UsageCostSource::DerivedExact,
+                cost_usd_micros: usd_micros(7),
+            }
+        );
+        assert_eq!(
+            resolve_cost_update_provenance(PROVIDER_NAMES[0], Some(1_250.0), Some(derived_quote)),
+            CostUpdateResolution::CostUpdate {
+                cost_source: UsageCostSource::ProviderReported,
+                cost_usd_micros: usd_micros(1_250),
+            }
+        );
     }
 }
