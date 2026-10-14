@@ -356,9 +356,7 @@ pub(crate) fn resolve_event_cursor(
     };
     let position = decode_event_cursor(cursor)?;
     if position > head.unwrap_or(START_OF_LOG_POSITION) {
-        return Err(EventCursorUnresolvable {
-            cursor: cursor.as_str().to_owned(),
-        });
+        return Err(EventCursorUnresolvable);
     }
     Ok(position)
 }
