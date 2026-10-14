@@ -37,13 +37,13 @@ keyring-core.workspace = true
 polling.workspace = true
 process-wrap = { workspace = true, features = ["creation-flags", "process-session"] }
 sysinfo.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
-tempfile.workspace = true
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libmimalloc-sys.workspace = true

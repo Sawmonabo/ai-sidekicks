@@ -9,6 +9,7 @@
               measurement tests' footprint read on macOS are C interfaces"
 )]
 
+mod atomic_replace;
 mod entry_identity;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
@@ -26,6 +27,7 @@ mod terminal;
 #[cfg(target_os = "windows")]
 mod windows;
 
+pub use atomic_replace::{ReplaceFileError, replace_file_atomically};
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
