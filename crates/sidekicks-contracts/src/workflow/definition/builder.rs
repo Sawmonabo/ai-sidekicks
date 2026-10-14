@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::session::controls::methods::PermissionLevel;
 use crate::tag::TagList;
-use crate::typescript::{Definition, TypeScriptModule};
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{Port, SafeInt};
 use crate::wire::text::NonEmptyText;
@@ -21,9 +21,11 @@ use crate::workflow::definition::document::{
 };
 use crate::workflow::definition::item::WorkflowPinnedItem;
 
-/// Wire members a reply-logging transport redacts before writing a record: the webhook token a
-/// rotation shows once.
-pub const WORKFLOW_WEBHOOK_TOKEN_REDACTED_WIRE_MEMBERS: [&str; 1] = ["token"];
+ts_constants! {
+    /// Wire members a reply-logging transport redacts before writing a record: the webhook token a
+    /// rotation shows once.
+    pub const WORKFLOW_WEBHOOK_TOKEN_REDACTED_WIRE_MEMBERS: [&str; 1] = ["token"];
+}
 
 // Settings kept beside a version: enabled, layout, tags, permission level, background browser,
 // pinned data.
@@ -530,6 +532,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowWebhookListenerState>(),
         Definition::read::<WorkflowWebhookListenerReadResponse>().checked(),
     ],
-    constants: &[],
+    constants: TS_CONSTANTS,
     method_tables: &[],
 };

@@ -20,13 +20,15 @@ use crate::keychain::KeychainRefusalCause;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::project::ProjectId;
-use crate::typescript::{Definition, TypeScriptModule};
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::Never;
 use crate::wire::text::{FreeFormText, pattern_text};
 
-/// Wire members a request-logging transport redacts before writing a record: the value of a
-/// secret's create or replace.
-pub const WORKFLOW_SECRET_REDACTED_WIRE_MEMBERS: [&str; 1] = ["secretValue"];
+ts_constants! {
+    /// Wire members a request-logging transport redacts before writing a record: the value of a
+    /// secret's create or replace.
+    pub const WORKFLOW_SECRET_REDACTED_WIRE_MEMBERS: [&str; 1] = ["secretValue"];
+}
 
 branded_uuid_id! {
     /// A secret record's id, a UUID the daemon mints.
@@ -420,7 +422,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowSecretNotFoundDetails>().checked(),
         Definition::read::<WorkflowSecretStoreUnavailableDetails>().checked(),
     ],
-    constants: &[],
+    constants: TS_CONSTANTS,
     method_tables: &[&WORKFLOW_SECRET_METHOD_DESCRIPTORS],
 };
 
