@@ -14,10 +14,10 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::Never;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::ComposedText;
 use crate::workflow::definition::document::WorkflowNodeId;
 use crate::workflow::definition::item::WorkflowStepError;
 use crate::workflow::run::events::workflow_run_event;
+use crate::workflow::run::gate_resolution::WorkflowGateResolutionId;
 use crate::workflow::run::step::record::{WorkflowCost, WorkflowPayloadRef, workflow_step_key};
 
 ts_constants! {
@@ -302,7 +302,7 @@ workflow_run_event! {
         /// The answer.
         pub outcome: ApprovalDecision,
         /// The answer's row in the gate resolutions.
-        pub gate_resolution_id: ComposedText,
+        pub gate_resolution_id: WorkflowGateResolutionId,
         /// The device that answered.
         pub device_id: DeviceId,
     }
