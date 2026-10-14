@@ -382,6 +382,16 @@ unused_lifetimes = "warn"
 [workspace.metadata]
 name = "sidekicks-crates"
 
+# The bash grammar's scanner reads a run of `)` or `|` in time quadratic in its length; this is
+# upstream's pull-request commit fixing it, the 0.25.1 release but for that one guard
+# (https://github.com/tree-sitter/tree-sitter-bash/issues/357). The line goes when a release
+# carries the fix.
+[patch.crates-io]
+tree-sitter-bash = {
+  git = "https://github.com/tree-sitter/tree-sitter-bash",
+  rev = "35cc06e9e460a6c8066eae72df1698bb42c3d756",
+}
+
 # The WebAssembly builds: small and fast, with no unwinding to carry. The release profile the other
 # crates build with stays as it is.
 [profile.wasm-release]
