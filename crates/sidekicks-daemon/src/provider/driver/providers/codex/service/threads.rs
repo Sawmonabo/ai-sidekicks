@@ -217,6 +217,8 @@ mod tests {
             threads.lock().unwrap().hold(frame("turn/started")),
             CodexThreadFrameHold::NotHeld(frame("turn/started"))
         );
+        // A last claim that closes with nothing held reports nothing.
+        drop(CodexServiceThreads::begin_claim(&threads));
         assert_eq!(reports.lock().unwrap().len(), 1);
     }
 }
