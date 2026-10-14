@@ -1,10 +1,11 @@
-//! A path made absolute against the daemon's own working folder and folded, as Node's
-//! `path.resolve` gives it: `.` dropped, `..` taking its parent away, never past the root.
+//! A path made absolute against the daemon's own working folder, or against a base folder, and
+//! folded, as Node's `path.resolve` gives it: `.` dropped, `..` taking its parent away, never past
+//! the root.
 
 use std::io::{self, ErrorKind};
 use std::path;
 
-use typed_path::Utf8NativePathBuf;
+use typed_path::{Utf8NativePath, Utf8NativePathBuf};
 
 /// `path` made absolute against the daemon's working folder, with `.` and `..` folded away and no
 /// trailing separator; an empty path is the working folder, as Node reads it. Fails when the
@@ -20,4 +21,11 @@ pub(crate) fn resolve_path(path: &str) -> io::Result<String> {
         ));
     };
     Ok(Utf8NativePathBuf::from(absolute).normalize().into_string())
+}
+
+/// `path` resolved against `base` as Node's `path.resolve(base, path)` gives it: an absolute `path`
+/// replaces `base`, and a relative `base` is itself made absolute against the daemon's working
+/// folder. Fails as [`resolve_path`] does.
+pub(crate) fn resolve_path_against(base: &str, path: &str) -> io::Result<String> {
+    resolve_path(Utf8NativePath::new(base).join(path).as_str())
 }
