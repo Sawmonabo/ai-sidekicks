@@ -394,26 +394,29 @@ mod tests {
 
     #[tokio::test]
     async fn an_absent_deny_path_keeps_its_expanded_form() {
-        let home = tempfile::tempdir().expect("a scratch home");
-        std::fs::create_dir(home.path().join(".ssh")).expect("the folder is made");
-        let token_path = home.path().join("run").join("daemon.token");
-        let service = ExecutionPostureService::new(home.path(), token_path.clone());
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        std::fs::create_dir(scratch.path().join("sub")).expect("the subfolder is made");
+        std::fs::create_dir(scratch.path().join(".ssh")).expect("the folder is made");
+        // Through `sub/..`, a deny path left unresolved differs from its resolved form everywhere.
+        let home = scratch.path().join("sub").join("..");
+        let token_path = home.join("run").join("daemon.token");
+        let service = ExecutionPostureService::new(&home, token_path.clone());
 
         let policy = service
             .resolve_credential_policy(CURATED_CREDENTIAL_POLICY_REF)
             .await
             .expect("the curated list resolves");
 
-        let ssh = real_path(&home.path().join(".ssh")).expect("the folder resolves");
+        let canonical = real_path(scratch.path()).expect("the scratch folder resolves");
         assert_eq!(
             policy.deny_paths,
             [
                 CredentialDenyPath {
-                    path: ssh,
+                    path: canonical.join(".ssh"),
                     kind: CredentialDenyPathKind::Folder,
                 },
                 CredentialDenyPath {
-                    path: home.path().join(".aws"),
+                    path: home.join(".aws"),
                     kind: CredentialDenyPathKind::Folder,
                 },
                 CredentialDenyPath {
