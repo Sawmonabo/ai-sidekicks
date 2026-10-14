@@ -36,6 +36,13 @@ impl SafeInt<0> {
     pub const ZERO: Self = Self(0);
 }
 
+// Lossless: a safe integer is at most 2^53 - 1, well inside `i64`.
+impl<const MIN: u64> From<SafeInt<MIN>> for i64 {
+    fn from(value: SafeInt<MIN>) -> Self {
+        value.0.cast_signed()
+    }
+}
+
 impl<'de, const MIN: u64> Deserialize<'de> for SafeInt<MIN> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = u64::deserialize(deserializer)?;
@@ -62,8 +69,8 @@ impl<const MIN: u64> JsonSchema for SafeInt<MIN> {
 /// [`MAX_SAFE_INTEGER`] as a signed number, the bound of a whole number of either sign.
 pub const MAX_SAFE_SIGNED_INTEGER: i64 = MAX_SAFE_INTEGER.cast_signed();
 
-/// `count` as the signed bound of a [`BoundedInt`], for a cap declared as a `usize`; a count past
-/// [`MAX_SAFE_INTEGER`] fails the build.
+/// `count` as a signed number, for a `BoundedInt` bound or a row count SQLite binds; past
+/// [`MAX_SAFE_INTEGER`] it fails the build in a const and panics at run time.
 pub const fn count_bound(count: usize) -> i64 {
     let count = count as u64;
     assert!(count <= MAX_SAFE_INTEGER, "a count bound is a safe integer");
