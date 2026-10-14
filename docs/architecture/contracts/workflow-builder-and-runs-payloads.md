@@ -526,15 +526,18 @@ type WorkflowExpressionPreviewResponse =
 // WorkflowVersionDiffRead — workflow.versionDiffRead. The structural difference between two versions,
 // computed in the daemon over the hashed body only, so node positions never count as a change. The
 // canvas highlight and the inspector's old and new params read it, and so does an agent reading what
-// changed. A changed node carries its params before and after; the trigger counts as a node.
+// changed. A changed node carries the whole node before and after; the trigger counts as a node and
+// travels with its inputs, so a version that changed only the trigger's inputs names the trigger
+// changed and carries both input lists.
 interface WorkflowVersionDiffReadRequest {
   fromWorkflowVersionId: string;
   toWorkflowVersionId: string;
 }
+type WorkflowVersionNode = WorkflowNode | WorkflowTriggerNode;
 interface WorkflowVersionDiffReadResponse {
-  nodesAdded: WorkflowNode[];
-  nodesRemoved: WorkflowNode[];
-  nodesChanged: Array<{ before: WorkflowNode; after: WorkflowNode }>;
+  nodesAdded: WorkflowVersionNode[];
+  nodesRemoved: WorkflowVersionNode[];
+  nodesChanged: Array<{ before: WorkflowVersionNode; after: WorkflowVersionNode }>;
   edgesAdded: WorkflowEdge[];
   edgesRemoved: WorkflowEdge[];
 }

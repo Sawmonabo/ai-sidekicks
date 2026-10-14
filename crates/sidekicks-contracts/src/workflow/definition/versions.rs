@@ -13,7 +13,7 @@ use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
 use crate::workflow::definition::document::{
     WorkflowContentHash, WorkflowDefinitionId, WorkflowDocument, WorkflowEdge, WorkflowNode,
-    WorkflowVersionId,
+    WorkflowTriggerNode, WorkflowVersionId,
 };
 
 // workflow.versionRead and workflow.versionChainRead
@@ -160,26 +160,38 @@ pub struct WorkflowVersionDiffReadRequest {
     pub to_workflow_version_id: WorkflowVersionId,
 }
 
-/// One node a version changed: its params before and after.
+/// One node of a version difference, whole: the trigger travels with its inputs, every other node
+/// as itself. A trigger with no inputs reads back as a plain node, losing nothing.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum WorkflowVersionNode {
+    /// A node other than the trigger, or a trigger that declares no inputs.
+    Node(WorkflowNode),
+    /// The trigger with the inputs it declares.
+    Trigger(WorkflowTriggerNode),
+}
+
+/// One node a version changed, whole, before and after.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowVersionNodeChange {
     /// The node in the version compared from.
-    pub before: WorkflowNode,
+    pub before: WorkflowVersionNode,
     /// The node in the version compared to.
-    pub after: WorkflowNode,
+    pub after: WorkflowVersionNode,
 }
 
 /// The `workflow.versionDiffRead` result: the structural difference, computed in the daemon over
-/// the hashed body only, so a moved node is never a change. The trigger counts as a node.
+/// the hashed body only, so a moved node is never a change. The trigger counts as a node, and a
+/// version that changed only the trigger's inputs names the trigger changed.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct WorkflowVersionDiffReadResponse {
     /// Nodes added.
-    pub nodes_added: Vec<WorkflowNode>,
+    pub nodes_added: Vec<WorkflowVersionNode>,
     /// Nodes removed.
-    pub nodes_removed: Vec<WorkflowNode>,
+    pub nodes_removed: Vec<WorkflowVersionNode>,
     /// Nodes changed.
     pub nodes_changed: Vec<WorkflowVersionNodeChange>,
     /// Edges added.
@@ -214,6 +226,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowVersionChainEntry>().checked(),
         Definition::read::<WorkflowVersionChainReadResponse>().checked(),
         Definition::read::<WorkflowVersionDiffReadRequest>().checked(),
+        Definition::read::<WorkflowVersionNode>(),
         Definition::read::<WorkflowVersionNodeChange>(),
         Definition::read::<WorkflowVersionDiffReadResponse>().checked(),
         Definition::read::<WorkflowVersionDiffCrossWorkflowDetails>().checked(),
