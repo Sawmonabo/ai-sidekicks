@@ -161,9 +161,6 @@ pub(crate) struct StagedClone {
 /// Why a staged clone's folder could not be made, removed or moved into place.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum StagedCloneError {
-    /// The destination ends in no folder name, so no folder can sit beside it.
-    #[error("the clone's destination {} names no folder", .0.display())]
-    NoFolderName(PathBuf),
     /// The system gave no random bytes for the folder's name.
     #[error("the clone's folder could not be named")]
     Naming(#[source] getrandom::Error),
@@ -181,10 +178,14 @@ pub(crate) enum StagedCloneError {
 /// Makes the folder git clones into, hidden beside `destination` in its parent (made when
 /// missing), by a create that fails if the folder exists, so the folder answered is one this call
 /// made. The folder takes the system's default mode, since it becomes the project's folder.
+/// `destination` is a parent folder joined with a repository name.
 pub(crate) async fn make_staged_clone(destination: &Path) -> Result<StagedClone, StagedCloneError> {
-    let (Some(parent), Some(name)) = (destination.parent(), destination.file_name()) else {
-        return Err(StagedCloneError::NoFolderName(destination.to_owned()));
-    };
+    let parent = destination
+        .parent()
+        .expect("the caller joins a repository name to a parent folder");
+    let name = destination
+        .file_name()
+        .expect("the caller joins a repository name to a parent folder");
     tokio::fs::create_dir_all(parent).await?;
     let suffix = random_hex(STAGED_CLONE_SUFFIX_BYTES).map_err(StagedCloneError::Naming)?;
     let mut folder_name = OsString::from(".");

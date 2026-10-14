@@ -149,7 +149,7 @@ mod tests {
         let (exit, output) = mode.await.expect("the mode ends");
 
         assert_eq!(exit, ExitCode::FAILURE);
-        assert!(output.is_empty());
+        assert_eq!(output, b"");
         broker.close().await.expect("the broker closes");
     }
 }

@@ -74,7 +74,7 @@ pub(crate) enum PolicyDecision {
 pub(crate) enum RulesLoadError {
     /// The schema's text does not parse.
     #[error("approval rules: the schema does not parse")]
-    SchemaDoesNotParse(#[source] CedarSchemaError),
+    SchemaDoesNotParse(#[source] Box<CedarSchemaError>),
     /// The schema parses with warnings; the rules are compiled in, so a warning is fixed before it
     /// ships.
     #[error("approval rules: the schema has warnings: {}", joined(.warnings))]
@@ -89,11 +89,11 @@ pub(crate) enum RulesLoadError {
         file_name: String,
         /// The parser's errors.
         #[source]
-        error: ParseErrors,
+        error: Box<ParseErrors>,
     },
     /// The rule files, each parsing alone, do not parse joined.
     #[error("approval rules: the rule files do not parse together")]
-    RulesDoNotParse(#[source] ParseErrors),
+    RulesDoNotParse(#[source] Box<ParseErrors>),
     /// A rule does not check against the schema.
     #[error("approval rules: the rules do not check against the schema: {}", joined(.errors))]
     RulesDoNotCheck {
@@ -136,7 +136,7 @@ impl Authorizer {
         rule_files: &[RuleFile<'_>],
     ) -> Result<Self, RulesLoadError> {
         let (schema, warnings) = Schema::from_cedarschema_str(schema_text)
-            .map_err(RulesLoadError::SchemaDoesNotParse)?;
+            .map_err(|error| RulesLoadError::SchemaDoesNotParse(Box::new(error)))?;
         let warnings: Vec<SchemaWarning> = warnings.collect();
         if !warnings.is_empty() {
             return Err(RulesLoadError::SchemaHasWarnings { warnings });
@@ -145,7 +145,7 @@ impl Authorizer {
             PolicySet::from_str(rule_file.text).map_err(|error| {
                 RulesLoadError::RuleFileDoesNotParse {
                     file_name: rule_file.name.to_owned(),
-                    error,
+                    error: Box::new(error),
                 }
             })?;
         }
@@ -155,8 +155,8 @@ impl Authorizer {
             .map(|rule_file| rule_file.text)
             .collect::<Vec<_>>()
             .join("\n");
-        let policies =
-            PolicySet::from_str(&joined_text).map_err(RulesLoadError::RulesDoNotParse)?;
+        let policies = PolicySet::from_str(&joined_text)
+            .map_err(|error| RulesLoadError::RulesDoNotParse(Box::new(error)))?;
         let validation = Validator::new(schema.clone()).validate(&policies, ValidationMode::Strict);
         let errors: Vec<ValidationError> = validation.validation_errors().cloned().collect();
         if !errors.is_empty() {
@@ -322,7 +322,7 @@ mod tests {
         let PolicyDecision::Deny { errors } = decision else {
             unreachable!("a refused context is a deny");
         };
-        assert!(!errors.is_empty());
+        assert_ne!(errors, Vec::<String>::new());
     }
 
     #[test]

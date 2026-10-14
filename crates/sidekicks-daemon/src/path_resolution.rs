@@ -2,7 +2,7 @@
 //! `path.resolve` gives it: `.` dropped, `..` taking its parent away, never past the root.
 
 use std::io::{self, ErrorKind};
-use std::path::{self, PathBuf};
+use std::path;
 
 use typed_path::Utf8NativePathBuf;
 
@@ -13,14 +13,11 @@ pub(crate) fn resolve_path(path: &str) -> io::Result<String> {
     // `std::path::absolute` refuses an empty path, which Node resolves to the working folder.
     let absolute = path::absolute(if path.is_empty() { "." } else { path })?;
     // The text was UTF-8, so only the working folder joined before it can fail this.
-    let absolute = absolute.into_os_string().into_string().map_err(|joined| {
-        io::Error::new(
+    let Ok(absolute) = absolute.into_os_string().into_string() else {
+        return Err(io::Error::new(
             ErrorKind::InvalidData,
-            format!(
-                "{} is not UTF-8: the daemon's working folder is not",
-                PathBuf::from(joined).display()
-            ),
-        )
-    })?;
+            "the daemon's working folder is not UTF-8",
+        ));
+    };
     Ok(Utf8NativePathBuf::from(absolute).normalize().into_string())
 }

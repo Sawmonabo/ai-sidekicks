@@ -50,7 +50,7 @@ const ACCEPT_RETRY_WAIT: Duration = Duration::from_secs(1);
 
 /// The one line the askpass program sends: whose question it is, and the question in git's or
 /// ssh's own words.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct AskpassRequest {
     /// The owner's id from the program's environment.
     pub(crate) owner: String,
@@ -95,36 +95,35 @@ impl BrokerState {
     }
 }
 
-/// Why the askpass broker could not start, register an owner or close.
+/// Why the askpass broker could not start or close.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AskpassBrokerError {
     /// The socket the program connects to could not be opened.
     #[error("the askpass program's socket could not be opened")]
     Listen(#[source] io::Error),
-    /// The system gave no random bytes for an owner's id.
-    #[error("an askpass owner's id could not be drawn")]
-    OwnerId(#[source] getrandom::Error),
     /// The task that accepts the program's connections ended by a panic.
     #[error("the askpass broker's listening task failed")]
     Stopped(#[source] JoinError),
 }
 
 impl From<AskpassBrokerError> for DomainError {
-    /// Clone methods answered while the broker is not serving are `repo.clone_unavailable`,
-    /// carrying the failure's own text.
+    /// Clone methods answered while the broker is not serving are `repo.clone_unavailable`; the
+    /// failure underneath is kept for the service log.
     fn from(error: AskpassBrokerError) -> Self {
-        let message = match error.source() {
-            Some(cause) => format!("{error}: {cause}"),
-            None => error.to_string(),
-        };
         DomainError::new(
-            message,
+            error.to_string(),
             RefusalCode::RepoCloneUnavailable,
             DomainErrorJsonRpcCode::InternalError,
         )
         .with_source(error)
     }
 }
+
+/// The system gave no random bytes for an askpass owner's id: an internal failure, with no
+/// refusal of its own.
+#[derive(Debug, thiserror::Error)]
+#[error("an askpass owner's id could not be drawn")]
+pub(crate) struct AskpassOwnerIdError(#[source] getrandom::Error);
 
 /// A registered owner: the environment its git runs with. Dropping it releases the owner, which
 /// refuses every question still open and every later one.
@@ -197,12 +196,12 @@ impl AskpassBroker {
     pub(crate) fn register<Answer, Reply>(
         &self,
         answer: Answer,
-    ) -> Result<AskpassOwner, AskpassBrokerError>
+    ) -> Result<AskpassOwner, AskpassOwnerIdError>
     where
         Answer: Fn(AskpassQuestion) -> Reply + Send + Sync + 'static,
         Reply: Future<Output = Option<AskpassAnswer>> + Send + 'static,
     {
-        let owner_id = random_hex(OWNER_ID_BYTES).map_err(AskpassBrokerError::OwnerId)?;
+        let owner_id = random_hex(OWNER_ID_BYTES).map_err(AskpassOwnerIdError)?;
         let released = self.state.shutdown.child_token();
         let answer: AskpassAnswerer = Arc::new(
             move |question| -> BoxFuture<'static, Option<AskpassAnswer>> {
@@ -492,12 +491,15 @@ mod tests {
     }
 
     #[rstest]
-    #[case::unknown_owner(request_line(&"0".repeat(32), "Password: "))]
-    #[case::bad_json(b"{\"owner\": \n".to_vec())]
-    #[case::not_an_object(b"[\"owner\", \"prompt\"]\n".to_vec())]
-    #[case::over_the_cap(vec![b'a'; REQUEST_MAX_BYTES + 1])]
+    #[case::unknown_owner(|_: &str| request_line(&"0".repeat(32), "Password: "))]
+    #[case::bad_json(|_: &str| b"{\"owner\": \n".to_vec())]
+    // The registered owner's request as an array, so only the object check refuses it.
+    #[case::not_an_object(|owner_id: &str| format!("[\"{owner_id}\", \"Password: \"]\n").into_bytes())]
+    #[case::over_the_cap(|_: &str| vec![b'a'; REQUEST_MAX_BYTES + 1])]
     #[tokio::test]
-    async fn leaves_a_request_that_is_no_question_unanswered(#[case] request: Vec<u8>) {
+    async fn leaves_a_request_that_is_no_question_unanswered(
+        #[case] request_for: fn(&str) -> Vec<u8>,
+    ) {
         let scratch = tempfile::tempdir().expect("a scratch folder");
         let broker = start_broker(scratch.path());
         let calls = Arc::new(AtomicUsize::new(0));
@@ -511,9 +513,11 @@ mod tests {
                 .expect("the owner registers")
         };
 
+        let request = request_for(&owner_id_of(&owner));
+
         let reply = ask(&broker.state.socket_path, &request).await;
 
-        assert!(reply.is_empty());
+        assert_eq!(reply, b"");
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         drop(owner);
         broker.close().await.expect("the broker closes");
@@ -527,7 +531,7 @@ mod tests {
         let owner = broker
             .register(move |question| {
                 questions
-                    .send(question.cancel.clone())
+                    .send(question.cancel)
                     .expect("the test waits for the question");
                 // Never answered: only the release ends it.
                 std::future::pending::<Option<AskpassAnswer>>()
@@ -546,7 +550,7 @@ mod tests {
         tokio::time::timeout(WAIT, cancel.cancelled())
             .await
             .expect("the release cancels the question");
-        assert!(program.await.expect("the program's side ends").is_empty());
+        assert_eq!(program.await.expect("the program's side ends"), b"");
         broker.close().await.expect("the broker closes");
     }
 }

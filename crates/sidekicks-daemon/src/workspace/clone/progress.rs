@@ -63,7 +63,7 @@ impl<OnProgress: FnMut(RepoCloneProgress)> GitProgressReader<OnProgress> {
             }
             None => text.as_str(),
         };
-        self.pending_text = last_code_points(unfinished, PENDING_TEXT_MAX_LEN).to_owned();
+        last_code_points(unfinished, PENDING_TEXT_MAX_LEN).clone_into(&mut self.pending_text);
     }
 
     /// The line a failure is told with once git has exited: git's last `fatal:` or `error:` line,
@@ -164,6 +164,8 @@ mod tests {
 
     use rstest::rstest;
     use sidekicks_contracts::repo::clone::RepoCloneProgress;
+    use sidekicks_contracts::wire::integer::BoundedInt;
+    use sidekicks_contracts::wire::text::FreeFormText;
     use tokio::time::{Duration, Instant};
 
     use super::{CLONE_UPDATE_INTERVAL, GitProgressReader, LatestUpdateGate};
@@ -182,7 +184,7 @@ mod tests {
         // Git's progress through a reader, a line every 5 ms for two seconds.
         let burst_began = Instant::now();
         let mut reader = GitProgressReader::new(|progress: RepoCloneProgress| {
-            gate.offer(progress.percent.map_or(-1, |percent| percent.get()));
+            gate.offer(progress.percent.map_or(-1, BoundedInt::get));
         });
         for tick in 0..400 {
             reader.read(&format!("Receiving objects: {}% ({tick}/400)\r", tick / 4));
@@ -217,7 +219,7 @@ mod tests {
         let mut reader = GitProgressReader::new(|update: RepoCloneProgress| {
             progress.push((
                 update.phase.into_string(),
-                update.percent.map(|percent| percent.get()),
+                update.percent.map(BoundedInt::get),
             ));
         });
         reader.read(stderr);
@@ -237,7 +239,7 @@ mod tests {
         let mut reader = GitProgressReader::new(|_: RepoCloneProgress| {});
         reader.read(stderr);
         assert_eq!(
-            reader.failure_line().as_ref().map(|line| line.as_str()),
+            reader.failure_line().as_ref().map(FreeFormText::as_str),
             line
         );
     }

@@ -7,7 +7,7 @@ use sidekicks_contracts::project::ProjectState;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountState, VcsType, WorkspaceState};
 use strum::{IntoStaticStr, VariantArray};
 
-use crate::database::sql_list::sql_list_of;
+use crate::database::sql_list::sql_list_of_every;
 
 /// Where a project's clone stands while the project is `cloning`: git running, failed with git's
 /// words, canceled by the person, or interrupted by the service's restart or stop. Converts to the
@@ -41,43 +41,13 @@ pub(crate) enum MountOrigin {
 pub(crate) static WORKSPACE_SCHEMA_SQL: LazyLock<String> = LazyLock::new(workspace_schema_sql);
 
 fn workspace_schema_sql() -> String {
-    let project_states = sql_list_of(
-        ProjectState::VARIANTS
-            .iter()
-            .copied()
-            .map(<&'static str>::from),
-    );
-    let clone_outcomes = sql_list_of(
-        CloneOutcome::VARIANTS
-            .iter()
-            .copied()
-            .map(<&'static str>::from),
-    );
-    let vcs_types = sql_list_of(VcsType::VARIANTS.iter().copied().map(<&'static str>::from));
-    let mount_origins = sql_list_of(
-        MountOrigin::VARIANTS
-            .iter()
-            .copied()
-            .map(<&'static str>::from),
-    );
-    let mount_states = sql_list_of(
-        RepoMountState::VARIANTS
-            .iter()
-            .copied()
-            .map(<&'static str>::from),
-    );
-    let execution_modes = sql_list_of(
-        ExecutionMode::VARIANTS
-            .iter()
-            .copied()
-            .map(<&'static str>::from),
-    );
-    let workspace_states = sql_list_of(
-        WorkspaceState::VARIANTS
-            .iter()
-            .copied()
-            .map(<&'static str>::from),
-    );
+    let project_states = sql_list_of_every::<ProjectState>();
+    let clone_outcomes = sql_list_of_every::<CloneOutcome>();
+    let vcs_types = sql_list_of_every::<VcsType>();
+    let mount_origins = sql_list_of_every::<MountOrigin>();
+    let mount_states = sql_list_of_every::<RepoMountState>();
+    let execution_modes = sql_list_of_every::<ExecutionMode>();
+    let workspace_states = sql_list_of_every::<WorkspaceState>();
     let cloning = <&'static str>::from(ProjectState::Cloning);
     let failed = <&'static str>::from(CloneOutcome::Failed);
     let git = <&'static str>::from(VcsType::Git);
