@@ -5,7 +5,6 @@
 use std::sync::Arc;
 
 use serde_json::Value;
-
 use sidekicks_contracts::mcp::server::{McpServerName, McpServerStatus};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;

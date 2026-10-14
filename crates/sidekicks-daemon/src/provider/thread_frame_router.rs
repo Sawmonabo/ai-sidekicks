@@ -211,7 +211,7 @@ pub(crate) struct ThreadFrameRouter<Frame> {
     /// Each registered child's spend attribution, by its thread identity.
     child_attributions_by_thread_id: HashMap<String, ChildSpendAttribution>,
     /// Frames waiting for their thread's registration, in arrival order.
-    pending_holds: Vec<PendingHold<Frame>>,
+    pending_holds: VecDeque<PendingHold<Frame>>,
     /// The quarantine, oldest first.
     quarantined_frames: VecDeque<QuarantinedFrame>,
 }
@@ -225,7 +225,7 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
             session_thread_id: None,
             held_thread_ids: HashSet::new(),
             child_attributions_by_thread_id: HashMap::new(),
-            pending_holds: Vec::new(),
+            pending_holds: VecDeque::new(),
             quarantined_frames: VecDeque::new(),
         }
     }
@@ -375,12 +375,13 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
         }
 
         // Present but unregistered: child traffic racing its own announcement.
-        self.pending_holds.push(PendingHold {
+        self.pending_holds.push_back(PendingHold {
             frame: frame.clone(),
             held_at: now,
         });
-        if self.pending_holds.len() > self.config.max_pending_hold_frames {
-            let shed_hold = self.pending_holds.remove(0);
+        if self.pending_holds.len() > self.config.max_pending_hold_frames
+            && let Some(shed_hold) = self.pending_holds.pop_front()
+        {
             self.emit(
                 DriverDiagnosticKind::ThreadPendingHoldShed,
                 Some(shed_hold.frame.raw_wire_type()),
@@ -402,13 +403,11 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
     /// diagnostic.
     fn expire_pending_holds(&mut self, now: Instant) {
         let timeout = self.config.pending_registration_timeout;
-        let expired: Vec<PendingHold<Frame>> = self
+        // Holds are pushed in arrival order, so the expired ones are the oldest.
+        while let Some(held) = self
             .pending_holds
-            .extract_if(.., |held| {
-                now.saturating_duration_since(held.held_at) >= timeout
-            })
-            .collect();
-        for held in expired {
+            .pop_front_if(|held| now.saturating_duration_since(held.held_at) >= timeout)
+        {
             let held_for = now.saturating_duration_since(held.held_at);
             self.emit(
                 DriverDiagnosticKind::ThreadPendingHoldShed,
@@ -432,10 +431,11 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
 
     /// Removes and returns the holds naming `thread_id`, in arrival order; the one release path.
     fn take_pending_holds_for(&mut self, thread_id: &str) -> Vec<Frame> {
-        self.pending_holds
-            .extract_if(.., |held| held.frame.thread_id() == Some(thread_id))
-            .map(|held| held.frame)
-            .collect()
+        let (taken, kept): (VecDeque<_>, VecDeque<_>) = std::mem::take(&mut self.pending_holds)
+            .into_iter()
+            .partition(|held| held.frame.thread_id() == Some(thread_id));
+        self.pending_holds = kept;
+        taken.into_iter().map(|held| held.frame).collect()
     }
 
     fn quarantine(&mut self, frame: &Frame, reason: &str) -> ThreadFrameRoute {

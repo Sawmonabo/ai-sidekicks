@@ -132,7 +132,7 @@ pub(crate) struct AnswerSessionCommandParams {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SessionCommandAnswer {
     /// The text goes to the provider as typed.
-    NotAnswered,
+    NotAnswered {},
     /// The daemon answered it.
     Answered {
         /// The one line shown beside the message box, or `None` for a `/config` key whose console
