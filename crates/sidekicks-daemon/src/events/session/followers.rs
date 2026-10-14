@@ -33,7 +33,7 @@ struct AttachedFollowers {
 #[derive(Default)]
 pub(crate) struct SessionEventFollowers {
     followers: Mutex<AttachedFollowers>,
-    // Only sessions someone counts have an entry, and an entry no receiver reads is swept.
+    // Only sessions someone counted at the last `change_count` have an entry.
     change_counts: Mutex<HashMap<SessionId, watch::Sender<u64>>>,
 }
 
@@ -58,7 +58,8 @@ impl SessionEventFollowers {
     }
 
     /// The change count of `session_id`: the number of its events committed since the first
-    /// receiver subscribed, raised once they can be read. The count starts at 0.
+    /// receiver subscribed, raised once they can be read. The count starts at 0. Each call first
+    /// drops every session's count no receiver reads any more.
     pub(crate) fn change_count(&self, session_id: &SessionId) -> watch::Receiver<u64> {
         let mut change_counts = self.lock_change_counts();
         change_counts.retain(|_, sender| sender.receiver_count() > 0);
@@ -98,7 +99,6 @@ impl SessionEventFollowers {
                 change_count.send_modify(|count| *count += committed);
             }
         }
-        change_counts.retain(|_, sender| sender.receiver_count() > 0);
     }
 
     fn lock_followers(&self) -> MutexGuard<'_, AttachedFollowers> {
