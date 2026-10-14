@@ -1,6 +1,7 @@
 //! Stopping a shell's program: a signal as the running system delivers it, the console break's
 //! escalation to an outright end, and a close's hangup, stop and kill in turn.
 
+use std::error::Error;
 use std::future::{Future, pending};
 use std::io;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -217,7 +218,7 @@ async fn end_tree_within_bound<E: ChildEnding>(ending: &E, process_id: u32) {
         Ok(Err(error)) => {
             tracing::warn!(
                 process_id,
-                %error,
+                error = &error as &(dyn Error + 'static),
                 "a terminal's program tree could not be ended outright; its exit is reported anyway"
             );
         }
@@ -250,7 +251,11 @@ pub(crate) async fn end_through_endings<E: ChildEnding>(
         // The delivery and the wait run together, so a slow delivery cannot stretch the step.
         let delivered_then_waited = async {
             if let Err(error) = deliver_ending(ending, route_of(signal)).await {
-                tracing::warn!(?signal, %error, "a closing terminal's ending did not reach it");
+                tracing::warn!(
+                    ?signal,
+                    error = &error as &(dyn Error + 'static),
+                    "a closing terminal's ending did not reach it"
+                );
             }
             pending::<()>().await;
         };

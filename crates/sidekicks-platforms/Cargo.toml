@@ -41,6 +41,10 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+[dev-dependencies]
+rstest.workspace = true
+tempfile.workspace = true
+
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libmimalloc-sys.workspace = true
 mimalloc.workspace = true
@@ -69,10 +73,14 @@ windows-native-keyring-store.workspace = true
 windows-sys = {
   workspace = true,
   features = [
+    "Wdk_Storage_FileSystem",
+    "Wdk_System_SystemServices",
     "Win32_Foundation",
+    "Win32_Networking_WinSock",
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_Console",
+    "Win32_System_IO",
     "Win32_System_JobObjects",
     "Win32_System_LibraryLoader",
     "Win32_System_Threading",
