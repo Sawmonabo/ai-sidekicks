@@ -15,12 +15,12 @@
 //!   refused before anything is queued.
 //! - Publication: each committed write's events go to the followers from the writer's commit hook,
 //!   on the writer's queue task, in commit order, whether or not the append's caller still waits.
-//! - Reads: one read-only connection of the service's own, read on a blocking thread.
+//! - Reads: one read-only connection of the service's own, read on a blocking thread and closed
+//!   through [`EventLogService::close`].
 
 use std::path::Path;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
-use rusqlite::Connection;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::envelope::{
     EventCategory, EventEnvelope, EventEnvelopeType, EventOccurredAt,
@@ -33,10 +33,11 @@ use sidekicks_contracts::session::event_cursor::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tokio::task::JoinError;
 
 use crate::cleanup_failures::CleanupFailures;
-use crate::database::connection::setup::open_database_reader;
+use crate::database::connection::reader::{
+    DatabaseReader, DatabaseReaderCloseError, DatabaseReaderError,
+};
 use crate::database::statement::WriteStatement;
 use crate::database::writer::messages::WriteJob;
 use crate::database::writer::{CommitHook, DatabaseWriter, WriteError, WriteOptions};
@@ -217,9 +218,9 @@ pub(crate) enum EventLogReadError {
     /// A stored position has no cursor, being past the safe integers.
     #[error("a read position has no event cursor")]
     CursorOutOfRange(#[from] EventCursorPositionOutOfRange),
-    /// The blocking task that ran the read did not finish.
-    #[error("the event log's read did not finish")]
-    Join(#[from] JoinError),
+    /// The service's connection is closed, or the read's blocking task did not finish.
+    #[error(transparent)]
+    Reader(#[from] DatabaseReaderError),
 }
 
 /// What [`EventLogService::read_after_cursor`] reads.
@@ -285,8 +286,7 @@ pub(crate) struct EventLogService {
     projection_statements: Option<Box<ProjectionStatements>>,
     refuse_session_write: Option<Box<SessionWriteCheck>>,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
-    // The service's one read-only connection, used by one blocking read at a time.
-    reader: Arc<Mutex<Connection>>,
+    reader: DatabaseReader,
 }
 
 impl EventLogService {
@@ -296,7 +296,7 @@ impl EventLogService {
         database_path: &Path,
         dependencies: EventLogServiceDependencies,
     ) -> Result<Self, CleanupFailures<rusqlite::Error>> {
-        let reader = open_database_reader(database_path, READER_STATEMENT_CAPACITY)?;
+        let reader = DatabaseReader::open(database_path, READER_STATEMENT_CAPACITY)?;
         let EventLogServiceDependencies {
             writer,
             followers,
@@ -314,7 +314,7 @@ impl EventLogService {
             projection_statements,
             refuse_session_write,
             read_damaged_from_sequence,
-            reader: Arc::new(Mutex::new(reader)),
+            reader,
         })
     }
 
@@ -468,20 +468,26 @@ impl EventLogService {
         Arc::ptr_eq(&self.writer, writer)
     }
 
+    /// Closes the service's connection once any running read is done; a later read fails with
+    /// [`EventLogReadError::Reader`]. Fails with SQLite's refusal of the close.
+    pub(crate) async fn close(&self) -> Result<(), DatabaseReaderCloseError> {
+        self.reader.close().await
+    }
+
     /// Runs `read` on the service's connection on a blocking thread.
     async fn read<Output: Send + 'static>(
         &self,
         read: impl FnOnce(&LogReads<'_>) -> Result<Output, EventLogReadError> + Send + 'static,
     ) -> Result<Output, EventLogReadError> {
-        let reader = Arc::clone(&self.reader);
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
-        tokio::task::spawn_blocking(move || {
-            // A panicked read leaves the connection usable: its statement resets when dropped.
-            let connection = reader.lock().unwrap_or_else(PoisonError::into_inner);
-            let reads = SessionEventReads::new(&*connection, &*read_damaged_from_sequence);
-            read(&reads)
-        })
-        .await?
+        self.reader
+            .read(move |connection| {
+                read(&SessionEventReads::new(
+                    connection,
+                    &*read_damaged_from_sequence,
+                ))
+            })
+            .await
     }
 }
 
