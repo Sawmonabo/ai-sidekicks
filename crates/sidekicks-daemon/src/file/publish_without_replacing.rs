@@ -9,6 +9,7 @@ use std::io;
 use std::path::Path;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::missing_entry::MissingEntry;
 
 /// How a publish ended: the file has the target's name, or another file had it already.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,11 +68,10 @@ async fn rename_into_free_name(
 
 // Anything under the name takes it, a link included; only its absence leaves it free.
 async fn is_name_taken(path: &Path) -> io::Result<bool> {
-    match tokio::fs::symlink_metadata(path).await {
-        Ok(_) => Ok(true),
-        Err(failure) if failure.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(failure) => Err(failure),
-    }
+    Ok(tokio::fs::symlink_metadata(path)
+        .await
+        .none_if_missing()?
+        .is_some())
 }
 
 async fn remove_temporary(temporary_path: &Path) -> Result<(), CleanupFailures<io::Error>> {

@@ -16,9 +16,10 @@ pub(crate) fn processor_count() -> usize {
 
 /// Maps every item through `map`, at most one per processor at a time, and returns the results in
 /// the items' order. Every item settles before a failure is returned, the one failure or every one
-/// in [`SettleFailures`], so nothing still runs once the caller hears of it.
+/// in [`SettleFailures`] named by `operation`, so nothing still runs once the caller hears of it.
 pub(crate) async fn map_with_processor_bound<Item, Output, Failure, Work>(
     items: impl IntoIterator<Item = Item>,
+    operation: &'static str,
     map: impl Fn(Item) -> Work,
 ) -> Result<Vec<Output>, SettleFailures<Failure>>
 where
@@ -40,6 +41,6 @@ where
             .into_iter()
             .map(|(_, outcome)| outcome)
             .collect::<Vec<_>>(),
-        "the work bounded by the processors",
+        operation,
     )
 }
