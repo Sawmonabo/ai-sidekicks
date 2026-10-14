@@ -41,8 +41,8 @@ fn require_nondecreasing_sequence<T>(
         let (previous, current) = (sequence_of(&pair[0]), sequence_of(&pair[1]));
         if current < previous {
             return Err(garde::Error::new(format!(
-                "entries run oldest to newest: entry {} has sequence {current} after {previous}, \
-                 so this page is out of order",
+                "entries run oldest to newest: entry {} goes back in sequence, so this page is \
+                 out of order",
                 index + 1
             )));
         }
@@ -57,7 +57,8 @@ fn require_window_rows(
     runs: &[TranscriptRunFacts],
 ) -> garde::Result {
     let runs_bytes = json_utf8_byte_length(&runs)
-        .map_err(|error| garde::Error::new(format!("the runs do not serialize: {error}")))?;
+        // serde's message can quote a value, so the failure is named, never carried.
+        .map_err(|_unquoted| garde::Error::new("the runs do not serialize as JSON"))?;
     fits_budget(&entries, PAGE_MAX_BYTES.saturating_sub(runs_bytes))?;
     require_nondecreasing_sequence(entries, |entry| entry.sequence().get())
 }
@@ -76,29 +77,22 @@ fn require_one_fact_per_named_run(
     let mut fact_run_ids = HashSet::new();
     for facts in runs {
         if !fact_run_ids.insert(&facts.run_id) {
-            return Err(garde::Error::new(format!(
-                "runs names run {} twice",
-                facts.run_id.as_str()
-            )));
+            return Err(garde::Error::new("runs names one run twice"));
         }
         if !named_run_ids.contains(&facts.run_id) {
-            return Err(garde::Error::new(format!(
-                "runs carries run {}, which no entry names",
-                facts.run_id.as_str()
-            )));
+            return Err(garde::Error::new("runs carries a run no entry names"));
         }
     }
-    match entries
+    if entries
         .iter()
         .filter_map(TranscriptReadRow::run_id)
-        .find(|run_id| !fact_run_ids.contains(run_id))
+        .any(|run_id| !fact_run_ids.contains(run_id))
     {
-        Some(run_id) => Err(garde::Error::new(format!(
-            "an entry names run {}, which runs carries no facts for",
-            run_id.as_str()
-        ))),
-        None => Ok(()),
+        return Err(garde::Error::new(
+            "an entry names a run that runs carries no facts for",
+        ));
     }
+    Ok(())
 }
 
 /// Holds an expansion to its own run: a row attributed to another run would render as this run's
@@ -107,16 +101,15 @@ fn require_entries_to_belong_to_run(
     run_id: &RunId,
     entries: &[TranscriptReadRow],
 ) -> garde::Result {
-    match entries
+    if entries
         .iter()
-        .find_map(|entry| entry.run_id().filter(|named| *named != run_id))
+        .any(|entry| entry.run_id().is_some_and(|named| named != run_id))
     {
-        Some(other) => Err(garde::Error::new(format!(
-            "a child-run expansion carries only that run's rows: an entry names run {}",
-            other.as_str()
-        ))),
-        None => Ok(()),
+        return Err(garde::Error::new(
+            "a child-run expansion carries only that run's rows, and an entry names another run",
+        ));
     }
+    Ok(())
 }
 
 /// How many rows a read may ask for: 1 to [`TRANSCRIPT_READ_LIMIT_MAX`].

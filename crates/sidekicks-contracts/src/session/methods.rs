@@ -454,7 +454,7 @@ fn require_search_page(groups: &[SessionSearchGroup]) -> garde::Result {
     let hit_count: usize = groups.iter().map(|group| group.hits.as_slice().len()).sum();
     if hit_count > SESSION_SEARCH_PAGE_LIMIT_MAX {
         return Err(garde::Error::new(format!(
-            "a page carries at most {SESSION_SEARCH_PAGE_LIMIT_MAX} hits, not {hit_count}"
+            "a page carries at most {SESSION_SEARCH_PAGE_LIMIT_MAX} hits"
         )));
     }
     fits_one_page(&groups, &())
