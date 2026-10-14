@@ -1,4 +1,5 @@
-//! Sessions: creating, converting and searching them, their groups, drafts and directory.
+//! Sessions: creating, converting and searching them, their groups, drafts, directory and working
+//! folder.
 
 pub(crate) mod console_state;
 pub(crate) mod directory;
@@ -12,3 +13,4 @@ pub(crate) mod related;
 pub(crate) mod run;
 pub(crate) mod search;
 pub(crate) mod stored_column;
+pub(crate) mod working_folder;
