@@ -336,6 +336,11 @@ pub(crate) struct CreateSessionParams {
     /// starts and never refused: a level the model does not list runs at standard. The provider's
     /// declared state is read through `observed_output_speed_for`, never written back here.
     pub(crate) output_speed: Option<String>,
+    /// The agent's Ultracode switch, sent when the process starts; `None` leaves the provider's
+    /// default. A driver that does not declare `ultracode` refuses a value as
+    /// `driver.capability_unsupported`, and what the provider reports is read through
+    /// `observed_ultracode_for`.
+    pub(crate) ultracode: Option<bool>,
     /// The daemon's callback tools (gated on `callback_tools`); a driver may host them as an
     /// ephemeral tool server, under whose name they then surface.
     pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
@@ -379,6 +384,8 @@ pub(crate) struct ResumeSessionParams {
     /// The agent's accepted output-speed level; left out, the leg would relaunch at the
     /// provider's default.
     pub(crate) output_speed: Option<String>,
+    /// The agent's Ultracode switch; left out, the leg would relaunch at the provider's default.
+    pub(crate) ultracode: Option<bool>,
     /// The daemon's callback tools.
     pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
     /// The provider-native subagent policy.
