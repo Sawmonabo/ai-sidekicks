@@ -272,7 +272,9 @@ macro_rules! named_scalar {
     };
     ($(#[doc = $doc:literal])+ $name:ident($inner:ty) unordered) => {
         $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, garde::Validate)]
+        #[derive(
+            Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, garde::Validate,
+        )]
         #[serde(transparent)]
         #[garde(allow_unvalidated)]
         pub struct $name(pub $inner);
