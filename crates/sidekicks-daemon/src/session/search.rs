@@ -5,5 +5,8 @@ pub(crate) mod cursor;
 pub(crate) mod index;
 pub(crate) mod marked_line;
 pub(crate) mod merging;
+pub(crate) mod page;
 pub(crate) mod query;
 pub(crate) mod rank_fusion;
+pub(crate) mod rowid_floors;
+pub(crate) mod snapshots;

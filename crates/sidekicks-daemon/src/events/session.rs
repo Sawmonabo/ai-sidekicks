@@ -2,5 +2,6 @@
 //! its reads share.
 
 pub(crate) mod insert;
+pub(crate) mod read;
 pub(crate) mod skipped_ranges;
 pub(crate) mod version;

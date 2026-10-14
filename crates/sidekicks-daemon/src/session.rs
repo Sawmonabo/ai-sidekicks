@@ -2,6 +2,7 @@
 
 pub(crate) mod console_state;
 pub(crate) mod directory;
+pub(crate) mod groups;
 pub(crate) mod links;
 pub(crate) mod not_found;
 pub(crate) mod permission_level;

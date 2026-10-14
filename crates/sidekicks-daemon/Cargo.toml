@@ -109,6 +109,7 @@ flate2.workspace = true
 flexi_logger.workspace = true
 form_urlencoded.workspace = true
 futures.workspace = true
+garde.workspace = true
 h2.workspace = true
 hkdf.workspace = true
 hmac.workspace = true

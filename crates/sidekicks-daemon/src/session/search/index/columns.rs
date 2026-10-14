@@ -43,3 +43,30 @@ fn slot_of(kind: IndexRowKind) -> u64 {
         .expect("every index row kind is listed");
     slot as u64
 }
+
+/// A stored index row kind word that names no kind.
+#[derive(Debug, thiserror::Error)]
+#[error("`{0}` is not an index row kind")]
+pub(crate) struct UnknownIndexRowKind(String);
+
+/// The word a stored row writes for `kind`, as the outbox's and the floor log's `kind` columns
+/// hold it.
+pub(crate) fn index_row_kind_word(kind: IndexRowKind) -> &'static str {
+    match kind {
+        IndexRowKind::Event => "event",
+        IndexRowKind::Title => "title",
+        IndexRowKind::Group => "group",
+        IndexRowKind::Tag => "tag",
+    }
+}
+
+/// The kind a stored `kind` word names; fails for a word that names none.
+pub(crate) fn index_row_kind_of_word(word: String) -> Result<IndexRowKind, UnknownIndexRowKind> {
+    match word.as_str() {
+        "event" => Ok(IndexRowKind::Event),
+        "title" => Ok(IndexRowKind::Title),
+        "group" => Ok(IndexRowKind::Group),
+        "tag" => Ok(IndexRowKind::Tag),
+        _ => Err(UnknownIndexRowKind(word)),
+    }
+}
