@@ -16,3 +16,4 @@ pub(crate) mod real_path;
 pub(crate) mod shell_start;
 pub(crate) mod socket_path;
 pub(crate) mod terminal;
+pub(crate) mod wake_watch;

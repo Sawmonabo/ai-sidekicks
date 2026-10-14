@@ -25,8 +25,6 @@ ignored = [
   "objc2-service-management",
   # Windows notifications.
   "windows",
-  # The systemd scope, the wake timer and the battery state on Linux.
-  "zbus",
 ]
 
 [dependencies]
@@ -51,6 +49,7 @@ libmimalloc-sys.workspace = true
 mimalloc.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
+futures-util.workspace = true
 icu_datetime.workspace = true
 icu_locale_core.workspace = true
 secret-service.workspace = true
@@ -59,8 +58,10 @@ zbus-secret-service-keyring-store.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store.workspace = true
+dispatch2 = { workspace = true, features = ["libc", "std"] }
 objc2-core-foundation.workspace = true
 objc2-foundation.workspace = true
+objc2-io-kit = { workspace = true, features = ["dispatch2", "libc", "pwr_mgt", "std"] }
 objc2-service-management.workspace = true
 security-framework.workspace = true
 
@@ -85,7 +86,9 @@ windows-sys = {
     "Win32_System_IO",
     "Win32_System_JobObjects",
     "Win32_System_LibraryLoader",
+    "Win32_System_Power",
     "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
   ]
 }
 

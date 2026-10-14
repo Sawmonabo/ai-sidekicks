@@ -1,6 +1,8 @@
 //! What macOS alone supplies: the machine's computer name, no Windows drive mounts and every folder
 //! on its own disk, reads through a memory map, a process's parent, the bound on a program's
-//! argument, and the process's footprint.
+//! argument, the process's footprint, and the machine's wakes from sleep.
+
+pub(crate) mod wake_watch;
 
 use std::io;
 use std::path::PathBuf;
