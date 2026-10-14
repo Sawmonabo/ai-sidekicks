@@ -1,4 +1,4 @@
-//! Workflows: definitions, node kinds, runs and the secrets their steps read.
+//! Workflows: definitions, node kinds, runs, the secrets their steps read and the live stream.
 
 use crate::typescript::TypeScriptModule;
 
@@ -6,6 +6,7 @@ pub mod definition;
 pub mod kind;
 pub mod run;
 pub mod secret;
+pub mod subscription;
 
 /// The topic's TypeScript modules, its folders' among them.
 pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
@@ -34,4 +35,5 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &run::tool::TYPESCRIPT_MODULE,
     &run::trigger::TYPESCRIPT_MODULE,
     &secret::TYPESCRIPT_MODULE,
+    &subscription::TYPESCRIPT_MODULE,
 ];
