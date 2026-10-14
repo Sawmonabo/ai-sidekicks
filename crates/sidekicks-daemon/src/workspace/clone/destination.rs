@@ -170,9 +170,9 @@ pub(crate) enum StagedCloneError {
     /// A file-system call on the folder or its parent failed.
     #[error("a file-system call on the clone's folder failed")]
     Io(#[from] io::Error),
-    /// The read of the folder's identity stopped before it answered.
-    #[error("the read of the clone's folder stopped")]
-    Read(#[from] JoinError),
+    /// A file-system task on the folder stopped before it answered.
+    #[error("a file-system task on the clone's folder stopped before it answered")]
+    Interrupted(#[from] JoinError),
 }
 
 /// Makes the folder git clones into, hidden beside `destination` in its parent (made when
@@ -213,10 +213,9 @@ pub(crate) async fn remove_staged_clone(folder: &StagedClone) -> Result<(), Stag
     if identity != Some(folder.identity) {
         return Ok(());
     }
-    // Gone already is what the removal wanted.
-    tokio::fs::remove_dir_all(&folder.path)
-        .await
-        .none_if_missing()?;
+    // A path gone already is what the removal wanted, which the removal answers `Ok`.
+    let path = folder.path.clone();
+    tokio::task::spawn_blocking(move || sidekicks_platforms::remove_tree(&path)).await??;
     Ok(())
 }
 

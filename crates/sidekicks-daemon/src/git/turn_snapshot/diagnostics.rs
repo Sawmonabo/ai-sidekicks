@@ -77,8 +77,7 @@ pub(crate) enum TurnSnapshotDiagnostic {
         snapshot_ref: String,
         /// The step that failed.
         failed_step: TurnSnapshotCaptureStep,
-        /// The step's failure. Boxed while the git runner and the capture steps, whose errors it
-        /// holds, are not yet written.
+        /// The failure of whichever step failed.
         detail: Box<dyn Error + Send + Sync>,
     },
     /// Untracked embedded repositories were not recorded as gitlinks: an unborn `HEAD` has no
@@ -112,7 +111,7 @@ pub(crate) enum TurnSnapshotDiagnostic {
     RunContextReadFailed {
         /// The run, of either kind, whose refs were to be pruned.
         run_key: RunContextKey,
-        /// The read's failure. Boxed while the row read, whose error it holds, is not yet written.
+        /// The row read's failure.
         detail: Box<dyn Error + Send + Sync>,
     },
 }

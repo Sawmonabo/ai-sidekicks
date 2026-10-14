@@ -20,7 +20,7 @@ use tokio::task::AbortHandle;
 
 /// How often a running copy's figure is sent: four times a second reads as steady progress on the
 /// row and costs the stream next to nothing.
-pub(crate) const COPY_PROGRESS_TICK: Duration = Duration::from_millis(250);
+const COPY_PROGRESS_TICK: Duration = Duration::from_millis(250);
 
 /// The copies across volumes a removal or a put-back makes, while they run, and their followers.
 /// Cloning it shares the same list.
@@ -44,9 +44,8 @@ struct CopyEntries {
 
 struct CopyEntry {
     id: u64,
-    // The caller's copy; its two byte fields are set each time it is sent.
+    // The caller's copy, holding its total; its copied bytes are set each time it is sent.
     copy: WorktreeCopy,
-    total_bytes: SafeInt<0>,
     // The bytes of the files the copy has finished.
     finished_bytes: u64,
     // What the last tick read of the file the copy is on.
@@ -82,13 +81,13 @@ impl Default for WorktreeCopiesUnderWay {
 }
 
 impl WorktreeCopiesUnderWay {
-    /// Lists `copy`, of `total_bytes` in all, and sends the list, then on each tick adds what
-    /// `read_bytes_in_flight` answers for the file the copy is on; a failed read counts nothing and
-    /// is logged once per copy. Called inside a tokio runtime, whose task runs the ticks.
+    /// Lists `copy`, its total in its `total_bytes` and its `copied_bytes` 0, and sends the list,
+    /// then on each tick adds what `read_bytes_in_flight` answers for the file the copy is on; a
+    /// failed read counts nothing and is logged once per copy. Called inside a tokio runtime, whose
+    /// task runs the ticks.
     pub(crate) fn begin<Read, Reading>(
         &self,
         copy: WorktreeCopy,
-        total_bytes: SafeInt<0>,
         read_bytes_in_flight: Read,
     ) -> WorktreeCopyReport
     where
@@ -102,7 +101,6 @@ impl WorktreeCopiesUnderWay {
             entries.entries.push(CopyEntry {
                 id: entry_id,
                 copy,
-                total_bytes,
                 finished_bytes: 0,
                 bytes_in_flight: 0,
             });
@@ -195,14 +193,6 @@ impl CopyEntries {
 
 impl CopyEntry {
     fn to_copy(&self) -> WorktreeCopy {
-        let total = self.total_bytes;
-        // Never past the total, which also keeps the figure a safe integer.
-        let copied = SafeInt::new(
-            self.finished_bytes
-                .saturating_add(self.bytes_in_flight)
-                .min(total.get()),
-        )
-        .expect("a figure no larger than a safe integer is one");
         let mut copy = self.copy.clone();
         match &mut copy {
             WorktreeCopy::Removing {
@@ -215,8 +205,13 @@ impl CopyEntry {
                 total_bytes,
                 ..
             } => {
-                *copied_bytes = copied;
-                *total_bytes = total;
+                // Never past the total, which also keeps the figure a safe integer.
+                *copied_bytes = SafeInt::new(
+                    self.finished_bytes
+                        .saturating_add(self.bytes_in_flight)
+                        .min(total_bytes.get()),
+                )
+                .expect("a figure no larger than a safe integer is one");
             }
         }
         copy
@@ -301,6 +296,7 @@ mod tests {
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_contracts::worktree::copy_progress::{WorktreeCopy, WorktreeCopyProgress};
     use sidekicks_contracts::worktree::lifecycle::WorktreeId;
+    use tokio::sync::oneshot;
     use tokio::time::Instant;
 
     use super::{COPY_PROGRESS_TICK, WorktreeCopiesUnderWay};
@@ -334,21 +330,34 @@ mod tests {
         assert_eq!(follower.next().await, progress_of(Vec::new()));
 
         let reads = Arc::new(AtomicUsize::new(0));
+        let (stalled_sender, stalled) = oneshot::channel();
         let began = Instant::now();
-        let report = copies.begin(
-            removing(0),
-            SafeInt::new(TOTAL_BYTES).expect("the figure is small"),
-            {
-                let reads = Arc::clone(&reads);
-                move || {
-                    reads.fetch_add(1, Ordering::SeqCst);
-                    async {
-                        tokio::time::sleep(READ_TIME).await;
-                        Ok::<_, std::io::Error>(IN_FLIGHT_BYTES)
+        let report = copies.begin(removing(0), {
+            let reads = Arc::clone(&reads);
+            let mut stalled_sender = Some(stalled_sender);
+            move || {
+                // The third read stalls for good, as a read on a hung volume does.
+                let stall = if reads.fetch_add(1, Ordering::SeqCst) == 2 {
+                    stalled_sender.take()
+                } else {
+                    None
+                };
+                async move {
+                    match stall {
+                        Some(stalled_sender) => {
+                            stalled_sender
+                                .send(())
+                                .expect("the test waits for the stall");
+                            std::future::pending().await
+                        }
+                        None => {
+                            tokio::time::sleep(READ_TIME).await;
+                            Ok::<_, std::io::Error>(IN_FLIGHT_BYTES)
+                        }
                     }
                 }
-            },
-        );
+            }
+        });
         assert_eq!(follower.next().await, progress_of(vec![removing(0)]));
 
         // The first tick reads the file in flight and sends its bytes.
@@ -362,15 +371,17 @@ mod tests {
         report.add_copied(400);
         assert_eq!(follower.next().await, progress_of(vec![removing(400)]));
 
+        // The copy ends while the third read is stalled: the ticking task is released at once.
+        stalled.await.expect("the third read stalls");
         report.end();
         assert_eq!(follower.next().await, progress_of(Vec::new()));
-        let reads_at_end = reads.load(Ordering::SeqCst);
+        tokio::task::yield_now().await;
+        assert_eq!(Arc::strong_count(&reads), 1);
         assert!(
             tokio::time::timeout(4 * COPY_PROGRESS_TICK, follower.next())
                 .await
                 .is_err(),
             "nothing is sent once the copy ends"
         );
-        assert_eq!(reads.load(Ordering::SeqCst), reads_at_end);
     }
 }

@@ -15,8 +15,7 @@ use std::borrow::Cow;
 use std::error::Error;
 use std::io;
 
-use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::gitflow::shared::GitRefName;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -28,7 +27,7 @@ use sidekicks_contracts::worktree::lifecycle::{
 };
 use strum::IntoStaticStr;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode, refusal_fields};
 use crate::session::run::setup_gates::RunSetupGateError;
 
 /// Why making a worktree failed; closed and free of paths, so it is safe on the wire, where its
@@ -189,7 +188,7 @@ impl From<WorktreeRefusal> for DomainError {
                 WorktreeRefusal::NotFound { worktree_id } => (
                     RefusalCode::WorktreeNotFound,
                     InvalidParams,
-                    Map::from_iter([("worktreeId".to_owned(), Value::from(worktree_id.as_str()))]),
+                    refusal_fields(json!({ "worktreeId": worktree_id.as_str() })),
                     None,
                 ),
                 WorktreeRefusal::RemovedNotFound {
@@ -197,10 +196,7 @@ impl From<WorktreeRefusal> for DomainError {
                 } => (
                     RefusalCode::WorktreeRemovedNotFound,
                     InvalidParams,
-                    Map::from_iter([(
-                        "removedWorktreeId".to_owned(),
-                        Value::from(removed_worktree_id.as_str()),
-                    )]),
+                    refusal_fields(json!({ "removedWorktreeId": removed_worktree_id.as_str() })),
                     None,
                 ),
                 WorktreeRefusal::CreateFailed { reason, source } => (
@@ -215,19 +211,16 @@ impl From<WorktreeRefusal> for DomainError {
                 } => (
                     RefusalCode::WorktreeBranchCollision,
                     InternalError,
-                    Map::from_iter([
-                        (
-                            "repoMountId".to_owned(),
-                            Value::from(repo_mount_id.as_str()),
-                        ),
-                        ("branchName".to_owned(), Value::from(branch_name.as_str())),
-                    ]),
+                    refusal_fields(json!({
+                        "repoMountId": repo_mount_id.as_str(),
+                        "branchName": branch_name.as_str(),
+                    })),
                     None,
                 ),
                 WorktreeRefusal::RetireConflict { details } => (
                     RefusalCode::WorktreeRetireConflict,
                     InternalError,
-                    fields_of(&details),
+                    refusal_fields(details),
                     None,
                 ),
                 WorktreeRefusal::RetireFolderHeld {
@@ -236,47 +229,46 @@ impl From<WorktreeRefusal> for DomainError {
                 } => (
                     RefusalCode::WorktreeRetireFolderHeld,
                     InternalError,
-                    Map::from_iter([("worktreeId".to_owned(), Value::from(worktree_id.as_str()))]),
+                    refusal_fields(json!({ "worktreeId": worktree_id.as_str() })),
                     Some(source.into()),
                 ),
                 WorktreeRefusal::RetireIncomplete { details, source } => (
                     RefusalCode::WorktreeRetireIncomplete,
                     InternalError,
-                    fields_of(&details),
+                    refusal_fields(details),
                     Some(source),
                 ),
                 WorktreeRefusal::ExecutionRootUnresolved {
                     workspace_id,
                     cause,
                 } => {
-                    let mut detail = Map::from_iter([(
-                        "workspaceId".to_owned(),
-                        Value::from(workspace_id.as_str()),
-                    )]);
-                    if let Some(cause_code) = cause_code_of(&cause) {
-                        detail.insert("causeCode".to_owned(), Value::from(cause_code.as_str()));
-                    }
+                    let detail = match cause_code_of(&cause) {
+                        Some(cause_code) => json!({
+                            "workspaceId": workspace_id.as_str(),
+                            "causeCode": cause_code.as_str(),
+                        }),
+                        None => json!({ "workspaceId": workspace_id.as_str() }),
+                    };
                     (
                         RefusalCode::WorkspaceExecutionRootUnresolved,
                         InternalError,
-                        detail,
+                        refusal_fields(detail),
                         Some(cause.into()),
                     )
                 }
                 WorktreeRefusal::BranchNameRequired { workspace_id } => (
                     RefusalCode::WorkspaceBranchNameRequired,
                     InternalError,
-                    Map::from_iter([(
-                        "workspaceId".to_owned(),
-                        Value::from(workspace_id.as_str()),
-                    )]),
+                    refusal_fields(json!({ "workspaceId": workspace_id.as_str() })),
                     None,
                 ),
             };
-        let domain_error = DomainError::new(message, code, json_rpc_code).with_detail(detail);
-        match source {
-            Some(source) => domain_error.with_source(source),
-            None => domain_error,
+        DomainError {
+            message,
+            code,
+            json_rpc_code,
+            detail: Some(detail),
+            source,
         }
     }
 }
@@ -329,7 +321,7 @@ fn create_failed_detail(reason: WorktreeCreateFailureReason) -> Map<String, Valu
         WorktreeCreateFailureReason::CarryCheckoutRunning {
             running_session_id,
             running_agent_id,
-        } => fields_of(&WorktreeCarryCheckoutRunningDetails {
+        } => refusal_fields(WorktreeCarryCheckoutRunningDetails {
             reason: CarryCheckoutRunningReason::Value,
             running_session_id,
             running_agent_id,
@@ -343,10 +335,9 @@ fn create_failed_detail(reason: WorktreeCreateFailureReason) -> Map<String, Valu
         | WorktreeCreateFailureReason::CarryFailed { .. }
         | WorktreeCreateFailureReason::ExecutionRootUnavailable
         | WorktreeCreateFailureReason::GitInvocationFailed
-        | WorktreeCreateFailureReason::WorktreeFolderTaken => Map::from_iter([(
-            "reason".to_owned(),
-            Value::from(<&'static str>::from(&reason)),
-        )]),
+        | WorktreeCreateFailureReason::WorktreeFolderTaken => {
+            refusal_fields(json!({ "reason": <&'static str>::from(&reason) }))
+        }
     }
 }
 
@@ -393,12 +384,4 @@ fn execution_root_unresolved_message(
             workspace_id.as_str()
         ),
     }
-}
-
-// A refusal's `data.fields` written through its contract details type, which names each member
-// in its wire spelling.
-fn fields_of(details: &impl Serialize) -> Map<String, Value> {
-    serde_json::to_value(details)
-        .and_then(serde_json::from_value)
-        .expect("a refusal's details type is a struct or a tagged enum, which writes an object")
 }
