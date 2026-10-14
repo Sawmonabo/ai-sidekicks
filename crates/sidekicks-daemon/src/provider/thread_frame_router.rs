@@ -96,6 +96,10 @@ pub(crate) enum ChildSpendAttribution {
 
 /// A child-thread announcement carrying the parent the provider declared, as the driver read it.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "each member is an id, named for what it identifies"
+)]
 pub(crate) struct ChildThreadAnnouncement {
     /// The child's thread identity.
     pub(crate) child_thread_id: String,

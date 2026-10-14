@@ -601,6 +601,10 @@ pub(crate) struct SetSessionGoalParams {
 
 /// Params of `clear_session_goal` (gated on `session_goals`); addresses one live binding.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "each member is an id, named for what it identifies"
+)]
 pub(crate) struct ClearSessionGoalParams {
     /// The session.
     pub(crate) session_id: SessionId,

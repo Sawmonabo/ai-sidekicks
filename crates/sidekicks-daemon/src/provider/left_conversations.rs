@@ -15,6 +15,10 @@ use crate::database::statement::{StatementBindings, WriteStatement};
 
 /// A conversation a session moved off, on the account whose home holds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "each member is an id, named for what it identifies"
+)]
 pub(crate) struct LeftConversation {
     /// The session that left it.
     pub(crate) session_id: SessionId,

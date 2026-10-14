@@ -108,6 +108,10 @@ enum EventKindDisposition {
 }
 
 impl NormalizedEventKind {
+    #[expect(
+        clippy::match_same_arms,
+        reason = "each discarded kind keeps its own arm beside the reason it is discarded"
+    )]
     const fn disposition(self) -> EventKindDisposition {
         use EventKindDisposition::{Adopt, Correlate, Discard};
         match self {

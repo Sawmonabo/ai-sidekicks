@@ -243,6 +243,9 @@ pub(crate) fn emit_driver_diagnostic(record: &DriverDiagnosticRecord) {
     );
 }
 
+#[cfg(test)]
+pub(crate) use recorded_events::RecordedEvents;
+
 /// Test support: records the fields of every log event a test thread raises, so a test reads a
 /// diagnostic's `counter` and other fields as the service log would carry them.
 #[cfg(test)]
@@ -321,6 +324,3 @@ mod recorded_events {
         }
     }
 }
-
-#[cfg(test)]
-pub(crate) use recorded_events::RecordedEvents;

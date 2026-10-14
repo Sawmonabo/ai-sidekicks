@@ -72,7 +72,7 @@ fn read_plan_markdown(text: &str) -> PlanMarkdownReading {
     reader.into_reading()
 }
 
-/// One pass over a plan's CommonMark events. Reference links are not counted, and neither is
+/// One pass over a plan's `CommonMark` events. Reference links are not counted, and neither is
 /// anything inside an image's description, which is only the image's alternative text.
 #[derive(Default)]
 struct PlanMarkdownReader {

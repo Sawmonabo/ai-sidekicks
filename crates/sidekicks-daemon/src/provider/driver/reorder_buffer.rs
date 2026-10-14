@@ -281,7 +281,7 @@ mod tests {
             now,
         );
 
-        assert!(held.is_empty());
+        assert_eq!(held, [] as [&str; 0]);
         assert_eq!(released, ["start", "end"]);
     }
 
