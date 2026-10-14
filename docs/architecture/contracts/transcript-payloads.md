@@ -96,6 +96,7 @@ type TranscriptRowContent =
   | { status: "large"; contentLength: number };
 interface TranscriptOmittedPatch {
   path: string;
+  oldPath?: string; // a file the call moved: its old path, `path` being its new one
   size: number; // the patch's size in bytes
 }
 
@@ -289,15 +290,16 @@ interface TranscriptPatchCursor {
 }
 // One entry per left-out file: its patch with the lines it adds and removes, or why it cannot be
 // read: `absent` when no patch came, and `unreadable` when the provider sent one in a form this
-// version cannot read, which carries the text as sent, `rawPatch`, paged as a patch is. Each reply
-// is bounded by PAGE_MAX_BYTES as well: patches longer than one frame holds come back in
-// consecutive parts, as transcript.bodyRead's body does. A part holds the files from `cursor` on, its first entry's patch
-// starting at `cursor.offset` and its last one's ending where `next` starts; `next` is null on the
-// last part, and the client joins the pieces of one file in order.
+// version cannot read, which carries the text as sent, `rawPatch`, paged as a patch is. A file the
+// call moved is named by its new path, its old one in `oldPath`. Each reply is bounded by
+// PAGE_MAX_BYTES as well: patches longer than one frame holds come back in consecutive parts, as
+// transcript.bodyRead's body does. A part holds the files from `cursor` on, its first entry's
+// patch starting at `cursor.offset` and its last one's ending where `next` starts; `next` is null
+// on the last part, and the client joins the pieces of one file in order.
 type TranscriptPatchFile =
-  | { path: string; patch: string; additions: number; deletions: number }
-  | { path: string; unavailable: "absent" }
-  | { path: string; unavailable: "unreadable"; rawPatch: string };
+  | { path: string; oldPath?: string; patch: string; additions: number; deletions: number }
+  | { path: string; oldPath?: string; unavailable: "absent" }
+  | { path: string; oldPath?: string; unavailable: "unreadable"; rawPatch: string };
 interface TranscriptPatchReadResponse {
   files: TranscriptPatchFile[];
   next: TranscriptPatchCursor | null;
