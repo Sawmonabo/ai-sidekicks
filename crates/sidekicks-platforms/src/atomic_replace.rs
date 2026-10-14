@@ -105,17 +105,10 @@ mod tests {
             fs::read(target.join("kept")).expect("the target's file reads"),
             b"kept"
         );
-        let leftovers = fs::read_dir(scratch.path())
+        let entries = fs::read_dir(scratch.path())
             .expect("the scratch folder lists")
-            .map(|entry| {
-                entry
-                    .expect("an entry reads")
-                    .file_name()
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .filter(|name| name.starts_with("target.") && name.ends_with(".tmp"))
+            .map(|entry| entry.expect("an entry reads").file_name())
             .collect::<Vec<_>>();
-        assert_eq!(leftovers, Vec::<String>::new());
+        assert_eq!(entries, ["target"]);
     }
 }
