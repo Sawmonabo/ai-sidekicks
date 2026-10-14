@@ -1,7 +1,10 @@
 //! The driver every provider implements, its registry and the shared turn machinery.
 
 pub(crate) mod attachments;
+pub(crate) mod callback_tool;
+pub(crate) mod contract;
 pub(crate) mod diagnostics;
+pub(crate) mod mcp_server_status;
 pub(crate) mod plan_record;
 mod providers;
 pub(crate) mod question_answers;
