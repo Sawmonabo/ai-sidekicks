@@ -283,6 +283,10 @@ impl WriteQueue {
                     send_answer(reply, Err(CheckpointError::Ended(reason)));
                 } else if self.closing.is_some() {
                     send_answer(reply, Err(CheckpointError::Closed));
+                } else if mode == CheckpointMode::Passive
+                    && (self.writes_held_until.is_some() || !self.active_holds.is_empty())
+                {
+                    send_answer(reply, Err(CheckpointError::Held));
                 } else {
                     self.checkpoints
                         .push_back(PendingCheckpoint { mode, reply });
@@ -363,8 +367,9 @@ impl WriteQueue {
     }
 
     /// Answers what has come due and sends the thread its next request when none is in flight: a
-    /// hold whose writes have settled starts first, then a checkpoint, then a due batch. A close
-    /// whose writes have all settled lets the thread go.
+    /// hold whose writes have settled starts first, then a checkpoint, then a due batch, and
+    /// neither a checkpoint nor a batch goes while the writer holds its writes. A close whose
+    /// writes have all settled lets the thread go.
     fn advance(&mut self) {
         self.answer_settled_flushes();
         if self.batch.is_some() || self.checkpoint.is_some() {
@@ -383,11 +388,15 @@ impl WriteQueue {
             self.thread = None;
             return;
         }
+        if self.writes_held_until.is_some() {
+            self.batch_deadline = None;
+            return;
+        }
         if let Some(checkpoint) = self.checkpoints.pop_front() {
             self.send_checkpoint(checkpoint);
             return;
         }
-        if self.writes_held_until.is_some() || self.queued.is_empty() {
+        if self.queued.is_empty() {
             self.batch_deadline = None;
             return;
         }
@@ -419,6 +428,8 @@ impl WriteQueue {
         }
     }
 
+    /// Starts each hold whose writes have settled; a passive checkpoint queued then fails at once
+    /// rather than wait the hold out.
     fn start_ready_holds(&mut self) {
         let oldest = self.oldest_unsettled_ticket();
         while let Some(hold) = self.pending_holds.pop_front() {
@@ -428,6 +439,16 @@ impl WriteQueue {
             }
             self.active_holds.push(hold.id);
             send_answer(hold.started, ());
+        }
+        if !self.active_holds.is_empty() {
+            let (passive, truncating): (Vec<_>, VecDeque<_>) =
+                std::mem::take(&mut self.checkpoints)
+                    .into_iter()
+                    .partition(|checkpoint| checkpoint.mode == CheckpointMode::Passive);
+            self.checkpoints = truncating;
+            for checkpoint in passive {
+                send_answer(checkpoint.reply, Err(CheckpointError::Held));
+            }
         }
     }
 

@@ -4,8 +4,9 @@
 //! 50 entries or after 10 ms, whichever comes first; a write someone waits on sends its batch at
 //! once. Each batch commits as one transaction, each write in it under a savepoint of its own, and
 //! a write is never split across batches. At the queue's cap a write waits for room; none is
-//! dropped. A writer opened with a hold queues every write and sends none until the hold is let go,
-//! and work the writer is held for sees no commit and no checkpoint while it runs.
+//! dropped. A writer opened with a hold queues every write and checkpoint and sends none until the
+//! hold is let go, and work the writer is held for sees no commit and no checkpoint while it runs;
+//! a passive checkpoint asked while either holds is answered at once, without running.
 
 mod depth_sampler;
 pub(crate) mod messages;
@@ -76,8 +77,8 @@ pub(crate) struct WriteOptions {
 /// What the writer takes from the daemon besides its opener.
 #[derive(Default)]
 pub(crate) struct DatabaseWriterOptions {
-    /// Holds every write in the queue until it answers `Ok`; an error, or the sender dropped,
-    /// ends the writer with it, so no held write is ever sent.
+    /// Holds every write and checkpoint in the queue until it answers `Ok`; an error, or the sender
+    /// dropped, ends the writer with it, so no held write and no checkpoint is ever sent.
     pub(crate) writes_held_until: Option<oneshot::Receiver<Result<(), WritesHeldError>>>,
     /// Told of each failure SQLite raised for a write, a batch or a checkpoint, before its caller.
     pub(crate) on_write_failed: Option<WriteFailureListener>,
@@ -147,6 +148,9 @@ pub(crate) enum CheckpointError {
     /// The writer is closed; the checkpoint did not run.
     #[error("the database writer is closed; the checkpoint did not run")]
     Closed,
+    /// The writer holds its writes, so a passive checkpoint did not run rather than wait.
+    #[error("the database writer holds its writes; the passive checkpoint did not run")]
+    Held,
 }
 
 /// Why the hold a writer was opened with ended without letting its writes go.
@@ -386,8 +390,9 @@ impl DatabaseWriter {
     }
 
     /// Runs `work` once every write sent before this call has committed or failed, with no commit
-    /// and no checkpoint reaching the file while it runs: the writes and checkpoints asked for
-    /// meanwhile wait until it ends. Returns what `work` returns. Dropping the future mid-hold, or
+    /// and no checkpoint reaching the file while it runs: the writes and truncating checkpoints
+    /// asked for meanwhile wait until it ends, and a passive one fails with
+    /// [`CheckpointError::Held`]. Returns what `work` returns. Dropping the future mid-hold, or
     /// before the hold started, still lets the writes go.
     pub(crate) async fn hold_while<Work: Future>(
         &self,
@@ -416,7 +421,8 @@ impl DatabaseWriter {
     }
 
     /// Runs a WAL checkpoint in `mode` on the writer's connection, between batches and never
-    /// while work the writer is held for runs. It never waits for a reader holding an older
+    /// while the writer holds its writes: a truncating one waits the hold out, and a passive one
+    /// fails at once with [`CheckpointError::Held`]. It never waits for a reader holding an older
     /// snapshot: it answers busy at once. Fails with SQLite's error, or once the writer is ended
     /// or closed.
     pub(crate) async fn checkpoint(
@@ -438,17 +444,28 @@ impl DatabaseWriter {
         writer: Arc<Self>,
     ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static
     {
-        // A passive checkpoint never waits on anything, so the scheduler's stop needs no hook.
-        move |_stop| {
+        // The checkpoint waits for the batch in flight, so the scheduler's stop ends the wait; a
+        // hold answers it at once, so the scheduler never waits a hold out.
+        move |stop| {
             let writer = Arc::clone(&writer);
             async move {
-                let result = writer.checkpoint(CheckpointMode::Passive).await?;
-                tracing::debug!(
-                    is_busy = result.is_busy,
-                    log_frames = result.log_frames,
-                    checkpointed_frames = result.checkpointed_frames,
-                    "the passive WAL checkpoint ran"
-                );
+                let checkpointed = tokio::select! {
+                    biased;
+                    () = stop.cancelled() => return Ok(()),
+                    checkpointed = writer.checkpoint(CheckpointMode::Passive) => checkpointed,
+                };
+                match checkpointed {
+                    Ok(result) => tracing::debug!(
+                        is_busy = result.is_busy,
+                        log_frames = result.log_frames,
+                        checkpointed_frames = result.checkpointed_frames,
+                        "the passive WAL checkpoint ran"
+                    ),
+                    Err(CheckpointError::Held) => tracing::debug!(
+                        "the passive WAL checkpoint did not run: the writer holds its writes"
+                    ),
+                    Err(failure) => return Err(failure.into()),
+                }
                 ScheduledJobOutcome::Ok(())
             }
             .boxed()
