@@ -52,7 +52,8 @@ use crate::events::session::append_lock::SESSION_APPEND_LOCK;
 use crate::events::session::followers::SessionEventFollowers;
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
 use crate::events::session::read::{
-    SessionEventFilter, SessionEventReads, SessionLogReadError, resolve_event_cursor,
+    DamagedFromSequenceReader, SessionEventFilter, SessionEventReads, SessionLogReadError,
+    resolve_event_cursor,
 };
 use crate::ipc::domain_error::DomainError;
 
@@ -74,9 +75,6 @@ pub(crate) type ProjectionStatements =
 /// caller answers.
 pub(crate) type SessionWriteCheck =
     dyn Fn(&SessionId, &str) -> Result<(), DomainError> + Send + Sync;
-
-/// The sequence a damaged session's reads stop before, `None` for a session that reads whole.
-pub(crate) type DamagedFromSequenceReader = dyn Fn(&SessionId) -> Option<i64> + Send + Sync;
 
 /// The reads of one call, on the service's connection.
 type LogReads<'reader> = SessionEventReads<'reader, &'reader DamagedFromSequenceReader>;
@@ -421,9 +419,9 @@ impl EventLogService {
             let kept = usize::try_from(limit).unwrap_or(usize::MAX);
             let has_more = events.len() > kept;
             events.truncate(kept);
-            let next_position = events.last().map_or(after_position, |event| {
-                i64::try_from(event.sequence.get()).expect("a safe integer fits an i64")
-            });
+            let next_position = events
+                .last()
+                .map_or(after_position, |event| i64::from(event.sequence));
             Ok(EventReadAfterCursorResponse {
                 events,
                 next_cursor: encode_event_cursor(next_position)?,
