@@ -1,8 +1,9 @@
-//! The frames of a change stream: a change opens a window of `STREAM_WINDOW`, and the changes
-//! stored by its close go out as one frame, or at once at the `STREAM_FRAME_MAX_CHANGES`th; a
-//! throttle, not a debounce, so no change waits longer than a window. The batcher holds only its
-//! cursor: it reads the next frame from the record once the send gate lets it through, so a slow
-//! reader holds nothing in memory and loses nothing.
+//! The frames of a change stream: the first change signaled after a frame opens a window of
+//! `STREAM_WINDOW`, and the changes stored by its close go out as one frame, or at once at the
+//! `STREAM_FRAME_MAX_CHANGES`th; a throttle, not a debounce. The batcher sees a change that lands
+//! while a frame is written only when it next looks, so that change waits the write plus one
+//! window. The batcher holds only its cursor: it reads the next frame from the record once the
+//! send gate lets it through, so a slow reader holds nothing in memory and loses nothing.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,24 +25,31 @@ pub(crate) struct FrameBatcher<Record: ChangeRecord> {
     cursor: Record::Cursor,
     /// The record's change signal.
     change_count: watch::Receiver<u64>,
+    /// The signal's count when the last read began.
+    seen: u64,
+    /// Whether the next read goes at once: at the start, after a full frame, and once a window
+    /// passed or filled.
+    is_read_due: bool,
 }
 
 impl<Record: ChangeRecord> FrameBatcher<Record> {
-    /// A batcher whose first frame starts after `cursor`.
+    /// A batcher whose first frame starts after `cursor`; changes already stored go out at once.
     pub(crate) fn new(record: Arc<Record>, cursor: Record::Cursor) -> Self {
         let change_count = record.change_count();
         Self {
             record,
             cursor,
             change_count,
+            seen: 0,
+            is_read_due: true,
         }
     }
 
-    /// The next frame's changes, 1 to `STREAM_FRAME_MAX_CHANGES`, oldest first: read once `gate`
-    /// resolves, at once when changes wait, else one `STREAM_WINDOW` after the first change
-    /// signaled, or at once at the `STREAM_FRAME_MAX_CHANGES`th change signaled. `Ok(None)` once
-    /// the gate reports the subscription closed (or the record's signal is gone); a read failure
-    /// is the record's error.
+    /// The next frame's changes, 1 to `STREAM_FRAME_MAX_CHANGES`, oldest first, read once `gate`
+    /// resolves: at once while changes are due (stored before the stream began, or left past a
+    /// full frame), else one `STREAM_WINDOW` after the first change signaled since the last frame,
+    /// or at once at the `STREAM_FRAME_MAX_CHANGES`th. `Ok(None)` once the gate reports the
+    /// subscription closed (or the record's signal is gone); a read failure is the record's error.
     pub(crate) async fn next_frame(
         &mut self,
         gate: &dyn SendGate,
@@ -50,32 +58,39 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
             if gate.ready().await.is_err() {
                 return Ok(None);
             }
-            // Marked before the read, so a change appended after it is signaled to the wait below.
-            let seen = *self.change_count.borrow_and_update();
-            let changes = self
-                .record
-                .read_after(&self.cursor, STREAM_FRAME_MAX_CHANGES)
-                .await?;
-            if let Some(last) = changes.last() {
-                self.cursor = Record::cursor_of(last);
-                return Ok(Some(changes));
+            if self.is_read_due {
+                // Marked before the read, so a change appended after it is signaled to the wait.
+                self.seen = *self.change_count.borrow_and_update();
+                let changes = self
+                    .record
+                    .read_after(&self.cursor, STREAM_FRAME_MAX_CHANGES)
+                    .await?;
+                self.is_read_due = changes.len() == STREAM_FRAME_MAX_CHANGES;
+                if let Some(last) = changes.last() {
+                    self.cursor = Record::cursor_of(last);
+                    return Ok(Some(changes));
+                }
             }
-            if !self.wait_for_window(seen).await {
+            if !self.wait_for_window().await {
                 return Ok(None);
             }
+            self.is_read_due = true;
         }
     }
 
-    /// Waits for the first change signaled after `seen`, then until the window closes or the
-    /// `STREAM_FRAME_MAX_CHANGES`th change is signaled; false when the signal was gone before any
-    /// change came.
-    async fn wait_for_window(&mut self, seen: u64) -> bool {
+    /// Waits for the first change signaled since the last read began, then until the window it
+    /// opens closes or the `STREAM_FRAME_MAX_CHANGES`th change is signaled; false when the signal
+    /// was gone before any change came.
+    async fn wait_for_window(&mut self) -> bool {
         if self.change_count.changed().await.is_err() {
             return false;
         }
         let window_end = Instant::now() + STREAM_WINDOW;
         loop {
-            let signaled = self.change_count.borrow_and_update().saturating_sub(seen);
+            let signaled = self
+                .change_count
+                .borrow_and_update()
+                .saturating_sub(self.seen);
             if signaled >= STREAM_FRAME_MAX_CHANGES as u64 {
                 return true;
             }
@@ -195,6 +210,14 @@ mod tests {
             "left after {:?}",
             started.elapsed()
         );
+
+        // A change that lands while that frame is written waits one window of its own, so it is
+        // batched with the changes after it rather than sent alone.
+        record.append(1);
+        let started = Instant::now();
+        let frame = batcher.next_frame(&gate).await;
+        assert_eq!(frame.expect("the record never fails"), Some(vec![2]));
+        assert_eq!(started.elapsed(), STREAM_WINDOW, "it waited one window");
     }
 
     #[tokio::test(start_paused = true)]
