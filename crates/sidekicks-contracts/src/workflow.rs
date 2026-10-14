@@ -1,8 +1,10 @@
-//! Workflows: definitions, node kinds, runs, the secrets their steps read and the live stream.
+//! Workflows: definitions, node kinds, kept values, runs, the secrets their steps read and the live
+//! stream.
 
 use crate::typescript::TypeScriptModule;
 
 pub mod definition;
+pub mod kept_vars;
 pub mod kind;
 pub mod run;
 pub mod secret;
@@ -18,15 +20,18 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &definition::methods::TYPESCRIPT_MODULE,
     &definition::refusals::TYPESCRIPT_MODULE,
     &definition::versions::TYPESCRIPT_MODULE,
+    &kept_vars::TYPESCRIPT_MODULE,
     &kind::TYPESCRIPT_MODULE,
+    &run::attention::TYPESCRIPT_MODULE,
     &run::control::TYPESCRIPT_MODULE,
     &run::events::TYPESCRIPT_MODULE,
     &run::failures::TYPESCRIPT_MODULE,
     &run::gate_resolution::TYPESCRIPT_MODULE,
-    &run::housekeeping::TYPESCRIPT_MODULE,
     &run::id::TYPESCRIPT_MODULE,
     &run::list::TYPESCRIPT_MODULE,
+    &run::pause::TYPESCRIPT_MODULE,
     &run::records::TYPESCRIPT_MODULE,
+    &run::retention::TYPESCRIPT_MODULE,
     &run::snapshot::TYPESCRIPT_MODULE,
     &run::status::TYPESCRIPT_MODULE,
     &run::step::events::TYPESCRIPT_MODULE,

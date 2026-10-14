@@ -18,14 +18,14 @@ use crate::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowEdgeId, WorkflowVersionId,
 };
 use crate::workflow::definition::item::WorkflowStepError;
-use crate::workflow::run::housekeeping::{
-    WorkflowKeptVarsClearRequest, WorkflowKeptVarsClearResponse, WorkflowRunAttentionListResponse,
-    WorkflowRunDeleteRequest, WorkflowRunDeleteResponse, WorkflowRunKeepSet,
-    WorkflowRunsDeletePreviewResponse, WorkflowRunsDeleteRequest, WorkflowRunsDeleteResponse,
-    WorkflowRunsPauseSetRequest, WorkflowRunsPauseState,
-};
+use crate::workflow::run::attention::WorkflowRunAttentionListResponse;
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::list::{WorkflowRunListRequest, WorkflowRunListResponse};
+use crate::workflow::run::pause::{WorkflowRunsPauseSetRequest, WorkflowRunsPauseState};
+use crate::workflow::run::retention::{
+    WorkflowRunDeleteRequest, WorkflowRunDeleteResponse, WorkflowRunKeepSet,
+    WorkflowRunsDeletePreviewResponse, WorkflowRunsDeleteRequest, WorkflowRunsDeleteResponse,
+};
 use crate::workflow::run::snapshot::WorkflowRunEpoch;
 use crate::workflow::run::step::record::{WorkflowCost, WorkflowStep};
 use crate::workflow::run::trigger::{WorkflowRunMode, WorkflowStartedBy, WorkflowTriggerKind};
@@ -618,13 +618,6 @@ methods! {
             params: WorkflowRunsPauseSetRequest,
             result: WorkflowRunsPauseState,
             refusals: [],
-        },
-        /// Clears the values one workflow's runs kept for later runs.
-        WorkflowKeptVarsClear = mutation "workflow.keptVarsClear" {
-            mutating: true,
-            params: WorkflowKeptVarsClearRequest,
-            result: WorkflowKeptVarsClearResponse,
-            refusals: [WorkflowNotFound],
         },
     ];
 }
