@@ -8,6 +8,7 @@ use strum::VariantArray;
 use crate::provider::account::record::ProviderAccountId;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::name::ProviderName;
+use crate::schema::push_all_of;
 use crate::wire::Never;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::unique_by;
@@ -86,42 +87,30 @@ fn binds_each_driver_once(
 /// States [`binds_each_driver_once`] in the schema, one rule per provider: `overrides` names it
 /// at most once, and not at all when `default` names it.
 fn add_each_driver_once_rule(schema: &mut schemars::Schema) {
-    let rules: Vec<serde_json::Value> = ProviderName::VARIANTS
-        .iter()
-        .map(|driver| {
-            let names_driver = serde_json::json!({
+    for driver in ProviderName::VARIANTS {
+        let names_driver = serde_json::json!({
+            "type": "object",
+            "properties": { "driverName": { "const": driver } },
+            "required": ["driverName"],
+        });
+        let overrides_naming_it_at_most = |count: usize| {
+            serde_json::json!({ "type": "object", "properties": { "overrides": {
+                "type": "array",
+                "contains": names_driver,
+                "minContains": 0,
+                "maxContains": count,
+            } } })
+        };
+        let rule = serde_json::json!({
+            "if": {
                 "type": "object",
-                "properties": { "driverName": { "const": driver } },
-                "required": ["driverName"],
-            });
-            let overrides_naming_it_at_most = |count: usize| {
-                serde_json::json!({ "type": "object", "properties": { "overrides": {
-                    "type": "array",
-                    "contains": names_driver,
-                    "minContains": 0,
-                    "maxContains": count,
-                } } })
-            };
-            serde_json::json!({
-                "if": {
-                    "type": "object",
-                    "properties": { "default": names_driver },
-                    "required": ["default"],
-                },
-                "then": overrides_naming_it_at_most(0),
-                "else": overrides_naming_it_at_most(1),
-            })
-        })
-        .collect();
-    match schema.ensure_object().entry("allOf") {
-        serde_json::map::Entry::Occupied(mut held) => {
-            if let Some(arms) = held.get_mut().as_array_mut() {
-                arms.extend(rules);
-            }
-        }
-        serde_json::map::Entry::Vacant(free) => {
-            free.insert(rules.into());
-        }
+                "properties": { "default": names_driver },
+                "required": ["default"],
+            },
+            "then": overrides_naming_it_at_most(0),
+            "else": overrides_naming_it_at_most(1),
+        });
+        push_all_of(schema, rule);
     }
 }
 
