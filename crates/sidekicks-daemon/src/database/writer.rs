@@ -629,9 +629,11 @@ impl WriterShared {
 }
 
 /// Why the writer's thread stops what it runs, read before each statement, each write and the
-/// commit. Only an ended writer's thread closes without the closing checkpoint.
+/// commit, and whether its close skips the closing checkpoint.
 struct ThreadStop {
     state: AtomicU8,
+    /// Whether the drain bound's stop interrupted a batch or checkpoint in flight.
+    is_cut_at_bound: AtomicBool,
 }
 
 /// How the writer's thread was stopped; a later, stronger stop replaces an earlier one.
@@ -647,6 +649,7 @@ impl ThreadStop {
     fn new() -> Self {
         Self {
             state: AtomicU8::new(0),
+            is_cut_at_bound: AtomicBool::new(false),
         }
     }
 
@@ -660,6 +663,22 @@ impl ThreadStop {
 
     fn is_ended(&self) -> bool {
         self.state.load(Ordering::Acquire) == StopKind::Ended as u8
+    }
+
+    /// Records that the drain bound's stop interrupted a batch or checkpoint in flight.
+    fn cut_at_bound(&self) {
+        self.is_cut_at_bound.store(true, Ordering::Release);
+    }
+
+    fn is_cut_at_bound(&self) -> bool {
+        self.is_cut_at_bound.load(Ordering::Acquire)
+    }
+
+    /// Whether the close skips its checkpoint: an ended writer keeps the files as they were found,
+    /// and a stop cut at its bound leaves the log for the next open to replay, since its pending
+    /// interrupt would stop that checkpoint at once.
+    fn skips_checkpoint(&self) -> bool {
+        self.is_ended() || self.is_cut_at_bound()
     }
 }
 

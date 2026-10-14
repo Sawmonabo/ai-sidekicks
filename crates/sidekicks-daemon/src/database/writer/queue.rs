@@ -772,6 +772,7 @@ impl WriteQueue {
         // With nothing running, an interrupt would stay pending and cut the closing checkpoint
         // short.
         if self.batch.is_some() || self.checkpoint.is_some() {
+            self.shared.stop.cut_at_bound();
             self.shared.interrupt_thread();
         }
         let unsent = self.fail_unsent(|| WriteError::ClosedAtDrainBound);

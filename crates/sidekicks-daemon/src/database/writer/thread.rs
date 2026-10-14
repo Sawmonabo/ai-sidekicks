@@ -60,7 +60,16 @@ pub(super) fn run<OpenError>(
     if opened.send(Ok(connection.get_interrupt_handle())).is_ok() {
         serve(&mut connection, requests, stop);
     }
-    if exit.send(close(connection, stop.is_ended())).is_err() {
+    let closed = close(connection, stop.skips_checkpoint());
+    if stop.is_cut_at_bound() && !stop.is_ended() {
+        tracing::warn!(
+            is_checkpoint_skipped = true,
+            stop = "drain_bound",
+            "the database writer closed without its checkpoint: the stop's bound interrupted a \
+             write, and the next open replays the log"
+        );
+    }
+    if exit.send(closed).is_err() {
         tracing::debug!("the database writer's queue stopped waiting before its thread exited");
     }
 }
@@ -87,10 +96,11 @@ fn serve(
     }
 }
 
-/// Closes the connection. An ended writer's close first turns off the checkpoint SQLite makes on
-/// the last close, so the files stay as they were found whatever else still holds them open.
-fn close(connection: Connection, is_ended: bool) -> ThreadExit {
-    let switch_failure = if is_ended {
+/// Closes the connection. When `skips_checkpoint`, the close first turns off the checkpoint SQLite
+/// makes on the last close, whatever else still holds the file open: an ended writer keeps the
+/// files as they were found, and a stop cut at its bound leaves the log for the next open to replay.
+fn close(connection: Connection, skips_checkpoint: bool) -> ThreadExit {
+    let switch_failure = if skips_checkpoint {
         connection
             .set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)
             .err()
