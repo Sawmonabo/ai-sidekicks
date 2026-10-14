@@ -18,6 +18,7 @@ pub mod highlight;
 pub mod interventions;
 pub mod ipc;
 pub mod issue_path;
+pub mod javascript_key_order;
 pub mod keyed_lock;
 pub mod mcp;
 pub mod observability;
