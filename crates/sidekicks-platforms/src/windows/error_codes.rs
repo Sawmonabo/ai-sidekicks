@@ -18,7 +18,7 @@ pub fn is_out_of_open_files(error: &io::Error) -> bool {
 }
 
 /// Whether `error` says the entry is busy: `ERROR_BUSY`, or a sharing, lock or pipe-busy refusal,
-/// which libuv also reads as busy.
+/// each of which says another handle holds the entry for now.
 pub fn is_resource_busy(error: &io::Error) -> bool {
     let code = win32_code(error);
     error.kind() == ErrorKind::ResourceBusy
@@ -27,8 +27,9 @@ pub fn is_resource_busy(error: &io::Error) -> bool {
         || code == Some(ERROR_PIPE_BUSY)
 }
 
-/// Whether `error` says the volume makes no hard links: `ERROR_NOT_SUPPORTED`, or the
-/// `ERROR_INVALID_FUNCTION` that `CreateHardLinkW` answers on exFAT and FAT32.
+/// Whether `error`, from hard-linking a regular file the caller made, says the volume makes no hard
+/// links: `ERROR_NOT_SUPPORTED`, or the `ERROR_INVALID_FUNCTION` that `CreateHardLinkW` answers on
+/// exFAT and FAT32.
 pub fn is_hard_link_unsupported(error: &io::Error) -> bool {
     let code = win32_code(error);
     code == Some(ERROR_NOT_SUPPORTED) || code == Some(ERROR_INVALID_FUNCTION)

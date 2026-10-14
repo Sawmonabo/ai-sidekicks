@@ -1,9 +1,9 @@
 //! Gives a whole file its real name without replacing a file that already has it. The file, written
 //! under a temporary name beside the target, is hard-linked to the target's name, which refuses a
 //! name already taken in the same step, and the temporary name is then removed. A volume with no
-//! hard links (`exFAT` on macOS, `exFAT` and FAT32 on Windows, which refuse the link as
-//! unsupported) takes a check that the name is free and a rename instead: a file made under the
-//! name between the two is the one case replaced.
+//! hard links (`exFAT` on macOS, FAT and `exFAT` on Linux, `exFAT` and FAT32 on Windows, each of
+//! which refuses the link) takes a check that the name is free and a rename instead: a file made
+//! under the name between the two is the one case replaced.
 
 use std::io;
 use std::path::Path;

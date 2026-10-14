@@ -15,13 +15,16 @@ pub fn is_resource_busy(error: &io::Error) -> bool {
     error.kind() == ErrorKind::ResourceBusy
 }
 
-/// Whether `error` says the volume makes no hard links: macOS's exFAT answers `ENOTSUP`, which std
-/// leaves unmapped.
+/// Whether `error`, from hard-linking a regular file the caller made, says the volume makes no hard
+/// links: macOS's exFAT answers `ENOTSUP`, which std leaves unmapped, and Linux's FAT and exFAT
+/// answer `EPERM`, which for a file its owner links means the file system has no links at all.
 pub fn is_hard_link_unsupported(error: &io::Error) -> bool {
     // Linux gives both names one value; each is compared, never matched, so neither goes unread.
-    error
-        .raw_os_error()
-        .is_some_and(|code| code == libc::ENOTSUP || code == libc::EOPNOTSUPP)
+    error.raw_os_error().is_some_and(|code| {
+        code == libc::ENOTSUP
+            || code == libc::EOPNOTSUPP
+            || (cfg!(target_os = "linux") && code == libc::EPERM)
+    })
 }
 
 /// Whether `error` says a rename was refused because a program holds a file under it open; a
