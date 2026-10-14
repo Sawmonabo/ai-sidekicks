@@ -27,6 +27,7 @@ use sidekicks_contracts::provider::driver::length_limits::{
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::tools::{ProviderToolMetadata, SessionCallbackTool};
+use sidekicks_contracts::provider::driver::ultracode::ObservedUltracode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
@@ -493,15 +494,6 @@ pub(crate) struct GetCapabilitiesResult {
     /// when `output_speed` is on and the driver declares a fixed set. With neither this nor a
     /// per-model set, a person's request for a level refuses. It survives a cache rebuild.
     pub(crate) output_speed_levels: Option<Vec<String>>,
-}
-
-/// The Ultracode state a provider reported for a session's live binding.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ObservedUltracode {
-    /// Whether the provider reported it in effect.
-    pub(crate) is_on: bool,
-    /// Whether the session can run it.
-    pub(crate) is_available: bool,
 }
 
 /// What a resume did, built by the driver from provider output. A failed resume carries why and

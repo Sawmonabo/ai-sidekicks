@@ -10,4 +10,5 @@ pub mod methods;
 pub mod output_speed;
 pub mod recovery;
 pub mod tools;
+pub mod ultracode;
 pub mod usage_limit;
