@@ -1,11 +1,13 @@
-//! What Linux alone supplies: the machine's pretty host name, and inside a WSL distribution the
-//! folders the Windows drives are mounted at.
+//! What Linux alone supplies: the machine's pretty host name, inside a WSL distribution the folders
+//! the Windows drives are mounted at, and reads at an offset rather than through a memory map.
 
 use std::ffi::OsString;
 use std::io::{self, ErrorKind};
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
+#[cfg(any(test, feature = "test-support"))]
+use crate::footprint::ProcessFootprint;
 use crate::machine_name::{MachineNameError, require_machine_name};
 use crate::spawner::Spawner;
 
@@ -58,6 +60,19 @@ pub fn windows_drive_mounts() -> io::Result<Vec<PathBuf>> {
     let kernel_release = std::fs::read(KERNEL_RELEASE_PATH)?;
     let mount_table = std::fs::read(MOUNT_TABLE_PATH)?;
     Ok(drive_mounts_in(&kernel_release, &mount_table))
+}
+
+/// Whether a reader that keeps a file open reads it through a memory map rather than by reads at
+/// an offset: no, since only macOS's footprint measures a mapped file smaller.
+pub const SHOULD_MEMORY_MAP_READS: bool = false;
+
+/// This process's footprint, which only macOS reports. Always fails with `Unsupported`.
+#[cfg(any(test, feature = "test-support"))]
+pub fn process_footprint() -> io::Result<ProcessFootprint> {
+    Err(io::Error::new(
+        ErrorKind::Unsupported,
+        "only macOS reports a process's footprint",
+    ))
 }
 
 // The value of the first `PRETTY_HOSTNAME=` line in an environment-style file: `KEY=VALUE` lines,

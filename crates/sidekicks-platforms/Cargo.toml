@@ -94,7 +94,7 @@ nix.workspace = true
 
 [features]
 # Helpers other crates' tests use: the per-platform programs a test runs in a terminal, and the
-# process's footprint the search index's measurements read.
+# process's footprint and the `uptime` line the search index's measurements read.
 test-support = []
 
 [lints]

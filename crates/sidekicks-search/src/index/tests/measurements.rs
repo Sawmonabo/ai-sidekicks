@@ -29,10 +29,11 @@
 //! Settings come from the environment: `SEARCH_INDEX_FOLDER` (the index; `rebuild` replaces it),
 //! `SEARCH_INDEX_SCALE` (1: 10,000 sessions and 1M messages; 10: ten times both),
 //! `SEARCH_INDEX_ARENA_MIB` (64), `SEARCH_INDEX_BATCH_ROWS` (5,000), `SEARCH_INDEX_RUNS` (20) and
-//! `SEARCH_INDEX_READ_MODE` (`positioned` or `memory-map`).
+//! `SEARCH_INDEX_READ_MODE` (`positioned`, or `memory-map` where the platform reads through a
+//! memory map).
 
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::str::FromStr;
 use std::time::Instant;
 
@@ -84,7 +85,7 @@ impl Settings {
         let read_mode: String = variable("SEARCH_INDEX_READ_MODE", "positioned".to_string());
         let read_mode = match read_mode.as_str() {
             "positioned" => ReadMode::Positioned,
-            "memory-map" => ReadMode::MemoryMap,
+            "memory-map" if sidekicks_platforms::SHOULD_MEMORY_MAP_READS => ReadMode::MemoryMap,
             other => panic!("SEARCH_INDEX_READ_MODE={other} is no read mode here"),
         };
         Settings {
@@ -129,10 +130,12 @@ impl Settings {
     }
 }
 
+// The `uptime` line, or why a platform without it has none; any other failure ends the run.
 fn uptime() -> String {
-    match Command::new("uptime").output() {
-        Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_string(),
-        Err(error) => format!("uptime did not run: {error}"),
+    match sidekicks_platforms::uptime_line() {
+        Ok(line) => line,
+        Err(error) if error.kind() == ErrorKind::Unsupported => format!("not read: {error}"),
+        Err(error) => panic!("uptime did not run: {error}"),
     }
 }
 
@@ -149,7 +152,7 @@ fn bytes_in_mebibytes(bytes: u64) -> f64 {
 }
 
 // The process's footprint now and at its peak, in MiB, with the line the `footprint` tool prints
-// for the process.
+// for the process, or why a platform without one has none; any other failure ends the run.
 fn footprint() -> String {
     match sidekicks_platforms::process_footprint() {
         Ok(footprint) => format!(
@@ -158,7 +161,10 @@ fn footprint() -> String {
             bytes_in_mebibytes(footprint.peak_bytes),
             footprint.tool_line,
         ),
-        Err(error) => format!("footprint not read: {error}"),
+        Err(error) if error.kind() == ErrorKind::Unsupported => {
+            format!("footprint not read: {error}")
+        }
+        Err(error) => panic!("the footprint read failed: {error}"),
     }
 }
 

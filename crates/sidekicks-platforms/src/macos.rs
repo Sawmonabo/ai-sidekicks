@@ -1,4 +1,5 @@
-//! What macOS alone supplies: the machine's computer name, and no Windows drive mounts.
+//! What macOS alone supplies: the machine's computer name, no Windows drive mounts, reads through a
+//! memory map, and the process's footprint.
 
 use std::io;
 use std::path::PathBuf;
@@ -6,12 +7,18 @@ use std::process::Stdio;
 
 use tokio::process::Command;
 
+#[cfg(any(test, feature = "test-support"))]
+use crate::footprint::ProcessFootprint;
 use crate::machine_name::{MachineNameError, require_machine_name};
 use crate::posix::shell_start::arm_parent_death;
 use crate::spawner::Spawner;
 
 // The program that reads the computer name, by its full path so no `PATH` entry stands in for it.
 const SCUTIL_PROGRAM: &str = "/usr/sbin/scutil";
+
+// The program that prints the process's footprint, by its full path for the same reason.
+#[cfg(any(test, feature = "test-support"))]
+const FOOTPRINT_PROGRAM: &str = "/usr/bin/footprint";
 
 // The computer name the person set in System Settings, never the host name, which reads
 // `Name-Mac-mini.local`.
@@ -59,4 +66,44 @@ pub async fn machine_name(spawner: &Spawner) -> Result<String, MachineNameError>
 /// fails.
 pub fn windows_drive_mounts() -> io::Result<Vec<PathBuf>> {
     Ok(Vec::new())
+}
+
+/// Whether a reader that keeps a file open reads it through a memory map rather than by reads at
+/// an offset: yes, since macOS's footprint (the memory it charges a process) leaves out a mapped
+/// file's clean pages, so a mapped file measures smaller.
+pub const SHOULD_MEMORY_MAP_READS: bool = true;
+
+/// This process's footprint. Fails with the system's error when macOS refuses the read.
+#[cfg(any(test, feature = "test-support"))]
+pub fn process_footprint() -> io::Result<ProcessFootprint> {
+    let process = std::process::id();
+    // SAFETY: `rusage_info_v4` is a C struct of integers, for which all zero bytes are valid.
+    let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+    let buffer = (&raw mut info).cast::<libc::rusage_info_t>();
+    let pid = libc::pid_t::try_from(process).map_err(io::Error::other)?;
+    // SAFETY: `buffer` points at a live `rusage_info_v4`, the struct `RUSAGE_INFO_V4` asks the call
+    // to fill, and nothing else reads it until the call returns.
+    let status = unsafe { libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V4, buffer) };
+    if status != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let tool_line = match std::process::Command::new(FOOTPRINT_PROGRAM)
+        .arg("-p")
+        .arg(process.to_string())
+        .output()
+    {
+        Ok(output) => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .find(|line| line.contains("Footprint:"))
+            .map_or_else(
+                || "no footprint line".to_string(),
+                |line| line.trim().to_string(),
+            ),
+        Err(error) => format!("footprint did not run: {error}"),
+    };
+    Ok(ProcessFootprint {
+        current_bytes: info.ri_phys_footprint,
+        peak_bytes: info.ri_lifetime_max_phys_footprint,
+        tool_line,
+    })
 }

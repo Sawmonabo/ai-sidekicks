@@ -13,7 +13,7 @@ lru = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 sidekicks-platforms = { workspace = true, optional = true }
-# The memory map is built on every platform, which says where the index reads through it.
+# The memory map, built on every platform; `sidekicks-platforms` says where the index maps files.
 tantivy = { workspace = true, features = ["mmap"], optional = true }
 # Tantivy's own bit set, at the version Tantivy builds with, so the two crates share the type.
 tantivy-common = { workspace = true, optional = true }
@@ -26,7 +26,7 @@ writeable = { workspace = true, optional = true }
 # The case fold the index's fold is held equal to.
 caseless.workspace = true
 rstest.workspace = true
-# The process's footprint the measurements read.
+# The process's footprint and the `uptime` line the measurements read.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 

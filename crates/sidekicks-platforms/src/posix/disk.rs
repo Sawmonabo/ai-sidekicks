@@ -15,11 +15,6 @@ pub fn volume_free_bytes(folder: &Path) -> io::Result<u64> {
         .ok_or_else(|| io::Error::other("the volume's free room passes 64 bits"))
 }
 
-/// Whether a reader that keeps a file open reads it through a memory map rather than by reads at
-/// an offset: on macOS alone, whose footprint (the memory it charges a process) leaves out a mapped
-/// file's clean pages, so a mapped file measures smaller there.
-pub const SHOULD_MEMORY_MAP_READS: bool = cfg!(target_os = "macos");
-
 /// Fills `buffer` from `file` at byte `offset`; each read names its own offset, so threads sharing
 /// one handle read independently. Fails with `UnexpectedEof` when the file ends first, or with the
 /// read's error.
