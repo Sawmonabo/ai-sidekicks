@@ -24,8 +24,6 @@ pub mod missing_entry;
 pub mod observability;
 pub mod operating_system;
 pub mod orchestration;
-pub mod path_resolution;
-pub mod path_rules;
 pub mod policy;
 pub mod processor_bound;
 pub mod provider;

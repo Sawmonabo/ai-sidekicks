@@ -1,6 +1,7 @@
 //! What Linux alone supplies: the machine's pretty host name, inside a WSL distribution the folders
-//! the Windows drives are mounted at, reads at an offset rather than through a memory map, a
-//! process's fields from its stat file, and the bound on a program's argument.
+//! the Windows drives are mounted at and the place folders sit, reads at an offset rather than
+//! through a memory map, a process's fields from its stat file, and the bound on a program's
+//! argument.
 
 use std::ffi::OsString;
 use std::io::{self, ErrorKind};
@@ -9,6 +10,7 @@ use std::path::PathBuf;
 
 use nix::unistd::SysconfVar;
 
+use crate::folder_place::FolderPlace;
 #[cfg(any(test, feature = "test-support"))]
 use crate::footprint::ProcessFootprint;
 use crate::machine_name::{MachineNameError, require_machine_name};
@@ -72,6 +74,19 @@ pub fn windows_drive_mounts() -> io::Result<Vec<PathBuf>> {
     let kernel_release = std::fs::read(KERNEL_RELEASE_PATH)?;
     let mount_table = std::fs::read(MOUNT_TABLE_PATH)?;
     Ok(drive_mounts_in(&kernel_release, &mount_table))
+}
+
+/// Where folders sit for the service: inside the WSL distribution `WSL_DISTRO_NAME` names when it is
+/// set, with the Windows drives mounted into it, else on the service's own disk. Fails as
+/// [`windows_drive_mounts`] fails.
+pub fn folder_place() -> io::Result<FolderPlace> {
+    let Some(distribution_name) = std::env::var_os("WSL_DISTRO_NAME") else {
+        return Ok(FolderPlace::OwnDisk);
+    };
+    Ok(FolderPlace::Wsl {
+        distribution_name: distribution_name.to_string_lossy().into_owned(),
+        windows_drive_mounts: windows_drive_mounts()?,
+    })
 }
 
 /// Whether a reader that keeps a file open reads it through a memory map rather than by reads at

@@ -1,5 +1,7 @@
-//! All operating-system code behind one interface the other crates call, with one module per
-//! platform.
+//! All operating-system code behind one interface the other crates call: the interface's shared
+//! types, a module per platform supplying the running system's implementation (`macos`, `linux`,
+//! `windows`, and `posix` for what the first two share), and the `path` module, which reads a path
+//! by either system's rules on every system.
 #![expect(
     unsafe_code,
     reason = "the terminal's window size, console and library-search calls, the shell start's \
@@ -11,6 +13,7 @@
 
 mod atomic_replace;
 mod entry_identity;
+mod folder_place;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
 #[cfg(target_os = "linux")]
@@ -18,6 +21,7 @@ mod linux;
 mod machine_name;
 #[cfg(target_os = "macos")]
 mod macos;
+mod path;
 #[cfg(unix)]
 mod posix;
 mod shell_start;
@@ -29,21 +33,24 @@ mod windows;
 
 pub use atomic_replace::{ReplaceFileError, replace_file_atomically};
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
+pub use folder_place::FolderPlace;
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::process_footprint;
 #[cfg(target_os = "linux")]
-pub use linux::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
+pub use linux::{SHOULD_MEMORY_MAP_READS, folder_place, machine_name, windows_drive_mounts};
 #[cfg(target_os = "linux")]
 pub use linux::{read_command_argument_limit, read_parent_process_id};
 pub use machine_name::MachineNameError;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::process_footprint;
 #[cfg(target_os = "macos")]
-pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
+pub use macos::{SHOULD_MEMORY_MAP_READS, folder_place, machine_name, windows_drive_mounts};
 #[cfg(target_os = "macos")]
 pub use macos::{read_command_argument_limit, read_parent_process_id};
+pub use path::resolution::{resolve_path, resolve_path_against};
+pub use path::rules::PathRules;
 #[cfg(unix)]
 pub use posix::askpass::askpass_listener;
 #[cfg(unix)]
@@ -58,6 +65,8 @@ pub use posix::entry_identity::entry_identity;
 pub use posix::error_codes::{
     is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
 };
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::file_system::UnremovableFile;
 #[cfg(unix)]
 pub use posix::file_system::{
     CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, remove_tree, rename_replacing,
@@ -101,7 +110,7 @@ pub use windows::caller_process::{read_parent_process_id, read_peer_process_id};
 pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]
 pub use windows::disk::{
-    FlushFailure, SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, flush_open_file,
+    FlushFailure, SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, flush_open_file, folder_place,
     read_exact_at, volume_free_bytes, windows_drive_mounts,
 };
 #[cfg(target_os = "windows")]
@@ -110,6 +119,8 @@ pub use windows::entry_identity::entry_identity;
 pub use windows::error_codes::{
     is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
 };
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::file_system::UnremovableFile;
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
     CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, remove_tree, rename_replacing,
