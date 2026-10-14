@@ -63,9 +63,10 @@ fn credential_kind(provider: ProviderName, mode: ProviderAuthMode) -> Option<Str
 }
 
 /// The label every screen names an account by, drawn from its `fields`, or `None` for an account
-/// still signing in that its provider has not named yet. A token or API-key account reads its typed name beside the
-/// credential's kind (`Work · Codex API key`); every other account reads the email, the plan in
-/// its provider's own word, then the organization (`sam@example.org · Business · Example Inc`).
+/// still signing in that its provider has not named yet. A token or API-key account reads its
+/// typed name beside the credential's kind (`Work · Codex API key`); every other account reads the
+/// email, the plan in its provider's own word, then the organization
+/// (`sam@example.org · Business · Example Inc`).
 pub fn account_label(fields: &AccountLabelFields<'_>) -> Option<String> {
     if let Some(display_label) = fields.display_label {
         let kind = fields
