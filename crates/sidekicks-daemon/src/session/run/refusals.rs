@@ -22,7 +22,7 @@ pub(crate) enum RunRefusal {
     },
     /// A `run.pause` or `run.resume` whose expected version is not the run's current one, older
     /// or newer (`run.version_stale`); the run is as it was.
-    #[error("The run is at version {run_version}, not {expected_run_version}")]
+    #[error("The run's version is not the one the call expected")]
     VersionStale {
         /// The run asked for.
         run_id: RunId,
