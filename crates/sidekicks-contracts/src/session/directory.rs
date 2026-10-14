@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::binding::{AgentProviderBinding, provider_binding};
 use crate::free_form_string::FilesystemPath;
-use crate::jsonrpc::page::fits_one_page;
+use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::jsonrpc::streaming::{SubscribeAckResponse, SubscriptionId};
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -234,6 +234,7 @@ pub struct SessionListAck {
     pub subscription_id: SubscriptionId,
     /// The first page of sessions.
     #[garde(dive, custom(fits_one_page))]
+    #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub sessions: Vec<SessionListEntry>,
     /// The chats in the live list.
     pub chat_count: SafeInt<0>,
@@ -256,6 +257,7 @@ pub enum SessionListChange {
     Page {
         /// The sessions, at least one.
         #[garde(dive, custom(fits_one_page))]
+        #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
         sessions: BoundedVec<SessionListEntry, 1, { usize::MAX }>,
         /// The chats in the live list.
         chat_count: SafeInt<0>,

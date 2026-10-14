@@ -40,6 +40,7 @@ pub enum TranscriptRowContent {
     Available {
         /// The body; a prefix when `contentTruncated` is `true`. A body whose JSON takes more than
         /// [`TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES`] bytes belongs on the `large` arm.
+        #[schemars(extend("maxJsonBytes" = TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES))]
         #[garde(custom(|body: &BoundedText<0, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES>, (): &()| {
             fits_budget(body, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES)
         }))]
@@ -258,6 +259,7 @@ pub enum TranscriptBodyReadResponse {
     Available {
         /// This part of the body; the whole is a prefix when `contentTruncated` is `true`.
         #[garde(custom(fits_one_page))]
+        #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
         body: StoredBodyText,
         /// Where this part starts, as a UTF-8 byte offset into the body.
         offset: SafeInt<0>,
@@ -367,6 +369,7 @@ pub enum TranscriptPatchFile {
 pub struct TranscriptPatchReadResponse {
     /// The files.
     #[garde(dive, custom(fits_one_page))]
+    #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub files: Vec<TranscriptPatchFile>,
     /// Where the next part starts, or `null` on the last part.
     #[serde(deserialize_with = "crate::wire::nullable")]

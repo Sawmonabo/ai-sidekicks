@@ -10,7 +10,7 @@ use crate::agent::definition::AgentId;
 use crate::event::envelope::EventEnvelope;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
-use crate::jsonrpc::page::fits_one_page;
+use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::jsonrpc::streaming::stream_frame;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -122,6 +122,7 @@ pub struct SessionRecord {
     pub address: FilesystemPath,
     /// Its tags as first written, in the order of their case fold.
     #[garde(dive, custom(fits_one_page))]
+    #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub tags: TagList,
 }
 
@@ -463,6 +464,7 @@ pub struct SessionSearchContinuing {
     #[garde(custom(|groups: &NonEmptyList<SessionSearchGroup>, (): &()| {
         require_search_page(groups.as_slice())
     }))]
+    #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub groups: NonEmptyList<SessionSearchGroup>,
     /// More hits follow.
     pub has_more: True,
@@ -479,6 +481,7 @@ pub struct SessionSearchTerminal {
     /// The hits grouped by session, sessions in the order of their best hit.
     #[garde(dive)]
     #[garde(custom(|groups: &Vec<SessionSearchGroup>, (): &()| require_search_page(groups)))]
+    #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub groups: Vec<SessionSearchGroup>,
     /// No hits follow.
     pub has_more: False,

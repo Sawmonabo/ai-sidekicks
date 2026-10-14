@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
-use crate::jsonrpc::page::fits_one_page;
+use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::repo::mount::RepoMountId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -134,6 +134,7 @@ pub struct SessionConvertSkippedFileListRequest {
 pub struct SessionConvertSkippedFilesContinuing {
     /// The files, in path order.
     #[garde(custom(fits_one_page))]
+    #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub files:
         BoundedVec<SessionConvertSkippedFile, 1, SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX>,
     /// More files follow.
@@ -151,6 +152,7 @@ pub struct SessionConvertSkippedFilesContinuing {
 pub struct SessionConvertSkippedFilesTerminal {
     /// The files, in path order.
     #[garde(custom(fits_one_page))]
+    #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub files:
         BoundedVec<SessionConvertSkippedFile, 0, SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX>,
     /// No files follow.

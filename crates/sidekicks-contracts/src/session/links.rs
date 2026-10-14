@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::jsonrpc::page::fits_one_page;
+use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -85,6 +85,7 @@ pub struct SessionRelatedListUpdate {
     pub session_id: SessionId,
     /// Its related sessions.
     #[garde(custom(fits_one_page))]
+    #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub related: Vec<SessionRelatedListEntry>,
 }
 

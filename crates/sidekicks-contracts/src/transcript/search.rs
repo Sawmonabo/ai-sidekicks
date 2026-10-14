@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::event::version::EVENT_FIELD_MAX_LEN;
-use crate::jsonrpc::page::fits_one_page;
+use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::session::methods::{SearchMatchRange, require_match_ranges_in_order_within};
@@ -100,6 +100,7 @@ pub struct TranscriptSearchContinuing {
     #[garde(custom(|hits: &SearchHits<1>, (): &()| {
         require_hits_counted(hits.as_slice(), self.match_count)
     }))]
+    #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub hits: SearchHits<1>,
     /// More hits follow.
     pub has_more: True,
@@ -120,6 +121,7 @@ pub struct TranscriptSearchTerminal {
     #[garde(custom(|hits: &SearchHits<0>, (): &()| {
         require_hits_counted(hits.as_slice(), self.match_count)
     }))]
+    #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub hits: SearchHits<0>,
     /// No hits follow.
     pub has_more: False,

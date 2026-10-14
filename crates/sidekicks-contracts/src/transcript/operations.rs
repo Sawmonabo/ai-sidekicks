@@ -302,6 +302,7 @@ pub struct ReasoningSurfaceContinuing {
     #[garde(custom(|entries: &ReasoningEntries<1>, (): &()| {
         require_reasoning_page(entries.as_slice())
     }))]
+    #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub reasoning_entries: ReasoningEntries<1>,
     /// More entries follow.
     pub has_more: True,
@@ -323,6 +324,7 @@ pub struct ReasoningSurfaceTerminal {
     #[garde(custom(|entries: &ReasoningEntries<0>, (): &()| {
         require_reasoning_page(entries.as_slice())
     }))]
+    #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub reasoning_entries: ReasoningEntries<0>,
     /// No entries follow.
     pub has_more: False,
@@ -414,6 +416,11 @@ macro_rules! child_run_expand_arm {
             #[garde(custom(|entries: &ReadEntries<$min>, (): &()| {
                 require_expansion_rows(&self.run_id, entries.as_slice())
             }))]
+            #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES, "not" = { "contains": {
+                "type": "object",
+                "properties": { "runId": { "not": { "const": { "$data": "3/runId" } } } },
+                "required": ["runId"],
+            } }))]
             pub entries: ReadEntries<$min>,
             $($arm_member)*
         }
