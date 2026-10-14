@@ -384,6 +384,10 @@ impl ListKey for WorkflowHumanFormPathAnswer {
     fn list_key(&self) -> String {
         self.field.as_str().to_owned()
     }
+
+    // An answer carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
 }
 
 workflow_step_key! {

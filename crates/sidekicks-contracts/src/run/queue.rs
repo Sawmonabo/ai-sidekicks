@@ -594,4 +594,8 @@ impl ListKey for QueueItemId {
     fn list_key(&self) -> Self {
         self.clone()
     }
+
+    // An id carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
 }
