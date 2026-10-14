@@ -22,6 +22,7 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &run::snapshot::TYPESCRIPT_MODULE,
     &run::status::TYPESCRIPT_MODULE,
     &run::step::events::TYPESCRIPT_MODULE,
+    &run::step::methods::TYPESCRIPT_MODULE,
     &run::step::record::TYPESCRIPT_MODULE,
     &run::trigger::TYPESCRIPT_MODULE,
 ];
