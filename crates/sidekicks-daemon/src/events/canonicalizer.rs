@@ -3,7 +3,9 @@
 //! `occurredAt` takes the one form the log stores.
 
 use serde_json::Value;
-use sidekicks_contracts::event::envelope::{EventEnvelope, OccurredAtRefusal, parse_occurred_at};
+use sidekicks_contracts::event::envelope::{
+    EventEnvelope, EventOccurredAt, OccurredAtRefusal, parse_occurred_at,
+};
 
 /// The deepest container nesting [`canonicalize_json`] serializes, `{}` being depth 1. The
 /// serializer recurses, so a deeper value is refused before it reaches the stack.
@@ -52,14 +54,11 @@ pub(crate) enum CanonicalizationRefusal {
 /// folds to UTC before year 0000.
 pub(crate) fn normalize_occurred_at(
     occurred_at: &str,
-) -> Result<String, OccurredAtNormalizationRefusal> {
-    let instant = parse_occurred_at(occurred_at)?;
+) -> Result<EventOccurredAt, OccurredAtNormalizationRefusal> {
     // jiff holds years back to -9999, so a fold before year 0000 still reads; one past year 9999
     // is already outside jiff's range and refused by the reading.
-    if jiff::tz::Offset::UTC.to_datetime(instant).year() < 0 {
-        return Err(OccurredAtNormalizationRefusal::BeforeYearZero);
-    }
-    Ok(instant.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+    EventOccurredAt::from_timestamp(parse_occurred_at(occurred_at)?)
+        .ok_or(OccurredAtNormalizationRefusal::BeforeYearZero)
 }
 
 /// `value`'s RFC 8785 bytes. Refuses a value nesting containers deeper than
@@ -81,7 +80,10 @@ pub(crate) fn canonicalize_event(
     members
         .as_object_mut()
         .expect("an envelope serializes to a JSON object")
-        .insert("occurredAt".to_owned(), Value::String(occurred_at));
+        .insert(
+            "occurredAt".to_owned(),
+            Value::String(occurred_at.as_str().to_owned()),
+        );
     canonicalize_json(&members)
 }
 
@@ -288,7 +290,9 @@ mod tests {
         #[case] occurred_at: &str,
         #[case] expected: Result<&str, &str>,
     ) {
-        let outcome = normalize_occurred_at(occurred_at).map_err(|refusal| refusal_name(&refusal));
+        let outcome = normalize_occurred_at(occurred_at)
+            .map(|stored| stored.as_str().to_owned())
+            .map_err(|refusal| refusal_name(&refusal));
         assert_eq!(outcome, expected.map(str::to_owned), "{occurred_at}");
     }
 }

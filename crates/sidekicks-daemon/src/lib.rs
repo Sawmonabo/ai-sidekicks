@@ -41,6 +41,5 @@ pub mod shell_quoting;
 pub mod text_cut;
 pub mod transcript;
 pub mod uuid_v7;
-pub mod worker;
 pub mod workflow;
 pub mod workspace;

@@ -398,7 +398,9 @@ fn mark_time_of(
     payload: &Map<String, Value>,
 ) -> Result<String, DirectoryRowError> {
     let mark: SessionMarkChangePayload = payload_as(event_type, payload)?;
-    normalize_occurred_at(mark.at.as_str()).map_err(DirectoryRowError::MarkTime)
+    normalize_occurred_at(mark.at.as_str())
+        .map(|stored| stored.as_str().to_owned())
+        .map_err(DirectoryRowError::MarkTime)
 }
 
 // The row's preview of a message: its opening, leading whitespace dropped, cut to the session
@@ -426,7 +428,9 @@ fn describe_directory_update(
     Ok(DirectoryUpdate {
         change: change_of(event)?,
         occurred_at: normalize_occurred_at(event.occurred_at)
-            .map_err(DirectoryRowError::OccurredAt)?,
+            .map_err(DirectoryRowError::OccurredAt)?
+            .as_str()
+            .to_owned(),
         moves_last_activity: event.category != EventCategory::EventMaintenance
             && event.event_type != SessionEventType::AssistantThinkingUpdate.as_str(),
         moves_updated_at: event.category == EventCategory::SessionLifecycle,
