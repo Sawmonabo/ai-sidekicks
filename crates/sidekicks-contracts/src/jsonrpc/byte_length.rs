@@ -59,7 +59,7 @@ impl Formatter for EcmaScriptNumbers {
 
     #[expect(
         clippy::cast_precision_loss,
-        reason = "JavaScript holds every number as a double, so a large integer rounds as it does there"
+        reason = "a large integer rounds to the double JavaScript holds"
     )]
     fn write_i64<W: ?Sized + io::Write>(&mut self, writer: &mut W, value: i64) -> io::Result<()> {
         self.write_f64(writer, value as f64)
@@ -67,7 +67,7 @@ impl Formatter for EcmaScriptNumbers {
 
     #[expect(
         clippy::cast_precision_loss,
-        reason = "JavaScript holds every number as a double, so a large integer rounds as it does there"
+        reason = "a large integer rounds to the double JavaScript holds"
     )]
     fn write_i128<W: ?Sized + io::Write>(&mut self, writer: &mut W, value: i128) -> io::Result<()> {
         self.write_f64(writer, value as f64)
@@ -87,7 +87,7 @@ impl Formatter for EcmaScriptNumbers {
 
     #[expect(
         clippy::cast_precision_loss,
-        reason = "JavaScript holds every number as a double, so a large integer rounds as it does there"
+        reason = "a large integer rounds to the double JavaScript holds"
     )]
     fn write_u64<W: ?Sized + io::Write>(&mut self, writer: &mut W, value: u64) -> io::Result<()> {
         self.write_f64(writer, value as f64)
@@ -95,7 +95,7 @@ impl Formatter for EcmaScriptNumbers {
 
     #[expect(
         clippy::cast_precision_loss,
-        reason = "JavaScript holds every number as a double, so a large integer rounds as it does there"
+        reason = "a large integer rounds to the double JavaScript holds"
     )]
     fn write_u128<W: ?Sized + io::Write>(&mut self, writer: &mut W, value: u128) -> io::Result<()> {
         self.write_f64(writer, value as f64)
