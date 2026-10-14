@@ -14,6 +14,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
+use crate::event::registry::SessionEventType;
 use crate::event::version::{EVENT_FIELD_MAX_LEN, EventEnvelopeVersion};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -117,6 +118,15 @@ impl EventEnvelopeType {
     /// The type's text.
     pub fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+}
+
+impl From<SessionEventType> for EventEnvelopeType {
+    fn from(event_type: SessionEventType) -> Self {
+        Self(
+            FreeFormText::new(event_type.as_str().to_owned())
+                .expect("an event type's name is free-form text"),
+        )
     }
 }
 
