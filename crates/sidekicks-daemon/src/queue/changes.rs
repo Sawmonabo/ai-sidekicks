@@ -21,7 +21,9 @@ use tokio::sync::watch;
 
 use crate::database::sql_list::sql_list_of;
 use crate::database::stored_column::safe_int_column;
-use crate::events::session::read::{SessionEventReads, SessionLogReadError};
+use crate::events::session::read::{
+    SessionEventReads, SessionLogReadError, readable_event_sql, session_read_bound,
+};
 use crate::queue::store::{
     COLUMN_COUNT, COLUMNS, QUEUE_ORDER, QueueItemRecord, record_of, summary_of,
 };
@@ -212,37 +214,45 @@ static QUEUE_ITEM_EVENT_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// A queue's items that a `queue_item.*` event changed after a sequence, one row per item at its
-// newest such sequence, oldest first.
+// The items a readable `queue_item.*` event changed after a sequence, one row per item at its
+// newest such sequence. A row past a damaged session's last good point or in a range it skipped
+// may hold a payload that is not JSON, which would fail every read, so none is read.
+static CHANGED_ITEMS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT json_extract(event.payload, '$.queueItemId') AS queue_item_id,
+           MAX(event.sequence) AS sequence
+      FROM session_events AS event
+     WHERE event.session_id = @session_id AND event.sequence > @after
+       AND event.type IN ({}) AND {}
+     GROUP BY queue_item_id",
+        *QUEUE_ITEM_EVENT_TYPES_SQL,
+        readable_event_sql("event")
+    )
+});
+
+// A queue's changed items, oldest change first.
 static CHANGED_AFTER_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {COLUMNS}, changed.sequence
-  FROM (
-    SELECT json_extract(payload, '$.queueItemId') AS queue_item_id, MAX(sequence) AS sequence
-    FROM session_events
-    WHERE session_id = @session_id AND sequence > @after AND type IN ({})
-    GROUP BY queue_item_id
-  ) AS changed
+  FROM ({}) AS changed
   JOIN queue_items ON queue_items.id = changed.queue_item_id
   WHERE queue_items.session_id = @session_id AND queue_items.child_handle IS @child_handle
   ORDER BY changed.sequence
   LIMIT @limit",
-        *QUEUE_ITEM_EVENT_TYPES_SQL
+        *CHANGED_ITEMS_SQL
     )
 });
 
-// A queue's waiting items that no `queue_item.*` event changed after a sequence: the read sends
-// those at their events' cursors.
+// A queue's waiting items that no event changed after a sequence: the read sends those at their
+// events' cursors. The changed items are grouped once per read, not looked up once per item.
 static WAITING_UNCHANGED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {COLUMNS} FROM queue_items
-  WHERE session_id = @session_id AND child_handle IS @child_handle AND state = '{}'
-    AND NOT EXISTS (SELECT 1 FROM session_events
-      WHERE session_events.session_id = @session_id AND session_events.sequence > @after
-        AND session_events.type IN ({})
-        AND json_extract(session_events.payload, '$.queueItemId') = queue_items.id)",
-        <&'static str>::from(QueueItemState::Queued),
-        *QUEUE_ITEM_EVENT_TYPES_SQL
+  LEFT JOIN ({}) AS changed ON changed.queue_item_id = queue_items.id
+  WHERE queue_items.session_id = @session_id AND queue_items.child_handle IS @child_handle
+    AND queue_items.state = '{}' AND changed.queue_item_id IS NULL",
+        *CHANGED_ITEMS_SQL,
+        <&'static str>::from(QueueItemState::Queued)
     )
 });
 
@@ -290,9 +300,10 @@ pub(crate) fn read_current_queue_cursor(
 }
 
 /// At most `max` changes to `queue` after `cursor`, oldest first, read on `reader` in one
-/// transaction: each item a `queue_item.*` event changed, at that event's cursor; then, once
-/// `queue`'s order mark moved past the cursor's, or while a page of waiting items is unfinished,
-/// the waiting items in the queue's order at the session's newest cursor. Fails with
+/// transaction: each item a readable `queue_item.*` event changed, at that event's cursor; then,
+/// once `queue`'s order mark moved past the cursor's, or while a page of waiting items is
+/// unfinished, the waiting items in the queue's order at the session's newest cursor. No event
+/// past a damaged session's last good point or in a range it skipped is read. Fails with
 /// [`QueueChangeReadError`] when SQLite refuses the read or a stored value does not read.
 pub(crate) fn read_queue_changes_after(
     reader: &Connection,
@@ -305,7 +316,10 @@ pub(crate) fn read_queue_changes_after(
     // Marked before the read, so a reorder committed after it moves the mark past this one.
     let order_mark = signals.order_mark(queue);
     let transaction = reader.unchecked_transaction()?;
-    let head = SessionEventReads::new(reader, read_damaged_from_sequence)
+    // One answer for the whole read, so the head and every bounded read stop at the same point.
+    let damaged_from = read_damaged_from_sequence(&queue.session_id);
+    let read_bound = session_read_bound(|_| damaged_from, &queue.session_id, None);
+    let head = SessionEventReads::new(reader, |_| damaged_from)
         .read_head(&queue.session_id)?
         .unwrap_or(START_OF_LOG_POSITION);
     let newest_cursor = encode_event_cursor(head)?;
@@ -316,6 +330,7 @@ pub(crate) fn read_queue_changes_after(
                 "@session_id": queue.session_id.as_str(),
                 "@child_handle": queue.child_handle.as_ref().map(ChildHandle::as_str),
                 "@after": cursor.sequence,
+                "@read_bound": read_bound,
                 "@limit": count_bound(max),
             },
             |row| Ok((record_of(row)?, safe_int_column::<0>(row, COLUMN_COUNT)?)),
@@ -346,17 +361,20 @@ pub(crate) fn read_queue_changes_after(
     if let Some(waiting_page) = waiting_page
         && room > 0
     {
-        // Every event change after the cursor went out above, so the waiting items resume from
-        // the newest sequence.
-        let sequence = changes
-            .last()
-            .map_or(cursor.sequence, |change| change.resume_cursor.sequence)
-            .max(head);
-        let waiting = read_waiting_page(reader, queue, cursor.sequence, waiting_page, room)?;
+        let waiting = read_waiting_page(
+            reader,
+            queue,
+            cursor.sequence,
+            read_bound,
+            waiting_page,
+            room,
+        )?;
         let is_page_finished = waiting.len() < room;
+        // Every readable event change after the cursor went out above, so the waiting items
+        // resume from the newest readable sequence.
         changes.extend(waiting.into_iter().map(|record| QueueChange {
             resume_cursor: QueueChangeCursor {
-                sequence,
+                sequence: head,
                 order_mark,
                 waiting_place: Some(WaitingPlace::of(&record)),
             },
@@ -375,12 +393,13 @@ pub(crate) fn read_queue_changes_after(
     Ok(changes)
 }
 
-// Up to `room` waiting items of `queue` in its order that no event changed after `after`, from
-// where `waiting_page` starts.
+// Up to `room` waiting items of `queue` in its order that no readable event changed after
+// `after`, from where `waiting_page` starts.
 fn read_waiting_page(
     reader: &Connection,
     queue: &QueueKey,
     after: i64,
+    read_bound: i64,
     waiting_page: WaitingPage<'_>,
     room: usize,
 ) -> rusqlite::Result<Vec<QueueItemRecord>> {
@@ -395,6 +414,7 @@ fn read_waiting_page(
                     "@session_id": session_id,
                     "@child_handle": child_handle,
                     "@after": after,
+                    "@read_bound": read_bound,
                     "@limit": limit,
                 },
                 record_of,
@@ -407,6 +427,7 @@ fn read_waiting_page(
                     "@session_id": session_id,
                     "@child_handle": child_handle,
                     "@after": after,
+                    "@read_bound": read_bound,
                     "@position": i64::from(place.position),
                     "@created_at": place.created_at.as_str(),
                     "@id": place.id.as_str(),
