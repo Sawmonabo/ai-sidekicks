@@ -8,13 +8,14 @@ use std::time::Duration;
 /// How long the one retry waits.
 const READ_RETRY_DELAY: Duration = Duration::from_millis(100);
 
-/// Whether a filesystem read's failure is one another moment can clear: a busy or locked entry, or
-/// an interrupted call.
+/// Whether a filesystem read's failure is one another moment can clear: a busy or locked entry, an
+/// interrupted call, or a process or system out of open files.
 pub(crate) fn is_retryable_read_failure(error: &io::Error) -> bool {
     matches!(
         error.kind(),
-        io::ErrorKind::WouldBlock | io::ErrorKind::ResourceBusy | io::ErrorKind::Interrupted
-    )
+        io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+    ) || sidekicks_platforms::is_resource_busy(error)
+        || sidekicks_platforms::is_out_of_open_files(error)
 }
 
 /// Runs `read`, and once more after [`READ_RETRY_DELAY`] when it fails in a way `is_retryable`

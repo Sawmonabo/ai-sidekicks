@@ -1,4 +1,4 @@
-//! The daemon: one program that runs sessions with Claude Code and Codex, their git worktrees,
+//! The daemon: one program that runs sessions with each provider's agent, their git worktrees,
 //! terminals and the SQLite store, and the helper modes it starts by name.
 
 pub mod admission;
@@ -11,7 +11,6 @@ pub mod cleanup_failures;
 pub mod crash_window;
 pub mod daemon;
 pub mod database;
-pub mod disk_flush;
 pub mod events;
 pub mod file;
 pub mod git;

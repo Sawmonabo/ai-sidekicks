@@ -1,6 +1,7 @@
 //! What a terminal's read loop and its stops take from the operating system, in the shapes every
 //! platform shares; each platform's module implements the calls behind them.
 
+use std::error::Error;
 use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -73,7 +74,8 @@ pub enum ProcessTreeEnd {
 /// What a console helper read from the console of a shell's program.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConsoleReading {
-    /// Every process attached to the console, the helper itself left out.
+    /// Every process attached to the console, the helper and the `shell-start` process that
+    /// started the shell left out.
     pub process_ids: Vec<u32>,
     /// Whether the console echoes what is typed (`ENABLE_ECHO_INPUT`); off at a password prompt.
     pub is_echo_input: bool,
@@ -107,7 +109,10 @@ impl TerminalWaker {
     pub fn wake(&self) {
         self.is_woken.store(true, Ordering::SeqCst);
         if let Err(error) = self.poller.notify() {
-            tracing::warn!(error = %error, "the terminal's read loop could not be woken");
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the terminal's read loop could not be woken"
+            );
         }
     }
 

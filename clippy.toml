@@ -6,8 +6,10 @@ allow-print-in-tests = true
 missing-docs-in-crate-items = true
 
 # Every stored row id and event id comes from the one `mint_uuid_v7`, which carries the exemption.
+# A crate built without a constructor's uuid feature has no such method to call, so its missing
+# path is skipped.
 disallowed-methods = [
-  { path = "uuid::Uuid::new_v4", reason = "ids come from mint_uuid_v7" },
-  { path = "uuid::Uuid::new_v7", reason = "ids come from mint_uuid_v7" },
-  { path = "uuid::Uuid::now_v7", reason = "ids come from mint_uuid_v7" },
+  { path = "uuid::Uuid::new_v4", reason = "ids come from mint_uuid_v7", allow-invalid = true },
+  { path = "uuid::Uuid::new_v7", reason = "ids come from mint_uuid_v7", allow-invalid = true },
+  { path = "uuid::Uuid::now_v7", reason = "ids come from mint_uuid_v7", allow-invalid = true },
 ]

@@ -1,4 +1,4 @@
-//! Providers: the drivers that run Claude Code and Codex, their capabilities, hand-over and the
+//! Providers: the drivers that run each provider's agent, their capabilities, hand-over and the
 //! searches a provider needs.
 
 pub(crate) mod compaction_wait;
