@@ -35,6 +35,7 @@ use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_contracts::wire::{False, True};
 use sidekicks_search::index::{IndexRowKind, SearchIndex, SearchIndexError};
 
+use crate::database::stored_column::{optional_text_column, rowid_column, text_column};
 use crate::ipc::domain_error::DomainError;
 use crate::session::search::cursor::{
     SearchCursorPosition, SearchPagePosition, decode_search_cursor, encode_search_cursor,
@@ -49,7 +50,6 @@ use crate::session::search::rowid_floors::{HeldRowCheck, RowidFloorLog};
 use crate::session::search::snapshots::{
     DEFAULT_SEARCH_SNAPSHOT_LIMITS, SearchSnapshot, SearchSnapshots,
 };
-use crate::session::stored_column::{optional_text_column, rowid_column, text_column};
 
 // The sessions the directory holds among these keys; a session since purged has no row.
 const SESSIONS_BY_KEY_SQL: &str = "

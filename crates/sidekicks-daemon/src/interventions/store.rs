@@ -22,7 +22,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use crate::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
 };
-use crate::session::stored_column::{
+use crate::database::stored_column::{
     closed_word, closed_word_text, optional_text_column, text_column,
 };
 

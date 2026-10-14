@@ -35,6 +35,9 @@ use tokio::task::JoinError;
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::setup::open_database_reader;
 use crate::database::sql_list::sql_list_of;
+use crate::database::stored_column::{
+    closed_word, optional_text_column, safe_int_column, stored_integer, text_column,
+};
 use crate::events::session::read::{
     SessionEventFilter, SessionEventReads, SessionLogReadError, session_read_bound,
 };
@@ -44,9 +47,6 @@ use crate::session::console_state::read_session_max_steps_per_turn;
 use crate::session::not_found::session_not_found;
 use crate::session::projector::{SessionRebuildError, rebuild_session};
 use crate::session::records::DaemonSessionRecord;
-use crate::session::stored_column::{
-    closed_word, optional_text_column, safe_int_column, stored_integer, text_column,
-};
 use crate::transcript::run_facts::TranscriptRunFactsReader;
 
 /// Answers the sequence a damaged session's reads stop before, `None` for a session that reads

@@ -15,8 +15,8 @@ use rusqlite::types::Value;
 use sidekicks_search::index::IndexRowKind;
 
 use crate::database::statement::{StatementBindings, WriteStatement};
+use crate::database::stored_column::text_column;
 use crate::session::search::index::columns::{index_row_kind_of, source_rowid_of};
-use crate::session::stored_column::text_column;
 
 const NEWEST_ENTRY_SQL: &str = "SELECT max(id) FROM session_search_rowid_floors";
 

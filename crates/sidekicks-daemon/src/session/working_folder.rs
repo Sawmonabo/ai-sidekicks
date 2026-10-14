@@ -11,9 +11,9 @@ use sidekicks_contracts::session::methods::SessionShape;
 use strum::VariantArray;
 
 use crate::database::sql_list::sql_list_of;
+use crate::database::stored_column::{closed_word, text_column};
 use crate::ipc::domain_error::DomainError;
 use crate::session::not_found::session_not_found;
-use crate::session::stored_column::{closed_word, text_column};
 use crate::workspace::projector::is_probe_bearing;
 
 // The session's shape and the root of its newest workspace whose state carries a live root.

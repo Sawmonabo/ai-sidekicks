@@ -20,11 +20,11 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::watch;
 
 use crate::database::sql_list::sql_list_of;
+use crate::database::stored_column::{safe_int_column, stored_integer};
 use crate::events::session::read::{SessionEventReads, SessionLogReadError};
 use crate::queue::store::{
     COLUMN_COUNT, COLUMNS, QUEUE_ORDER, QueueItemRecord, record_of, stored_limit, summary_of,
 };
-use crate::session::stored_column::{safe_int_column, stored_integer};
 
 /// One queue: the lead's of a session, or a child's by its handle.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

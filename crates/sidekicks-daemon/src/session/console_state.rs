@@ -13,7 +13,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::session::stored_column::{closed_word, safe_int_column, text_column};
+use crate::database::stored_column::{closed_word, safe_int_column, text_column};
 
 /// The row a session on a provider that offers an advisor is born with, its advisor copied from
 /// the machine's default; it binds the session id, the advisor and the time, in that order.

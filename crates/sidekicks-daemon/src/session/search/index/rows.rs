@@ -15,9 +15,9 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_search::index::{IndexRow, IndexRowKind, IndexRowTag};
 
 use crate::database::sql_list::sql_list_of;
+use crate::database::stored_column::{optional_text_column, rowid_column};
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::session::search::index::columns::{index_key_sql, index_row_kind_of, source_rowid_of};
-use crate::session::stored_column::{optional_text_column, rowid_column};
 
 // The log rows the index holds: a person's message, an assistant's message and a tool call, each
 // stored once settled. A thinking update is narration a later event supersedes, so it is never

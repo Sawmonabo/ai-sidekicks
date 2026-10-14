@@ -23,6 +23,7 @@ use sidekicks_contracts::transcript::turn_attribution::{
 };
 use sidekicks_contracts::wire::id::IdError;
 
+use crate::database::stored_column::{json_object_column, stored_integer};
 use crate::events::session::read::session_read_bound;
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::session::run::superseded::{
@@ -30,7 +31,6 @@ use crate::session::run::superseded::{
     read_superseded_turns,
 };
 use crate::session::run::transitions::RUN_TERMINAL_EVENT_TYPES;
-use crate::session::stored_column::{json_object_column, stored_integer};
 
 /// Why an event could not be attributed to its turn.
 #[derive(Debug, thiserror::Error)]

@@ -19,7 +19,7 @@ use sidekicks_contracts::transcript::row::{
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_contracts::wire::integer::{SafeInt, count_bound};
 
-use crate::session::stored_column::safe_int_column;
+use crate::database::stored_column::safe_int_column;
 use crate::transcript::turn_attribution::{
     RunEventAttribution, RunTurnReads, SessionTurnAttribution, TurnAttributionError,
 };

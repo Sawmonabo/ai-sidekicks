@@ -21,9 +21,9 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::sql_list::sql_list_of;
+use crate::database::stored_column::{json_object_column, optional_text_column, safe_int_column};
 use crate::events::session::read::session_read_bound;
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
-use crate::session::stored_column::{json_object_column, optional_text_column, safe_int_column};
 
 const BEAT_COLUMNS_SQL: &str = "sequence, type, actor, payload";
 

@@ -10,7 +10,7 @@ use sidekicks_contracts::run::state::{RUN_TERMINAL_STATES, RunState};
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::database::sql_list::sql_list_of;
-use crate::session::stored_column::{closed_word, optional_text_column, text_column};
+use crate::database::stored_column::{closed_word, optional_text_column, text_column};
 
 /// A run as it stands now. `version` counts every progression of the run, state changes and
 /// applied interventions alike; a decision taken from it is guarded again inside the write it

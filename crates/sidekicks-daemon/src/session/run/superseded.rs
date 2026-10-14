@@ -12,9 +12,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::row::TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE;
 use sidekicks_contracts::transcript::turn_attribution::{SupersededTurns, add_superseding_cut};
 
+use crate::database::stored_column::text_column;
 use crate::events::session::read::session_read_bound;
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
-use crate::session::stored_column::text_column;
 
 /// A stored `run.rolled_back` payload that does not match its contract. The log is the daemon's
 /// own, so a mismatch is a broken write, and skipping it would move every cut.

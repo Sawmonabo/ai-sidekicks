@@ -28,12 +28,12 @@ use sidekicks_contracts::transcript::row::TranscriptReadRow;
 use sidekicks_contracts::transcript::run_facts::{FoldedThroughSequence, TranscriptRunFacts};
 use sidekicks_contracts::wire::{False, True};
 
+use crate::database::stored_column::stored_integer;
 use crate::events::session::read::{
     SessionEventFilter, SessionEventReads, SessionLogReadError, resolve_event_cursor,
 };
 use crate::ipc::domain_error::DomainError;
 use crate::session::not_found::session_not_found;
-use crate::session::stored_column::stored_integer;
 use crate::transcript::projector::{TranscriptProjectionError, project_window};
 use crate::transcript::run_facts::TranscriptRunFactsReader;
 

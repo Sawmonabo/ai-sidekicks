@@ -28,11 +28,11 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::sql_list::sql_list_of;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::provider::driver::run_control::PickedSkill;
-use crate::session::stored_column::{
+use crate::database::stored_column::{
     closed_word, closed_word_text, optional_text_column, safe_int_column, stored_integer,
     text_column,
 };
+use crate::provider::driver::run_control::PickedSkill;
 
 /// What a queued message carries, as its payload stores it: the words and what rides with them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
