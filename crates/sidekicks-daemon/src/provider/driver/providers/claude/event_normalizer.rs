@@ -12,10 +12,9 @@
 use std::borrow::Cow;
 use std::str::FromStr;
 
-use serde_json::{Map, Value};
+use serde_json::Map;
 use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::event::session::SESSION_EVENT_TYPES;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::name::ProviderName;
 use strum::{EnumString, IntoStaticStr, VariantArray};
@@ -160,26 +159,6 @@ pub(crate) enum ClaudeWireFrameKind {
     ControlResponseError,
 }
 
-/// Whether a row's event type can be built into an envelope: it needs a registered payload
-/// variant. A pending row feeds the diagnostic, never an envelope.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ClaudeEmissionReadiness {
-    /// The event type has a payload variant.
-    EnvelopeConstructible,
-    /// The event type has no payload variant yet.
-    PayloadVariantPending,
-}
-
-impl ClaudeEmissionReadiness {
-    fn of(event_type: SessionEventType) -> Self {
-        if SESSION_EVENT_TYPES.contains(&event_type) {
-            Self::EnvelopeConstructible
-        } else {
-            Self::PayloadVariantPending
-        }
-    }
-}
-
 /// A frame that normalizes into one event category. `normalized_kind` is `None` for a frame the
 /// normalized vocabulary does not name (`worker_shutting_down`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -194,8 +173,6 @@ pub(crate) struct ClaudeNormalizedCategoryEmission {
     pub(crate) event_type: SessionEventType,
     /// The normalized kind the row names, if any.
     pub(crate) normalized_kind: Option<NormalizedEventKind>,
-    /// Whether the event type can be built into an envelope.
-    pub(crate) emission_readiness: ClaudeEmissionReadiness,
 }
 
 /// A known frame that carries no transcript capability, so it normalizes to no category, with the
@@ -437,7 +414,6 @@ impl ClaudeWireFrameKind {
             category: event_type.category(),
             event_type,
             normalized_kind,
-            emission_readiness: ClaudeEmissionReadiness::of(event_type),
         }
     }
 
@@ -484,13 +460,13 @@ pub(crate) enum ClaudeFrameEmissionRoute {
 }
 
 /// The driver core's entry point onto the census, for the account `provider_account_id` names.
-/// Never fails: a kind outside the census, or one whose event type has no payload variant, is
-/// logged as a diagnostic and routed there, never forced into an envelope or dropped.
+/// Never fails: a kind outside the census is logged as a diagnostic and routed there, never forced
+/// into an envelope or dropped.
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "the Claude stream reader routes every inbound frame kind through it"
+        reason = "the Claude stream reader routes each frame the delivery side leaves through it"
     )
 )]
 pub(crate) fn resolve_claude_frame_emission_route(
@@ -498,58 +474,26 @@ pub(crate) fn resolve_claude_frame_emission_route(
     provider_account_id: Option<ProviderAccountId>,
 ) -> ClaudeFrameEmissionRoute {
     let Ok(census_kind) = ClaudeWireFrameKind::from_str(frame_kind) else {
-        return route_to_diagnostic(
-            frame_kind,
+        let record = DriverDiagnosticRecord {
+            provider: ProviderName::Claude,
             provider_account_id,
-            DriverDiagnosticKind::UnmappedWireKind,
-            "wire kind outside the pinned Claude inbound census; routed to the daemon diagnostic \
-             default branch, never silently dropped and never forced into an envelope",
-            Map::new(),
-        );
+            kind: DriverDiagnosticKind::UnmappedWireKind,
+            raw_wire_type: Some(frame_kind.to_owned()),
+            disposition_reason: "wire kind outside the pinned Claude inbound census; routed to \
+                                 the daemon diagnostic default branch, never silently dropped \
+                                 and never forced into an envelope"
+                .to_owned(),
+            details: Map::new(),
+        };
+        emit_driver_diagnostic(&record);
+        return ClaudeFrameEmissionRoute::Diagnostic(record);
     };
     match census_kind.normalization() {
         ClaudeFrameNormalization::NotEvented(disposition) => {
             ClaudeFrameEmissionRoute::NotEvented(disposition)
         }
-        ClaudeFrameNormalization::Normalized(emission) => match emission.emission_readiness {
-            ClaudeEmissionReadiness::EnvelopeConstructible => {
-                ClaudeFrameEmissionRoute::Emit(emission)
-            }
-            ClaudeEmissionReadiness::PayloadVariantPending => route_to_diagnostic(
-                frame_kind,
-                provider_account_id,
-                DriverDiagnosticKind::PayloadVariantPending,
-                "normalized kind whose target session event type has no registered payload \
-                 variant; envelope construction is forbidden without one, so the frame routes to \
-                 the diagnostic branch",
-                [(
-                    "eventType".to_owned(),
-                    Value::from(emission.event_type.as_str()),
-                )]
-                .into_iter()
-                .collect(),
-            ),
-        },
+        ClaudeFrameNormalization::Normalized(emission) => ClaudeFrameEmissionRoute::Emit(emission),
     }
-}
-
-fn route_to_diagnostic(
-    frame_kind: &str,
-    provider_account_id: Option<ProviderAccountId>,
-    kind: DriverDiagnosticKind,
-    disposition_reason: &str,
-    details: Map<String, Value>,
-) -> ClaudeFrameEmissionRoute {
-    let record = DriverDiagnosticRecord {
-        provider: ProviderName::Claude,
-        provider_account_id,
-        kind,
-        raw_wire_type: Some(frame_kind.to_owned()),
-        disposition_reason: disposition_reason.to_owned(),
-        details,
-    };
-    emit_driver_diagnostic(&record);
-    ClaudeFrameEmissionRoute::Diagnostic(record)
 }
 
 /// Which helper lifecycle signal a frame is read as: a helper's `task_started` frame is its
@@ -749,6 +693,5 @@ mod tests {
             panic!("a result frame emits, got {route:?}");
         };
         assert_eq!(emission.event_type, event_type);
-        assert_eq!(emission.category, event_type.category());
     }
 }
