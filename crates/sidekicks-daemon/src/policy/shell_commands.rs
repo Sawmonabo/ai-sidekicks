@@ -3,56 +3,159 @@
 //! `sudo -u` or `timeout 5`, for the daemon's own answers to a command ask and for the subject a
 //! rule on one names; and takes the line a shell is handed off a provider's `<shell> -lc '…'`
 //! wrapper. The parser reads the line the way a POSIX shell would and keeps what it read before a
-//! syntax error; nothing here guesses at what it could not read.
+//! syntax error; nothing here guesses at what it could not read. A reading owns its line once and
+//! holds its words as pieces of it, so its memory and each query's time grow with the line alone.
 
 mod words;
+mod wrappers;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use tree_sitter::{Node, Parser};
 
-use self::words::{node_text, word_value};
+use self::words::{
+    BytePositions, JoinedWords, Piece, PieceTexts, ShellText, Word, WordBuilder, node_text, offset,
+};
+pub(crate) use self::words::{PositionedByte, ShellWord, WordText};
+use self::wrappers::{command_wrapper, take_wrapper_words};
 
-/// One simple command: its program's own name, with any folder taken off, the words after it, and
-/// the programs it was run through, such as `sudo` or `env`, outermost first.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ShellCommand {
-    /// The program's name, without its folder.
-    pub(crate) program: String,
-    /// The words after the program, dequoted as the shell would pass them.
-    pub(crate) argument_words: Vec<String>,
-    /// The programs that ran this command after their own options, outermost first.
-    pub(crate) wrappers: Vec<String>,
+/// The simple commands of one line, nested ones included, in the order they appear, outer ones
+/// before those nested in them; `is_whole` is false when the parser could not read some of the
+/// line, or the line was past the reader's bound, and what it could not read is not among them.
+pub(crate) struct ShellLineReading {
+    line: Arc<str>,
+    decoded: Box<str>,
+    positions: BytePositions,
+    pieces: Box<[Piece]>,
+    // Each command's wrappers, program and arguments, in that order.
+    words: Box<[Word]>,
+    commands: Box<[CommandEntry]>,
+    is_whole: bool,
 }
 
-/// The simple commands of one line, nested ones included, in the order they appear; `is_whole` is
-/// false when the parser could not read some of it, or the line was past the reader's bound, and
-/// what it could not read is not among the commands.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ShellLineReading {
-    /// The commands read, outer ones before those nested in them.
-    pub(crate) commands: Vec<ShellCommand>,
+// A command's words in the reading, by index: wrappers from `first` to `program`, then the
+// program, then its arguments up to `end`.
+#[derive(Clone, Copy)]
+struct CommandEntry {
+    first: u32,
+    program: u32,
+    end: u32,
+}
+
+impl ShellLineReading {
+    /// The commands read.
+    pub(crate) fn commands(&self) -> impl ExactSizeIterator<Item = ShellCommand<'_>> {
+        self.commands.iter().map(|&entry| ShellCommand {
+            reading: self,
+            entry,
+        })
+    }
+
     /// Whether the parser read every part of the line.
-    pub(crate) is_whole: bool,
+    pub(crate) fn is_whole(&self) -> bool {
+        self.is_whole
+    }
+
+    fn unread() -> Self {
+        Self {
+            line: Arc::from(""),
+            decoded: Box::default(),
+            positions: BytePositions::default(),
+            pieces: Box::default(),
+            words: Box::default(),
+            commands: Box::default(),
+            is_whole: false,
+        }
+    }
+
+    fn parse(parser: &mut Parser, line: Arc<str>) -> Self {
+        let tree = parser
+            .parse(&*line, None)
+            .expect("a parser with its language set and no cancellation always returns a tree");
+        let root = tree.root_node();
+        let is_whole = !root.has_error();
+        let mut builder = WordBuilder::new(&line);
+        let (words, commands) = commands_in(root, &mut builder);
+        // The tree goes before the arrays shrink to their length, so the two never meet.
+        drop(tree);
+        let (decoded, pieces, positions) = builder.finish();
+        Self {
+            line,
+            decoded,
+            positions,
+            pieces,
+            words: words.into_boxed_slice(),
+            commands: commands.into_boxed_slice(),
+            is_whole,
+        }
+    }
+
+    fn texts(&self) -> PieceTexts<'_> {
+        PieceTexts::new(&self.line, &self.decoded, &self.positions)
+    }
+
+    fn word(&self, index: u32) -> ShellWord<'_> {
+        ShellWord::new(self.texts(), &self.pieces, self.words[index as usize])
+    }
+}
+
+/// One simple command of a reading: its program's own name, with any folder taken off, the words
+/// after it, dequoted as the shell would pass them, and the programs it was run through, such as
+/// `sudo` or `env`, outermost first.
+#[derive(Clone, Copy)]
+pub(crate) struct ShellCommand<'r> {
+    reading: &'r ShellLineReading,
+    entry: CommandEntry,
+}
+
+impl<'r> ShellCommand<'r> {
+    /// The program's name, without its folder.
+    pub(crate) fn program(self) -> ShellWord<'r> {
+        self.reading.word(self.entry.program)
+    }
+
+    /// The words after the program.
+    pub(crate) fn argument_words(self) -> impl ExactSizeIterator<Item = ShellWord<'r>> {
+        (self.entry.program + 1..self.entry.end).map(move |index| self.reading.word(index))
+    }
+
+    /// The programs that ran this command after their own options, outermost first.
+    pub(crate) fn wrappers(self) -> impl ExactSizeIterator<Item = ShellWord<'r>> {
+        (self.entry.first..self.entry.program).map(move |index| self.reading.word(index))
+    }
+
+    // The words this command hands a shell as its line: an `eval`'s words, or the string a shell
+    // runs with `-c`.
+    fn command_string(self) -> Option<JoinedWords<'r>> {
+        let reading = self.reading;
+        let arguments = &reading.words[self.entry.program as usize + 1..self.entry.end as usize];
+        let words = match command_string_words(self.program(), self.argument_words())? {
+            CommandStringWords::Every => arguments,
+            CommandStringWords::One(index) => &arguments[index..=index],
+        };
+        Some(JoinedWords::new(reading.texts(), &reading.pieces, words))
+    }
 }
 
 /// Reads the shell lines of one ask: its line and every `-c` or `eval` string a check rereads from
-/// it. A line longer than `limit` bytes, a bound no argument a program starts with reaches, is not
-/// parsed; in all the reader parses at most twice `limit`, each distinct string once, and hands a
-/// repeat its kept reading, so a string past what is left reads not whole with no command.
+/// it. A string longer than `limit` bytes, a bound no argument a program starts with reaches, is
+/// not parsed; in all the reader parses at most twice `limit`, each distinct string once, and
+/// hands a repeat its kept reading, so a string past what is left reads not whole with no command.
 /// Reading blocks the thread for the parse, so async callers run it through `spawn_blocking`.
 pub(crate) struct ShellLineReader {
     parser: Parser,
     limit: usize,
     bytes_left: usize,
-    readings: HashMap<String, Arc<ShellLineReading>>,
+    // Every reading made, by its line's length; each keeps its own line.
+    readings: HashMap<usize, Vec<Arc<ShellLineReading>>>,
+    unread: Arc<ShellLineReading>,
 }
 
 impl ShellLineReader {
-    /// A reader for one ask, with `limit` the byte length past which a line is not read.
+    /// A reader for one ask, with `limit` the byte length past which a string is not read: a
+    /// system's argument bound, far below the 4 GiB a reading's offsets count to.
     pub(crate) fn new(limit: usize) -> Self {
         let mut parser = Parser::new();
         parser
@@ -63,6 +166,7 @@ impl ShellLineReader {
             limit,
             bytes_left: limit.saturating_mul(2),
             readings: HashMap::new(),
+            unread: Arc::new(ShellLineReading::unread()),
         }
     }
 
@@ -70,34 +174,39 @@ impl ShellLineReader {
     /// string a substitution runs included. A line past the limit or past what the reader has left
     /// reads not whole with no command; a line read before reads as it did then, at no cost.
     pub(crate) fn read(&mut self, line: &str) -> Arc<ShellLineReading> {
-        if let Some(reading) = self.readings.get(line) {
+        self.read_text(line)
+    }
+
+    /// Reads the line `command` hands a shell, an `eval`'s words joined by spaces or the string a
+    /// shell runs with `-c`, as `read` reads a line; `None` when the command hands a shell none.
+    pub(crate) fn read_command_string(
+        &mut self,
+        command: ShellCommand<'_>,
+    ) -> Option<Arc<ShellLineReading>> {
+        command.command_string().map(|text| self.read_text(text))
+    }
+
+    // The length is read first, so a repeat or a string past what is left builds nothing.
+    fn read_text(&mut self, text: impl ShellText) -> Arc<ShellLineReading> {
+        let length = text.len();
+        let kept = self
+            .readings
+            .get(&length)
+            .and_then(|readings| readings.iter().find(|reading| text.is(&reading.line)));
+        if let Some(reading) = kept {
             return Arc::clone(reading);
         }
-        if line.len() > self.limit || line.len() > self.bytes_left {
-            return Arc::new(ShellLineReading {
-                commands: Vec::new(),
-                is_whole: false,
-            });
+        if length > self.limit || length > self.bytes_left {
+            return Arc::clone(&self.unread);
         }
-        self.bytes_left -= line.len();
-        let tree = self
-            .parser
-            .parse(line, None)
-            .expect("a parser with its language set and no cancellation always returns a tree");
-        let root = tree.root_node();
-        let reading = Arc::new(ShellLineReading {
-            commands: commands_in(root, line),
-            is_whole: !root.has_error(),
-        });
-        self.readings.insert(line.to_owned(), Arc::clone(&reading));
+        self.bytes_left -= length;
+        let reading = Arc::new(ShellLineReading::parse(&mut self.parser, text.to_line()));
+        self.readings
+            .entry(length)
+            .or_default()
+            .push(Arc::clone(&reading));
         reading
     }
-}
-
-/// The command line `command` hands a shell to run: the string an `eval` runs, or the one an `sh`,
-/// `bash` or `zsh` runs with `-c` among its short options; `None` for any other command.
-pub(crate) fn read_command_string(command: &ShellCommand) -> Option<Cow<'_, str>> {
-    command_string_of(&command.program, &command.argument_words)
 }
 
 /// The command line `line` runs when it is a provider's argv joined by `shlex`, one `sh`, `bash`,
@@ -119,126 +228,74 @@ pub(crate) fn unwrap_shell_command_line(line: &str) -> Cow<'_, str> {
     let Some((first, rest)) = words.split_first() else {
         return Cow::Borrowed(line);
     };
-    command_string_of(basename(first), rest)
-        .map_or(Cow::Borrowed(line), |inner| Cow::Owned(inner.into_owned()))
+    let program = first
+        .rsplit_once('/')
+        .map_or(first.as_str(), |(_, name)| name);
+    match command_string_words(program, rest.iter().map(String::as_str)) {
+        Some(CommandStringWords::Every) => Cow::Owned(rest.join(" ")),
+        Some(CommandStringWords::One(index)) => Cow::Owned(rest[index].clone()),
+        None => Cow::Borrowed(line),
+    }
 }
-
-// How a program that runs the command after it reads its own words first: its options that take
-// the next word as their value, and the plain words it takes before the command.
-#[derive(Clone, Copy)]
-struct CommandWrapper {
-    options_with_value: &'static [&'static str],
-    leading_operands: usize,
-}
-
-// The programs that run the command after them, so the program is the word past their own.
-fn command_wrapper(program: &str) -> Option<CommandWrapper> {
-    let (options_with_value, leading_operands): (&'static [&'static str], usize) = match program {
-        "env" => (&["-u", "--unset", "-C", "--chdir"], 0),
-        "exec" => (&["-a"], 0),
-        "command" | "nohup" => (&[], 0),
-        "time" => (&["-o", "--output", "-f", "--format"], 0),
-        // The duration comes before the command.
-        "timeout" => (&["-s", "--signal", "-k", "--kill-after"], 1),
-        "nice" => (&["-n", "--adjustment"], 0),
-        "sudo" => (
-            &[
-                "-u",
-                "--user",
-                "-g",
-                "--group",
-                "-h",
-                "--host",
-                "-p",
-                "--prompt",
-                "-C",
-                "--close-from",
-                "-D",
-                "--chdir",
-                "-r",
-                "--role",
-                "-t",
-                "--type",
-                "-T",
-                "--command-timeout",
-                "-U",
-                "--other-user",
-                "-R",
-                "--chroot",
-            ],
-            0,
-        ),
-        "xargs" => (
-            &[
-                "-I",
-                "-L",
-                "-n",
-                "--max-args",
-                "-P",
-                "--max-procs",
-                "-s",
-                "--max-chars",
-                "-d",
-                "--delimiter",
-                "-E",
-                "-a",
-                "--arg-file",
-            ],
-            0,
-        ),
-        _ => return None,
-    };
-    Some(CommandWrapper {
-        options_with_value,
-        leading_operands,
-    })
-}
-
-// `env -S` splits its value into the words the command starts with.
-const ENV_SPLIT_STRING_OPTIONS: &[&str] = &["-S", "--split-string"];
 
 // Shells whose `-c`, alone or in a cluster such as `-lc`, runs the first word after the options as
 // a command line, and the options of theirs that take the next word as their value.
 const COMMAND_STRING_SHELLS: &[&str] = &["sh", "bash", "zsh"];
 const SHELL_OPTIONS_WITH_VALUE: &[&str] = &["-o", "+o", "-O", "+O", "--rcfile", "--init-file"];
 
-fn command_string_of<'a>(program: &str, argument_words: &'a [String]) -> Option<Cow<'a, str>> {
-    if program == "eval" {
-        return Some(Cow::Owned(argument_words.join(" ")));
+// Which of a command's argument words make the line it hands a shell.
+enum CommandStringWords {
+    // An `eval`'s words, joined by spaces.
+    Every,
+    // A shell's `-c` string, at this index.
+    One(usize),
+}
+
+fn command_string_words<W: WordText>(
+    program: W,
+    argument_words: impl Iterator<Item = W>,
+) -> Option<CommandStringWords> {
+    if program.is("eval") {
+        return Some(CommandStringWords::Every);
     }
-    if COMMAND_STRING_SHELLS.contains(&program) {
-        return shell_command_string_of(argument_words).map(Cow::Borrowed);
+    if COMMAND_STRING_SHELLS.iter().any(|shell| program.is(shell)) {
+        return shell_command_string_index(argument_words).map(CommandStringWords::One);
     }
     None
 }
 
 // The command line a shell runs: with `-c` among its short options, the first word after the
 // options; the words after it are the line's own `$0` and arguments.
-fn shell_command_string_of(argument_words: &[String]) -> Option<&str> {
+fn shell_command_string_index<W: WordText>(
+    argument_words: impl Iterator<Item = W>,
+) -> Option<usize> {
     let mut reads_command_string = false;
-    let mut index = 0;
-    while let Some(word) = argument_words.get(index) {
-        if word == "--" || word == "-" {
-            return argument_words
-                .get(index + 1)
+    let mut words = argument_words.enumerate();
+    while let Some((index, word)) = words.next() {
+        if word.is("--") || word.is("-") {
+            return words
+                .next()
                 .filter(|_| reads_command_string)
-                .map(String::as_str);
+                .map(|(index, _)| index);
         }
-        if SHELL_OPTIONS_WITH_VALUE.contains(&word.as_str()) {
-            index += 1;
+        if SHELL_OPTIONS_WITH_VALUE
+            .iter()
+            .any(|option| word.is(option))
+        {
+            words.next();
         } else if is_shell_option(word) {
-            reads_command_string |=
-                !word.starts_with("--") && word.starts_with('-') && word.contains('c');
+            reads_command_string |= !word.starts_with("--")
+                && word.starts_with("-")
+                && word.contains(PositionedByte::LetterC);
         } else {
-            return reads_command_string.then_some(word.as_str());
+            return reads_command_string.then_some(index);
         }
-        index += 1;
     }
     None
 }
 
 // A `-` or `+` followed by any character but a line break, as a shell option is spelled.
-fn is_shell_option(word: &str) -> bool {
+fn is_shell_option(word: impl WordText) -> bool {
     let mut characters = word.chars();
     matches!(characters.next(), Some('-' | '+'))
         && characters
@@ -250,11 +307,15 @@ fn is_shell_option(word: &str) -> bool {
 // or a loop, those a substitution runs, inside double quotes, an assignment or a here-document
 // too, and those the parser read before a syntax error. The cursor keeps its own stack, so no
 // nesting depth reaches this thread's.
-fn commands_in(root: Node<'_>, source: &str) -> Vec<ShellCommand> {
+fn commands_in(root: Node<'_>, builder: &mut WordBuilder<'_>) -> (Vec<Word>, Vec<CommandEntry>) {
+    let mut words = Vec::new();
     let mut commands = Vec::new();
+    let mut pending = VecDeque::new();
     let mut cursor = root.walk();
     loop {
-        if let Some(command) = command_words(cursor.node(), source).and_then(read_command) {
+        if push_command_words(cursor.node(), builder, &mut pending)
+            && let Some(command) = resolve_command(builder, &mut pending, &mut words)
+        {
             commands.push(command);
         }
         if cursor.goto_first_child() {
@@ -262,31 +323,41 @@ fn commands_in(root: Node<'_>, source: &str) -> Vec<ShellCommand> {
         }
         while !cursor.goto_next_sibling() {
             if !cursor.goto_parent() {
-                return commands;
+                return (words, commands);
             }
         }
     }
 }
 
-// The words of a node that runs a command, its program first; `None` for any other node.
-fn command_words(node: Node<'_>, source: &str) -> Option<Vec<String>> {
+// Puts the words of a node that runs a command, its program first, in `pending`; false for any
+// other node.
+fn push_command_words(
+    node: Node<'_>,
+    builder: &mut WordBuilder<'_>,
+    pending: &mut VecDeque<Word>,
+) -> bool {
     match node.kind() {
-        "command" => Some(simple_command_words(node, source)),
+        "command" => push_simple_command_words(node, builder, pending),
         // `export`, `declare`, `unset` and their kin are commands named by their keyword.
-        "declaration_command" | "unset_command" => Some(keyword_command_words(node, source)),
+        "declaration_command" | "unset_command" => {
+            push_keyword_command_words(node, builder, pending);
+        }
         // A single-bracket test runs the command `[`; a `[[ … ]]` test runs none.
-        "test_command" => node
-            .child(0)
-            .filter(|bracket| bracket.kind() == "[")
-            .map(|_| test_command_words(node, source)),
-        _ => None,
+        "test_command" if node.child(0).is_some_and(|bracket| bracket.kind() == "[") => {
+            push_test_command_words(node, builder, pending);
+        }
+        _ => return false,
     }
+    true
 }
 
 // A simple command's name and argument words, without its leading assignments and redirects, and
 // without a bare `time [-p] [--]` or `coproc` before it, which the shell reads as keywords.
-fn simple_command_words(command: Node<'_>, source: &str) -> Vec<String> {
-    let mut words = Vec::new();
+fn push_simple_command_words(
+    command: Node<'_>,
+    builder: &mut WordBuilder<'_>,
+    pending: &mut VecDeque<Word>,
+) {
     let mut keyword = None;
     let mut cursor = command.walk();
     if cursor.goto_first_child() {
@@ -298,14 +369,15 @@ fn simple_command_words(command: Node<'_>, source: &str) -> Vec<String> {
                     let Some(literal) = child.named_child(0).filter(|name| !name.is_missing())
                     else {
                         // A name the parser supplied for a missing token names no program.
-                        return Vec::new();
+                        pending.clear();
+                        return;
                     };
                     if is_first_child && literal.kind() == "word" {
-                        keyword = Some(node_text(literal, source));
+                        keyword = Some(node_text(literal, builder.line()));
                     }
-                    words.push(word_value(literal, source));
+                    pending.push_back(builder.push_word(literal));
                 }
-                Some("argument") => words.push(word_value(child, source)),
+                Some("argument") => pending.push_back(builder.push_word(child)),
                 Some(_) | None => {}
             }
             is_first_child = false;
@@ -314,57 +386,65 @@ fn simple_command_words(command: Node<'_>, source: &str) -> Vec<String> {
             }
         }
     }
-    let keyword_words = match keyword {
+    match keyword {
         Some("time") => {
-            let mut count = 1;
-            if words.get(count).is_some_and(|word| word == "-p") {
-                count += 1;
+            pending.pop_front();
+            for option in ["-p", "--"] {
+                if pending
+                    .front()
+                    .is_some_and(|&word| builder.view(word).is(option))
+                {
+                    pending.pop_front();
+                }
             }
-            if words.get(count).is_some_and(|word| word == "--") {
-                count += 1;
-            }
-            count
         }
-        Some("coproc") => 1,
-        Some(_) | None => 0,
-    };
-    words.split_off(keyword_words.min(words.len()))
+        Some("coproc") => {
+            pending.pop_front();
+        }
+        Some(_) | None => {}
+    }
 }
 
 // A declaration or `unset` command's keyword and words: its names, never its assignments.
-fn keyword_command_words(command: Node<'_>, source: &str) -> Vec<String> {
-    let mut words = Vec::new();
+fn push_keyword_command_words(
+    command: Node<'_>,
+    builder: &mut WordBuilder<'_>,
+    pending: &mut VecDeque<Word>,
+) {
     let mut cursor = command.walk();
     if !cursor.goto_first_child() {
-        return words;
+        return;
     }
     loop {
         let child = cursor.node();
         // The keyword and each name read as their text, a literal as its value.
         match child.kind() {
             "variable_assignment" | "comment" => {}
-            _ => words.push(word_value(child, source)),
+            _ => pending.push_back(builder.push_word(child)),
         }
         if !cursor.goto_next_sibling() {
-            return words;
+            return;
         }
     }
 }
 
 // A single-bracket test's words, `[` and `]` included: each literal read as a word and each
 // operator as its text, through any nesting of test expressions.
-fn test_command_words(test: Node<'_>, source: &str) -> Vec<String> {
-    let mut words = Vec::new();
+fn push_test_command_words(
+    test: Node<'_>,
+    builder: &mut WordBuilder<'_>,
+    pending: &mut VecDeque<Word>,
+) {
     let mut cursor = test.walk();
     if !cursor.goto_first_child() {
-        return words;
+        return;
     }
     loop {
         let node = cursor.node();
         let descends = if node.is_missing() || node.kind() == "comment" {
             false
         } else if is_test_word(node) {
-            words.push(word_value(node, source));
+            pending.push_back(builder.push_word(node));
             false
         } else {
             true
@@ -374,7 +454,7 @@ fn test_command_words(test: Node<'_>, source: &str) -> Vec<String> {
         }
         while !cursor.goto_next_sibling() {
             if !cursor.goto_parent() {
-                return words;
+                return;
             }
         }
     }
@@ -403,78 +483,332 @@ fn is_test_word(node: Node<'_>) -> bool {
         )
 }
 
-// The program is the first word that is neither an assignment nor a wrapper that runs the command
-// after its own options and operands; a command of assignments alone runs none.
-fn read_command(mut words: Vec<String>) -> Option<ShellCommand> {
-    let mut wrappers = Vec::new();
+// The command `pending` runs, its words moved to `words`: the program is the first word that is
+// neither an assignment nor a wrapper that runs the command after its own options and operands;
+// a command of assignments alone runs none.
+fn resolve_command(
+    builder: &mut WordBuilder<'_>,
+    pending: &mut VecDeque<Word>,
+    words: &mut Vec<Word>,
+) -> Option<CommandEntry> {
+    let first_word = words.len();
+    let piece_mark = builder.piece_count();
     loop {
-        let start = words
-            .iter()
-            .position(|word| !is_variable_assignment(word))?;
-        let program = basename(&words[start]).to_owned();
-        let Some(wrapper) = command_wrapper(&program) else {
-            return Some(ShellCommand {
+        while pending
+            .front()
+            .is_some_and(|&word| is_variable_assignment(builder.view(word)))
+        {
+            pending.pop_front();
+        }
+        let Some(name) = pending.pop_front() else {
+            words.truncate(first_word);
+            builder.truncate(piece_mark);
+            return None;
+        };
+        let program = builder.basename(name);
+        let wrapper = command_wrapper(builder.view(program));
+        words.push(program);
+        let Some(wrapper) = wrapper else {
+            let program = offset(words.len() - 1);
+            words.extend(pending.drain(..));
+            return Some(CommandEntry {
+                first: offset(first_word),
                 program,
-                argument_words: words.split_off(start + 1),
-                wrappers,
+                end: offset(words.len()),
             });
         };
-        words = wrapped_words_of(&program, wrapper, words.split_off(start + 1));
-        wrappers.push(program);
+        take_wrapper_words(builder, wrapper, pending);
     }
 }
 
-// The words a wrapper runs: past its options, an option's value and its leading operands.
-fn wrapped_words_of(program: &str, wrapper: CommandWrapper, mut words: Vec<String>) -> Vec<String> {
-    let mut index = 0;
-    while let Some(word) = words.get(index) {
-        if word == "--" {
-            index += 1;
-            break;
-        }
-        if !word.starts_with('-') || word == "-" {
-            break;
-        }
-        if program == "env" && ENV_SPLIT_STRING_OPTIONS.contains(&word.as_str()) {
-            let split_words: Vec<String> = words
-                .get(index + 1)
-                .map(|value| {
-                    value
-                        .split(is_ecmascript_whitespace)
-                        .filter(|part| !part.is_empty())
-                        .map(str::to_owned)
-                        .collect()
-                })
-                .unwrap_or_default();
-            return split_words
-                .into_iter()
-                .chain(words.into_iter().skip(index + 2))
-                .collect();
-        }
-        index += if wrapper.options_with_value.contains(&word.as_str()) {
-            2
-        } else {
-            1
-        };
-    }
-    words.split_off((index + wrapper.leading_operands).min(words.len()))
-}
-
-// `NAME=…`, a name of letters, digits and underscores not starting with a digit.
-fn is_variable_assignment(word: &str) -> bool {
-    let Some((name, _)) = word.split_once('=') else {
-        return false;
-    };
-    let mut characters = name.chars();
-    characters
+// `NAME=…`, a name of letters, digits and underscores not starting with a digit: the name's
+// characters are read from the start up to the first other one, which must be `=`.
+fn is_variable_assignment(word: ShellWord<'_>) -> bool {
+    let mut characters = word.chars();
+    if !characters
         .next()
         .is_some_and(|character| character.is_ascii_alphabetic() || character == '_')
-        && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
-}
-
-fn basename(program: &str) -> &str {
-    program.rsplit_once('/').map_or(program, |(_, name)| name)
+    {
+        return false;
+    }
+    characters.find(|&character| !(character.is_ascii_alphanumeric() || character == '_'))
+        == Some('=')
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use proptest::prelude::*;
+    use rstest::rstest;
+
+    use super::*;
+
+    // A limit small enough that the cap and the bound are reached by short lines.
+    const LIMIT: usize = 64;
+
+    // A command as text, so a table compares what the reader read.
+    #[derive(Debug, PartialEq, Eq)]
+    struct ReadCommand {
+        program: String,
+        argument_words: Vec<String>,
+        wrappers: Vec<String>,
+    }
+
+    impl From<ShellCommand<'_>> for ReadCommand {
+        fn from(command: ShellCommand<'_>) -> Self {
+            Self {
+                program: command.program().to_string(),
+                argument_words: command
+                    .argument_words()
+                    .map(|word| word.to_string())
+                    .collect(),
+                wrappers: command.wrappers().map(|word| word.to_string()).collect(),
+            }
+        }
+    }
+
+    fn command(program: &str, argument_words: &[&str], wrappers: &[&str]) -> ReadCommand {
+        ReadCommand {
+            program: program.to_owned(),
+            argument_words: argument_words.iter().map(|&word| word.to_owned()).collect(),
+            wrappers: wrappers.iter().map(|&wrapper| wrapper.to_owned()).collect(),
+        }
+    }
+
+    fn commands_of(reading: &ShellLineReading) -> Vec<ReadCommand> {
+        reading.commands().map(ReadCommand::from).collect()
+    }
+
+    fn assert_unread(reading: &ShellLineReading) {
+        assert!(!reading.is_whole());
+        assert_eq!(reading.commands().len(), 0);
+    }
+
+    #[rstest]
+    #[case::pipeline(
+        "git status | grep main",
+        vec![command("git", &["status"], &[]), command("grep", &["main"], &[])],
+        true
+    )]
+    #[case::chain(
+        "cd repo && npm test || echo failed",
+        vec![
+            command("cd", &["repo"], &[]),
+            command("npm", &["test"], &[]),
+            command("echo", &["failed"], &[]),
+        ],
+        true
+    )]
+    #[case::substitution(
+        r#"echo "$(git rev-parse HEAD)""#,
+        vec![
+            command("echo", &["$(git rev-parse HEAD)"], &[]),
+            command("git", &["rev-parse", "HEAD"], &[]),
+        ],
+        true
+    )]
+    #[case::env_unset("env -u HOME git push", vec![command("git", &["push"], &["env"])], true)]
+    #[case::sudo_user(
+        "sudo -u root rm -rf /tmp/x",
+        vec![command("rm", &["-rf", "/tmp/x"], &["sudo"])],
+        true
+    )]
+    #[case::timeout_duration(
+        "timeout 5 git fetch",
+        vec![command("git", &["fetch"], &["timeout"])],
+        true
+    )]
+    #[case::env_split_string(
+        "env -S 'git push -f'",
+        vec![command("git", &["push", "-f"], &["env"])],
+        true
+    )]
+    #[case::env_split_string_keeps_a_substitution_whole(
+        r#"env -S "git $(echo push) -f""#,
+        vec![
+            command("git", &["$(echo push)", "-f"], &["env"]),
+            command("echo", &["push"], &[]),
+        ],
+        true
+    )]
+    #[case::assignments_only("FOO=1 BAR=2", vec![], true)]
+    #[case::shell_command_string(
+        "bash -lc 'git status'",
+        vec![command("bash", &["-lc", "git status"], &[])],
+        true
+    )]
+    #[case::unterminated_quote(
+        r#"git push --force origin main && echo "unterminated"#,
+        vec![command("git", &["push", "--force", "origin", "main"], &[])],
+        false
+    )]
+    #[case::coproc_keyword(
+        "coproc git push --force origin main",
+        vec![command("git", &["push", "--force", "origin", "main"], &[])],
+        true
+    )]
+    #[case::escaped_program(r"g\it push -f", vec![command("git", &["push", "-f"], &[])], true)]
+    #[case::ansi_c_program(r"$'\147it' push -f", vec![command("git", &["push", "-f"], &[])], true)]
+    #[case::ansi_c_nul_ends_its_part(
+        r"$'gi\0zz't push -f",
+        vec![command("git", &["push", "-f"], &[])],
+        true
+    )]
+    #[case::ansi_c_nul_keeps_later_parts(r"$'a\0b'c", vec![command("ac", &[], &[])], true)]
+    #[case::quoted_program_part(
+        r#""gi"t push -f"#,
+        vec![command("git", &["push", "-f"], &[])],
+        true
+    )]
+    #[case::time_keyword("time npm run build", vec![command("npm", &["run", "build"], &[])], true)]
+    #[case::export_assignment("export FOO=1", vec![command("export", &[], &[])], true)]
+    #[case::export_name(
+        "export FOO=1 BAR",
+        vec![command("export", &["BAR"], &[])],
+        true
+    )]
+    #[case::single_bracket_test(
+        "[ -f x ] && rm -rf b",
+        vec![command("[", &["-f", "x", "]"], &[]), command("rm", &["-rf", "b"], &[])],
+        true
+    )]
+    #[case::before_a_syntax_error(
+        "git push -f origin main\nif true; then echo b",
+        vec![command("git", &["push", "-f", "origin", "main"], &[])],
+        false
+    )]
+    fn reads_the_commands_of_a_line(
+        #[case] line: &str,
+        #[case] expected: Vec<ReadCommand>,
+        #[case] is_whole: bool,
+    ) {
+        let reading = ShellLineReader::new(LIMIT).read(line);
+
+        assert_eq!(reading.is_whole(), is_whole);
+        let commands = commands_of(&reading);
+        if is_whole {
+            assert_eq!(commands, expected);
+        } else {
+            // Past a syntax error, what the parser recovers is its own; what it read before is ours.
+            assert!(commands.starts_with(&expected), "{commands:?}");
+        }
+    }
+
+    // A line of nested levels built to the test's limit, read on a thread with the stack of
+    // tokio's blocking threads; the line's memory and time must grow with its length alone.
+    #[rstest]
+    #[case::an_escape_at_every_level(r#""\$x$("#, r#")""#)]
+    #[case::env_split_strings(r#"env -S "$("#, r#")""#)]
+    #[case::evals("eval $(", ")")]
+    #[case::substitutions("$(", ")")]
+    fn reads_a_line_nested_to_the_limit(#[case] open: &str, #[case] close: &str) {
+        const NEST_LIMIT: usize = 1 << 20;
+        let levels = (NEST_LIMIT - 1) / (open.len() + close.len());
+        let line = format!("{}x{}", open.repeat(levels), close.repeat(levels));
+
+        let reading = std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || ShellLineReader::new(NEST_LIMIT).read(&line))
+            .expect("the reading thread starts")
+            .join()
+            .expect("the read ends without a panic");
+
+        assert!(reading.is_whole());
+        assert_eq!(reading.commands().len(), levels + 1);
+        let innermost = reading.commands().last().expect("the line runs commands");
+        assert_eq!(ReadCommand::from(innermost), command("x", &[], &[]));
+    }
+
+    #[test]
+    fn a_line_at_the_limit_is_read_and_one_byte_past_it_is_not() {
+        let at_limit = format!("echo {}", "a".repeat(LIMIT - "echo ".len()));
+
+        let reading = ShellLineReader::new(LIMIT).read(&at_limit);
+        assert!(reading.is_whole());
+        assert_eq!(reading.commands().len(), 1);
+
+        let past_limit = format!("{at_limit}a");
+        assert_unread(&ShellLineReader::new(LIMIT).read(&past_limit));
+    }
+
+    #[test]
+    fn a_reader_reads_at_most_twice_its_limit() {
+        let mut reader = ShellLineReader::new(LIMIT);
+        let first = format!("echo {}", "a".repeat(LIMIT - "echo ".len()));
+        let second = format!("echo {}", "b".repeat(LIMIT - "echo ".len()));
+
+        assert!(reader.read(&first).is_whole());
+        assert!(reader.read(&second).is_whole());
+        assert_unread(&reader.read("true"));
+    }
+
+    #[test]
+    fn a_string_read_again_costs_nothing_and_reads_the_same() {
+        let mut reader = ShellLineReader::new(LIMIT);
+        let line = "bash -c 'git push --force origin main'";
+        let inner = "git push --force origin main";
+        let line_reading = reader.read(line);
+        let shell = line_reading
+            .commands()
+            .next()
+            .expect("the line runs `bash`");
+        let inner_reading = reader
+            .read_command_string(shell)
+            .expect("`bash -c` runs a string");
+        // A string spending what is left of the bound.
+        let filler = "x".repeat(2 * LIMIT - line.len() - inner.len());
+        assert!(reader.read(&filler).is_whole());
+
+        let reread = reader
+            .read_command_string(shell)
+            .expect("`bash -c` runs a string");
+
+        assert!(Arc::ptr_eq(&reread, &inner_reading));
+        assert_eq!(
+            commands_of(&reread),
+            vec![command("git", &["push", "--force", "origin", "main"], &[])]
+        );
+        assert_unread(&reader.read("true"));
+    }
+
+    #[rstest]
+    #[case::provider_wrapper(
+        r#"/bin/zsh -lc "rm -rf 'my build' && echo done""#,
+        "rm -rf 'my build' && echo done"
+    )]
+    #[case::operator_outside_the_argv("bash -lc 'x' && y", "bash -lc 'x' && y")]
+    #[case::wrapper_before_the_shell("env bash -lc 'x'", "env bash -lc 'x'")]
+    #[case::wrapper_before_a_joined_argv("env bash -lc 'x y'", "env bash -lc 'x y'")]
+    fn unwraps_only_a_shell_handed_its_whole_line(#[case] line: &str, #[case] expected: &str) {
+        assert_eq!(unwrap_shell_command_line(line), expected);
+    }
+
+    // Words the parser or the reader reads as more than a program's name.
+    const RESERVED_NAMES: &[&str] = &[
+        "if", "then", "else", "elif", "fi", "case", "esac", "for", "select", "in", "while",
+        "until", "do", "done", "function", "declare", "typeset", "export", "readonly", "local",
+        "unset", "unsetenv", "time", "coproc", "env", "exec", "command", "nohup", "timeout",
+        "nice", "sudo", "xargs",
+    ];
+
+    proptest! {
+        #[test]
+        fn a_joined_argv_reads_back_as_its_one_command(
+            program in "[a-z][a-z0-9_]{0,11}"
+                .prop_filter("a plain program name", |name| !RESERVED_NAMES.contains(&name.as_str())),
+            argument_words in proptest::collection::vec("[^\\x00]{0,12}", 0..6),
+        ) {
+            let line = shlex::try_join(
+                std::iter::once(program.as_str()).chain(argument_words.iter().map(String::as_str)),
+            )
+            .expect("no word holds a NUL");
+
+            let reading = ShellLineReader::new(1 << 20).read(&line);
+
+            prop_assert!(reading.is_whole(), "{line:?}");
+            prop_assert_eq!(
+                commands_of(&reading),
+                vec![ReadCommand { program, argument_words, wrappers: Vec::new() }]
+            );
+        }
+    }
+}
