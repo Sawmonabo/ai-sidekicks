@@ -9,12 +9,21 @@ use serde_json::Value;
 use sidekicks_contracts::approval::{ApprovalRequestId, RememberedRuleSense, RememberedScopeKind};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use strum::{EnumDiscriminants, IntoStaticStr};
 
 /// What the held call would do, read by the driver from its provider's own ask: run a command,
 /// send input to the running command the ask's tool call names, change files, read one file or
 /// folder, reach a host, leave plan mode with the plan it proposed, or call a tool none of those
-/// covers.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// covers. Its kind without the subject, as a standing rule names it, is
+/// [`ProviderAskActionKind`], spelled as the approval store writes it.
+#[derive(Clone, Debug, PartialEq, Eq, EnumDiscriminants)]
+#[strum_discriminants(
+    name(ProviderAskActionKind),
+    doc = "The kind of action a held call would take, without its subject, as a standing rule \
+           names it.",
+    derive(IntoStaticStr),
+    strum(serialize_all = "snake_case")
+)]
 pub(crate) enum ProviderAskAction {
     /// Leave plan mode with the plan it proposed.
     Plan,
@@ -48,40 +57,6 @@ pub(crate) enum ProviderAskAction {
         /// The tool's name.
         tool_name: String,
     },
-}
-
-/// The kind of action a held call would take, without its subject, as a standing rule names it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum ProviderAskActionKind {
-    /// Leave plan mode.
-    Plan,
-    /// Run a command.
-    Command,
-    /// Send input to a running command.
-    CommandInput,
-    /// Change files.
-    FileChange,
-    /// Read a file or folder.
-    FileRead,
-    /// Reach a host.
-    Network,
-    /// Call a tool.
-    Tool,
-}
-
-impl ProviderAskAction {
-    /// The kind of this action.
-    pub(crate) const fn kind(&self) -> ProviderAskActionKind {
-        match self {
-            Self::Plan => ProviderAskActionKind::Plan,
-            Self::Command { .. } => ProviderAskActionKind::Command,
-            Self::CommandInput { .. } => ProviderAskActionKind::CommandInput,
-            Self::FileChange { .. } => ProviderAskActionKind::FileChange,
-            Self::FileRead { .. } => ProviderAskActionKind::FileRead,
-            Self::Network { .. } => ProviderAskActionKind::Network,
-            Self::Tool { .. } => ProviderAskActionKind::Tool,
-        }
-    }
 }
 
 /// One ask a provider holds a tool call on: the tool, its input as the provider sent it, the

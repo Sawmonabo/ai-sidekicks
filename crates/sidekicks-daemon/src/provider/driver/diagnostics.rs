@@ -6,9 +6,12 @@
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::name::ProviderName;
+use strum::IntoStaticStr;
 
-/// The closed set of diagnostic kinds; each names its counter, so a kind is never unmetered.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// The closed set of diagnostic kinds; each names its counter, so a kind is never unmetered, and
+/// converts to its snake-case name on the log line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub(crate) enum DriverDiagnosticKind {
     /// A wire kind outside the pinned set, or one with no defined session event type.
     UnmappedWireKind,
@@ -140,57 +143,6 @@ pub(crate) enum DriverDiagnosticKind {
 }
 
 impl DriverDiagnosticKind {
-    /// The kind's name on the log line, in snake case.
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::UnmappedWireKind => "unmapped_wire_kind",
-            Self::PayloadVariantPending => "payload_variant_pending",
-            Self::ReorderBufferOverflow => "reorder_buffer_overflow",
-            Self::ToolPairingTimeout => "tool_pairing_timeout",
-            Self::ReorderSeenInitiationEvicted => "reorder_seen_initiation_evicted",
-            Self::UsageDeltaFloorHit => "usage_delta_floor_hit",
-            Self::UsageAxisReadingRejected => "usage_axis_reading_rejected",
-            Self::UsageResumeBaseUnavailable => "usage_resume_base_unavailable",
-            Self::UsageCrossCheckMismatch => "usage_cross_check_mismatch",
-            Self::UsageContainmentIdentityUnconfirmed => "usage_containment_identity_unconfirmed",
-            Self::ThreadFrameQuarantined => "thread_frame_quarantined",
-            Self::ThreadQuarantineShed => "thread_quarantine_shed",
-            Self::ThreadPendingHoldShed => "thread_pending_hold_shed",
-            Self::ThreadRegistrationRefused => "thread_registration_refused",
-            Self::ThreadDuplicateChildAnnouncement => "thread_duplicate_child_announcement",
-            Self::CapabilityRefreshFailed => "capability_refresh_failed",
-            Self::CapabilityFlagWithdrawn => "capability_flag_withdrawn",
-            Self::CallbackToolSeamAbsent => "callback_tool_seam_absent",
-            Self::CallbackToolRegistryWithheld => "callback_tool_registry_withheld",
-            Self::CallbackToolInvocationRefused => "callback_tool_invocation_refused",
-            Self::CallbackToolRegistrySuperseded => "callback_tool_registry_superseded",
-            Self::CallbackToolRegistryReleaseIgnored => "callback_tool_registry_release_ignored",
-            Self::CallbackToolActivityRecordFailed => "callback_tool_activity_record_failed",
-            Self::SubagentDefinitionFieldWithheld => "subagent_definition_field_withheld",
-            Self::SupersededRunReportFailed => "superseded_run_report_failed",
-            Self::CompactionWaitTerminal => "compaction_wait_terminal",
-            Self::ProviderCommandEntryRejected => "provider_command_entry_rejected",
-            Self::OutputSpeedStateRejected => "output_speed_state_rejected",
-            Self::OutputSpeedApplyRefused => "output_speed_apply_refused",
-            Self::InteractiveRequestOptionSetDropped => "interactive_request_option_set_dropped",
-            Self::McpTaskHandleWriteRefused => "mcp_task_handle_write_refused",
-            Self::McpTaskHandleWriteFailed => "mcp_task_handle_write_failed",
-            Self::LateEventAbsorbed => "late_event_absorbed",
-            Self::EpochAssociationEvicted => "epoch_association_evicted",
-            Self::ProviderRestarted => "provider_restarted",
-            Self::ProviderCrashLoop => "provider_crash_loop",
-            Self::ProcessReportFailed => "process_report_failed",
-            Self::DeliveryDispatchFailed => "delivery_dispatch_failed",
-            Self::ControlFrameMalformed => "control_frame_malformed",
-            Self::ControlAnswerFailed => "control_answer_failed",
-            Self::ProviderFrameOversized => "provider_frame_oversized",
-            Self::ControlOnlyReadFailed => "control_only_read_failed",
-            Self::ModelWindowReadFailed => "model_window_read_failed",
-            Self::StreamedTextDiverged => "streamed_text_diverged",
-            Self::StreamedBlocksAbandoned => "streamed_blocks_abandoned",
-        }
-    }
-
     /// The kind's counter name, shaped `driver.<band>.<condition>`, or `run.<band>.<condition>`
     /// for a kind the run engine records.
     pub(crate) const fn counter_name(self) -> &'static str {
@@ -278,7 +230,7 @@ pub(crate) fn emit_driver_diagnostic(record: &DriverDiagnosticRecord) {
         .expect("a map with string keys and JSON values always serializes");
     tracing::warn!(
         counter = record.kind.counter_name(),
-        kind = record.kind.as_str(),
+        kind = <&str>::from(record.kind),
         provider = record.provider.as_str(),
         provider_account_id = record
             .provider_account_id

@@ -33,6 +33,7 @@ use sidekicks_contracts::context_window::ContextWindowSource;
 use sidekicks_contracts::provider::name::ProviderName;
 use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::wire::integer::SafeInt;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -40,7 +41,10 @@ use crate::provider::driver::diagnostics::{
 
 /// A cumulative token axis a provider reading may carry: uncached input, cached input, cache-write
 /// input, output, reasoning output, and the total. A driver maps its own wire members onto them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// `VARIANTS` lists them in the order a reading is metered, and each converts to its name in a
+/// diagnostic's details.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, VariantArray, IntoStaticStr)]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum UsageTokenAxis {
     /// Input tokens, before any cached share is subtracted.
     Input,
@@ -54,30 +58,6 @@ pub(crate) enum UsageTokenAxis {
     ReasoningOutput,
     /// Every token, as the provider totals them.
     Total,
-}
-
-impl UsageTokenAxis {
-    /// Every axis, in the order a reading is metered.
-    pub(crate) const ALL: [Self; 6] = [
-        Self::Input,
-        Self::CachedInput,
-        Self::CacheWriteInput,
-        Self::Output,
-        Self::ReasoningOutput,
-        Self::Total,
-    ];
-
-    /// The axis's name in a diagnostic's details.
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Input => "input",
-            Self::CachedInput => "cachedInput",
-            Self::CacheWriteInput => "cacheWriteInput",
-            Self::Output => "output",
-            Self::ReasoningOutput => "reasoningOutput",
-            Self::Total => "total",
-        }
-    }
 }
 
 /// Token counts by axis, each present only where the source carried it: a cumulative reading, a
@@ -247,7 +227,7 @@ impl UsageDeltaAccountant {
             .get_mut(&reading.thread_id)?;
 
         let mut axis_deltas = UsageAxisCounts::default();
-        for axis in UsageTokenAxis::ALL {
+        for &axis in UsageTokenAxis::VARIANTS {
             let Some(cumulative_value) = reading.cumulative.get(axis) else {
                 continue;
             };
@@ -262,7 +242,7 @@ impl UsageDeltaAccountant {
                      base register re-set to the observed reading",
                     [
                         ("threadId", json!(reading.thread_id)),
-                        ("axis", json!(axis.as_str())),
+                        ("axis", json!(<&str>::from(axis))),
                         ("baseValue", json!(base_value)),
                         ("observedValue", json!(cumulative_value)),
                     ],
@@ -302,7 +282,7 @@ impl UsageDeltaAccountant {
         let Some(declared_per_turn) = &reading.declared_per_turn else {
             return;
         };
-        for axis in UsageTokenAxis::ALL {
+        for &axis in UsageTokenAxis::VARIANTS {
             let (Some(derived_interval), Some(declared_value)) =
                 (axis_deltas.get(axis), declared_per_turn.get(axis))
             else {
@@ -317,7 +297,7 @@ impl UsageDeltaAccountant {
                     [
                         ("threadId", json!(reading.thread_id)),
                         ("namedTurnId", json!(reading.named_turn_id)),
-                        ("axis", json!(axis.as_str())),
+                        ("axis", json!(<&str>::from(axis))),
                         ("derivedInterval", json!(derived_interval)),
                         ("declaredValue", json!(declared_value)),
                     ],
