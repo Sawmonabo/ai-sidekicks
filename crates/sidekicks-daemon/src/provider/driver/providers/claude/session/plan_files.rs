@@ -62,10 +62,10 @@ pub(crate) async fn find_claude_plan_files(
     Ok(found)
 }
 
-// The folder the settings name, resolved, or `None` when none names one inside the project, which
-// Claude Code also refuses. Where Claude Code reads `plansDirectory`, lowest precedence first: the
-// home's settings, the project's shared settings, then its local settings; an empty value names
-// nothing.
+// The folder the settings name, resolved, or `None` when none names one inside the project or it
+// holds a backslash off Windows, either of which makes Claude Code fall back to the default folder.
+// Where Claude Code reads `plansDirectory`, lowest precedence first: the home's settings, the
+// project's shared settings, then its local settings; an empty value names nothing.
 async fn read_configured_plans_folder(
     config_folder: &Path,
     project_folder: &Path,
@@ -92,9 +92,9 @@ async fn read_configured_plans_folder(
     };
     let project_root = resolve_path(to_folder_text(project_folder)?)?;
     let folder = resolve_path_against(&project_root, &configured)?;
-    Ok(Path::new(&folder)
-        .starts_with(&project_root)
-        .then_some(folder))
+    let is_inside_project = Path::new(&folder).starts_with(&project_root);
+    let has_refused_backslash = !cfg!(windows) && folder.contains('\\');
+    Ok((is_inside_project && !has_refused_backslash).then_some(folder))
 }
 
 // The folder as text for the resolver, which folds paths as UTF-8 and never through a lossy step.
@@ -140,6 +140,11 @@ mod tests {
     )]
     #[case::a_folder_inside_the_project(None, Some("sub/plans"), Some("sub/plans"))]
     #[case::a_folder_whose_name_starts_with_two_dots(None, Some("..foo"), Some("..foo"))]
+    #[case::a_folder_with_a_backslash(
+        None,
+        Some(r"sub\plans"),
+        cfg!(windows).then_some("sub/plans")
+    )]
     #[case::an_empty_later_setting(Some("sub/plans"), Some(""), Some("sub/plans"))]
     #[tokio::test]
     async fn searches_the_default_folder_and_a_configured_one_only_inside_the_project(
@@ -152,7 +157,7 @@ mod tests {
         let config_folder = scratch.path().join("config");
         let project_folder = scratch.path().join("project");
         fs::create_dir_all(project_folder.join(".claude")).unwrap();
-        for folder in ["inside", "sub/plans", "..foo"] {
+        for folder in ["inside", "sub/plans", r"sub\plans", "..foo"] {
             write_plan_file(&project_folder.join(folder));
         }
         write_plan_file(&scratch.path().join("elsewhere"));

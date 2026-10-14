@@ -23,20 +23,21 @@ pub(crate) fn resolve_path(path: &str) -> io::Result<String> {
     Ok(Utf8NativePathBuf::from(absolute).normalize().into_string())
 }
 
-/// `path` joined onto `base` and folded as [`resolve_path`] folds it: an absolute `path` replaces
-/// `base`, and a Windows drive-relative one (`D:foo`) resolves as Codex resolves it, reading no
-/// environment variable and no working folder. Only a relative `base` reads the daemon's working
-/// folder. Fails as [`resolve_path`] does.
+/// `path` joined onto `base` and folded as [`resolve_path`] folds it: a relative `base` first
+/// resolves against the daemon's working folder, an absolute `path` replaces `base`, and a Windows
+/// drive-relative one (`D:foo`) resolves as Codex resolves it, reading no environment variable and
+/// no working folder. Fails as [`resolve_path`] does.
 pub(crate) fn resolve_path_against(base: &str, path: &str) -> io::Result<String> {
+    let base = resolve_path(base)?;
     let joined = if cfg!(windows) {
-        join_windows_path(base, path)
+        join_windows_path(&base, path)
     } else {
-        Utf8NativePath::new(base).join(path).into_string()
+        Utf8NativePath::new(&base).join(path).into_string()
     };
     resolve_path(&joined)
 }
 
-// `path` joined onto `base` by Windows rules. A drive-relative `path` (`D:foo`) takes its own
+// `path` joined onto `base` as Codex joins them. A drive-relative `path` (`D:foo`) takes its own
 // drive, then `base` without its drive, then the rest of itself, so on the same drive it joins
 // onto `base`; a bare drive (`D:`) is that drive's root.
 fn join_windows_path(base: &str, path: &str) -> String {
@@ -71,7 +72,9 @@ mod tests {
     #[case::same_drive_in_another_case(r"c:\proj", "C:foo", r"C:\proj\foo")]
     #[case::another_drive(r"C:\base\cwd", r"D:path\to\file", r"D:\base\cwd\path\to\file")]
     #[case::bare_drive(r"C:\proj", "D:", r"D:\")]
+    #[case::bare_drive_on_base_drive(r"C:\proj", "C:", r"C:\")]
     #[case::base_on_no_drive(r"\proj", "D:foo", r"D:\proj\foo")]
+    #[case::base_on_a_share(r"\\server\share\x", "D:foo", r"D:\x\foo")]
     #[case::rooted(r"C:\base\cwd", r"\path\to\file", r"C:\path\to\file")]
     #[case::absolute(r"C:\proj", r"D:\foo", r"D:\foo")]
     fn a_drive_relative_path_joins_as_codex_joins_it(

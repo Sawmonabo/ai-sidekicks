@@ -1,7 +1,7 @@
 //! A tool server's elicitation form as the questions card asks it: each field the form names is one
-//! question, in the form's own order, carrying whether the form requires it, the answer it starts
-//! from and a number field's bounds; the answers go back keyed by field, each as the type the field
-//! declares.
+//! question, in the order Codex sends the form's fields, carrying whether the form requires it,
+//! the answer it starts from and a number field's bounds; the answers go back keyed by field, each
+//! as the type the field declares.
 
 use std::iter;
 use std::slice;
@@ -360,10 +360,17 @@ mod tests {
         r#"{"b":"bee","2":"two","1":"one"}"#
     )]
     #[case::a_number_only_in_decimal(
-        form(&json!({"spaced": {"type": "number"}, "hex": {"type": "number"}}), None),
-        vec![typed("\u{a0}2.5\u{feff}"), typed("0x10")],
-        &["spaced", "hex"],
-        r#"{"spaced":2.5,"hex":"0x10"}"#
+        form(
+            &json!({
+                "spaced": {"type": "number"},
+                "hex": {"type": "number"},
+                "inf": {"type": "number"},
+            }),
+            None,
+        ),
+        vec![typed("\u{a0}2.5\u{feff}"), typed("0x10"), typed("inf")],
+        &["spaced", "hex", "inf"],
+        r#"{"spaced":2.5,"hex":"0x10","inf":"inf"}"#
     )]
     #[case::a_field_asked_by_nothing_before_a_field(
         form(&json!({"": {}, "size": {"type": "string"}}), None),
