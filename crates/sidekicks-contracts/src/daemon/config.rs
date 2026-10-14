@@ -74,8 +74,9 @@ step_set! {
 }
 
 /// The settings, and the two facts the page draws beside them.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DaemonConfig {
     /// The port a workflow started by a web request listens on.
     pub workflow_listener_port: Port,

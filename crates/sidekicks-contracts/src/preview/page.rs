@@ -267,8 +267,9 @@ pub struct PreviewPageOpenRequest {
 }
 
 /// The page opened, and the address it loads.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPageOpenResponse {
     /// The page.
     pub page_id: PreviewPageId,
@@ -302,16 +303,20 @@ pub struct PreviewPageRequest {
 }
 
 /// A page closed. Closing a page that is already gone answers the same.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPageCloseResponse {
     /// Always `true`.
     pub closed: True,
 }
 
 /// The page the pane now shows. Activating the active page answers the same.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPageActivateResponse {
     /// The page.
     pub active_page_id: PreviewPageId,
@@ -333,8 +338,9 @@ pub struct PreviewPageReorderRequest {
 
 /// The session's page order after the move. The order is the session's, so every device draws the
 /// same strip; moving a page to where it already is answers the order unchanged.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPageReorderResponse {
     /// The pages in order.
     pub page_ids: Vec<PreviewPageId>,
@@ -373,8 +379,9 @@ pub struct PreviewNavigateRequest {
 
 /// Where the page stands after the navigation: the address it loads, with `movedFrom` as on
 /// [`PreviewPageOpenResponse`], and its history depths.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewNavigateResponse {
     /// The page.
     pub page_id: PreviewPageId,
@@ -405,8 +412,9 @@ pub struct PreviewZoomRequest {
 }
 
 /// The factor the page now has.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewZoomResponse {
     /// The page.
     pub page_id: PreviewPageId,

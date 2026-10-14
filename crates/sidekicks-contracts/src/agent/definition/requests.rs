@@ -236,8 +236,11 @@ pub struct AgentDefinitionDeleteRequest {
 }
 
 /// A delete's answer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AgentDefinitionDeleteResponse {
     /// Always `true`.
     pub deleted: True,
@@ -256,8 +259,11 @@ pub struct AgentDefinitionExportRequest {
 }
 
 /// How many definition files the export wrote.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AgentDefinitionExportResponse {
     /// The count.
     pub exported_count: SafeInt<1>,

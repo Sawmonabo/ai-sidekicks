@@ -61,13 +61,14 @@ pub enum WorkflowScheduleChange {
 /// `definition`, a schedule `armed` or `disarmed`), each its key's newest value, so a slow reader
 /// may miss a state. A removal and a schedule `fired` or `skipped` are events, each sent and never
 /// folded into a later one; there is no cursor and no dropped mark.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum WorkflowSubscribeNotification {
     /// The hold on starting new runs, and how many starts wait behind it.
     RunsPause {
@@ -79,6 +80,7 @@ pub enum WorkflowSubscribeNotification {
     /// A run's newest summary.
     Run {
         /// The run.
+        #[garde(dive)]
         run: WorkflowRunSummary,
     },
     /// Runs deleted.
@@ -91,6 +93,7 @@ pub enum WorkflowSubscribeNotification {
         /// The step's run.
         workflow_run_id: WorkflowRunId,
         /// The step.
+        #[garde(dive)]
         step: Box<WorkflowStep>,
     },
     /// A schedule armed, disarmed, fired or skipped.
@@ -102,6 +105,7 @@ pub enum WorkflowSubscribeNotification {
         /// What happened.
         event: WorkflowScheduleChange,
         /// The occurrence it happened for.
+        #[garde(dive)]
         scheduled_at: WireInstant,
         /// The next fire, while the schedule stays armed.
         #[serde(
@@ -110,11 +114,13 @@ pub enum WorkflowSubscribeNotification {
             deserialize_with = "crate::wire::present"
         )]
         #[schemars(with = "WireInstant")]
+        #[garde(dive)]
         next_fire_at: Option<WireInstant>,
     },
     /// A workflow's newest summary.
     Definition {
         /// The workflow.
+        #[garde(dive)]
         definition: WorkflowDefinitionSummary,
     },
     /// A workflow deleted.

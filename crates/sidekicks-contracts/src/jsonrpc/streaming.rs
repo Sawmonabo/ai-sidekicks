@@ -61,8 +61,9 @@ pub enum SubscriptionEndParams {
 
 /// The acknowledgement every `*.subscribe` method answers with: the id the daemon allocated.
 /// Values follow as notify frames, and the acknowledgement settles before any of them.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SubscribeAckResponse {
     /// The subscription's id, which routes its notify frames.
     pub subscription_id: SubscriptionId,
@@ -127,8 +128,9 @@ pub struct SubscriptionCancelParams {
 
 /// The result of a cancel call. `canceled` is false when the id is unknown or another
 /// connection's; the two are not told apart, so one connection cannot probe for another's.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct SubscriptionCancelResult {
     /// Whether the subscription was canceled.
     pub canceled: bool,

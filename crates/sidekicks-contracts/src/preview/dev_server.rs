@@ -37,6 +37,7 @@ pub struct PreviewDevServer {
 
 /// One frame of the discovered servers: every server listening now. The stream sends the newest
 /// list once the reader has room, never a queue of the lists between.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(transparent)]
+#[garde(allow_unvalidated)]
 pub struct PreviewDevServerListFrame(pub Vec<PreviewDevServer>);

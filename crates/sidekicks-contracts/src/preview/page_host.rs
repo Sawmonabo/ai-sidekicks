@@ -165,8 +165,11 @@ pub struct PreviewPageDebuggerMessageRequest {
 }
 
 /// The receiving end took the report or the message.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewReceivedResponse {
     /// Always `true`.
     pub received: True,
@@ -243,8 +246,9 @@ pub struct PreviewPageCookiesReadRequest {
 }
 
 /// Every cookie the read covers.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPageCookiesReadResponse {
     /// The cookies.
     pub cookies: Vec<PreviewCookie>,
@@ -261,8 +265,11 @@ pub struct PreviewPageCookiesWriteRequest {
 }
 
 /// How many of the cookies were written.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPageCookiesWriteResponse {
     /// The count written.
     pub written: SafeInt<0>,
@@ -295,8 +302,11 @@ pub struct PreviewPageSiteDataClearRequest {
 }
 
 /// The clear finished.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewClearedResponse {
     /// Always `true`.
     pub cleared: True,

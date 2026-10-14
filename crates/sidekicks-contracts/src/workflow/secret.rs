@@ -215,13 +215,14 @@ macro_rules! workflow_secret_place {
 
 workflow_secret_place! {
     /// One secret as the chooser lists it: its place and name, and never its value.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(
         tag = "scope",
         rename_all = "snake_case",
         rename_all_fields = "camelCase",
         deny_unknown_fields
     )]
+    #[garde(allow_unvalidated)]
     pub enum WorkflowSecretSummary {
         /// The record's id.
         secret_id: WorkflowSecretId,
@@ -275,8 +276,9 @@ pub struct WorkflowSecretDeleteRequest {
 }
 
 /// The secret a replace or a delete acted on.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowSecretActResponse {
     /// The secret.
     pub secret_id: WorkflowSecretId,
@@ -285,8 +287,9 @@ pub struct WorkflowSecretActResponse {
 /// The `workflow.secretList` result: every secret by name, shared and each project's, one row
 /// each, and no member carries a value. The request names nothing: a workflow belongs to no
 /// project, so the chooser lists them all.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowSecretListResponse {
     /// The secrets.
     pub secrets: Vec<WorkflowSecretSummary>,

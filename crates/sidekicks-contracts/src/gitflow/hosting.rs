@@ -218,8 +218,9 @@ pub struct GitflowHostRemoveRequest {
 }
 
 /// The `gitflow.hostRemove` result; `removed` is false when the host was not listed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowHostRemoveResponse {
     /// Whether it was listed.
     pub removed: bool,
@@ -490,8 +491,9 @@ pub struct ReviewerCandidate {
 }
 
 /// The `gitflow.reviewerList` result.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowReviewerListResponse {
     /// The candidates.
     pub reviewers: Vec<ReviewerCandidate>,
@@ -514,8 +516,9 @@ pub struct LabelCandidate {
 }
 
 /// The `gitflow.labelList` result.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowLabelListResponse {
     /// The candidates.
     pub labels: Vec<LabelCandidate>,
@@ -556,8 +559,9 @@ pub struct ReviewNoteFailure {
 /// The `gitflow.reviewSubmit` result. A review that fails part way says which notes posted and,
 /// for each that did not, the host's reason; notes behind a failure stay held, so a second press
 /// posts only what is still held.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowReviewSubmitResponse {
     /// The review's address.
     #[serde(
@@ -593,8 +597,9 @@ literal! {
 }
 
 /// The `gitflow.threadResolve` result.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowThreadResolveResponse {
     /// The thread.
     pub thread_id: HostHandle,
@@ -618,8 +623,9 @@ pub struct GitflowThreadReplyRequest {
 }
 
 /// The `gitflow.threadReply` result: the posted comment and its address.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowThreadReplyResponse {
     /// The comment.
     pub comment_id: HostHandle,
@@ -649,8 +655,9 @@ pub struct GitflowCheckLogReadRequest {
 /// The `gitflow.checkLogRead` result: the end of the check's log, because the useful part of a
 /// build log is the last of it. `truncated` says the start was left out and `totalBytes` how long
 /// the whole log is.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct GitflowCheckLogReadResponse {
     /// The log's tail.
     pub text: String,

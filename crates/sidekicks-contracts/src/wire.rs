@@ -251,7 +251,8 @@ pub(crate) use literal;
 /// UsdMicros(SafeInt<0>), Copy }` gives a newtype that reads, writes and checks as its inner
 /// scalar, with its own schema name and the doc as its description, so TypeScript gets a type and
 /// a check by that name. Traits listed after the type are derived too; `unordered` after the type
-/// instead leaves out the ordering and hash derives, for an inner type without them.
+/// instead leaves out the ordering and hash derives, for an inner type without them, and derives a
+/// garde check that holds no rule, so a reply of any JSON can be a method's result.
 macro_rules! named_scalar {
     (@schema $name:ident($inner:ty) $($doc:literal)+) => {
         impl schemars::JsonSchema for $name {
@@ -271,8 +272,9 @@ macro_rules! named_scalar {
     };
     ($(#[doc = $doc:literal])+ $name:ident($inner:ty) unordered) => {
         $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, garde::Validate)]
         #[serde(transparent)]
+        #[garde(allow_unvalidated)]
         pub struct $name(pub $inner);
 
         $crate::wire::named_scalar!(@schema $name($inner) $($doc)+);

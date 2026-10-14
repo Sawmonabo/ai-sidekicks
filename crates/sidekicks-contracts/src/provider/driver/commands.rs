@@ -135,8 +135,9 @@ pub struct ProviderCommandBindingGroup {
 
 /// The reply of `driver.listProviderCommands`: one group per live binding, so each entry keeps
 /// where it came from, and at least one, since an agent with no live binding is refused.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct ProviderCommandListResult {
     /// The groups.
     pub bindings: BoundedVec<ProviderCommandBindingGroup, 1, { usize::MAX }>,

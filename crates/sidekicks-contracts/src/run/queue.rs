@@ -484,8 +484,9 @@ pub struct QueueItemCancelRequest {
 }
 
 /// The canceled message.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct QueueItemCancelResponse {
     /// The item.
     pub queue_item_id: QueueItemId,

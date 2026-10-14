@@ -75,8 +75,9 @@ pub enum RepoCloneRefusedDetails {
 }
 
 /// The `repo.clone` result: the project the clone fills.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoCloneResponse {
     /// The project.
     pub project_id: ProjectId,
@@ -138,13 +139,14 @@ pub enum RepoCloneFailedStep {
 /// One `repo.cloneSubscribe` emission, the clone card's whole state. `large_files_missing` means
 /// the clone finished but the repository keeps large files in Git LFS, which is not installed, so
 /// they arrived as placeholders; `canceled` and `done` end the card.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "state",
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[garde(allow_unvalidated)]
 pub enum RepoCloneStatus {
     /// Git is cloning.
     Cloning {
@@ -238,8 +240,9 @@ pub enum RepoCloneFolderSource {
 /// Where a clone goes, and why: the folder the person set, else the folder holding the most
 /// recently attached project, else the home folder. The session picker and Settings › Projects
 /// both read this one answer.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct RepoCloneFolderReadResponse {
     /// The folder.
     pub folder: FilesystemPath,

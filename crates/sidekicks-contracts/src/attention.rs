@@ -455,8 +455,9 @@ pub struct AttentionWebAddressSaveRequest {
 /// The saved address's host, `null` for a text with no scheme and host, and the signing secret the
 /// receiver checks each message with: minted by the first save and shown this once, `null` on
 /// every later save.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttentionWebAddressSaveResponse {
     /// The host, or `null`.
     #[serde(deserialize_with = "nullable")]
@@ -469,8 +470,9 @@ pub struct AttentionWebAddressSaveResponse {
 }
 
 /// A new signing secret, shown this once; the old one stops verifying at once.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttentionWebAddressSecretRotateResponse {
     /// The secret.
     pub signing_secret: NonEmptyText,

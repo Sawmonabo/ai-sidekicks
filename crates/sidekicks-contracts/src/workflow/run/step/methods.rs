@@ -153,8 +153,9 @@ workflow_step_key! {
 }
 
 /// The `workflow.stepTabArtifactCreate` result: the stored artifact's id.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowStepTabArtifactCreateResponse {
     /// The artifact.
     pub artifact_id: ArtifactId,
@@ -422,8 +423,9 @@ pub struct WorkflowHumanFormSubmitResponse {
 /// The `workflow.fixSessionCreate` result: the fix session, opened on the failed step's own project
 /// and checkout and seeded with the step; the step's own record receives nothing, and the run links
 /// the new session.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowFixSessionCreateResponse {
     /// The new session.
     pub session_id: SessionId,

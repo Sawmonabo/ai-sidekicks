@@ -55,8 +55,9 @@ pub struct AttachmentIngestInitRequest {
 
 /// The opened stream: `ingestId` is a single-use handle, bound to the session and to the stream's
 /// lifetime, that every chunk and the completion name.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttachmentIngestInitResponse {
     /// The stream's handle.
     pub ingest_id: NonEmptyText,
@@ -79,8 +80,9 @@ pub struct AttachmentIngestChunkRequest {
 
 /// One chunk's acknowledgement. `receivedBytes` is the stream's running total after the chunk, so
 /// progress is the daemon's count and never the sender's.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttachmentIngestChunkResponse {
     /// The stream's handle.
     pub ingest_id: NonEmptyText,
@@ -100,8 +102,9 @@ pub struct AttachmentIngestCompleteRequest {
 
 /// What the daemon committed. Every member is derived from the spooled bytes, never taken from the
 /// opening request, so a caller that declared the wrong type or size learns what was recorded.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttachmentIngestCompleteResponse {
     /// The artifact the file became.
     pub artifact_id: ArtifactId,

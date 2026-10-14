@@ -674,8 +674,9 @@ pub struct MachineSettingsUpdateRequest {
 }
 
 /// The file as written.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct MachineSettingsUpdateResponse {
     /// The settings.
     pub settings: MachineSettings,

@@ -20,8 +20,9 @@ pub struct WorkflowKeptVarsClearRequest {
 }
 
 /// The `workflow.keptVarsClear` result: how many kept values went.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct WorkflowKeptVarsClearResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,

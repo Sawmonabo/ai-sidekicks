@@ -116,8 +116,9 @@ pub enum NegotiationIncompatibleReason {
 /// The `daemon.hello` result. When `compatible` is false only read-only calls are allowed, and
 /// `protocolVersion` is the daemon's newest; `reason` and `daemonSupportedProtocols` appear only
 /// on an incompatible first handshake.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct DaemonHelloAck {
     /// Whether the client and the daemon share a version.
     pub compatible: bool,

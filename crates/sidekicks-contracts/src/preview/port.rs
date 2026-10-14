@@ -79,8 +79,11 @@ pub struct PreviewPortShareAddResponse {
 
 /// The port is no longer shared and every forward open on it is closed. Removing a port that is
 /// not shared answers the same.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPortShareRemoveResponse {
     /// The port.
     pub port: Port,
@@ -90,8 +93,9 @@ pub struct PreviewPortShareRemoveResponse {
 
 /// The shared port's own web address for a browser tab, carrying a one-time ticket good for 60
 /// seconds that the machine trades for a cookie scoped to the address.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct PreviewPortTicketIssueResponse {
     /// The address, always `https:`.
     pub address: HttpsAddress<{ usize::MAX }>,
