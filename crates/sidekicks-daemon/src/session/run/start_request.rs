@@ -4,6 +4,8 @@
 use std::error::Error;
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::name::ProviderName;
 use sidekicks_contracts::repo::mount::WorkspaceId;
@@ -38,7 +40,7 @@ pub(crate) struct DaemonTurnStartRequest {
     /// The provider the turn runs on.
     pub(crate) provider: ProviderName,
     /// The account the session's process was admitted against, or `None` for none.
-    pub(crate) admitted_provider_account_id: Option<String>,
+    pub(crate) admitted_provider_account_id: Option<ProviderAccountId>,
     /// The session's current level and roots, which the turn runs at like any run.
     pub(crate) execution_posture: ExecutionPosture,
     /// Whether the provider started the turn itself: its run takes over, in its `running` write,
@@ -63,7 +65,7 @@ pub(crate) struct RunStartPath {
     /// The provider the run runs on; its settled output speed is read against this one's standard.
     pub(crate) provider: ProviderName,
     /// The output speed the run starts at, held until its provider reports the speed settled.
-    pub(crate) output_speed: Option<String>,
+    pub(crate) output_speed: Option<ProviderToken>,
     /// The posture the run was requested at; the posture gate checks it, and its resolved form is
     /// what the driver is handed and `run.running` is stamped with.
     pub(crate) execution_posture: ExecutionPosture,
