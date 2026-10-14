@@ -287,15 +287,15 @@ interface TranscriptPatchCursor {
   fileIndex: number;
   offset: number;
 }
-// One entry per left-out file: its patch, or why it cannot be read: `absent` when no patch came, and
-// `unreadable` when the provider sent one in a form this version cannot read, which carries the
-// text as sent, `rawPatch`, paged as a patch is. Each reply is bounded by
-// PAGE_MAX_BYTES as well: patches longer than one frame holds come back in consecutive parts, as
-// transcript.bodyRead's body does. A part holds the files from `cursor` on, its first entry's patch
+// One entry per left-out file: its patch with the lines it adds and removes, or why it cannot be
+// read: `absent` when no patch came, and `unreadable` when the provider sent one in a form this
+// version cannot read, which carries the text as sent, `rawPatch`, paged as a patch is. Each reply
+// is bounded by PAGE_MAX_BYTES as well: patches longer than one frame holds come back in
+// consecutive parts, as transcript.bodyRead's body does. A part holds the files from `cursor` on, its first entry's patch
 // starting at `cursor.offset` and its last one's ending where `next` starts; `next` is null on the
 // last part, and the client joins the pieces of one file in order.
 type TranscriptPatchFile =
-  | { path: string; patch: string }
+  | { path: string; patch: string; additions: number; deletions: number }
   | { path: string; unavailable: "absent" }
   | { path: string; unavailable: "unreadable"; rawPatch: string };
 interface TranscriptPatchReadResponse {
