@@ -2,7 +2,9 @@
 //! searches a provider needs.
 
 pub(crate) mod compaction_wait;
-mod driver;
+pub(crate) mod driver;
+pub(crate) mod event_disposition;
+pub(crate) mod left_conversations;
 mod operating_system;
 pub(crate) mod outbound_text;
 pub(crate) mod port;
