@@ -507,9 +507,10 @@ interface WorkflowDraftReadResponse {
 
 // WorkflowExpressionPreview — workflow.expressionPreview. An expression's value against the current item of
 // the last run that executed the node, shown live under the field. Expressions are evaluated in the daemon
-// only, on the same engine a run uses, with no time limit; the engine's cooperative yielding and
-// cancellation stay. The preview never resolves a secret: a sensitive field previews the secret's name,
-// never its value.
+// only, on the same engine a run uses, on one of the service's evaluator threads that previews keep
+// apart from runs, with no time limit; it stops when the preview is replaced or canceled, except that
+// one long built-in call finishes first. The preview never resolves a secret: a sensitive field
+// previews the secret's name, never its value.
 interface WorkflowExpressionPreviewRequest {
   // The workflow the expression sits in, omitted for a new workflow. The daemon evaluates it in that
   // workflow's held draft, or in its latest saved version where no draft is held.
