@@ -119,8 +119,17 @@ pub(crate) enum CallFailure {
 /// (`null` where it could not). A daemon fault is logged here, once; a refusal of received input
 /// never is, since its sources can quote the value.
 pub(crate) fn map_json_rpc_error(failure: CallFailure, id: JsonRpcId) -> JsonRpcMessage {
+    JsonRpcMessage::ErrorResponse {
+        id,
+        error: json_rpc_error_of(failure),
+    }
+}
+
+/// The JSON-RPC error answering `failure`, for an error response or a subscription's refused end
+/// frame; logged as [`map_json_rpc_error`] logs it.
+pub(crate) fn json_rpc_error_of(failure: CallFailure) -> JsonRpcError {
     match failure {
-        CallFailure::Dispatch(error) => map_dispatch_error(error, id),
+        CallFailure::Dispatch(error) => map_dispatch_error(error),
         // serde's own message can quote the JSON, so each kind answers fixed words.
         CallFailure::Message(MessageError::Json(error)) => {
             let (code, message) = match error.classify() {
@@ -129,10 +138,10 @@ pub(crate) fn map_json_rpc_error(failure: CallFailure, id: JsonRpcId) -> JsonRpc
                 }
                 Category::Data | Category::Io => (JsonRpcErrorCode::InvalidRequest, NOT_A_MESSAGE),
             };
-            error_response(id, code, message, None)
+            json_rpc_error(code, message, None)
         }
         CallFailure::Message(MessageError::NotAMessage) => {
-            error_response(id, JsonRpcErrorCode::InvalidRequest, NOT_A_MESSAGE, None)
+            json_rpc_error(JsonRpcErrorCode::InvalidRequest, NOT_A_MESSAGE, None)
         }
         CallFailure::MessageTooLarge { limit, observed } => {
             let fields: Map<String, Value> = [
@@ -141,8 +150,7 @@ pub(crate) fn map_json_rpc_error(failure: CallFailure, id: JsonRpcId) -> JsonRpc
             ]
             .into_iter()
             .collect();
-            error_response(
-                id,
+            json_rpc_error(
                 JsonRpcErrorCode::InvalidRequest,
                 MESSAGE_TOO_LARGE,
                 Some(refusal_data(
@@ -155,18 +163,17 @@ pub(crate) fn map_json_rpc_error(failure: CallFailure, id: JsonRpcId) -> JsonRpc
 }
 
 /// The error response of one dispatch failure.
-fn map_dispatch_error(error: DispatchError, id: JsonRpcId) -> JsonRpcMessage {
+fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
     let message = error.to_string();
     match error {
-        DispatchError::MethodNotFound => error_response(
-            id,
+        DispatchError::MethodNotFound => json_rpc_error(
             JsonRpcErrorCode::MethodNotFound,
             &message,
             Some(refusal_data(RefusalCode::MethodNotFound, None)),
         ),
         DispatchError::InvalidParams(refusal) => {
             let issues = match &refusal {
-                ReceivedError::Check(check_error) => return internal_failure(id, check_error),
+                ReceivedError::Check(check_error) => return internal_failure(check_error),
                 ReceivedError::Json(_) => Vec::new(),
                 ReceivedError::Shape { faults } => faults
                     .iter()
@@ -188,8 +195,7 @@ fn map_dispatch_error(error: DispatchError, id: JsonRpcId) -> JsonRpcMessage {
                 }],
                 ReceivedError::Rule { report, received } => rule_issues(report, received),
             };
-            error_response(
-                id,
+            json_rpc_error(
                 JsonRpcErrorCode::InvalidParams,
                 &message,
                 Some(refusal_data(
@@ -206,26 +212,21 @@ fn map_dispatch_error(error: DispatchError, id: JsonRpcId) -> JsonRpcMessage {
                 );
             }
             let code = JsonRpcErrorCode::from(refusal.json_rpc_code);
-            error_response(
-                id,
+            json_rpc_error(
                 code,
                 &message,
                 Some(refusal_data(refusal.code, refusal.detail)),
             )
         }
-        DispatchError::Canceled => JsonRpcMessage::ErrorResponse {
-            id,
-            error: JsonRpcError::request_canceled(),
-        },
-        DispatchError::Internal(fault) => internal_failure(id, &*fault),
+        DispatchError::Canceled => JsonRpcError::request_canceled(),
+        DispatchError::Internal(fault) => internal_failure(&*fault),
         DispatchError::InvalidResult { report, value } => {
             tracing::error!(
                 error = &report as &(dyn Error + 'static),
                 "The daemon's answer breaks its contract"
             );
             let issues = rule_issues(&report, &value);
-            error_response(
-                id,
+            json_rpc_error(
                 JsonRpcErrorCode::InternalError,
                 &message,
                 Some(refusal_data(
@@ -239,14 +240,9 @@ fn map_dispatch_error(error: DispatchError, id: JsonRpcId) -> JsonRpcMessage {
 
 /// The answer to a fault inside the daemon: `-32603` with its sanitized message and no `data`,
 /// logged once.
-fn internal_failure(id: JsonRpcId, fault: &(dyn Error + 'static)) -> JsonRpcMessage {
+fn internal_failure(fault: &(dyn Error + 'static)) -> JsonRpcError {
     tracing::error!(error = fault, "A call failed inside the daemon");
-    error_response(
-        id,
-        JsonRpcErrorCode::InternalError,
-        &fault.to_string(),
-        None,
-    )
+    json_rpc_error(JsonRpcErrorCode::InternalError, &fault.to_string(), None)
 }
 
 /// Each broken rule of `report` at its path resolved against `checked`, the JSON the value was
@@ -311,21 +307,17 @@ fn refusal_data(code: RefusalCode, fields: Option<Map<String, Value>>) -> JsonRp
     }
 }
 
-/// An error response with `message` sanitized.
-fn error_response(
-    id: JsonRpcId,
+/// A JSON-RPC error with `message` sanitized.
+fn json_rpc_error(
     code: JsonRpcErrorCode,
     message: &str,
     data: Option<JsonRpcErrorData>,
-) -> JsonRpcMessage {
-    JsonRpcMessage::ErrorResponse {
-        id,
-        error: JsonRpcError {
-            code: SafeSignedInt::new(i64::from(code.code()))
-                .expect("a JSON-RPC error code is a safe integer"),
-            message: cap_text(redact_paths(message), ERROR_MESSAGE_MAX_LEN),
-            data,
-        },
+) -> JsonRpcError {
+    JsonRpcError {
+        code: SafeSignedInt::new(i64::from(code.code()))
+            .expect("a JSON-RPC error code is a safe integer"),
+        message: cap_text(redact_paths(message), ERROR_MESSAGE_MAX_LEN),
+        data,
     }
 }
 
