@@ -4,9 +4,9 @@
     unsafe_code,
     reason = "the terminal's window size, console and library-search calls, the shell start's \
               signal and console-handler calls, the parent check `scutil`'s child runs in \
-              `pre_exec`, the Windows host-name, free-room and entry-identity calls, the macOS \
-              parent-process read, and the measurement tests' footprint read on macOS are C \
-              interfaces"
+              `pre_exec`, the Windows host-name, free-room and entry-identity calls, the Windows \
+              replacing rename's `MoveFileExW`, the macOS parent-process read, and the \
+              measurement tests' footprint read on macOS are C interfaces"
 )]
 
 mod entry_identity;
@@ -47,12 +47,18 @@ pub use posix::askpass::askpass_listener;
 #[cfg(unix)]
 pub use posix::caller_process::read_peer_process_id;
 #[cfg(unix)]
-pub use posix::disk::{flush_file, flush_folder, read_exact_at, volume_free_bytes};
+pub use posix::disk::{
+    flush_file, flush_folder, flush_open_file, read_exact_at, volume_free_bytes,
+};
 #[cfg(unix)]
 pub use posix::entry_identity::entry_identity;
 #[cfg(unix)]
 pub use posix::error_codes::{
     is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
+};
+#[cfg(unix)]
+pub use posix::file_system::{
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, remove_tree, rename_replacing,
 };
 #[cfg(unix)]
 pub use posix::login_shell::login_shell;
@@ -93,14 +99,18 @@ pub use windows::caller_process::{read_parent_process_id, read_peer_process_id};
 pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]
 pub use windows::disk::{
-    FlushFailure, SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, read_exact_at,
-    volume_free_bytes, windows_drive_mounts,
+    FlushFailure, SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, flush_open_file,
+    read_exact_at, volume_free_bytes, windows_drive_mounts,
 };
 #[cfg(target_os = "windows")]
 pub use windows::entry_identity::entry_identity;
 #[cfg(target_os = "windows")]
 pub use windows::error_codes::{
     is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
+};
+#[cfg(target_os = "windows")]
+pub use windows::file_system::{
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, remove_tree, rename_replacing,
 };
 #[cfg(target_os = "windows")]
 pub use windows::login_shell::login_shell;
