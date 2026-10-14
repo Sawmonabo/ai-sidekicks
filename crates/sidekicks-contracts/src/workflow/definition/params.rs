@@ -95,12 +95,21 @@ fn check_leaf(
         }
     }
     match spec.param_type {
-        WorkflowParamType::Secret => {
-            check_reference::<WorkflowSecretReference>(value, place, issues);
+        WorkflowParamType::Secret => check_reference::<WorkflowSecretReference>(
+            value,
+            "expected a secret reference",
+            place,
+            issues,
+        ),
+        WorkflowParamType::Agent => {
+            check_reference::<AgentDefinitionId>(value, "expected an agent id", place, issues);
         }
-        WorkflowParamType::Agent => check_reference::<AgentDefinitionId>(value, place, issues),
-        WorkflowParamType::Project => check_reference::<ProjectId>(value, place, issues),
-        WorkflowParamType::Session => check_reference::<SessionId>(value, place, issues),
+        WorkflowParamType::Project => {
+            check_reference::<ProjectId>(value, "expected a project id", place, issues);
+        }
+        WorkflowParamType::Session => {
+            check_reference::<SessionId>(value, "expected a session id", place, issues);
+        }
         WorkflowParamType::McpTool => check_tool_binding(value, place, issues),
         WorkflowParamType::String
         | WorkflowParamType::Text
@@ -117,18 +126,27 @@ fn check_leaf(
     }
 }
 
-// Refuses a value that does not read as the reference `Reference`.
+// Refuses a value that does not read as the reference `Reference`. A non-string is reported with
+// `not_text_message`, never by serde's message, which quotes the value and could leak a pasted
+// secret; a string's refusal has a fixed message of its own.
 fn check_reference<Reference: DeserializeOwned>(
     value: &Value,
+    not_text_message: &str,
     place: &str,
     issues: &mut Vec<WorkflowParamIssue>,
 ) {
-    if let Err(error) = Reference::deserialize(value) {
-        issues.push(WorkflowParamIssue {
-            path: place.to_owned(),
-            message: error.to_string(),
-        });
-    }
+    let message = if value.is_string() {
+        match Reference::deserialize(value) {
+            Ok(_) => return,
+            Err(error) => error.to_string(),
+        }
+    } else {
+        not_text_message.to_owned()
+    };
+    issues.push(WorkflowParamIssue {
+        path: place.to_owned(),
+        message,
+    });
 }
 
 // A tool binding reads as one only with no member past the server and the tool, so a nested node
@@ -297,5 +315,23 @@ mod tests {
             assert_eq!(issue.path, *path, "{issue:?}");
             assert!(issue.message.contains(message), "{issue:?}");
         }
+    }
+
+    // A number pasted into a secret parameter is refused without quoting it, so the value reaches
+    // neither the reply nor a log.
+    #[test]
+    fn a_number_in_a_secret_param_is_refused_without_its_digits() {
+        let params = json!({ "headers": [{ "token": 48_213_377 }] });
+        let params = params.as_object().expect("the params are an object");
+        let issues = check_workflow_node_params(params, &specs());
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        let issue = &issues[0];
+        assert_eq!(issue.path, "headers.0.token");
+        assert!(
+            !issue
+                .message
+                .contains(|character: char| "48213377".contains(character)),
+            "{issue:?}"
+        );
     }
 }
