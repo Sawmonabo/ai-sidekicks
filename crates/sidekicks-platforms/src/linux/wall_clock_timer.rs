@@ -85,3 +85,49 @@ fn read_expiry(timer: &TimerFd) -> io::Result<()> {
         Err(errno) => Err(io::Error::from(errno)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, SystemTime};
+
+    use nix::sys::time::TimeSpec;
+    use nix::time::{ClockId, clock_settime};
+
+    use super::WallClockTimer;
+
+    // How far ahead the timer is armed, and how far the clock is set forward past it.
+    const ARMED_AHEAD: Duration = Duration::from_secs(120);
+    const SET_FORWARD: Duration = Duration::from_secs(121);
+
+    // How long the firing may take once the clock passed the instant.
+    const FIRING_BOUND: Duration = Duration::from_secs(5);
+
+    fn set_wall_clock(instant: SystemTime) {
+        let since_epoch = instant
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("the clock reads after 1970");
+        clock_settime(
+            ClockId::CLOCK_REALTIME,
+            TimeSpec::from_duration(since_epoch),
+        )
+        .expect("the test may set the clock");
+    }
+
+    #[tokio::test]
+    #[ignore = "sets the machine's clock, so it runs only in a container given CAP_SYS_TIME"]
+    async fn a_timer_fires_at_its_instant_once_the_clock_is_set_past_it() {
+        let mut timer = WallClockTimer::new().expect("a timer is made");
+        let armed_at = SystemTime::now();
+        timer.arm(armed_at + ARMED_AHEAD).expect("the timer arms");
+
+        set_wall_clock(SystemTime::now() + SET_FORWARD);
+        let firing = tokio::time::timeout(FIRING_BOUND, timer.wait()).await;
+        let fired_at = SystemTime::now();
+        set_wall_clock(SystemTime::now() - SET_FORWARD);
+
+        firing
+            .expect("the timer fires within the bound, not at its instant's real time")
+            .expect("the timer reads");
+        assert!(fired_at >= armed_at + ARMED_AHEAD);
+    }
+}

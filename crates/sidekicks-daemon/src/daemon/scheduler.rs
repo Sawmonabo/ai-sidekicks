@@ -470,3 +470,72 @@ async fn wait_for_wake(wake_watch: Option<&mut WakeWatch>) -> Result<(), WakeWat
         None => std::future::pending().await,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, SystemTime};
+
+    use tokio::sync::oneshot;
+
+    use super::Scheduler;
+
+    // Far longer than any periodic look would wait between two looks.
+    const IDLE_SPAN: Duration = Duration::from_secs(600);
+
+    // How soon a wall-clock job is set to run, and how long the test waits for it.
+    const INSTANT_AHEAD: Duration = Duration::from_millis(50);
+    const RUN_BOUND: Duration = Duration::from_secs(5);
+
+    #[tokio::test(start_paused = true)]
+    async fn an_idle_scheduler_arms_nothing_and_reads_no_clock() {
+        let wall_reads = Arc::new(AtomicUsize::new(0));
+        let counted_reads = Arc::clone(&wall_reads);
+        let scheduler = Scheduler::start(
+            Arc::new(move || {
+                counted_reads.fetch_add(1, Ordering::Relaxed);
+                SystemTime::now()
+            }),
+            None,
+        )
+        .expect("the scheduler starts");
+        // A receiver waits for wakes, which must not make the task look at the clocks.
+        let _wakes = scheduler.on_wake();
+
+        // tokio's paused clock jumps to every timer the task arms, so a periodic look would run.
+        tokio::time::sleep(IDLE_SPAN).await;
+
+        assert_eq!(wall_reads.load(Ordering::Relaxed), 0);
+        scheduler.stop().await.expect("the task ends");
+    }
+
+    #[tokio::test]
+    async fn a_wall_clock_job_runs_once_its_instant_is_reached() {
+        let scheduler =
+            Scheduler::start(Arc::new(SystemTime::now), None).expect("the scheduler starts");
+        let (ran, ran_at) = oneshot::channel();
+        let mut ran = Some(ran);
+        let instant = SystemTime::now() + INSTANT_AHEAD;
+
+        scheduler
+            .schedule_at("wall-clock test job", instant, move |_| {
+                let ran = ran.take();
+                Box::pin(async move {
+                    if let Some(ran) = ran {
+                        ran.send(SystemTime::now())
+                            .expect("the test waits for the run");
+                    }
+                    Ok(())
+                })
+            })
+            .expect("the job is scheduled");
+
+        let ran_at = tokio::time::timeout(RUN_BOUND, ran_at)
+            .await
+            .expect("the job runs within the bound")
+            .expect("the job reports its run");
+        assert!(ran_at >= instant);
+        scheduler.stop().await.expect("the task ends");
+    }
+}
