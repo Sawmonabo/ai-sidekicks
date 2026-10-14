@@ -161,7 +161,7 @@ rustls-platform-verifier = "0.7.1"
 schemars = "1.2.3"
 semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = { version = "1.0.154", features = ["float_roundtrip", "raw_value"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip", "preserve_order", "raw_value"] }
 serde_json_canonicalizer = "0.3.2"
 serde_path_to_error = "0.1.20"
 serde_with = { version = "3.24.0", features = ["base64"] }
