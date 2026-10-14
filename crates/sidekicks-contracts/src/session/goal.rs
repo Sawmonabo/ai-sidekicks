@@ -87,7 +87,7 @@ pub struct SessionGoalClearRequest {
 #[garde(allow_unvalidated)]
 #[schemars(extend(
     "if" = { "properties": { "status": { "const": "impossible" } }, "required": ["status"] },
-    "then" = { "required": ["reason"] },
+    "then" = { "properties": { "reason": true }, "required": ["reason"] },
     "else" = { "not": { "required": ["reason"] } },
 ))]
 pub struct SessionGoalUpdatedPayload {
