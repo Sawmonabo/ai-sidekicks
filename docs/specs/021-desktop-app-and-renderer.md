@@ -56,7 +56,7 @@ In scope:
 - Archived sessions as a settings page. They stay in the sessions list as their own group, the way archived projects sit at the foot of the Projects page. Each of these absences is absent rather than disabled — nothing refuses them, because nothing offers them.
 - Daemon internals (owned by `daemon.md` and Spec-006)
 - Control-plane authentication protocol details (owned by [Spec-027](./027-remote-control.md) and ADR-010)
-- A browser client of the local daemon. The web client and the phone apps run this front end and reach a machine over the relay ([Spec-027](./027-remote-control.md)); no browser connects to a daemon's own socket, and the desktop app and the CLI are its only local clients
+- A browser client of the local daemon. The web client and the phone apps run this front end and reach a machine over their end-to-end channel ([Spec-027](./027-remote-control.md)); no browser connects to a daemon's own socket, and the desktop app and the CLI are its only local clients
 - The CLI client (Spec-006 owns the IPC contract the renderer reuses; CLI-specific UX is out of scope here)
 - Provider-driver internal protocols (owned by Spec-004)
 - Workflow authoring semantics — the engine, the definition model, the human-phase forms — owned by [Spec-015](./015-workflow-authoring-and-execution.md) / Plan-014 under [ADR-014](../decisions/014-v1-feature-scope-definition.md), with the node-graph builder under [ADR-024](../decisions/024-visual-node-graph-workflow-authoring.md); the renderer composes those surfaces as the Workflows destination's tabs and its run address ([§Pane kinds](#pane-kinds)), and this spec restates none of their behavior.

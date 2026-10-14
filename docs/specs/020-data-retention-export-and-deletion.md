@@ -210,6 +210,7 @@ This section states end-to-end coverage across both storage tiers ([ADR-037](../
 - **Erasure of everything on the machine**: `Erase all data` stops every run and shell, signs each provider account out, revokes this machine's hosted refresh family, deletes every credential-store item the app made, deletes the data folder with the account homes it created, and starts again empty ([§Erasure Paths](#erasure-paths) Path 1). A disk backup taken earlier keeps what it held.
 - **Deletion of the hosted account**: `sidekicks delete-account` hard-deletes the account's control-plane rows across the `REFERENCES users(id)` inbound-FK closure, severs the surviving references that carry an independent retention basis through `ON DELETE SET NULL`, and signs this machine out ([§Erasure Paths](#erasure-paths) Path 2). It never erases a machine.
 - **Backups**: a deleted session leaves the backup mirror at the next run and stays only in database copies taken before the delete, until they age out at four weeks; the delete's confirm says so.
+- **The relay's copies**: a deleted hosted account stays in the relay's own copies taken before the delete until they go: the Workers relay's 30 days of point-in-time recovery, and each Compose relay backup for as long as the person keeps it ([deployment-topology §Account Storage](../architecture/deployment-topology.md#account-storage)).
 
 ## Erasure Paths
 

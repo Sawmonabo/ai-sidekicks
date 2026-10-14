@@ -113,7 +113,7 @@ Measured on a Rust relay object built on `worker` 0.8.7. These are the figures e
 
 The hosted account's data (the account, its sign-in state, the device and machine registry and the statement chain) lives in SQLite inside the relay, in the one schema [Hosted Account Schema](./schemas/hosted-account-schema.md) gives; no outside database runs on either relay.
 
-- **Workers relay:** the account's Durable Object keeps it in its own SQLite storage. Only that object reads or writes it, and a series of its writes with no await between them commits together. The object's storage keeps 30 days of point-in-time recovery.
+- **Workers relay:** the account's Durable Object keeps it in its own SQLite storage. Only that object's code reads or writes it, apart from Cloudflare's Data Studio, which the [deletion runbook's](../operations/hosted-account-deletion-runbook.md) break-glass edit uses, and a series of its writes with no await between them commits together. The object's storage keeps 30 days of point-in-time recovery.
 - **Compose relay:** a SQLite file on the server's disk, opened and written by the relay's one process alone. Its backup reads the database through SQLite while the relay runs, never as a plain copy of a file under a live writer, by the mechanism the Compose deployment names ([Plan-025](../plans/025-remote-control.md) Phase 8).
 
 ## Capacity Targets
