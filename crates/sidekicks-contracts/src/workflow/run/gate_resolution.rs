@@ -17,8 +17,8 @@ use crate::workflow::definition::document::WorkflowNodeId;
 use crate::workflow::run::id::WorkflowRunId;
 
 branded_uuid_id! {
-    /// Identifies one answer to a run's gate, its append-only row's id; the `workflow.gate_resolved`
-    /// event names it.
+    /// Identifies one answer to a run's gate, its append-only row's id; the
+    /// `workflow.gate_resolved` event names it.
     WorkflowGateResolutionId
 }
 

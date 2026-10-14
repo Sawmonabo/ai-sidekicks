@@ -1,6 +1,6 @@
 //! The step events a workflow run appends: a step started, finished, failed, skipped or canceled, a
-//! phase admitted, started, progressed, canceling, retried, suspended, resumed, completed, failed or
-//! held for memory, a join's siblings canceled, and a gate resolved, each naming its step by the
+//! phase admitted, started, progressed, canceling, retried, suspended, resumed, completed, failed
+//! or held for memory, a join's siblings canceled, and a gate resolved, each naming its step by the
 //! step record's key.
 
 use schemars::JsonSchema;

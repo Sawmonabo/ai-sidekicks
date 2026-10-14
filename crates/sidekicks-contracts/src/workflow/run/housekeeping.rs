@@ -155,8 +155,8 @@ pub enum WorkflowRunAttentionEntry {
 }
 
 /// The `workflow.runAttentionList` result: every account line first, then the runs waiting on a
-/// person, oldest first, the order `Next waiting` walks them in. `waitingOnPersonCount` counts those
-/// runs; an account wait is never in it.
+/// person, oldest first, the order `Next waiting` walks them in. `waitingOnPersonCount` counts
+/// those runs; an account wait is never in it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

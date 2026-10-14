@@ -1,6 +1,6 @@
-//! The `workflow.*` methods over definitions: create, read, list, update, delete, export and import,
-//! and the one method table for every definition method, the builder's settings, drafts and webhook
-//! and the version reads among them.
+//! The `workflow.*` methods over definitions: create, read, list, update, delete, export and
+//! import, and the one method table for every definition method, the builder's settings, drafts and
+//! webhook and the version reads among them.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

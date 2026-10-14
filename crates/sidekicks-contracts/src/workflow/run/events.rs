@@ -98,8 +98,8 @@ workflow_run_event! {
 }
 
 workflow_run_event! {
-    /// `workflow.run_waiting`: the run started waiting, on a person, on its chain's question or on a
-    /// spent provider account; the waiting step's own `workflow.phase_suspended` says which.
+    /// `workflow.run_waiting`: the run started waiting, on a person, on its chain's question or on
+    /// a spent provider account; the waiting step's own `workflow.phase_suspended` says which.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowRunWaitingPayload {}

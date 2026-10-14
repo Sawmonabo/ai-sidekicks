@@ -300,8 +300,8 @@ workflow_run_summary! {
         pub resume_at: Option<Never>,
     }
 
-    /// A row of a run that succeeded, was canceled or crashed: its duration, and no live step, which
-    /// goes back to the finished step count when the run ends.
+    /// A row of a run that succeeded, was canceled or crashed: its duration, and no live step,
+    /// which goes back to the finished step count when the run ends.
     pub struct WorkflowEndedRunSummary {
         /// How long it ran, in milliseconds.
         pub duration_ms: SafeInt<0>,

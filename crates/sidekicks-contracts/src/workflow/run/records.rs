@@ -81,9 +81,9 @@ pub struct WorkflowChainRoot {
 }
 
 /// The chain's question as its first run's page carries it: open, or answered with the decision and
-/// the run count it was taken at, which its receipt reads (`Kept going at 100 runs`). It is answered
-/// through `workflow.gateResolve` naming no node: `approved` keeps the chain going, `rejected` stops
-/// every run of it.
+/// the run count it was taken at, which its receipt reads (`Kept going at 100 runs`). It is
+/// answered through `workflow.gateResolve` naming no node: `approved` keeps the chain going,
+/// `rejected` stops every run of it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "state",
@@ -171,8 +171,8 @@ macro_rules! workflow_run {
     };
 }
 
-/// Declares each pair of a run's shapes: the record's, an arm of [`WorkflowRun`], and the read's, an
-/// arm of [`WorkflowRunReadResponse`], which adds the read's members and its own. `ends` are the
+/// Declares each pair of a run's shapes: the record's, an arm of [`WorkflowRun`], and the read's,
+/// an arm of [`WorkflowRunReadResponse`], which adds the read's members and its own. `ends` are the
 /// members both carry past the run's own: its end and its error.
 macro_rules! workflow_run_shapes {
     ($(
@@ -288,8 +288,8 @@ workflow_run_shapes! {
         pub error: Option<Never>,
     }
 
-    /// A failed run: its end once it has ended, and why it failed. One parked on its failed step has
-    /// not ended and carries no end, and `Cancel` and `Resume` still act on it.
+    /// A failed run: its end once it has ended, and why it failed. One parked on its failed step
+    /// has not ended and carries no end, and `Cancel` and `Resume` still act on it.
     pub struct WorkflowFailedRun;
     /// A failed run's read: no live step, and its review once it has ended.
     pub struct WorkflowFailedRunReadResponse {
@@ -366,8 +366,8 @@ workflow_run_shapes! {
         pub error: Option<Never>,
     }
 
-    /// A run that was canceled or crashed: its end and, where one is kept, why; a cancel carries the
-    /// person's reason as its message.
+    /// A run that was canceled or crashed: its end and, where one is kept, why; a cancel carries
+    /// the person's reason as its message.
     pub struct WorkflowStoppedRun;
     /// A canceled or crashed run's read: no live step, and its review where its checkout was
     /// captured.
