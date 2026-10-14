@@ -42,8 +42,8 @@ pub struct WorkflowSubscribeRequest {
     pub definition_id: Option<WorkflowDefinitionId>,
 }
 
-/// What happened to a schedule: armed, disarmed, fired, or a fire the overlap policy skipped, which
-/// shows on the workflow's row and its trigger's panel and never becomes a run.
+/// What happened to a schedule. `armed` and `disarmed` are its state, which a later frame replaces;
+/// `fired` and `skipped` (a fire the overlap policy skipped, never a run) are events never folded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowScheduleChange {
@@ -57,12 +57,10 @@ pub enum WorkflowScheduleChange {
     Skipped,
 }
 
-/// One `workflow.subscribe` frame. The stream holds only its place, never a queue: the current hold
-/// comes first, then a state frame (`runsPause`, `run`, `step`, `definition`) carries a key's
-/// newest value when the lane has credit, so a slow reader may see a run or step skip a state. A
-/// removal (`runsRemoved`, `definitionRemoved`) and a schedule's frame are events, each sent and
-/// never folded into a later one, so no view keeps a row that is gone or misses a skipped fire.
-/// There is no cursor and no dropped mark.
+/// One `workflow.subscribe` frame: the hold first, then state frames (`runsPause`, `run`, `step`,
+/// `definition`, a schedule `armed` or `disarmed`), each its key's newest value, so a slow reader
+/// may miss a state. A removal and a schedule `fired` or `skipped` are events, each sent and never
+/// folded into a later one; there is no cursor and no dropped mark.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
