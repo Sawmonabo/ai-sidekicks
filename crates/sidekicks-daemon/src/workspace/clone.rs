@@ -2,3 +2,5 @@
 //! lines, and the askpass broker that brings git's questions to the clone's owner.
 
 pub(crate) mod askpass;
+pub(crate) mod destination;
+pub(crate) mod progress;
