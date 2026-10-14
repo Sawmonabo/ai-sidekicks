@@ -152,6 +152,7 @@ pub struct DeviceStatementEvent {
             Err(garde::Error::new("a statement event is named by its statement's kind"))
         }
     }))]
+    #[schemars(extend("const" = { "$data": "1/statement/kind" }))]
     pub kind: TrustStatementKind,
     /// The statement.
     #[garde(dive)]

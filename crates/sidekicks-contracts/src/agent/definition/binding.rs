@@ -3,6 +3,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::provider::account::record::ProviderAccountId;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
@@ -82,6 +83,48 @@ fn binds_each_driver_once(
     unique_by::<[ProviderName], _, _>(|driver: &ProviderName| *driver)(drivers.as_slice(), &())
 }
 
+/// States [`binds_each_driver_once`] in the schema, one rule per provider: `overrides` names it
+/// at most once, and not at all when `default` names it.
+fn add_each_driver_once_rule(schema: &mut schemars::Schema) {
+    let rules: Vec<serde_json::Value> = ProviderName::VARIANTS
+        .iter()
+        .map(|driver| {
+            let names_driver = serde_json::json!({
+                "type": "object",
+                "properties": { "driverName": { "const": driver } },
+                "required": ["driverName"],
+            });
+            let overrides_naming_it_at_most = |count: usize| {
+                serde_json::json!({ "type": "object", "properties": { "overrides": {
+                    "type": "array",
+                    "contains": names_driver,
+                    "minContains": 0,
+                    "maxContains": count,
+                } } })
+            };
+            serde_json::json!({
+                "if": {
+                    "type": "object",
+                    "properties": { "default": names_driver },
+                    "required": ["default"],
+                },
+                "then": overrides_naming_it_at_most(0),
+                "else": overrides_naming_it_at_most(1),
+            })
+        })
+        .collect();
+    match schema.ensure_object().entry("allOf") {
+        serde_json::map::Entry::Occupied(mut held) => {
+            if let Some(arms) = held.get_mut().as_array_mut() {
+                arms.extend(rules);
+            }
+        }
+        serde_json::map::Entry::Vacant(free) => {
+            free.insert(rules.into());
+        }
+    }
+}
+
 /// A definition's bindings: the one used when a caller names no driver, and one per further
 /// provider. The default is one the resolver may pick, never a fallback the others patch.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -92,6 +135,7 @@ fn binds_each_driver_once(
         .chain(&bindings.overrides)
         .map(|binding| Some(binding.driver_name)),
 )))]
+#[schemars(transform = add_each_driver_once_rule)]
 pub struct AgentDefinitionBindings {
     /// The default binding.
     pub default: AgentProviderBinding,
@@ -108,6 +152,7 @@ pub struct AgentDefinitionBindings {
         .chain(bindings.overrides.iter().flatten())
         .map(|binding| Some(binding.driver_name)),
 )))]
+#[schemars(transform = add_each_driver_once_rule)]
 pub struct AgentDefinitionBindingsDraft {
     /// The default binding.
     pub default: AgentProviderBinding,
@@ -223,6 +268,7 @@ impl AgentListedProviderBinding {
         .chain(&bindings.overrides)
         .map(AgentListedProviderBinding::driver_name),
 )))]
+#[schemars(transform = add_each_driver_once_rule)]
 pub struct AgentListedBindings {
     /// The default binding.
     pub default: AgentListedProviderBinding,
