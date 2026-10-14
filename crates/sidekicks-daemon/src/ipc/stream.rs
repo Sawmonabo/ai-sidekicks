@@ -3,4 +3,5 @@
 
 pub(crate) mod feed;
 pub(crate) mod frame_batcher;
+pub(crate) mod latest_value;
 pub(crate) mod subscriptions;
