@@ -24,7 +24,7 @@ use crate::session::run::setup_gates::{
 pub(crate) const CURATED_CREDENTIAL_POLICY_REF: &str = "curated-credentials";
 
 /// The credential variables removed from every provider process's environment and from every
-/// Codex conversation's command environment, compared under the host's environment-name rule.
+/// provider conversation's command environment, compared under the host's environment-name rule.
 pub(crate) const CURATED_CREDENTIAL_ENV_VARS: &[&str] = &["GITHUB_TOKEN", "NPM_TOKEN"];
 
 /// The posture a session's process runs at at `level` in the repository whose git folder, the

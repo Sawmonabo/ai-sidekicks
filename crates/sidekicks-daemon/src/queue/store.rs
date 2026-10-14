@@ -282,8 +282,8 @@ static SESSIONS_WITH_UNSTARTED_WAITING_SQL: LazyLock<String> = LazyLock::new(|| 
 });
 
 // The condition that the lead run `alias` names counts as its session's current one: any but one
-// whose start failed before it ever ran, such as the run of a turn Codex started itself that failed
-// to open, which never stood in for the run before it.
+// whose start failed before it ever ran, such as the run of a turn a provider started itself that
+// failed to open, which never stood in for the run before it.
 fn compose_current_lead_run_predicate(alias: &str) -> String {
     format!(
         "({alias}.state <> '{}'
