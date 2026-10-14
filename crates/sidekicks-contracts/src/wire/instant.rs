@@ -33,6 +33,14 @@ const INSTANT_PATTERN: &str = concat!(
 /// The instant the year 0000 begins, the earliest the pattern's four-digit year holds.
 const YEAR_ZERO_BEGINS: jiff::Timestamp = jiff::Timestamp::constant(-62_167_219_200, 0);
 
+/// `timestamp` in the form every stored or sent instant takes, UTC to the millisecond with three
+/// fraction digits and `Z`, as `Date.prototype.toISOString` writes it; `None` before the year
+/// 0000, which the four-digit year cannot write.
+pub(crate) fn stored_instant_text(timestamp: jiff::Timestamp) -> Option<String> {
+    (timestamp >= YEAR_ZERO_BEGINS)
+        .then(|| timestamp.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+}
+
 /// [`INSTANT_PATTERN`], compiled once for the garde check.
 static INSTANT_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(INSTANT_PATTERN).expect("the instant pattern is a valid regex"));
@@ -54,8 +62,7 @@ impl WireInstant {
     /// `Z`, as `Date.prototype.toISOString` writes it; `None` before the year 0000, whose text the
     /// pattern refuses.
     pub fn from_timestamp(timestamp: jiff::Timestamp) -> Option<Self> {
-        (timestamp >= YEAR_ZERO_BEGINS)
-            .then(|| Self(timestamp.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()))
+        stored_instant_text(timestamp).map(Self)
     }
 
     /// The text as received.

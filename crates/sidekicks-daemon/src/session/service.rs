@@ -7,7 +7,7 @@
 //! connection and runs each read on the blocking pool.
 
 use std::path::Path;
-use std::sync::{Arc, LazyLock, Mutex, PoisonError};
+use std::sync::{Arc, LazyLock};
 
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
 use sidekicks_contracts::agent::definition::AgentId;
@@ -30,10 +30,11 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tokio::task::JoinError;
 
 use crate::cleanup_failures::CleanupFailures;
-use crate::database::connection::setup::open_database_reader;
+use crate::database::connection::reader::{
+    DatabaseReader, DatabaseReaderCloseError, DatabaseReaderError,
+};
 use crate::database::sql_list::sql_list_of;
 use crate::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
@@ -149,9 +150,9 @@ pub(crate) enum SessionServiceError {
     /// The log does not rebuild into a record.
     #[error(transparent)]
     Rebuild(#[from] SessionRebuildError),
-    /// The read's blocking task did not finish.
-    #[error("a session read's blocking task did not finish")]
-    Task(#[from] JoinError),
+    /// The service's connection is closed, or the read's blocking task did not finish.
+    #[error(transparent)]
+    Reader(#[from] DatabaseReaderError),
 }
 
 const SELECT_ROW_SQL: &str = "SELECT state, shape, name, muted_at, pending_working_folder,
@@ -277,7 +278,7 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
 /// whole log or a page of it, or its record rebuilt from that log. Each read runs on the blocking
 /// pool, one at a time on the connection.
 pub(crate) struct SessionService {
-    reader: Arc<Mutex<Connection>>,
+    reader: DatabaseReader,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
 }
 
@@ -290,10 +291,7 @@ impl SessionService {
         read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     ) -> Result<Self, CleanupFailures<rusqlite::Error>> {
         Ok(Self {
-            reader: Arc::new(Mutex::new(open_database_reader(
-                database_path,
-                SESSION_SERVICE_STATEMENT_CAPACITY,
-            )?)),
+            reader: DatabaseReader::open(database_path, SESSION_SERVICE_STATEMENT_CAPACITY)?,
             read_damaged_from_sequence,
         })
     }
@@ -358,6 +356,12 @@ impl SessionService {
         .await
     }
 
+    /// Closes the service's connection once any running read is done; a later read fails with
+    /// [`SessionServiceError::Reader`]. Fails with SQLite's refusal of the close.
+    pub(crate) async fn close(&self) -> Result<(), DatabaseReaderCloseError> {
+        self.reader.close().await
+    }
+
     // Runs `read` on the blocking pool with the connection held.
     async fn run_read<Read, Answer>(&self, read: Read) -> Result<Answer, SessionServiceError>
     where
@@ -366,13 +370,10 @@ impl SessionService {
             + 'static,
         Answer: Send + 'static,
     {
-        let reader = Arc::clone(&self.reader);
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
-        tokio::task::spawn_blocking(move || {
-            let reader = reader.lock().unwrap_or_else(PoisonError::into_inner);
-            read(&reader, &*read_damaged_from_sequence)
-        })
-        .await?
+        self.reader
+            .read(move |connection| read(connection, &*read_damaged_from_sequence))
+            .await
     }
 }
 

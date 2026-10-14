@@ -120,9 +120,11 @@ impl ColumnValue {
 
     fn into_sql(self) -> SqlValue {
         match self {
-            Self::Shape(shape) => closed_word_value(shape),
-            Self::State(state) => closed_word_value(state),
-            Self::LastRunOutcome(outcome) => closed_word_value(outcome),
+            Self::Shape(shape) => SqlValue::Text(<&'static str>::from(shape).to_owned()),
+            Self::State(state) => SqlValue::Text(<&'static str>::from(state).to_owned()),
+            Self::LastRunOutcome(outcome) => {
+                SqlValue::Text(<&'static str>::from(outcome).to_owned())
+            }
             Self::Name(text)
             | Self::FirstMessagePreview(text)
             | Self::Branch(text)
@@ -187,14 +189,6 @@ fn keep_first_column(value: ColumnValue) -> DirectoryChange {
         value,
         keeps_first: true,
     })
-}
-
-// A closed-set word bound as its serde spelling.
-fn closed_word_value<Word>(word: Word) -> SqlValue
-where
-    &'static str: From<Word>,
-{
-    SqlValue::Text(<&'static str>::from(word).to_owned())
 }
 
 // A payload the append path parsed against its registered variant, read as that variant.
@@ -398,7 +392,9 @@ fn mark_time_of(
     payload: &Map<String, Value>,
 ) -> Result<String, DirectoryRowError> {
     let mark: SessionMarkChangePayload = payload_as(event_type, payload)?;
-    normalize_occurred_at(mark.at.as_str()).map_err(DirectoryRowError::MarkTime)
+    normalize_occurred_at(mark.at.as_str())
+        .map(|stored| stored.as_str().to_owned())
+        .map_err(DirectoryRowError::MarkTime)
 }
 
 // The row's preview of a message: its opening, leading whitespace dropped, cut to the session
@@ -426,7 +422,9 @@ fn describe_directory_update(
     Ok(DirectoryUpdate {
         change: change_of(event)?,
         occurred_at: normalize_occurred_at(event.occurred_at)
-            .map_err(DirectoryRowError::OccurredAt)?,
+            .map_err(DirectoryRowError::OccurredAt)?
+            .as_str()
+            .to_owned(),
         moves_last_activity: event.category != EventCategory::EventMaintenance
             && event.event_type != SessionEventType::AssistantThinkingUpdate.as_str(),
         moves_updated_at: event.category == EventCategory::SessionLifecycle,
@@ -533,7 +531,7 @@ pub(crate) fn directory_statements_for(
                 sql: Cow::Borrowed(INSERT_CREATED_ROW_SQL),
                 bindings: StatementBindings::Positional(vec![
                     SqlValue::Text(event.session_id.as_str().to_owned()),
-                    closed_word_value(shape),
+                    SqlValue::Text(<&'static str>::from(shape).to_owned()),
                     SqlValue::from(scratch_for_definition_id.map(|id| id.as_str().to_owned())),
                     SqlValue::from(parent_session_id.map(|id| id.as_str().to_owned())),
                     SqlValue::Text(update.occurred_at.clone()),
