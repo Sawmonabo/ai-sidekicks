@@ -1,6 +1,8 @@
 //! Reads Codex's account rate-limit readings into a usage-limit signal with the reset boundary the
 //! provider reported.
 
+use std::collections::BTreeMap;
+
 use jiff::Timestamp;
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::driver::usage_limit::{
@@ -29,47 +31,64 @@ const CODEX_PLAN_ALLOWANCE_REACHED_TYPES: [&str; 3] = [
     "workspace_member_usage_limit_reached",
 ];
 
-/// The two readings a usage-limit classification is made from. The push is a sparse update whose
-/// absent members do not clear earlier values, so both are needed; a present `rolling_update`
-/// member always wins, so a caller that reads `latest_read` again sets `rolling_update` back to
-/// `Value::Null`.
+/// The limit id Codex itself gives a snapshot that names none.
+const CODEX_DEFAULT_LIMIT_ID: &str = "codex";
+
+/// One limit's windows as last read: the read's own, with each later push's present members laid
+/// over them.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct CodexLimitWindows {
+    primary: Option<Value>,
+    secondary: Option<Value>,
+}
+
+/// The account's one reached mark: the `rateLimitReachedType` last stated, and the limit whose
+/// reading stated it.
+#[derive(Clone, Debug, PartialEq)]
+struct CodexRateLimitReached {
+    reached_type: Value,
+    limit_id: String,
+}
+
+/// What the account's rate-limit readings say so far: each limit's windows, kept per `limitId` and
+/// never merged across limits, and the one reached mark. A complete read replaces it whole; a
+/// push, which is sparse, is merged member by member into its own limit.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct CodexRateLimitObservation {
-    /// The `account/rateLimits/read` reply body, or `Value::Null` before one lands.
-    pub(crate) latest_read: Value,
-    /// The `account/rateLimits/updated` notification params, or `Value::Null`.
-    pub(crate) rolling_update: Value,
+    windows_by_limit_id: BTreeMap<String, CodexLimitWindows>,
+    reached: Option<CodexRateLimitReached>,
 }
 
-/// The members a classification reads, each from the sparse update where it is present, else
-/// from the last full read.
-struct CodexMergedRateLimitReading<'reading> {
-    rate_limit_reached_type: Option<&'reading Value>,
-    primary: Option<&'reading Value>,
-    secondary: Option<&'reading Value>,
+/// A snapshot's `limitId`, or Codex's own `codex` when it names none.
+fn read_codex_limit_id(snapshot: &Map<String, Value>) -> String {
+    read_present_member(snapshot, "limitId")
+        .and_then(Value::as_str)
+        .unwrap_or(CODEX_DEFAULT_LIMIT_ID)
+        .to_owned()
 }
 
-/// The snapshot a reading carries in `rateLimits`, when it is an object.
-fn read_codex_rate_limit_snapshot(carrier: &Value) -> Option<&Map<String, Value>> {
-    carrier.get("rateLimits")?.as_object()
-}
-
-/// Codex's own merge: a member present in the sparse update wins, else the last full read's. A
-/// `null` member counts as absent.
-fn merge_codex_rate_limit_reading(
-    observation: &CodexRateLimitObservation,
-) -> CodexMergedRateLimitReading<'_> {
-    let latest_read = read_codex_rate_limit_snapshot(&observation.latest_read);
-    let rolling_update = read_codex_rate_limit_snapshot(&observation.rolling_update);
-    let member = |key: &str| {
-        rolling_update
-            .and_then(|update| read_present_member(update, key))
-            .or_else(|| latest_read.and_then(|read| read_present_member(read, key)))
-    };
-    CodexMergedRateLimitReading {
-        rate_limit_reached_type: member("rateLimitReachedType"),
-        primary: member("primary"),
-        secondary: member("secondary"),
+/// Lays a snapshot over its limit's windows and the mark: a `null` or absent member leaves what
+/// was there.
+fn merge_codex_rate_limit_snapshot(
+    observation: &mut CodexRateLimitObservation,
+    limit_id: String,
+    snapshot: &Map<String, Value>,
+) {
+    let windows = observation
+        .windows_by_limit_id
+        .entry(limit_id.clone())
+        .or_default();
+    if let Some(primary) = read_present_member(snapshot, "primary") {
+        windows.primary = Some(primary.clone());
+    }
+    if let Some(secondary) = read_present_member(snapshot, "secondary") {
+        windows.secondary = Some(secondary.clone());
+    }
+    if let Some(reached_type) = read_present_member(snapshot, "rateLimitReachedType") {
+        observation.reached = Some(CodexRateLimitReached {
+            reached_type: reached_type.clone(),
+            limit_id,
+        });
     }
 }
 
@@ -97,48 +116,55 @@ fn codex_epoch_seconds_to_wire_instant(epoch_seconds: f64) -> Option<WireInstant
     WireInstant::from_timestamp(Timestamp::from_millisecond(epoch_milliseconds).ok()?)
 }
 
-/// The observation after one more `account/rateLimits/updated` push: the readings so far, merged
-/// Codex's way, become the base the new sparse push is read over.
-pub(crate) fn observe_codex_rate_limit_update(
-    previous: &CodexRateLimitObservation,
-    update: Value,
-) -> CodexRateLimitObservation {
-    let merged = merge_codex_rate_limit_reading(previous);
-    // Members are copied one by one, so no other key the provider chose lands in the base.
-    let mut snapshot = Map::new();
-    for (key, member) in [
-        ("rateLimitReachedType", merged.rate_limit_reached_type),
-        ("primary", merged.primary),
-        ("secondary", merged.secondary),
-    ] {
-        if let Some(member) = member {
-            snapshot.insert(key.to_owned(), member.clone());
+/// The observation an `account/rateLimits/read` reply gives: the whole set, read from
+/// `rateLimitsByLimitId`, else from `rateLimits` under its own limit id. Nothing earlier survives
+/// it, a reached mark included.
+pub(crate) fn observe_codex_rate_limit_read(reply: &Value) -> CodexRateLimitObservation {
+    let mut observation = CodexRateLimitObservation::default();
+    if let Some(snapshots) = reply.get("rateLimitsByLimitId").and_then(Value::as_object) {
+        for (limit_id, snapshot) in snapshots {
+            if let Some(snapshot) = snapshot.as_object() {
+                merge_codex_rate_limit_snapshot(&mut observation, limit_id.clone(), snapshot);
+            }
         }
+    } else if let Some(snapshot) = reply.get("rateLimits").and_then(Value::as_object) {
+        merge_codex_rate_limit_snapshot(&mut observation, read_codex_limit_id(snapshot), snapshot);
     }
-    let mut latest_read = Map::new();
-    latest_read.insert("rateLimits".to_owned(), Value::Object(snapshot));
-    CodexRateLimitObservation {
-        latest_read: Value::Object(latest_read),
-        rolling_update: update,
+    observation
+}
+
+/// The observation after one more `account/rateLimits/updated` push: its present members merged
+/// into its own limit's windows, and a present `rateLimitReachedType` moving the mark to that
+/// limit.
+pub(crate) fn observe_codex_rate_limit_update(
+    mut observation: CodexRateLimitObservation,
+    update: &Value,
+) -> CodexRateLimitObservation {
+    if let Some(snapshot) = update.get("rateLimits").and_then(Value::as_object) {
+        merge_codex_rate_limit_snapshot(&mut observation, read_codex_limit_id(snapshot), snapshot);
     }
+    observation
 }
 
 /// Classifies the account's rate-limit readings as a spent usage allowance, or `None`, which means
 /// "not known to be limited". Only the `rateLimitReachedType` arm recognizes one, never prose,
-/// `usedPercent` alone, or a turn error's own info, which carries no reset boundary.
+/// `usedPercent` alone, or a turn error's own info, which carries no reset boundary; the boundary
+/// is read from the limit the mark names alone.
 pub(crate) fn classify_codex_usage_limit_signal(
     observation: &CodexRateLimitObservation,
 ) -> Option<ProviderUsageLimitSignal> {
-    let reading = merge_codex_rate_limit_reading(observation);
+    let reached = observation.reached.as_ref()?;
     // An arm the person can remedy, an unrecognized arm and an absent one all give nothing rather
     // than a default signal; `spendControlReached`, an administrative budget state, is not read.
-    let reached_type = reading.rate_limit_reached_type?.as_str()?;
+    let reached_type = reached.reached_type.as_str()?;
     if !CODEX_PLAN_ALLOWANCE_REACHED_TYPES.contains(&reached_type) {
         return None;
     }
+    let windows = observation.windows_by_limit_id.get(&reached.limit_id);
     // The latest spent window: the earliest would schedule a resume the other window refuses.
-    let latest_spent_reset = [reading.primary, reading.secondary]
+    let latest_spent_reset = windows
         .into_iter()
+        .flat_map(|windows| [windows.primary.as_ref(), windows.secondary.as_ref()])
         .filter_map(read_codex_spent_window_reset_epoch_seconds)
         .reduce(f64::max);
     Some(ProviderUsageLimitSignal {
@@ -154,25 +180,28 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
 
-    use super::{CodexRateLimitObservation, classify_codex_usage_limit_signal};
+    use super::{
+        classify_codex_usage_limit_signal, observe_codex_rate_limit_read,
+        observe_codex_rate_limit_update,
+    };
 
     #[rstest]
     #[case::the_latest_spent_window_wins(
-        Value::Null,
         json!({"rateLimits": {
             "rateLimitReachedType": "rate_limit_reached",
             "primary": {"usedPercent": 100, "resetsAt": 1_700_000_000},
             "secondary": {"usedPercent": 100.0, "resetsAt": 1_700_100_000}
         }}),
+        vec![],
         "2023-11-16T02:00:00.000Z"
     )]
     #[case::a_window_not_spent_is_passed_over(
-        Value::Null,
-        json!({"rateLimits": {
+        json!({"rateLimits": {"limitId": "codex"}, "rateLimitsByLimitId": {"codex": {
             "rateLimitReachedType": "rate_limit_reached",
             "primary": {"usedPercent": 100, "resetsAt": 1_700_000_000},
             "secondary": {"usedPercent": 99, "resetsAt": 1_700_100_000}
-        }}),
+        }}}),
+        vec![],
         "2023-11-14T22:13:20.000Z"
     )]
     #[case::a_null_in_the_update_falls_back_to_the_read(
@@ -180,19 +209,34 @@ mod tests {
             "rateLimitReachedType": "workspace_member_usage_limit_reached",
             "primary": {"usedPercent": 100, "resetsAt": 1_700_000_000}
         }}),
-        json!({"rateLimits": {"rateLimitReachedType": null, "primary": null}}),
+        vec![json!({"rateLimits": {"rateLimitReachedType": null, "primary": null}})],
+        "2023-11-14T22:13:20.000Z"
+    )]
+    #[case::another_limit_never_moves_the_reached_one(
+        Value::Null,
+        vec![
+            json!({"rateLimits": {
+                "limitId": "codex",
+                "rateLimitReachedType": "rate_limit_reached",
+                "primary": {"usedPercent": 100, "resetsAt": 1_700_000_000}
+            }}),
+            json!({"rateLimits": {
+                "limitId": "codex_other",
+                "primary": {"usedPercent": 100, "resetsAt": 1_700_100_000}
+            }}),
+        ],
         "2023-11-14T22:13:20.000Z"
     )]
     fn reads_the_reset_of_the_latest_spent_window_in_seconds(
-        #[case] latest_read: Value,
-        #[case] rolling_update: Value,
+        #[case] read: Value,
+        #[case] updates: Vec<Value>,
         #[case] resets_at: &str,
     ) {
-        let signal = classify_codex_usage_limit_signal(&CodexRateLimitObservation {
-            latest_read,
-            rolling_update,
-        })
-        .unwrap();
+        let observation = updates.iter().fold(
+            observe_codex_rate_limit_read(&read),
+            observe_codex_rate_limit_update,
+        );
+        let signal = classify_codex_usage_limit_signal(&observation).unwrap();
 
         assert_eq!(
             signal

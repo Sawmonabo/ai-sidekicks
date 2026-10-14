@@ -1,4 +1,5 @@
-//! Line counts of a unified diff, as a transcript patch row shows them.
+//! Unified diffs as a transcript patch row shows them: the lines a diff adds and removes, and a
+//! whole file's text written as a diff that adds or removes every line.
 
 /// The added and removed lines of a unified diff.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,6 +28,23 @@ pub(crate) fn count_unified_diff(diff: &str) -> UnifiedDiffCounts {
         }
     }
     counts
+}
+
+/// A whole file's text as patch lines, each with `mark` (`+` for a file added, `-` for one
+/// removed), and how many there are. A file that ends in a newline has no line after it, and an
+/// empty file has none at all.
+pub(crate) fn mark_every_line(text: &str, mark: char) -> (String, u64) {
+    let mut patch = String::with_capacity(text.len());
+    let mut count: u64 = 0;
+    for line in text.split_terminator('\n') {
+        if count > 0 {
+            patch.push('\n');
+        }
+        patch.push(mark);
+        patch.push_str(line);
+        count += 1;
+    }
+    (patch, count)
 }
 
 #[cfg(test)]

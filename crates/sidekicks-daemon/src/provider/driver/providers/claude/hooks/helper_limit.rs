@@ -99,14 +99,12 @@ impl ClaudeHelperLimit {
         &mut self,
         session_id: &SessionId,
         helper_id: &str,
-        parent_tool_use_id: Option<&str>,
+        parent_tool_use_id: &str,
     ) {
         let Some(helpers) = self.sessions.get_mut(session_id) else {
             return;
         };
-        if let Some(parent_tool_use_id) = parent_tool_use_id {
-            helpers.admitted_starts.remove(parent_tool_use_id);
-        }
+        helpers.admitted_starts.remove(parent_tool_use_id);
         helpers.running_helper_ids.insert(helper_id.to_owned());
     }
 
@@ -180,7 +178,7 @@ mod tests {
     #[test]
     fn a_held_start_waits_for_a_running_helper_to_finish() {
         let (mut limit, session_id) = one_admitted_one_held();
-        limit.helper_started(&session_id, "h1", Some("t1"));
+        limit.helper_started(&session_id, "h1", "t1");
         assert_eq!(limit.turn_ended(&session_id), Vec::<String>::new());
 
         assert_eq!(limit.helper_finished(&session_id, "h1"), ["r2"]);

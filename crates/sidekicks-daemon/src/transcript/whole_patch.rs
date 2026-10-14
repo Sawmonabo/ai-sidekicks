@@ -2,16 +2,18 @@
 //! read pages it into the bounded pieces a client reads.
 
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::transcript::content::TranscriptPatchFileUnavailable;
 
-/// One file's whole patch with the lines it adds and removes, or why it cannot be read. Unlike a
-/// page's `TranscriptPatchFile`, the patch is never cut: the patch read pages it.
+/// One file's whole patch with the lines it adds and removes, or why there is none. Unlike a
+/// page's `TranscriptPatchFile`, the patch and the raw text are never cut: the patch read pages
+/// them. `old_path` is set on a file the call moved, which `path` names by its new path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum WholePatchFile {
     /// The patch.
     Read {
         /// The file's path.
         path: FilesystemPath,
+        /// The old path of a moved file.
+        old_path: Option<FilesystemPath>,
         /// The whole patch.
         patch: String,
         /// The lines it adds.
@@ -19,6 +21,20 @@ pub(crate) enum WholePatchFile {
         /// The lines it removes.
         deletions: u64,
     },
-    /// Why it cannot be read.
-    Unavailable(TranscriptPatchFileUnavailable),
+    /// No patch came.
+    Absent {
+        /// The file's path.
+        path: FilesystemPath,
+        /// The old path of a moved file.
+        old_path: Option<FilesystemPath>,
+    },
+    /// A patch came in a form this version cannot read.
+    Unreadable {
+        /// The file's path.
+        path: FilesystemPath,
+        /// The old path of a moved file.
+        old_path: Option<FilesystemPath>,
+        /// The whole patch as the provider sent it.
+        raw_patch: String,
+    },
 }

@@ -515,6 +515,8 @@ pub(crate) struct ClaudeSubagentLifecycleSignal {
     pub(crate) subagent_id: String,
     /// The helper-tool call's `tool_use_id` that started the helper, copied verbatim.
     pub(crate) parent_tool_use_id: Option<String>,
+    /// The `task_id` of the helper whose agent launched this one, when a helper did.
+    pub(crate) parent_task_id: Option<String>,
 }
 
 /// A helper lifecycle signal as its event and, for a start, the router's announcement.
@@ -528,32 +530,43 @@ pub(crate) struct ClaudeSubagentLifecycleNormalization {
     pub(crate) subagent_id: String,
     /// The helper-tool call that started it, if known.
     pub(crate) parent_tool_use_id: Option<String>,
-    /// For a start, the router announcement naming the session's own thread as parent, since
-    /// arrival in the parent's stream is the lineage; `None` for a stop.
+    /// For a start, the router announcement: its parent the launching helper while that one is
+    /// registered, else the session's own thread, and none for a start with no helper-tool call,
+    /// which the router refuses; `None` for a stop.
     pub(crate) announcement: Option<ChildThreadAnnouncement>,
 }
 
 /// Normalizes one helper lifecycle signal into `subagent.started` or `subagent.completed` and, for
 /// a start, the router announcement. Claude Code has no thread id member, so the helper's id is
-/// the child thread's id.
+/// the child thread's id; `is_registered_helper` answers whether the router still holds a helper,
+/// since a parent that ended or is untracked reads as no parent.
 pub(crate) fn normalize_claude_subagent_lifecycle(
     lifecycle_signal: ClaudeSubagentLifecycleSignal,
     session_thread_id: &str,
+    is_registered_helper: impl Fn(&str) -> bool,
 ) -> ClaudeSubagentLifecycleNormalization {
     let ClaudeSubagentLifecycleSignal {
         signal,
         subagent_id,
         parent_tool_use_id,
+        parent_task_id,
     } = lifecycle_signal;
     let (event_type, announcement) = match signal {
-        ClaudeSubagentSignal::SubagentStart => (
-            SessionEventType::SubagentStarted,
-            Some(ChildThreadAnnouncement {
-                child_thread_id: subagent_id.clone(),
-                declared_parent_thread_id: Some(session_thread_id.to_owned()),
-                subagent_id: Some(subagent_id.clone()),
-            }),
-        ),
+        ClaudeSubagentSignal::SubagentStart => {
+            let declared_parent_thread_id = parent_tool_use_id.is_some().then(|| {
+                parent_task_id
+                    .filter(|parent_task_id| is_registered_helper(parent_task_id))
+                    .unwrap_or_else(|| session_thread_id.to_owned())
+            });
+            (
+                SessionEventType::SubagentStarted,
+                Some(ChildThreadAnnouncement {
+                    child_thread_id: subagent_id.clone(),
+                    declared_parent_thread_id,
+                    subagent_id: Some(subagent_id.clone()),
+                }),
+            )
+        }
         ClaudeSubagentSignal::SubagentStop => (SessionEventType::SubagentCompleted, None),
     };
     ClaudeSubagentLifecycleNormalization {
@@ -655,7 +668,10 @@ mod tests {
     use rstest::rstest;
     use sidekicks_contracts::event::registry::SessionEventType;
 
-    use super::{ClaudeFrameEmissionRoute, resolve_claude_frame_emission_route};
+    use super::{
+        ClaudeFrameEmissionRoute, ClaudeSubagentLifecycleSignal, ClaudeSubagentSignal,
+        normalize_claude_subagent_lifecycle, resolve_claude_frame_emission_route,
+    };
     use crate::provider::driver::diagnostics::{DriverDiagnosticKind, RecordedEvents};
 
     #[test]
@@ -693,5 +709,39 @@ mod tests {
             panic!("a result frame emits, got {route:?}");
         };
         assert_eq!(emission.event_type, event_type);
+    }
+
+    #[rstest]
+    #[case::no_helper_call_declares_no_parent(None, None, &["h1"], None)]
+    #[case::a_top_level_helper_sits_under_the_session(Some("t1"), None, &["h1"], Some("session"))]
+    #[case::a_nested_helper_sits_under_its_launcher(Some("t1"), Some("h1"), &["h1"], Some("h1"))]
+    #[case::a_launcher_the_router_released_reads_as_none(
+        Some("t1"),
+        Some("h1"),
+        &[],
+        Some("session")
+    )]
+    fn a_helper_start_declares_the_parent_its_linkage_names(
+        #[case] parent_tool_use_id: Option<&str>,
+        #[case] parent_task_id: Option<&str>,
+        #[case] registered_helpers: &[&str],
+        #[case] declared_parent: Option<&str>,
+    ) {
+        let normalization = normalize_claude_subagent_lifecycle(
+            ClaudeSubagentLifecycleSignal {
+                signal: ClaudeSubagentSignal::SubagentStart,
+                subagent_id: "h2".to_owned(),
+                parent_tool_use_id: parent_tool_use_id.map(str::to_owned),
+                parent_task_id: parent_task_id.map(str::to_owned),
+            },
+            "session",
+            |task_id| registered_helpers.contains(&task_id),
+        );
+
+        let announcement = normalization.announcement.expect("a start is announced");
+        assert_eq!(
+            announcement.declared_parent_thread_id.as_deref(),
+            declared_parent
+        );
     }
 }
