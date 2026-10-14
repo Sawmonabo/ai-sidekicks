@@ -5,9 +5,7 @@
 
 use std::fmt;
 
-use jsonschema::ValidationError;
 use jsonschema::error::ValidationErrorKind;
-use jsonschema::paths::{Location, LocationSegment};
 use serde::de::value::MapDeserializer;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::declared_variants::{
@@ -16,10 +14,10 @@ use sidekicks_contracts::event::declared_variants::{
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
-use sidekicks_contracts::jsonrpc::issue_path::IssuePathSegment;
+use sidekicks_contracts::jsonrpc::issue::{IssuePathSegment, reader_issue_path, shape_faults};
 use sidekicks_contracts::schema::{ReceivedCheckError, received_check};
 
-use crate::issue_path::{index_segment, resolve_issue_path};
+use crate::issue_path::resolve_issue_path;
 
 /// The `payload` members only this module may set; `contentType` is the producer's.
 const CONTENT_DESCRIPTION_PAYLOAD_KEYS: [&str; 2] =
@@ -255,7 +253,12 @@ fn shape_issues(envelope: &EventEnvelope) -> Result<Vec<VariantIssue>, ReceivedC
                 .all(|arm_error| arm_error.instance_path().as_str() != "/type")
         });
         for arm_error in selected_arm.into_iter().flatten() {
-            issues.extend(issues_of(arm_error, &instance));
+            issues.extend(shape_faults(arm_error, &instance).into_iter().map(|fault| {
+                VariantIssue {
+                    path: fault.path,
+                    kind: fault.keyword,
+                }
+            }));
         }
     }
     if !issues.is_empty() {
@@ -269,71 +272,12 @@ fn shape_issues(envelope: &EventEnvelope) -> Result<Vec<VariantIssue>, ReceivedC
         .err()
         .map_or_else(
             || vec![member("payload")],
-            |fault| {
-                fault
-                    .path()
-                    .iter()
-                    .filter_map(reader_path_segment)
-                    .collect()
-            },
+            |fault| reader_issue_path(fault.path()),
         );
     Ok(vec![VariantIssue {
         path,
         kind: "shape".to_owned(),
     }])
-}
-
-/// The issues one shape error names: its member and keyword, and for a member the shape does not
-/// allow, each such member by name, never its value.
-fn issues_of(error: &ValidationError<'_>, instance: &Value) -> Vec<VariantIssue> {
-    let path = pointer_issue_path(error.instance_path(), instance);
-    let kind = error.kind().keyword().to_owned();
-    if let ValidationErrorKind::AdditionalProperties { unexpected }
-    | ValidationErrorKind::UnevaluatedProperties { unexpected } = error.kind()
-    {
-        return unexpected
-            .iter()
-            .map(|name| VariantIssue {
-                path: path.iter().cloned().chain([member(name)]).collect(),
-                kind: kind.clone(),
-            })
-            .collect();
-    }
-    vec![VariantIssue { path, kind }]
-}
-
-/// A JSON pointer's steps into `instance`: a digit step is an index only where it steps into an
-/// array, since an object's member may be named with digits.
-fn pointer_issue_path(pointer: &Location, instance: &Value) -> Vec<IssuePathSegment> {
-    let mut at = Some(instance);
-    pointer
-        .segments()
-        .map(|step| match (step, at) {
-            (LocationSegment::Index(index), Some(Value::Array(elements))) => {
-                at = elements.get(index);
-                index_segment(index)
-            }
-            (LocationSegment::Index(index), _) => {
-                let name = index.to_string();
-                at = at.and_then(|node| node.get(&name));
-                IssuePathSegment::Member(name)
-            }
-            (LocationSegment::Property(name), _) => {
-                at = at.and_then(|node| node.get(name.as_ref()));
-                IssuePathSegment::Member(name.into_owned())
-            }
-        })
-        .collect()
-}
-
-/// The step the payload reader's path names, `None` for a step it could not name.
-fn reader_path_segment(step: &serde_path_to_error::Segment) -> Option<IssuePathSegment> {
-    match step {
-        serde_path_to_error::Segment::Seq { index } => Some(index_segment(*index)),
-        serde_path_to_error::Segment::Map { key } => Some(member(key)),
-        serde_path_to_error::Segment::Enum { variant } => Some(member(variant)),
-        serde_path_to_error::Segment::Unknown => None,
-    }
 }
 
 fn member(name: &str) -> IssuePathSegment {
@@ -379,7 +323,7 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
     use sidekicks_contracts::event::envelope::EventEnvelope;
-    use sidekicks_contracts::jsonrpc::issue_path::IssuePathSegment;
+    use sidekicks_contracts::jsonrpc::issue::IssuePathSegment;
 
     use super::{RegisteredVariantRefusal, VariantIssue, assert_registered_variant_parses};
 

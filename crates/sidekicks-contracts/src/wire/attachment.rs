@@ -12,6 +12,7 @@ use serde::de::{DeserializeOwned, Error as _};
 use serde::ser::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::jsonrpc::issue::{IssuePathSegment, ShapeFault, reader_issue_path, shape_faults};
 use crate::schema::{ReceivedCheckError, received_check};
 
 /// Why a message's attachments do not match its JSON.
@@ -88,23 +89,26 @@ pub fn parse<T: DeserializeOwned>(
     json: &[u8],
     attachments: Vec<ByteBuffer>,
 ) -> Result<T, AttachmentError> {
-    read_with_attachments(attachments, || serde_json::from_slice::<T>(json))
+    read_with_attachments(attachments, || serde_json::from_slice::<T>(json)).map_err(|error| {
+        match error {
+            AttachmentReadError::Read(error) => AttachmentError::Json(error),
+            AttachmentReadError::Unreferenced { index } => AttachmentError::Unreferenced { index },
+        }
+    })
 }
 
-/// Why a received message was refused.
+/// Why a received message was refused. No arm's `Display` quotes the message; a source may.
 #[derive(Debug, thiserror::Error)]
 pub enum ReceivedError {
     /// The JSON does not parse.
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
-    /// The message breaks its contract's schema, an array where an object belongs among the ways.
-    /// It keeps only where and which keyword failed, never the value, which may be a secret.
-    #[error("the message breaks its contract's schema at `{instance_path}` ({keyword})")]
+    #[error("the message is not JSON")]
+    Json(#[source] serde_json::Error),
+    /// The message breaks its contract's schema, an array where an object belongs among the ways:
+    /// every place it does, by path and keyword, never the value, which may be a secret.
+    #[error("the message breaks its contract's schema")]
     Shape {
-        /// The failing value's JSON Pointer, empty for the whole message.
-        instance_path: String,
-        /// The schema keyword the value failed.
-        keyword: String,
+        /// Each fault, at least one, in the check's order.
+        faults: Vec<ShapeFault>,
     },
     /// The contract's check could not be built.
     #[error(transparent)]
@@ -112,7 +116,13 @@ pub enum ReceivedError {
     /// The message passed its schema but its type refused a value in it: a malformed id, say, or
     /// an attachment placeholder naming no attachment sent with it.
     #[error("the message passed its schema but does not read as its type")]
-    Read(#[source] serde_json::Error),
+    Read {
+        /// Where the reader stopped, in the message's own names, as far as it could name it.
+        path: Vec<IssuePathSegment>,
+        /// serde's refusal, which can quote the value.
+        #[source]
+        source: serde_json::Error,
+    },
     /// The message was read but an attachment sent with it is referenced by no placeholder.
     #[error("attachment {index} is not referenced")]
     Unreferenced {
@@ -121,8 +131,15 @@ pub enum ReceivedError {
     },
     /// The message was read but breaks a rule no schema shape holds, a repeated list key among
     /// them.
-    #[error(transparent)]
-    Rule(#[from] garde::Report),
+    #[error("the message breaks a rule of its contract")]
+    Rule {
+        /// Each broken rule at its path in the type's own names.
+        #[source]
+        report: garde::Report,
+        /// The JSON the value was read from, which those paths resolve against to the wire's
+        /// names.
+        received: serde_json::Value,
+    },
 }
 
 /// Parses a message a server received, a request's or a notification's params or an attachment
@@ -134,29 +151,43 @@ where
     T: DeserializeOwned + JsonSchema + garde::Validate<Context = ()> + 'static,
 {
     let check = received_check::<T>()?;
-    let value: serde_json::Value = serde_json::from_slice(json)?;
-    check
-        .validate(&value)
-        .map_err(|error| ReceivedError::Shape {
-            instance_path: error.instance_path().as_str().to_owned(),
-            keyword: error.kind().keyword().to_owned(),
-        })?;
-    let received = read_with_attachments(attachments, || T::deserialize(value)).map_err(
-        |error| match error {
-            AttachmentError::Json(error) => ReceivedError::Read(error),
-            AttachmentError::Unreferenced { index } => ReceivedError::Unreferenced { index },
+    let received: serde_json::Value = serde_json::from_slice(json).map_err(ReceivedError::Json)?;
+    if !check.is_valid(&received) {
+        let faults = check
+            .iter_errors(&received)
+            .flat_map(|error| shape_faults(&error, &received))
+            .collect();
+        return Err(ReceivedError::Shape { faults });
+    }
+    let value = read_with_attachments(attachments, || {
+        serde_path_to_error::deserialize::<_, T>(&received)
+    })
+    .map_err(|error| match error {
+        AttachmentReadError::Read(error) => ReceivedError::Read {
+            path: reader_issue_path(error.path()),
+            source: error.into_inner(),
         },
-    )?;
-    received.validate()?;
-    Ok(received)
+        AttachmentReadError::Unreferenced { index } => ReceivedError::Unreferenced { index },
+    })?;
+    match value.validate() {
+        Ok(()) => Ok(value),
+        Err(report) => Err(ReceivedError::Rule { report, received }),
+    }
+}
+
+/// Why a read inside an attachment context failed: the reader's own refusal, or an attachment no
+/// placeholder took.
+enum AttachmentReadError<Read> {
+    Read(Read),
+    Unreferenced { index: usize },
 }
 
 /// Runs `read` with `attachments` as the thread's attachment context, then refuses an attachment
 /// no placeholder took.
-fn read_with_attachments<T>(
+fn read_with_attachments<T, Read>(
     attachments: Vec<ByteBuffer>,
-    read: impl FnOnce() -> serde_json::Result<T>,
-) -> Result<T, AttachmentError> {
+    read: impl FnOnce() -> Result<T, Read>,
+) -> Result<T, AttachmentReadError<Read>> {
     let is_taken = vec![false; attachments.len()];
     let guard = ContextGuard::enter(
         &INCOMING,
@@ -169,9 +200,9 @@ fn read_with_attachments<T>(
     let incoming = guard
         .take()
         .expect("the guard holds this parse's attachments");
-    let value = parsed?;
+    let value = parsed.map_err(AttachmentReadError::Read)?;
     match incoming.is_taken.iter().position(|is_taken| !is_taken) {
-        Some(index) => Err(AttachmentError::Unreferenced { index }),
+        Some(index) => Err(AttachmentReadError::Unreferenced { index }),
         None => Ok(value),
     }
 }
@@ -442,7 +473,7 @@ mod tests {
         let self_link = format!(r#"{{"sessionId":"{SESSION}","targetSessionId":"{SESSION}"}}"#);
         assert!(matches!(
             parse_received::<SessionLinkRequest>(self_link.as_bytes(), Vec::new()),
-            Err(ReceivedError::Rule(_))
+            Err(ReceivedError::Rule { .. })
         ));
 
         let open =
@@ -462,7 +493,7 @@ mod tests {
         assert!(
             matches!(
                 parse_received::<TagList>(br#"["Ops","ops"]"#, Vec::new()),
-                Err(ReceivedError::Rule(_))
+                Err(ReceivedError::Rule { .. })
             ),
             "the schema passes a repeat in another case, and garde refuses it"
         );
