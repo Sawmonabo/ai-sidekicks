@@ -97,7 +97,8 @@ fn close(connection: Connection, is_ended: bool) -> ThreadExit {
     } else {
         None
     };
-    // A connection whose close failed comes back, and closes again as it drops.
+    // A refused close hands the connection back, and its drop repeats the same refused close:
+    // SQLite refuses only while statements or backups stay open, which a retry would still meet.
     let close_failure = connection
         .close()
         .err()

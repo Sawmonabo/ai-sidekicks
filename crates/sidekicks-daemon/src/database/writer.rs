@@ -20,7 +20,7 @@ mod thread;
 use std::error::Error;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -58,7 +58,9 @@ pub(crate) type EndReason = Arc<dyn Error + Send + Sync + 'static>;
 /// It runs only for a write that committed, whether or not its caller still waits.
 pub(crate) type CommitHook = Box<dyn FnOnce(&[SafeInt<0>]) + Send>;
 
-/// Told of each failure SQLite raised for a write, a batch or a checkpoint, before its caller.
+/// Told of each failure SQLite raised for a write, a batch or a checkpoint, before its caller. It
+/// runs on the write queue's task, so it does only quick work, and one that ends the writer holds
+/// it through a `Weak`: an `Arc` would keep the writer open once every other handle dropped.
 pub(crate) type WriteFailureListener = Box<dyn Fn(&(dyn Error + 'static)) + Send + Sync>;
 
 /// What every call of [`DatabaseWriter::close`] answers: the number of writes the close left
@@ -236,7 +238,9 @@ pub(crate) struct DatabaseWriter {
 
 impl DatabaseWriter {
     /// Starts the writer's thread, which runs `open` and then holds its connection, and returns
-    /// once it has. Fails with the open's error, the thread already joined.
+    /// once it has. Fails with the open's error, the thread already joined. A cancelled open
+    /// joins its thread on the blocking pool while the runtime runs; at the runtime's shutdown the
+    /// thread ends on its own.
     pub(crate) async fn open<OpenError>(
         open: impl FnOnce() -> Result<Connection, OpenError> + Send + 'static,
         options: DatabaseWriterOptions,
@@ -249,10 +253,12 @@ impl DatabaseWriter {
         let (exit, exited) = oneshot::channel();
         let stop = Arc::new(ThreadStop::new());
         let thread_stop = Arc::clone(&stop);
-        let join = std::thread::Builder::new()
-            .name(WRITER_THREAD_NAME.to_owned())
-            .spawn(move || thread::run(open, opened, thread_requests, &thread_stop, exit))
-            .map_err(DatabaseWriterOpenError::Spawn)?;
+        let thread = UnjoinedThread(Some(
+            std::thread::Builder::new()
+                .name(WRITER_THREAD_NAME.to_owned())
+                .spawn(move || thread::run(open, opened, thread_requests, &thread_stop, exit))
+                .map_err(DatabaseWriterOpenError::Spawn)?,
+        ));
         match has_opened.await {
             Ok(Ok(interrupt)) => Ok(Self::serve(
                 WriterThread {
@@ -260,12 +266,16 @@ impl DatabaseWriter {
                     interrupt,
                     stop,
                     exit: exited,
-                    join: Some(join),
+                    join: Some(thread.into_handle()),
                 },
                 options,
             )),
             Ok(Err(open_failure)) => {
-                let join_failures = join_thread(join).await.err().into_iter().collect();
+                let join_failures = join_thread(thread.into_handle())
+                    .await
+                    .err()
+                    .into_iter()
+                    .collect();
                 Err(DatabaseWriterOpenError::Open(CleanupFailures::new(
                     open_failure,
                     join_failures,
@@ -273,7 +283,7 @@ impl DatabaseWriter {
                 )))
             }
             Err(_unanswered) => Err(DatabaseWriterOpenError::ThreadLost(
-                join_thread(join).await.err(),
+                join_thread(thread.into_handle()).await.err(),
             )),
         }
     }
@@ -286,6 +296,7 @@ impl DatabaseWriter {
         let shared = Arc::new(WriterShared {
             stop: thread.stop,
             interrupt: thread.interrupt,
+            is_thread_released: AtomicBool::new(false),
             failure,
         });
         let (commit_count, commits) = watch::channel(0);
@@ -486,7 +497,8 @@ impl DatabaseWriter {
 
     /// Ends the writer at once: every write taken and every later one fails with `reason`, the
     /// batch in flight rolls back unless its commit already ran, and the thread closes its
-    /// connection without the checkpoint a close makes, so the files stay as they were found.
+    /// connection without the checkpoint a close makes, so the files stay as they were found. A
+    /// call racing the queue's release of the thread may still wait out the thread's close.
     pub(crate) fn end(&self, reason: EndReason) {
         if !self.shared.end(reason) {
             return;
@@ -570,11 +582,12 @@ struct WriteRequest {
     reply: oneshot::Sender<Result<CommittedWrite, WriteError>>,
 }
 
-/// What the writer's handles and its write queue share: the thread's stop and interrupt, and the
-/// reason the writer was ended.
+/// What the writer's handles and its write queue share: the thread's stop and interrupt, whether
+/// the queue has let the thread go, and the reason the writer was ended.
 struct WriterShared {
     stop: Arc<ThreadStop>,
     interrupt: InterruptHandle,
+    is_thread_released: AtomicBool,
     failure: watch::Sender<Option<EndReason>>,
 }
 
@@ -583,7 +596,15 @@ impl WriterShared {
     /// the interrupt for the statement running now, which the flag alone would not reach.
     fn stop_thread(&self, kind: StopKind) {
         self.stop.stop(kind);
-        self.interrupt.interrupt();
+        self.interrupt_thread();
+    }
+
+    /// Interrupts the statement the thread runs, unless the queue has let the thread go: the
+    /// interrupt would wait on the thread's close, and one left pending cuts its checkpoint short.
+    fn interrupt_thread(&self) {
+        if !self.is_thread_released.load(Ordering::Acquire) {
+            self.interrupt.interrupt();
+        }
     }
 
     /// Marks the writer ended with `reason` and stops its thread; `false` when it was already
@@ -662,6 +683,35 @@ struct WriterThread {
     exit: oneshot::Receiver<ThreadExit>,
     /// `None` for a task standing in for the thread in a test.
     join: Option<std::thread::JoinHandle<()>>,
+}
+
+/// The writer's thread until it is handed on to be joined. Dropped before that, as when `open`'s
+/// future is dropped mid-open, it joins the thread on the blocking pool while a runtime runs.
+struct UnjoinedThread(Option<std::thread::JoinHandle<()>>);
+
+impl UnjoinedThread {
+    fn into_handle(mut self) -> std::thread::JoinHandle<()> {
+        self.0.take().expect("the thread is handed on once")
+    }
+}
+
+impl Drop for UnjoinedThread {
+    fn drop(&mut self) {
+        let Some(thread) = self.0.take() else {
+            return;
+        };
+        // Outside a runtime the thread ends on its own; `spawn_blocking` would panic there.
+        match tokio::runtime::Handle::try_current() {
+            Ok(runtime) => drop(runtime.spawn_blocking(move || {
+                if thread.join().is_err() {
+                    tracing::debug!("the database writer's thread panicked; the hook reported it");
+                }
+            })),
+            Err(_no_runtime) => {
+                tracing::debug!("no runtime runs to join the database writer's thread");
+            }
+        }
+    }
 }
 
 /// Joins the writer's thread on a blocking thread, once it has answered its last message, so the

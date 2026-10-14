@@ -6,6 +6,7 @@
 use std::collections::VecDeque;
 use std::error::Error;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use tokio::sync::oneshot::error::RecvError;
@@ -224,8 +225,9 @@ impl WriteQueue {
             () = output_of(drain_bound.map(tokio::time::sleep_until)) => Wake::DrainBoundPassed,
             () = output_of(batch_deadline.map(tokio::time::sleep_until)) => Wake::BatchDue,
             held = output_of(self.writes_held_until.as_mut()) => Wake::HoldEnded(held),
-            message = self.messages.recv(), if self.is_receiving => Wake::Message(message),
+            // Before the messages, so a flood of them cannot starve the depth alert.
             () = self.sampler.next_sample() => Wake::Sample,
+            message = self.messages.recv(), if self.is_receiving => Wake::Message(message),
         }
     }
 
@@ -380,12 +382,12 @@ impl WriteQueue {
             self.batch_deadline = None;
             return;
         }
-        if self.thread.is_none() {
+        // An end read inside a settle has not reached the queue yet, but sends nothing more.
+        if self.thread.is_none() || self.shared.end_reason().is_some() {
             return;
         }
         if self.closing.is_some() && self.queued.is_empty() && self.waiting.is_empty() {
-            // The thread wakes from its wait, closes its connection and exits.
-            self.thread = None;
+            self.release_thread();
             return;
         }
         if self.writes_held_until.is_some() {
@@ -528,8 +530,16 @@ impl WriteQueue {
     }
 
     fn settle_committed_batch(&mut self, waiters: Vec<Waiter>, outcomes: Vec<WriteJobOutcome>) {
-        let mut settled: Vec<(Waiter, WriteJobOutcome)> =
-            waiters.into_iter().zip(outcomes).collect();
+        let mut outcomes = outcomes.into_iter();
+        let mut settled: Vec<(Waiter, WriteJobOutcome)> = waiters
+            .into_iter()
+            .map(|waiter| {
+                let outcome = outcomes
+                    .next()
+                    .expect("the thread answers one outcome per write");
+                (waiter, outcome)
+            })
+            .collect();
         let mut has_committed = false;
         for (waiter, outcome) in &mut settled {
             if let WriteJobOutcome::Committed { sequences, .. } = outcome {
@@ -687,7 +697,15 @@ impl WriteQueue {
         }
         self.batch_deadline = None;
         self.sampler.stop();
-        // The thread wakes from its wait, or finishes its batch, and closes its connection.
+        self.release_thread();
+    }
+
+    /// Lets the thread go: it wakes from its wait, or finishes its request, then closes its
+    /// connection and exits. A stop after this no longer interrupts it.
+    fn release_thread(&mut self) {
+        self.shared
+            .is_thread_released
+            .store(true, Ordering::Release);
         self.thread = None;
     }
 
@@ -750,14 +768,19 @@ impl WriteQueue {
     /// The drain bound passed: the thread stops the batch it runs, which rolls back unless its
     /// commit already ran, the unsent writes fail, and the thread is let go.
     fn stop_at_drain_bound(&mut self) {
-        self.shared.stop_thread(StopKind::DrainBound);
+        self.shared.stop.stop(StopKind::DrainBound);
+        // With nothing running, an interrupt would stay pending and cut the closing checkpoint
+        // short.
+        if self.batch.is_some() || self.checkpoint.is_some() {
+            self.shared.interrupt_thread();
+        }
         let unsent = self.fail_unsent(|| WriteError::ClosedAtDrainBound);
         if let Some(closing) = &mut self.closing {
             closing.is_past_bound = true;
             closing.unfinished += unsent;
         }
         self.batch_deadline = None;
-        self.thread = None;
+        self.release_thread();
     }
 
     /// The thread answered its exit: it is joined, and what its close and join reported is kept
