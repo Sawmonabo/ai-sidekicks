@@ -21,8 +21,8 @@ pub fn create_new_file(path: &Path, mode: u32) -> io::Result<File> {
         .open(path)
 }
 
-/// Renames `from` to `to` in one step: a file at `to` is replaced, and a folder at `to` only when
-/// it is empty. Fails with the rename's error: `CrossesDevices` across volumes, and
+/// Renames `from` to `to` in one step: a file at `to` is replaced, and a folder renamed onto an
+/// empty folder replaces it. Fails with the rename's error: `CrossesDevices` across volumes, and
 /// `DirectoryNotEmpty` or `AlreadyExists` for a folder at `to` that holds anything.
 pub fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
     fs::rename(from, to)

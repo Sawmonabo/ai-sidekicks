@@ -2,6 +2,7 @@
 //! nothing stands, `rename_replacing` renames over a file at the destination and is on disk when it
 //! returns, and `remove_tree` removes a path and everything under it, as `rm -rf` does.
 
+use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::windows::fs::FileTypeExt;
@@ -50,7 +51,8 @@ pub fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
 
 /// Removes `path` and everything under it, as `rm -rf` does: a link or a junction is removed and
 /// never followed, and a read-only entry goes too, on a volume without POSIX deletes as well. A path
-/// already gone is `Ok`; fails with the first other error of the stat, the walk or the removal.
+/// already gone is `Ok`; fails with the stat's or the removal's error, and a failed walk clearing
+/// read-only entries is logged while the removal's own refusal returns.
 pub fn remove_tree(path: &Path) -> io::Result<()> {
     let removed = match remove_entry(path) {
         // A volume without POSIX deletes (FAT, exFAT) refuses a read-only entry; it is made writable
@@ -59,7 +61,14 @@ pub fn remove_tree(path: &Path) -> io::Result<()> {
             match clear_read_only(path) {
                 Ok(()) => remove_entry(path),
                 // The removal's own refusal, a held file's among them, is what the caller reads.
-                Err(_walk_failure) => Err(failure),
+                Err(walk_failure) => {
+                    tracing::warn!(
+                        error = &walk_failure as &(dyn Error + 'static),
+                        "clearing read-only entries before a removal failed, so the removal's \
+                         refusal stands"
+                    );
+                    Err(failure)
+                }
             }
         }
         removed => removed,
