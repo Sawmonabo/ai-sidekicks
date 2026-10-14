@@ -105,7 +105,7 @@ fn read_codex_spent_window_reset_epoch_seconds(window: Option<&Value>) -> Option
 }
 
 /// `resetsAt` read as seconds since the epoch, as Codex documents it (read as milliseconds, every
-/// boundary would land decades early), cut to whole milliseconds as a JavaScript `Date` cuts them.
+/// boundary would land decades early), cut to whole milliseconds, as the wire's instant holds them.
 /// `None` outside the range a wire instant holds.
 #[expect(
     clippy::cast_possible_truncation,
