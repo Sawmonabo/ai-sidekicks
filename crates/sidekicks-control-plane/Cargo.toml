@@ -9,14 +9,14 @@ publish.workspace = true
 
 [package.metadata.cargo-shear]
 ignored = [
-  # The Compose relay's program: its Postgres pool and TLS, its push sign-in, its DNS server for
-  # machine certificates, its secrets made at first run and its server-name router.
-  "deadpool-postgres",
+  # The Compose relay's program: its push sign-in, its DNS server for machine certificates, its
+  # secrets made at first run and its server-name router.
   "gcp_auth",
   "getrandom",
   "hickory-server",
   "rustls",
-  "tokio-postgres-rustls",
+  # The self-hosted relay's SQLite file of account data and its backup.
+  "rusqlite",
 ]
 
 [lib]
@@ -38,29 +38,23 @@ url.workspace = true
 # The Compose relay's program and the schema runner's native tests.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 axum = { workspace = true, features = ["http1", "tokio"] }
-deadpool-postgres.workspace = true
 gcp_auth.workspace = true
 getrandom.workspace = true
 hickory-server.workspace = true
+rusqlite.workspace = true
 rustls.workspace = true
 tokio.workspace = true
-tokio-postgres = { workspace = true, features = ["runtime"] }
-tokio-postgres-rustls.workspace = true
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-postgresql_embedded.workspace = true
 
 # The Worker.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-util.workspace = true
 js-sys.workspace = true
 time = { workspace = true, features = ["wasm-bindgen"] }
-tokio-postgres = { workspace = true, features = ["js"] }
 tower-service.workspace = true
 uuid = { workspace = true, features = ["js"] }
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
-worker = { workspace = true, features = ["tokio-postgres"] }
+worker.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
