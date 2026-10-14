@@ -8,7 +8,6 @@
 //! unreadable.
 
 use std::collections::HashMap;
-use std::num::TryFromIntError;
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, Row, named_params};
@@ -92,17 +91,6 @@ pub(crate) struct LogRowPosition {
     pub(crate) event_id: String,
     /// The event's sequence in its session's log.
     pub(crate) sequence: i64,
-}
-
-// Why a tag's session's stored last activity does not read as milliseconds since the epoch.
-#[derive(Debug, thiserror::Error)]
-enum SessionLastActivityError {
-    // The stored text is not an instant.
-    #[error("the session's last activity is not an instant")]
-    NotAnInstant(#[from] jiff::Error),
-    // The instant falls before the Unix epoch, which the index's milliseconds cannot hold.
-    #[error("the session's last activity falls before the Unix epoch")]
-    BeforeEpoch(#[from] TryFromIntError),
 }
 
 // A log row's text: a person's words, an assistant's reply, or a tool's name then its arguments;
@@ -305,7 +293,7 @@ fn source_row_of(kind: IndexRowKind, row: &Row<'_>) -> rusqlite::Result<SourceRo
     let event_id: Option<String> = row.get(3)?;
     let sequence: Option<i64> = row.get(4)?;
     let tag_fold: Option<String> = row.get(5)?;
-    let session_last_activity_ms = optional_text_column(row, 6, last_activity_ms)?;
+    let session_last_activity_ms = optional_text_column(row, 6, |text| last_activity_ms(&text))?;
     Ok(SourceRow {
         key: rowid_column(row, 0)?,
         kind,
@@ -323,8 +311,10 @@ fn source_row_of(kind: IndexRowKind, row: &Row<'_>) -> rusqlite::Result<SourceRo
     })
 }
 
-// A stored instant as milliseconds since the Unix epoch, as the index orders a tag's sessions.
-fn last_activity_ms(text: String) -> Result<u64, SessionLastActivityError> {
+// A stored instant as milliseconds since the Unix epoch, as the index orders a tag's sessions;
+// fails on text that is not an instant.
+fn last_activity_ms(text: &str) -> Result<u64, jiff::Error> {
     let instant: jiff::Timestamp = text.parse()?;
-    Ok(u64::try_from(instant.as_millisecond())?)
+    // The index only orders by it, so an instant before 1970 holds 0 and sorts first.
+    Ok(u64::try_from(instant.as_millisecond()).unwrap_or(0))
 }
