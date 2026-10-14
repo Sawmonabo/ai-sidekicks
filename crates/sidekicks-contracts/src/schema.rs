@@ -9,7 +9,7 @@ use std::sync::{Arc, RwLock};
 use schemars::generate::SchemaSettings;
 use schemars::transform::RecursiveTransform;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::typescript::SchemaContract;
 
@@ -53,9 +53,8 @@ fn enum_of_documented_words(schema: &mut Schema) {
     object.insert("enum".into(), Value::Array(words));
 }
 
-/// Names the tag of an internally tagged union, a `oneOf` whose every arm is an object requiring
-/// one member that holds a constant, as its `discriminator`, so Ajv picks the arm by the tag. Only
-/// a tag whose every arm holds a different string qualifies, the one form Ajv compiles.
+/// Names the tag of a tagged union written as `oneOf` as its `discriminator`, so Ajv picks the arm
+/// by the tag. The generator sees no definitions, so a union whose arms are `$ref`s stays plain.
 fn discriminate_tagged_arms(schema: &mut Schema) {
     let Some(Value::Array(arms)) = schema.get("oneOf") else {
         return;
@@ -63,7 +62,32 @@ fn discriminate_tagged_arms(schema: &mut Schema) {
     if schema.get("discriminator").is_some() {
         return;
     }
-    let tag_of_arm = |arm: &Value| -> Option<Vec<String>> {
+    let Some(tag) = tagged_union(arms, |arm| arm).map(|union| union.tag) else {
+        return;
+    };
+    schema
+        .ensure_object()
+        .insert("discriminator".into(), json!({ "propertyName": tag }));
+}
+
+/// A union whose arms an object's tag tells apart: the tag's name and each arm's word, in arm
+/// order.
+struct TaggedUnion<'schema> {
+    tag: String,
+    words: Vec<&'schema str>,
+}
+
+/// The tag of a union whose every arm, as `resolve` reads it, states `type: "object"`, requires
+/// one shared member and fixes it to a string of its own; `None` for any other union. Ajv compiles
+/// a discriminator only over such a tag, and the received shape checks only the arm it selects.
+fn tagged_union<'schema>(
+    arms: &'schema [Value],
+    resolve: impl Fn(&'schema Value) -> &'schema Value,
+) -> Option<TaggedUnion<'schema>> {
+    let constant_members_of = |arm: &'schema Value| -> Option<Vec<&'schema str>> {
+        if arm.get("type").and_then(Value::as_str) != Some("object") {
+            return None;
+        }
         let required = arm.get("required")?.as_array()?;
         let properties = arm.get("properties")?.as_object()?;
         Some(
@@ -75,40 +99,34 @@ fn discriminate_tagged_arms(schema: &mut Schema) {
                         .get(*member)
                         .is_some_and(|property| property.get("const").is_some())
                 })
-                .map(str::to_owned)
                 .collect(),
         )
     };
-    let Some(mut shared) = arms.first().and_then(tag_of_arm) else {
-        return;
-    };
+    let mut shared = constant_members_of(resolve(arms.first()?))?;
     for arm in arms.iter().skip(1) {
-        let Some(tags) = tag_of_arm(arm) else {
-            return;
-        };
-        shared.retain(|tag| tags.contains(tag));
+        let members = constant_members_of(resolve(arm))?;
+        shared.retain(|tag| members.contains(tag));
     }
     let [tag] = shared.as_slice() else {
-        return;
+        return None;
     };
-    // Ajv takes a discriminator only over string tags, each arm's its own.
-    let words: Option<Vec<&str>> = arms
+    let words: Vec<&str> = arms
         .iter()
-        .map(|arm| arm.get("properties")?.get(tag)?.get("const")?.as_str())
-        .collect();
-    let Some(mut words) = words else {
-        return;
-    };
-    words.sort_unstable();
-    let arm_count = words.len();
-    words.dedup();
-    if words.len() != arm_count {
-        return;
-    }
-    let tag = tag.clone();
-    schema
-        .ensure_object()
-        .insert("discriminator".into(), json!({ "propertyName": tag }));
+        .map(|arm| {
+            resolve(arm)
+                .get("properties")?
+                .get(*tag)?
+                .get("const")?
+                .as_str()
+        })
+        .collect::<Option<_>>()?;
+    let mut distinct = words.clone();
+    distinct.sort_unstable();
+    distinct.dedup();
+    (distinct.len() == words.len()).then(|| TaggedUnion {
+        tag: (*tag).to_owned(),
+        words,
+    })
 }
 
 /// `T`'s schema as a reader accepts it, with its definitions, closed by
@@ -235,22 +253,28 @@ pub struct ShapeError;
 /// The shape of a closed schema, the part of it that says which members and which JSON kinds a
 /// message holds, which the receiving side checks before serde reads it; garde holds every other
 /// rule, the Ajv `$data` ones among them. It keeps the structural keywords and the `const` and
-/// `enum` that hold no `$data` reference, writes `oneOf` as `anyOf` and `if`/`then`/`else` as an
-/// `anyOf`, and drops the rest, so it only ever accepts more than the schema. Fails where the
-/// schema holds a `$dynamicRef`, the one dropped keyword a kept `unevaluatedProperties` reads.
+/// `enum` that hold no `$data` reference, drops the rest, and writes every union, and every
+/// `if`/`then`/`else`, as an `allOf` rule the checker reports one fault of: a tagged union as one
+/// `if`/`then` per arm keyed on its tag, a union of `null` and one arm as `if: null, else: arm`,
+/// and any other as `if` its arms, `else: false`. So it only ever accepts more than the schema.
+/// Fails where the schema holds a `$dynamicRef`, the one dropped keyword a kept
+/// `unevaluatedProperties` reads.
 pub fn received_shape(schema: &Value) -> Result<Value, ShapeError> {
     if holds_dynamic_reference(schema) {
         return Err(ShapeError);
     }
-    Ok(shape(schema))
+    let definitions = schema.get("$defs").and_then(Value::as_object);
+    Ok(shape(schema, definitions))
 }
 
-fn shape(schema: &Value) -> Value {
+fn shape(schema: &Value, definitions: Option<&Map<String, Value>>) -> Value {
     let Some(object) = schema.as_object() else {
         return schema.clone();
     };
-    let mut shaped = serde_json::Map::new();
-    let mut alternatives = Vec::new();
+    let shape_all =
+        |arms: &[Value]| -> Vec<Value> { arms.iter().map(|arm| shape(arm, definitions)).collect() };
+    let mut shaped = Map::new();
+    let mut union_rules = Vec::new();
     for (key, value) in object {
         match key.as_str() {
             "$schema" | "$ref" | "type" | "required" => {
@@ -263,49 +287,109 @@ fn shape(schema: &Value) -> Value {
                 if let Value::Object(members) = value {
                     let members = members
                         .iter()
-                        .map(|(name, member)| (name.clone(), shape(member)))
+                        .map(|(name, member)| (name.clone(), shape(member, definitions)))
                         .collect();
                     shaped.insert(key.clone(), Value::Object(members));
                 }
             }
             "additionalProperties" | "unevaluatedProperties" | "items" => {
-                shaped.insert(key.clone(), shape(value));
+                shaped.insert(key.clone(), shape(value, definitions));
             }
             "prefixItems" | "allOf" => {
                 if let Value::Array(arms) = value {
-                    shaped.insert(key.clone(), Value::Array(arms.iter().map(shape).collect()));
+                    shaped.insert(key.clone(), Value::Array(shape_all(arms)));
                 }
             }
             "anyOf" | "oneOf" => {
                 if let Value::Array(arms) = value {
-                    alternatives.push(Value::Array(arms.iter().map(shape).collect()));
+                    union_rules.extend(union_rules_of(arms, definitions));
                 }
             }
             "if" => {
                 let taken = json!({ "allOf": [
-                    shape(value),
-                    object.get("then").map_or(Value::Bool(true), shape),
+                    shape(value, definitions),
+                    object
+                        .get("then")
+                        .map_or(Value::Bool(true), |then| shape(then, definitions)),
                 ] });
-                let otherwise = object.get("else").map_or(Value::Bool(true), shape);
-                alternatives.push(json!([taken, otherwise]));
+                let otherwise = object
+                    .get("else")
+                    .map_or(Value::Bool(true), |otherwise| shape(otherwise, definitions));
+                union_rules.push(json!({ "if": { "anyOf": [taken, otherwise] }, "else": false }));
             }
             _ => {}
         }
     }
-    // One `anyOf` stays in place; each further one is nested in `allOf`, since all must hold.
-    let mut alternatives = alternatives.into_iter();
-    if let Some(first) = alternatives.next() {
-        shaped.insert("anyOf".into(), first);
-    }
-    for further in alternatives {
+    if !union_rules.is_empty() {
         let all_of = shaped
             .entry("allOf")
             .or_insert_with(|| Value::Array(Vec::new()));
-        if let Value::Array(arms) = all_of {
-            arms.push(json!({ "anyOf": further }));
+        if let Value::Array(rules) = all_of {
+            rules.extend(union_rules);
         }
     }
     Value::Object(shaped)
+}
+
+/// The `allOf` rules that hold one union's arms, each a form the checker reports one fault of: a
+/// tagged union's tag, then one `if`/`then` per arm, so a fault is named inside the arm its tag
+/// selects; a union of `null` and one arm as `if: null, else: arm`, so a fault is named inside the
+/// arm; any other as `if` its arms, `else: false`, so a fault is named at the union.
+fn union_rules_of<'schema>(
+    arms: &'schema [Value],
+    definitions: Option<&'schema Map<String, Value>>,
+) -> Vec<Value> {
+    if let Some(TaggedUnion { tag, words }) =
+        tagged_union(arms, |arm| resolve_reference(arm, definitions))
+    {
+        let tag_rule = json!({ "required": [tag], "properties": { &tag: { "enum": words } } });
+        return [tag_rule]
+            .into_iter()
+            .chain(arms.iter().zip(&words).map(|(arm, word)| {
+                json!({
+                    "if": { "required": [tag], "properties": { &tag: { "const": word } } },
+                    "then": shape(arm, definitions),
+                })
+            }))
+            .collect();
+    }
+    let is_null = |arm: &Value| {
+        arm.as_object().is_some_and(|arm| arm.len() == 1)
+            && arm.get("type").and_then(Value::as_str) == Some("null")
+    };
+    if let [first, second] = arms
+        && let Some(other) = match (is_null(first), is_null(second)) {
+            (true, false) => Some(second),
+            (false, true) => Some(first),
+            (true, true) | (false, false) => None,
+        }
+    {
+        return vec![json!({ "if": { "type": "null" }, "else": shape(other, definitions) })];
+    }
+    let arms: Vec<Value> = arms.iter().map(|arm| shape(arm, definitions)).collect();
+    vec![json!({ "if": { "anyOf": arms }, "else": false })]
+}
+
+/// The definition a bare `$ref` arm names in `definitions`, followed to one that is not a bare
+/// `$ref`; any other arm, and a reference outside `definitions`, as it is.
+fn resolve_reference<'schema>(
+    mut arm: &'schema Value,
+    definitions: Option<&'schema Map<String, Value>>,
+) -> &'schema Value {
+    // Bounded by the definitions, so a cycle of references ends.
+    for _ in 0..=definitions.map_or(0, Map::len) {
+        let referenced = arm
+            .get("type")
+            .is_none()
+            .then(|| arm.get("$ref")?.as_str()?.strip_prefix("#/$defs/"))
+            .flatten()
+            .and_then(|name| definitions?.get(name));
+        match referenced {
+            Some(definition) => arm = definition,
+            None => break,
+        }
+    }
+    arm
 }
 
 /// Whether `value` holds an Ajv `$data` reference (`{"$data": "1/count"}`) anywhere in it.

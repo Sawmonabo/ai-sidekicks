@@ -8,10 +8,18 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::typescript::{Definition, TypeScriptModule};
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire;
-use crate::wire::AnyValue;
 use crate::wire::integer::SafeInt;
+use crate::wire::record::JsonRecord;
+
+ts_constants! {
+    /// The most issues an `invalid_params` or `invalid_result` refusal lists, the first in the
+    /// check's order.
+    pub const ISSUES_MAX: usize = 32;
+    /// The most steps an issue's path holds; a deeper fault is named at its ancestor this deep.
+    pub const ISSUE_PATH_SEGMENTS_MAX: usize = 32;
+}
 
 /// One step of an issue's path: a member's name as the message spells it, or an array's index.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -47,8 +55,8 @@ pub struct Issue {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "wire::present"
     )]
-    #[schemars(with = "AnyValue")]
-    pub params: Option<Value>,
+    #[schemars(with = "JsonRecord")]
+    pub params: Option<JsonRecord>,
 }
 
 /// One place a received message breaks its contract's schema: the path in the message's own
@@ -62,17 +70,25 @@ pub struct ShapeFault {
     pub keyword: String,
 }
 
-/// The faults one schema-check error names in `received`, the JSON it checked: its place and
-/// keyword, and for members the schema does not allow, each such member by name. A fault inside a
-/// union names the union, never an arm. Never carries a value.
+/// The faults the schema check's one error names in `received`, the JSON it checked: its place and
+/// keyword, and for members an object closed by `unevaluatedProperties` does not allow, each such
+/// member by name, the first [`ISSUES_MAX`] of them. A tagged union's fault is named inside the arm
+/// its tag selects; any other union's at the union, as an `anyOf` fault, the outermost untagged
+/// union deciding. Never carries a value.
 pub fn shape_faults(error: &ValidationError<'_>, received: &Value) -> Vec<ShapeFault> {
     let path = pointer_issue_path(error.instance_path().as_str(), received);
-    let keyword = error.kind().keyword();
+    let keyword = match error.kind() {
+        ValidationErrorKind::FalseSchema if is_union_refusal(error.schema_path().as_str()) => {
+            "anyOf"
+        }
+        kind => kind.keyword(),
+    };
     if let ValidationErrorKind::AdditionalProperties { unexpected }
     | ValidationErrorKind::UnevaluatedProperties { unexpected } = error.kind()
     {
         return unexpected
             .iter()
+            .take(ISSUES_MAX)
             .map(|name| ShapeFault {
                 path: path
                     .iter()
@@ -89,6 +105,32 @@ pub fn shape_faults(error: &ValidationError<'_>, received: &Value) -> Vec<ShapeF
     }]
 }
 
+/// Whether a schema path ends at the keyword `else`, where the received shape refuses a value no
+/// arm of a union reads; a member named `else` is told apart by where it sits.
+fn is_union_refusal(schema_path: &str) -> bool {
+    // Each step is a keyword, a member or definition name, or an arm's index.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Step {
+        Keyword,
+        Name,
+        Index,
+    }
+    let mut next = Step::Keyword;
+    let mut last = None;
+    for segment in schema_path.split('/').skip(1) {
+        let this = next;
+        next = match (this, segment) {
+            (Step::Keyword, "properties" | "patternProperties" | "$defs" | "dependentSchemas") => {
+                Step::Name
+            }
+            (Step::Keyword, "allOf" | "anyOf" | "oneOf" | "prefixItems") => Step::Index,
+            (Step::Keyword | Step::Name | Step::Index, _) => Step::Keyword,
+        };
+        last = Some((this, segment));
+    }
+    last == Some((Step::Keyword, "else"))
+}
+
 /// A JSON Pointer's steps into `received`: a step into an array is an index and a step into an
 /// object a member, so a member named with digits, or named `""`, stays a member.
 fn pointer_issue_path(pointer: &str, received: &Value) -> Vec<IssuePathSegment> {
@@ -98,21 +140,14 @@ fn pointer_issue_path(pointer: &str, received: &Value) -> Vec<IssuePathSegment> 
         .skip(1)
         .map(|step| {
             let step = step.replace("~1", "/").replace("~0", "~");
-            match at {
-                Some(Value::Array(elements)) => match step.parse::<usize>() {
-                    Ok(index) => {
-                        at = elements.get(index);
-                        IssuePathSegment::index(index)
-                    }
-                    Err(_not_an_index) => {
-                        at = None;
-                        IssuePathSegment::Member(step)
-                    }
-                },
-                _ => {
-                    at = at.and_then(|node| node.get(&step));
-                    IssuePathSegment::Member(step)
-                }
+            if let Some(Value::Array(elements)) = at
+                && let Ok(index) = step.parse::<usize>()
+            {
+                at = elements.get(index);
+                IssuePathSegment::index(index)
+            } else {
+                at = at.and_then(|node| node.get(&step));
+                IssuePathSegment::Member(step)
             }
         })
         .collect()
@@ -145,6 +180,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<IssuePathSegment>(),
         Definition::read::<Issue>(),
     ],
-    constants: &[],
+    constants: TS_CONSTANTS,
     method_tables: &[],
 };
