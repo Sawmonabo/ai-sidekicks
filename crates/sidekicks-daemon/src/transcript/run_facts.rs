@@ -22,19 +22,9 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::sql_list::sql_list_of;
 use crate::database::stored_column::{json_object_column, optional_text_column, safe_int_column};
-use crate::events::session::read::session_read_bound;
-use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
+use crate::events::session::read::{readable_event_sql, session_read_bound};
 
 const BEAT_COLUMNS_SQL: &str = "sequence, type, actor, payload";
-
-// Only rows the log can read: none past a damaged session's last good point or in a range it
-// skipped.
-static READABLE_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "sequence < @read_bound AND {}",
-        outside_skipped_ranges_sql("event")
-    )
-});
 
 // Through the run-and-type index.
 static SELECT_CREATION_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -50,7 +40,7 @@ static SELECT_CREATION_SQL: LazyLock<String> = LazyLock::new(|| {
     AND {}
   ORDER BY sequence
   LIMIT 1",
-        *READABLE_ROW_SQL
+        readable_event_sql("event")
     )
 });
 
@@ -62,7 +52,7 @@ static SELECT_FIRST_ACTOR_SQL: LazyLock<String> = LazyLock::new(|| {
     AND type <> '{USER_MESSAGE_EVENT_TYPE}' AND {}
   ORDER BY sequence
   LIMIT 1",
-        *READABLE_ROW_SQL
+        readable_event_sql("event")
     )
 });
 
@@ -80,7 +70,7 @@ static SELECT_STATE_BEATS_NEWEST_FIRST_SQL: LazyLock<String> = LazyLock::new(|| 
   WHERE session_id = @session_id AND type IN ({state_beat_types}) AND run_id = @run_id
     AND {}
   ORDER BY +sequence DESC",
-        *READABLE_ROW_SQL
+        readable_event_sql("event")
     )
 });
 

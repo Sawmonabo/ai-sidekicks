@@ -124,9 +124,8 @@ fn row_of(
                 cause,
             }
         })?;
-    let cursor =
-        encode_event_cursor(i64::try_from(event.sequence.get()).expect("a safe integer fits i64"))
-            .expect("an envelope's sequence is a safe integer");
+    let cursor = encode_event_cursor(i64::from(event.sequence))
+        .expect("an envelope's sequence is a safe integer");
     // A system event names no actor, which the row leaves out.
     let actor = event.actor.clone().flatten();
     let Some(RunEventAttribution {

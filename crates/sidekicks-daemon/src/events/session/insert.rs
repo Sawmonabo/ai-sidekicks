@@ -127,8 +127,7 @@ pub(crate) fn insert_session_event(
                 head,
             })?,
     };
-    let stored_sequence =
-        i64::try_from(sequence.get()).expect("a safe integer fits SQLite's INTEGER");
+    let stored_sequence = i64::from(sequence);
     connection
         .prepare_cached(INSERT_SESSION_EVENT_SQL)?
         .execute(named_params! {

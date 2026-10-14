@@ -6,13 +6,15 @@
 
 use std::borrow::Cow;
 
-use rusqlite::types::{Type, Value};
+use rusqlite::types::Type;
 use rusqlite::{Connection, OptionalExtension};
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
+use crate::database::statement::{
+    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+};
 use crate::database::stored_column::{closed_word, safe_int_column, text_column};
 
 /// The row a session on a provider that offers an advisor is born with, its advisor copied from
@@ -42,10 +44,7 @@ pub(crate) fn advisor_model_change_statement(
         sql: Cow::Borrowed(UPSERT_ADVISOR_MODEL_SQL),
         bindings: StatementBindings::Named(vec![
             text_binding("@sessionId", session_id.as_str()),
-            (
-                Cow::Borrowed("@advisorModel"),
-                advisor_model.map_or(Value::Null, |model| Value::Text(model.to_owned())),
-            ),
+            nullable_text_binding("@advisorModel", advisor_model),
             text_binding("@updatedAt", updated_at),
         ]),
         expected_row_count: None,

@@ -26,9 +26,9 @@ use sidekicks_contracts::transcript::operations::{
 };
 use sidekicks_contracts::transcript::row::TranscriptReadRow;
 use sidekicks_contracts::transcript::run_facts::{FoldedThroughSequence, TranscriptRunFacts};
+use sidekicks_contracts::wire::integer::count_bound;
 use sidekicks_contracts::wire::{False, True};
 
-use crate::database::stored_column::stored_integer;
 use crate::events::session::read::{
     SessionEventFilter, SessionEventReads, SessionLogReadError, resolve_event_cursor,
 };
@@ -161,7 +161,7 @@ where
         let newest_kept = page_count
             .checked_sub(1)
             .and_then(|index| stretch.get(index))
-            .map_or(after_position, |event| stored_integer(event.sequence));
+            .map_or(after_position, |event| i64::from(event.sequence));
         let next_cursor = cursor_at(newest_kept);
         Ok(if page_count < candidates.len() {
             TranscriptReadResponse::Continuing(TranscriptReadContinuing {
@@ -190,7 +190,7 @@ where
         limit: usize,
     ) -> Result<TranscriptReadResponse, TranscriptReadError> {
         let candidates =
-            reads.read_before(self.session_id, before_position, count_with_one_past(limit))?;
+            reads.read_before(self.session_id, before_position, count_bound(limit + 1))?;
         let stretch = &candidates[candidates.len().saturating_sub(limit)..];
         let mut rows = self.project(stretch)?;
         let stretch_runs = self.run_facts_of(head, &rows)?;
@@ -213,7 +213,7 @@ where
                         .expect("a page that leaves more holds 1 to limit rows"),
                     runs,
                     has_more: True::default(),
-                    next_cursor: cursor_at(stored_integer(oldest_kept.sequence) - 1),
+                    next_cursor: cursor_at(i64::from(oldest_kept.sequence) - 1),
                 },
             ));
         }
@@ -236,7 +236,7 @@ where
         reads.read_after(
             self.session_id,
             after_position,
-            count_with_one_past(limit),
+            count_bound(limit + 1),
             SessionEventFilter {
                 event_types: None,
                 before_sequence,
@@ -304,11 +304,6 @@ fn runs_named_by(
         .filter(|facts| named.contains(&facts.run_id))
         .collect();
     WindowRunFacts::new(runs).expect("a page names at most one run per row")
-}
-
-// A read's limit with the one candidate past it, as SQLite binds a count.
-fn count_with_one_past(limit: usize) -> i64 {
-    i64::try_from(limit + 1).expect("a read's limit is at most its cap")
 }
 
 fn cursor_at(position: i64) -> EventCursor {

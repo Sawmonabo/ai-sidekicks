@@ -10,20 +10,20 @@ use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 use rusqlite::{Connection, named_params};
 use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::run::queue::{QueueItemId, RunQueueStreamChange};
+use sidekicks_contracts::run::queue::{QueueItemId, QueueItemState, RunQueueStreamChange};
 use sidekicks_contracts::session::event_cursor::{
     EventCursorPositionOutOfRange, START_OF_LOG_POSITION, encode_event_cursor,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::integer::{SafeInt, count_bound};
 use tokio::sync::watch;
 
 use crate::database::sql_list::sql_list_of;
-use crate::database::stored_column::{safe_int_column, stored_integer};
+use crate::database::stored_column::safe_int_column;
 use crate::events::session::read::{SessionEventReads, SessionLogReadError};
 use crate::queue::store::{
-    COLUMN_COUNT, COLUMNS, QUEUE_ORDER, QueueItemRecord, record_of, stored_limit, summary_of,
+    COLUMN_COUNT, COLUMNS, QUEUE_ORDER, QueueItemRecord, record_of, summary_of,
 };
 
 /// One queue: the lead's of a session, or a child's by its handle.
@@ -236,11 +236,12 @@ static CHANGED_AFTER_SQL: LazyLock<String> = LazyLock::new(|| {
 static WAITING_UNCHANGED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {COLUMNS} FROM queue_items
-  WHERE session_id = @session_id AND child_handle IS @child_handle AND state = 'queued'
+  WHERE session_id = @session_id AND child_handle IS @child_handle AND state = '{}'
     AND NOT EXISTS (SELECT 1 FROM session_events
       WHERE session_events.session_id = @session_id AND session_events.sequence > @after
         AND session_events.type IN ({})
         AND json_extract(session_events.payload, '$.queueItemId') = queue_items.id)",
+        <&'static str>::from(QueueItemState::Queued),
         *QUEUE_ITEM_EVENT_TYPES_SQL
     )
 });
@@ -315,13 +316,13 @@ pub(crate) fn read_queue_changes_after(
                 "@session_id": queue.session_id.as_str(),
                 "@child_handle": queue.child_handle.as_ref().map(ChildHandle::as_str),
                 "@after": cursor.sequence,
-                "@limit": stored_limit(max),
+                "@limit": count_bound(max),
             },
             |row| Ok((record_of(row)?, safe_int_column::<0>(row, COLUMN_COUNT)?)),
         )?
         .map(|changed| {
             let (record, sequence) = changed?;
-            let sequence = stored_integer(sequence);
+            let sequence = i64::from(sequence);
             Ok(QueueChange {
                 stream_change: RunQueueStreamChange {
                     cursor: encode_event_cursor(sequence)
@@ -385,7 +386,7 @@ fn read_waiting_page(
 ) -> rusqlite::Result<Vec<QueueItemRecord>> {
     let session_id = queue.session_id.as_str();
     let child_handle = queue.child_handle.as_ref().map(ChildHandle::as_str);
-    let limit = stored_limit(room);
+    let limit = count_bound(room);
     match waiting_page {
         WaitingPage::FromFirst => reader
             .prepare_cached(&WAITING_FROM_FIRST_SQL)?
@@ -406,7 +407,7 @@ fn read_waiting_page(
                     "@session_id": session_id,
                     "@child_handle": child_handle,
                     "@after": after,
-                    "@position": stored_integer(place.position),
+                    "@position": i64::from(place.position),
                     "@created_at": place.created_at.as_str(),
                     "@id": place.id.as_str(),
                     "@limit": limit,

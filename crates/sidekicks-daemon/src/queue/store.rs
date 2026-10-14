@@ -18,7 +18,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{
     MessageContent, QueueItemId, QueueItemNotDeliveredReason, QueueItemState, QueueItemSummary,
 };
-use sidekicks_contracts::run::state::{RUN_TERMINAL_STATES, RunState};
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -27,12 +27,14 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::sql_list::sql_list_of;
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
+use crate::database::statement::{
+    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+};
 use crate::database::stored_column::{
-    closed_word, closed_word_text, optional_text_column, safe_int_column, stored_integer,
-    text_column,
+    closed_word, optional_text_column, safe_int_column, text_column,
 };
 use crate::provider::driver::run_control::PickedSkill;
+use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// What a queued message carries, as its payload stores it: the words and what rides with them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -173,45 +175,71 @@ pub(super) const QUEUE_ORDER: &str = "ORDER BY position, created_at DESC, id";
 // Changes no row when the send's key was already spent in the session, so the write that carries
 // it is refused and nothing saved is replaced. Only a person's send reaches here, so the queue is
 // the lead's.
-const INSERT_SQL: &str = "INSERT INTO queue_items
+static INSERT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "INSERT INTO queue_items
     (id, session_id, state, payload, target_run_id, device_id, child_handle, position,
      client_idempotency_key, created_at, updated_at)
-  VALUES (@id, @session_id, 'queued', @payload, @target_run_id, @device_id, NULL,
+  VALUES (@id, @session_id, '{}', @payload, @target_run_id, @device_id, NULL,
     COALESCE(
       (SELECT position FROM queue_items WHERE id = @replaces_id),
       (SELECT MAX(position) + 1 FROM queue_items
         WHERE session_id = @session_id AND child_handle IS NULL),
       0),
     @client_idempotency_key, @now, @now)
-  ON CONFLICT (session_id, client_idempotency_key) DO NOTHING";
+  ON CONFLICT (session_id, client_idempotency_key) DO NOTHING",
+        <&'static str>::from(QueueItemState::Queued)
+    )
+});
 
-const LEAVE_QUEUED_SQL: &str = "UPDATE queue_items
+static LEAVE_QUEUED_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE queue_items
     SET state = @to, not_delivered_reason = @reason, updated_at = @now
-  WHERE id = @id AND state = 'queued'";
+  WHERE id = @id AND state = '{}'",
+        <&'static str>::from(QueueItemState::Queued)
+    )
+});
 
 // A message read not delivered that the agent took after all.
-const ADMIT_UNDELIVERED_SQL: &str = "UPDATE queue_items
-    SET state = 'admitted', not_delivered_reason = NULL, updated_at = @now
-  WHERE id = @id AND state = 'not_delivered'";
+static ADMIT_UNDELIVERED_SQL: LazyLock<String> =
+    LazyLock::new(|| leave_not_delivered_sql(QueueItemState::Admitted));
 
 // A message read not delivered that a retry sends again.
-const SUPERSEDE_UNDELIVERED_SQL: &str = "UPDATE queue_items
-    SET state = 'superseded', not_delivered_reason = NULL, updated_at = @now
-  WHERE id = @id AND state = 'not_delivered'";
+static SUPERSEDE_UNDELIVERED_SQL: LazyLock<String> =
+    LazyLock::new(|| leave_not_delivered_sql(QueueItemState::Superseded));
 
-const RETARGET_SQL: &str = "UPDATE queue_items SET target_run_id = @run_id, updated_at = @now
-  WHERE id = @id AND state = 'queued'";
+static RETARGET_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE queue_items SET target_run_id = @run_id, updated_at = @now
+  WHERE id = @id AND state = '{}'",
+        <&'static str>::from(QueueItemState::Queued)
+    )
+});
 
-const PLACE_SQL: &str = "UPDATE queue_items SET position = @position, updated_at = @now
-  WHERE id = @id AND state = 'queued'";
+static PLACE_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE queue_items SET position = @position, updated_at = @now
+  WHERE id = @id AND state = '{}'",
+        <&'static str>::from(QueueItemState::Queued)
+    )
+});
 
-static TERMINAL_RUN_STATES_SQL: LazyLock<String> =
-    LazyLock::new(|| sql_list_of(RUN_TERMINAL_STATES.map(<&'static str>::from)));
+// Moves an item read not delivered to `to`, clearing its reason.
+fn leave_not_delivered_sql(to: QueueItemState) -> String {
+    format!(
+        "UPDATE queue_items
+    SET state = '{}', not_delivered_reason = NULL, updated_at = @now
+  WHERE id = @id AND state = '{}'",
+        <&'static str>::from(to),
+        <&'static str>::from(QueueItemState::NotDelivered)
+    )
+}
 
 static RUN_LIVE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT 1 FROM runs WHERE run_id = @run_id AND state NOT IN ({})",
-        *TERMINAL_RUN_STATES_SQL
+        *RUN_TERMINAL_STATES_SQL
     )
 });
 
@@ -236,7 +264,7 @@ static LIVE_LEAD_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
   WHERE session_id = @session_id AND {}
     AND state NOT IN ({})",
         compose_lead_run_predicate("runs"),
-        *TERMINAL_RUN_STATES_SQL
+        *RUN_TERMINAL_STATES_SQL
     )
 });
 
@@ -245,10 +273,11 @@ static SESSIONS_WITH_UNSTARTED_WAITING_SQL: LazyLock<String> = LazyLock::new(|| 
     format!(
         "SELECT DISTINCT queue_items.session_id
   FROM queue_items JOIN runs ON runs.run_id = queue_items.target_run_id
-  WHERE queue_items.state = 'queued' AND queue_items.child_handle IS NULL
+  WHERE queue_items.state = '{}' AND queue_items.child_handle IS NULL
     AND runs.state IN ('{}', {})",
+        <&'static str>::from(QueueItemState::Queued),
         <&'static str>::from(RunState::Queued),
-        *TERMINAL_RUN_STATES_SQL
+        *RUN_TERMINAL_STATES_SQL
     )
 });
 
@@ -307,10 +336,11 @@ static CONTINUE_WAITING_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT 1 FROM queue_items JOIN runs ON runs.run_id = queue_items.target_run_id
   WHERE queue_items.session_id = @session_id AND queue_items.child_handle IS NULL
-    AND queue_items.state = 'queued' AND runs.state = '{}'
+    AND queue_items.state = '{}' AND runs.state = '{}'
     AND {}
     AND {}
   LIMIT 1",
+        <&'static str>::from(QueueItemState::Queued),
         <&'static str>::from(RunState::Interrupted),
         compose_lead_run_predicate("runs"),
         *NO_NEWER_CURRENT_LEAD_RUN_SQL
@@ -323,10 +353,11 @@ static TAKE_OVER_INTERRUPTED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE queue_items
     SET target_run_id = @run_id, updated_at = @now
-  WHERE session_id = @session_id AND child_handle IS NULL AND state = 'queued'
+  WHERE session_id = @session_id AND child_handle IS NULL AND state = '{}'
     AND target_run_id IN (SELECT run_id FROM runs
       WHERE session_id = @session_id AND {}
         AND state = '{}')",
+        <&'static str>::from(QueueItemState::Queued),
         compose_lead_run_predicate("runs"),
         <&'static str>::from(RunState::Interrupted)
     )
@@ -340,7 +371,7 @@ static LIVE_LEAD_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     AND state NOT IN ({})
   ORDER BY run_id DESC LIMIT 1",
         compose_lead_run_predicate("runs"),
-        *TERMINAL_RUN_STATES_SQL
+        *RUN_TERMINAL_STATES_SQL
     )
 });
 
@@ -355,16 +386,20 @@ static SELECT_QUEUE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {COLUMNS} FROM queue_items
   WHERE session_id = @session_id AND child_handle IS @child_handle
-    AND (state = @state OR (@state IS NULL AND state IN ('queued', 'not_delivered')))
-  {QUEUE_ORDER}"
+    AND (state = @state OR (@state IS NULL AND state IN ({})))
+  {QUEUE_ORDER}",
+        sql_list_of(
+            [QueueItemState::Queued, QueueItemState::NotDelivered].map(<&'static str>::from)
+        )
     )
 });
 
 static SELECT_WAITING_FOR_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {COLUMNS} FROM queue_items
-  WHERE target_run_id = ? AND state = 'queued'
-  {QUEUE_ORDER}"
+  WHERE target_run_id = ? AND state = '{}'
+  {QUEUE_ORDER}",
+        <&'static str>::from(QueueItemState::Queued)
     )
 });
 
@@ -375,7 +410,7 @@ pub(crate) fn insert_queue_item_statement(item: &NewQueueItem) -> WriteStatement
     let payload =
         serde_json::to_string(&item.body).expect("a body of typed members serializes to JSON");
     WriteStatement {
-        sql: Cow::Borrowed(INSERT_SQL),
+        sql: Cow::Borrowed(INSERT_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
             text_binding("@id", item.id.as_str()),
             text_binding("@session_id", item.session_id.as_str()),
@@ -415,14 +450,11 @@ pub(crate) fn leave_queued_statement(
         QueueItemExit::Superseded => (QueueItemState::Superseded, None),
     };
     WriteStatement {
-        sql: Cow::Borrowed(LEAVE_QUEUED_SQL),
+        sql: Cow::Borrowed(LEAVE_QUEUED_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
             text_binding("@id", id.as_str()),
-            text_binding("@to", &closed_word_text(&to)),
-            nullable_text_binding(
-                "@reason",
-                reason.map(|reason| closed_word_text(&reason)).as_deref(),
-            ),
+            text_binding("@to", <&'static str>::from(to)),
+            nullable_text_binding("@reason", reason.map(<&'static str>::from)),
             text_binding("@now", now.as_str()),
         ]),
         expected_row_count: Some(1),
@@ -431,7 +463,7 @@ pub(crate) fn leave_queued_statement(
 
 /// The statement that admits an item read not delivered; refused unless it reads not delivered.
 pub(crate) fn admit_undelivered_statement(id: &QueueItemId, now: &WireInstant) -> WriteStatement {
-    item_change_statement(ADMIT_UNDELIVERED_SQL, id, now)
+    item_change_statement(&ADMIT_UNDELIVERED_SQL, id, now)
 }
 
 /// The statement that marks an item read not delivered superseded by its retry; refused unless it
@@ -440,7 +472,7 @@ pub(crate) fn supersede_undelivered_statement(
     id: &QueueItemId,
     now: &WireInstant,
 ) -> WriteStatement {
-    item_change_statement(SUPERSEDE_UNDELIVERED_SQL, id, now)
+    item_change_statement(&SUPERSEDE_UNDELIVERED_SQL, id, now)
 }
 
 /// The statement that points a waiting item at the run it now goes to; refused once it has left.
@@ -450,7 +482,7 @@ pub(crate) fn retarget_statement(
     now: &WireInstant,
 ) -> WriteStatement {
     WriteStatement {
-        sql: Cow::Borrowed(RETARGET_SQL),
+        sql: Cow::Borrowed(RETARGET_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
             text_binding("@id", id.as_str()),
             text_binding("@run_id", run_id.as_str()),
@@ -472,12 +504,12 @@ pub(crate) fn placement_statements(
         .iter()
         .zip(positions)
         .map(|(item, position)| WriteStatement {
-            sql: Cow::Borrowed(PLACE_SQL),
+            sql: Cow::Borrowed(PLACE_SQL.as_str()),
             bindings: StatementBindings::Named(vec![
                 text_binding("@id", item.id.as_str()),
                 (
                     Cow::Borrowed("@position"),
-                    SqlValue::Integer(stored_integer(position)),
+                    SqlValue::Integer(i64::from(position)),
                 ),
                 text_binding("@now", now.as_str()),
             ]),
@@ -656,7 +688,7 @@ impl<'reader> QueueItemReader<'reader> {
                 named_params! {
                     "@session_id": session_id.as_str(),
                     "@child_handle": child_handle.map(ChildHandle::as_str),
-                    "@state": state.map(|state| closed_word_text(&state)),
+                    "@state": state.map(<&'static str>::from),
                 },
                 record_of,
             )?
@@ -781,9 +813,13 @@ pub(super) fn record_of(row: &Row<'_>) -> rusqlite::Result<QueueItemRecord> {
 }
 
 // A statement on one item that changes only its time besides what its text sets.
-fn item_change_statement(sql: &'static str, id: &QueueItemId, now: &WireInstant) -> WriteStatement {
+fn item_change_statement(
+    sql: &'static LazyLock<String>,
+    id: &QueueItemId,
+    now: &WireInstant,
+) -> WriteStatement {
     WriteStatement {
-        sql: Cow::Borrowed(sql),
+        sql: Cow::Borrowed(sql.as_str()),
         bindings: StatementBindings::Named(vec![
             text_binding("@id", id.as_str()),
             text_binding("@now", now.as_str()),
@@ -803,16 +839,4 @@ fn session_statement(
         bindings: StatementBindings::Named(vec![text_binding("@session_id", session_id.as_str())]),
         expected_row_count: Some(expected_row_count),
     }
-}
-
-fn nullable_text_binding(name: &'static str, text: Option<&str>) -> (Cow<'static, str>, SqlValue) {
-    (
-        Cow::Borrowed(name),
-        text.map_or(SqlValue::Null, |text| SqlValue::Text(text.to_owned())),
-    )
-}
-
-/// A read's row cap as SQLite binds it; a cap past its range reads every row.
-pub(super) fn stored_limit(max: usize) -> i64 {
-    i64::try_from(max).unwrap_or(i64::MAX)
 }

@@ -23,9 +23,8 @@ use sidekicks_contracts::transcript::turn_attribution::{
 };
 use sidekicks_contracts::wire::id::IdError;
 
-use crate::database::stored_column::{json_object_column, stored_integer};
-use crate::events::session::read::session_read_bound;
-use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
+use crate::database::stored_column::json_object_column;
+use crate::events::session::read::{readable_event_sql, session_read_bound};
 use crate::session::run::superseded::{
     StoredRollbackMismatchError, SupersededTurnsReadError, parse_stored_rollback,
     read_superseded_turns,
@@ -79,22 +78,14 @@ struct RunFold {
 }
 
 // Each read seeks the run's rows of one type through the event log's run-and-type index, bounded
-// strictly before the event being seeded, and reads only rows the log can read: none past a
-// damaged session's last good point or in a range it skipped.
-static READABLE_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "sequence < @read_bound AND {}",
-        outside_skipped_ranges_sql("event")
-    )
-});
-
+// strictly before the event being seeded, and reads only rows the log can read.
 static SELECT_ROLLBACKS_BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT sequence, payload FROM session_events AS event
   WHERE session_id = @session_id AND type = @type AND sequence < @before_sequence
     AND run_id = @run_id AND {}
   ORDER BY sequence",
-        *READABLE_ROW_SQL
+        readable_event_sql("event")
     )
 });
 
@@ -105,7 +96,7 @@ static SELECT_TURNS_BETWEEN_SQL: LazyLock<String> = LazyLock::new(|| {
     AND sequence > @after_sequence AND sequence < @before_sequence
     AND run_id = @run_id AND {}
   ORDER BY sequence",
-        *READABLE_ROW_SQL
+        readable_event_sql("event")
     )
 });
 
@@ -118,7 +109,7 @@ static SELECT_TOOL_CALL_OPENING_SQL: LazyLock<String> = LazyLock::new(|| {
     AND json_extract(payload, '$.toolCallId') = @tool_call_id
   ORDER BY sequence DESC
   LIMIT 1",
-        *READABLE_ROW_SQL
+        readable_event_sql("event")
     )
 });
 
@@ -277,7 +268,7 @@ impl SessionTurnAttribution {
         DamagedFrom: Fn(&SessionId) -> Option<i64>,
     {
         let event_type = event.event_type.as_str();
-        let sequence = stored_integer(event.sequence);
+        let sequence = i64::from(event.sequence);
         if event_type == TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE {
             return self.attribute_rollback(reads, event).map(Some);
         }
@@ -332,7 +323,7 @@ impl SessionTurnAttribution {
     where
         DamagedFrom: Fn(&SessionId) -> Option<i64>,
     {
-        let sequence = stored_integer(event.sequence);
+        let sequence = i64::from(event.sequence);
         let rollback = parse_stored_rollback(&event.payload, &self.session_id, sequence)?;
         let mut fold = self.take_fold(reads, &rollback.run_id, sequence)?;
         let rewound_epoch = fold.standing.epoch;
@@ -382,7 +373,7 @@ impl SessionTurnAttribution {
                 &self.session_id,
                 run_id,
                 tool_call_id,
-                stored_integer(event.sequence),
+                i64::from(event.sequence),
             )?
             .unwrap_or(fold.standing))
     }

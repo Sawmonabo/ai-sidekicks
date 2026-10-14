@@ -15,7 +15,7 @@ use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::{RUN_LIFECYCLE_EVENT_TYPES, SessionEventType};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::state::{RUN_TERMINAL_STATES, RunState};
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::event_cursor::{START_OF_LOG_POSITION, encode_event_cursor};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{
@@ -36,22 +36,19 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::setup::open_database_reader;
 use crate::database::sql_list::sql_list_of;
 use crate::database::stored_column::{
-    closed_word, optional_text_column, safe_int_column, stored_integer, text_column,
+    closed_word, optional_text_column, safe_int_column, text_column,
 };
 use crate::events::session::read::{
-    SessionEventFilter, SessionEventReads, SessionLogReadError, session_read_bound,
+    DamagedFromSequenceReader, SessionEventFilter, SessionEventReads, SessionLogReadError,
+    readable_event_sql, session_read_bound,
 };
-use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::ipc::domain_error::DomainError;
 use crate::session::console_state::read_session_max_steps_per_turn;
 use crate::session::not_found::session_not_found;
 use crate::session::projector::{SessionRebuildError, rebuild_session};
 use crate::session::records::DaemonSessionRecord;
+use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 use crate::transcript::run_facts::TranscriptRunFactsReader;
-
-/// Answers the sequence a damaged session's reads stop before, `None` for a session that reads
-/// whole.
-pub(crate) type DamagedFromSequenceReader = dyn Fn(&SessionId) -> Option<i64> + Send + Sync;
 
 /// The statements the service's connection caches: its own five (the row, the tags, the live runs,
 /// the standing sequences and the console read), the run facts' three, and the five shared event
@@ -156,18 +153,6 @@ pub(crate) enum SessionServiceError {
     #[error("a session read's blocking task did not finish")]
     Task(#[from] JoinError),
 }
-
-// Whether the event aliased `event_alias` is one the log can read: before a damaged session's last
-// good point, `@read_bound`, and outside every range it skipped.
-fn readable_event_sql(event_alias: &str) -> String {
-    format!(
-        "{event_alias}.sequence < @read_bound AND {}",
-        outside_skipped_ranges_sql(event_alias)
-    )
-}
-
-static RUN_TERMINAL_STATES_SQL: LazyLock<String> =
-    LazyLock::new(|| sql_list_of(RUN_TERMINAL_STATES.map(<&'static str>::from)));
 
 const SELECT_ROW_SQL: &str = "SELECT state, shape, name, muted_at, pending_working_folder,
        created_at, updated_at
@@ -435,7 +420,7 @@ fn read_session(
         .read_at_sequences(session_id, &standing_sequences)?
         .into_iter()
         .map(|event| SessionStandingEvent {
-            cursor: encode_event_cursor(stored_integer(event.sequence))
+            cursor: encode_event_cursor(i64::from(event.sequence))
                 .expect("an envelope's sequence is a safe integer"),
             event,
         })
@@ -559,9 +544,9 @@ fn read_events_after_sequence(
         events.truncate(limit);
     }
     Ok(EventsReadAfterSequenceResponse {
-        next_sequence: events.last().map_or(request.after_sequence, |event| {
-            stored_integer(event.sequence)
-        }),
+        next_sequence: events
+            .last()
+            .map_or(request.after_sequence, |event| i64::from(event.sequence)),
         events,
         has_more,
     })

@@ -20,11 +20,9 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::statement::{
-    DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
+    DATABASE_NOW_SQL, StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use crate::database::stored_column::{
-    closed_word, closed_word_text, optional_text_column, text_column,
-};
+use crate::database::stored_column::{closed_word, optional_text_column, text_column};
 
 /// A new intervention as its `requested` row records it; `payload` is its type's own fields, as
 /// JSON text.
@@ -125,9 +123,10 @@ static INSERT_REQUESTED_SQL: LazyLock<String> = LazyLock::new(|| {
         "INSERT INTO interventions
     (id, target_run_id, type, state, payload, expected_run_version, client_idempotency_key,
      device_id, created_at)
-  VALUES (@id, @target_run_id, @type, 'requested', @payload, @expected_run_version,
+  VALUES (@id, @target_run_id, @type, '{}', @payload, @expected_run_version,
           @client_idempotency_key, @device_id, {DATABASE_NOW_SQL})
-  ON CONFLICT (target_run_id, client_idempotency_key) DO NOTHING"
+  ON CONFLICT (target_run_id, client_idempotency_key) DO NOTHING",
+        <&'static str>::from(InterventionState::Requested)
     )
 });
 
@@ -138,9 +137,10 @@ static MOVE_SQL: LazyLock<String> = LazyLock::new(|| {
         rejection_reason = @rejection_reason,
         failure_reason = @failure_reason,
         fallback_action = @fallback_action,
-        resolved_at = CASE WHEN @to = 'accepted' THEN NULL ELSE {DATABASE_NOW_SQL} END
+        resolved_at = CASE WHEN @to = '{}' THEN NULL ELSE {DATABASE_NOW_SQL} END
   WHERE id = @id
-    AND state = @from"
+    AND state = @from",
+        <&'static str>::from(InterventionState::Accepted)
     )
 });
 
@@ -165,25 +165,22 @@ pub(crate) fn insert_requested_intervention_statement(
         bindings: StatementBindings::Named(vec![
             text_binding("@id", intervention.intervention_id.as_str()),
             text_binding("@target_run_id", intervention.target_run_id.as_str()),
-            (
-                Cow::Borrowed("@type"),
-                Value::Text(closed_word_text(&intervention.intervention_type)),
+            text_binding(
+                "@type",
+                <&'static str>::from(intervention.intervention_type),
             ),
             text_binding("@payload", &intervention.payload),
             (
                 Cow::Borrowed("@expected_run_version"),
-                Value::Integer(
-                    i64::try_from(intervention.expected_run_version.get())
-                        .expect("a safe integer fits SQLite's INTEGER"),
-                ),
+                Value::Integer(i64::from(intervention.expected_run_version)),
             ),
             text_binding(
                 "@client_idempotency_key",
                 intervention.client_idempotency_key.as_str(),
             ),
-            (
-                Cow::Borrowed("@device_id"),
-                optional_text_value(intervention.device_id.as_ref().map(DeviceId::as_str)),
+            nullable_text_binding(
+                "@device_id",
+                intervention.device_id.as_ref().map(DeviceId::as_str),
             ),
         ]),
         expected_row_count: Some(1),
@@ -225,20 +222,11 @@ pub(crate) fn move_intervention_statement(
         sql: Cow::Borrowed(MOVE_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
             text_binding("@id", intervention_id.as_str()),
-            (Cow::Borrowed("@from"), Value::Text(closed_word_text(&from))),
-            (Cow::Borrowed("@to"), Value::Text(closed_word_text(&to))),
-            (
-                Cow::Borrowed("@rejection_reason"),
-                optional_text_value(rejection_reason),
-            ),
-            (
-                Cow::Borrowed("@failure_reason"),
-                optional_text_value(failure_reason),
-            ),
-            (
-                Cow::Borrowed("@fallback_action"),
-                optional_text_value(fallback_action),
-            ),
+            text_binding("@from", <&'static str>::from(from)),
+            text_binding("@to", <&'static str>::from(to)),
+            nullable_text_binding("@rejection_reason", rejection_reason),
+            nullable_text_binding("@failure_reason", failure_reason),
+            nullable_text_binding("@fallback_action", fallback_action),
         ]),
         expected_row_count: Some(1),
     }
@@ -299,8 +287,4 @@ pub(crate) fn read_intervention_by_idempotency_key(
             },
         )
         .optional()
-}
-
-fn optional_text_value(text: Option<&str>) -> Value {
-    text.map_or(Value::Null, |text| Value::Text(text.to_owned()))
 }

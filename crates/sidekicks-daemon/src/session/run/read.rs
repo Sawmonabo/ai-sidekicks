@@ -6,11 +6,11 @@ use std::sync::LazyLock;
 use rusqlite::{Connection, OptionalExtension, named_params};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::ChildRunProvenance;
-use sidekicks_contracts::run::state::{RUN_TERMINAL_STATES, RunState};
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::database::sql_list::sql_list_of;
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
+use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// A run as it stands now. `version` counts every progression of the run, state changes and
 /// applied interventions alike; a decision taken from it is guarded again inside the write it
@@ -43,7 +43,7 @@ const SELECT_RUN_SQL: &str = "SELECT session_id, state, run_version FROM runs WH
 // Walks down `idx_runs_parent` through live provider subagents only, so the read scales with the
 // one run's tree and a subagent that has ended cuts its branch off.
 static SELECT_LIVE_PROVIDER_SUBAGENTS_SQL: LazyLock<String> = LazyLock::new(|| {
-    let terminal_states = terminal_states_sql();
+    let terminal_states = &*RUN_TERMINAL_STATES_SQL;
     format!(
         "WITH RECURSIVE subagents(run_id) AS (
     SELECT run_id FROM runs
@@ -64,7 +64,7 @@ static SELECT_LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT run_id, session_id, state, run_version, parent_run_id, reached_by
   FROM runs
   WHERE state NOT IN ({})",
-        terminal_states_sql()
+        *RUN_TERMINAL_STATES_SQL
     )
 });
 
@@ -128,8 +128,4 @@ impl<'connection> RunStateReader<'connection> {
             })?
             .collect()
     }
-}
-
-fn terminal_states_sql() -> String {
-    sql_list_of(RUN_TERMINAL_STATES.map(<&'static str>::from))
 }

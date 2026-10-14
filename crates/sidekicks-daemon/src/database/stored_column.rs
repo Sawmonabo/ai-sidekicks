@@ -1,12 +1,10 @@
 //! Reading a stored column into a typed value: TEXT through a parse or as a JSON object, a rowid as
-//! unsigned, an integer as a safe one, the failure kept as the read's cause; and a closed-set word
-//! written as the same spelling a read takes back.
+//! unsigned, an integer as a safe one, the failure kept as the read's cause.
 
 use std::error::Error;
 
 use rusqlite::Row;
 use rusqlite::types::Type;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -52,18 +50,6 @@ pub(crate) fn json_object_column(
 /// A word of a closed set, read by its serde spelling; fails for text that names no member.
 pub(crate) fn closed_word<Word: DeserializeOwned>(text: String) -> Result<Word, serde_json::Error> {
     serde_json::from_value(Value::String(text))
-}
-
-/// A word of a closed set as its serde spelling, the text [`closed_word`] reads back.
-pub(crate) fn closed_word_text(word: &impl Serialize) -> String {
-    serde_json::to_value(word)
-        .and_then(serde_json::from_value)
-        .expect("a closed-set word serializes as a string")
-}
-
-/// A safe integer as SQLite stores it.
-pub(crate) fn stored_integer<const MIN: u64>(value: SafeInt<MIN>) -> i64 {
-    i64::try_from(value.get()).expect("a safe integer fits SQLite's INTEGER")
 }
 
 /// A rowid, or a key built from one, as unsigned: SQLite holds it signed, so a negative one fails

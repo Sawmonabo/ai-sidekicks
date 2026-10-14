@@ -12,9 +12,8 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::row::TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE;
 use sidekicks_contracts::transcript::turn_attribution::{SupersededTurns, add_superseding_cut};
 
-use crate::database::stored_column::text_column;
-use crate::events::session::read::session_read_bound;
-use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
+use crate::database::stored_column::json_object_column;
+use crate::events::session::read::{readable_event_sql, session_read_bound};
 
 /// A stored `run.rolled_back` payload that does not match its contract. The log is the daemon's
 /// own, so a mismatch is a broken write, and skipping it would move every cut.
@@ -64,9 +63,9 @@ static SELECT_RUN_ROLLBACKS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT sequence, payload FROM session_events AS event
       WHERE session_id = @session_id AND type = @type AND run_id = @run_id
-        AND sequence < @read_bound AND {}
+        AND {}
       ORDER BY sequence",
-        outside_skipped_ranges_sql("event")
+        readable_event_sql("event")
     )
 });
 
@@ -93,9 +92,7 @@ pub(crate) fn read_superseded_turns(
     };
     while let Some(row) = rows.next()? {
         let sequence: i64 = row.get(0)?;
-        let payload = text_column(row, 1, |text| {
-            serde_json::from_str::<Map<String, Value>>(&text)
-        })?;
+        let payload = json_object_column(row, 1)?;
         let rollback = parse_stored_rollback(&payload, session_id, sequence)?;
         turns = add_superseding_cut(&turns, rollback.target_position);
     }
