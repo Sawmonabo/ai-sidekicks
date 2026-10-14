@@ -4,6 +4,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::{EnumDiscriminants, IntoStaticStr, VariantArray};
 
 use crate::approval::{ApprovalCategory, ApprovalDecision, ApprovalRequestId};
 use crate::internal::branded::branded_uuid_id;
@@ -24,8 +25,21 @@ branded_uuid_id! {
 
 /// The category of the approval request a gate answered: an approval's categories but a plan's,
 /// which no workflow gate asks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum WorkflowGateApprovalCategory {
     /// Running a tool.
     ToolExecution,
@@ -97,15 +111,21 @@ macro_rules! workflow_gate_resolution {
 workflow_gate_resolution! {
     /// One answer to a gate of a run, as its append-only row holds it. An approval step's answer
     /// names the step's node; a chain's question belongs to the run and names none.
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, EnumDiscriminants)]
     #[serde(
         tag = "gateKind",
         rename_all_fields = "camelCase",
         deny_unknown_fields
     )]
+    #[strum_discriminants(
+        name(WorkflowGateKind),
+        doc = "The kind of gate an answer resolved, spelled as its `gateKind` tag.",
+        derive(IntoStaticStr, VariantArray)
+    )]
     pub enum WorkflowGateResolution {
         /// A `human.approval` step's question.
         #[serde(rename = "human.approval")]
+        #[strum_discriminants(strum(serialize = "human.approval"))]
         HumanApproval {
             /// The approval step answered.
             node_id: WorkflowNodeId,
@@ -113,6 +133,7 @@ workflow_gate_resolution! {
         /// The question a chain's first run asks once the chain has started as many runs as the
         /// person allows.
         #[serde(rename = "chain")]
+        #[strum_discriminants(strum(serialize = "chain"))]
         Chain {
             /// Never present: a chain's question belongs to the run.
             #[serde(

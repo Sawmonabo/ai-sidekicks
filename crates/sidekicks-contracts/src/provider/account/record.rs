@@ -401,20 +401,21 @@ pub enum ProviderAccount {
     Undecided(#[garde(dive)] UndecidedProviderAccount),
 }
 
-/// The members of an account its label is drawn from.
-pub(crate) struct AccountLabelFields<'account> {
+/// The members of an account its label is drawn from: an account's own, or the columns a
+/// workflow step's spent account keeps.
+pub struct AccountLabelFields<'account> {
     /// The provider.
-    pub(crate) provider: ProviderName,
+    pub provider: ProviderName,
     /// The label the person gave, if any.
-    pub(crate) display_label: Option<&'account str>,
+    pub display_label: Option<&'account str>,
     /// How the provider says the account signed in.
-    pub(crate) observed_auth_mode: Option<ProviderAuthMode>,
+    pub observed_auth_mode: Option<ProviderAuthMode>,
     /// The email the provider reports.
-    pub(crate) observed_account_email: Option<&'account str>,
+    pub observed_account_email: Option<&'account str>,
     /// The plan the provider reports.
-    pub(crate) observed_account_plan: Option<&'account str>,
+    pub observed_account_plan: Option<&'account str>,
     /// The organization the provider reports.
-    pub(crate) observed_account_org_name: Option<&'account str>,
+    pub observed_account_org_name: Option<&'account str>,
 }
 
 /// Reads the members both arms of [`ProviderAccount`] carry.
@@ -434,7 +435,7 @@ impl ProviderAccount {
     }
 
     /// The members the account's label is drawn from.
-    pub(crate) fn label_fields(&self) -> AccountLabelFields<'_> {
+    pub fn label_fields(&self) -> AccountLabelFields<'_> {
         either_arm!(self, |account| AccountLabelFields {
             provider: account.provider,
             display_label: account.display_label.as_ref().map(FreeFormText::as_str),
