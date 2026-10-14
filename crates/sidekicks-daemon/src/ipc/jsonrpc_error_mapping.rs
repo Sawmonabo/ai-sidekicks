@@ -2,7 +2,8 @@
 //! message for a person and the refusal's code and fields. Both text channels are sanitized on the
 //! way out: absolute paths are redacted and every value is capped, so neither a stack-shaped
 //! message nor a wide detail reaches the wire. A refusal of received input sends fixed words and
-//! names each fault only by its path in the wire's names, never quoting the value.
+//! names each fault only by its path in the wire's names, never quoting the value: at most
+//! `ISSUES_MAX` issues, each path cut to an ancestor within the caps, so it holds no marker.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -10,10 +11,12 @@ use std::sync::LazyLock;
 
 use regex::{Captures, NoExpand, Regex};
 use serde_json::error::Category;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
-use sidekicks_contracts::jsonrpc::issue::{Issue, IssuePathSegment};
+use sidekicks_contracts::jsonrpc::issue::{
+    ISSUE_PATH_SEGMENTS_MAX, ISSUES_MAX, Issue, IssuePathSegment,
+};
 use sidekicks_contracts::jsonrpc::message::{
     JsonRpcError, JsonRpcErrorData, JsonRpcId, JsonRpcMessage, MessageError,
 };
@@ -22,13 +25,13 @@ use sidekicks_contracts::session::event_cursor::EventCursorUnresolvable;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::attachment::ReceivedError;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
-use sidekicks_contracts::wire::record::Record;
+use sidekicks_contracts::wire::record::{JsonRecord, Record};
 use sidekicks_contracts::workflow::definition::document::{
     NODE_ID_DUPLICATE_MESSAGE, WorkflowNodeId,
 };
 use sidekicks_contracts::workflow::definition::refusals::WorkflowDefinitionFinding;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode, refusal_fields};
 use crate::ipc::registry::{DispatchError, HandlerError};
 use crate::issue_path::resolve_issue_path;
 use crate::text_cut::cut_to_code_points;
@@ -68,7 +71,7 @@ const TRUNCATED_NODES: &str = "<truncated:max-nodes>";
 const RESERVED_KEYS: [&str; 3] = ["__proto__", "constructor", "prototype"];
 
 /// The message of a message whose JSON does not parse.
-const UNPARSEABLE_MESSAGE: &str = "the message is not JSON";
+const UNPARSABLE_MESSAGE: &str = "the message is not JSON";
 
 /// The message of JSON that is no JSON-RPC 2.0 message.
 const NOT_A_MESSAGE: &str = "the JSON is not a JSON-RPC 2.0 message";
@@ -134,7 +137,7 @@ pub(crate) fn json_rpc_error_of(failure: CallFailure) -> JsonRpcError {
         CallFailure::Message(MessageError::Json(error)) => {
             let (code, message) = match error.classify() {
                 Category::Syntax | Category::Eof => {
-                    (JsonRpcErrorCode::ParseError, UNPARSEABLE_MESSAGE)
+                    (JsonRpcErrorCode::ParseError, UNPARSABLE_MESSAGE)
                 }
                 Category::Data | Category::Io => (JsonRpcErrorCode::InvalidRequest, NOT_A_MESSAGE),
             };
@@ -144,12 +147,7 @@ pub(crate) fn json_rpc_error_of(failure: CallFailure) -> JsonRpcError {
             json_rpc_error(JsonRpcErrorCode::InvalidRequest, NOT_A_MESSAGE, None)
         }
         CallFailure::MessageTooLarge { limit, observed } => {
-            let fields: Map<String, Value> = [
-                ("limit".to_owned(), Value::from(limit)),
-                ("observed".to_owned(), Value::from(observed)),
-            ]
-            .into_iter()
-            .collect();
+            let fields = refusal_fields(json!({ "limit": limit, "observed": observed }));
             json_rpc_error(
                 JsonRpcErrorCode::InvalidRequest,
                 MESSAGE_TOO_LARGE,
@@ -172,36 +170,29 @@ fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
             Some(refusal_data(RefusalCode::MethodNotFound, None)),
         ),
         DispatchError::InvalidParams(refusal) => {
-            let issues = match &refusal {
-                ReceivedError::Check(check_error) => return internal_failure(check_error),
+            let issues = match refusal {
+                ReceivedError::Check(check_error) => return internal_failure(&check_error),
                 ReceivedError::Json(_) => Vec::new(),
                 ReceivedError::Shape { faults } => faults
-                    .iter()
-                    .map(|fault| Issue {
-                        path: fault.path.clone(),
-                        message: format!("breaks the schema's \"{}\" rule", fault.keyword),
-                        params: None,
+                    .into_iter()
+                    .take(ISSUES_MAX)
+                    .map(|fault| {
+                        let message = format!("breaks the schema's \"{}\" rule", fault.keyword);
+                        issue(fault.path, &message, None)
                     })
                     .collect(),
-                ReceivedError::Read { path, .. } => vec![Issue {
-                    path: path.clone(),
-                    message: UNREADABLE_VALUE.to_owned(),
-                    params: None,
-                }],
-                ReceivedError::Unreferenced { index } => vec![Issue {
-                    path: Vec::new(),
-                    message: format!("attachment {index} is named by no placeholder"),
-                    params: None,
-                }],
-                ReceivedError::Rule { report, received } => rule_issues(report, received),
+                ReceivedError::Read { path, .. } => vec![issue(path, UNREADABLE_VALUE, None)],
+                ReceivedError::Unreferenced { index } => vec![issue(
+                    Vec::new(),
+                    &format!("attachment {index} is named by no placeholder"),
+                    None,
+                )],
+                ReceivedError::Rule { report, received } => rule_issues(&report, &received),
             };
             json_rpc_error(
                 JsonRpcErrorCode::InvalidParams,
                 &message,
-                Some(refusal_data(
-                    RefusalCode::InvalidParams,
-                    issue_fields(&issues),
-                )),
+                Some(issue_refusal_data(RefusalCode::InvalidParams, issues)),
             )
         }
         DispatchError::Refused(refusal) => {
@@ -229,10 +220,7 @@ fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
             json_rpc_error(
                 JsonRpcErrorCode::InternalError,
                 &message,
-                Some(refusal_data(
-                    RefusalCode::InvalidResult,
-                    issue_fields(&issues),
-                )),
+                Some(issue_refusal_data(RefusalCode::InvalidResult, issues)),
             )
         }
     }
@@ -245,29 +233,27 @@ fn internal_failure(fault: &(dyn Error + 'static)) -> JsonRpcError {
     json_rpc_error(JsonRpcErrorCode::InternalError, &fault.to_string(), None)
 }
 
-/// Each broken rule of `report` at its path resolved against `checked`, the JSON the value was
-/// read from or written as, with garde's message. A repeated workflow node id also carries its
-/// `node_id_duplicate` finding over the id at that path.
+/// The first [`ISSUES_MAX`] broken rules of `report`, each at its path resolved against `checked`,
+/// the JSON the value was read from or written as, with garde's message; no path past them is
+/// resolved. A repeated workflow node id also carries its `node_id_duplicate` finding over the id
+/// at that path.
 fn rule_issues(report: &garde::Report, checked: &Value) -> Vec<Issue> {
     report
         .iter()
+        .take(ISSUES_MAX)
         .map(|(check_path, rule_error)| {
             let path = resolve_issue_path(check_path, checked);
             let params = (rule_error.message() == NODE_ID_DUPLICATE_MESSAGE)
                 .then(|| node_id_duplicate_finding(&path, checked))
                 .flatten();
-            Issue {
-                path,
-                message: rule_error.message().to_owned(),
-                params,
-            }
+            issue(path, rule_error.message(), params)
         })
         .collect()
 }
 
 /// The `node_id_duplicate` finding over the node id `checked` holds at `path`; `None` where the
 /// path stops short of the id.
-fn node_id_duplicate_finding(path: &[IssuePathSegment], checked: &Value) -> Option<Value> {
+fn node_id_duplicate_finding(path: &[IssuePathSegment], checked: &Value) -> Option<JsonRecord> {
     let node_id = path
         .iter()
         .try_fold(checked, |at, segment| match segment {
@@ -279,18 +265,47 @@ fn node_id_duplicate_finding(path: &[IssuePathSegment], checked: &Value) -> Opti
     let finding = WorkflowDefinitionFinding::NodeIdDuplicate {
         node_ids: vec![node_id],
     };
-    Some(serde_json::to_value(finding).expect("a finding is plain text and lists"))
+    let members = refusal_fields(finding)
+        .into_iter()
+        .map(|(name, value)| (name, AnyValue(value)))
+        .collect();
+    Some(Record::new(members).expect("a finding has no member __proto__"))
 }
 
-/// The `{issues}` fields of an `invalid_params` or `invalid_result` refusal, the first
-/// [`FIELDS_MAX_ARRAY_LEN`] of them, so the sanitizer never adds its text marker to a list of
-/// issues; none when the list is empty.
-fn issue_fields(issues: &[Issue]) -> Option<Map<String, Value>> {
-    (!issues.is_empty()).then(|| {
-        let kept = &issues[..issues.len().min(FIELDS_MAX_ARRAY_LEN)];
-        let issues = serde_json::to_value(kept).expect("an issue is plain text and lists");
-        [("issues".to_owned(), issues)].into_iter().collect()
-    })
+/// One issue as the wire carries it: `path` cut before its first step past
+/// [`ISSUE_PATH_SEGMENTS_MAX`], or a member name longer than [`FIELDS_VALUE_MAX_LEN`] or holding
+/// an absolute path, so it names an ancestor of the fault and holds the caps the sanitizer holds
+/// with no marker; `message` path-redacted and capped as a field is.
+fn issue(path: Vec<IssuePathSegment>, message: &str, params: Option<JsonRecord>) -> Issue {
+    let path = path
+        .into_iter()
+        .take(ISSUE_PATH_SEGMENTS_MAX)
+        .take_while(|segment| match segment {
+            IssuePathSegment::Member(name) => {
+                name.chars().nth(FIELDS_VALUE_MAX_LEN).is_none() && redact_paths(name) == *name
+            }
+            IssuePathSegment::Index(_) => true,
+        })
+        .collect();
+    Issue {
+        path,
+        message: cap_text(redact_paths(message), FIELDS_VALUE_MAX_LEN),
+        params,
+    }
+}
+
+/// The `data` of an `invalid_params` or `invalid_result` refusal: `{issues}`, built past the
+/// sanitizer since each issue already holds its caps, or no fields when the list is empty.
+fn issue_refusal_data(code: RefusalCode, issues: Vec<Issue>) -> JsonRpcErrorData {
+    let fields = (!issues.is_empty()).then(|| {
+        let issues = serde_json::to_value(issues).expect("an issue is plain text and lists");
+        Record::new(BTreeMap::from([("issues".to_owned(), AnyValue(issues))]))
+            .expect("the member issues is no prototype key")
+    });
+    JsonRpcErrorData {
+        refusal: code.as_str().to_owned(),
+        fields,
+    }
 }
 
 /// A refusal's `data`: its code, and its fields once sanitized.
@@ -435,9 +450,12 @@ mod tests {
     use schemars::JsonSchema;
     use serde::Deserialize;
     use serde_json::{Map, Value, json};
+    use sidekicks_contracts::jsonrpc::issue::{
+        ISSUE_PATH_SEGMENTS_MAX, IssuePathSegment, ShapeFault,
+    };
     use sidekicks_contracts::jsonrpc::message::JsonRpcId;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-    use sidekicks_contracts::wire::attachment::parse_received;
+    use sidekicks_contracts::wire::attachment::{ReceivedError, parse_received};
     use sidekicks_contracts::wire::integer::BoundedInt;
 
     use super::{
@@ -454,9 +472,11 @@ mod tests {
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct Lookup {
         #[garde(skip)]
+        #[expect(
+            dead_code,
+            reason = "the refused read is the subject; nothing reads it back"
+        )]
         run_sequence: BoundedInt<0, 9>,
-        #[garde(length(max = 4))]
-        display_label: String,
     }
 
     /// The whole response `failure` answers, as JSON.
@@ -479,13 +499,10 @@ mod tests {
         answer(CallFailure::Dispatch(DispatchError::Refused(refusal)))
     }
 
-    // serde's refusal of the sequence reads "7340251 is outside 0..=9"; the rule's path is garde's
-    // `display_label`, sent in the wire's name.
-    #[rstest]
-    #[case::read(r#"{"runSequence": 7340251, "displayLabel": "ok"}"#, "runSequence")]
-    #[case::rule(r#"{"runSequence": 3, "displayLabel": "7340251"}"#, "displayLabel")]
-    fn a_refused_value_is_never_quoted(#[case] params: &str, #[case] member: &str) {
-        let refusal = parse_received::<Lookup>(params.as_bytes(), Vec::new())
+    // serde's refusal of the sequence reads "7340251 is outside 0..=9".
+    #[test]
+    fn a_refused_value_is_never_quoted() {
+        let refusal = parse_received::<Lookup>(br#"{"runSequence": 7340251}"#, Vec::new())
             .expect_err("the params are refused");
         let response = answer(CallFailure::Dispatch(DispatchError::InvalidParams(refusal)));
         assert_eq!(response["error"]["code"], -32_602);
@@ -494,8 +511,48 @@ mod tests {
             .as_array()
             .expect("the refusal lists its issues");
         assert_eq!(issues.len(), 1);
-        assert_eq!(issues[0]["path"], json!([member]));
+        assert_eq!(issues[0]["path"], json!(["runSequence"]));
         assert!(!response.to_string().contains(SECRET_DIGITS), "{response}");
+    }
+
+    fn members(names: &[&str]) -> Vec<IssuePathSegment> {
+        names
+            .iter()
+            .map(|name| IssuePathSegment::Member((*name).to_owned()))
+            .collect()
+    }
+
+    // A path is cut to the ancestor within the caps, so it never carries a marker, a long name or
+    // an absolute path.
+    #[rstest]
+    #[case::deeper_than_the_cap(
+        members(&["level"; ISSUE_PATH_SEGMENTS_MAX + 1]),
+        members(&["level"; ISSUE_PATH_SEGMENTS_MAX])
+    )]
+    #[case::long_member_name(
+        members(&["servers", &"x".repeat(FIELDS_VALUE_MAX_LEN + 1), "type"]),
+        members(&["servers"])
+    )]
+    #[case::path_shaped_member_name(
+        members(&["servers", "/Users/someone/.ssh/id", "type"]),
+        members(&["servers"])
+    )]
+    fn an_issue_path_stops_at_an_ancestor_within_the_caps(
+        #[case] faulted: Vec<IssuePathSegment>,
+        #[case] sent: Vec<IssuePathSegment>,
+    ) {
+        let refusal = ReceivedError::Shape {
+            faults: vec![ShapeFault {
+                path: faulted,
+                keyword: "type".to_owned(),
+            }],
+        };
+        let response = answer(CallFailure::Dispatch(DispatchError::InvalidParams(refusal)));
+        let issues = &response["error"]["data"]["fields"]["issues"];
+        assert_eq!(issues[0]["path"], json!(sent), "{response}");
+        let text = response.to_string();
+        assert!(!text.contains("<truncated"), "{text}");
+        assert!(!text.contains("/Users"), "{text}");
     }
 
     #[rstest]
