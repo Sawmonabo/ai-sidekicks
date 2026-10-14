@@ -3,3 +3,4 @@
 
 pub(crate) mod authorizer;
 pub(crate) mod shell_commands;
+pub(crate) mod workflow_start;
