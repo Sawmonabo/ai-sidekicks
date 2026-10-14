@@ -24,7 +24,7 @@ use crate::workflow::kind::WorkflowParamSpec;
 use crate::workflow::run::gate_resolution::WorkflowGateResolutionId;
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::status::WorkflowStepStatus;
-use crate::workflow::run::step::record::{WorkflowPayloadRef, workflow_step_key};
+use crate::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey, workflow_step_key};
 
 ts_constants! {
     /// A step panel's tabs, in the order the panel shows them: its three payloads, then its cost
@@ -305,14 +305,6 @@ pub struct WorkflowHumanFormDraft {
     pub saved_at: WireInstant,
 }
 
-workflow_step_key! {
-    /// The `workflow.humanFormRead` input: the waiting form step.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    #[garde(allow_unvalidated)]
-    pub struct WorkflowHumanFormReadRequest {}
-}
-
 /// The `workflow.humanFormRead` result: the node's prompt, its fields (the same parameter specs the
 /// inspector's form draws), the draft saved so far, and `formRevision`, the token a submit carries
 /// back: 0 while the step has no accepted answer.
@@ -428,14 +420,6 @@ pub struct WorkflowHumanFormSubmitResponse {
     pub submitted_at: WireInstant,
 }
 
-workflow_step_key! {
-    /// The `workflow.fixSessionCreate` input: the failed step.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    #[garde(allow_unvalidated)]
-    pub struct WorkflowFixSessionCreateRequest {}
-}
-
 /// The `workflow.fixSessionCreate` result: the fix session, opened on the failed step's own project
 /// and checkout and seeded with the step; the step's own record receives nothing, and the run links
 /// the new session.
@@ -480,7 +464,7 @@ methods! {
         /// Reads a waiting form: its prompt, fields, saved draft and submit revision.
         WorkflowHumanFormRead = query "workflow.humanFormRead" {
             mutating: false,
-            params: WorkflowHumanFormReadRequest,
+            params: WorkflowStepKey,
             result: WorkflowHumanFormReadResponse,
             refusals: [WorkflowNotFound, WorkflowStepNotWaiting],
         },
@@ -501,7 +485,7 @@ methods! {
         /// Opens a new session to fix a failed step, which the run links to.
         WorkflowFixSessionCreate = mutation "workflow.fixSessionCreate" {
             mutating: true,
-            params: WorkflowFixSessionCreateRequest,
+            params: WorkflowStepKey,
             result: WorkflowFixSessionCreateResponse,
             refusals: [WorkflowNotFound, WorkflowInvalidTransition],
         },
@@ -532,14 +516,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowGateResolveRequest>().checked(),
         Definition::read::<WorkflowGateResolveResponse>().checked(),
         Definition::read::<WorkflowHumanFormDraft>(),
-        Definition::read::<WorkflowHumanFormReadRequest>().checked(),
         Definition::read::<WorkflowHumanFormReadResponse>().checked(),
         Definition::read::<WorkflowHumanFormDraftSaveRequest>().checked(),
         Definition::read::<WorkflowHumanFormDraftSaveResponse>().checked(),
         Definition::read::<WorkflowHumanFormPathAnswer>(),
         Definition::read::<WorkflowHumanFormSubmitRequest>().checked(),
         Definition::read::<WorkflowHumanFormSubmitResponse>().checked(),
-        Definition::read::<WorkflowFixSessionCreateRequest>().checked(),
         Definition::read::<WorkflowFixSessionCreateResponse>().checked(),
     ],
     constants: TS_CONSTANTS,
