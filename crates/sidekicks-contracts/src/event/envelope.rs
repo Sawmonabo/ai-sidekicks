@@ -147,10 +147,10 @@ pub enum OccurredAtRefusal {
     SubMillisecond,
     /// A date the calendar does not have (February 30, month 13).
     #[error("an occurredAt names a date the calendar does not have")]
-    NotACalendarDate(#[source] jiff::Error),
+    NotACalendarDate,
     /// Folded to UTC, an instant outside the range it can be stored in.
     #[error("an occurredAt folds to UTC outside the range it can be stored in")]
-    OutOfRange(#[source] jiff::Error),
+    OutOfRange,
 }
 
 /// Reads an `occurredAt` component by component, the instant it names in UTC to the millisecond.
@@ -168,8 +168,10 @@ pub fn parse_occurred_at(text: &str) -> Result<jiff::Timestamp, OccurredAtRefusa
         .chain(std::iter::repeat(&b'0'))
         .take(3)
         .fold(0, |value, digit| value * 10 + i32::from(digit - b'0'));
+    // jiff's error names the received part and its value, so it is not kept as the cause.
     let date = jiff::civil::Date::new(parts.year, parts.month, parts.day)
-        .map_err(OccurredAtRefusal::NotACalendarDate)?;
+        .ok()
+        .ok_or(OccurredAtRefusal::NotACalendarDate)?;
     let time = jiff::civil::Time::new(
         parts.hour,
         parts.minute,
@@ -180,7 +182,8 @@ pub fn parse_occurred_at(text: &str) -> Result<jiff::Timestamp, OccurredAtRefusa
     jiff::tz::Offset::from_seconds(parts.offset_seconds)
         .expect("an offset up to 23:59 is in range")
         .to_timestamp(date.to_datetime(time))
-        .map_err(OccurredAtRefusal::OutOfRange)
+        .ok()
+        .ok_or(OccurredAtRefusal::OutOfRange)
 }
 
 /// An `occurredAt`'s lexical parts, every range but the calendar's checked.

@@ -245,10 +245,10 @@ mod tests {
             OccurredAtNormalizationRefusal::Unreadable(OccurredAtRefusal::SubMillisecond) => {
                 "SubMillisecond"
             }
-            OccurredAtNormalizationRefusal::Unreadable(OccurredAtRefusal::NotACalendarDate(_)) => {
+            OccurredAtNormalizationRefusal::Unreadable(OccurredAtRefusal::NotACalendarDate) => {
                 "NotACalendarDate"
             }
-            OccurredAtNormalizationRefusal::Unreadable(OccurredAtRefusal::OutOfRange(_)) => {
+            OccurredAtNormalizationRefusal::Unreadable(OccurredAtRefusal::OutOfRange) => {
                 "OutOfRange"
             }
             OccurredAtNormalizationRefusal::BeforeYearZero => "BeforeYearZero",
