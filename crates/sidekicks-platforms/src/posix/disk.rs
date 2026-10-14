@@ -1,5 +1,5 @@
-//! The disk on macOS and Linux: the free room on a folder's volume, and a written file or a changed
-//! folder flushed so it survives a power loss.
+//! The disk on macOS and Linux: the free room on a folder's volume, a read at a file offset, and a
+//! written file or a changed folder flushed so it survives a power loss.
 
 use std::fs::File;
 use std::io;
@@ -13,6 +13,13 @@ pub fn volume_free_bytes(folder: &Path) -> io::Result<u64> {
     available_blocks
         .checked_mul(block_bytes)
         .ok_or_else(|| io::Error::other("the volume's free room passes 64 bits"))
+}
+
+/// Fills `buffer` from `file` at byte `offset`; each read names its own offset, so threads sharing
+/// one handle read independently. Fails with `UnexpectedEof` when the file ends first, or with the
+/// read's error.
+pub fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<()> {
+    std::os::unix::fs::FileExt::read_exact_at(file, buffer, offset)
 }
 
 /// Flushes the file at `path` to disk through a read-only open. Fails with the open's or the

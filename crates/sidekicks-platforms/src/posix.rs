@@ -8,3 +8,5 @@ pub(crate) mod private_folder;
 pub(crate) mod real_path;
 pub(crate) mod shell_start;
 pub(crate) mod terminal;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) mod uptime;
