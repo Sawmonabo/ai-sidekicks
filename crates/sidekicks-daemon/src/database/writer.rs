@@ -10,7 +10,7 @@
 pub(crate) mod messages;
 mod queue;
 #[cfg(test)]
-pub(crate) mod test_database;
+pub(crate) mod test_file;
 #[cfg(test)]
 mod tests;
 mod thread;

@@ -11,7 +11,7 @@ use tokio::time::Instant;
 
 use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::writer::messages::{BatchFailure, ThreadRequest, WriteJob, WriteJobOutcome};
-use crate::database::writer::test_database::{TestDatabase, session_event_row, test_session_id};
+use crate::database::writer::test_file::{TestDatabase, session_event_row, test_session_id};
 use crate::database::writer::{
     CommittedWrite, DatabaseWriter, DatabaseWriterOptions, PendingWrite, ThreadStop,
     WRITE_QUEUE_CAPACITY, WriteError, WriteOptions, WriterThread, WritesHeldError,

@@ -589,7 +589,7 @@ mod tests {
         EventLogAppendOptions, EventLogService, EventLogServiceDependencies,
         EventReadAfterCursorRequest, UnsequencedEventEnvelope,
     };
-    use crate::database::writer::test_database::{TestDatabase, test_session_id};
+    use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WritesHeldError};
     use crate::events::session::followers::SessionEventFollowers;
     use crate::events::session::version::SESSION_EVENT_VERSION;
