@@ -117,7 +117,7 @@ pub(crate) fn insert_session_event(
         .query_row([row.session_id.as_str()], |head_row| head_row.get(0))
         .optional()?;
     let sequence = match head {
-        None => SafeInt::new(0).expect("0 is a safe integer"),
+        None => SafeInt::ZERO,
         Some(head) => head
             .checked_add(1)
             .and_then(|next| u64::try_from(next).ok())

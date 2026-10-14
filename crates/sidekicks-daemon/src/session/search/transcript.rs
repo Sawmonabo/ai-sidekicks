@@ -115,10 +115,7 @@ fn answer(
         .map(decode_event_cursor)
         .transpose()?;
     let Some(search_query) = parse_find_query(request.query.as_str()) else {
-        return Ok(terminal_page(
-            SafeInt::new(0).expect("zero is a safe integer"),
-            Vec::new(),
-        ));
+        return Ok(terminal_page(SafeInt::ZERO, Vec::new()));
     };
     let SessionFind {
         row_keys,
