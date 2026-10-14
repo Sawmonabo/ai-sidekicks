@@ -226,8 +226,10 @@ pub(crate) trait ProviderDriver: Send + Sync {
 
     /// Compacts the bound session's provider-side context on the person's request (gated on
     /// `context_compaction`), settling on the provider's own compaction evidence, never on the
-    /// request being accepted. The wait ends at the driver's per-binding bound or when the binding
-    /// stops being live; a compaction frame after that is read as an unrequested one.
+    /// request being accepted. The wait has no time limit of the driver's own: it settles on the
+    /// provider's compaction frame, `not_compacted` when the provider ends the compaction's turn
+    /// without one, or `binding_lost` when the binding stops being live; a later frame normalizes
+    /// as an unrequested one.
     fn compact_context(
         &self,
         params: CompactContextParams,
