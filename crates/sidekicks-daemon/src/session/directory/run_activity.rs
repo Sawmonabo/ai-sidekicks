@@ -17,10 +17,6 @@ const WORKING_RUN_STATES: [RunState; 3] =
 /// How a run event that ends a run's working time leaves its session, read from the event's
 /// payload; `None` for every other event type. A paused run can go on, but its session reads idle
 /// until it does.
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "only the five run events that end a run's working time set an outcome"
-)]
 pub(crate) fn run_outcome_of(
     event_type: SessionEventType,
     payload: &Map<String, Value>,
@@ -38,7 +34,146 @@ pub(crate) fn run_outcome_of(
         SessionEventType::RunInterrupted
         | SessionEventType::RunStopped
         | SessionEventType::RunPaused => Some(SessionActivity::Idle),
-        _ => None,
+        SessionEventType::RunQueued
+        | SessionEventType::RunStarting
+        | SessionEventType::RunRunning
+        | SessionEventType::RunWaitingForApproval
+        | SessionEventType::RunWaitingForInput
+        | SessionEventType::RunPausing
+        | SessionEventType::RunRolledBack
+        | SessionEventType::RunProviderInitialized
+        | SessionEventType::RunTurnStarted
+        | SessionEventType::RunWorkerShutdown
+        | SessionEventType::RunStepLimitReached
+        | SessionEventType::RunTokenLimitReached
+        | SessionEventType::RunRecoveryStepsAdded
+        | SessionEventType::RunRecoveryResolved
+        | SessionEventType::RunRefusalChoiceRequested
+        | SessionEventType::RunRefusalChoiceResolved
+        | SessionEventType::RunUsageCreditsChoiceRequested
+        | SessionEventType::RunUsageCreditsChoiceResolved
+        | SessionEventType::AssistantMessage
+        | SessionEventType::AssistantThinkingUpdate
+        | SessionEventType::ToolInvoked
+        | SessionEventType::ToolResult
+        | SessionEventType::ToolError
+        | SessionEventType::SubagentStarted
+        | SessionEventType::SubagentCompleted
+        | SessionEventType::CommandEnded
+        | SessionEventType::QueueItemCreated
+        | SessionEventType::QueueItemAdmitted
+        | SessionEventType::QueueItemSuperseded
+        | SessionEventType::QueueItemCanceled
+        | SessionEventType::QueueItemNotDelivered
+        | SessionEventType::InterventionRequested
+        | SessionEventType::InterventionAccepted
+        | SessionEventType::InterventionApplied
+        | SessionEventType::InterventionRejected
+        | SessionEventType::InterventionDegraded
+        | SessionEventType::InterventionExpired
+        | SessionEventType::InterventionFailed
+        | SessionEventType::UserMessage
+        | SessionEventType::QuestionAsked
+        | SessionEventType::ArtifactPublished
+        | SessionEventType::ArtifactSuperseded
+        | SessionEventType::GitSettled
+        | SessionEventType::SessionCreated
+        | SessionEventType::SessionActivated
+        | SessionEventType::SessionArchived
+        | SessionEventType::SessionReactivated
+        | SessionEventType::SessionClosed
+        | SessionEventType::SessionGoalUpdated
+        | SessionEventType::SessionGoalCleared
+        | SessionEventType::SessionProviderStatus
+        | SessionEventType::SessionNotice
+        | SessionEventType::SessionRenamed
+        | SessionEventType::SessionPinned
+        | SessionEventType::SessionUnpinned
+        | SessionEventType::SessionMuted
+        | SessionEventType::SessionUnmuted
+        | SessionEventType::SessionConverted
+        | SessionEventType::SessionSideQuestionAnswered
+        | SessionEventType::SessionSpendLimitReached
+        | SessionEventType::SessionRestoreFinished
+        | SessionEventType::SessionAdvisorChanged
+        | SessionEventType::SessionOutputStyleChanged
+        | SessionEventType::AgentProviderBindingChanged
+        | SessionEventType::AgentProviderBindingChangeFailed
+        | SessionEventType::WorkspacePreparing
+        | SessionEventType::WorkspaceReady
+        | SessionEventType::WorkspaceStale
+        | SessionEventType::WorkspaceArchived
+        | SessionEventType::WorktreeCreated
+        | SessionEventType::WorktreeReady
+        | SessionEventType::WorktreeDirty
+        | SessionEventType::WorktreeMerged
+        | SessionEventType::WorktreeRetired
+        | SessionEventType::RepoMountHealthChanged
+        | SessionEventType::SessionBranchChanged
+        | SessionEventType::SessionSweptToRepoRoot
+        | SessionEventType::PtyControlChanged
+        | SessionEventType::CloudTaskUpdated
+        | SessionEventType::ApprovalRequested
+        | SessionEventType::ApprovalApproved
+        | SessionEventType::ApprovalRejected
+        | SessionEventType::ApprovalCanceled
+        | SessionEventType::ApprovalRemembered
+        | SessionEventType::ApprovalRuleRevoked
+        | SessionEventType::ApprovalReviewerDenied
+        | SessionEventType::ApprovalDenialOverridden
+        | SessionEventType::ModerationReviewFlagged
+        | SessionEventType::PlanProposed
+        | SessionEventType::PlanAccepted
+        | SessionEventType::PlanHandedOff
+        | SessionEventType::UsageTokenCount
+        | SessionEventType::UsageCostUpdate
+        | SessionEventType::UsageContextWindowUpdate
+        | SessionEventType::UsageRateLimitUpdate
+        | SessionEventType::UsageApiRetry
+        | SessionEventType::UsageContextCompacted
+        | SessionEventType::UsageModelRerouted
+        | SessionEventType::RecoveryAttempted
+        | SessionEventType::RecoverySucceeded
+        | SessionEventType::RecoveryFailed
+        | SessionEventType::RecoveryDamagedEventsSkipped
+        | SessionEventType::RelayPinRefused
+        | SessionEventType::EventCompacted
+        | SessionEventType::BackupCompleted
+        | SessionEventType::BackupFailed
+        | SessionEventType::BackupRestored
+        | SessionEventType::OrchestrationRejected
+        | SessionEventType::McpServerOauthCompleted
+        | SessionEventType::WorkflowCreated
+        | SessionEventType::WorkflowStarted
+        | SessionEventType::WorkflowGated
+        | SessionEventType::WorkflowFailed
+        | SessionEventType::WorkflowCompleted
+        | SessionEventType::WorkflowResumed
+        | SessionEventType::WorkflowCanceled
+        | SessionEventType::WorkflowRunWaiting
+        | SessionEventType::WorkflowRunDeleted
+        | SessionEventType::WorkflowScheduleArmed
+        | SessionEventType::WorkflowScheduleFired
+        | SessionEventType::WorkflowTriggerArmed
+        | SessionEventType::WorkflowTriggerFired
+        | SessionEventType::WorkflowResultsPosted
+        | SessionEventType::WorkflowPhaseAdmitted
+        | SessionEventType::WorkflowPhaseWaitingOnPool
+        | SessionEventType::WorkflowPhaseStarted
+        | SessionEventType::WorkflowPhaseProgressed
+        | SessionEventType::WorkflowPhaseCanceling
+        | SessionEventType::WorkflowPhaseFailed
+        | SessionEventType::WorkflowPhaseRetried
+        | SessionEventType::WorkflowPhaseSuspended
+        | SessionEventType::WorkflowPhaseResumed
+        | SessionEventType::WorkflowPhaseCompleted
+        | SessionEventType::WorkflowStepStarted
+        | SessionEventType::WorkflowStepFinished
+        | SessionEventType::WorkflowStepFailed
+        | SessionEventType::WorkflowStepCanceled
+        | SessionEventType::WorkflowStepSkipped
+        | SessionEventType::WorkflowParallelJoinCancellation
+        | SessionEventType::WorkflowGateResolved => None,
     }
 }
 

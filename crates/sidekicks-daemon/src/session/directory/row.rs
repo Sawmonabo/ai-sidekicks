@@ -208,11 +208,6 @@ fn payload_as<Payload: DeserializeOwned>(
 
 // What the event changes, from the one table of event types; `None` for a type that changes no
 // column, one this build does not register among them.
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "of the other event types only the run events that end a run's working time change \
-              a column"
-)]
 fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, DirectoryRowError> {
     let Some(event_type) = SessionEventType::from_wire_name(event.event_type) else {
         return Ok(None);
@@ -258,10 +253,141 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
                 first_message_preview_of(sent.message.as_str()),
             )))
         }
-        _ => {
+        SessionEventType::RunCompleted
+        | SessionEventType::RunFailed
+        | SessionEventType::RunInterrupted
+        | SessionEventType::RunStopped
+        | SessionEventType::RunPaused => {
             return Ok(run_outcome_of(event_type, event.payload)
                 .map(|outcome| set_column(ColumnValue::LastRunOutcome(outcome))));
         }
+        SessionEventType::RunQueued
+        | SessionEventType::RunStarting
+        | SessionEventType::RunRunning
+        | SessionEventType::RunWaitingForApproval
+        | SessionEventType::RunWaitingForInput
+        | SessionEventType::RunPausing
+        | SessionEventType::RunRolledBack
+        | SessionEventType::RunProviderInitialized
+        | SessionEventType::RunTurnStarted
+        | SessionEventType::RunWorkerShutdown
+        | SessionEventType::RunStepLimitReached
+        | SessionEventType::RunTokenLimitReached
+        | SessionEventType::RunRecoveryStepsAdded
+        | SessionEventType::RunRecoveryResolved
+        | SessionEventType::RunRefusalChoiceRequested
+        | SessionEventType::RunRefusalChoiceResolved
+        | SessionEventType::RunUsageCreditsChoiceRequested
+        | SessionEventType::RunUsageCreditsChoiceResolved
+        | SessionEventType::AssistantMessage
+        | SessionEventType::AssistantThinkingUpdate
+        | SessionEventType::ToolInvoked
+        | SessionEventType::ToolResult
+        | SessionEventType::ToolError
+        | SessionEventType::SubagentStarted
+        | SessionEventType::SubagentCompleted
+        | SessionEventType::CommandEnded
+        | SessionEventType::QueueItemCreated
+        | SessionEventType::QueueItemAdmitted
+        | SessionEventType::QueueItemSuperseded
+        | SessionEventType::QueueItemCanceled
+        | SessionEventType::QueueItemNotDelivered
+        | SessionEventType::InterventionRequested
+        | SessionEventType::InterventionAccepted
+        | SessionEventType::InterventionApplied
+        | SessionEventType::InterventionRejected
+        | SessionEventType::InterventionDegraded
+        | SessionEventType::InterventionExpired
+        | SessionEventType::InterventionFailed
+        | SessionEventType::QuestionAsked
+        | SessionEventType::ArtifactPublished
+        | SessionEventType::ArtifactSuperseded
+        | SessionEventType::GitSettled
+        | SessionEventType::SessionGoalUpdated
+        | SessionEventType::SessionGoalCleared
+        | SessionEventType::SessionProviderStatus
+        | SessionEventType::SessionNotice
+        | SessionEventType::SessionSideQuestionAnswered
+        | SessionEventType::SessionSpendLimitReached
+        | SessionEventType::SessionRestoreFinished
+        | SessionEventType::SessionAdvisorChanged
+        | SessionEventType::SessionOutputStyleChanged
+        | SessionEventType::AgentProviderBindingChanged
+        | SessionEventType::AgentProviderBindingChangeFailed
+        | SessionEventType::WorkspacePreparing
+        | SessionEventType::WorkspaceReady
+        | SessionEventType::WorkspaceStale
+        | SessionEventType::WorkspaceArchived
+        | SessionEventType::WorktreeCreated
+        | SessionEventType::WorktreeReady
+        | SessionEventType::WorktreeDirty
+        | SessionEventType::WorktreeMerged
+        | SessionEventType::WorktreeRetired
+        | SessionEventType::RepoMountHealthChanged
+        | SessionEventType::SessionSweptToRepoRoot
+        | SessionEventType::PtyControlChanged
+        | SessionEventType::CloudTaskUpdated
+        | SessionEventType::ApprovalRequested
+        | SessionEventType::ApprovalApproved
+        | SessionEventType::ApprovalRejected
+        | SessionEventType::ApprovalCanceled
+        | SessionEventType::ApprovalRemembered
+        | SessionEventType::ApprovalRuleRevoked
+        | SessionEventType::ApprovalReviewerDenied
+        | SessionEventType::ApprovalDenialOverridden
+        | SessionEventType::ModerationReviewFlagged
+        | SessionEventType::PlanProposed
+        | SessionEventType::PlanAccepted
+        | SessionEventType::PlanHandedOff
+        | SessionEventType::UsageTokenCount
+        | SessionEventType::UsageCostUpdate
+        | SessionEventType::UsageContextWindowUpdate
+        | SessionEventType::UsageRateLimitUpdate
+        | SessionEventType::UsageApiRetry
+        | SessionEventType::UsageContextCompacted
+        | SessionEventType::UsageModelRerouted
+        | SessionEventType::RecoveryAttempted
+        | SessionEventType::RecoverySucceeded
+        | SessionEventType::RecoveryFailed
+        | SessionEventType::RecoveryDamagedEventsSkipped
+        | SessionEventType::RelayPinRefused
+        | SessionEventType::EventCompacted
+        | SessionEventType::BackupCompleted
+        | SessionEventType::BackupFailed
+        | SessionEventType::BackupRestored
+        | SessionEventType::OrchestrationRejected
+        | SessionEventType::McpServerOauthCompleted
+        | SessionEventType::WorkflowCreated
+        | SessionEventType::WorkflowStarted
+        | SessionEventType::WorkflowGated
+        | SessionEventType::WorkflowFailed
+        | SessionEventType::WorkflowCompleted
+        | SessionEventType::WorkflowResumed
+        | SessionEventType::WorkflowCanceled
+        | SessionEventType::WorkflowRunWaiting
+        | SessionEventType::WorkflowRunDeleted
+        | SessionEventType::WorkflowScheduleArmed
+        | SessionEventType::WorkflowScheduleFired
+        | SessionEventType::WorkflowTriggerArmed
+        | SessionEventType::WorkflowTriggerFired
+        | SessionEventType::WorkflowResultsPosted
+        | SessionEventType::WorkflowPhaseAdmitted
+        | SessionEventType::WorkflowPhaseWaitingOnPool
+        | SessionEventType::WorkflowPhaseStarted
+        | SessionEventType::WorkflowPhaseProgressed
+        | SessionEventType::WorkflowPhaseCanceling
+        | SessionEventType::WorkflowPhaseFailed
+        | SessionEventType::WorkflowPhaseRetried
+        | SessionEventType::WorkflowPhaseSuspended
+        | SessionEventType::WorkflowPhaseResumed
+        | SessionEventType::WorkflowPhaseCompleted
+        | SessionEventType::WorkflowStepStarted
+        | SessionEventType::WorkflowStepFinished
+        | SessionEventType::WorkflowStepFailed
+        | SessionEventType::WorkflowStepCanceled
+        | SessionEventType::WorkflowStepSkipped
+        | SessionEventType::WorkflowParallelJoinCancellation
+        | SessionEventType::WorkflowGateResolved => return Ok(None),
     };
     Ok(Some(change))
 }
