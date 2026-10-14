@@ -1,7 +1,6 @@
-//! How an operating system spells, joins and compares a path, which every folder comparison, the
-//! trust envelope and the repo-root resolver follow. Both rule sets compile and parse on every host,
-//! so a path from either system reads by its own rules, and [`PathRules::HOST`] names the running
-//! system's.
+//! How an operating system spells, joins and compares a path. Both rule sets compile and parse on
+//! every system, so a path from either system reads by its own rules, and [`PathRules::NATIVE`]
+//! names the running system's.
 
 mod posix;
 mod windows;
@@ -17,7 +16,7 @@ pub enum PathRules {
 
 impl PathRules {
     /// The rules of the system this program runs on, so no caller checks which system that is.
-    pub const HOST: Self = if cfg!(windows) {
+    pub const NATIVE: Self = if cfg!(windows) {
         Self::Windows
     } else {
         Self::Posix
@@ -48,8 +47,8 @@ impl PathRules {
     }
 
     /// Whether `path` names one complete location. On Windows a rooted path may name no volume
-    /// (`\repos`), which the system completes against the daemon's current drive, so the verdict
-    /// would depend on the host's state; such a path is not complete.
+    /// (`\repos`), which the system completes against the program's current drive, so the verdict
+    /// would depend on the program's state; such a path is not complete.
     pub fn names_complete_location(self, path: &str) -> bool {
         match self {
             Self::Posix => posix::is_absolute(path),
@@ -57,11 +56,11 @@ impl PathRules {
         }
     }
 
-    /// Whether `path` starts with a drive, a letter and a colon (`C:`), which only Windows has.
-    pub fn has_drive_prefix(self, path: &str) -> bool {
+    /// Whether the system names volumes by drive letters (`C:`), which only Windows does.
+    pub fn has_drive_letters(self) -> bool {
         match self {
             Self::Posix => false,
-            Self::Windows => windows::drive_of(path).is_some(),
+            Self::Windows => true,
         }
     }
 
@@ -78,7 +77,7 @@ impl PathRules {
     /// process answers alike: an absolute `path` replaces `base`, and on Windows a drive-relative
     /// one (`D:foo`) takes its own drive, then `base` without its drive, then the rest of itself,
     /// and a bare drive (`D:`) is that drive's root. The result is not folded.
-    pub fn join(self, base: &str, path: &str) -> String {
+    pub(crate) fn join(self, base: &str, path: &str) -> String {
         match self {
             Self::Posix => posix::join(base, path),
             Self::Windows => windows::join(base, path),

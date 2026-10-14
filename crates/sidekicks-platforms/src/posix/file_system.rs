@@ -47,6 +47,50 @@ pub fn remove_tree(path: &Path) -> io::Result<()> {
     }
 }
 
+/// A file whose removal, and so its folder's, the system refuses until this is dropped: its folder
+/// is made read-only (mode `0o555`) and given its mode back on drop. A process running as root
+/// removes it anyway.
+#[cfg(any(test, feature = "test-support"))]
+pub struct UnremovableFile {
+    path: std::path::PathBuf,
+    folder_permissions: fs::Permissions,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl UnremovableFile {
+    /// Makes the file `name` in `folder` and refuses its removal. Fails with the write's or the
+    /// mode change's error.
+    pub fn create_in(folder: &Path, name: &str) -> io::Result<Self> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = folder.join(name);
+        fs::write(&path, b"held")?;
+        let folder_permissions = fs::metadata(folder)?.permissions();
+        fs::set_permissions(folder, fs::Permissions::from_mode(0o555))?;
+        Ok(Self {
+            path,
+            folder_permissions,
+        })
+    }
+
+    /// Where the file is.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Drop for UnremovableFile {
+    fn drop(&mut self) {
+        let folder = self
+            .path
+            .parent()
+            .expect("the file was made inside a folder");
+        fs::set_permissions(folder, self.folder_permissions.clone())
+            .expect("the folder's mode is given back");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;

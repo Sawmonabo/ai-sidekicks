@@ -95,8 +95,9 @@ libc.workspace = true
 nix.workspace = true
 
 [features]
-# Helpers other crates' tests use: the per-platform programs a test runs in a terminal, and the
-# process's footprint and the `uptime` line the search index's measurements read.
+# Helpers other crates' tests use: the per-platform programs a test runs in a terminal, the
+# process's footprint and the `uptime` line the search index's measurements read, and a file whose
+# removal the system refuses.
 test-support = []
 
 [lints]

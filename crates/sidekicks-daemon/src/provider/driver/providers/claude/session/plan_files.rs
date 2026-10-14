@@ -92,15 +92,15 @@ async fn read_configured_plans_folder(
         return Ok(None);
     };
     let project_root = resolve_path(to_folder_text(project_folder)?)?;
-    // Claude Code, a JavaScript program, reads a bare drive naming the project's own (`C:`) as that
-    // drive's current folder, the project, where the shared join reads the drive's root.
-    let folder = if PathRules::HOST.is_drive_of(&configured, &project_root) {
+    // Claude Code, a JavaScript program, reads a bare drive naming the project's own (`C:`) as the
+    // project, where the shared join reads the drive's root.
+    let folder = if PathRules::NATIVE.is_drive_of(&configured, &project_root) {
         project_root.clone()
     } else {
         resolve_path_against(&project_root, &configured)?
     };
     let is_inside_project = Path::new(&folder).starts_with(&project_root);
-    let has_refused_backslash = !PathRules::HOST.is_separator('\\') && folder.contains('\\');
+    let has_refused_backslash = !PathRules::NATIVE.is_separator('\\') && folder.contains('\\');
     Ok((is_inside_project && !has_refused_backslash).then_some(folder))
 }
 
@@ -151,9 +151,11 @@ mod tests {
     #[case::a_folder_with_a_backslash(
         None,
         Some(r"sub\plans"),
-        PathRules::HOST.is_separator('\\').then_some("sub/plans")
+        PathRules::NATIVE.is_separator('\\').then_some("sub/plans")
     )]
     #[case::an_empty_later_setting(Some("sub/plans"), Some(""), Some("sub/plans"))]
+    // `{drive}` is the project's own drive where the system has drive letters, else `.`.
+    #[case::the_project_drive(None, Some("{drive}"), Some(""))]
     #[tokio::test]
     async fn searches_the_default_folder_and_a_configured_one_only_inside_the_project(
         #[case] shared_setting: Option<&str>,
@@ -165,7 +167,7 @@ mod tests {
         let config_folder = scratch.path().join("config");
         let project_folder = scratch.path().join("project");
         fs::create_dir_all(project_folder.join(".claude")).unwrap();
-        for folder in ["inside", "sub/plans", r"sub\plans", "..foo"] {
+        for folder in ["", "inside", "sub/plans", r"sub\plans", "..foo"] {
             write_plan_file(&project_folder.join(folder));
         }
         write_plan_file(&scratch.path().join("elsewhere"));
@@ -173,8 +175,17 @@ mod tests {
         write_plan_file(&default_folder);
         fs::write(default_folder.join(format!("{PLAN_SLUG}-agent-a1.md")), "").unwrap();
         fs::write(default_folder.join("other-otter.md"), "").unwrap();
-        let in_scratch =
-            |setting: Option<&str>| setting.map(|text| text.replace("{scratch}", scratch_root));
+        let drive = if PathRules::NATIVE.has_drive_letters() {
+            &scratch_root[..2]
+        } else {
+            "."
+        };
+        let in_scratch = |setting: Option<&str>| {
+            setting.map(|text| {
+                text.replace("{scratch}", scratch_root)
+                    .replace("{drive}", drive)
+            })
+        };
         write_plans_directory(
             &project_folder.join(".claude").join("settings.json"),
             in_scratch(shared_setting).as_deref(),

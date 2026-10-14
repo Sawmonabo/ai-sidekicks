@@ -41,20 +41,20 @@ static ADDRESS_CREDENTIALS: LazyLock<Regex> = LazyLock::new(|| {
 // Random bytes in a staged clone's folder name, so two clones of one name never meet.
 const STAGED_CLONE_SUFFIX_BYTES: usize = 6;
 
-/// The repository's name as `git clone` reads it from the address, by the running system's path
-/// separators: the last path part after the scheme, any user and a lone host's port, with trailing
-/// separators, `/.git` and `.git` dropped (`https://host/team/app.git` reads `app`), and each run of
-/// control characters and spaces made one space. `None` when the address leaves no name, which no
-/// clone may use as a folder.
+/// The repository's name as `git clone` reads it from the address, which the daemon hands to git
+/// as typed, by the running system's path separators: the last path part after the scheme, any
+/// user and a lone host's port, with trailing separators and spaces, `/.git` and `.git` dropped
+/// (`https://host/team/app.git` reads `app`), and each run of control characters and spaces made
+/// one space. `None` when the address leaves no name, which no clone may use as a folder.
 pub(crate) fn repository_name_of(url: &str) -> Option<String> {
-    let is_separator = |character: char| PathRules::HOST.is_separator(character);
-    let address = url.trim_matches(is_ecmascript_whitespace);
-    let mut rest = address.split_once("://").map_or(address, |(_, rest)| rest);
+    let is_separator = |character: char| PathRules::NATIVE.is_separator(character);
+    let mut rest = url.split_once("://").map_or(url, |(_, rest)| rest);
     let host_end = rest.find(is_separator).unwrap_or(rest.len());
     if let Some(user_end) = rest[..host_end].rfind('@') {
         rest = &rest[user_end + 1..];
     }
-    let rest = rest.trim_end_matches(|character| is_separator(character) || is_c_space(character));
+    let rest =
+        rest.trim_end_matches(|character| is_separator(character) || is_git_space(character));
     let rest = match rest.strip_suffix(".git") {
         Some(before) if before.len() > 1 && before.ends_with(is_separator) => {
             before[..before.len() - 1].trim_end_matches(is_separator)
@@ -98,9 +98,10 @@ pub(crate) fn repository_name_of(url: &str) -> Option<String> {
     }
 }
 
-// The C library's `isspace` set, which git trims from an address's end.
-fn is_c_space(character: char) -> bool {
-    matches!(character, ' ' | '\t' | '\n' | '\x0B' | '\x0C' | '\r')
+// git's own space set (its `ctype.c`), which it trims from an address's end; unlike the C
+// library's, it holds no vertical tab or form feed.
+fn is_git_space(character: char) -> bool {
+    matches!(character, ' ' | '\t' | '\n' | '\r')
 }
 
 /// The repository an address names, for comparing two addresses: host and path for a network
@@ -112,7 +113,7 @@ pub(crate) fn repository_key_of(url: &str) -> io::Result<String> {
         .trim_matches(is_ecmascript_whitespace)
         .trim_end_matches('/');
     let address = address.strip_suffix(".git").unwrap_or(address);
-    if let Some((host, repository_path)) = scp_like_parts_of(address) {
+    if let Some((host, repository_path)) = scp_like_parts_of(address, PathRules::NATIVE) {
         return Ok(format!(
             "{}/{}",
             host.to_lowercase(),
@@ -140,10 +141,10 @@ pub(crate) fn repository_key_of(url: &str) -> io::Result<String> {
     resolve_path(address)
 }
 
-// The host and path of a `user@host:path` address whose path does not start `//`.
-fn scp_like_parts_of(address: &str) -> Option<(&str, &str)> {
-    // A drive path (`C:\work\app`) is local on a system that has drives.
-    if PathRules::HOST.has_drive_prefix(address) {
+// The host and path of a `user@host:path` address whose path does not start `//`; on a system
+// with drive letters, an address git reads as a drive path is local instead.
+fn scp_like_parts_of(address: &str, rules: PathRules) -> Option<(&str, &str)> {
+    if rules.has_drive_letters() && has_git_drive_prefix(address) {
         return None;
     }
     [&*SCP_LIKE_ADDRESS_WITH_USER, &*SCP_LIKE_ADDRESS]
@@ -153,6 +154,12 @@ fn scp_like_parts_of(address: &str) -> Option<(&str, &str)> {
             let (host, repository_path) = (parts.get(1)?.as_str(), parts.get(2)?.as_str());
             (!repository_path.starts_with("//")).then_some((host, repository_path))
         })
+}
+
+// git's own drive rule (`has_dos_drive_prefix`): any one character before a colon, not only a
+// letter, since a drive may be given any character (`1:`, `ä:`).
+fn has_git_drive_prefix(address: &str) -> bool {
+    address.chars().nth(1) == Some(':')
 }
 
 /// The address with any user and password taken out (`https://ana:token@host/app.git` reads
@@ -296,18 +303,14 @@ async fn read_folder_identity(path: PathBuf) -> Result<Option<EntryIdentity>, St
 mod tests {
     use std::fs;
     use std::io::ErrorKind;
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
-    #[cfg(unix)]
-    use std::path::Path;
 
     use rstest::rstest;
-    use sidekicks_platforms::{PathRules, resolve_path};
+    use sidekicks_platforms::{PathRules, UnremovableFile, resolve_path};
 
     use super::{
         DestinationState, StagedCloneError, address_without_credentials, make_staged_clone,
         move_staged_clone_into_place, read_destination_state, remove_staged_clone,
-        repository_key_of, repository_name_of,
+        repository_key_of, repository_name_of, scp_like_parts_of,
     };
 
     #[rstest]
@@ -320,9 +323,11 @@ mod tests {
     // A backslash separates folders only where the system reads it so, as git reads it.
     #[case::backslashes(
         r"C:\work\app\",
-        Some(if PathRules::HOST.is_separator('\\') { "app" } else { r"\work\app\" })
+        Some(if PathRules::NATIVE.is_separator('\\') { "app" } else { r"\work\app\" })
     )]
-    #[case::padded("  https://host/app.git \u{feff}", Some("app"))]
+    #[case::trailing_line_feed("host:team/app.git\n", Some("app"))]
+    // git's space set holds no vertical tab, so `.git` stays.
+    #[case::trailing_vertical_tab("host:team/app.git\u{b}/", Some("app.git"))]
     #[case::host_only("host:", Some("host"))]
     #[case::host_and_port("https://host:8443", Some("host"))]
     #[case::user_and_host("ssh://ana@host", Some("host"))]
@@ -341,6 +346,11 @@ mod tests {
     #[case::port_kept("https://host:8443/app", "https://host:8443/app.git")]
     #[case::file_address("file:///work/app.git", "/work/app")]
     #[case::folded_path("/work/x/../app", "/work/app/")]
+    // A drive path is local where the system has drive letters, and an scp-like address elsewhere.
+    #[case::drive_path(
+        r"C:\work\app",
+        if PathRules::NATIVE.has_drive_letters() { r"C:\work\x\..\app" } else { r"c:\work\app" }
+    )]
     fn compares_addresses_by_the_repository_they_name(#[case] left: &str, #[case] right: &str) {
         assert_eq!(
             repository_key_of(left).expect("the key reads"),
@@ -356,6 +366,19 @@ mod tests {
             repository_key_of(left).expect("the key reads"),
             repository_key_of(right).expect("the key reads")
         );
+    }
+
+    #[rstest]
+    #[case::digit_drive_on_windows(PathRules::Windows, "1:repo", None)]
+    #[case::accented_drive_on_windows(PathRules::Windows, "ä:repo", None)]
+    #[case::two_letter_host_on_windows(PathRules::Windows, "ab:repo", Some(("ab", "repo")))]
+    #[case::digit_host_on_posix(PathRules::Posix, "1:repo", Some(("1", "repo")))]
+    fn reads_one_character_before_a_colon_as_a_drive_only_where_drives_exist(
+        #[case] rules: PathRules,
+        #[case] address: &str,
+        #[case] parts: Option<(&str, &str)>,
+    ) {
+        assert_eq!(scp_like_parts_of(address, rules), parts);
     }
 
     #[test]
@@ -472,29 +495,6 @@ mod tests {
         );
     }
 
-    // Makes a folder read-only, and gives its mode back when dropped so the scratch folder goes.
-    #[cfg(unix)]
-    struct ReadOnlyFolder<'f>(&'f Path);
-
-    #[cfg(unix)]
-    impl<'f> ReadOnlyFolder<'f> {
-        fn new(folder: &'f Path) -> Self {
-            fs::set_permissions(folder, fs::Permissions::from_mode(0o555))
-                .expect("the folder's mode is set");
-            Self(folder)
-        }
-    }
-
-    #[cfg(unix)]
-    impl Drop for ReadOnlyFolder<'_> {
-        fn drop(&mut self) {
-            fs::set_permissions(self.0, fs::Permissions::from_mode(0o755))
-                .expect("the folder's mode is given back");
-        }
-    }
-
-    // Windows' read-only flag does not stop a removal, so only a folder's mode can refuse one.
-    #[cfg(unix)]
     #[tokio::test]
     async fn a_staged_clone_whose_removal_is_refused_fails_and_keeps_its_files() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
@@ -503,24 +503,15 @@ mod tests {
             .expect("the folder is made");
         let locked = staged.path.join("objects");
         fs::create_dir(&locked).expect("a folder is made inside");
-        fs::write(locked.join("pack"), "kept").expect("a file is written inside");
-        let _read_only = ReadOnlyFolder::new(&locked);
+        let held = UnremovableFile::create_in(&locked, "pack").expect("a held file is made");
         // Root's override would let the removal through and prove nothing.
-        assert_eq!(
-            fs::remove_file(locked.join("pack"))
-                .expect_err("the folder's mode refuses a removal")
-                .kind(),
-            ErrorKind::PermissionDenied
-        );
+        fs::remove_file(held.path()).expect_err("the system refuses the file's removal");
 
         let refusal = remove_staged_clone(&staged)
             .await
             .expect_err("the removal fails");
 
-        assert!(
-            matches!(&refusal, StagedCloneError::Io(error) if error.kind() == ErrorKind::PermissionDenied),
-            "{refusal:?}"
-        );
-        assert!(locked.join("pack").is_file());
+        assert!(matches!(&refusal, StagedCloneError::Io(_)), "{refusal:?}");
+        assert!(held.path().is_file());
     }
 }

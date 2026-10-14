@@ -1,7 +1,7 @@
-//! The disk on Windows: the free room on a folder's volume, a read at a file offset, and a written
-//! file (by path, or through a handle open for writing with `flush_open_file`) flushed so it
-//! survives a power loss; a folder has no flush there, and `rename_replacing` is on disk when it
-//! returns.
+//! The disk on Windows: the free room on a folder's volume, a read at a file offset, a written file
+//! (by path, or through a handle open for writing with `flush_open_file`) flushed so it survives a
+//! power loss, and where folders sit beside WSL; a folder has no flush there, and
+//! `rename_replacing` is on disk when it returns.
 
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
@@ -21,6 +21,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
+use crate::folder_place::FolderPlace;
 use crate::windows::real_path::verbatim_path;
 
 /// A file's flush failed, and so did setting its read-only attribute back afterwards.
@@ -138,6 +139,12 @@ pub fn flush_folder(_folder: &Path) -> io::Result<()> {
 /// Windows itself. Never fails.
 pub fn windows_drive_mounts() -> io::Result<Vec<PathBuf>> {
     Ok(Vec::new())
+}
+
+/// Where folders sit for the service: on Windows itself, where a WSL distribution's folder is on
+/// the other side's disk. Never fails.
+pub fn folder_place() -> io::Result<FolderPlace> {
+    Ok(FolderPlace::Windows)
 }
 
 /// Flushes `opened`, a file already open, to disk; the flush needs the handle open for writing.

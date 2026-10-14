@@ -200,6 +200,8 @@ insta.workspace = true
 mockall.workspace = true
 proptest.workspace = true
 rstest.workspace = true
+# A file whose removal the system refuses, for the clone's failed-removal test.
+sidekicks-platforms = { workspace = true, features = ["test-support"] }
 standardwebhooks.workspace = true
 tempfile.workspace = true
 # The paused clock the clone progress gate's and the stream batcher's tests drive.

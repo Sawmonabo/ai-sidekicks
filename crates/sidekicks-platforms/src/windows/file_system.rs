@@ -115,6 +115,38 @@ fn clear_read_only(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// A file whose removal, and so its folder's, the system refuses until this is dropped: it is held
+/// open with no sharing, so no other handle may delete it.
+#[cfg(any(test, feature = "test-support"))]
+pub struct UnremovableFile {
+    path: std::path::PathBuf,
+    _handle: File,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl UnremovableFile {
+    /// Makes the file `name` in `folder` and refuses its removal. Fails with the open's error.
+    pub fn create_in(folder: &Path, name: &str) -> io::Result<Self> {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let path = folder.join(name);
+        let handle = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .share_mode(0)
+            .open(&path)?;
+        Ok(Self {
+            path,
+            _handle: handle,
+        })
+    }
+
+    /// Where the file is.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
