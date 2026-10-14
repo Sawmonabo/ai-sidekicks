@@ -161,7 +161,7 @@ impl DriverCapabilityFlags {
     }
 
     /// Whether the driver declares `flag`. Every flag is held: the constructor asks for each one
-    /// and the reader refuses a map that misses one.
+    /// and deserializing refuses a map that misses one.
     pub fn is_on(&self, flag: DriverCapabilityFlag) -> bool {
         self.0[&flag]
     }
