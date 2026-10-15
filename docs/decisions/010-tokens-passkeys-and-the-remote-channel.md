@@ -31,13 +31,13 @@ Remote Control gives every device the whole console on every machine the person 
 
 1. **Local daemon.** Socket reachability plus a required 256-bit session token (mode 0600, rotated on every daemon restart), presented by the CLI and by the desktop app's client helper, an Electron `utilityProcess`, in the `daemon.hello` of its own daemon connection. The renderer is not a daemon client: its daemon and control-plane calls travel over a `MessagePort` that main hands the page through the preload, to the helper, which checks each call against its method allowlist and params check and returns only the sanitized reply. Main's own daemon calls reach the helper over `parentPort`, through the same allowlist, and main keeps the file tokens. Neither main nor the renderer holds the session token. [Security Architecture §Local Daemon Authentication](../architecture/security-architecture.md#local-daemon-authentication) is the full model. No network authentication is involved.
 
-2. **Control plane: PASETO v4, device-code sign-in, DPoP.**
-   - `sidekicks sign-in` runs the OAuth 2.0 Device Authorization Grant ([RFC 8628](https://www.rfc-editor.org/rfc/rfc8628)): the CLI prints a code and an address, opens the address in a browser where one exists, and waits. It runs with the service stopped and writes what it receives to the machine's credential store through the service's own custody code.
+2. **Control plane: PASETO v4, an authorization-code sign-in the service runs, DPoP.**
+   - The background service runs every sign-in, whether Settings › Devices' `Sign in` or `sidekicks sign-in` started it, and nothing asks it to stop: the OAuth authorization code flow for a native app ([RFC 8252](https://www.rfc-editor.org/rfc/rfc8252)) with PKCE S256 ([RFC 7636](https://www.rfc-editor.org/rfc/rfc7636)), its request pushed to the control plane first ([RFC 9126](https://www.rfc-editor.org/rfc/rfc9126)) under a DPoP proof, and the browser sent back to a one-time listener on `127.0.0.1`, which checks `state`, `iss` ([RFC 9207](https://www.rfc-editor.org/rfc/rfc9207)) and the Host header. Where no browser can reach the machine, the command line takes a code the relay's page shows, worthless without the PKCE verifier only the service holds ([RFC 10027](https://www.rfc-editor.org/rfc/rfc10027) §6.1.17).
    - The control plane then issues a PASETO v4 refresh token bound to the machine's DPoP key (`cnf.jkt`), kept as its own item in the machine's credential store. It lasts until sign-out or revocation.
    - The service trades the refresh token for short-lived PASETO `v4.public` access tokens, presented with a DPoP proof on every request ([RFC 9449](https://www.rfc-editor.org/rfc/rfc9449)). Each trade returns a new refresh token and spends the old one. A spent refresh token presented again revokes its whole family, and `sidekicks daemon status` then says the hosted account was signed out because a reused sign-in was detected. The access token is never stored.
-   - Sign-out revokes the family.
+   - Sign-out deletes the DPoP key first, so the refresh token can never be traded again, then revokes the family ([RFC 7009](https://www.rfc-editor.org/rfc/rfc7009)) as soon as the relay can be reached.
 
-3. **Passkeys: only in the web client, the phone apps and the device-code page.** A passkey is the owner's way in beside a device link: on a new browser or phone, `Sign in with a passkey` links that device with no other device at hand, and adding or removing a passkey is a `passkey.added` or `passkey.removed` statement in the account's chain. The WebAuthn ceremony runs only in the web client and the phone apps, and on the device-code page `sidekicks sign-in` opens, which verifies the person with a passkey before it approves a machine's sign-in and keeps nothing in the browser. The desktop app carries no WebAuthn and draws no passkey sign-in card, and no key is ever derived from a passkey.
+3. **Passkeys: only in the web client, the phone apps and the sign-in page.** A passkey is the owner's way in beside a device link: on a new browser or phone, `Sign in with a passkey` links that device with no other device at hand, and adding or removing a passkey is a `passkey.added` or `passkey.removed` statement in the account's chain. The WebAuthn ceremony runs only in the web client and the phone apps, and on the relay's sign-in page a machine's sign-in opens, which verifies the person with a passkey before it approves that sign-in and keeps nothing in the browser. The desktop app carries no WebAuthn and draws no passkey sign-in card, and no key is ever derived from a passkey.
 
 4. **Remote channel: `Noise_KK_25519_AESGCM_SHA256` or `Noise_KK_25519_ChaChaPoly_SHA256`, per connection.**
    - A channel joins one device and one machine and carries every session and screen on that machine. It is the Noise Protocol Framework's `KK` handshake and transport on X25519 and SHA-256, under one of the two profiles below ([The Noise Protocol Framework](https://noiseprotocol.org/noise.html)), with no construction of the product's own: nothing is designed here beyond choosing the pattern and the rekey schedule.
@@ -53,7 +53,7 @@ Remote Control gives every device the whole console on every machine the person 
 
 ### Thesis — Why This Option
 
-Every property the product needs from the channel is a property of two-party Noise: mutual authentication of known static keys (`KK`), forward secrecy per handshake, a published, formally analyzed construction with production precedent (WireGuard runs its `IK` sibling), and prologue binding for negotiation. The account's statement chain already names every key a machine may trust, so `KK` needs no directory, no key server and no bundle admission on the control plane: the machine's own refusal in the handshake protects the sessions. PASETO v4 removes algorithm confusion by having one algorithm per version, and a device-code sign-in lets the CLI and a machine with no desktop sign in.
+Every property the product needs from the channel is a property of two-party Noise: mutual authentication of known static keys (`KK`), forward secrecy per handshake, a published, formally analyzed construction with production precedent (WireGuard runs its `IK` sibling), and prologue binding for negotiation. The account's statement chain already names every key a machine may trust, so `KK` needs no directory, no key server and no bundle admission on the control plane: the machine's own refusal in the handshake protects the sessions. PASETO v4 removes algorithm confusion by having one algorithm per version, and one sign-in the service runs serves the desktop, the CLI and a machine with no desktop alike.
 
 ### Antithesis — The Strongest Case Against [T2]
 
@@ -65,7 +65,7 @@ An unreviewed hybrid draft is a construction no one has analyzed, which is what 
 
 ## Alternatives Considered
 
-### Option A: PASETO v4 with device-code sign-in and DPoP, passkeys outside the desktop app, and `Noise_KK` per connection (Chosen)
+### Option A: PASETO v4 with an authorization-code sign-in and DPoP, passkeys outside the desktop app, and `Noise_KK` per connection (Chosen)
 
 - **What:** §Decision items 1 to 5.
 - **Steel man:** Every cryptographic part is a published, reviewed protocol used in production; nothing is invented. One channel per device and machine carries every screen. Trust has one record, the account's chain, which each machine verifies itself.
@@ -174,6 +174,11 @@ The crate verifies with `ed25519-compact` 2.6.0, which refuses a small-order pub
 - [WireGuard protocol](https://www.wireguard.com/protocol/) — production precedent for a Noise handshake (`IK`).
 - [libp2p/specs#727](https://github.com/libp2p/specs/pull/727) — the open working draft of a hybrid post-quantum Noise profile.
 - [PASETO Specification](https://paseto.io/)
-- [RFC 8628 — OAuth 2.0 Device Authorization Grant](https://www.rfc-editor.org/rfc/rfc8628)
+- [RFC 8252 — OAuth 2.0 for Native Apps](https://www.rfc-editor.org/rfc/rfc8252)
+- [RFC 7636 — Proof Key for Code Exchange](https://www.rfc-editor.org/rfc/rfc7636)
+- [RFC 9126 — OAuth 2.0 Pushed Authorization Requests](https://www.rfc-editor.org/rfc/rfc9126)
+- [RFC 9207 — OAuth 2.0 Authorization Server Issuer Identification](https://www.rfc-editor.org/rfc/rfc9207)
+- [RFC 7009 — OAuth 2.0 Token Revocation](https://www.rfc-editor.org/rfc/rfc7009)
+- [RFC 10027](https://www.rfc-editor.org/rfc/rfc10027) — §6.1.17, the user-transferred code the command line takes where no browser can reach the machine.
 - [RFC 9449 — OAuth 2.0 Demonstrating Proof of Possession (DPoP)](https://www.rfc-editor.org/rfc/rfc9449)
 - [`pasetors` on crates.io](https://crates.io/crates/pasetors) — the token library.

@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-018: Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md) |
-| **Required ADRs** | [ADR-003](../decisions/003-daemon-backed-queue-and-interventions.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-014](../decisions/014-v1-feature-scope-definition.md), [ADR-016](../decisions/016-shared-event-sourcing-scope.md) |
+| **Required ADRs** | [ADR-003](../decisions/003-daemon-backed-queue-and-interventions.md), [ADR-004](../decisions/004-sqlite-local-state-and-hosted-account.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-014](../decisions/014-v1-feature-scope-definition.md), [ADR-016](../decisions/016-shared-event-sourcing-scope.md) |
 | **Dependencies** | [Plan-012](./012-persistence-and-recovery.md) (persistence layer) |
 | **Cross-Plan Deps** | Cross-Plan Dependency Graph |
 
@@ -47,7 +47,7 @@ Plan-017 is the implementation surface for [Spec-018 §PII in Diagnostics](../sp
 
 ## Data And Storage Changes
 
-- The diagnostic buckets are log files in the daemon's data folder, never SQLite tables. They are runtime-local and have no shared-Postgres counterpart per [ADR-016](../decisions/016-shared-event-sourcing-scope.md).
+- The diagnostic buckets are log files in the daemon's data folder, never SQLite tables. They are runtime-local and have no counterpart in the hosted account's storage per [ADR-016](../decisions/016-shared-event-sourcing-scope.md).
 - Deleting a diagnostic log never removes the failure detail a run event carries: that detail lives on the run event.
 - This plan adds no table to either schema.
 

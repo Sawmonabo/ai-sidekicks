@@ -24,7 +24,7 @@ The product requires durable rebuild and recovery while keeping local execution 
 | Store | Responsibility |
 | --- | --- |
 | `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. V1 driver pin: `rusqlite` **0.40.2** with `bundled` (per [ADR-021](../decisions/021-v1-toolchain-selection.md) and [Spec-013 §Driver Pin](../specs/013-persistence-and-recovery.md#driver-pin)) — writes go through one writer thread that owns the write connection, fed by a bounded channel, on `rusqlite` (bundled SQLite) (see [Spec-013 §Writer Concurrency](../specs/013-persistence-and-recovery.md#writer-concurrency)). |
-| `Shared Postgres Store` | The device registry, the signed statement chain and each machine's registration. No session record: a machine's service is its sessions' one store. |
+| `Hosted Account Store` | The account and its sign-in state, the device registry, the signed statement chain and each machine's registration, in SQLite inside the relay: the Durable Object's own storage on the Workers relay, a SQLite file on the Compose relay ([Deployment Topology §Account Storage](./deployment-topology.md#account-storage), [Hosted Account Schema](./schemas/hosted-account-schema.md)). No session record: a machine's service is its sessions' one store. |
 | `Artifact Storage` | Durable artifact payloads and manifests, held on the machine that runs the session. |
 | `Projection Layer` | Read-optimized materializations derived from canonical event streams and shared coordination records. |
 
@@ -44,7 +44,7 @@ Liveness data is ephemeral. A device or a machine is reachable while its relay c
 
 Governed by [ADR-016: Shared Event-Sourcing Scope](../decisions/016-shared-event-sourcing-scope.md).
 
-V1 scopes event-sourcing to per-machine local event logs. Each session runs on one owning machine for its whole life, and that machine's daemon owns the session's authoritative `session_events` table in its Local SQLite (Plan-001 owner; see [local-sqlite-schema.md](./schemas/local-sqlite-schema.md)). There is no shared session event log in Postgres; shared-postgres-schema.md contains coordination records only.
+V1 scopes event-sourcing to per-machine local event logs. Each session runs on one owning machine for its whole life, and that machine's daemon owns the session's authoritative `session_events` table in its Local SQLite (Plan-001 owner; see [local-sqlite-schema.md](./schemas/local-sqlite-schema.md)). There is no shared session event log in the hosted account's database; [the Hosted Account Schema](./schemas/hosted-account-schema.md) holds coordination records only.
 
 **Cross-device event delivery.** Another device reads a session, live and in its history, over its own sealed channel to the owning machine ([ADR-010](../decisions/010-tokens-passkeys-and-the-remote-channel.md)); the relay carries those frames without reading them, and no other daemon appends a copy of the session's events.
 
@@ -55,7 +55,7 @@ V1 scopes event-sourcing to per-machine local event logs. Each session runs on o
 ## Trust Boundaries
 
 - Local SQLite stores machine-scoped execution truth and recovery data.
-- Shared Postgres stores coordination truth, not local code-execution authority.
+- The hosted account's database stores coordination truth, not local code-execution authority.
 
 ## Privacy and Data Protection
 
@@ -64,12 +64,12 @@ The person's messages and every queued message's body sit in the daemon's databa
 ## Schema References
 
 - [Local SQLite Schema](./schemas/local-sqlite-schema.md) — canonical DDL for daemon-local tables
-- [Shared Postgres Schema](./schemas/shared-postgres-schema.md) — canonical DDL for control plane tables
+- [Hosted Account Schema](./schemas/hosted-account-schema.md) — canonical DDL for control plane tables
 - [Cross-Plan Dependency Graph](./cross-plan-dependencies.md) — the forward build order for plan phases that have not shipped yet
 
 ## Schema Evolution
 
-Each database has one schema, created whole when it is first opened: the daemon's Local SQLite schema and the control plane's Postgres schema. There are no numbered migrations and no upgrade steps. A feature that needs a table or a column adds it to its database's one schema, and to that schema's test, in the change that builds the feature. Every table in the daemon's schema is `STRICT`.
+Each database has one schema, created whole when it is first opened: the daemon's Local SQLite schema and the hosted account's SQLite schema. There are no numbered migrations and no upgrade steps. A feature that needs a table or a column adds it to its database's one schema, and to that schema's test, in the change that builds the feature. Every table in the daemon's schema is `STRICT`.
 
 ## Cross-Version Compatibility
 
@@ -111,5 +111,5 @@ See [ADR-017 §Decision](../decisions/017-cross-version-compatibility.md#decisio
 
 ## Related ADRs
 
-- [SQLite Local State And Postgres Control Plane](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)
+- [SQLite Local State And Hosted Account](../decisions/004-sqlite-local-state-and-hosted-account.md)
 - [Shared Event-Sourcing Scope](../decisions/016-shared-event-sourcing-scope.md) — V1 per-machine local event logs; no shared log

@@ -128,9 +128,9 @@ interface DaemonStatusReadResult {
   uptimeMs: number; // how long the service has run, as of this reply
   processor: { percent: number; readAt: string } | null; // percent of the whole machine, 0 to 100; null when the reading failed at this call
   memory: { residentBytes: number; readAt: string } | null; // null when the reading failed at this call
-  // The data directory this daemon holds. A second daemon cannot hold it, which is why the sign-in and
-  // sign-out verbs refuse while this one is up and name what to stop — so the status read has to say
-  // which directory is held, not merely that something is.
+  // The data directory this daemon holds, through an exclusive `File::try_lock` on its `daemon.lock`
+  // taken at start. A second daemon cannot hold it, so the status read says which directory is held,
+  // not merely that something is.
   dataDirectory: string;
   // The path of the file the daemon keeps its secrets in, mode 0600, present ONLY on Linux where no
   // Secret Service answers and on a Mac while its secrets are in `secrets.json`: from the approved
@@ -268,25 +268,20 @@ interface LocalSubscriptionParams {
 // Response: a JSON-RPC notification stream of LocalSubscriptionFrame on the already-registered
 // $/subscription/notify method — one frame per batch, never one frame per event.
 
-// The batched subscription frame (Plan-005 Phase 2D). The producer coalesces what it is
-// handed into one frame per 16 ms or 50 events, whichever comes first, and the window opens on the
-// FIRST event rather than the last: a throttle, not a debounce, so a lone event is never held for a
-// whole window while a burst still collapses into one delivery.
+// The batched subscription frame (Plan-005 Phase 2D), framed by the rule of Spec-006 §Required
+// Behavior: the first event of a quiet stream goes at once, and what follows is coalesced into frames,
+// so a lone event is never held while a burst still collapses into one delivery.
 interface LocalSubscriptionFrame {
   // Changes only, never the whole record, and every change carries its own cursor — which is what
-  // lets a consumer say where it got to without the producer keeping a position per consumer.
+  // lets a consumer say where it got to without the producer keeping a position per consumer. The
+  // producer never waits for a consumer and drops nothing for it: it holds only the consumer's cursor
+  // and reads the next frame from the daemon's record once the consumer's lane has credit, so a
+  // consumer that falls behind receives every change late, in order, and never a hole. A consumer
+  // further behind the record's newest than that rule's threshold is sent one frame with no changes
+  // that says it is behind and carries the newest cursor; it takes a snapshot read in place of every
+  // change, and the stream carries on from the newest. The record rather than the screen is the truth.
   changes: Array<{ cursor: EventCursor; value: EventEnvelope }>;
-  // Present on the first frame that fits after the producer dropped for this consumer, and on that
-  // frame alone — never left standing on every frame after it, which would make one gap and a
-  // continuing one indistinguishable. The producer never waits for a consumer, so a consumer that
-  // falls behind is dropped for; a drop it is not told about is the single failure this member
-  // exists to make impossible. Seeing it, the consumer repairs against the daemon's own record by
-  // cursor through `afterCursor` above, and past the point that record can still fill it takes a
-  // snapshot read from beyond the gap instead of a fill. So what a consumer holds is either
-  // complete or visibly short, never silently short, and the record rather than the screen is the
-  // truth.
-  gap?: true;
 }
 ```
 
-The frame above is defined here because it is a cross-cutting wire primitive, the class api-payload-contracts.md §Source-of-Truth Policy keeps in this file; the producer that emits it, `LocalSubscriptionProducer<T>`, stays canonical in code at `crates/sidekicks-contracts/src/jsonrpc/streaming.rs` under that same policy, and the Rust type there governs on any divergence. Nothing is minted for the batching: the frame rides the registered `$/subscription/notify` method, the repair is the `afterCursor` read this surface already takes, and no method name, error code, or setting is added. Producer side: [Plan-005 §Phase 2D](../../plans/005-local-ipc-and-daemon-control.md#phase-2d--substrate-supplement-the-subscription-frame-is-batched-carries-changes-only-and-never-waits-for-a-consumer). Consumer side: [Plan-020](../../plans/020-desktop-app-and-renderer.md)'s transcript frame, which repairs by snapshot on the `gap` flag.
+The frame above is defined here because it is a cross-cutting wire primitive, the class api-payload-contracts.md §Source-of-Truth Policy keeps in this file; the producer that emits it, `LocalSubscriptionProducer<T>`, stays canonical in code at `crates/sidekicks-contracts/src/jsonrpc/streaming.rs` under that same policy, and the Rust type there governs on any divergence. Nothing is minted for the batching: the frame rides the registered `$/subscription/notify` method, a consumer that is behind takes the snapshot read its surface already serves, and no method name, error code, or setting is added. Producer side: [Plan-005 §Phase 2D](../../plans/005-local-ipc-and-daemon-control.md#phase-2d--substrate-supplement-the-subscription-frame-is-batched-carries-changes-only-and-never-waits-for-a-consumer). Consumer side: [Plan-020](../../plans/020-desktop-app-and-renderer.md)'s transcript frame, which takes a snapshot read on the frame that says it is behind.

@@ -140,6 +140,7 @@ Error handling lives on the node that failed, inside the document body stored on
 - If a run is canceled while a step is waiting, there is nothing to interrupt — a waiting step holds no live process and no reservation — so the cancel completes immediately: the step reads `canceled` and its live wait members — its `waitCause`, its resume schedule and deadline and its spent account — clear in the same unit of work, while the suspension event in the log keeps the wait's cause ([Spec-015 §Park integrity and cancelability (SA-39)](../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancelability-sa-39)).
 - A canceled branch counts as settled only after its last edit has reported and the daemon has read the checkout from disk, because an interrupt does not stop an edit already under way.
 - One step is always admitted, so the memory gate never deadlocks; when nothing is running, the step at the head of the line is admitted whatever its size.
+- A quick Code step whose thread or engine could not be made fails at once with `workflow.step_thread_failed`, carrying `reason: start_failed`, and takes its node's `onError` from there.
 - A full-tier Code step or a shell step whose sandbox cannot start at the Sandboxed level refuses with `workflow.sandbox_unavailable` and takes its node's `onError` from there; it never runs unprotected.
 
 ## Related Specs

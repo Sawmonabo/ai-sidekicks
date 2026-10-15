@@ -11,7 +11,7 @@
 
 ## Context
 
-The product ships a cross-platform desktop application alongside a CLI as part of V1 (ADR-014 lists Desktop GUI as feature 12). The desktop app renders a React + Vite UI, starts and watches the local daemon, handles native dialogs, implements auto-update, and hosts the preload bridge that sits between the renderer and the trusted main process (per `container-architecture.md`). The same React front end also runs as the web client that a phone or a browser uses to drive a session, so the desktop's front end is not a desktop-only choice. The desktop app runs no WebAuthn ceremony: passkeys, the owner's way to link a new device, live in the web client, the phone apps and the device-code page ([Spec-027](../specs/027-remote-control.md)).
+The product ships a cross-platform desktop application alongside a CLI as part of V1 (ADR-014 lists Desktop GUI as feature 12). The desktop app renders a React + Vite UI, starts and watches the local daemon, handles native dialogs, implements auto-update, and hosts the preload bridge that sits between the renderer and the trusted main process (per `container-architecture.md`). The same React front end also runs as the web client that a phone or a browser uses to drive a session, so the desktop's front end is not a desktop-only choice. The desktop app runs no WebAuthn ceremony: passkeys, the owner's way to link a new device, live in the web client, the phone apps and the relay's sign-in page ([Spec-027](../specs/027-remote-control.md)).
 
 Electron, Tauri 2.x (with and without Chromium embedded for the Preview pane), Wails v3 and GPUI are the frameworks this decision weighs. This ADR names the V1 desktop framework so [Plan-020](../plans/020-desktop-app-and-renderer.md) builds against a decided target.
 
@@ -179,7 +179,7 @@ Plan-020's CI checks assumptions 2 and 3; release monitoring watches 1, 4 and 5.
 
 ### Related ADRs
 
-- [ADR-010: Tokens, Passkeys And The Remote Channel](./010-tokens-passkeys-and-the-remote-channel.md) — the per-connection channel between the person's devices and machines, and passkeys kept to the web client, the phone apps and the device-code page, so the desktop app carries no WebAuthn.
+- [ADR-010: Tokens, Passkeys And The Remote Channel](./010-tokens-passkeys-and-the-remote-channel.md) — the per-connection channel between the person's devices and machines, and passkeys kept to the web client, the phone apps and the relay's sign-in page, so the desktop app carries no WebAuthn.
 - [ADR-034: Embedded Browser For Preview](./034-embedded-browser-for-preview.md) — the `browser` pane's debugger relay with no debug port, which Thesis item 2 relies on.
 - [ADR-009: JSON-RPC IPC Wire Format](./009-json-rpc-ipc-wire-format.md) — the IPC wire format the client helper speaks to the daemon.
 - [ADR-014: V1 Feature Scope Definition](./014-v1-feature-scope-definition.md) — names Desktop GUI as a V1 feature; this ADR enables it.

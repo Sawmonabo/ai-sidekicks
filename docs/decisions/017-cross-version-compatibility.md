@@ -196,7 +196,7 @@ Every proposed MINOR bump MUST be reviewed against this checklist before landing
 
 ### Related ADRs
 
-- [ADR-004: SQLite Local State and Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md) — persistence substrates; the service's SQLite audit log holds the envelopes this ADR versions.
+- [ADR-004: SQLite Local State And Hosted Account](./004-sqlite-local-state-and-hosted-account.md) — persistence substrates; the service's SQLite audit log holds the envelopes this ADR versions.
 - [ADR-016: Shared Event-Sourcing Scope](./016-shared-event-sourcing-scope.md) — V1 local-per-daemon audit-log topology; establishes that event log is not replicated to control plane, which keeps version checks on each machine's service.
 - [ADR-019: V1 Deployment Model and OSS License](./019-v1-deployment-model-and-oss-license.md) — the relay the person deploys for themself; nothing in the deployment makes the app and the service update together (Assumption #1).
 

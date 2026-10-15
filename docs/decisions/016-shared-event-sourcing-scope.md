@@ -13,18 +13,18 @@
 
 AI Sidekicks is an agentic coding runtime for one user and their agents. Per [ADR-014](./014-v1-feature-scope-definition.md), V1 ships its features on a single codebase, and the relay is the person's own, in either deployment [ADR-019](./019-v1-deployment-model-and-oss-license.md) describes. Session activity is modeled as events for rebuild, auditability, and determinism; [vision.md §5. Session Engine](../vision.md) names the product an "event-sourced engine where everything important is an event."
 
-The system already has a two-store split per [ADR-004: SQLite Local State and Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md):
+The system already has a two-store split per [ADR-004: SQLite Local State And Hosted Account](./004-sqlite-local-state-and-hosted-account.md):
 
 - **Local SQLite store** — machine-scoped runtime truth owned by each daemon.
-- **Shared Postgres store** — coordination truth (sessions, the device registry, device-liveness history, each machine's registration) across all of the person's devices and machines.
+- **The control plane's store** — coordination truth (the device registry, device-liveness history, each machine's registration) across all of the person's devices and machines.
 
 Per [ADR-010](./010-tokens-passkeys-and-the-remote-channel.md), each device reaches each machine over one channel of its own: the Noise Protocol Framework's `KK` handshake and transport under one of two profiles, `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second, with no construction of the project's own and a fresh handshake on every connection and every 10 minutes. With one person, every channel has two ends, one device and one machine, so there is no group to encrypt to. The relay is zero-knowledge: it sees the device and machine ids at connection, the channel version and profile, and frame sizes and times, never a method, a name or a byte of a session, and it has no ability to read, append to, or sequence session content. A machine's identity is its service's Ed25519 key (§Machine Identity And Reachability below).
 
-The schema is per-daemon: `session_events` is owned by Plan-001 in the Local SQLite schema, and `shared-postgres-schema.md` contains no `session_events_shared` or equivalent table. This record names that scope and bounds its trade-offs.
+The schema is per-daemon: `session_events` is owned by Plan-001 in the Local SQLite schema, and `hosted-account-schema.md` contains no `session_events_shared` or equivalent table. This record names that scope and bounds its trade-offs.
 
 ## Problem Statement
 
-Should V1 ship with a shared server-side event log where the person's daemons append session events to a single Postgres table (Option A), or with per-machine local event logs where each machine's daemon owns the authoritative log of the sessions it runs and other devices read that log over their own channel to the machine (Option B)?
+Should V1 ship with a shared server-side event log where the person's daemons append session events to a single table in the control plane's store (Option A), or with per-machine local event logs where each machine's daemon owns the authoritative log of the sessions it runs and other devices read that log over their own channel to the machine (Option B)?
 
 ### Trigger
 
@@ -32,7 +32,7 @@ vision.md §5. Session Engine promises event-sourcing semantics without scoping 
 
 ## Decision
 
-**V1 ships Option B: per-machine local event logs.** Each session runs on exactly one owning machine for its whole life, and that machine's daemon owns the session's authoritative `session_events` table in its Local SQLite store, appending every event with a monotonic per-session sequence. No other daemon holds a copy of a session's log: another device reads the session, live and in its history, over its own sealed channel to the owning machine, and the relay carries those frames without reading them. Shared Postgres stores coordination records only (sessions, the device registry, device-liveness history, each machine's registration) and does not store session event streams.
+**V1 ships Option B: per-machine local event logs.** Each session runs on exactly one owning machine for its whole life, and that machine's daemon owns the session's authoritative `session_events` table in its Local SQLite store, appending every event with a monotonic per-session sequence. No other daemon holds a copy of a session's log: another device reads the session, live and in its history, over its own sealed channel to the owning machine, and the relay carries those frames without reading them. The control plane's store holds coordination records only (sessions, the device registry, device-liveness history, each machine's registration) and does not store session event streams.
 
 Option A is rejected. The relay never holds a byte of a session, so there is no shared log for it or the control plane to keep.
 
@@ -91,16 +91,16 @@ The Linear pattern stays on record as the counterexample for a server that may r
 - **Steel man:** Cryptographically coherent with the zero-knowledge relay. Matches the ecosystem norm for replicated-log and collaborative-editor systems (Kleppmann, Automerge, Zed, Replicache). Each daemon is authoritative for its own view and can rebuild offline. No trust is placed in the relay beyond message routing. Schema already de facto implements this.
 - **Weaknesses:** No single query spans all of the person's machines: each machine answers for the sessions it runs, and an audit or export covering several machines reads each one.
 
-### Option A: Shared Postgres event log (Rejected)
+### Option A: Shared event log on the control plane (Rejected)
 
-- **What:** One `session_events_shared` append-only table in Postgres. The person's daemons append session events with a server-stamped global monotonic sequence.
+- **What:** One `session_events_shared` append-only table in the control plane's store. The person's daemons append session events with a server-stamped global monotonic sequence.
 - **Steel man:** Audit across machines is a single SQL query, with one canonical event sequence. Linear proves the pattern is viable for collaborative + offline + real-time software with server-held plaintext.
 - **Why rejected:** The relay carries per-connection channels between one device and one machine and never holds a byte of a session (ADR-010). A shared table would hold either ciphertext the server cannot index, query, or audit — which removes the only reason to choose Option A — or plaintext, which the relay is never given.
 
 ## Reversibility Assessment
 
 - **Reversal cost:** A `session_events_shared` table would be an additive table, but filling it means the relay or the control plane holding session content, which [ADR-010](./010-tokens-passkeys-and-the-remote-channel.md)'s channel rules out; a reversal therefore starts with a change to that channel, not to this schema.
-- **Blast radius:** `shared-postgres-schema.md` (one new table), [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) (audit semantics across machines), [Spec-013](../specs/013-persistence-and-recovery.md) (a shared log as a rebuild source), ADR-010 and [Spec-027](../specs/027-remote-control.md) (what the relay may carry). No local schema churn.
+- **Blast radius:** `hosted-account-schema.md` (one new table), [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) (audit semantics across machines), [Spec-013](../specs/013-persistence-and-recovery.md) (a shared log as a rebuild source), ADR-010 and [Spec-027](../specs/027-remote-control.md) (what the relay may carry). No local schema churn.
 - **Migration path:** None planned. The local logs stay authoritative whatever is added beside them.
 - **Point of no return:** None. The local logs remain the record under any later addition.
 
@@ -112,7 +112,7 @@ The Linear pattern stays on record as the counterexample for a server that may r
 - Cryptographically coherent with the zero-knowledge relay: the relay sees ciphertext and routes it; it does not own any log.
 - Matches replicated-log ecosystem precedent (Kleppmann, Automerge, Zed, Replicache).
 - Each daemon is authoritative for its own view and can rebuild offline.
-- Reduces the shared-Postgres write path from per-event to per-coordination-record, lowering the load on the person's own relay.
+- Reduces the control plane's write path from per-event to per-coordination-record, lowering the load on the person's own relay.
 
 ### Negative (accepted trade-offs)
 
@@ -138,8 +138,8 @@ The Linear pattern stays on record as the counterexample for a server that may r
 
 ### Related ADRs
 
-- [ADR-004 — SQLite Local State And Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md) — establishes the two-store split this ADR scopes event-sourcing against.
-- [ADR-010 — Tokens, Passkeys And The Remote Channel](./010-tokens-passkeys-and-the-remote-channel.md) — the per-connection `Noise_KK` channel between each device and each machine, under `Noise_KK_25519_AESGCM_SHA256` or `Noise_KK_25519_ChaChaPoly_SHA256`, and what the relay may see; also PASETO v4 tokens with a device-code sign-in for the control plane, and passkeys only in the web client, the phone apps and the device-code page.
+- [ADR-004 — SQLite Local State And Hosted Account](./004-sqlite-local-state-and-hosted-account.md) — establishes the two-store split this ADR scopes event-sourcing against.
+- [ADR-010 — Tokens, Passkeys And The Remote Channel](./010-tokens-passkeys-and-the-remote-channel.md) — the per-connection `Noise_KK` channel between each device and each machine, under `Noise_KK_25519_AESGCM_SHA256` or `Noise_KK_25519_ChaChaPoly_SHA256`, and what the relay may see; also PASETO v4 tokens with the service's own authorization-code sign-in for the control plane, and passkeys only in the web client, the phone apps and the relay's sign-in page.
 - [ADR-014 — V1 Feature Scope Definition](./014-v1-feature-scope-definition.md) — the V1 feature scope this decision respects.
 
 ### Related Specs And Docs

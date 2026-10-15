@@ -10,7 +10,7 @@ Recover the person's own control plane and relay, on their Cloudflare account or
 - A machine card reads `Not reachable · last seen <when>` while that machine's service is running
 - A device card reads `Seen in two places at once. Revoke it if you did not expect this.`
 - `sidekicks daemon status` prints `refused: the relay's key does not match the one pinned when it was linked`
-- `sidekicks sign-in` fails on a machine
+- Signing a machine in fails, from `Sign in` on Settings › Devices or from `sidekicks sign-in`
 - Scope and blast radius: every device's reach to every machine through that relay. Sessions keep running on their machines, and the desktop app on each machine keeps driving its own sessions over the machine's local connection.
 
 ## Detection
@@ -23,14 +23,14 @@ Recover the person's own control plane and relay, on their Cloudflare account or
 ## Preconditions
 
 - The `sidekicks` command line on one of the person's machines
-- For the Workers relay, the person's own Cloudflare account; for the Compose relay, a shell on the server that runs its `docker-compose.yml` (`sidekicks-control-plane`'s native program, Caddy and Postgres)
+- For the Workers relay, the person's own Cloudflare account; for the Compose relay, a shell on the server that runs its `docker-compose.yml` (`sidekicks-control-plane`'s native program and Caddy, the account's data in a SQLite file the program writes)
 - A device already linked, or a passkey, to link a device again after a revoke
 
 ## Recovery Steps
 
 1. Run `sidekicks daemon status` on the machine and read the relay block against Detection.
-2. If the machine's own relay connection is down, check the machine's network, then the relay: the Worker's deployment in the Cloudflare account, or the containers on the Compose server. On the Compose server, bring Postgres back before restarting the relay's service.
-3. If `sidekicks sign-in` fails, fix the relay first. Sign-in runs only while the service is stopped, so stop it (`sidekicks daemon stop`, or `Stop` on Settings › Runtime), run `sidekicks sign-in` on the machine, and start the service again (`sidekicks daemon start`).
+2. If the machine's own relay connection is down, check the machine's network, then the relay: the Worker's deployment in the Cloudflare account, or the containers on the Compose server.
+3. If signing in fails, read its failure reason ([Hosted Account Payload Contracts §Account Sign-In Method Registry](../architecture/contracts/hosted-account-payloads.md#account-sign-in-method-registry)) and act on it, then sign in again; the service never stops for a sign-in. `relayUnreachable` or `refused`: fix the relay first. `credentialStoreUnavailable`: unlock the operating system's credential store. `machineKeyChanged`: remove the machine on Devices from another device, then sign it in again. An expired sign-in page only needs a new attempt. A machine with no relay address set takes one in the `Relay address` field beside `Sign in`. `sidekicks sign-in` starts the service when it is stopped and signs in through it; where no browser can reach the machine, it takes a code pasted from the sign-in page.
 4. If a device card reads `Seen in two places at once`, its key is in two places. If that is not expected, revoke the device (`Revoke` on its card, or `sidekicks devices revoke <device>`) and link the real device again as a new one.
 5. If a device refuses a machine with `<machine> is using a new key, so it was not connected.`, the machine was reinstalled: remove it on Devices and link it again. Linked again, it mints a new identity key under its same machine id, and its new `runtimenode.added` moves every device's pin for that id; its store, sessions and id stay.
 6. If `sidekicks daemon status` prints `refused: the relay's key does not match the one pinned when it was linked`, and the relay was redeployed on purpose with a new key, run `sidekicks relay repin --force` with the new key's hash. Only a relay without a publicly trusted certificate is pinned; a pinned relay's key that changed without a deliberate redeploy is treated as an attack and left refused.
@@ -44,7 +44,7 @@ Recover the person's own control plane and relay, on their Cloudflare account or
 
 ## Escalation
 
-- When the relay stays unreachable after a redeploy, or the Compose server's Postgres cannot be brought back, report it to the project as a bug with the relay block and the relay's logs attached
+- When the relay stays unreachable after a redeploy, report it to the project as a bug with the relay block and the relay's logs attached
 
 ## CLI Commands
 
@@ -52,9 +52,7 @@ Recover the person's own control plane and relay, on their Cloudflare account or
 sidekicks daemon status          # the relay block, and a refused relay pin
 sidekicks devices                # the machines and the linked devices
 sidekicks devices revoke <device>
-sidekicks daemon stop            # sign-in runs only while the service is stopped
-sidekicks sign-in
-sidekicks daemon start
+sidekicks sign-in                # starts the service if it is stopped, and signs in through it
 sidekicks relay repin --force    # a relay without a publicly trusted certificate, redeployed on purpose
 ```
 

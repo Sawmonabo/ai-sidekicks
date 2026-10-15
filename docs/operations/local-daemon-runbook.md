@@ -18,6 +18,7 @@ Recover the user-local execution daemon, the Local Runtime Daemon, when local ex
 - Inspect Local Runtime Daemon logs for one of these categories before acting:
   - IPC bind failure
   - SQLite open or lock failure
+  - the data-folder lock already held: the service holds an exclusive file lock on `daemon.lock` beside its store for its whole life (`std::fs::File::try_lock`, `flock` on macOS and Linux, `LockFileEx` on Windows), freed the moment its holder dies, and a second service started on the same store retries it for a moment, then is refused with `The background service is already running (process 4182).`, naming the holder's process number
   - projection rebuild failure
   - provider resume or runtime binding recovery failure
 
