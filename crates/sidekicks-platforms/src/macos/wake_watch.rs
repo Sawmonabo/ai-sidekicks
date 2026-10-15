@@ -1,9 +1,11 @@
 //! The machine's wakes from sleep on macOS: the root power domain's messages through
 //! `IORegisterForSystemPower`, delivered on a dispatch queue of their own. A sleep the system asks
 //! about or announces is allowed at once with `IOAllowPowerChange`, so the service never holds it
-//! back; a wake is heard once every driver has powered on again.
+//! back. A full wake is heard, once every driver has powered on again with the display; a dark wake
+//! and Power Nap, which run with the display off and sleep again, are not.
 
 use std::ffi::c_void;
+use std::future::{self, Future};
 use std::io;
 use std::ptr;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -48,11 +50,18 @@ unsafe impl Send for WakeWatch {}
 impl WakeWatch {
     /// Starts hearing the machine's wakes. Fails with [`WakeWatchError`] when the root power domain
     /// refuses the registration.
-    #[expect(
-        clippy::unused_async,
-        reason = "the interface is async because Linux's start connects to the system bus"
-    )]
-    pub async fn start() -> Result<Self, WakeWatchError> {
+    pub fn start() -> impl Future<Output = Result<Self, WakeWatchError>> {
+        future::ready(Self::register())
+    }
+
+    /// Waits for the machine's next wake; wakes that came while no one waited count as one.
+    /// Cancel-safe, and never fails on macOS.
+    pub async fn next_wake(&mut self) -> Result<(), WakeWatchError> {
+        self.context.wakes.notified().await;
+        Ok(())
+    }
+
+    fn register() -> Result<Self, WakeWatchError> {
         let context = Box::new(PowerMessageContext {
             root_domain: AtomicU32::new(IO_OBJECT_NULL),
             wakes: Notify::new(),
@@ -86,13 +95,6 @@ impl WakeWatch {
             notification_port,
             queue,
         })
-    }
-
-    /// Waits for the machine's next wake; wakes that came while no one waited count as one.
-    /// Cancel-safe, and never fails on macOS.
-    pub async fn next_wake(&mut self) -> Result<(), WakeWatchError> {
-        self.context.wakes.notified().await;
-        Ok(())
     }
 }
 
