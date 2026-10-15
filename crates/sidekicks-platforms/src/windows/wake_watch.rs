@@ -1,11 +1,11 @@
-//! The machine's wakes from sleep on Windows. `PowerRegisterSuspendResumeNotification` with a
-//! callback, which needs no window, tells each resume from sleep or hibernation at
-//! `PBT_APMRESUMEAUTOMATIC`, sent whether or not a person is present. On a machine with Modern
-//! Standby the system promises a desktop process no resume message on leaving standby, and a
-//! standby runs from the console's display turning off to its turning on, so there the display
-//! turning on from off is a wake too (`GUID_CONSOLE_DISPLAY_STATE` through
-//! `PowerSettingRegisterNotification`). Wakes that come while no one waits count as one; a resume
-//! heard both ways may be told twice.
+//! The machine's wakes from sleep on Windows, from one source per kind of machine, so each wake is
+//! told once; both register a callback, which needs no window. A machine with Modern Standby
+//! promises a desktop process no resume message on leaving standby, and its standby runs from the
+//! console's display turning off to its turning on, so there a wake is the display turning on from
+//! off (`GUID_CONSOLE_DISPLAY_STATE` through `PowerSettingRegisterNotification`). Any other machine
+//! tells each resume from sleep or hibernation at `PBT_APMRESUMEAUTOMATIC`
+//! (`PowerRegisterSuspendResumeNotification`), sent whether or not a person is present. Wakes that
+//! come while no one waits count as one.
 
 use std::ffi::c_void;
 use std::future::{self, Future};
@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use tokio::sync::Notify;
-use windows_sys::Win32::Foundation::{ERROR_SUCCESS, WIN32_ERROR};
+use windows_sys::Win32::Foundation::{ERROR_SUCCESS, HANDLE, WIN32_ERROR};
 use windows_sys::Win32::System::Power::{
     CallNtPowerInformation, DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS, HPOWERNOTIFY,
     POWERBROADCAST_SETTING, PowerRegisterSuspendResumeNotification,
@@ -33,7 +33,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use crate::wake_watch::WakeWatchError;
 
 // What announces the wakes, as an error names it.
-const SOURCE_NAME: &str = "PowerRegisterSuspendResumeNotification";
+const SOURCE_NAME: &str = "the system's power notifications";
 
 // The display state before the registration's first callback gives the state then.
 const DISPLAY_STATE_UNKNOWN: MONITOR_DISPLAY_STATE = -1;
@@ -49,24 +49,29 @@ static WAKES: Mutex<Option<Arc<Notify>>> = Mutex::new(None);
 // The console display's last state, so only its turning on from off is a wake.
 static DISPLAY_STATE: AtomicI32 = AtomicI32::new(DISPLAY_STATE_UNKNOWN);
 
-/// The machine's wakes from sleep, heard from the system's resume notifications and, with Modern
-/// Standby, from the console's display turning on. One runs in the process at a time.
+/// The machine's wakes from sleep, heard from the console's display turning on with Modern
+/// Standby and from the system's resume notifications otherwise. One runs in the process at a time.
 pub struct WakeWatch {
     wakes: Arc<Notify>,
-    resume_registration: HPOWERNOTIFY,
-    display_registration: Option<HPOWERNOTIFY>,
-    // Kept for the registrations' life, since the system documents no copy of it, and never freed
-    // after a registration fails to end.
+    registration: PowerRegistration,
+    // Kept for the registration's life, since the system documents no copy of it, and never freed
+    // after the registration fails to end.
     subscription: ManuallyDrop<Box<DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS>>,
 }
 
-// SAFETY: the subscription is read only by the system, and the registrations are ended by the drop
+// The one registration a watch holds, which its kind of machine decides.
+enum PowerRegistration {
+    ConsoleDisplay(HPOWERNOTIFY),
+    Resume(HPOWERNOTIFY),
+}
+
+// SAFETY: the subscription is read only by the system, and the registration is ended by the drop
 // alone.
 unsafe impl Send for WakeWatch {}
 
 impl WakeWatch {
     /// Starts hearing the machine's wakes. Fails with [`WakeWatchError`] when a watch already runs
-    /// in the process, when the system refuses a registration, or when it cannot say whether the
+    /// in the process, when the system refuses the registration, or when it cannot say whether the
     /// machine has Modern Standby.
     pub fn start() -> impl Future<Output = Result<Self, WakeWatchError>> {
         future::ready(Self::register())
@@ -89,64 +94,41 @@ impl WakeWatch {
             }
             running_wakes.insert(Arc::new(Notify::new())).clone()
         };
-        DISPLAY_STATE.store(DISPLAY_STATE_UNKNOWN, Ordering::Release);
         let subscription = Box::new(DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS {
             Callback: Some(on_power_event),
             Context: ptr::null_mut(),
         });
-        let mut resume_registration: *mut c_void = ptr::null_mut();
-        // SAFETY: the subscription lives in a box the watch keeps until the drop ends the
-        // registration; the out pointer is this frame's local.
-        let outcome = unsafe {
-            PowerRegisterSuspendResumeNotification(
-                DEVICE_NOTIFY_CALLBACK,
-                ptr::from_ref(&*subscription).cast_mut().cast(),
-                &raw mut resume_registration,
-            )
-        };
-        if outcome != ERROR_SUCCESS {
-            *lock_wakes() = None;
-            return Err(registration_failure(outcome));
-        }
-        // From here the drop ends what was registered if a later step fails.
-        let mut watch = Self {
-            wakes,
-            resume_registration: resume_registration.addr().cast_signed(),
-            display_registration: None,
-            subscription: ManuallyDrop::new(subscription),
-        };
-        if has_modern_standby()? {
-            let mut display_registration: *mut c_void = ptr::null_mut();
-            // SAFETY: as above; the setting is the system's own constant.
-            let outcome = unsafe {
-                PowerSettingRegisterNotification(
-                    &GUID_CONSOLE_DISPLAY_STATE,
-                    DEVICE_NOTIFY_CALLBACK,
-                    ptr::from_ref(&**watch.subscription).cast_mut().cast(),
-                    &raw mut display_registration,
-                )
-            };
-            if outcome != ERROR_SUCCESS {
-                return Err(registration_failure(outcome));
+        let recipient = ptr::from_ref(&*subscription).cast_mut().cast();
+        match has_modern_standby()
+            .and_then(|is_modern_standby| register_for_wakes(is_modern_standby, recipient))
+        {
+            Ok(registration) => Ok(Self {
+                wakes,
+                registration,
+                subscription: ManuallyDrop::new(subscription),
+            }),
+            Err(failure) => {
+                *lock_wakes() = None;
+                Err(failure)
             }
-            watch.display_registration = Some(display_registration.addr().cast_signed());
         }
-        Ok(watch)
     }
 }
 
 impl Drop for WakeWatch {
     fn drop(&mut self) {
         // SAFETY: the registration is the watch's own and is ended once.
-        let mut is_ended = report_end(unsafe {
-            PowerUnregisterSuspendResumeNotification(self.resume_registration)
-        });
-        if let Some(display_registration) = self.display_registration {
-            // SAFETY: the registration is the watch's own and is ended once.
-            is_ended &=
-                report_end(unsafe { PowerSettingUnregisterNotification(display_registration) });
-        }
-        if is_ended {
+        let outcome = unsafe {
+            match self.registration {
+                PowerRegistration::ConsoleDisplay(registration) => {
+                    PowerSettingUnregisterNotification(registration)
+                }
+                PowerRegistration::Resume(registration) => {
+                    PowerUnregisterSuspendResumeNotification(registration)
+                }
+            }
+        };
+        if report_end(outcome) {
             // SAFETY: no registration reads the subscription any more, and it is dropped once.
             unsafe { ManuallyDrop::drop(&mut self.subscription) };
         }
@@ -182,6 +164,46 @@ fn has_modern_standby() -> Result<bool, WakeWatchError> {
     Ok(capabilities.AoAc)
 }
 
+// Registers `recipient` for the one source of wakes the kind of machine has.
+fn register_for_wakes(
+    is_modern_standby: bool,
+    recipient: HANDLE,
+) -> Result<PowerRegistration, WakeWatchError> {
+    let mut registration: *mut c_void = ptr::null_mut();
+    let outcome = if is_modern_standby {
+        DISPLAY_STATE.store(DISPLAY_STATE_UNKNOWN, Ordering::Release);
+        // SAFETY: the recipient is the watch's boxed subscription, kept until the drop ends the
+        // registration; the setting is the system's own constant and the out pointer this frame's
+        // local.
+        unsafe {
+            PowerSettingRegisterNotification(
+                &GUID_CONSOLE_DISPLAY_STATE,
+                DEVICE_NOTIFY_CALLBACK,
+                recipient,
+                &raw mut registration,
+            )
+        }
+    } else {
+        // SAFETY: as above.
+        unsafe {
+            PowerRegisterSuspendResumeNotification(
+                DEVICE_NOTIFY_CALLBACK,
+                recipient,
+                &raw mut registration,
+            )
+        }
+    };
+    if outcome != ERROR_SUCCESS {
+        return Err(registration_failure(outcome));
+    }
+    let registration = registration.addr().cast_signed();
+    Ok(if is_modern_standby {
+        PowerRegistration::ConsoleDisplay(registration)
+    } else {
+        PowerRegistration::Resume(registration)
+    })
+}
+
 // Logs a registration that could not be ended, and says whether it ended.
 fn report_end(outcome: WIN32_ERROR) -> bool {
     if outcome == ERROR_SUCCESS {
@@ -206,7 +228,8 @@ fn watch_failure(failure: io::Error) -> WakeWatchError {
     }
 }
 
-// Tells the running watch a resume, or the console's display turning on from off.
+// Tells the running watch a resume, or the console's display turning on from off; a watch
+// registers for one of the two.
 unsafe extern "system" fn on_power_event(
     _context: *const c_void,
     event_type: u32,
