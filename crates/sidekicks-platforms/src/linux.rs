@@ -1,7 +1,10 @@
 //! What Linux alone supplies: the machine's pretty host name, inside a WSL distribution the folders
 //! the Windows drives are mounted at and the place folders sit, reads at an offset rather than
-//! through a memory map, a process's fields from its stat file, and the bound on a program's
-//! argument.
+//! through a memory map, a process's fields from its stat file, the bound on a program's argument,
+//! the machine's wakes from sleep and a wall-clock timer.
+
+pub(crate) mod wake_watch;
+pub(crate) mod wall_clock_timer;
 
 use std::ffi::OsString;
 use std::io::{self, ErrorKind};

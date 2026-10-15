@@ -78,6 +78,7 @@ tempfile = "3.27.0"
 alacritty_terminal = "0.26.0"
 async-io = "2.6.0"
 command-fds = { version = "0.3.3", features = ["tokio"] }
+dispatch2 = { version = "0.3.1", default-features = false }
 junction = "2.1.0"
 keepawake = "0.6.1"
 libc = "0.2.190"
@@ -96,6 +97,7 @@ nix = {
 }
 objc2-core-foundation = "0.3.2"
 objc2-foundation = { version = "0.3.2", features = ["NSString", "NSURL"] }
+objc2-io-kit = { version = "0.3.2", default-features = false }
 objc2-service-management = {
   version = "0.3.2",
   default-features = false,

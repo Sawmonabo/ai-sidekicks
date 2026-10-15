@@ -7,8 +7,9 @@
     reason = "the terminal's window size, console and library-search calls, the shell start's \
               signal and console-handler calls, the parent check `scutil`'s child runs in \
               `pre_exec`, the Windows host-name, free-room and entry-identity calls, the Windows \
-              replacing rename's `MoveFileExW`, the macOS parent-process read, and the \
-              measurement tests' footprint read on macOS are C interfaces"
+              replacing rename's `MoveFileExW`, the macOS parent-process read, the measurement \
+              tests' footprint read on macOS, and the power notifications and wall-clock timers \
+              of macOS and Windows are C interfaces"
 )]
 
 mod atomic_replace;
@@ -28,6 +29,8 @@ mod shell_start;
 mod socket_path;
 mod spawner;
 mod terminal;
+mod wake_watch;
+mod wall_clock;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -42,6 +45,8 @@ pub use linux::process_footprint;
 pub use linux::{SHOULD_MEMORY_MAP_READS, folder_place, machine_name, windows_drive_mounts};
 #[cfg(target_os = "linux")]
 pub use linux::{read_command_argument_limit, read_parent_process_id};
+#[cfg(target_os = "linux")]
+pub use linux::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use machine_name::MachineNameError;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::process_footprint;
@@ -49,6 +54,8 @@ pub use macos::process_footprint;
 pub use macos::{SHOULD_MEMORY_MAP_READS, folder_place, machine_name, windows_drive_mounts};
 #[cfg(target_os = "macos")]
 pub use macos::{read_command_argument_limit, read_parent_process_id};
+#[cfg(target_os = "macos")]
+pub use macos::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::PathRules;
 #[cfg(unix)]
@@ -102,6 +109,8 @@ pub use terminal::{
     ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd, TerminalSignal, TerminalSignalRoute,
     TerminalWake, TerminalWaker,
 };
+pub use wake_watch::WakeWatchError;
+pub use wall_clock::{WallClock, WallClockWait};
 #[cfg(target_os = "windows")]
 pub use windows::askpass::askpass_listener;
 #[cfg(target_os = "windows")]
@@ -149,3 +158,5 @@ pub use windows::terminal::{
 };
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::terminal::{abnormal_exit, echo_program, pass_through_start, waiting_printer};
+#[cfg(target_os = "windows")]
+pub use windows::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};

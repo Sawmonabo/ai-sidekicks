@@ -1978,6 +1978,7 @@ checksum = "1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38"
 dependencies = [
  "bitflags 2.13.2",
  "block2",
+ "libc",
  "objc2",
 ]
 
@@ -7883,6 +7884,8 @@ dependencies = [
  "apple-native-keyring-store",
  "async-io",
  "command-fds",
+ "dispatch2",
+ "futures-util",
  "icu_datetime",
  "icu_locale_core",
  "interprocess",
@@ -7895,6 +7898,7 @@ dependencies = [
  "nix 0.31.3",
  "objc2-core-foundation",
  "objc2-foundation",
+ "objc2-io-kit",
  "objc2-service-management",
  "polling",
  "process-wrap",
