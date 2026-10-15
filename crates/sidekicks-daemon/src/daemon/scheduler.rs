@@ -499,7 +499,7 @@ mod tests {
 
     // When the test's wall clock starts, how far ahead a job's instant is, and where the clock
     // jumps to, as a sleep the tokio clock does not see would move it.
-    const CLOCK_START: Duration = Duration::from_secs(1_800_000_000);
+    const CLOCK_START: Duration = Duration::from_hours(500_000);
     const INSTANT_AHEAD: Duration = Duration::from_secs(3_600);
     const JUMP_AHEAD: Duration = Duration::from_secs(7_200);
 
