@@ -30,6 +30,7 @@ mod socket_path;
 mod spawner;
 mod terminal;
 mod wake_watch;
+mod wall_clock;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -109,6 +110,7 @@ pub use terminal::{
     TerminalWake, TerminalWaker,
 };
 pub use wake_watch::WakeWatchError;
+pub use wall_clock::{WallClock, WallClockWait};
 #[cfg(target_os = "windows")]
 pub use windows::askpass::askpass_listener;
 #[cfg(target_os = "windows")]
