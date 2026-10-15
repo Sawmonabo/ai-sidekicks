@@ -11,26 +11,33 @@ use std::sync::LazyLock;
 use garde::Validate as _;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::{Map, Value};
-use sidekicks_contracts::event::envelope::EventEnvelope;
+use sidekicks_contracts::event::envelope::{
+    EventCategory, EventEnvelope, EventEnvelopeType, EventOccurredAt,
+};
+use sidekicks_contracts::event::version::{EVENT_FIELD_MAX_LEN, EventEnvelopeVersion};
 use sidekicks_contracts::session::event_cursor::{
     EventCursor, EventCursorUnresolvable, START_OF_LOG_POSITION, decode_event_cursor,
 };
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::integer::MAX_SAFE_SIGNED_INTEGER;
+use sidekicks_contracts::wire::integer::{MAX_SAFE_SIGNED_INTEGER, SafeInt};
+use sidekicks_contracts::wire::record::RecordKey;
+use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::events::content::read::StoredEventContentRow;
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 
 /// A stored event row that is not a well-formed event envelope, which only a write outside the
-/// append path can leave; `sequence` is the row's.
+/// append path can leave; it names the row by its stored event id, session id and sequence.
 #[derive(Debug, thiserror::Error)]
 #[error(
-    "the stored event {event_id} at sequence {sequence} is not a well-formed event, so the row \
-     was written outside the append path"
+    "the stored event {event_id} of session {session_id} at sequence {sequence} is not a \
+     well-formed event, so the row was written outside the append path"
 )]
 pub(crate) struct MalformedStoredEventError {
-    /// The row's event id.
+    /// The row's event id, as stored.
     pub(crate) event_id: String,
+    /// The row's session id, as stored.
+    pub(crate) session_id: String,
     /// The row's sequence.
     pub(crate) sequence: i64,
     /// What is wrong with it.
@@ -41,12 +48,21 @@ pub(crate) struct MalformedStoredEventError {
 /// What makes a stored row not a well-formed event envelope.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum MalformedStoredEventFault {
-    /// `session_events.payload` is not JSON.
-    #[error("its payload column is not JSON")]
-    PayloadNotJson(#[source] serde_json::Error),
-    /// The columns do not read as an envelope.
-    #[error("its columns do not read as an event envelope")]
-    NotAnEnvelope(#[source] serde_json::Error),
+    /// `session_events.payload` is not a JSON object.
+    #[error("its payload column is not a JSON object")]
+    PayloadNotObject(#[source] serde_json::Error),
+    /// The payload holds the member `__proto__`, which no reader may meet.
+    #[error("its payload holds the member __proto__")]
+    PrototypeMember,
+    /// A column does not hold its envelope member's form.
+    #[error("its {column} column does not hold an envelope's {column}")]
+    Column {
+        /// The column's name.
+        column: &'static str,
+        /// Why the value was refused, where its check says.
+        #[source]
+        cause: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
     /// The envelope breaks one of its checks.
     #[error("its envelope breaks one of the envelope's checks")]
     Check(#[source] garde::Report),
@@ -315,19 +331,14 @@ where
                 |row| {
                     Ok((
                         StoredEventRow::from_row(row)?,
-                        row.get::<_, Option<String>>(STORED_EVENT_COLUMN_COUNT)?,
+                        row.get::<_, Option<Vec<u8>>>(STORED_EVENT_COLUMN_COUNT)?,
                     ))
                 },
             )
             .optional()?;
-        stored
-            .map(|(row, content_payload)| {
-                Ok(StoredEventContentRow {
-                    envelope: row.into_envelope()?,
-                    content_payload,
-                })
-            })
-            .transpose()
+        Ok(stored
+            .map(|(row, content_payload)| row.into_content_row(content_payload))
+            .transpose()?)
     }
 
     fn read_bound(&self, session_id: &SessionId, before_sequence: Option<i64>) -> i64 {
@@ -377,7 +388,8 @@ pub(crate) fn resolve_event_cursor(
 // The columns `SELECTED_COLUMNS` names; a stored-row read's body column follows them.
 const STORED_EVENT_COLUMN_COUNT: usize = 11;
 
-/// A `session_events` row as the reads select it, before it is checked.
+/// A `session_events` row as the reads select it, before it is checked; its payload is parsed
+/// straight from the column's text.
 struct StoredEventRow {
     id: String,
     session_id: String,
@@ -386,7 +398,7 @@ struct StoredEventRow {
     category: String,
     event_type: String,
     actor: Option<String>,
-    payload: String,
+    payload: Result<Map<String, Value>, serde_json::Error>,
     correlation_id: Option<String>,
     causation_id: Option<String>,
     version: String,
@@ -402,48 +414,182 @@ impl StoredEventRow {
             category: row.get(4)?,
             event_type: row.get(5)?,
             actor: row.get(6)?,
-            payload: row.get(7)?,
+            payload: serde_json::from_str(row.get_ref(7)?.as_str()?),
             correlation_id: row.get(8)?,
             causation_id: row.get(9)?,
             version: row.get(10)?,
         })
     }
 
-    /// The row as an envelope, through the tolerant envelope read, which keeps an event type this
-    /// build does not know as a stub. Storage keeps an absent correlation or causation id as
-    /// NULL, which the envelope omits.
+    /// The row as an envelope, each column through its member's own check, then the envelope's
+    /// checks; a type this build does not know is kept as a stub. Storage keeps an absent
+    /// correlation or causation id, and an absent actor, as NULL.
     fn into_envelope(self) -> Result<EventEnvelope, MalformedStoredEventError> {
+        let sequence = self.sequence;
         let malformed = |fault| MalformedStoredEventError {
             event_id: self.id.clone(),
-            sequence: self.sequence,
+            session_id: self.session_id.clone(),
+            sequence,
             fault,
         };
-        let payload: Value = serde_json::from_str(&self.payload)
-            .map_err(|error| malformed(MalformedStoredEventFault::PayloadNotJson(error)))?;
-        let mut members = Map::new();
-        members.insert("id".to_owned(), Value::String(self.id.clone()));
-        members.insert("sessionId".to_owned(), Value::String(self.session_id));
-        members.insert("sequence".to_owned(), Value::from(self.sequence));
-        members.insert("occurredAt".to_owned(), Value::String(self.occurred_at));
-        members.insert("category".to_owned(), Value::String(self.category));
-        members.insert("type".to_owned(), Value::String(self.event_type));
-        members.insert(
-            "actor".to_owned(),
-            self.actor.map_or(Value::Null, Value::String),
-        );
-        members.insert("payload".to_owned(), payload);
-        if let Some(correlation_id) = self.correlation_id {
-            members.insert("correlationId".to_owned(), Value::String(correlation_id));
+        let payload = self
+            .payload
+            .map_err(|error| malformed(MalformedStoredEventFault::PayloadNotObject(error)))?;
+        if payload.keys().any(RecordKey::is_prototype_key) {
+            return Err(malformed(MalformedStoredEventFault::PrototypeMember));
         }
-        if let Some(causation_id) = self.causation_id {
-            members.insert("causationId".to_owned(), Value::String(causation_id));
-        }
-        members.insert("version".to_owned(), Value::String(self.version));
-        let envelope: EventEnvelope = serde_json::from_value(Value::Object(members))
-            .map_err(|error| malformed(MalformedStoredEventFault::NotAnEnvelope(error)))?;
+        let envelope = EventEnvelope {
+            id: event_text(self.id.clone(), "id").map_err(malformed)?,
+            session_id: SessionId::new(&self.session_id)
+                .map_err(|error| malformed(column_fault("session_id", Some(error))))?,
+            sequence: u64::try_from(sequence)
+                .ok()
+                .and_then(SafeInt::new)
+                .ok_or_else(|| malformed(column_fault::<TextOnly>("sequence", None)))?,
+            occurred_at: EventOccurredAt::new(self.occurred_at)
+                .map_err(|refusal| malformed(column_fault("occurred_at", Some(refusal))))?,
+            category: EventCategory::from_wire_name(&self.category)
+                .ok_or_else(|| malformed(column_fault::<TextOnly>("category", None)))?,
+            event_type: EventEnvelopeType(event_text(self.event_type, "type").map_err(malformed)?),
+            actor: Some(
+                self.actor
+                    .map(|actor| event_text(actor, "actor"))
+                    .transpose()
+                    .map_err(malformed)?,
+            ),
+            payload,
+            correlation_id: self
+                .correlation_id
+                .map(|correlation_id| event_text(correlation_id, "correlation_id"))
+                .transpose()
+                .map_err(malformed)?,
+            causation_id: self
+                .causation_id
+                .map(|causation_id| event_text(causation_id, "causation_id"))
+                .transpose()
+                .map_err(malformed)?,
+            version: EventEnvelopeVersion::new(self.version)
+                .ok_or_else(|| malformed(column_fault::<TextOnly>("version", None)))?,
+        };
         envelope
             .validate()
             .map_err(|report| malformed(MalformedStoredEventFault::Check(report)))?;
         Ok(envelope)
+    }
+
+    /// The row as an envelope beside its stored body, the UTF-8 bytes `content_payload` holds;
+    /// fails as [`StoredEventRow::into_envelope`] does, and on a body that is not UTF-8.
+    fn into_content_row(
+        self,
+        content_payload: Option<Vec<u8>>,
+    ) -> Result<StoredEventContentRow, MalformedStoredEventError> {
+        let envelope = self.into_envelope()?;
+        let content_payload =
+            content_payload
+                .map(String::from_utf8)
+                .transpose()
+                .map_err(|error| MalformedStoredEventError {
+                    event_id: envelope.id.as_str().to_owned(),
+                    session_id: envelope.session_id.text().as_str().to_owned(),
+                    sequence: i64::from(envelope.sequence),
+                    fault: column_fault("content_payload", Some(error)),
+                })?;
+        Ok(StoredEventContentRow {
+            envelope,
+            content_payload,
+        })
+    }
+}
+
+/// A column whose check gives no cause of its own.
+type TextOnly = std::convert::Infallible;
+
+fn column_fault<Cause: std::error::Error + Send + Sync + 'static>(
+    column: &'static str,
+    cause: Option<Cause>,
+) -> MalformedStoredEventFault {
+    MalformedStoredEventFault::Column {
+        column,
+        cause: cause.map(|cause| Box::new(cause) as Box<dyn std::error::Error + Send + Sync>),
+    }
+}
+
+/// `text` as one of the envelope's free-form members, read from `column`.
+fn event_text(
+    text: String,
+    column: &'static str,
+) -> Result<FreeFormText<EVENT_FIELD_MAX_LEN>, MalformedStoredEventFault> {
+    FreeFormText::new(text).map_err(|error| column_fault(column, Some(error)))
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use rusqlite::params;
+    use sidekicks_contracts::session::id::SessionId;
+
+    use super::{MalformedStoredEventFault, SessionEventReads, SessionLogReadError};
+    use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::uuid_v7::mint_uuid_v7;
+
+    const WELL_FORMED_INSTANT: &str = "2026-10-14T09:00:00.000Z";
+
+    #[rstest]
+    #[case::payload_not_an_object(WELL_FORMED_INSTANT, "session_lifecycle", "[]", "payload")]
+    #[case::prototype_member(
+        WELL_FORMED_INSTANT,
+        "session_lifecycle",
+        r#"{"__proto__":{}}"#,
+        "__proto__"
+    )]
+    #[case::occurred_at_finer_than_a_millisecond(
+        "2026-10-14T09:00:00.0001Z",
+        "session_lifecycle",
+        "{}",
+        "occurred_at"
+    )]
+    #[case::unknown_category(WELL_FORMED_INSTANT, "lifecycle", "{}", "category")]
+    fn a_malformed_stored_row_is_refused_naming_its_event_and_session(
+        #[case] occurred_at: &str,
+        #[case] category: &str,
+        #[case] payload: &str,
+        #[case] faulty_member: &str,
+    ) {
+        let database = TestDatabase::new();
+        let writer = database.opener()().expect("the test creates its database");
+        let (session_id, event_id) = (test_session_id(), mint_uuid_v7().to_string());
+        writer
+            .execute(
+                "INSERT INTO session_events
+                   (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload)
+                 VALUES (?1, ?2, 0, ?3, 0, ?4, 'session.pinned', ?5)",
+                params![
+                    event_id,
+                    session_id.text().as_str(),
+                    occurred_at,
+                    category,
+                    payload
+                ],
+            )
+            .expect("the test writes its row");
+
+        let reader = database.reader();
+        let reads = SessionEventReads::new(&reader, |_: &SessionId| None);
+        let Err(SessionLogReadError::Malformed(malformed)) = reads.read_window(&session_id, 0, 0)
+        else {
+            panic!("the row is refused as malformed");
+        };
+        let found_member = match &malformed.fault {
+            MalformedStoredEventFault::PayloadNotObject(_) => "payload",
+            MalformedStoredEventFault::PrototypeMember => "__proto__",
+            MalformedStoredEventFault::Column { column, .. } => column,
+            MalformedStoredEventFault::Check(_) => "check",
+        };
+        assert_eq!(found_member, faulty_member);
+        assert_eq!(malformed.event_id, event_id);
+        assert_eq!(malformed.session_id, session_id.text().as_str());
+        let message = malformed.to_string();
+        assert!(message.contains(&event_id), "{message}");
+        assert!(message.contains(session_id.text().as_str()), "{message}");
     }
 }

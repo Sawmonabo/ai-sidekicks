@@ -19,7 +19,7 @@ use sidekicks_contracts::transcript::row::{
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_contracts::wire::integer::{SafeInt, count_bound};
 
-use crate::database::stored_column::safe_int_column;
+use crate::database::stored_column::{optional_utf8_blob_column, safe_int_column};
 use crate::transcript::turn_attribution::{
     RunEventAttribution, RunTurnReads, SessionTurnAttribution, TurnAttributionError,
 };
@@ -89,7 +89,7 @@ where
                     safe_int_column::<0>(row, 0)?.get(),
                     (
                         safe_int_column::<0>(row, 1)?,
-                        row.get::<_, Option<String>>(2)?,
+                        optional_utf8_blob_column(row, 2)?,
                     ),
                 ))
             },

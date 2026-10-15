@@ -12,14 +12,26 @@ use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::watch;
+
+use crate::events::session::appender::UnsequencedEventEnvelope;
+
+/// A committed event as its followers hear it: the envelope its row was written from, shared
+/// with that row, and the sequence its write committed it at.
+#[derive(Clone, Debug)]
+pub(crate) struct CommittedEvent {
+    /// The event as stored.
+    pub(crate) envelope: Arc<UnsequencedEventEnvelope>,
+    /// Its sequence in its session's log.
+    pub(crate) sequence: SafeInt<0>,
+}
 
 /// A follower of every session: called with each committed event, on the writer's pump. An error
 /// is logged and the follower stays attached.
 type AllSessionsFollower =
-    dyn Fn(&EventEnvelope) -> Result<(), Box<dyn Error + Send + Sync>> + Send + Sync;
+    dyn Fn(&CommittedEvent) -> Result<(), Box<dyn Error + Send + Sync>> + Send + Sync;
 
 // The followers of every session, keyed by attach order, so they are called in that order.
 #[derive(Default)]
@@ -42,7 +54,7 @@ impl SessionEventFollowers {
     /// attachment detaches it; one function attached twice is detached once per attachment.
     pub(crate) fn follow_all(
         self: &Arc<Self>,
-        follower: impl Fn(&EventEnvelope) -> Result<(), Box<dyn Error + Send + Sync>>
+        follower: impl Fn(&CommittedEvent) -> Result<(), Box<dyn Error + Send + Sync>>
         + Send
         + Sync
         + 'static,
@@ -72,7 +84,7 @@ impl SessionEventFollowers {
     /// Publishes one committed write's `events`, in sequence order: calls every follower of every
     /// session with each event, then raises each session's change count by its events. Called once
     /// per committed write, in commit order.
-    pub(crate) fn publish(&self, events: &[EventEnvelope]) {
+    pub(crate) fn publish(&self, events: &[CommittedEvent]) {
         // A snapshot, so a follower may attach or detach from inside its call.
         let followers: Vec<Arc<AllSessionsFollower>> =
             self.lock_followers().by_id.values().cloned().collect();
@@ -80,7 +92,7 @@ impl SessionEventFollowers {
             for follower in &followers {
                 if let Err(error) = follower(event) {
                     tracing::error!(
-                        session_id = %event.session_id,
+                        session_id = %event.envelope.session_id(),
                         sequence = event.sequence.get(),
                         error = &*error as &(dyn Error + 'static),
                         "a follower of every session failed on a committed event; it stays attached"
@@ -89,13 +101,15 @@ impl SessionEventFollowers {
             }
         }
 
-        let mut committed_by_session: HashMap<&SessionId, u64> = HashMap::new();
+        let mut committed_by_session: HashMap<SessionId, u64> = HashMap::new();
         for event in events {
-            *committed_by_session.entry(&event.session_id).or_default() += 1;
+            *committed_by_session
+                .entry(event.envelope.session_id())
+                .or_default() += 1;
         }
         let change_counts = self.lock_change_counts();
         for (session_id, committed) in committed_by_session {
-            if let Some(change_count) = change_counts.get(session_id) {
+            if let Some(change_count) = change_counts.get(&session_id) {
                 change_count.send_modify(|count| *count += committed);
             }
         }

@@ -120,6 +120,7 @@ pub(crate) fn read_stored_run_state_change(
         | SessionEvent::RunProviderInitialized(_)
         | SessionEvent::RunTurnStarted(_)
         | SessionEvent::RunWorkerShutdown(_)
+        | SessionEvent::RunRolledBack(_)
         | SessionEvent::SessionProviderStatus(_)
         | SessionEvent::ApprovalRejected(_)
         | SessionEvent::ApprovalCanceled(_)

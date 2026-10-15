@@ -1,7 +1,8 @@
 //! The write queue: the one task that owns the writer's queue. It takes every message the writer's
 //! handles send, in the order they sent them, admits writes up to the queue's cap and keeps the
 //! rest waiting in order, sends the thread one batch or checkpoint at a time, settles each write
-//! from the thread's answer, and closes the writer.
+//! from the thread's answer, and closes the writer. A batch holds whatever has been sent when the
+//! thread is free, so writes that arrive during a commit form the next one.
 
 use std::collections::VecDeque;
 use std::error::Error;
@@ -15,7 +16,7 @@ use tokio::time::Instant;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
-use crate::database::writer::depth_sampler::DepthSampler;
+use crate::database::writer::backpressure::BackpressureAlert;
 use crate::database::writer::messages::{
     BatchAnswer, BatchFailure, CheckpointAnswer, FailedBatch, ThreadExit, ThreadRequest, WriteJob,
     WriteJobOutcome,
@@ -27,10 +28,8 @@ use crate::database::writer::{
     is_interrupt, join_thread,
 };
 
-/// A batch goes to the thread once it holds this many entries, or once its oldest write has
-/// waited [`BATCH_WAIT`]. A larger write goes alone.
+/// The most entries a batch holds; a larger write goes whole and alone.
 const BATCH_ENTRY_LIMIT: usize = 50;
-const BATCH_WAIT: Duration = Duration::from_millis(10);
 
 const CLOSE_OPERATION: &str = "closing the database writer";
 
@@ -70,13 +69,13 @@ pub(super) struct WriteQueue {
     waiting: VecDeque<QueuedWrite>,
     /// Entries admitted, queued or in flight.
     depth: usize,
+    /// Entries of the writes waiting past the cap.
+    waiting_size: usize,
     /// Entries queued and not yet sent.
     queued_size: usize,
     batch: Option<InFlightBatch>,
     checkpoint: Option<InFlightCheckpoint>,
-    is_batch_due: bool,
-    batch_deadline: Option<Instant>,
-    sampler: DepthSampler,
+    backpressure: BackpressureAlert,
     flushes: VecDeque<PendingFlush>,
     pending_holds: VecDeque<PendingHold>,
     active_holds: Vec<u64>,
@@ -141,10 +140,8 @@ enum Wake {
     CheckpointAnswered(Result<CheckpointAnswer, RecvError>),
     ThreadExited(Result<ThreadExit, RecvError>),
     DrainBoundPassed,
-    BatchDue,
     HoldEnded(Result<Result<(), WritesHeldError>, RecvError>),
     Message(Option<QueueMessage>),
-    Sample,
 }
 
 /// The writer's thread stopped while the queue still had it serving.
@@ -179,12 +176,11 @@ impl WriteQueue {
             queued: VecDeque::new(),
             waiting: VecDeque::new(),
             depth: 0,
+            waiting_size: 0,
             queued_size: 0,
             batch: None,
             checkpoint: None,
-            is_batch_due: false,
-            batch_deadline: None,
-            sampler: DepthSampler::default(),
+            backpressure: BackpressureAlert::default(),
             flushes: VecDeque::new(),
             pending_holds: VecDeque::new(),
             active_holds: Vec::new(),
@@ -211,7 +207,6 @@ impl WriteQueue {
 
     async fn next_wake(&mut self) -> Wake {
         let drain_bound = self.drain_bound();
-        let batch_deadline = self.batch_deadline;
         // The thread's answers come first, so a batch settles before its thread's exit is read.
         tokio::select! {
             biased;
@@ -223,10 +218,7 @@ impl WriteQueue {
             }
             exit = output_of(self.thread_exit.as_mut()) => Wake::ThreadExited(exit),
             () = output_of(drain_bound.map(tokio::time::sleep_until)) => Wake::DrainBoundPassed,
-            () = output_of(batch_deadline.map(tokio::time::sleep_until)) => Wake::BatchDue,
             held = output_of(self.writes_held_until.as_mut()) => Wake::HoldEnded(held),
-            // Before the messages, so a flood of them cannot starve the depth alert.
-            () = self.sampler.next_sample() => Wake::Sample,
             message = self.messages.recv(), if self.is_receiving => Wake::Message(message),
         }
     }
@@ -249,18 +241,23 @@ impl WriteQueue {
             }
             Wake::ThreadExited(exit) => self.thread_exited(exit).await,
             Wake::DrainBoundPassed => self.stop_at_drain_bound(),
-            Wake::BatchDue => {
-                self.batch_deadline = None;
-                self.is_batch_due = true;
-            }
             Wake::HoldEnded(held) => self.hold_ended(held),
-            Wake::Message(Some(message)) => self.receive(message),
+            Wake::Message(Some(message)) => {
+                self.receive(message);
+                // The messages already sent are taken before the next batch goes, so writes sent
+                // back to back go out together; only those, so a flood never holds off an answer.
+                for _ in 0..self.messages.len() {
+                    let Ok(message) = self.messages.try_recv() else {
+                        break;
+                    };
+                    self.receive(message);
+                }
+            }
             Wake::Message(None) => {
                 // Every handle is gone: the writer closes as an unbounded close does.
                 self.is_receiving = false;
                 self.start_close(None);
             }
-            Wake::Sample => self.sample(),
         }
     }
 
@@ -300,12 +297,11 @@ impl WriteQueue {
     }
 
     /// Admits a write when nothing waits ahead of it and it fits under the cap; otherwise it waits
-    /// in order. A waited-on write that is admitted makes its batch due at once.
+    /// in order. Either way the queue's depth is checked for the backpressure warning.
     fn take_write(&mut self, request: WriteRequest) {
         let WriteRequest {
             job,
             size,
-            is_waited_on,
             on_commit,
             reply,
         } = request;
@@ -317,9 +313,8 @@ impl WriteQueue {
             send_answer(reply, Err(WriteError::Closed));
             return;
         }
-        if let Some(event) = job.events.last() {
-            self.sampler.note_event(event);
-        }
+        self.backpressure
+            .check_admission(self.depth + self.waiting_size, size, &job);
         let write = QueuedWrite {
             job,
             waiter: Waiter {
@@ -332,13 +327,10 @@ impl WriteQueue {
         self.next_ticket += 1;
         if self.waiting.is_empty() && self.depth + size <= WRITE_QUEUE_CAPACITY {
             self.admit(write);
-            if is_waited_on {
-                self.is_batch_due = true;
-            }
         } else {
+            self.waiting_size += size;
             self.waiting.push_back(write);
         }
-        self.sampler.start();
     }
 
     fn admit(&mut self, write: QueuedWrite) {
@@ -353,6 +345,7 @@ impl WriteQueue {
                 self.waiting.push_front(write);
                 break;
             }
+            self.waiting_size -= write.waiter.size;
             self.admit(write);
         }
     }
@@ -369,8 +362,8 @@ impl WriteQueue {
     }
 
     /// Answers what has come due and sends the thread its next request when none is in flight: a
-    /// hold whose writes have settled starts first, then a checkpoint, then a due batch, and
-    /// neither a checkpoint nor a batch goes while the writer holds its writes. A close whose
+    /// hold whose writes have settled starts first, then a checkpoint, then whatever is queued,
+    /// and neither a checkpoint nor a batch goes while the writer holds its writes. A close whose
     /// writes have all settled lets the thread go.
     fn advance(&mut self) {
         self.answer_settled_flushes();
@@ -379,7 +372,6 @@ impl WriteQueue {
         }
         self.start_ready_holds();
         if !self.active_holds.is_empty() {
-            self.batch_deadline = None;
             return;
         }
         // An end read inside a settle has not reached the queue yet, but sends nothing more.
@@ -391,32 +383,15 @@ impl WriteQueue {
             return;
         }
         if self.writes_held_until.is_some() {
-            self.batch_deadline = None;
             return;
         }
         if let Some(checkpoint) = self.checkpoints.pop_front() {
             self.send_checkpoint(checkpoint);
             return;
         }
-        if self.queued.is_empty() {
-            self.batch_deadline = None;
-            return;
-        }
-        if self.is_batch_due() {
+        if !self.queued.is_empty() {
             self.send_batch();
-        } else if self.batch_deadline.is_none() {
-            self.batch_deadline = Some(Instant::now() + BATCH_WAIT);
         }
-    }
-
-    /// Whether the queued writes go now: the batch is full, its wait has passed, a waited-on
-    /// write is in it, or a flush, a hold or a close waits on them.
-    fn is_batch_due(&self) -> bool {
-        self.queued_size >= BATCH_ENTRY_LIMIT
-            || self.is_batch_due
-            || !self.flushes.is_empty()
-            || !self.pending_holds.is_empty()
-            || self.closing.is_some()
     }
 
     fn answer_settled_flushes(&mut self) {
@@ -457,8 +432,6 @@ impl WriteQueue {
     /// Sends the oldest queued writes up to the batch limit, and always at least one, so a write
     /// larger than the limit goes whole and alone.
     fn send_batch(&mut self) {
-        self.batch_deadline = None;
-        self.is_batch_due = false;
         let mut batch_size = 0;
         let mut jobs = Vec::new();
         let mut waiters = Vec::new();
@@ -520,13 +493,6 @@ impl WriteQueue {
             }
         }
         self.admit_waiting();
-        if self.depth == 0 && self.waiting.is_empty() {
-            self.sampler.forget_event();
-        }
-        if !self.queued.is_empty() {
-            // Writes queued while the batch was out have waited long enough.
-            self.is_batch_due = true;
-        }
     }
 
     fn settle_committed_batch(&mut self, waiters: Vec<Waiter>, outcomes: Vec<WriteJobOutcome>) {
@@ -695,8 +661,6 @@ impl WriteQueue {
                 Err(CheckpointError::Ended(Arc::clone(&reason))),
             );
         }
-        self.batch_deadline = None;
-        self.sampler.stop();
         self.release_thread();
     }
 
@@ -721,6 +685,7 @@ impl WriteQueue {
             send_answer(write.waiter.reply, Err(error()));
             count += 1;
         }
+        self.waiting_size = 0;
         self.queued_size = 0;
         count
     }
@@ -780,7 +745,6 @@ impl WriteQueue {
             closing.is_past_bound = true;
             closing.unfinished += unsent;
         }
-        self.batch_deadline = None;
         self.release_thread();
     }
 
@@ -816,23 +780,12 @@ impl WriteQueue {
         });
     }
 
-    /// Samples the depth, counting the writes waiting past the cap.
-    fn sample(&mut self) {
-        let waiting_size = self
-            .waiting
-            .iter()
-            .map(|write| write.waiter.size)
-            .sum::<usize>();
-        self.sampler.sample(self.depth + waiting_size);
-    }
-
     /// Publishes the close's outcome, then stops taking messages and answers each one still sent
     /// with the writer closed.
     async fn finish_close(
         mut self,
         thread_outcome: Result<(), CleanupFailures<WriterCloseError, ThreadJoinError>>,
     ) {
-        self.sampler.stop();
         let unfinished = self
             .closing
             .as_ref()

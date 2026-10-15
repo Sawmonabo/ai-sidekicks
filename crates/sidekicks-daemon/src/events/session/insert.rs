@@ -1,19 +1,21 @@
 //! The `session_events` row write, run on the database writer's connection: it reads the session's
 //! head and inserts the row at the next sequence in one step, so two appends never derive one
 //! sequence. The same step advances the session's projection cursor, because every projection row
-//! an event moves is written in that event's own write. It also owns the clock a row's
-//! `monotonic_ns` reads.
+//! an event moves is written in that event's own write. The run an event belongs to, which its
+//! typed event names, is written to its own columns, so no write or read parses the payload for
+//! it. It also owns the clock a row's `monotonic_ns` reads.
 
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 use rusqlite::{Connection, OptionalExtension, named_params};
-use sidekicks_contracts::event::envelope::{EventCategory, EventEnvelopeType};
-use sidekicks_contracts::event::version::EventEnvelopeVersion;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::statement::DATABASE_NOW_SQL;
+use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::uuid_v7::mint_uuid_v7;
 
 /// The instant the daemon's clock counts from: the first read of [`monotonic_ns_now`], which the
@@ -27,33 +29,18 @@ pub(crate) fn monotonic_ns_now() -> i64 {
         .expect("an i64 of nanoseconds covers 292 years of uptime")
 }
 
-/// A `session_events` row as bound, before its sequence exists.
-#[derive(Clone, Debug)]
+/// A `session_events` row as bound, before its sequence exists: the event in its stored form,
+/// shared with the commit hook that publishes it, beside what only the row holds.
+#[derive(Debug)]
 pub(crate) struct SessionEventRow {
-    /// The event's id.
-    pub(crate) id: String,
-    /// The session the event belongs to.
-    pub(crate) session_id: SessionId,
-    /// When the event occurred, in the stored form `YYYY-MM-DDTHH:MM:SS.sssZ`.
-    pub(crate) occurred_at: String,
+    /// The event as stored, its `occurredAt` in the form `YYYY-MM-DDTHH:MM:SS.sssZ`.
+    pub(crate) envelope: Arc<UnsequencedEventEnvelope>,
+    /// The payload as JSON text, serialized on the appending task.
+    pub(crate) payload: String,
     /// [`monotonic_ns_now`] when the event was appended.
     pub(crate) monotonic_ns: i64,
-    /// The event's category.
-    pub(crate) category: EventCategory,
-    /// The event's type, as the envelope keeps it.
-    pub(crate) event_type: EventEnvelopeType,
-    /// Who acted, `None` for a system event.
-    pub(crate) actor: Option<String>,
-    /// The payload as JSON text.
-    pub(crate) payload: String,
-    /// The id that ties this event to others of one operation.
-    pub(crate) correlation_id: Option<String>,
-    /// The id of what caused this event.
-    pub(crate) causation_id: Option<String>,
-    /// The producer's envelope version.
-    pub(crate) version: EventEnvelopeVersion,
-    /// The event's body, kept out of the payload, `None` when it carries none.
-    pub(crate) content_payload: Option<String>,
+    /// The event's body as stored, kept out of the payload, `None` when it carries none.
+    pub(crate) content_payload: Option<Vec<u8>>,
 }
 
 /// Why a row was not written.
@@ -79,11 +66,13 @@ pub(crate) enum SessionEventInsertError {
 const INSERT_SESSION_EVENT_SQL: &str = "INSERT INTO session_events (
        id, session_id, sequence, occurred_at, monotonic_ns,
        category, type, actor, payload,
-       correlation_id, causation_id, version, content_payload
+       correlation_id, causation_id, version, content_payload,
+       run_id, run_version
      ) VALUES (
        @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
        @category, @type, @actor, @payload,
-       @correlation_id, @causation_id, @version, @content_payload
+       @correlation_id, @causation_id, @version, @content_payload,
+       @run_id, @run_version
      )";
 
 const HEAD_SEQUENCE_SQL: &str = "SELECT sequence
@@ -112,9 +101,13 @@ pub(crate) fn insert_session_event(
     connection: &Connection,
     row: &SessionEventRow,
 ) -> Result<SafeInt<0>, SessionEventInsertError> {
+    let event = &*row.envelope;
+    let session_id = event.session_id().text();
+    let run = event.run();
+    let run_id = run.map(|run| run.run_id.text());
     let head: Option<i64> = connection
         .prepare_cached(HEAD_SEQUENCE_SQL)?
-        .query_row([row.session_id.text().as_str()], |head_row| head_row.get(0))
+        .query_row([session_id.as_str()], |head_row| head_row.get(0))
         .optional()?;
     let sequence = match head {
         None => SafeInt::ZERO,
@@ -123,7 +116,7 @@ pub(crate) fn insert_session_event(
             .and_then(|next| u64::try_from(next).ok())
             .and_then(SafeInt::new)
             .ok_or_else(|| SessionEventInsertError::NoNextSequence {
-                session_id: row.session_id,
+                session_id: event.session_id(),
                 head,
             })?,
     };
@@ -131,26 +124,28 @@ pub(crate) fn insert_session_event(
     connection
         .prepare_cached(INSERT_SESSION_EVENT_SQL)?
         .execute(named_params! {
-            "@id": row.id,
-            "@session_id": row.session_id.text().as_str(),
+            "@id": event.id.as_str(),
+            "@session_id": session_id.as_str(),
             "@sequence": stored_sequence,
-            "@occurred_at": row.occurred_at,
+            "@occurred_at": event.occurred_at.as_str(),
             "@monotonic_ns": row.monotonic_ns,
-            "@category": row.category.as_str(),
-            "@type": row.event_type.as_str(),
-            "@actor": row.actor,
+            "@category": event.category().as_str(),
+            "@type": event.event_type().as_str(),
+            "@actor": event.actor.as_ref().map(FreeFormText::as_str),
             "@payload": row.payload,
-            "@correlation_id": row.correlation_id,
-            "@causation_id": row.causation_id,
-            "@version": row.version.as_str(),
+            "@correlation_id": event.correlation_id.as_ref().map(FreeFormText::as_str),
+            "@causation_id": event.causation_id.as_ref().map(FreeFormText::as_str),
+            "@version": event.version.as_str(),
             "@content_payload": row.content_payload,
+            "@run_id": run_id.as_ref().map(UuidText::as_str),
+            "@run_version": run.and_then(|run| run.run_version).map(i64::from),
         })?;
     // Runs for the service's own sentinel session too, whose cursor is written and never read.
     connection
         .prepare_cached(&ADVANCE_PROJECTION_CURSOR_SQL)?
         .execute(named_params! {
             "@id": mint_uuid_v7().to_string(),
-            "@session_id": row.session_id.text().as_str(),
+            "@session_id": session_id.as_str(),
             "@last_sequence": stored_sequence,
         })?;
     Ok(sequence)

@@ -70,8 +70,8 @@ const READ_BATCH_GROWTH: usize = 4;
 // first page ranks once.
 const FIRST_RANKED_SESSIONS: usize = SESSION_SEARCH_PAGE_LIMIT_MAX + 1;
 
-/// What `session.search` and `transcript.search` read: the search thread owns it, and each search
-/// borrows it per call, so both share one read connection and its statement cache.
+/// What `session.search` and `transcript.search` read: a read connection of their own, which
+/// each call reads in one transaction, and the search index every search shares.
 pub(crate) struct SearchServiceDeps {
     /// The read connection every read of the search runs on.
     pub(crate) reader: Connection,

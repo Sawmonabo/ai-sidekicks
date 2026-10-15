@@ -3,10 +3,9 @@
 //! its console settings, its run rows and its log; the session's whole log, or a page of it after a
 //! known sequence; and a rebuild of the record from that log through the projector, over the same
 //! envelope reads the event log serves, which skip a range the session skipped past as damaged and,
-//! while its history is damaged, stop at its last good point. The service owns one read-only
-//! connection and runs each read on the blocking pool.
+//! while its history is damaged, stop at its last good point. Each read borrows a connection from
+//! the daemon's read pool and runs on the blocking pool.
 
-use std::path::Path;
 use std::sync::{Arc, LazyLock};
 
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
@@ -31,10 +30,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::database::connection::reader::{
-    DatabaseReader, DatabaseReaderCloseError, DatabaseReaderError,
-};
+use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::sql_list::sql_list_of;
 use crate::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
@@ -51,11 +47,11 @@ use crate::session::records::DaemonSessionRecord;
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 use crate::transcript::run_facts::TranscriptRunFactsReader;
 
-/// The statements the service's connection caches: its own five (the row, the tags, the live runs,
-/// the standing sequences and the console read), the run facts' three, and the five shared event
-/// reads it runs (the head, the rows after a position of every type and of named types, a sequence
-/// window and the rows at named sequences).
-const SESSION_SERVICE_STATEMENT_CAPACITY: usize = 5 + 3 + 5;
+/// The statements the service's reads run: its own five (the row, the tags, the live runs, the
+/// standing sequences and the console read), the run facts' three, and the five shared event reads
+/// (the head, the rows after a position of every type and of named types, a sequence window and the
+/// rows at named sequences).
+pub(crate) const SESSION_SERVICE_STATEMENT_CAPACITY: usize = 5 + 3 + 5;
 
 // A negative limit reads every event.
 const NO_LIMIT: i64 = -1;
@@ -150,9 +146,10 @@ pub(crate) enum SessionServiceError {
     /// The log does not rebuild into a record.
     #[error(transparent)]
     Rebuild(#[from] SessionRebuildError),
-    /// The service's connection is closed, or the read's blocking task did not finish.
+    /// The read pool is closed, a connection did not open, or the read's blocking task did not
+    /// finish.
     #[error(transparent)]
-    Reader(#[from] DatabaseReaderError),
+    Pool(#[from] DatabaseReadError),
 }
 
 const SELECT_ROW_SQL: &str = "SELECT state, shape, name, muted_at, pending_working_folder,
@@ -274,26 +271,25 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// Reads one session on its own read-only connection: its record and cursors from its row, its
+/// Reads one session through the daemon's read pool: its record and cursors from its row, its
 /// whole log or a page of it, or its record rebuilt from that log. Each read runs on the blocking
-/// pool, one at a time on the connection.
+/// pool on a connection it borrows for the whole read.
 pub(crate) struct SessionService {
-    reader: DatabaseReader,
+    pool: Arc<DatabaseReadPool>,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
 }
 
 impl SessionService {
-    /// Opens the service's connection on the database at `database_path`, a blocking open;
-    /// `read_damaged_from_sequence` says where a damaged session's reads stop. Fails when the
-    /// database is missing or the connection's setup fails.
-    pub(crate) fn open(
-        database_path: &Path,
+    /// The service reading through `pool`; `read_damaged_from_sequence` says where a damaged
+    /// session's reads stop.
+    pub(crate) fn new(
+        pool: Arc<DatabaseReadPool>,
         read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
-    ) -> Result<Self, CleanupFailures<rusqlite::Error>> {
-        Ok(Self {
-            reader: DatabaseReader::open(database_path, SESSION_SERVICE_STATEMENT_CAPACITY)?,
+    ) -> Self {
+        Self {
+            pool,
             read_damaged_from_sequence,
-        })
+        }
     }
 
     /// The session's record, its transcript cursors, its runs not yet ended and its standing
@@ -307,9 +303,12 @@ impl SessionService {
         &self,
         request: SessionReadRequest,
     ) -> Result<SessionLogRead, SessionServiceError> {
-        self.run_read(move |reader, read_damaged_from_sequence| {
-            read_session(reader, read_damaged_from_sequence, &request.session_id)
-        })
+        self.run_read(
+            ReadLength::Short,
+            move |reader, read_damaged_from_sequence| {
+                read_session(reader, read_damaged_from_sequence, &request.session_id)
+            },
+        )
         .await
     }
 
@@ -320,9 +319,12 @@ impl SessionService {
         &self,
         request: EventsReadAfterSequenceRequest,
     ) -> Result<EventsReadAfterSequenceResponse, SessionServiceError> {
-        self.run_read(move |reader, read_damaged_from_sequence| {
-            read_events_after_sequence(reader, read_damaged_from_sequence, &request)
-        })
+        self.run_read(
+            ReadLength::Long,
+            move |reader, read_damaged_from_sequence| {
+                read_events_after_sequence(reader, read_damaged_from_sequence, &request)
+            },
+        )
         .await
     }
 
@@ -332,13 +334,16 @@ impl SessionService {
         &self,
         session_id: SessionId,
     ) -> Result<Vec<EventEnvelope>, SessionServiceError> {
-        self.run_read(move |reader, read_damaged_from_sequence| {
-            Ok(read_events(
-                reader,
-                read_damaged_from_sequence,
-                &session_id,
-            )?)
-        })
+        self.run_read(
+            ReadLength::Long,
+            move |reader, read_damaged_from_sequence| {
+                Ok(read_events(
+                    reader,
+                    read_damaged_from_sequence,
+                    &session_id,
+                )?)
+            },
+        )
         .await
     }
 
@@ -349,21 +354,22 @@ impl SessionService {
         &self,
         session_id: SessionId,
     ) -> Result<Option<DaemonSessionRecord>, SessionServiceError> {
-        self.run_read(move |reader, read_damaged_from_sequence| {
-            let events = read_events(reader, read_damaged_from_sequence, &session_id)?;
-            Ok(rebuild_session(&events)?)
-        })
+        self.run_read(
+            ReadLength::Long,
+            move |reader, read_damaged_from_sequence| {
+                let events = read_events(reader, read_damaged_from_sequence, &session_id)?;
+                Ok(rebuild_session(&events)?)
+            },
+        )
         .await
     }
 
-    /// Closes the service's connection once any running read is done; a later read fails with
-    /// [`SessionServiceError::Reader`]. Fails with SQLite's refusal of the close.
-    pub(crate) async fn close(&self) -> Result<(), DatabaseReaderCloseError> {
-        self.reader.close().await
-    }
-
-    // Runs `read` on the blocking pool with the connection held.
-    async fn run_read<Read, Answer>(&self, read: Read) -> Result<Answer, SessionServiceError>
+    // Runs `read` on the blocking pool on a borrowed connection held for the whole read.
+    async fn run_read<Read, Answer>(
+        &self,
+        length: ReadLength,
+        read: Read,
+    ) -> Result<Answer, SessionServiceError>
     where
         Read: FnOnce(&Connection, &DamagedFromSequenceReader) -> Result<Answer, SessionServiceError>
             + Send
@@ -371,8 +377,10 @@ impl SessionService {
         Answer: Send + 'static,
     {
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
-        self.reader
-            .read(move |connection| read(connection, &*read_damaged_from_sequence))
+        self.pool
+            .read(length, move |connection| {
+                read(connection, &*read_damaged_from_sequence)
+            })
             .await
     }
 }

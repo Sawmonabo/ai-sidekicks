@@ -11,6 +11,7 @@ use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use serde::de::IntoDeserializer;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -65,6 +66,12 @@ pub enum EventCategory {
 }
 
 impl EventCategory {
+    /// The category `name` names, read as its serde form reads it, or `None` for a name that is no
+    /// category.
+    pub fn from_wire_name(name: &str) -> Option<Self> {
+        Self::deserialize(IntoDeserializer::<serde::de::value::Error>::into_deserializer(name)).ok()
+    }
+
     /// The category's wire text, as its serde form writes it.
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -308,6 +315,13 @@ fn is_occurred_at(text: &str, (): &()) -> garde::Result {
 pub struct EventOccurredAt(#[garde(custom(is_occurred_at))] String);
 
 impl EventOccurredAt {
+    /// `text` as an `occurredAt`, held to the rule its garde check holds. Refuses with the first
+    /// [`OccurredAtRefusal`] that applies.
+    pub fn new(text: String) -> Result<Self, OccurredAtRefusal> {
+        parse_occurred_at(&text)?;
+        Ok(Self(text))
+    }
+
     /// The text as received.
     pub fn as_str(&self) -> &str {
         &self.0

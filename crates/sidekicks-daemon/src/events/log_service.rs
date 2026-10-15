@@ -1,11 +1,12 @@
 //! The event log service: the only append path for `session_events`, and the log's reads.
 //!
 //! - Order: the database writer reads the session's head and writes the row in one step on its
-//!   own connection, so two appends never share a sequence. An append takes the session's append
+//!   own connection, so two appends never share a sequence. An append holds the session's append
 //!   lock only while its write joins the writer's queue, so a caller holding the session sees its
 //!   rows land in the order it appended them, and lets it go before the commit, so a session's
-//!   appends share batches. A read that decides a write goes inside that write as a guarded
-//!   statement in the transactional prelude.
+//!   appends share batches. A caller already holding the session appends with its hold. A read
+//!   that decides a write goes inside that write as a guarded statement in the transactional
+//!   prelude.
 //! - Content: machine-authored prose is kept in `content_payload` beside the event, and the payload
 //!   gains the members that describe it; both are written as a unit.
 //! - Dual-write: the transactional prelude is committed in the same write just before the rows,
@@ -13,19 +14,16 @@
 //!   so a moved state refuses the write and consumes no sequence.
 //! - Refusal: a session that takes no writes, and an event that would not store faithfully, are
 //!   refused before anything is queued.
+//! - One copy: each event is held once, shared by the row the writer binds and the commit hook,
+//!   beside its payload text, serialized on the appending task.
 //! - Publication: each committed write's events go to the followers from the writer's commit hook,
 //!   on the writer's queue task, in commit order, whether or not the append's caller still waits.
-//! - Reads: one read-only connection of the service's own, read on a blocking thread and closed
-//!   through [`EventLogService::close`].
+//! - Reads: each borrows a connection from the daemon's read pool on a blocking thread.
 
-use std::path::Path;
 use std::sync::Arc;
 
-use serde_json::{Map, Value};
-use sidekicks_contracts::event::envelope::{
-    EventCategory, EventEnvelope, EventEnvelopeType, EventOccurredAt,
-};
-use sidekicks_contracts::event::version::{EVENT_FIELD_MAX_LEN, EventEnvelopeVersion};
+use sidekicks_contracts::event::envelope::EventEnvelope;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::session::event_cursor::{
     EventCursor, EventCursorPositionOutOfRange, EventCursorUnresolvable, START_OF_LOG_POSITION,
     encode_event_cursor,
@@ -34,23 +32,18 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::database::connection::reader::{
-    DatabaseReader, DatabaseReaderCloseError, DatabaseReaderError,
-};
+use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::statement::WriteStatement;
 use crate::database::writer::messages::WriteJob;
-use crate::database::writer::{CommitHook, DatabaseWriter, WriteError, WriteOptions};
-use crate::events::canonicalizer::{
-    CanonicalizationRefusal, OccurredAtNormalizationRefusal, canonicalize_event,
-    normalize_occurred_at,
-};
+use crate::database::writer::{CommitHook, DatabaseWriter, PendingWrite, WriteError};
+use crate::events::canonicalizer::{OccurredAtNormalizationRefusal, normalize_occurred_at};
 use crate::events::content::append::{
-    ContentDescriptionSeededError, ContentPartitionRefusedError, RegisteredVariantRefusal,
-    assert_no_seeded_content_description, assert_registered_variant_parses, compose_content_row,
+    ContentDescriptionSeededError, ContentPartitionRefusedError,
+    assert_no_seeded_content_description,
 };
-use crate::events::session::append_lock::SESSION_APPEND_LOCK;
-use crate::events::session::followers::SessionEventFollowers;
+use crate::events::session::append_lock::{SESSION_APPEND_LOCK, SessionAppendHold};
+use crate::events::session::appender::UnsequencedEventEnvelope;
+use crate::events::session::followers::{CommittedEvent, SessionEventFollowers};
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
 use crate::events::session::read::{
     DamagedFromSequenceReader, SessionEventFilter, SessionEventReads, SessionLogReadError,
@@ -61,9 +54,9 @@ use crate::ipc::domain_error::DomainError;
 /// The most events a read after a cursor returns when the caller names no limit.
 const DEFAULT_EVENT_READ_LIMIT: u32 = 100;
 
-/// The distinct statements the service's reads run on its connection: the head, the rows after a
-/// position, and a window of rows.
-const READER_STATEMENT_CAPACITY: usize = 3;
+/// The distinct statements the service's reads run: the head, the rows after a position, and a
+/// window of rows.
+pub(crate) const EVENT_LOG_STATEMENT_CAPACITY: usize = 3;
 
 /// How the append path names itself in a refusal.
 const APPEND_REFUSER: &str = "EventLogService::append";
@@ -77,71 +70,8 @@ pub(crate) type ProjectionStatements =
 pub(crate) type SessionWriteCheck =
     dyn Fn(&SessionId, &str) -> Result<(), DomainError> + Send + Sync;
 
-/// The reads of one call, on the service's connection.
+/// The reads of one call, on a borrowed connection.
 type LogReads<'reader> = SessionEventReads<'reader, &'reader DamagedFromSequenceReader>;
-
-/// An event to append: every member of the stored envelope but `sequence`, which the writer mints
-/// inside its transaction.
-#[derive(Clone, Debug)]
-pub(crate) struct UnsequencedEventEnvelope {
-    /// The event's id.
-    pub(crate) id: FreeFormText<EVENT_FIELD_MAX_LEN>,
-    /// The session the event belongs to.
-    pub(crate) session_id: SessionId,
-    /// When the event occurred; stored in UTC to the millisecond.
-    pub(crate) occurred_at: EventOccurredAt,
-    /// The event's category.
-    pub(crate) category: EventCategory,
-    /// The event's type.
-    pub(crate) event_type: EventEnvelopeType,
-    /// Who acted: absent, `null` or a person's or an agent's id; absent is stored as `null`.
-    #[expect(
-        clippy::option_option,
-        reason = "the envelope's actor tells absent from null, and this repeats it"
-    )]
-    pub(crate) actor: Option<Option<FreeFormText<EVENT_FIELD_MAX_LEN>>>,
-    /// The category's own members.
-    pub(crate) payload: Map<String, Value>,
-    /// The id that ties this event to others of one operation.
-    pub(crate) correlation_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
-    /// The id of what caused this event.
-    pub(crate) causation_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
-    /// The producer's envelope version.
-    pub(crate) version: EventEnvelopeVersion,
-}
-
-impl UnsequencedEventEnvelope {
-    fn from_envelope(envelope: EventEnvelope) -> Self {
-        Self {
-            id: envelope.id,
-            session_id: envelope.session_id,
-            occurred_at: envelope.occurred_at,
-            category: envelope.category,
-            event_type: envelope.event_type,
-            actor: envelope.actor,
-            payload: envelope.payload,
-            correlation_id: envelope.correlation_id,
-            causation_id: envelope.causation_id,
-            version: envelope.version,
-        }
-    }
-
-    fn into_envelope(self, sequence: SafeInt<0>) -> EventEnvelope {
-        EventEnvelope {
-            id: self.id,
-            session_id: self.session_id,
-            sequence,
-            occurred_at: self.occurred_at,
-            category: self.category,
-            event_type: self.event_type,
-            actor: self.actor,
-            payload: self.payload,
-            correlation_id: self.correlation_id,
-            causation_id: self.causation_id,
-            version: self.version,
-        }
-    }
-}
 
 /// How one [`EventLogService::append`] is written.
 #[derive(Debug, Default)]
@@ -155,8 +85,6 @@ pub(crate) struct EventLogAppendOptions {
     /// Events of the same session committed in the same write, in order, just before this one,
     /// each at its own sequence; each is checked as this one is and carries no content.
     pub(crate) preceding_events: Vec<UnsequencedEventEnvelope>,
-    /// Whether someone waits on the write, so its batch goes to the database at once.
-    pub(crate) is_waited_on: bool,
 }
 
 /// An appended event once it committed: its id and the sequence the writer gave it.
@@ -189,6 +117,18 @@ pub(crate) enum EventAppendError {
         /// The appended event's session.
         session_id: SessionId,
     },
+    /// The append was given a hold on another session than the event's.
+    #[error(
+        "an event of session {} cannot be appended under a hold on session {}",
+        .session_id,
+        .held_session_id
+    )]
+    HoldOfAnotherSession {
+        /// The session the hold is on.
+        held_session_id: SessionId,
+        /// The event's session.
+        session_id: SessionId,
+    },
     /// The payload already carries a content description member, which only the append path sets.
     #[error(transparent)]
     SeededContentDescription(#[from] ContentDescriptionSeededError),
@@ -198,12 +138,6 @@ pub(crate) enum EventAppendError {
     /// A content body was given for a type that carries none.
     #[error(transparent)]
     ContentPartition(#[from] ContentPartitionRefusedError),
-    /// The event does not parse as its registered variant.
-    #[error(transparent)]
-    RegisteredVariant(#[from] RegisteredVariantRefusal),
-    /// The event has no canonical form, so its stored copy would not hold it faithfully.
-    #[error("the event has no canonical form")]
-    NoCanonicalForm(#[from] CanonicalizationRefusal),
     /// The writer did not keep the write: a guarded statement refused it
     /// ([`WriteError::Refused`]), SQLite failed it, or the writer was ended or closed.
     #[error("the event's write was not kept")]
@@ -222,9 +156,10 @@ pub(crate) enum EventLogReadError {
     /// A stored position has no cursor, being past the safe integers.
     #[error("a read position has no event cursor")]
     CursorOutOfRange(#[from] EventCursorPositionOutOfRange),
-    /// The service's connection is closed, or the read's blocking task did not finish.
+    /// The read pool is closed, a connection did not open, or the read's blocking task did not
+    /// finish.
     #[error(transparent)]
-    Reader(#[from] DatabaseReaderError),
+    Pool(#[from] DatabaseReadError),
 }
 
 /// What [`EventLogService::read_after_cursor`] reads.
@@ -271,6 +206,8 @@ pub(crate) struct EventReadWindowResponse {
 pub(crate) struct EventLogServiceDependencies {
     /// The writer every append goes through.
     pub(crate) writer: Arc<DatabaseWriter>,
+    /// The read pool every read borrows a connection from.
+    pub(crate) pool: Arc<DatabaseReadPool>,
     /// The followers the daemon's start shares with every consumer; each committed write's events
     /// are published to them.
     pub(crate) followers: Arc<SessionEventFollowers>,
@@ -286,23 +223,26 @@ pub(crate) struct EventLogServiceDependencies {
 /// The sole append path for `session_events` and the log's reads; see the module doc.
 pub(crate) struct EventLogService {
     writer: Arc<DatabaseWriter>,
+    pool: Arc<DatabaseReadPool>,
     followers: Arc<SessionEventFollowers>,
     projection_statements: Option<Box<ProjectionStatements>>,
     refuse_session_write: Option<Box<SessionWriteCheck>>,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
-    reader: DatabaseReader,
+}
+
+/// One append's write, composed and checked, ready to queue.
+struct ComposedWrite {
+    job: WriteJob,
+    on_commit: CommitHook,
+    id: FreeFormText<EVENT_FIELD_MAX_LEN>,
 }
 
 impl EventLogService {
-    /// The service over `dependencies`, with its own read-only connection on the database at
-    /// `database_path`. Fails when that connection cannot be opened or set up.
-    pub(crate) fn open(
-        database_path: &Path,
-        dependencies: EventLogServiceDependencies,
-    ) -> Result<Self, CleanupFailures<rusqlite::Error>> {
-        let reader = DatabaseReader::open(database_path, READER_STATEMENT_CAPACITY)?;
+    /// The service over `dependencies`.
+    pub(crate) fn new(dependencies: EventLogServiceDependencies) -> Self {
         let EventLogServiceDependencies {
             writer,
+            pool,
             followers,
             projection_statements,
             refuse_session_write,
@@ -312,88 +252,53 @@ impl EventLogService {
             let reads_whole: Arc<DamagedFromSequenceReader> = Arc::new(|_: &SessionId| None::<i64>);
             reads_whole
         });
-        Ok(Self {
+        Self {
             writer,
+            pool,
             followers,
             projection_statements,
             refuse_session_write,
             read_damaged_from_sequence,
-            reader,
-        })
+        }
     }
 
-    /// Appends `envelope`, after any preceding events, and returns once it committed, with its
-    /// sequence. Refuses, before anything is queued, an event of a session that takes no writes,
-    /// a preceding event of another session, a seeded content description, a content body on a
-    /// type that carries none, an event its registered variant rejects and one with no canonical
-    /// form; then fails as the writer does, [`WriteError::Refused`] among it. An event is never
-    /// refused for its size. Dropping the future once its write is queued neither withdraws the
-    /// write nor its publication.
+    /// Appends `envelope`, after any preceding events, holding its session's append lock while
+    /// the write is queued, and returns once it committed, with its sequence. Refuses, before
+    /// anything is queued, an event of a session that takes no writes, a preceding event of
+    /// another session, a seeded content description, a content body on a type that carries none
+    /// and an `occurredAt` that cannot be stored; then fails as the writer does,
+    /// [`WriteError::Refused`] among it. An event is never refused for its size. Dropping the
+    /// future once its write is queued neither withdraws the write nor its publication.
     pub(crate) async fn append(
         &self,
         envelope: UnsequencedEventEnvelope,
         options: EventLogAppendOptions,
     ) -> Result<EventLogAppendReceipt, EventAppendError> {
-        if let Some(refuse_session_write) = &self.refuse_session_write {
-            refuse_session_write(&envelope.session_id, envelope.event_type.as_str())
-                .map_err(EventAppendError::SessionWriteRefused)?;
-        }
-        let EventLogAppendOptions {
-            content_body,
-            transactional_prelude,
-            preceding_events,
-            is_waited_on,
-        } = options;
-        // One clock reading for every event of the write.
-        let monotonic_ns = monotonic_ns_now();
-        let mut written = Vec::with_capacity(preceding_events.len() + 1);
-        for preceding in preceding_events {
-            if preceding.session_id != envelope.session_id {
-                return Err(EventAppendError::PrecedingEventOfAnotherSession {
-                    preceding_type: preceding.event_type.as_str().to_owned(),
-                    preceding_session_id: preceding.session_id,
-                    session_id: envelope.session_id,
-                });
-            }
-            written.push(compose_row(preceding, None, monotonic_ns)?);
-        }
-        let session_id = envelope.session_id;
-        let composed = compose_row(envelope, content_body.as_deref(), monotonic_ns)?;
-        let id = composed.stored_envelope.id.clone();
-        written.push(composed);
+        let session_id = envelope.session_id();
+        let write = self.compose_write(envelope, options)?;
+        let hold = SESSION_APPEND_LOCK.acquire(session_id).await;
+        let queued = self.enqueue(write);
+        // Let go once queued, so the commit is awaited outside the lock.
+        drop(hold);
+        committed(queued?).await
+    }
 
-        let mut statements = transactional_prelude;
-        if let Some(projection_statements) = &self.projection_statements {
-            for event in &written {
-                statements.extend(projection_statements(&event.stored_envelope));
-            }
+    /// Appends as [`EventLogService::append`] does, under `hold`, the caller's own hold on the
+    /// event's session, so it never waits on that lock. Also refuses a hold on another session.
+    pub(crate) async fn append_held(
+        &self,
+        hold: &SessionAppendHold,
+        envelope: UnsequencedEventEnvelope,
+        options: EventLogAppendOptions,
+    ) -> Result<EventLogAppendReceipt, EventAppendError> {
+        if *hold.key() != envelope.session_id() {
+            return Err(EventAppendError::HoldOfAnotherSession {
+                held_session_id: *hold.key(),
+                session_id: envelope.session_id(),
+            });
         }
-        let (rows, stored_envelopes): (Vec<SessionEventRow>, Vec<UnsequencedEventEnvelope>) =
-            written
-                .into_iter()
-                .map(|event| (event.row, event.stored_envelope))
-                .unzip();
-        let job = WriteJob {
-            statements,
-            events: rows,
-        };
-        let on_commit = publish_on_commit(stored_envelopes, Arc::clone(&self.followers));
-        let write_options = WriteOptions { is_waited_on };
-
-        // Queued under the session's lock, so its rows take their sequences in append order; the
-        // lock is let go once the write is queued, and the commit is awaited outside it.
-        let pending = SESSION_APPEND_LOCK
-            .run(session_id, move || async move {
-                self.writer.enqueue(job, write_options, Some(on_commit))
-            })
-            .await?;
-        let committed = pending.await?;
-        let sequence = committed
-            .sequences
-            .last()
-            .copied()
-            .expect("a committed write has a sequence per row, and an append writes one");
-        Ok(EventLogAppendReceipt { id, sequence })
+        let write = self.compose_write(envelope, options)?;
+        committed(self.enqueue(write)?).await
     }
 
     /// Up to `limit` events after the cursor's position, in sequence order. The session's head is
@@ -404,7 +309,7 @@ impl EventLogService {
         &self,
         request: EventReadAfterCursorRequest,
     ) -> Result<EventReadAfterCursorResponse, EventLogReadError> {
-        self.read(move |reads| {
+        self.read(ReadLength::Long, move |reads| {
             let EventReadAfterCursorRequest {
                 session_id,
                 after_cursor,
@@ -441,7 +346,7 @@ impl EventLogService {
         &self,
         session_id: SessionId,
     ) -> Result<EventCursor, EventLogReadError> {
-        self.read(move |reads| {
+        self.read(ReadLength::Short, move |reads| {
             let head = reads.read_head(&session_id)?;
             Ok(encode_event_cursor(head.unwrap_or(START_OF_LOG_POSITION))?)
         })
@@ -454,7 +359,7 @@ impl EventLogService {
         &self,
         request: EventReadWindowRequest,
     ) -> Result<EventReadWindowResponse, EventLogReadError> {
-        self.read(move |reads| {
+        self.read(ReadLength::Long, move |reads| {
             let events = reads.read_window(
                 &request.session_id,
                 request.from_sequence,
@@ -472,20 +377,15 @@ impl EventLogService {
         Arc::ptr_eq(&self.writer, writer)
     }
 
-    /// Closes the service's connection once any running read is done; a later read fails with
-    /// [`EventLogReadError::Reader`]. Fails with SQLite's refusal of the close.
-    pub(crate) async fn close(&self) -> Result<(), DatabaseReaderCloseError> {
-        self.reader.close().await
-    }
-
-    /// Runs `read` on the service's connection on a blocking thread.
+    /// Runs `read` on a borrowed connection on a blocking thread.
     async fn read<Output: Send + 'static>(
         &self,
+        length: ReadLength,
         read: impl FnOnce(&LogReads<'_>) -> Result<Output, EventLogReadError> + Send + 'static,
     ) -> Result<Output, EventLogReadError> {
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
-        self.reader
-            .read(move |connection| {
+        self.pool
+            .read(length, move |connection| {
                 read(&SessionEventReads::new(
                     connection,
                     &*read_damaged_from_sequence,
@@ -493,115 +393,143 @@ impl EventLogService {
             })
             .await
     }
+
+    /// Composes every event of one append as it will be stored and the write that stores them.
+    /// Refuses as [`EventLogService::append`] says, before anything is queued.
+    fn compose_write(
+        &self,
+        envelope: UnsequencedEventEnvelope,
+        options: EventLogAppendOptions,
+    ) -> Result<ComposedWrite, EventAppendError> {
+        if let Some(refuse_session_write) = &self.refuse_session_write {
+            refuse_session_write(&envelope.session_id(), envelope.event_type().as_str())
+                .map_err(EventAppendError::SessionWriteRefused)?;
+        }
+        let EventLogAppendOptions {
+            content_body,
+            transactional_prelude,
+            preceding_events,
+        } = options;
+        // One clock reading for every event of the write.
+        let monotonic_ns = monotonic_ns_now();
+        let mut rows = Vec::with_capacity(preceding_events.len() + 1);
+        for preceding in preceding_events {
+            if preceding.session_id() != envelope.session_id() {
+                return Err(EventAppendError::PrecedingEventOfAnotherSession {
+                    preceding_type: preceding.event_type().as_str().to_owned(),
+                    preceding_session_id: preceding.session_id(),
+                    session_id: envelope.session_id(),
+                });
+            }
+            rows.push(compose_row(preceding, None, monotonic_ns)?);
+        }
+        let row = compose_row(envelope, content_body.as_deref(), monotonic_ns)?;
+        let id = row.envelope.id.clone();
+        rows.push(row);
+
+        let mut statements = transactional_prelude;
+        if let Some(projection_statements) = &self.projection_statements {
+            for row in &rows {
+                statements.extend(projection_statements(&row.envelope));
+            }
+        }
+        let stored_envelopes = rows.iter().map(|row| Arc::clone(&row.envelope)).collect();
+        Ok(ComposedWrite {
+            job: WriteJob {
+                statements,
+                events: rows,
+            },
+            on_commit: publish_on_commit(stored_envelopes, Arc::clone(&self.followers)),
+            id,
+        })
+    }
+
+    /// Queues `write` with no await, so a caller holding the session's lock lets it go at once.
+    fn enqueue(
+        &self,
+        write: ComposedWrite,
+    ) -> Result<(PendingWrite, FreeFormText<EVENT_FIELD_MAX_LEN>), WriteError> {
+        let pending = self.writer.enqueue(write.job, Some(write.on_commit))?;
+        Ok((pending, write.id))
+    }
 }
 
-/// One event of an append as it will be stored: its row, and its envelope without the sequence.
-struct ComposedEvent {
-    row: SessionEventRow,
-    stored_envelope: UnsequencedEventEnvelope,
+/// The receipt of a queued append once its write committed.
+async fn committed(
+    (pending, id): (PendingWrite, FreeFormText<EVENT_FIELD_MAX_LEN>),
+) -> Result<EventLogAppendReceipt, EventAppendError> {
+    let committed = pending.await?;
+    let sequence = committed
+        .sequences
+        .last()
+        .copied()
+        .expect("a committed write has a sequence per row, and an append writes one");
+    Ok(EventLogAppendReceipt { id, sequence })
 }
 
-/// The commit hook that pairs `stored_envelopes` with the sequences their write committed at and
-/// publishes them to `followers` once, on the writer's queue task.
+/// The commit hook that pairs `stored_envelopes`, the ones the write's rows bound, with the
+/// sequences their write committed at and publishes them to `followers` once, on the writer's
+/// queue task.
 fn publish_on_commit(
-    stored_envelopes: Vec<UnsequencedEventEnvelope>,
+    stored_envelopes: Vec<Arc<UnsequencedEventEnvelope>>,
     followers: Arc<SessionEventFollowers>,
 ) -> CommitHook {
     Box::new(move |sequences: &[SafeInt<0>]| {
-        let committed: Vec<EventEnvelope> = stored_envelopes
+        let committed: Vec<CommittedEvent> = stored_envelopes
             .into_iter()
             .zip(sequences.iter().copied())
-            .map(|(envelope, sequence)| envelope.into_envelope(sequence))
+            .map(|(envelope, sequence)| CommittedEvent { envelope, sequence })
             .collect();
         followers.publish(&committed);
     })
 }
 
-/// Composes the row exactly as it will be stored, checked and canonicalized, and the envelope it
-/// stores; everything bound comes from the composed envelope, never the caller's input.
+/// Composes the row exactly as it will be stored: the envelope in its stored form, shared by the
+/// row and the commit hook, its payload text and its body. Everything bound comes from the
+/// composed envelope, never the caller's input.
 fn compose_row(
-    envelope: UnsequencedEventEnvelope,
+    mut envelope: UnsequencedEventEnvelope,
     content_body: Option<&str>,
     monotonic_ns: i64,
-) -> Result<ComposedEvent, EventAppendError> {
+) -> Result<SessionEventRow, EventAppendError> {
     // Checked before the content picks the branch: a seeded `contentLength` without content would
     // otherwise be stored as given.
-    assert_no_seeded_content_description(&envelope.payload, APPEND_REFUSER)?;
-    // Storage holds an absent actor and a `null` one as one NULL, while the canonical bytes tell
-    // them apart, so the envelope takes the stored form before it is measured.
-    let storable = EventEnvelope {
-        id: envelope.id,
-        session_id: envelope.session_id,
-        sequence: SafeInt::ZERO,
-        occurred_at: normalize_occurred_at(envelope.occurred_at.as_str())?,
-        category: envelope.category,
-        event_type: envelope.event_type,
-        actor: Some(envelope.actor.flatten()),
-        payload: envelope.payload,
-        correlation_id: envelope.correlation_id,
-        causation_id: envelope.causation_id,
-        version: envelope.version,
-    };
-    let (composed, content_payload) = match content_body {
-        None => (storable, None),
-        Some(body) => {
-            let content_row = compose_content_row(storable, body)?;
-            (content_row.envelope, Some(content_row.stored_body))
-        }
-    };
-    let composed = assert_registered_variant_parses(composed, APPEND_REFUSER)?;
-    // Refuses before any write what the stored row could not hold faithfully.
-    canonicalize_event(&composed)?;
-    let row = SessionEventRow {
-        id: composed.id.as_str().to_owned(),
-        session_id: composed.session_id,
-        occurred_at: composed.occurred_at.as_str().to_owned(),
+    assert_no_seeded_content_description(envelope.payload(), APPEND_REFUSER)?;
+    envelope.occurred_at = normalize_occurred_at(envelope.occurred_at.as_str())?;
+    let content_payload = content_body
+        .map(|body| envelope.describe_content(body))
+        .transpose()?;
+    let payload = serde_json::to_string(envelope.payload()).expect("a JSON object serializes");
+    Ok(SessionEventRow {
+        envelope: Arc::new(envelope),
+        payload,
         monotonic_ns,
-        category: composed.category,
-        event_type: composed.event_type.clone(),
-        actor: composed
-            .actor
-            .clone()
-            .flatten()
-            .map(FreeFormText::into_string),
-        payload: serde_json::to_string(&composed.payload).expect("a JSON object serializes"),
-        correlation_id: composed
-            .correlation_id
-            .as_ref()
-            .map(|correlation_id| correlation_id.as_str().to_owned()),
-        causation_id: composed
-            .causation_id
-            .as_ref()
-            .map(|causation_id| causation_id.as_str().to_owned()),
-        version: composed.version.clone(),
         content_payload,
-    };
-    Ok(ComposedEvent {
-        row,
-        stored_envelope: UnsequencedEventEnvelope::from_envelope(composed),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use serde_json::json;
-    use sidekicks_contracts::event::envelope::{EventCategory, EventEnvelopeType, EventOccurredAt};
-    use sidekicks_contracts::event::registry::SessionEventType;
     use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::text::FreeFormText;
     use tokio::sync::oneshot;
 
     use super::{
-        EventLogAppendOptions, EventLogService, EventLogServiceDependencies,
-        EventReadAfterCursorRequest, UnsequencedEventEnvelope,
+        EVENT_LOG_STATEMENT_CAPACITY, EventAppendError, EventLogAppendOptions, EventLogService,
+        EventLogServiceDependencies, EventReadAfterCursorRequest, UnsequencedEventEnvelope,
     };
-    use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WritesHeldError};
+    use crate::events::session::append_lock::SESSION_APPEND_LOCK;
     use crate::events::session::followers::SessionEventFollowers;
-    use crate::events::session::version::SESSION_EVENT_VERSION;
     use crate::uuid_v7::mint_uuid_v7;
+
+    /// Bounds an append the test expects to answer, so one that waits on a lock fails the test.
+    const APPEND_WAIT: Duration = Duration::from_secs(5);
 
     /// A held writer, the service on the same file, and the followers it publishes to.
     struct TestLog {
@@ -628,17 +556,17 @@ mod tests {
             .expect("the writer opens its database"),
         );
         let followers = Arc::new(SessionEventFollowers::default());
-        let service = EventLogService::open(
-            &database.path(),
-            EventLogServiceDependencies {
-                writer: Arc::clone(&writer),
-                followers: Arc::clone(&followers),
-                projection_statements: None,
-                refuse_session_write: None,
-                read_damaged_from_sequence: None,
-            },
-        )
-        .expect("the service opens its reader");
+        let service = EventLogService::new(EventLogServiceDependencies {
+            writer: Arc::clone(&writer),
+            pool: Arc::new(DatabaseReadPool::new(
+                database.path(),
+                EVENT_LOG_STATEMENT_CAPACITY,
+            )),
+            followers: Arc::clone(&followers),
+            projection_statements: None,
+            refuse_session_write: None,
+            read_damaged_from_sequence: None,
+        });
         TestLog {
             release,
             writer,
@@ -647,27 +575,14 @@ mod tests {
         }
     }
 
-    /// A `tool.invoked` event of `session_id` its registered variant takes.
-    fn tool_invoked(session_id: &SessionId) -> UnsequencedEventEnvelope {
-        let payload = serde_json::from_value(json!({
-            "sessionId": session_id,
-            "runId": mint_uuid_v7().to_string(),
-            "toolName": "Read",
+    /// A `tool.invoked` event of `session_id` in the run `run_id`.
+    fn tool_invoked(session_id: &SessionId, run_id: &str) -> UnsequencedEventEnvelope {
+        let event = serde_json::from_value(json!({
+            "type": "tool.invoked",
+            "payload": { "sessionId": session_id, "runId": run_id, "toolName": "Read" },
         }))
-        .expect("the payload is written as an object");
-        UnsequencedEventEnvelope {
-            id: FreeFormText::new(mint_uuid_v7().to_string()).expect("a minted UUID is an id"),
-            session_id: *session_id,
-            occurred_at: EventOccurredAt::from_timestamp(jiff::Timestamp::now())
-                .expect("now is after year 0000"),
-            category: EventCategory::ToolActivity,
-            event_type: EventEnvelopeType::from(SessionEventType::ToolInvoked),
-            actor: None,
-            payload,
-            correlation_id: None,
-            causation_id: None,
-            version: SESSION_EVENT_VERSION.clone(),
-        }
+        .expect("the test writes a tool.invoked event");
+        test_envelope(*session_id, &event)
     }
 
     #[tokio::test]
@@ -691,8 +606,12 @@ mod tests {
             }
         });
         let session_id = test_session_id();
+        let run_id = mint_uuid_v7().to_string();
         let mut appends = [(); 3].map(|()| {
-            Box::pin(service.append(tool_invoked(&session_id), EventLogAppendOptions::default()))
+            Box::pin(service.append(
+                tool_invoked(&session_id, &run_id),
+                EventLogAppendOptions::default(),
+            ))
         });
         // Polled once each, every write is queued behind the hold.
         for append in &mut appends {
@@ -733,8 +652,11 @@ mod tests {
         } = open_log(&database).await;
         let session_id = test_session_id();
         let mut change_count = followers.change_count(&session_id);
-        let mut appended =
-            Box::pin(service.append(tool_invoked(&session_id), EventLogAppendOptions::default()));
+        let run_id = mint_uuid_v7().to_string();
+        let mut appended = Box::pin(service.append(
+            tool_invoked(&session_id, &run_id),
+            EventLogAppendOptions::default(),
+        ));
         assert!(futures::poll!(&mut appended).is_pending());
         assert!(
             !change_count
@@ -763,10 +685,66 @@ mod tests {
             .collect();
         assert_eq!(sequences, [0]);
         assert!(!page.has_more);
+        // The run the payload names is the row's own column, which run reads seek on.
+        let run_columns: (Option<String>, Option<i64>) = database
+            .reader()
+            .query_row(
+                "SELECT run_id, run_version FROM session_events",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("the test reads the row's run columns");
+        assert_eq!(run_columns, (Some(run_id), None));
         assert_eq!(
             appended.await.expect("the append commits").sequence.get(),
             0
         );
+        assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
+    }
+
+    #[tokio::test]
+    async fn an_append_under_a_hold_goes_without_the_lock_and_only_on_the_held_session() {
+        let database = TestDatabase::new();
+        let TestLog {
+            release,
+            writer,
+            service,
+            ..
+        } = open_log(&database).await;
+        release.send(Ok(())).expect("the writer waits on its hold");
+        let (held_session_id, other_session_id) = (test_session_id(), test_session_id());
+        let run_id = mint_uuid_v7().to_string();
+        let hold = SESSION_APPEND_LOCK.acquire(held_session_id).await;
+
+        let refused = tokio::time::timeout(
+            APPEND_WAIT,
+            service.append_held(
+                &hold,
+                tool_invoked(&other_session_id, &run_id),
+                EventLogAppendOptions::default(),
+            ),
+        )
+        .await
+        .expect("the append answers");
+        assert!(matches!(
+            refused,
+            Err(EventAppendError::HoldOfAnotherSession { held_session_id: held, session_id })
+                if held == held_session_id && session_id == other_session_id
+        ));
+
+        let appended = tokio::time::timeout(
+            APPEND_WAIT,
+            service.append_held(
+                &hold,
+                tool_invoked(&held_session_id, &run_id),
+                EventLogAppendOptions::default(),
+            ),
+        )
+        .await
+        .expect("the append under the hold never waits on the lock it holds")
+        .expect("the append commits");
+        assert_eq!(appended.sequence.get(), 0);
+        drop(hold);
         assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
     }
 }

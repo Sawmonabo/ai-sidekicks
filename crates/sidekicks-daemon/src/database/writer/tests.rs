@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use rstest::rstest;
 use rusqlite::Connection;
-use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -16,12 +15,12 @@ use tokio::time::Instant;
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::writer::messages::{
-    BatchFailure, ThreadExit, ThreadRequest, WriteJob, WriteJobOutcome,
+    BatchAnswer, BatchFailure, ThreadExit, ThreadRequest, WriteJob, WriteJobOutcome,
 };
 use crate::database::writer::test_file::{TestDatabase, session_event_row, test_session_id};
 use crate::database::writer::{
     CheckpointError, CommittedWrite, DatabaseWriter, DatabaseWriterOptions, PendingWrite,
-    ThreadStop, WRITE_QUEUE_CAPACITY, WriteError, WriteFailureListener, WriteOptions, WriterThread,
+    ThreadStop, WRITE_QUEUE_CAPACITY, WriteError, WriteFailureListener, WriterThread,
     WritesHeldError,
 };
 
@@ -45,10 +44,10 @@ fn statement(sql: &'static str, expected_row_count: Option<usize>) -> WriteState
     }
 }
 
-fn append(session_id: &SessionId, event_type: SessionEventType) -> WriteJob {
+fn append(session_id: &SessionId) -> WriteJob {
     WriteJob {
         statements: Vec::new(),
-        events: vec![session_event_row(session_id, event_type)],
+        events: vec![session_event_row(session_id)],
     }
 }
 
@@ -103,7 +102,7 @@ fn stand_in_writer(
 
 fn queue(writer: &DatabaseWriter, job: WriteJob) -> PendingWrite {
     writer
-        .enqueue(job, WriteOptions::default(), None)
+        .enqueue(job, None)
         .expect("the writer takes the write")
 }
 
@@ -130,10 +129,7 @@ async fn a_refused_write_rolls_back_alone_and_uses_no_sequence() {
     let writer = open_writer(&database, Some(writes_held_until), None).await;
     let session_id = test_session_id();
     // Held, the three writes go out as one batch once released.
-    let first = queue(
-        &writer,
-        append(&session_id, SessionEventType::AssistantMessage),
-    );
+    let first = queue(&writer, append(&session_id));
     let refused = queue(
         &writer,
         WriteJob {
@@ -148,16 +144,10 @@ async fn a_refused_write_rolls_back_alone_and_uses_no_sequence() {
                     Some(1),
                 ),
             ],
-            events: vec![session_event_row(
-                &session_id,
-                SessionEventType::AssistantMessage,
-            )],
+            events: vec![session_event_row(&session_id)],
         },
     );
-    let last = queue(
-        &writer,
-        append(&session_id, SessionEventType::AssistantMessage),
-    );
+    let last = queue(&writer, append(&session_id));
     release.send(Ok(())).expect("the writer waits on its hold");
 
     assert_eq!(sequences(first.await), [0]);
@@ -190,10 +180,7 @@ async fn flush_answers_once_a_queued_write_has_committed() {
         &writer,
         WriteJob {
             statements: vec![statement(SLOW_READ_SQL, Some(1))],
-            events: vec![session_event_row(
-                &session_id,
-                SessionEventType::AssistantMessage,
-            )],
+            events: vec![session_event_row(&session_id)],
         },
     );
 
@@ -215,14 +202,11 @@ async fn a_write_at_the_cap_waits_and_is_stored() {
         WriteJob {
             statements: Vec::new(),
             events: (0..WRITE_QUEUE_CAPACITY)
-                .map(|_| session_event_row(&session_id, SessionEventType::AssistantMessage))
+                .map(|_| session_event_row(&session_id))
                 .collect(),
         },
     );
-    let mut thinking = queue(
-        &writer,
-        append(&session_id, SessionEventType::AssistantThinkingUpdate),
-    );
+    let mut thinking = queue(&writer, append(&session_id));
     assert!(futures::poll!(&mut thinking).is_pending());
 
     release.send(Ok(())).expect("the writer waits on its hold");
@@ -233,31 +217,52 @@ async fn a_write_at_the_cap_waits_and_is_stored() {
     assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_waited_on_write_skips_the_batch_window() {
-    let (writer, mut thread_requests, _exit) = stand_in_writer(DatabaseWriterOptions::default());
-    let queued_at = Instant::now();
-    let written = writer
-        .enqueue(
-            append(&test_session_id(), SessionEventType::AssistantMessage),
-            WriteOptions { is_waited_on: true },
-            None,
-        )
-        .expect("the writer takes the write");
+/// Answers a batch as committed, each of its writes' one row at the next of `sequences`.
+fn commit_each(reply: oneshot::Sender<BatchAnswer>, sequences: std::ops::Range<u64>) {
+    let outcomes = sequences
+        .map(|sequence| WriteJobOutcome::Committed {
+            statement_results: Vec::new(),
+            sequences: vec![SafeInt::new(sequence).expect("a test sequence is a safe integer")],
+        })
+        .collect();
+    reply
+        .send(Ok(outcomes))
+        .expect("the writer waits on the batch");
+}
 
+#[tokio::test(start_paused = true)]
+async fn a_lone_write_goes_at_once_and_writes_queued_during_a_commit_form_the_next_batch() {
+    let (writer, mut thread_requests, _exit) = stand_in_writer(DatabaseWriterOptions::default());
+    let session_id = test_session_id();
+    let queued_at = Instant::now();
+    let lone = queue(&writer, append(&session_id));
     let Some(ThreadRequest::Batch { jobs, reply }) = thread_requests.recv().await else {
         panic!("the writer sends a batch");
     };
-
     assert_eq!(Instant::now(), queued_at);
     assert_eq!(jobs.len(), 1);
-    reply
-        .send(Ok(vec![WriteJobOutcome::Committed {
-            statement_results: Vec::new(),
-            sequences: vec![SafeInt::ZERO],
-        }]))
-        .expect("the writer waits on the batch");
-    assert_eq!(sequences(written.await), [0]);
+
+    // Queued while the first batch commits, the next writes wait for it and then go together.
+    let later: Vec<PendingWrite> = (0..3)
+        .map(|_| queue(&writer, append(&session_id)))
+        .collect();
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    assert!(matches!(
+        thread_requests.try_recv(),
+        Err(TryRecvError::Empty)
+    ));
+    commit_each(reply, 0..1);
+    let Some(ThreadRequest::Batch { jobs, reply }) = thread_requests.recv().await else {
+        panic!("the writer sends the next batch");
+    };
+    assert_eq!(jobs.len(), 3);
+    commit_each(reply, 1..4);
+    assert_eq!(sequences(lone.await), [0]);
+    for (expected, written) in (1..4).zip(later) {
+        assert_eq!(sequences(written.await), [expected]);
+    }
 }
 
 #[tokio::test]
@@ -306,10 +311,7 @@ async fn a_close_at_its_drain_bound_rolls_back_the_batch_in_flight() {
     let (failures_heard, on_write_failed) = counting_listener();
     let writer = open_writer(&database, None, Some(on_write_failed)).await;
     // Sent back to back, the two writes go out as one batch.
-    let inserted = queue(
-        &writer,
-        append(&test_session_id(), SessionEventType::AssistantMessage),
-    );
+    let inserted = queue(&writer, append(&test_session_id()));
     let endless = queue(
         &writer,
         WriteJob {
@@ -371,7 +373,7 @@ async fn sqlite_ending_the_transaction_fails_the_whole_batch(
             statements: vec![statement(sql, None)],
             events: Vec::new(),
         },
-        None => append(&session_id, SessionEventType::AssistantMessage),
+        None => append(&session_id),
     };
     let middle = WriteJob {
         statements: middle_statements
@@ -383,10 +385,7 @@ async fn sqlite_ending_the_transaction_fails_the_whole_batch(
     let written = [
         queue(&writer, first),
         queue(&writer, middle),
-        queue(
-            &writer,
-            append(&session_id, SessionEventType::AssistantMessage),
-        ),
+        queue(&writer, append(&session_id)),
     ];
     release.send(Ok(())).expect("the writer waits on its hold");
 

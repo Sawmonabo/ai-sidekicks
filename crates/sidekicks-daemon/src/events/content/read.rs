@@ -16,8 +16,7 @@ use sidekicks_contracts::transcript::content::hydrated_content_of;
 pub(crate) struct StoredEventContentRow {
     /// The event, as already read from the `payload` column.
     pub(crate) envelope: EventEnvelope,
-    /// `session_events.content_payload`, verbatim: the column is `TEXT` in a `STRICT` table, so
-    /// SQLite refuses any other value at write.
+    /// `session_events.content_payload` as text: the column's bytes, read as UTF-8.
     pub(crate) content_payload: Option<String>,
 }
 

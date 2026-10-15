@@ -34,12 +34,12 @@ pub(crate) static INDEXED_EVENT_TYPES_SQL: LazyLock<String> =
     LazyLock::new(|| sql_list_of(INDEXED_EVENT_TYPES.map(SessionEventType::as_str)));
 
 /// The most rows one batch handed to the index carries. A durable commit costs about the same
-/// whatever its size, so a batch takes as many rows as the search thread's memory comfortably
-/// holds.
+/// whatever its size, so a batch takes as many rows as can comfortably sit in memory while one
+/// apply runs.
 pub(crate) const INDEX_BATCH_ROW_LIMIT: usize = 50_000;
 
 /// The text, in UTF-8 bytes, past which a batch handed to the index takes no further rows: 16 MiB,
-/// so a batch of long messages stays near that on the search thread.
+/// so a batch of long messages holds near that in memory while one apply runs.
 pub(crate) const INDEX_BATCH_TEXT_LIMIT: usize = 16 * 1024 * 1024;
 
 /// What one batch handed to the index may still take: rows, and text in UTF-8 bytes. Each read of
@@ -98,9 +98,9 @@ pub(crate) struct LogRowPosition {
 const EVENT_TEXT_SQL: &str = "CASE
            WHEN NOT json_valid(event.payload) THEN NULL
            WHEN event.type = 'user.message' THEN json_extract(event.payload, '$.message')
-           WHEN event.type = 'assistant.message' THEN event.content_payload
+           WHEN event.type = 'assistant.message' THEN CAST(event.content_payload AS TEXT)
            WHEN event.type = 'tool.invoked' THEN json_extract(event.payload, '$.toolName')
-             || coalesce(' ' || event.content_payload, '')
+             || coalesce(' ' || CAST(event.content_payload AS TEXT), '')
          END";
 
 // The columns a row other than a tag holds none of.

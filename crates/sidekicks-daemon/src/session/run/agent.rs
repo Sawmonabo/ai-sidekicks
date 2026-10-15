@@ -18,12 +18,15 @@ const SELECT_RUN_AGENT_SQL: &str = "SELECT COALESCE(
    FROM session_events AS queued
   WHERE queued.session_id = @session_id
     AND queued.type = 'run.queued'
-    AND json_extract(queued.payload, '$.runId') = @run_id";
+    AND queued.run_id = @run_id";
 
 const SELECT_LEAD_AGENT_SQL: &str = "
   SELECT json_extract(payload, '$.mainAgent.agentId') AS agent_id
    FROM session_events
   WHERE session_id = ? AND type = 'session.created'";
+
+/// The statements [`RunAgentReader`] runs: the run's agent and the session's lead.
+pub(crate) const RUN_AGENT_STATEMENT_CAPACITY: usize = 2;
 
 /// Why the agent of a run, or a session's lead, could not be read.
 #[derive(Debug, thiserror::Error)]

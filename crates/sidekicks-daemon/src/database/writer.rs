@@ -1,14 +1,15 @@
 //! The database writer: every write the daemon makes goes through it to the one read-write
 //! connection, which a thread of its own holds, so a commit's disk sync never stalls the runtime.
-//! Writes wait in a bounded queue, which one task owns, and go to the thread in batches of up to
-//! 50 entries or after 10 ms, whichever comes first; a write someone waits on sends its batch at
-//! once. Each batch commits as one transaction, each write in it under a savepoint of its own, and
-//! a write is never split across batches. At the queue's cap a write waits for room; none is
-//! dropped. A writer opened with a hold queues every write and checkpoint and sends none until the
-//! hold is let go, and work the writer is held for sees no commit and no checkpoint while it runs;
-//! a passive checkpoint asked while either holds is answered at once, without running.
+//! Writes wait in a bounded queue, which one task owns, and go to the thread as soon as it is free:
+//! a batch holds whatever is queued then, at most 50 entries, and writes that arrive during a
+//! commit form the next batch. Each batch commits as one transaction, each write in it under a
+//! savepoint of its own, and a write is never split across batches. At the queue's cap a write
+//! waits for room; none is dropped. A writer opened with a hold queues every write and checkpoint
+//! and sends none until the hold is let go, and work the writer is held for sees no commit and no
+//! checkpoint while it runs; a passive checkpoint asked while either holds is answered at once,
+//! without running.
 
-mod depth_sampler;
+mod backpressure;
 pub(crate) mod messages;
 mod queue;
 #[cfg(test)]
@@ -67,14 +68,6 @@ pub(crate) type WriteFailureListener = Box<dyn Fn(&(dyn Error + 'static)) + Send
 /// unfinished, or why the connection or its thread did not end cleanly.
 pub(crate) type CloseOutcome =
     Result<usize, Arc<CleanupFailures<WriterCloseError, ThreadJoinError>>>;
-
-/// How one write is sent.
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct WriteOptions {
-    /// Whether someone waits on the write, such as a person on an ask's card: its batch goes to
-    /// the thread at once, with what is queued before it, instead of after the batch's wait.
-    pub(crate) is_waited_on: bool,
-}
 
 /// What the writer takes from the daemon besides its opener.
 #[derive(Default)]
@@ -330,7 +323,6 @@ impl DatabaseWriter {
     pub(crate) fn enqueue(
         &self,
         job: WriteJob,
-        options: WriteOptions,
         on_commit: Option<CommitHook>,
     ) -> Result<PendingWrite, WriteError> {
         if let Some(reason) = self.shared.end_reason() {
@@ -345,7 +337,6 @@ impl DatabaseWriter {
             .send(QueueMessage::Write(WriteRequest {
                 job,
                 size,
-                is_waited_on: options.is_waited_on,
                 on_commit,
                 reply,
             }))
@@ -359,13 +350,12 @@ impl DatabaseWriter {
     pub(crate) async fn write(
         &self,
         statements: Vec<WriteStatement>,
-        options: WriteOptions,
     ) -> Result<Vec<StatementResult>, WriteError> {
         let job = WriteJob {
             statements,
             events: Vec::new(),
         };
-        Ok(self.enqueue(job, options, None)?.await?.statement_results)
+        Ok(self.enqueue(job, None)?.await?.statement_results)
     }
 
     /// Appends `events` in order, each at its session's next sequence, after `statements`, all as
@@ -375,10 +365,9 @@ impl DatabaseWriter {
         &self,
         events: Vec<SessionEventRow>,
         statements: Vec<WriteStatement>,
-        options: WriteOptions,
     ) -> Result<Vec<SafeInt<0>>, WriteError> {
         let job = WriteJob { statements, events };
-        Ok(self.enqueue(job, options, None)?.await?.sequences)
+        Ok(self.enqueue(job, None)?.await?.sequences)
     }
 
     /// A count raised once after each batch that committed a write; a reader that sees it change
@@ -577,7 +566,6 @@ enum QueueMessage {
 struct WriteRequest {
     job: WriteJob,
     size: usize,
-    is_waited_on: bool,
     on_commit: Option<CommitHook>,
     reply: oneshot::Sender<Result<CommittedWrite, WriteError>>,
 }

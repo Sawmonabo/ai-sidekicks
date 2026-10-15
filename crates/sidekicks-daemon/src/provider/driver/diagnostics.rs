@@ -15,9 +15,6 @@ use strum::IntoStaticStr;
 pub(crate) enum DriverDiagnosticKind {
     /// A wire kind outside the pinned set, or one with no defined session event type.
     UnmappedWireKind,
-    /// A known kind whose session event type has no registered payload variant, so no event can
-    /// be built.
-    PayloadVariantPending,
     /// The reorder buffer passed its cap and flushed what it held.
     ReorderBufferOverflow,
     /// A tool call's start or completion waited past the pairing timeout for its partner.
@@ -148,7 +145,6 @@ impl DriverDiagnosticKind {
     pub(crate) const fn counter_name(self) -> &'static str {
         match self {
             Self::UnmappedWireKind => "driver.normalize.unmapped_wire_kind",
-            Self::PayloadVariantPending => "driver.normalize.payload_variant_pending",
             Self::ReorderBufferOverflow => "driver.reorder_buffer.overflow",
             Self::ToolPairingTimeout => "driver.reorder_buffer.pairing_timeout",
             Self::ReorderSeenInitiationEvicted => "driver.reorder_buffer.seen_initiation_evicted",

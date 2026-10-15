@@ -15,9 +15,9 @@ macro_rules! session_event_types {
         $(#[doc = $list_doc:literal])+
         $list:ident = $category:ident [$($variant:ident = $name:literal,)+]
     )+) => {
-        /// Every session event type on the wire, whether or not a payload variant is registered
-        /// for it. An envelope stores its type as text, so a type a newer producer wrote and this
-        /// set lacks is still kept.
+        /// Every session event type on the wire, each with the payload variant `SessionEvent`
+        /// registers for it. An envelope stores its type as text, so a type a newer producer wrote
+        /// and this set lacks is still kept.
         #[derive(
             Clone,
             Copy,

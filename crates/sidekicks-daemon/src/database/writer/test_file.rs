@@ -2,14 +2,17 @@
 //! row write touches, and the event rows tests write to it.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use rusqlite::Connection;
-use sidekicks_contracts::event::envelope::EventEnvelopeType;
-use sidekicks_contracts::event::registry::SessionEventType;
+use serde_json::json;
+use sidekicks_contracts::event::envelope::EventOccurredAt;
+use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::session::id::SessionId;
 use tempfile::TempDir;
 
 use crate::database::connection::setup::apply_connection_pragmas;
+use crate::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::uuid_v7::mint_uuid_v7;
@@ -27,18 +30,13 @@ CREATE TABLE session_events (
   type              TEXT NOT NULL,
   actor             TEXT,
   payload           TEXT NOT NULL DEFAULT '{}',
-  content_payload   TEXT,
+  content_payload   BLOB,
   correlation_id    TEXT,
   causation_id      TEXT,
   version           TEXT NOT NULL DEFAULT '1.0'
                     CHECK(version GLOB '[0-9]*.[0-9]*'),
-  run_id            TEXT GENERATED ALWAYS AS (
-                      CASE WHEN json_valid(payload) THEN
-                        CASE json_type(payload, '$.runId')
-                          WHEN 'text' THEN json_extract(payload, '$.runId')
-                        END
-                      END
-                    ) VIRTUAL,
+  run_id            TEXT,
+  run_version       INTEGER,
   UNIQUE (session_id, sequence)
 ) STRICT;
 
@@ -94,23 +92,33 @@ pub(crate) fn test_session_id() -> SessionId {
     SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
 }
 
-/// An event row of `event_type` for `session_id`, with an empty payload and no body.
-pub(crate) fn session_event_row(
-    session_id: &SessionId,
-    event_type: SessionEventType,
-) -> SessionEventRow {
+/// The envelope of `event` on `session_id`'s log, occurring now, with no linkage.
+pub(crate) fn test_envelope(
+    session_id: SessionId,
+    event: &SessionEvent,
+) -> UnsequencedEventEnvelope {
+    UnsequencedEventEnvelope::new(
+        SessionEventDraft::of_session(session_id, event)
+            .expect("the test's event passes its checks"),
+        EventOccurredAt::from_timestamp(jiff::Timestamp::now()).expect("now is after year 0000"),
+        None,
+        None,
+        SESSION_EVENT_VERSION.clone(),
+    )
+}
+
+/// A `session.pinned` row for `session_id`, with no body.
+pub(crate) fn session_event_row(session_id: &SessionId) -> SessionEventRow {
+    let pinned = serde_json::from_value(json!({
+        "type": "session.pinned",
+        "payload": { "sessionId": session_id, "at": "2026-10-14T09:00:00.000Z" },
+    }))
+    .expect("the test writes a session.pinned event");
+    let envelope = test_envelope(*session_id, &pinned);
     SessionEventRow {
-        id: mint_uuid_v7().to_string(),
-        session_id: *session_id,
-        occurred_at: "2026-10-14T12:00:00.000Z".to_owned(),
+        payload: serde_json::to_string(envelope.payload()).expect("a JSON object serializes"),
+        envelope: Arc::new(envelope),
         monotonic_ns: monotonic_ns_now(),
-        category: event_type.category(),
-        event_type: EventEnvelopeType::from(event_type),
-        actor: None,
-        payload: "{}".to_owned(),
-        correlation_id: None,
-        causation_id: None,
-        version: SESSION_EVENT_VERSION.clone(),
         content_payload: None,
     }
 }

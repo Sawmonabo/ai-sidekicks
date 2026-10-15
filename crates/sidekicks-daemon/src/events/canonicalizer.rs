@@ -1,6 +1,7 @@
 //! RFC 8785 canonical bytes (the JSON Canonicalization Scheme): the one place a value or an event
-//! envelope becomes the bytes its hash and its stored copy are taken over, and where an
-//! `occurredAt` takes the one form the log stores.
+//! envelope becomes the bytes a hash is taken over or a version stub keeps, and where an
+//! `occurredAt` takes the one form the log stores. The append path keeps no canonical bytes, so
+//! it never runs here.
 
 use serde_json::Value;
 use sidekicks_contracts::event::envelope::{
@@ -68,10 +69,18 @@ pub(crate) fn canonicalize_json(value: &Value) -> Result<CanonicalBytes, Canonic
     Ok(CanonicalBytes(serde_json_canonicalizer::to_vec(value)?))
 }
 
-/// `envelope`'s RFC 8785 bytes, which the append path computes before every write, with its
-/// `occurredAt` in the stored form. An absent `actor` and a `null` one give different bytes, so
-/// the envelope must already hold the actor the row stores. Refuses, in this order, an
-/// `occurredAt` that cannot take the stored form, then what [`canonicalize_json`] refuses.
+/// `envelope`'s RFC 8785 bytes, with its `occurredAt` in the stored form. An absent `actor` and a
+/// `null` one give different bytes, so the envelope must already hold the actor the row stores.
+/// Refuses, in this order, an `occurredAt` that cannot take the stored form, then what
+/// [`canonicalize_json`] refuses.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the version stub that keeps an event of a newer producer's type as its \
+                  canonical bytes"
+    )
+)]
 pub(crate) fn canonicalize_event(
     envelope: &EventEnvelope,
 ) -> Result<CanonicalBytes, CanonicalizationRefusal> {

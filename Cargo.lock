@@ -1777,6 +1777,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c286de4e81ea2590afc24d754e0f83810c566f50a1388fa75ebd57928c0d9745"
 
 [[package]]
+name = "deadpool"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e98a7e119cd347f4201e1159b19831029e203e2d8b790547708e8157b4acf1e"
+dependencies = [
+ "deadpool-runtime",
+ "tokio",
+]
+
+[[package]]
+name = "deadpool-runtime"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2657f61fb1dd8bf37a8d51093cc7cee4e77125b22f7753f49b289f831bec2bae"
+
+[[package]]
 name = "debugid"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7752,6 +7768,7 @@ dependencies = [
  "crash-handler",
  "croner",
  "csv",
+ "deadpool",
  "dhat",
  "diffy",
  "dugong",
@@ -7817,7 +7834,6 @@ dependencies = [
  "serde-saphyr",
  "serde_json",
  "serde_json_canonicalizer",
- "serde_path_to_error",
  "serde_with",
  "sha2 0.11.1",
  "sha3 0.12.0",
