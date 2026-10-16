@@ -761,6 +761,15 @@ type SessionNoticeProviderCrashLoop = {
   provider: ProviderId;
 } & ({ exitCode: number; signal?: never } | { signal: string; exitCode?: never });
 
+// session.notice of kind `provider_restarted`: the person's `Restart` brought back a provider the
+// crash loop stopped. Written on every session that showed the banner, it ends the banner on every
+// device and after a reload and draws no flow row; the daemon's own silent restarts write none.
+type SessionNoticeProviderRestarted = {
+  sessionId: SessionId;
+  kind: "provider_restarted";
+  provider: ProviderId;
+};
+
 // session.notice of kind `provider_missing`: the session's provider is not installed where the
 // background service runs, so no provider process started (Spec-001 §Fallback Behavior). One flow
 // row naming the provider, opening Settings › Providers on its section; `placeHasNeitherProvider`

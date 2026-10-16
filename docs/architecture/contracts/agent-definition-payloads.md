@@ -131,8 +131,8 @@ type AgentResolvedConfiguration = {
   resolvedBinding: AgentProviderBinding;
 } & Pick<AgentDefinition, "accentHue" | "toolAllowlist" | "instructions" | "goal">;
 
-// agent.definitionList — machine-local and unfiltered: every definition from the four origins — ours
-// (`.ai-sidekicks/agents/`, global or in a project), Claude Code's own agent files, Codex's own, and a
+// agent.definitionList — machine-local and unfiltered: every definition from its origins — ours
+// (`.ai-sidekicks/agents/`, global or in a project), each installed provider's own agent files, and a
 // plugin's, which is read-only — one list serving the library, the composer's Sidekicks group, a
 // workflow node's chooser and every label that names an agent. The daemon parses every file itself
 // rather than trusting a provider's own load. The request carries no members, declared as an explicit
@@ -143,7 +143,8 @@ interface AgentDefinitionListRequest {}
 // One definition as the list serves it: the record, where it lives, and two provider facts, each its
 // own field and neither excluding another.
 type AgentDefinitionListEntry = AgentDefinition & {
-  origin: "ours" | "claude" | "codex" | "plugin";
+  origin: "ours" | "provider" | "plugin";
+  originProvider?: ProviderId; // present exactly when origin is "provider": whose own agent files hold it
   pluginName?: string; // present exactly on a plugin's agent
   scope: "global" | "project";
   projectId?: ProjectId; // present exactly when scope is "project"
@@ -312,18 +313,19 @@ interface CallbackToolListResponse {
 // any other. Installing or removing a plugin raises the daemon's own `plugin.installed` /
 // `plugin.uninstalled` signal, which the origin reader, `agent.definitionSubscribe` and the session
 // pack follow; neither is a session event.
-type PluginProvider = "claude" | "codex";
+// `provider` on every plugin verb is the open ProviderId of a provider whose driver offers plugins;
+// one that offers none is refused with `driver.capability_unsupported`.
 // plugin.catalogList — each provider's catalog, read once per opening of the view and held only while
 // it is open. The daemon filters by `query`, because neither provider's verb takes one.
 interface PluginCatalogListRequest {
-  provider: PluginProvider;
+  provider: ProviderId;
   query?: string;
   cursor?: string;
 }
 interface PluginCatalogListResponse {
   plugins: Array<{
     id: string;
-    provider: PluginProvider;
+    provider: ProviderId;
     name: string;
     displayName: string;
     description: string;
@@ -341,7 +343,7 @@ interface PluginCatalogListResponse {
 // Claude Code its options: the `userConfig` of the plugin's `plugin.json` in the marketplace's copy
 // in the plugin home, which `Browse plugins` opens before it installs.
 interface PluginReadRequest {
-  provider: PluginProvider;
+  provider: ProviderId;
   id: string;
 }
 interface PluginReadResponse {
@@ -365,7 +367,7 @@ interface PluginReadResponse {
 // value never rides a command line where another process could read it. A sensitive value is never
 // read back: `isSet` says only whether it holds one.
 interface PluginOptionsReadRequest {
-  provider: "claude";
+  provider: ProviderId; // a provider whose plugins carry options (Claude Code today)
   id: string;
 }
 interface PluginOptionsReadResponse {
@@ -378,7 +380,7 @@ interface PluginOptionsReadResponse {
   }>;
 }
 interface PluginOptionsSaveRequest {
-  provider: "claude";
+  provider: ProviderId; // a provider whose plugins carry options (Claude Code today)
   id: string;
   values: Record<string, string>;
 }
@@ -388,18 +390,18 @@ interface PluginOptionsSaveRequest {
 // Claude Code by the resume at the session's next idle moment, on Codex by forking the lead's
 // conversation.
 interface PluginInstallRequest {
-  provider: PluginProvider;
+  provider: ProviderId;
   id: string;
   options?: Record<string, string>;
 }
 interface PluginUninstallRequest {
-  provider: PluginProvider;
+  provider: ProviderId;
   id: string;
 }
 interface PluginInstallResponse {
   plugin: {
     id: string;
-    provider: PluginProvider;
+    provider: ProviderId;
     name: string;
     displayName: string;
     description: string;
@@ -416,7 +418,7 @@ interface PluginUninstallResponse {
 // plugin did not load: Claude Code's reason from the newest session start whose `system/init`
 // `plugin_errors` named it, drawn as `Didn't load` with `Remove` and `Copy error`.
 interface PluginInstalledListRequest {
-  provider?: PluginProvider;
+  provider?: ProviderId;
 }
 interface PluginInstalledListResponse {
   plugins: Array<PluginCatalogListResponse["plugins"][number] & { loadError?: string }>;
@@ -424,22 +426,22 @@ interface PluginInstalledListResponse {
 // plugin.marketplaceAdd / plugin.marketplaceRemove — each provider's official marketplace is present
 // without adding it.
 interface PluginMarketplaceAddRequest {
-  provider: PluginProvider;
+  provider: ProviderId;
   source: string; // a repository address or a folder
 }
 interface PluginMarketplaceRemoveRequest {
-  provider: PluginProvider;
+  provider: ProviderId;
   name: string;
 }
 interface PluginMarketplaceChangeResponse {
-  provider: PluginProvider;
+  provider: ProviderId;
   name: string;
 }
 // plugin.appList — a Codex plugin's apps, each with its link state on every Codex account, read from
 // that account's own Codex service. `connectUrl` opens the app's page in the browser, where the person
 // links it while signed in as that account. An API-key account carries no apps.
 interface PluginAppListRequest {
-  provider: "codex";
+  provider: ProviderId; // a provider whose plugins carry apps (Codex today)
   pluginId: string;
 }
 interface PluginAppListResponse {
