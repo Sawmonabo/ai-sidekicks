@@ -27,7 +27,7 @@ The system is split so that a user's devices can reach a session from anywhere w
 | `CLI Client` | Scriptable client surface over the same daemon client (`sidekicks-client`) and daemon contract. |
 | `Local Runtime Daemon` | Session engine, provider drivers, git engine, terminal and tool execution, local persistence, rebuild, and local policy enforcement. |
 | `Control Plane` | The person's own control plane and relay: identity, the account's statement chain, the device and machine registry, machine registration, the relay between each device and each machine, delivery of push notices each machine has already sealed, and the web client. It keeps no session record. |
-| `Local Event Store And Projection Store` | Durable node-local record of run events, receipts, projections, and recovery state. |
+| `Local Event Store And Projection Store` | Durable machine-local record of run events, receipts, projections, and recovery state. |
 | `Hosted Account Store` | Durable control-plane record of the account, the statement chain, the device registry and each machine's registration, in SQLite inside the relay: the Durable Object's own storage on the Workers relay, a SQLite file on the Compose relay ([Deployment Topology §Account Storage](./deployment-topology.md#account-storage)). |
 
 ## Implementation Topology
@@ -80,7 +80,7 @@ The monorepo layout for implementation is:
 ## Related Domain Docs
 
 - [Session Model](../domain/session-model.md)
-- [Runtime Node Model](../domain/runtime-node-model.md)
+- [Machine Model](../domain/machine-model.md)
 - [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md)
 
 ## Related Specs

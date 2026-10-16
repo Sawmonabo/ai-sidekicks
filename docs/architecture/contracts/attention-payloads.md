@@ -61,7 +61,7 @@ interface AttentionItem {
   // with `What's new`, which opens the provider's official release notes for the new version, or, with
   // no `fromVersion`, a build only available to a provider the person keeps from updating itself,
   // `Claude Code 2.1.294 available`.
-  providerBuild?: { provider: ProviderName; fromVersion?: string; toVersion: string };
+  providerBuild?: { provider: ProviderId; fromVersion?: string; toVersion: string };
   severity: "actionable" | "informational";
   summary: string; // one line a surface renders: prose, not an identifier
   // What became of the entry's banner. The daemon writes `withheld` when it writes the entry for a kind

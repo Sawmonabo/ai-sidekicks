@@ -67,7 +67,7 @@ Approval lifecycle:
 ## Edge Cases
 
 - A run may fail after publishing some artifacts. The artifacts remain valid historical outputs even when the run ends in `failed`.
-- An approval never expires. When the run holding it ends before the person answers — interrupted, stopped or undone — it is canceled with the run and the cancellation is recorded, so a late answer finds a canceled request and changes nothing.
+- An approval never expires. When the run holding it is interrupted, stopped or undone before the person answers, it is canceled and the cancellation is recorded, so a late answer finds a canceled request and changes nothing.
 - One approval decision can cover a bounded repeated action only when the granted scope explicitly says so.
 
 ## Related Domain Docs

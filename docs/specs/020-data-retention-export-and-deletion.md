@@ -150,7 +150,7 @@ The daemon keeps each secret as its own item in the operating system's credentia
 
 ## PII Data Map
 
-The data map enumerates **every** PII-carrying path the data acts reach — `Delete old data` for one session, `Erase all data` for everything on the machine, `sidekicks delete-account` for the hosted account — and each path's **Removal** cell names the act that removes it, so no path is left out of the map (the provider-account plane's node-local surface goes when the person removes the registration). Exhaustive enumeration is required so the erasure paths in the next section have no gaps. Paths are grouped by durability tier.
+The data map enumerates **every** PII-carrying path the data acts reach — `Delete old data` for one session, `Erase all data` for everything on the machine, `sidekicks delete-account` for the hosted account — and each path's **Removal** cell names the act that removes it, so no path is left out of the map (the provider-account plane's machine-local surface goes when the person removes the registration). Exhaustive enumeration is required so the erasure paths in the next section have no gaps. Paths are grouped by durability tier.
 
 **Durable tier (canonical audit log + control plane):**
 

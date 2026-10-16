@@ -57,7 +57,7 @@ interface PlatformBridge {
     subscribeUpdate(handler: (update: ServiceUpdateProgress) => void): Unsubscribe;
     // `Restore…`: main stops the service, puts the backup's data in place and starts it again
     requestRestore(backupId: string): Promise<void>;
-    // on a Windows computer with WSL 2, the places Claude Code and Codex can run from (Spec-006)
+    // on a Windows computer with WSL 2, the places the installed providers can run from (Spec-006)
     listPlaces(): Promise<ServicePlace[]>;
     // each place's reading as it lands, the first delivery the list as it stands (Spec-006)
     subscribePlaces(handler: (places: ServicePlace[]) => void): Unsubscribe;

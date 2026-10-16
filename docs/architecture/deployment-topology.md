@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Describe the supported deployment shapes for clients, runtime nodes, and the control plane.
+Describe the supported deployment shapes for clients, machines, and the control plane.
 
 ## Scope
 
@@ -34,7 +34,7 @@ Supported topologies:
 1. `local-only` mode keeps execution and immediately usable session continuity on one user-owned machine except for external provider calls.
 2. Remote-control mode adds control-plane metadata exchange and relay coordination so the user's other devices can drive the session.
 3. Self-hosted mode preserves the same logical split but changes operational ownership.
-4. Relay-assisted mode changes transport path only; execution remains local to the node.
+4. Relay-assisted mode changes transport path only; execution remains local to the machine.
 
 ## Trust Boundaries
 
@@ -182,7 +182,7 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 ## Related Domain Docs
 
 - [Session Model](../domain/session-model.md)
-- [Runtime Node Model](../domain/runtime-node-model.md)
+- [Machine Model](../domain/machine-model.md)
 - [User And Device Model](../domain/user-and-device-model.md)
 
 ## Related Specs

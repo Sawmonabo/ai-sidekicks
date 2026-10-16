@@ -27,7 +27,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 
 | Component | Responsibility |
 | --- | --- |
-| `Local Session Engine` | Applies commands, emits canonical events, owns run and queue semantics, and maintains session-scoped projections for the local node. |
+| `Local Session Engine` | Applies commands, emits canonical events, owns run and queue semantics, and maintains session-scoped projections for the local machine. |
 | `Provider Driver Manager` | Creates, resumes, interrupts, and closes provider-backed execution sessions through normalized driver contracts. |
 | `Git Engine` | Owns repo attach, worktree lifecycle, branch strategy, diff generation, and PR preparation. |
 | `Workspace Service` | Resolves execution roots, file access policy, attachments, and local filesystem context. |
@@ -70,7 +70,7 @@ Per [ADR-018](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md), the te
 
 ## Related Domain Docs
 
-- [Runtime Node Model](../domain/runtime-node-model.md)
+- [Machine Model](../domain/machine-model.md)
 - [Agent And Run Model](../domain/agent-and-run-model.md)
 - [Run State Machine](../domain/run-state-machine.md)
 - [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md)

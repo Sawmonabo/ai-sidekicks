@@ -33,7 +33,7 @@ None of these can run on a Mac; each runs on a Windows machine before the first 
 | The first, third, fifth, seventh and binary-integrity rows on Windows 10 22H2 | The same results; no `vmIdleTimeout` | The support floor |
 | Installer size with no Linux archive, with the glibc archive, and with both; first start offline | Numbers; the offline start works | Shipping the runtime inside the installer |
 | Windows on Arm with an arm64 Ubuntu: start the arm64 runtime | Starts | The arm64 build |
-| An Alpine (musl) distribution: the place check; `claude --version` and `codex --version` installed per their own docs; a start of the runtime | musl reported; both providers run; the musl archive installed and the service answers `DaemonHello` | The musl runtime |
+| An Alpine (musl) distribution: the place check; `claude --version` and `codex --version` installed per their own docs; a start of the runtime | musl reported; Claude Code and Codex run; the musl archive installed and the service answers `DaemonHello` | The musl runtime |
 | Update the app while the Windows half runs from its own folder | The update succeeds; the new Windows half takes over at the next restart | The Windows half's versioned folder |
 | The native daemon, and the Windows half on a WSL computer, start the app's own program with no window to post a banner; timed | The banner under the app's name; the time recorded | Banners while the app is quit |
 | `icacls %LOCALAPPDATA%\ai-sidekicks\run\daemon.token` on the token file the native daemon, or the Windows half on a WSL computer, writes | The user alone | The token's access list |

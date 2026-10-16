@@ -1,4 +1,4 @@
-# Runtime Node Model
+# Machine Model
 
 ## Purpose
 
@@ -6,42 +6,42 @@ Define the machine-local execution authority a session runs on — the one machi
 
 ## Scope
 
-This document covers `RuntimeNode` ownership, registration, reachability, and its relationship to runs and workspaces.
+This document covers the machine's ownership, registration, reachability, and its relationship to runs and workspaces.
 
 ## Definitions
 
-- `RuntimeNode`: the backend's name for a machine, a computer whose background service (the local daemon) runs sessions. On screen it is the machine's name, and `This machine` on the machine itself.
+- Machine: a computer whose background service (the local daemon) runs sessions, `RuntimeNode` in the backend. On screen it is the machine's name, and `This machine` on the machine itself.
 - Reachability: whether the person's other devices can reach the machine now. It is `Reachable` while the machine's relay connection is up, and `Not reachable` once 45 seconds pass without a frame on it.
 
 ## What This Is
 
-A runtime node is the machine where a session's work actually happens. It owns provider processes, tool execution, repo access, and local persistence. It carries no trust level of its own: trust is given per project, never per machine.
+A machine is the computer where a session's work actually happens. It owns provider processes, tool execution, repo access, and local persistence. It carries no trust level of its own: trust is given per project, never per machine.
 
-It is the "one machine executing" half of the product model. A session runs on exactly one runtime node, the one it was started on, for its whole life, and a person may have any number of machines, each running its own sessions. The user's devices read a session and send it work, but they execute nothing themselves. The desktop app on a computer that runs the service acts with that machine's own key, so the computer is one machine under one name, never a machine and a device ([User And Device Model](./user-and-device-model.md)).
+It is the "one machine executing" half of the product model. A session runs on exactly one machine, the one it was started on, for its whole life, and a person may have any number of machines, each running its own sessions. The user's devices read a session and send it work, but they execute nothing themselves. The desktop app on a computer that runs the service acts with that machine's own key, so the computer is one machine under one name, never a machine and a device ([User And Device Model](./user-and-device-model.md)).
 
 ## What This Is Not
 
-- A runtime node is not a user.
-- A runtime node is not a device. A device executes nothing.
-- A runtime node is not a session.
-- A runtime node is not a provider driver.
-- A runtime node is not a single run.
+- A machine is not a user.
+- A machine is not a device. A device executes nothing.
+- A machine is not a session.
+- A machine is not a provider driver.
+- A machine is not a single run.
 
 ## Invariants
 
-- Every runtime node belongs to exactly one user — the account holder whose devices drive it. There is no second owner, and no other account can register it or reach it.
-- Execution remains local to the runtime node; the control plane does not become the code-execution authority.
+- Every machine belongs to exactly one user — the account holder whose devices drive it. There is no second owner, and no other account can register it or reach it.
+- Execution remains local to the machine; the control plane does not become the code-execution authority.
 - Machine reachability and run state are separate concerns.
-- A runtime node may host multiple agents and runs; what it admits is decided by the memory gate, which starts work while the machine has the memory for it.
-- A runtime node is registered with the control plane under its own id and its owning user, never under a session. The service mints that id and the machine's Ed25519 identity key at its first start; the key is kept as its own item in the machine's credential store and never leaves the machine, and it is minted again only when a removed machine is linked again.
+- A machine may host multiple agents and runs; what it admits is decided by the memory gate, which starts work while the machine has the memory for it.
+- A machine is registered with the control plane under its own id and its owning user, never under a session. The service mints that id and the machine's Ed25519 identity key at its first start; the key is kept as its own item in the machine's credential store and never leaves the machine, and it is minted again only when a removed machine is linked again.
 
 ## Relationships To Adjacent Concepts
 
-- `User` owns the runtime node.
-- A `Session` runs on exactly one runtime node, the one it was started on.
-- `Agent` instances are bound to a runtime node for execution.
-- `Run` instances execute on a runtime node.
-- `RepoMount`, `Workspace`, and `Worktree` are local resources made usable by a runtime node.
+- `User` owns the machine.
+- A `Session` runs on exactly one machine, the one it was started on.
+- `Agent` instances are bound to a machine for execution.
+- `Run` instances execute on a machine.
+- `RepoMount`, `Workspace`, and `Worktree` are local resources made usable by a machine.
 
 ## State Model
 
@@ -55,17 +55,17 @@ Reachability is read from the machine's relay connection and from nothing else, 
 ## Example Flows
 
 - Example: The user installs the app on their workstation. At its first start the service mints the machine's id and identity key and reads the computer's own friendly name; once it is signed in to the hosted account, through the sign-in its background service runs, it registers under that id and the user's account, and the user's other devices see it as `Reachable`. Every session started there runs there.
-- Example: A runtime node loses provider connectivity but still has local repo access. The machine stays `Reachable`; the failure is reported for that provider and the runs that use it, not as a state of the machine.
+- Example: A machine loses provider connectivity but still has local repo access. The machine stays `Reachable`; the failure is reported for that provider and the runs that use it, not as a state of the machine.
 
 ## Edge Cases
 
 - A session stays valid while its machine is not reachable; the user's devices show the machine as `Not reachable · last seen <when>`, and nothing queues on their behalf.
-- A runtime node can be reachable even when it is currently hosting no agents.
+- A machine can be reachable even when it is currently hosting no agents.
 - Removing a machine on the Devices page stops the user's devices reaching it; its sessions stay on it, and it comes back only as a new computer joins, at its sign-in with one of the account's passkeys or by linking. Linked again, it first mints a new identity key under its same machine id, and its new `runtimenode.added` moves every device's pin for that id; its store, sessions and id stay. Removing a machine does not touch the account.
 
 ## Related Domain Docs
 
-- [User And Device Model](./user-and-device-model.md) — the user who owns the node, and the devices that drive it without executing anything themselves.
+- [User And Device Model](./user-and-device-model.md) — the user who owns the machine, and the devices that drive it without executing anything themselves.
 - [Trust And Identity](./trust-and-identity.md) — a machine joins the account through the account's statement chain: the first machine opens the chain with a `runtimenode.added` statement it signs itself, and every later machine joins either at its sign-in, its `runtimenode.added` signed by one of the account's passkeys, or by linking, which records its `runtimenode.added` signed by the device or machine that links it. That is the whole of a machine's identity. What its agents may do is decided by the session's permission level, the approval rules the providers keep, and the trust given per project and per tool server, never by the machine.
 
 ## Related Specs

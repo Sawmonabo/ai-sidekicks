@@ -33,7 +33,7 @@ CREATE TABLE projects (
 -- Owner: Plan-006
 CREATE TABLE repo_mounts (
   id                  TEXT PRIMARY KEY,
-  node_id             TEXT NOT NULL,          -- this machine's own node id, stamped by the daemon and never taken from the caller; a mount belongs to the machine, not to a session
+  node_id             TEXT NOT NULL,          -- this machine's own id, stamped by the daemon and never taken from the caller; a mount belongs to the machine, not to a session
   local_path          TEXT NOT NULL,          -- user-entered attach path (provenance)
   canonical_root      TEXT NOT NULL,          -- resolver output: absolute, symlink-resolved (envelope/dedupe key)
   origin              TEXT NOT NULL DEFAULT 'attached'
@@ -57,7 +57,7 @@ CREATE TABLE repo_mounts (
   CHECK (origin = 'managed' OR state <> 'attached' OR project_id IS NOT NULL)
 );
 
--- Active-mount uniqueness binds the CANONICAL root per owning node (Plan-006 D-006-7): two
+-- Active-mount uniqueness binds the CANONICAL root per owning machine (Plan-006 D-006-7): two
 -- entered aliases resolving to one root are one mount, whichever session asked, and a folder
 -- is listed once per machine with what uses it; detached rows stay re-attachable as new rows.
 CREATE UNIQUE INDEX idx_repo_mounts_active_root
