@@ -4,23 +4,44 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ## Plan-005-Partial — Local IPC Daemon Control
 
-[Plan-005 Phase 3](../../plans/005-local-ipc-and-daemon-control.md) defines the JSON-RPC IPC surface served by the local runtime daemon to in-tree clients (CLI, desktop renderer). The subset of that surface built beside Plan-001's session-core types ([Plan-005 §Execution Windows (V1 Carve-Out)](../../plans/005-local-ipc-and-daemon-control.md#execution-windows-v1-carve-out)) is declared here: (1) the canonical method-name format that [Plan-005 §I-005-8](../../plans/005-local-ipc-and-daemon-control.md#i-005-8--method-names-conform-to-the-canonical-format-declared-in-api-payload-contractsmd) requires the registry to enforce mechanically at `register(method, ...)` call time and (2) the JSON-RPC handshake `protocolVersion` field type, an ISO 8601 `YYYY-MM-DD` date string with current value `"2026-05-01"` ([§JSON-RPC Handshake `protocolVersion` Field](#json-rpc-handshake-protocolversion-field) below). The rest of Plan-005's shapes are canonical elsewhere and not mirrored here: the method table in `crates/sidekicks-contracts/src/jsonrpc/registry.rs`; the `LocalSubscriptionProducer<T>` shape in `crates/sidekicks-contracts/src/jsonrpc/streaming.rs` (its client-side consumer `LocalSubscriptionConsumer<T>` lives in `crates/sidekicks-client/src/transport/subscription_consumer.rs`); and the JSON-RPC error envelope in [error-contracts.md §JSON-RPC Wire Mapping](./error-contracts.md#json-rpc-wire-mapping).
+[Plan-005 Phase 3](../../plans/005-local-ipc-and-daemon-control.md) defines the JSON-RPC IPC surface served by the local runtime daemon to in-tree clients (CLI, desktop renderer). The subset of that surface built beside Plan-001's session-core types ([Plan-005 §Execution Windows (V1 Carve-Out)](../../plans/005-local-ipc-and-daemon-control.md#execution-windows-v1-carve-out)) is declared here: (1) the wire-name grammar every request, event and error code follows ([§Wire-Name Grammar](#wire-name-grammar) below), which [Plan-005 §I-005-8](../../plans/005-local-ipc-and-daemon-control.md#i-005-8--method-names-follow-the-wire-name-grammar) requires to be checked mechanically, and (2) the JSON-RPC handshake `protocolVersion` field type, an ISO 8601 `YYYY-MM-DD` date string with current value `"2026-05-01"` ([§JSON-RPC Handshake `protocolVersion` Field](#json-rpc-handshake-protocolversion-field) below). The rest of Plan-005's shapes are canonical elsewhere and not mirrored here: the method table, each method declared once with `methods!` (`crates/sidekicks-contracts/src/method.rs`) in the contract module that owns it; the `LocalSubscriptionProducer<T>` shape in `crates/sidekicks-contracts/src/jsonrpc/streaming.rs` (its client-side consumer `LocalSubscriptionConsumer<T>` lives in `crates/sidekicks-client/src/transport/subscription_consumer.rs`); and the JSON-RPC error envelope in [error-contracts.md §JSON-RPC Wire Mapping](./error-contracts.md#json-rpc-wire-mapping).
+
+### Wire-Name Grammar
+
+One grammar names every request, event and error code on the app's own wire, `domain[.resource].action|occurrence|condition`:
+
+- **A request** is `domain[.resource].action`: `session.create`, `session.hook.list`, `agent.run.create`.
+- **An event** is `domain[.resource].occurrence`, a participle: past when done (`agent.run.completed`), present while under way and closed by a past-tense event (`agent.run.pausing`, then `agent.run.paused`). What kind of event it is (lifecycle, transcript record, telemetry, provider notice) is its registry category, never a word in its name.
+- **An error code** is `domain[.resource].condition`: `session.notFound`, `terminal.control.heldByOther`. Each code is specific and carries one category ([Error Contracts §Categories](./error-contracts.md#categories)); a finer cause rides in `data.fields.reason`.
+- **Every segment is lowerCamelCase**, `[a-z][a-zA-Z0-9]*`, joined by dots, two to four segments, the action, occurrence or condition last. A value the app itself defines (an enum value, a reason) is lowerCamelCase too; a value a provider or an outside standard sends stays as sent.
+- **One word per concept,** singular, the glossary's or the screen's word: `terminal` not `pty`, `machine` not `runtimenode`, `provider` not `driver`, `git` not `gitflow`, `queueItem`, `repoMount`.
+- **Fixed verbs** replace their synonyms; every other verb is the domain's own (`archive`, `fork`, `steer`, `install`, `generate`):
+
+| Verb | Means |
+| --- | --- |
+| `read` | One thing, once |
+| `list` | A collection, once |
+| `subscribe` | A live feed, never called list or read |
+| `create` | Make a new thing |
+| `update` | Change a stored thing or one of its values |
+| `delete` | Destroy a record that has its own id, or a stored value |
+| `add` / `remove` | Put a member into a list or take it out; the member lives on |
+| `purge` | Delete many by a rule |
+| `clear` | Empty a value or a collection; the owner stays |
+| `start` / `stop` / `cancel` / `interrupt` | Jobs, processes, unfinished work, the provider's current turn |
+
+Protocol methods keep the slash form of the Language Server Protocol, `$/` and slash-joined segments (`$/cancelRequest`, `$/subscription/notify`, `$/subscription/cancel`, `$/subscription/end`), and no name starts `rpc.`, which JSON-RPC 2.0 reserves. The [Language Server Protocol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) (`textDocument/didOpen`, `workspace/executeCommand`) and the [Model Context Protocol](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) (`tools/list`, `tools/call`) join every method's segments with slashes; this wire keeps slashes for its protocol methods alone, so an app name never reads as one, and joins its own names with dots, as [WebDriver BiDi](https://w3c.github.io/webdriver-bidi/) does (`browsingContext.navigate`), in the lowerCamelCase segments all three use.
+
+The grammar rejects:
+
+- `session/create`: the slash form belongs to protocol methods.
+- `SessionCreate` and `Session.create`: PascalCase is the type names' form, and `SessionCreate` is already the request's type in `crates/sidekicks-contracts/src/session/methods.rs`.
+- `sessionCreate`: one segment names no domain.
+- `session.not_found`: an underscore is no part of a segment.
+
+**The build-time check.** One `const fn is_wire_name` in `crates/sidekicks-contracts`, beside the wire types, holds the grammar, with `is_protocol_method_name` for the `$/` form. Each name the contracts declare is asserted against it at build time where it is declared: in `methods!`, `refusal_codes!` and `session_event_types!`, and beside the two hand-built descriptors, `DaemonHandshake` and `SubscriptionCancel`. A name off the grammar fails the build (`not a wire name: Session.create`), so no name off it reaches the dispatcher, the event registry or the refusal table, and the method registry checks only that no name is registered twice. The assertion reads only the contract's own declared names and parses no source.
 
 ### JSON-RPC Method-Name Registry
-
-**Canonical format**: `dotted-camelCase`. Method-name strings match the regex:
-
-```text
-^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$
-```
-
-Every dot-delimited segment starts with a lowercase letter and may contain camelCase (`[a-z][a-zA-Z0-9]*`) — the first segment (the namespace root) included. This is the dotted-camelCase segment style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`, and camelCase-rooted names such as `textDocument.didOpen`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), applied uniformly to every segment, the root included. A segment may carry an uppercase letter inside it but never start with one, in any position (`Session.create` fails), and a name has at least two segments. Most roots are one lowercase word (`session`, `daemon`, `run`, `repo`, `voice`); a camelCase root such as `providerAccount` or `callbackTool` passes the same rule. Each root's methods are documented in the section of the plan that owns them, and [§Operations Not Yet Built](./api-payload-contracts.md#operations-not-yet-built) lists every documented method no handler serves yet. The V1 `session.*` surface (`session.create`, `session.read`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `run.subscribeState` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex, as is a camelCase root such as `providerAccount.list`.
-
-The regex accepts the registered surface and rejects:
-
-- `session/create` — slash-style (visually conflated with HTTP path segments; ambiguous in JSON-RPC contexts where method names appear in the JSON `method` field, not URLs).
-- `SessionCreate` — PascalCase (collides with the project's type-name convention; `Session.create` is rejected on the same ground — the root widening admits an uppercase letter _inside_ a segment, never at its start; `SessionCreate` is already a request-payload type symbol per `crates/sidekicks-contracts/src/session/methods.rs`, so a string-form would be ambiguous at every call site).
-- `sessionCreate` — bare camelCase without a namespace dot (cannot express the namespace/operation split without a convention-internal delimiter; doesn't scale to nested namespaces).
 
 **Method-name table** (Plan-005 Phase 3 surface; procedure types per [API Payload Contracts §Procedure Types](./api-payload-contracts.md#procedure-types)):
 
@@ -30,11 +51,9 @@ The regex accepts the registered surface and rejects:
 | `session.read` | `query` | Resolve session by id. |
 | `session.subscribe` | `subscription` (`SessionSubscribeResponse`, then `SessionStreamFrame` notifications) | Event stream that catches up, then follows. |
 
-**Cross-transport consistency**: This same `dotted-camelCase` format is used by Plan-025's control-plane HTTP procedures (per remote-control-payloads.md §Plan-025 — Remote Control Bootstrap). Both transport surfaces share the convention so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls.
+Each domain's methods are documented in the section of the plan that owns them, and [§Operations Not Yet Built](./api-payload-contracts.md#operations-not-yet-built) lists every documented method no handler serves yet.
 
-**Register-time enforcement** ([Plan-005 §I-005-8](../../plans/005-local-ipc-and-daemon-control.md#i-005-8--method-names-conform-to-the-canonical-format-declared-in-api-payload-contractsmd)): the method registry's `register(method, handler)` call MUST evaluate `method` against this regex and refuse on mismatch. This is mechanical validation, not human review — out-of-format names cannot reach the dispatcher.
-
-The runtime regex check is owed by the Plan-005 substrate at `crates/sidekicks-daemon/src/ipc/registry.rs` (`is_canonical_method_name`, the `register()`-time guard), which imports the canonical regex as the `METHOD_NAME_FORMAT` constant declared in `crates/sidekicks-contracts/src/jsonrpc/registry.rs` and generated into `packages/contracts/src/jsonrpc/registry.ts` (the single source — no per-package re-declaration); the `MethodRegistry` interface itself is likewise canonical in code there per the api-payload-contracts.md §Source-of-Truth Policy.
+**Cross-transport consistency**: the control plane's HTTP procedures ([Remote Control Payload Contracts §Plan-025 — Remote Control Bootstrap](./remote-control-payloads.md#plan-025--remote-control-bootstrap-control-plane-http-routes)) take their names from the same grammar, so a client's call sites read alike over local IPC and the control plane.
 
 ### JSON-RPC Handshake `protocolVersion` Field
 
@@ -250,7 +269,7 @@ type DaemonPackageCacheClearResult = DaemonPackageCacheReadResult;
 // sessions started in a terminal` is off.
 interface SessionTerminalProviderSessionListParams {}
 interface TerminalProviderSession {
-  provider: ProviderName;
+  provider: ProviderId;
   name: string;
   threadId: string;
   state: "working" | "idle" | "unreachable";

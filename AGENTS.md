@@ -8,6 +8,8 @@ AI Sidekicks is an agentic coding desktop runtime: one user and their AI sidekic
 
 **Agent in code and docs, sidekick on screen.** The concept is an agent: `AgentDefinition` is a saved one, `Agent` a live one in a session, and identifiers, file names and explanatory prose say agent. "Sidekick" is the brand and the word a person reads: on-screen strings, the `Sidekicks` destination and its `#/sidekicks` addresses, the `sidekicks` CLI, `@ai-sidekicks/*` packages, and the names a provider sees (`sidekicks:codex-<name>`).
 
+**A provider is an open id behind the driver interface.** Claude Code and Codex are today's providers, not the final set: each driver describes itself and the screens read what it offers, so no code outside a driver branches on which provider it is, and a provider added touches only its driver.
+
 Features: [README.md](README.md). What is left to build and in what order: [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). What has shipped: `git log --oneline --grep 'Plan-'`.
 
 ## Commands
@@ -28,7 +30,7 @@ Branch off `develop` as `<type>/<topic>`, open a PR, squash-merge. CI runs on ev
 2. **Never `git commit --no-verify`.** The hook is the secret scan.
 3. **Product code (`crates/`, `packages/`, `apps/`) carries no governance identifiers** — no `Spec-NNN`, `Plan-NNN`, `ADR-NNN`, `BL-NNN`, invariant or task ids, links into `docs/`, PR numbers, review history — and no reference-app branding. No tracked file, code or doc, names a reference app. Applied by reading; there is no lint rule and none is to be added.
 4. **Git worktrees live under `.worktrees/<name>/`.** Removing one another session is using breaks that session (2026-07-07 incident), so harness removals refuse while it is occupied. `python3 .claude/hooks/worktree-occupancy.py --occupancy <path>` prints the occupants; empty means free. `WORKTREE_REMOVE_ALLOW_OCCUPIED=1` overrides.
-5. **No home-made structure checkers.** No source-parsing test suites, census tests or prose-claim gates; a structural rule is a line in a standard tool's config (ESLint, knip, dependency-cruiser, Clippy, `cargo shear`) or a sentence in an `AGENTS.md`. Nothing enforces what a document says, how it is worded, or which words appear — no test, no script. 41,000 lines of such tests were deleted on 2026-09-09.
+5. **No home-made structure checkers.** No source-parsing test suites, census tests or prose-claim gates; a structural rule is a line in a standard tool's config (ESLint, knip, dependency-cruiser, Clippy, `cargo shear`) or a sentence in an `AGENTS.md`. Nothing enforces what a document says, how it is worded, or which words appear — no test, no script. 41,000 lines of such tests were deleted on 2026-09-09. The contracts' one compile-time assertion that each wire name they declare follows the wire grammar (`is_wire_name`, in `crates/sidekicks-contracts`) is no structure checker: it reads only the names the contracts declare, where they declare them, and parses no source.
 
 ## Engineering rules
 
@@ -90,6 +92,7 @@ All code, every language. These conventions govern code the project writes; a ve
 - **Names read as English.** Things that act (functions, hooks, controls) start with the verb: `takeShell`, `useTakeShell`. Things that hold data are noun phrases, head noun last: `TakeShellAvailability`, `take-shell-availability.ts`. A verb is never forced into a noun. Booleans read as questions: `isHeld`, `canTake`.
 - **An interface takes no `I` prefix:** `User`, never `IUser` (ESLint: `@typescript-eslint/naming-convention`).
 - **American spelling everywhere:** identifiers, CSS, on-screen text and docs (`color`, `behavior`, `canceled`, `organization`). A spelling a provider's wire sends stays as sent.
+- **A wire name** (a request, an event or an error code) follows the wire grammar, `domain[.resource].action`, lowerCamelCase segments joined by dots with the action, occurrence or condition last: `session.hook.list`, `agent.run.completed`, `session.notFound` ([Local IPC Payload Contracts §Wire-Name Grammar](docs/architecture/contracts/local-ipc-payloads.md#wire-name-grammar)).
 - **`shell` means a terminal or command shell.** Electron's main process is `main`; persistent interface chrome is `layout` or `AppShell`.
 
 ### File and folder names
