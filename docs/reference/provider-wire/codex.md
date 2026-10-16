@@ -7,7 +7,7 @@ Pinned wire reference for the Codex `app-server` JSON-RPC protocol as driven by 
 | Field | Value |
 | --- | --- |
 | Pinned version | `codex-cli 0.162.1` — the GitHub release `rust-v0.162.1`; the `latest` dist-tag of `@openai/codex` stood at `0.163.0` at this pin's authoring |
-| Measured build | the release's own `codex-aarch64-apple-darwin` asset, downloaded from the GitHub release and run from a scratch folder under a throwaway `HOME` and `CODEX_HOME`, never signed in; the `codex` installed on the authoring machine was `0.162.0`, so it is **not** what was measured. The previous pin `0.160.0` was generated beside it from its own release asset the same way, to compute the differences recorded below. |
+| Measured build | the release's own `codex-aarch64-apple-darwin` asset, downloaded from the GitHub release and run from a scratch folder under a throwaway `HOME` and `CODEX_HOME`, never signed in; the `codex` installed on the authoring machine was `0.162.0`, so it is **not** what was measured. Build `0.160.0` was generated beside it from its own release asset the same way, to compute the differences recorded below. |
 | Primary anchor | the binary's own **Generated schema** (canonical over prose docs), plus the tagged upstream source `openai/codex` `rust-v0.162.1` (commit `092d3acd6`) for what the generator cannot express |
 | Regenerated | 2026-10-15 |
 
