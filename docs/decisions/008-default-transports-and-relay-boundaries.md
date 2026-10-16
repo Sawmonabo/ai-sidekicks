@@ -49,7 +49,6 @@ We will use OS-local IPC for client-to-daemon communication on the machine itsel
 
 - **Reversal cost:** Moderate. Transport clients, daemon endpoints, and operations guidance would need revision.
 - **Blast radius:** Desktop main process, CLI, daemon startup, relay flows, and security assumptions.
-- **Migration path:** Add new transports in parallel, migrate client SDK defaults, then retire old defaults.
 - **Point of no return:** After the client SDK, daemon supervisor, and operations docs all assume the chosen default transports.
 
 ## Consequences

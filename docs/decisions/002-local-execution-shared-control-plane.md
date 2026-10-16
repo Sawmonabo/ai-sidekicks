@@ -102,7 +102,7 @@ Hosted execution fails the product's local-execution requirement and increases t
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Local filesystem and tool execution remains Local Runtime Daemon-owned | 100% of execution paths | Architecture and security review | At every architecture and security review |
+| Local filesystem and tool execution remains Local Runtime Daemon-owned | 100% of execution paths | The pull request's review | At every pull request |
 | Control Plane remains free of direct code execution responsibilities | 100% of control-plane components | Architecture review | At every architecture review |
 
 ## References

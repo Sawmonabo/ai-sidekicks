@@ -24,7 +24,7 @@
 | Step | Command | Result |
 | --- | --- | --- |
 | Validate a three-hook module (`session.start`, `tool.call`, `turn.start`, each calling `$.fs.write`) | `claude plugin validate <plugin>` | passed; the validator names the hooks and the `$` calls |
-| Run it headless | `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude -p '…read note.txt… reply with only the color…' --model haiku --no-session-persistence --plugin-dir <plugin> --allowedTools Read --max-turns 2 --output-format json` in a scratch folder | reply `green`, 2 turns, $0.029, 4.4 s |
+| Run it headless | `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` (set for this 2.1.278 run; 2.1.287 and later ignore it) `claude -p '…read note.txt… reply with only the color…' --model haiku --no-session-persistence --plugin-dir <plugin> --allowedTools Read --max-turns 2 --output-format json` in a scratch folder | reply `green`, 2 turns, $0.029, 4.4 s |
 | `session.start` | marker file written by the hook | `surface: null`, `isInteractive: false` |
 | `tool.call` | marker file | saw `tool: "Read"` with `file_path` and `tool_use_id`; the answer carried `ref`, `result`, `text` |
 | `turn.start` | marker file | `text`, `turnId` |

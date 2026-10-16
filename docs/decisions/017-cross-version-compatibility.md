@@ -47,7 +47,7 @@ How do we evolve `EventEnvelope` and event-type semantics when the app, the back
 
 8. **MINOR envelope bumps are additive-only.** Additive = new optional fields with defaults, new event types, new enum values. Forbidden: renaming fields, changing field types, changing field semantics, adding required fields, adding required semantic invariants (e.g., "field X must now be a valid URL"). Semantic invariant changes REQUIRE a MAJOR bump — this is author discipline enforced via the reviewer checklist in §Decision Validation; there is no automated semantic-equivalence gate (Schema Registry cannot catch this either, per precedent).
 
-9. **The event union in `packages/contracts` is the event-type registry, and receivers accept and stub.** Receivers stub anything they don't recognize. No central registry exists, because the app talks only to its own service version and the one before, so a central registry would govern nothing.
+9. **The event union in `crates/sidekicks-contracts` is the event-type registry, and receivers accept and stub.** It is `SessionEventType` in `event/registry.rs` and `SessionEvent` in `event/session.rs`, and its TypeScript is generated into `packages/contracts`. Receivers stub anything they don't recognize. No central registry exists, because the app talks only to its own service version and the one before, so a central registry would govern nothing.
 
 10. **Version failures surface as handshake reasons, never crashes.** The only version refusals are the `version.floor_exceeded` and `version.ceiling_exceeded` reasons on `DaemonHelloAck`, registered in [Error Contracts](../architecture/contracts/error-contracts.md), and the app reads each as the side that is behind (item 4). No write, join or envelope read carries a typed version error.
 
@@ -93,7 +93,7 @@ Pin-at-session assumes every client updates in the same step as the service, and
 
 - **What:** Like Confluent Schema Registry — a control-plane-hosted registry accepts new event-type schemas and rejects incompatible registrations at publish time.
 - **Steel man:** Catches 100% of structural breaks before they reach the wire. Schema Registry's TRANSITIVE-compatibility enforcement is the gold standard for producer-side evolution.
-- **Why rejected:** The event union in `packages/contracts` is already the registry for every shape the service and its clients exchange, and the app talks only to its own service version and the one before, so a control-plane registry would govern nothing.
+- **Why rejected:** The event union in `crates/sidekicks-contracts` is already the registry for every shape the service and its clients exchange, and the app talks only to its own service version and the one before, so a control-plane registry would govern nothing.
 
 ### Option D: Integer version field instead of semver (Rejected)
 
@@ -137,7 +137,7 @@ Pin-at-session assumes every client updates in the same step as the service, and
 - Mixed versions supported without forced-lockstep upgrades; the app and the service update independently.
 - Wire format is evolvable after release without user-visible breakage on additive changes.
 - Audit log immutability preserved — stubs persist verbatim and are re-read, never converted.
-- Enforcement is at each end; the event union in `packages/contracts` is the only registry.
+- Enforcement is at each end; the event union in `crates/sidekicks-contracts` is the only registry.
 - The handshake reasons (`version.floor_exceeded`, `version.ceiling_exceeded`) turn a version mismatch into a read-only console that names the side behind, rather than a crash.
 
 ### Negative (accepted trade-offs)
