@@ -13,11 +13,12 @@ All API errors use the canonical `ErrorResponse` envelope defined in API Payload
 ```ts
 interface ErrorResponse {
   code: string; // namespaced: 'session.not_found', 'auth.token_expired', etc.
+  category: string; // the code's category (e.g. "notFound"), §Categories
   message: string; // human-readable description
 }
 ```
 
-A code's own fields sit beside `code` and `message`, as in `RateLimitResponse`, never under a nested member.
+A code's own fields sit beside `code`, `category` and `message`, as in `RateLimitResponse`, never under a nested member. The HTTP body carries the category as every refusal does, so a client acts on a code newer than itself the same way over either transport.
 
 This shape is the **HTTP/control-plane** envelope (the control plane's HTTP routes, served by `axum` on `worker`). Local IPC traffic uses the JSON-RPC wire envelope declared in §JSON-RPC Wire Mapping below — the dotted-namespace `code` from this envelope rides as `data.type` on the JSON-RPC side. The two surfaces share the same project code registry (§Error Codes); only the framing differs.
 
@@ -39,7 +40,7 @@ Local IPC traffic (Plan-005 daemon ↔ in-tree clients) frames errors per [JSON-
 | `-32800` | RequestCanceled | The client canceled the call with `$/cancelRequest` before the daemon reached its commit point |
 | `-31000` | (application) | Every domain refusal: a well-formed call the daemon refuses on what it names or on the state it meets, whose code and category ride in `data` |
 
-Only protocol outcomes take JSON-RPC's numbers; every domain refusal answers the one application number `-31000`, so the number never carries what `data.type` and `data.category` already say. An id or a row that resolves to nothing is a domain refusal of its owner's namespace with category `notFound`, never `-32602`. The reserved range `-32768..-32000` is the JSON-RPC spec's prerogative, and the project mints no number inside it. `-32800` lies outside it and is LSP 3.17's `RequestCancelled`, the answer to `$/cancelRequest`. `-31000` lies outside it too, and outside the blocks LSP (`-32899..-32800`), MCP and A2A (`-32099..-32000`) claim.
+Only protocol outcomes take JSON-RPC's numbers; every domain refusal answers the one application number `-31000`, so the number never carries what `data.type` and `data.category` already say. An id or a row that resolves to nothing is a domain refusal of its owner's namespace at `-31000`, never `-32602`, its category most often `notFound`. The reserved range `-32768..-32000` is the JSON-RPC spec's prerogative, and the project mints no number inside it. `-32800` lies outside it and is LSP 3.17's `RequestCancelled`, the answer to `$/cancelRequest`. `-31000` lies outside it too, and outside the blocks LSP (`-32899..-32800`), MCP and A2A (`-32099..-32000`) claim.
 
 ### Categories
 
@@ -89,6 +90,7 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 | `unknown_setting` | `-32602` | `invalidArgument` | Bootstrap rejected an unrecognized SecureDefaults config key (T-005p-1-3) |
 | `method_not_found` | `-32601` | `notFound` | The request names a method the daemon does not register; no handler runs |
 | `invalid_params` | `-32602` | `invalidArgument` | The request's params failed the method's contract check, so no handler ran. Params that pass the check but name nothing the daemon holds are a domain refusal of the owner's namespace (§Numeric Code Space), and two workflow versions of different workflows are `workflow.version_diff_cross_workflow` |
+| `invalid_envelope` | `-32600` | `invalidArgument` | The request's envelope breaks the wire format before dispatch: its `id` is over `JSON_RPC_ID_MAX_BYTES` once JSON-encoded, so the refusal carries `id: null` ([Local IPC Payload Contracts §JSON-RPC Request `id` Bound](./local-ipc-payloads.md#json-rpc-request-id-bound)) |
 | `invalid_result` | `-32603` | `internal` | The handler's result failed the method's result check, or a transcript read's result does not answer the request it was given; a daemon fault, never the client's |
 | `request.canceled` | `-32800` | `canceled` | A call the client canceled with `$/cancelRequest` before the daemon reached its commit point; the call still gets exactly one response |
 | `transport.unavailable` | `-31000` | `unavailable` | The client cannot reach the daemon's OS-local socket or named pipe, or its link to the daemon is down; no fallback transport exists |
@@ -274,7 +276,7 @@ WebAuthn-ceremony refusals (Plan-015 Phase 6). Both codes are served on **contro
 
 ### Machine
 
-This code is registry-only (code and message, with no fields of its own): no acceptance criterion needs structured detail, and a detail naming the machine would say whether it exists. The domain token `runtimenode` matches the method namespace ([Remote Control Payload Contracts §Machine Registration Method Registry](./remote-control-payloads.md#machine-registration-method-registry)).
+This code is registry-only (code and message, with no fields of its own): no acceptance criterion needs structured detail, and a detail naming the machine would say whether it exists.
 
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
@@ -480,7 +482,7 @@ The review and ship surface's refusals ([Spec-009](../../specs/009-gitflow-pr-an
 
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
-| `gitflow.generate_failed` | A Generate, `gitflow.commitMessageGenerate` or `gitflow.changeRequestTextGenerate`, failed for a passing reason, so the same call can be sent again: the provider was overloaded, rate-limited or failed on its side, its stream dropped or its own retries ran out, the picked model was gone, or it gave no valid structured output. `data.fields.providerFailureDetail` carries the provider's own words, and nothing falls back to another provider or model. A spent allowance answers `provider.account.allowanceExhausted`, a refused sign-in `provideraccount.not_authenticated`, a provider too slow `driver.timeout`, a provider not installed `provider.not_installed`, and a request of the daemon's own the provider calls malformed `system.internal_error`. A diff larger than the model's window is read in passes and is never a failure | `unavailable` | 503 |
+| `gitflow.generate_failed` | A Generate, `gitflow.commitMessageGenerate` or `gitflow.changeRequestTextGenerate`, failed for a passing reason, so the same call can be sent again: the provider was overloaded, rate-limited or failed on its side, its stream dropped or its own retries ran out, the picked model was gone, or it gave no valid structured output. `data.fields.providerFailureDetail` carries the provider's own words, and nothing falls back to another provider or model. A spent allowance answers `provider.account.allowanceExhausted`, a refused sign-in `provideraccount.not_authenticated`, a provider too slow `driver.timeout`, a provider not installed `provider.not_installed`, and a request of the daemon's own the provider calls malformed `system.internal_error`, Codex's `input_too_large` among them, since every pass is sized under the model's window and Codex's 1,048,576-character limit per message. A diff larger than the model's window is read in passes and is never a failure | `unavailable` | 503 |
 | `git.generateRefused` | The provider refused the diff's content by its own policy, so the same diff fails again until it changes. `data.fields`: `reason` (`providerRefused`) and `providerFailureDetail`, the provider's own words | `failedPrecondition` | 409 |
 | `gitflow.read_failed` | A read the review pane depends on still failed after the daemon's one retry, so the pane shows its own error state and keeps what it already drew | `internal` | 500 |
 | `gitflow.host_invalid` | A host the person tried to add was not added, and nothing is saved. `data.fields.reason` is `not_a_host_name` (the name does not parse) or `not_answered` (neither `gh` nor `glab`, installed and signed in, answers for it) | `invalidArgument` | 422 |
@@ -517,11 +519,19 @@ Highlight codes ride the daemon JSON-RPC wire with notional HTTP statuses.
 | --- | --- | --- | --- |
 | `highlight.read_replaced` | A `highlight.read` that a newer read for the same block, on the same connection, replaced while it waited to be colored; only the newer read is answered with the colors. No `data.fields` | `canceled` | 409 |
 
+### Transcript
+
+Transcript codes ride the daemon JSON-RPC wire with notional HTTP statuses.
+
+| Code | Description | Category | HTTP Status |
+| --- | --- | --- | --- |
+| `transcript.row.notFound` | A transcript read named a row id the session does not hold, so it never reads like a row that carries no body. `data.fields`: `rowId` | `notFound` | 404 |
+
 ### Provider
 
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
-| `provider.not_installed` | The provider's command is not installed, so a setting that needs it cannot be turned on: availability for new sessions, the shared terminal service, and the terminal plugin | `failedPrecondition` | 409 |
+| `provider.not_installed` | The provider's command is not installed, so an act that needs it is refused: a setting that needs it turned on (availability for new sessions, the shared terminal service, the terminal plugin), Generate on that provider, and a tool server's sign-in through it | `failedPrecondition` | 409 |
 | `provider.command_not_runnable` | Nothing runnable sits at the command path the person typed | `invalidArgument` | 422 |
 
 ### Daemon
@@ -598,6 +608,7 @@ Standard 429 response shape (from API Payload Contracts):
 ```ts
 interface RateLimitResponse {
   code: "rate_limited";
+  category: "resourceExhausted";
   message: string; // human-readable description
   retryAfter: number; // seconds until retry is allowed
   limit: number; // total allowed requests in the window

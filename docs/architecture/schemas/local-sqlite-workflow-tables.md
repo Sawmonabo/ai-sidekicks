@@ -347,7 +347,7 @@ CREATE TABLE workflow_secrets (
   updated_at        TEXT NOT NULL,               -- the last `Replace value`
   removal_requested_at TEXT,                     -- NULL until a delete starts: the delete records its intent here, removes the stored value, then the row
   CHECK((scope = 'shared') = (scope_ref = '')),
-  UNIQUE(scope, scope_ref, name)                 -- a name taken in its scope is refused with workflow.secret_name_invalid (reason: taken)
+  UNIQUE(scope, scope_ref, name)                 -- a name taken in its scope is refused with workflow.secret.nameTaken
 ) STRICT;
 
 -- ========================================================================

@@ -81,7 +81,7 @@ Plan-022 is the declared consumer of two Plan-003 surfaces: (a) the `onMcpServer
 
 ### CP-022-3 — `mcp.*` namespace registration against the Plan-005 substrate
 
-The `mcp.*` operations and the `session.mcp*` operations register against `MethodRegistry.register()` (`crates/sidekicks-contracts/src/jsonrpc/registry.rs`, Plan-005 Phase 2 T-005p-2-3) when this plan lands — the Plan-005 CP-005-2 late-namespace pattern (`presence.*` precedent: namespace owners register when they land against the stable substrate); `mcp.subscribe` and `session.mcpServerList` additionally ride Plan-005's streaming primitive (the `session.subscribe` long-lived consumer shape).
+The `mcp.*` operations and the `session.mcp*` operations register against `MethodRegistry.register()` (`crates/sidekicks-daemon/src/ipc/registry.rs`, Plan-005 Phase 2 T-005p-2-3) when this plan lands — the Plan-005 CP-005-2 late-namespace pattern (`presence.*` precedent: namespace owners register when they land against the stable substrate); `mcp.subscribe` and `session.mcpServerList` additionally ride Plan-005's streaming primitive (the `session.subscribe` long-lived consumer shape).
 
 **Resolution.** Plan-005 Phase 2 merged is the Phase 1 precondition; the handlers land in Phase 2–5 as each operation's backing service exists. Plan-005's CP-005-2 heading and its registry-surface enumeration name this plan.
 

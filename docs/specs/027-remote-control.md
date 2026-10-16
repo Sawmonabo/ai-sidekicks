@@ -193,7 +193,7 @@ Described here, not schematized; the shapes belong to Plan-025 and the contracts
 - **The live picture.** `preview.screencastSubscribe`, with `preview.screencastAck`, `preview.screencastInput`, `preview.screencastEdit`, `preview.screencastFileChoose` and `preview.screencastSaveAck`.
 - **Folders on another device.** `repo.folderList {path?, filter?, showHidden?}`, answering with each entry's path, and `repo.attach {localPath}` with the path of the folder the device was shown.
 - **The channel's first frame.** `{channelVersion, profiles}`, answered `{profile}` or closed with `channel.no_common_profile`.
-- **Relay refusals.** `relay.pin_refused {relayHost, pinnedSpkiPrefix, presentedSpkiPrefix}`, recorded on the daemon's own service session, and `relay.spki_mismatch` (412); each prefix is the first 8 bytes of its hash. The recovery is `relay.repin {spkiHash}`, a bare verb on the `relay` root, sent by `sidekicks relay repin --force`.
+- **Relay refusals.** `relay.pin_refused {relayHost, pinnedSpkiPrefix, presentedSpkiPrefix}`, recorded on the daemon's own service session, and `relay.spki_mismatch` (409); each prefix is the first 8 bytes of its hash. The recovery is `relay.repin {spkiHash}`, a bare verb on the `relay` root, sent by `sidekicks relay repin --force`.
 - **The Devices page.** The registry rendered in Settings: the machine, device and passkey cards, linking on both sides and the shared-ports list (§Device registration and revocation, §Shared ports).
 - **The command line.** `sidekicks devices` with `link`, `rename`, `revoke` and `forget`; `sidekicks relay repin --force`; and the relay block of `sidekicks daemon status`, the `relay` field of `daemon.status.read`.
 

@@ -670,9 +670,9 @@ interface WorkflowWebhookListenerReadResponse {
 // written to no document, step record, reply, event, log or error: `secretValue` is write-only and no read
 // carries it. A secret's scope is `project` or `shared`, never a session. Its name is lowercase letters,
 // digits and hyphens, starting with a letter or digit, at most 64 characters, and a sensitive param
-// references it as `secret://<scope>/<name>`. A name that breaks that pattern, or that its scope already
-// holds, is refused with `workflow.secret_name_invalid` (`reason: "pattern" | "taken"`). A keychain that is
-// locked or unavailable refuses a write with `workflow.secret_store_unavailable`
+// references it as `secret://<scope>/<name>`. A name that breaks that pattern is refused with
+// `workflow.secret_name_invalid`, and one its scope already holds with `workflow.secret.nameTaken`.
+// A keychain that is locked or unavailable refuses a write with `workflow.secret_store_unavailable`
 // (`cause: "locked" | "unavailable"`). At step launch a secret the keychain does not hold fails the step
 // with `workflow.secret_not_found`, carrying only the reference, and a locked or unavailable keychain fails
 // it with `workflow.secret_store_unavailable`; either offers Retry from this step, and neither ever falls

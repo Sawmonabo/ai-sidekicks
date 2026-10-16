@@ -388,7 +388,7 @@ Payload shape: `{nodeId, occurredAt}` (base). Per-event payload extensions calle
 
 | Type | Description | Payload Extension |
 | --- | --- | --- |
-| `relay.pin_refused` | A pinned relay presented a key other than the one pinned when it was linked, and the daemon refused the connection with `relay.spki_mismatch` (412). Only a relay whose certificate does not chain to a root the operating system trusts has its key pinned; a publicly trusted relay is checked by the platform's certificate validation and its host name and never records this event. Each prefix is the first 8 bytes of its key hash, never a token. `sidekicks daemon status` names the refusal, and `sidekicks relay repin --force` accepts the new key ([Spec-027 §Interfaces And Contracts](./027-remote-control.md#interfaces-and-contracts)). | base + `{relayHost, pinnedSpkiPrefix, presentedSpkiPrefix}` |
+| `relay.pin_refused` | A pinned relay presented a key other than the one pinned when it was linked, and the daemon refused the connection with `relay.spki_mismatch` (409). Only a relay whose certificate does not chain to a root the operating system trusts has its key pinned; a publicly trusted relay is checked by the platform's certificate validation and its host name and never records this event. Each prefix is the first 8 bytes of its key hash, never a token. `sidekicks daemon status` names the refusal, and `sidekicks relay repin --force` accepts the new key ([Spec-027 §Interfaces And Contracts](./027-remote-control.md#interfaces-and-contracts)). | base + `{relayHost, pinnedSpkiPrefix, presentedSpkiPrefix}` |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 

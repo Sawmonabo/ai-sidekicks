@@ -32,7 +32,7 @@ There is one recording and one call at a time on this computer, so the verbs on 
 | `voice.callSubscribe` | `subscription` | `EmptyPayload` | `VoiceCallFrame` (stream) |
 | `voice.voiceList` | `query` | `EmptyPayload` | `VoiceListResponse` |
 
-Voice on an account whose sign-in kind its provider gives no voice (on Claude Code, an API-key or cloud-provider account) is refused with `voice.accountNotEntitled`, reason `signInKindNotEntitled`, and the strip draws one sentence, the same on every provider: `Voice isn't available on <account>.` A provider or installed build without voice refuses `voice.dictationStart` and `voice.callStart` with `provider.capability.unsupported`. `voice.callStart` refuses with `voice.call_start_failed` when Codex's realtime service or the network failed before Codex's answer arrived, and with `provider.account.notAuthenticated` when Codex refused the account's sign-in.
+Voice on an account whose sign-in kind its provider gives no voice (on Claude Code, an API-key or cloud-provider account) is refused with `voice.accountNotEntitled`, reason `signInKindNotEntitled`, and the strip draws one sentence, the same on every provider: `Voice isn't available on <account>.` A provider or installed build without voice refuses `voice.dictationStart` and `voice.callStart` with `driver.capability_unsupported`. `voice.callStart` refuses with `voice.call_start_failed` when Codex's realtime service or the network failed before Codex's answer arrived, and with `provideraccount.not_authenticated` when Codex refused the account's sign-in.
 
 ```ts
 // Which session voice is on in, or null when it is off: the request of `voice.stateUpdate`, its

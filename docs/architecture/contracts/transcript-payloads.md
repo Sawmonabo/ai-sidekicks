@@ -247,8 +247,8 @@ type ChildRunExpandResponse = {
 // whole output, read only when the row's control is pressed (`Show full output`, with its size),
 // and the whole a copy from the row lifts.
 // `rowId` is the row's `id`, the id of the event it renders. A session id the daemon does not hold
-// is refused with `session.not_found`; a row id the session does not hold is refused on the `rowId`
-// path, so it never reads like a row that carries no body.
+// is refused with `session.not_found`; a row id the session does not hold is refused with
+// `transcript.row.notFound` at `-31000`, so it never reads like a row that carries no body.
 interface TranscriptBodyReadRequest {
   sessionId: SessionId;
   rowId: string;

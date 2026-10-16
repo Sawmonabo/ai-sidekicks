@@ -107,7 +107,7 @@ sidekicks daemon status              # prints the refusal line while a pinned re
 | Event or error | Shape |
 | --- | --- |
 | `relay.pin_refused` (event, on the daemon's sentinel session) | `{relayHost, pinnedSpkiPrefix, presentedSpkiPrefix}` — each prefix the first 8 bytes of its hash, never a token |
-| `relay.spki_mismatch` (error, 412) | the refusal a pinned relay's changed key raises |
+| `relay.spki_mismatch` (error, 409) | the refusal a pinned relay's changed key raises |
 
 Both are listed with the relay's other refusals in [Spec-027 §Interfaces And Contracts](./027-remote-control.md#interfaces-and-contracts); the event is registered in [Spec-005 §Event Type Enumeration](./005-session-event-taxonomy-and-audit-log.md#event-type-enumeration) and the error in [error-contracts.md](../architecture/contracts/error-contracts.md).
 

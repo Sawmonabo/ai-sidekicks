@@ -58,7 +58,7 @@ Every control-plane endpoint defined in this document is implicitly scoped to th
 
 ## Source-of-Truth Policy
 
-This file is the **design surface** for cross-cutting payload contracts — brand types, procedure-type assignments, method-name formats, error envelopes, and other shapes that span multiple plans and are declared here before any package implements them. Cross-package consumers reading this file see a single canonical declaration of how the wire surface is shaped.
+This file is the **design surface** for cross-cutting payload contracts — brand types, procedure-type assignments, error envelopes, and other shapes that span multiple plans and are declared here before any package implements them. Cross-package consumers reading this file see a single canonical declaration of how the wire surface is shaped.
 
 Package-local typed surfaces are **canonical in code**, in the crate that owns them, not in this file. Examples (non-exhaustive):
 
@@ -71,7 +71,7 @@ Package-local typed surfaces are **canonical in code**, in the crate that owns t
 
 This file does **NOT** maintain doc-side mirrors of those types. A consumer searching for the canonical runtime type reads the code path directly; this file's role for those surfaces is to cite the code location and explain cross-cutting consistency, not to redefine them. The Rust type in `crates/sidekicks-contracts` is the source of truth — its serde shape and its garde checks — and divergence between this file's prose and the Rust type is resolved in favor of the Rust type. The TypeScript types and Ajv validators under `packages/contracts` are generated from it and never edited.
 
-Cross-cutting shapes (procedure-type tables, method-name regexes, brand-type catalogs) are declared in this file; package-local interface shapes are not.
+Cross-cutting shapes (procedure-type tables, brand-type catalogs) are declared in this file, and every method name follows [Local IPC Payload Contracts §Wire-Name Grammar](./local-ipc-payloads.md#wire-name-grammar), the wire-name grammar, checked at build time; package-local interface shapes are not.
 
 **Three spellings for a member that may have no value, one per situation.** A state row that reports a fact spells it required and nullable (`spendLimitUsdMicros: number | null`): the member is always present, and `null` is the fact that no limit is set, never a member the writer forgot. A patch that can clear a value spells it optional and nullable (`spendLimitUsdMicros?: number | null`): an omitted member leaves the stored value as it stands, and an explicit `null` clears it, the merge-patch reading (RFC 7386). A create-time request that is never patched spells it plain optional (`tokenLimit?: number`): omitted means the default, and there is no stored value to clear. Every schema mirrors the spelling of the shape it validates, and a reader that cannot tell "absent" from "cleared" is a defect in the schema, not a case to handle in the caller.
 
@@ -125,10 +125,11 @@ All API responses use this error envelope on failure.
 // Canonical error response
 interface ErrorResponse {
   code: string; // namespaced: 'session.not_found', 'auth.token_expired', etc.
+  category: string; // the code's category (e.g. "notFound"), error-contracts.md §Categories
   message: string; // human-readable description
 }
-// A code's own fields sit beside `code` and `message`, as in `RateLimitResponse`, never under a
-// nested member.
+// A code's own fields sit beside `code`, `category` and `message`, as in `RateLimitResponse`, never
+// under a nested member.
 
 // Error code namespaces
 type ErrorNamespace =
@@ -149,6 +150,7 @@ type ErrorNamespace =
 // crates/sidekicks-contracts/src/rate_limiter.rs, generated into packages/contracts/src/rate-limiter.ts)
 interface RateLimitResponse {
   code: "rate_limited";
+  category: "resourceExhausted";
   message: string; // human-readable description
   retryAfter: number; // seconds until retry is allowed
   limit: number; // total allowed requests in the window
@@ -385,7 +387,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `cloud.taskDiffRead {taskId, attempt?}` | A ready Codex attempt's diff | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.31 |
 | `cloud.taskList {sessionId}` (live) | The session's cloud work, each a `CloudWork`: a `CloudTask` (`kind: task`, with attempts, `pending`, `ready`, `applied` or `error` with the provider's own message) or a `CloudSession` (`kind: session`, `submitted` for its whole life, with its `url` on the provider's site) | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.31 |
 | `cloud.taskRead {taskId}` | One task's last reported state and attempts | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.31 |
-| `cloud.taskStart {sessionId, prompt, environment?, attempts?}` → `{taskId}` | Send a message to the provider's cloud as a new cloud task. Refused with `cloud.accountNotEntitled` (403) where the account's sign-in kind or plan lacks the provider's cloud, reason `signInKindNotEntitled` (Codex on an API key) or `subscriptionRequired` (Claude Code without Pro, Max or Team); `cloud.githubRemoteRequired` (409) where the project has no GitHub remote; and `provider.capability.unsupported` where the provider or its installed build has no cloud | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.31 |
+| `cloud.taskStart {sessionId, prompt, environment?, attempts?}` → `{taskId}` | Send a message to the provider's cloud as a new cloud task. Refused with `cloud.accountNotEntitled` (403) where the account's sign-in kind or plan lacks the provider's cloud, reason `signInKindNotEntitled` (Codex on an API key) or `subscriptionRequired` (Claude Code without Pro, Max or Team); `cloud.githubRemoteRequired` (409) where the project has no GitHub remote; and `driver.capability_unsupported` where the provider or its installed build has no cloud | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.31 |
 
 ### `command.*`
 

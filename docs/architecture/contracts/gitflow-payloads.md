@@ -152,9 +152,15 @@ interface GitActionProgress {
 // provider and its lowest-priced model, or the session's model where none is priced), runs
 // read-only and outside the repository at the lowest effort the model takes, with thinking off
 // where the model allows it, and reads the whole working folder's diff, the branch and recent
-// commit subjects. The diff is never cut or thinned: one request when it fits the model's window,
-// otherwise several passes over every changed file, lockfiles and generated files included, the
-// daemon tracking which files each pass covered, then one pass that writes the text. The response
+// commit subjects. The diff is never cut or thinned: one request when it fits, otherwise several
+// passes over every changed file, lockfiles and generated files included, the daemon tracking which
+// files each pass covered, then one pass that writes the text. A request or a pass fits when it is
+// within the model's window and within any per-message limit the provider has (on Codex, 1,048,576
+// characters of a message's `text`), and every pass is sized under both, so Codex's
+// `input_too_large` never answers a correctly sized pass. The window is the provider's own figure:
+// Codex's catalog row from `codex debug models` (`context_window`, `max_context_window`) and Claude
+// Code's `get_context_usage` read at the process's creation; the price table gives only the price,
+// so a model it does not price is sized the same way. The response
 // names each changed file no pass could read and never claims to cover it. A failure is refused
 // under the codes this contract registers (error-contracts.md §Gitflow): a passing upstream failure
 // under `gitflow.generate_failed`, the provider's refusal of the content by its own policy under
@@ -393,7 +399,7 @@ interface GitSettledPayload {
 }
 ```
 
-Plan-008's git flow is exposed as the `gitflow.*` methods below. Method-name strings follow the wire-name grammar, dotted lowerCamelCase segments ([Local IPC Payload Contracts §Wire-Name Grammar](./local-ipc-payloads.md#wire-name-grammar)) — the `gitflow` namespace token is the gitflow domain noun (the Plan-008-owned `crates/sidekicks-daemon/src/gitflow/` daemon module, D-008-3; consumed client-side through `sidekicks-client`'s methods, built from the method table, [Plan-008 §Target Areas](../../plans/008-gitflow-pr-and-diff-attribution.md#target-areas)). The PascalCase request/response type symbols (such as `GitActionExecute`) are off that grammar, which leaves PascalCase to type names, so `is_wire_name` fails the build on one used as a method string and each wire name differs from its payload type symbol. Names register under the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out. These methods ride the **daemon JSON-RPC transport only** — the ship facts, the diff and the held notes are this machine's git and daemon state, and the hosting service is reached from the daemon under the person's own signed-in identity, so no control-plane route sibling exists. Every session-scoped method is keyed by the session, and the daemon resolves the session's working folder itself.
+Plan-008's git flow is exposed as the `gitflow.*` methods below. Method-name strings follow the wire-name grammar, dotted lowerCamelCase segments ([Local IPC Payload Contracts §Wire-Name Grammar](./local-ipc-payloads.md#wire-name-grammar)). The PascalCase request/response type symbols (such as `GitActionExecute`) are off that grammar, which leaves PascalCase to type names, so `is_wire_name` fails the build on one used as a method string and each wire name differs from its payload type symbol. Names register under the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out. These methods ride the **daemon JSON-RPC transport only** — the ship facts, the diff and the held notes are this machine's git and daemon state, and the hosting service is reached from the daemon under the person's own signed-in identity, so no control-plane route sibling exists. Every session-scoped method is keyed by the session, and the daemon resolves the session's working folder itself.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
