@@ -139,7 +139,7 @@ The Linear pattern stays on record as the counterexample for a server that may r
 ### Related ADRs
 
 - [ADR-004 — SQLite Local State And Hosted Account](./004-sqlite-local-state-and-hosted-account.md) — establishes the two-store split this ADR scopes event-sourcing against.
-- [ADR-010 — Tokens, Passkeys And The Remote Channel](./010-tokens-passkeys-and-the-remote-channel.md) — the per-connection `Noise_KK` channel between each device and each machine, under `Noise_KK_25519_AESGCM_SHA256` or `Noise_KK_25519_ChaChaPoly_SHA256`, and what the relay may see; also PASETO v4 tokens with the service's own authorization-code sign-in for the control plane, and passkeys only in the web client, the phone apps and the relay's sign-in page.
+- [ADR-010 — Tokens, Passkeys And The Remote Channel](./010-tokens-passkeys-and-the-remote-channel.md) — the per-connection `Noise_KK` channel between each device and each machine, under `Noise_KK_25519_AESGCM_SHA256` or `Noise_KK_25519_ChaChaPoly_SHA256`, and what the relay may see; also PASETO v4 tokens with the service's own authorization-code sign-in for the control plane, and passkeys only in the web client, the iPhone app and the relay's sign-in page.
 - [ADR-014 — V1 Feature Scope Definition](./014-v1-feature-scope-definition.md) — the V1 feature scope this decision respects.
 
 ### Related Specs And Docs

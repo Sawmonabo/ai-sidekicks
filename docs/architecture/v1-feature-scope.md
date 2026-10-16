@@ -89,7 +89,7 @@ All V1 features and supporting V1 specs have implementation plans: Plan-001 and 
 - [ADR-015: Electron Desktop App](../decisions/015-electron-desktop-app.md) — enables V1 feature 12 (Desktop GUI).
 - [ADR-018: Windows V1 Tier and the PTY in the Daemon](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md) — Windows V1 tier decision.
 - [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md) — the person's own relay and the ways to deploy it.
-- [ADR-010: Tokens, Passkeys And The Remote Channel](../decisions/010-tokens-passkeys-and-the-remote-channel.md) — PASETO v4 tokens with an authorization-code sign-in the service runs and a DPoP-bound refresh token for the control plane, passkeys only in the web client, the phone apps and the sign-in page, and the per-connection Noise KK channel between each device and each machine, `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second.
+- [ADR-010: Tokens, Passkeys And The Remote Channel](../decisions/010-tokens-passkeys-and-the-remote-channel.md) — PASETO v4 tokens with an authorization-code sign-in the service runs and a DPoP-bound refresh token for the control plane, passkeys only in the web client, the iPhone app and the sign-in page, and the per-connection Noise KK channel between each device and each machine, `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second.
 - [Vision](../vision.md) — signature features and build order.
 - [Backlog](../backlog.md) — open work items against V1 scope.
 - [Deployment Topology](./deployment-topology.md) — the topologies behind the person's own relay, on Workers or Compose.

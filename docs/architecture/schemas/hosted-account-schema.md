@@ -56,7 +56,7 @@ CREATE INDEX idx_users_identity ON users(identity_ref);
 
 ## WebAuthn Ceremony (Plan-015)
 
-Backs the relying party's half of the WebAuthn ceremony [ADR-010](../../decisions/010-tokens-passkeys-and-the-remote-channel.md) requires, owned by Plan-015 Phase 6 (T6.1 — CP-015-8). The web client and the phone apps call these routes, the authentication pair with no sign-in and the rest signed in. The sign-in page a machine's service opens (`/oauth/authorize`) calls the authentication-options route, and for `Create an account` the registration-options route with no sign-in, and hands the assertion or attestation to the sign-in page's approval of the pending [`authorization_requests`](#tokens-and-sign-in) row; the desktop app carries no WebAuthn, and no JSON-RPC method string is involved.
+Backs the relying party's half of the WebAuthn ceremony [ADR-010](../../decisions/010-tokens-passkeys-and-the-remote-channel.md) requires, owned by Plan-015 Phase 6 (T6.1 — CP-015-8). The web client and the iPhone app call these routes, the authentication pair with no sign-in and the rest signed in. The sign-in page a machine's service opens (`/oauth/authorize`) calls the authentication-options route, and for `Create an account` the registration-options route with no sign-in, and hands the assertion or attestation to the sign-in page's approval of the pending [`authorization_requests`](#tokens-and-sign-in) row; the desktop app carries no WebAuthn, and no JSON-RPC method string is involved.
 
 ```sql
 -- Owner: Plan-015 (T6.1)
@@ -200,8 +200,8 @@ CREATE TABLE devices (
   linked_at        INTEGER NOT NULL DEFAULT (unixepoch()),
   last_seen_at     INTEGER,                       -- the end of its last relay connection; written at most once a minute
   revoked_at       INTEGER,
-  push_platform    TEXT CHECK(push_platform IN ('apns', 'fcm', 'webPush')),
-  push_address     TEXT                           -- the APNs token, FCM token or Web Push endpoint; dropped at revoke
+  push_platform    TEXT CHECK(push_platform IN ('apns', 'webPush')),
+  push_address     TEXT                           -- the APNs token or Web Push endpoint; dropped at revoke
 ) STRICT;
 
 CREATE INDEX idx_devices_user ON devices(user_id);
@@ -238,7 +238,7 @@ CREATE TABLE trust_statements (
 
 **Append-only.** A statement is never updated or deleted while the account exists; a forgotten device's `devices` row goes, and its `device.revoked` stays in the chain. Every channel open carries the chain head each side holds, and a machine that sees a newer head fetches the missing statements, so a control plane that withholds a statement from one machine is caught at the next connection of any honest device. For one person with a few machines and devices the chain stays under a hundred statements a year, about 30 KB.
 
-**Push.** A machine seals each push to the device's push key and hands the sealed bytes to the control plane, which looks up `push_address` and delivers through the person's own APNs, FCM or VAPID credentials. The control plane holds nothing that opens a notice, and keeps no notification queue or preference.
+**Push.** A machine seals each push to the device's push key and hands the sealed bytes to the control plane, which looks up `push_address` and delivers through the person's own APNs or VAPID credentials. The control plane holds nothing that opens a notice, and keeps no notification queue or preference.
 
 **Erasure.** All three tables carry `REFERENCES users(id)` and join the [Spec-020 §Erasure Paths](../../specs/020-data-retention-export-and-deletion.md#erasure-paths) Path-2 closure as hard-DELETE: an erased account's devices, machines and chain go with it.
 

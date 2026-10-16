@@ -55,7 +55,7 @@ import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 export const APP_VERSION_MAX_LEN = 64;
 /** The longest pairing id the control plane mints for one link. */
 export const PAIRING_ID_MAX_LEN = 256;
-/** The longest push address: an APNs or FCM token, or a Web Push endpoint. */
+/** The longest push address: an APNs token or a Web Push endpoint. */
 export const PUSH_ADDRESS_MAX_LEN = 2048;
 
 const NameSchema = wireFreeFormString(MACHINE_OR_DEVICE_NAME_MAX_LEN, "name");
@@ -398,13 +398,12 @@ export const DeviceTrustedListResponseSchema: z.ZodType<DeviceTrustedListRespons
 // Push address and notification switches
 
 /** Where a device's pushes go. */
-export const PUSH_PLATFORMS = ["apns", "fcm", "webPush"] as const;
+export const PUSH_PLATFORMS = ["apns", "webPush"] as const;
 /** One push platform. */
 export type PushPlatform = (typeof PUSH_PLATFORMS)[number];
 
 /**
- * The calling device's push address: its APNs token, its FCM token or its Web Push
- * endpoint. Set at link time and whenever the platform changes it.
+ * The calling device's push address: its APNs token or its Web Push endpoint. Set at link time and whenever the platform changes it.
  */
 export interface DevicePushAddressSetRequest {
   platform: PushPlatform;

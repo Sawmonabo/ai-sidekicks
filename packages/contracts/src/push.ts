@@ -1,6 +1,6 @@
 // The push contract: a machine hands the control plane one sealed notice for one of
 // the person's devices, and the control plane delivers it through the person's own
-// APNs, FCM or VAPID credentials.
+// APNs or VAPID credentials.
 //
 // The machine seals every notice to the device's own push key before it leaves, so
 // the control plane and the push services carry bytes they cannot open, and the
