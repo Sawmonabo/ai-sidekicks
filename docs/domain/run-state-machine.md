@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the canonical lifecycle of a run so queueing, steering, pause and resume, approvals, interruption, rollback, and failure semantics are unambiguous.
+Define the canonical lifecycle of a run so queuing, steering, pause and resume, approvals, interruption, rollback, and failure semantics are unambiguous.
 
 ## Scope
 
@@ -10,9 +10,14 @@ This document covers run states, transition rules, and the meaning of control ac
 
 ## Definitions
 
+- `Session`: the app's primary object, holding the lead and its helpers ([Session Model](session-model.md)).
+- `Conversation`: the provider's own ongoing exchange with one agent (a Claude Code session, a Codex thread), idle between turns and never completed. The lead has one per session; a helper has its own.
+- `Agent`: a lasting identity in the session, the lead or a helper keyed by its handle, with many runs over time ([Agent And Run Model](agent-and-run-model.md)).
+- `Run`: one stretch of one agent's work, started by a send or a launch. It ends once, in `completed`, `failed` or `stopped`, and that end is final; an `interrupted` or `paused` run is not over, and a send continues it. A send to an agent whose run has ended starts a new run of the same agent on the same conversation.
+- `Turn`: the provider's own unit, from one input it takes to the end it reports for that input (Codex's `turn/completed`, Claude Code's one `result` per turn). A run holds one turn or several: it continues after an interrupt or a pause, a turn is retried on another model, or the provider takes waiting messages as its next turn.
 - `RunState`: the authoritative lifecycle state of a run.
 - `BlockingState`: a non-terminal run state that requires external input before normal progress can continue.
-- `TerminalState`: a run state from which the run does not continue on its own. Each exit keeps the same run id: a send into an `interrupted` run, which returns it to `running` with everything it knew; a send into a finished child run's own steer box, which starts it again; and, on Codex, a send into a `stopped` child. `failed` has no exit, and neither has a `stopped` child on Claude Code.
+- `TerminalState`: a run state from which the run does not continue on its own. Only `interrupted` has an exit: a send into it, or the waiting messages going as its next turn, returns it to `running` on the same run id with everything it knew. `completed`, `failed` and `stopped` are final, and a send to that agent starts its next run, where the provider takes one.
 - `RunFailureCategory`: a machine-readable classification that explains why a run failed or degraded without creating a new run state.
 - `RecoveryCondition`: a derived signal that explains whether recovery still requires the person to act.
 
@@ -30,7 +35,8 @@ The run state machine defines the lifecycle semantics of execution.
 ## Invariants
 
 - A run has exactly one current state at a time.
-- Terminal emission is at most once per `(runId, runVersion)` ([Spec-005 §Run Lifecycle](../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle)). An undo's conversation cut advances `runVersion` and opens a new execution epoch — the interval between accepted `run.rolled_back` cuts — whether or not the files also went back, and it moves the run through no transition of its own (§Rollback Transitions; [Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)). A send that re-opens an `interrupted` or finished run (§Complete Transition Table) advances `runVersion` the same way, so the same at-most-once key holds across it; unlike a cut it rewinds nothing, opens no new epoch, and marks no turn superseded.
+- Terminal emission is at most once per `(runId, runVersion)` ([Spec-005 §Run Lifecycle](../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle)). An undo's conversation cut advances `runVersion` and opens a new execution epoch — the interval between accepted `run.rolled_back` cuts — whether or not the files also went back, and it moves the run through no transition of its own (§Rollback Transitions; [Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)). A send that continues an `interrupted` run (§Complete Transition Table) advances `runVersion` the same way, so the same at-most-once key holds across it; unlike a cut it rewinds nothing, opens no new epoch, and marks no turn superseded.
+- Every turn that starts ends exactly once. Turn events sit beside the run's states and change none of them: the turn's start (`run.turn_started`), then exactly one of `agent.turn.completed`, `agent.turn.interrupted` or `agent.turn.failed`, each carrying its `turnNumber` within its run. `agent.turn.interrupted` and `agent.turn.failed` carry `origin: provider`, or `origin: daemon` with a `cause`: `processExit` when the daemon saw the provider process end, `daemon_restart` when a restart settled the turn, or the limit the person set that cut it, `step_limit`, `spend_limit` or `token_limit`; `agent.turn.completed` carries no origin, because only the provider reports a completion. A turn cut by a limit ends `agent.turn.interrupted` with that limit as its cause and its partial result kept. A turn's word and its run's word may differ: a paused run's turn is interrupted. A provider's report of a turn's end that arrives after its run ended is written once as that turn's end and never changes the run.
 - `resume` is valid only from `paused`.
 - Reattach after reconnect is not the same thing as `resume`.
 - Waiting for approval or input keeps the same run id; it does not create a replacement run.
@@ -55,8 +61,8 @@ The run state machine defines the lifecycle semantics of execution.
 | `pausing` | A pause has been asked for and the step already in flight is still finishing. Nothing new starts, and the state is visible to a reader rather than internal. |
 | `paused` | The run has been intentionally suspended and can later continue with the same run id. |
 | `completed` | The run finished successfully. |
-| `interrupted` | The run ended because of an interrupt: the person's, or one the daemon made itself, which carries its `trigger`. |
-| `stopped` | A child run ended by a stop that reached several agents — `Interrupt everything` or `Stop all running`. Final on Claude Code, where the CLI refuses every later message to that child; on Codex a send starts it again. |
+| `interrupted` | The run's turn was cut by an interrupt — the person's, or one the daemon made itself at the step limit or the spend limit, which carries its `trigger` — and the run rests until a send continues it on the same run id, or a newer run of the same agent supersedes it and it keeps `interrupted` as its last word. |
+| `stopped` | The run was ended by a stop before its work was done, and it is final: a child that `Interrupt everything` or `Stop all running` reached on Claude Code, where the CLI refuses every later message to it, or any run at its token limit, which carries `trigger: token_limit`. A send to that agent starts its next run, where the provider takes one. |
 | `failed` | The run ended because of an unrecovered error. |
 
 Primary allowed transitions:
@@ -71,7 +77,7 @@ Primary allowed transitions:
 - `pausing -> paused` (the step in flight landed)
 - `pausing -> running` (the pause toggle pressed again, or a send, before the step in flight landed)
 - `pausing -> interrupted` (an interrupt while the step in flight is finishing)
-- `running -> interrupted`
+- `running -> interrupted` (the person's interrupt, or the daemon's own at the step limit or the spend limit, carrying its `trigger`)
 - `running -> completed`
 - `running -> failed`
 - `waiting_for_approval -> running` (approval resolved; or a pending permission-ask's provider retraction, atomic with `approval.canceled`, no outcome delivered)
@@ -81,9 +87,8 @@ Primary allowed transitions:
 - `paused -> running` (the pause toggle pressed again — `run.resume` — or a send)
 - `paused -> interrupted`
 - `interrupted -> running` (a send, or the messages that were waiting going as the next turn)
-- `completed -> running` (a send into a finished child run's own steer box)
-- `running -> stopped` and `interrupted -> stopped` (a child, on `Interrupt everything` or `Stop all running`)
-- `stopped -> running` (a send into a stopped child on Codex; never on Claude Code)
+- `running -> stopped` and `interrupted -> stopped` (a Claude Code child, on `Interrupt everything` or `Stop all running`; the same press interrupts a Codex child)
+- `running -> stopped`, `pausing -> stopped`, `paused -> stopped`, `waiting_for_approval -> stopped` and `waiting_for_input -> stopped` (the run's token limit, `trigger: token_limit`)
 - `waiting_for_approval -> failed` (provider or transport failure while waiting)
 - `waiting_for_input -> failed` (provider or transport failure while waiting; or the refusal choice answered `edit_prompt` or `cancelled`, the run ending with `failureCategory: 'refused'`)
 - `paused -> failed` (resume handle lost or recovery exhausted)
@@ -94,12 +99,12 @@ During startup reconciliation the daemon detects runs left in non-terminal state
 
 - From `starting`, `running`, `waiting_for_approval`, `waiting_for_input`: the daemon may transition the run to `failed` if automatic recovery cannot safely resume execution.
 - From `paused`: the daemon may transition the run to `failed` if the resume handle is lost and recovery is impossible.
-- From any non-terminal state during recovery: the run transitions to `interrupted` if a pending user-initiated interrupt was recorded before the crash; otherwise it transitions to `failed` when recovery cannot safely resume. On a resume that succeeds (`DriverResumeResult.status: 'resumed'`) the daemon compares the provider's reported session position with its own record, and nothing is decided on the person's behalf except the read-only case: where the two agree, the run goes on; where the provider is ahead only by steps that read, those steps are added to the transcript from the provider's own record, recorded as `run.recovery_steps_added`, and the run goes on as if the two had agreed; any other mismatch — the provider ahead by anything else, or the daemon ahead of the provider — is a divergence, which halts the run for human action in `waiting_for_input` per the divergence rows below ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)). A crashed run is never replayed into a fresh session.
+- From any non-terminal state during recovery: the run transitions to `interrupted` if a pending user-initiated interrupt was recorded before the crash, or a pending interrupt the daemon made itself at the step limit or the spend limit, which keeps its `trigger`; to `stopped` with `trigger: token_limit` if the daemon's pending stop at the run's token limit was recorded; otherwise it transitions to `failed` when recovery cannot safely resume. On a resume that succeeds (`DriverResumeResult.status: 'resumed'`) the daemon compares the provider's reported session position with its own record, and nothing is decided on the person's behalf except the read-only case: where the two agree, the run goes on; where the provider is ahead only by steps that read, those steps are added to the transcript from the provider's own record, recorded as `run.recovery_steps_added`, and the run goes on as if the two had agreed; any other mismatch — the provider ahead by anything else, or the daemon ahead of the provider — is a divergence, which halts the run for human action in `waiting_for_input` per the divergence rows below ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)). A crashed run is never replayed into a fresh session.
 
-Decision rule — `interrupted` vs `failed` vs `waiting_for_input` during recovery:
+Decision rule — `interrupted` or `stopped` vs `failed` vs `waiting_for_input` during recovery:
 
-- `interrupted`: the run had a pending user-initiated stop. The user's intent was to end the run; recovery honors that intent — this outcome takes precedence over the other two.
-- `failed`: recovery itself fails with no prior user-initiated stop. The run did not end on its own terms.
+- `interrupted` or `stopped`: the run had a pending stop — the person's interrupt, or the daemon's own at a limit, whose intervention records its reason. Recovery settles the run as that stop would have: `interrupted` for the person's, the step limit's or the spend limit's, with its `trigger`, and `stopped` with `trigger: token_limit` for the token limit's. The turn the stop cut ends `agent.turn.interrupted` with `origin: daemon` and that limit as its `cause`, or `daemon_restart` for the person's. This outcome takes precedence over the other two.
+- `failed`: recovery itself fails with no prior stop pending. The run did not end on its own terms, and its open turn ends `agent.turn.failed` with `origin: daemon` and `cause: daemon_restart`.
 - `waiting_for_input`: recovery resumed the provider session and found a divergence; the local log is authoritative, and the person answers one question whose choices are worded for which record is ahead (`recovery-needed` — [Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)). The answer travels as `run.recoveryResolve`, is recorded as `run.recovery_resolved`, and ends the halt through the ordinary rows out of `waiting_for_input`; the choice that goes back to the last point both records agree on is an undo's conversation cut and file restore (§Rollback Transitions).
 
 ## Rollback Transitions
@@ -130,6 +135,7 @@ The following table lists every allowed run state transition. It includes primar
 | `pausing` | `interrupted` | Interrupt intervention | User-initiated stop while the step in flight is finishing — an interrupt stays available throughout a pause — or an undo ending the turn (§Rollback Transitions) |
 | `pausing` | `failed` | Unrecovered error | Provider, transport, or internal error while the step in flight is finishing |
 | `running` | `interrupted` | Interrupt intervention | User-initiated stop, or an undo ending the running turn (§Rollback Transitions) |
+| `running` | `interrupted` | Step or spend limit reached | The turn reached `Max steps per turn` — Claude Code's own `error_max_turns` on a lead, the daemon's own count otherwise — or the first usage report past the session's spend limit; the run carries `trigger: step_limit` or `trigger: spend_limit`, and its turn ends `agent.turn.interrupted` with that cause and its partial result kept ([Spec-003 §The Step Bound On A Turn](../specs/003-queue-steer-pause-resume.md#the-step-bound-on-a-turn), [Spec-014 §Budget Policies](../specs/014-multi-agent-orchestration.md#budget-policies)) |
 | `running` | `completed` | Execution finished | Run reaches successful terminal condition |
 | `running` | `failed` | Unrecovered error | Provider, transport, or internal error during execution |
 | `waiting_for_approval` | `running` | Approval resolved | Resolution outcome (approved or rejected) delivered to the run; a rejected outcome continues the run with the action refused — it does not terminate the run (Spec-010); an approval never settles on its own, so there is no time-based arm to this row (Spec-010 §Required Behavior) |
@@ -146,29 +152,37 @@ The following table lists every allowed run state transition. It includes primar
 | `paused` | `running` | The pause toggle pressed again (`run.resume`), or a send | Resume handle valid and provider ready; the run continues from exactly where it stopped with nothing repeated, and any messages that were waiting are delivered ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
 | `paused` | `interrupted` | Interrupt intervention | User-initiated stop while paused, or an undo (§Rollback Transitions) |
 | `paused` | `failed` | Resume failure | Resume handle lost or recovery exhausted |
-| `interrupted` | `running` | Send into the interrupted run | A user message — or the messages that were waiting going as the next turn — returns the run to `running` with everything it knew; nothing is rewound and no turn is marked superseded ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
-| `completed` | `running` | Send into a finished run | A send into a finished child run's own steer box starts it again on the same run id, its pause and interrupt coming back with it ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
-| `running` | `stopped` | A stop that reaches several agents | A child reached by `Interrupt everything` or `Stop all running`: `stop_task` on Claude Code, `turn/interrupt` on Codex |
-| `interrupted` | `stopped` | A stop that reaches several agents | The same stop reaching a child already interrupted |
-| `stopped` | `running` | Send into a stopped child | Codex only: the child keeps its box and a send starts it again on the same run id; on Claude Code `stopped` is final |
+| `interrupted` | `running` | Send into the interrupted run | A user message — or the messages that were waiting going as the next turn — returns the run to `running` with everything it knew; nothing is rewound and no turn is marked superseded ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)). A helper's interrupted run is continued this way only when its own parent run carries the send; a send through a new parent run starts the helper's next run |
+| `running` | `stopped` | A stop that reaches several agents | A Claude Code child reached by `Interrupt everything` or `Stop all running`: `stop_task`, after which the CLI refuses every later message to it. The same press is `turn/interrupt` on a Codex child, which rests `interrupted` |
+| `interrupted` | `stopped` | A stop that reaches several agents | The same stop reaching a Claude Code child already interrupted; the interruption and its cause stay in the record and the stop is a new event of its own |
+| `running` | `stopped` | Token limit reached | The first usage report past the run's `Tokens per run`; the run carries `trigger: token_limit`, its turn ends `agent.turn.interrupted` with `cause: token_limit` and what it wrote kept ([Spec-014 §Budget Policies](../specs/014-multi-agent-orchestration.md#budget-policies)) |
+| `pausing` | `stopped` | Token limit reached | The same, while the step in flight is finishing |
+| `paused` | `stopped` | Token limit reached | The same, reached by a usage report that lands while the run is paused |
+| `waiting_for_approval` | `stopped` | Token limit reached | The same while the run waits on an approval, which is canceled with the run's end |
+| `waiting_for_input` | `stopped` | Token limit reached | The same while the run waits on the person's input, which is canceled with the run's end |
 | `queued` | `failed` | Startup reconciliation | Recovery fails |
-| `starting` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
+| `starting` | `failed` | Startup reconciliation | Recovery fails with no stop pending |
 | `starting` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
 | `starting` | `running` | Startup reconciliation | Resume succeeds (`DriverResumeResult.status: 'resumed'`) at the daemon-recorded position — the equal-position attach in the pre-`running` crash window: provider and workspace re-confirmed ready, initialization resumes and completes |
 | `starting` | `waiting_for_input` | Startup reconciliation | Resume succeeds (`DriverResumeResult.status: 'resumed'`) but the driver-reported session position diverges from the daemon-recorded position — the pre-`running` crash window: the provider session advanced before the `starting → running` transition was recorded; the local log is authoritative, the run halts for human action carrying `recovery-needed` ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)) |
-| `running` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
-| `running` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `running` | `failed` | Startup reconciliation | Recovery fails with no stop pending |
+| `running` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash, or the daemon's pending interrupt at the step limit or the spend limit, which keeps its `trigger` |
 | `running` | `waiting_for_input` | Startup reconciliation | Resume succeeds (`DriverResumeResult.status: 'resumed'`) but the driver-reported session position diverges from the daemon-recorded position — the local log is authoritative and the run halts for human action carrying `recovery-needed` ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)) |
-| `waiting_for_approval` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
-| `waiting_for_approval` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `waiting_for_approval` | `failed` | Startup reconciliation | Recovery fails with no stop pending |
+| `waiting_for_approval` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash, or the daemon's pending interrupt at the step limit or the spend limit, which keeps its `trigger` |
 | `waiting_for_approval` | `waiting_for_input` | Startup reconciliation | Resume succeeds (`DriverResumeResult.status: 'resumed'`) but the driver-reported session position diverges from the daemon-recorded position — the local log is authoritative and the run halts for human action carrying `recovery-needed`; the pending approval is canceled as moot through its existing terminal, never left actionable against a diverged run ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)) |
-| `waiting_for_input` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
-| `waiting_for_input` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
-| `paused` | `failed` | Startup reconciliation | Resume impossible and no prior user-initiated stop |
-| `paused` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash, or a child held in the pause, which carries `trigger: 'daemon_restart'` |
+| `waiting_for_input` | `failed` | Startup reconciliation | Recovery fails with no stop pending |
+| `waiting_for_input` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash, or the daemon's pending interrupt at the step limit or the spend limit, which keeps its `trigger` |
+| `paused` | `failed` | Startup reconciliation | Resume impossible and no stop pending |
+| `paused` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash, or the daemon's pending interrupt at the step limit or the spend limit, which keeps its `trigger`, or a child held in the pause, which carries `trigger: 'daemon_restart'` |
 | `paused` | `waiting_for_input` | Startup reconciliation | Resume succeeds (`DriverResumeResult.status: 'resumed'`) but the driver-reported session position diverges from the daemon-recorded position — the local log is authoritative and the run halts for human action carrying `recovery-needed` ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)) |
-| `pausing` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
-| `pausing` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash, or a child held in the pause, which carries `trigger: 'daemon_restart'` |
+| `pausing` | `failed` | Startup reconciliation | Recovery fails with no stop pending |
+| `pausing` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash, or the daemon's pending interrupt at the step limit or the spend limit, which keeps its `trigger`, or a child held in the pause, which carries `trigger: 'daemon_restart'` |
+| `running` | `stopped` | Startup reconciliation | The daemon's pending stop at the run's token limit recorded before crash; the run carries `trigger: token_limit` |
+| `pausing` | `stopped` | Startup reconciliation | The same |
+| `paused` | `stopped` | Startup reconciliation | The same |
+| `waiting_for_approval` | `stopped` | Startup reconciliation | The same |
+| `waiting_for_input` | `stopped` | Startup reconciliation | The same |
 
 ## Derived Failure And Recovery Signals
 
@@ -177,7 +191,7 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 | Signal Or Category | Meaning | Classification |
 | --- | --- | --- |
 | `recovery-needed` | Automatic recovery did not return the run to safe progress, and the person must act. | Recovery condition, not `RunState` |
-| `reauth-required` | Provider credentials or the provider session expired mid-run or during resume; re-authentication on the runtime node is required before recovery proceeds ([Spec-004 §Fallback Behavior](../specs/004-provider-driver-contract-and-capabilities.md#fallback-behavior) `RecoveryCondition`). | Recovery condition, not `RunState` |
+| `reauth-required` | Provider credentials or the provider session expired mid-run or during resume; re-authentication on the machine is required before recovery proceeds ([Spec-004 §Fallback Behavior](../specs/004-provider-driver-contract-and-capabilities.md#fallback-behavior) `RecoveryCondition`). | Recovery condition, not `RunState` |
 | `provider failure` | The provider or driver could not safely start, continue, or resume the run. | Failure category, not `RunState` |
 | `transport failure` | A required transport path failed independently of provider semantics. | Failure category, not `RunState` |
 | `local persistence failure` | Canonical local storage was unavailable or inconsistent enough that recovery or safe mutation could not continue. | Failure category, not `RunState` |
@@ -202,7 +216,7 @@ Child runs are **independent intervention targets**: a parent state change never
 
 | Parent State | Child-Run Effect |
 | --- | --- |
-| `interrupted` | No automatic effect. Children keep their current state; each child is interrupted explicitly, or the subtree stopped by `Interrupt everything` or `Stop all running`, which takes each child it reaches to `stopped`. |
+| `interrupted` | No automatic effect. Children keep their current state; each child is interrupted explicitly, or the subtree stopped by `Interrupt everything` or `Stop all running`, which takes each Claude Code child it reaches to `stopped` and each Codex child to `interrupted`. |
 | `failed` | No automatic effect. Children keep running; the parent's death does not invalidate work the children were spawned to do. |
 | `paused` | No automatic effect. Pausing a parent pauses only the parent; children are paused individually if needed. |
 | `completed` | Child runs continue to completion. They were spawned for a reason and are allowed to finish. |

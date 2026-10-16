@@ -10,7 +10,7 @@ This document defines what a session contains, how it behaves, and how it relate
 
 ## Definitions
 
-- `Session`: the top-level container for runtime, communication, and work state, owned by one user.
+- `Session`: the app's primary object, the top-level container for runtime, communication, and work state, holding the lead and its helpers, owned by one user.
 - `SessionState`: the lifecycle state of the session itself, not the state of any specific run.
 - `local-only`: a connectivity state in which a session stays fully usable on the machine that runs it while that machine has no relay connection; the user's other devices reach the same session again once the connection is back.
 
@@ -46,7 +46,7 @@ A session is the durable container that holds:
 
 - [User And Device Model](./user-and-device-model.md) describes who owns the session and which devices drive it.
 - `RuntimeNode` is the machine that runs the session. A session has exactly one, fixed when the session starts.
-- `Agent` and `Run` describe who executes work and which execution episode is in progress.
+- `Agent` and `Run` describe who executes work and which stretch of an agent's work is in progress ([Agent And Run Model](./agent-and-run-model.md)); each agent's runs continue its provider conversation.
 - `RepoMount`, `Workspace`, and `Worktree` describe the code-bearing execution contexts used by runs inside the session.
 - `local-only` describes a connectivity state of the one session; it is not a second root model and not a second kind of session.
 

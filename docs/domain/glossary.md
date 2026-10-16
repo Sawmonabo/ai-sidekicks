@@ -12,14 +12,16 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 
 | Term | Definition |
 | --- | --- |
-| `Session` | The primary container for agents, runs, queue items, workspaces, artifacts, and approvals, owned by one user and run by one machine for its whole life. |
+| `Session` | The app's primary object: the container for the lead and its helpers, their runs, queue items, workspaces, artifacts, and approvals, owned by one user and run by one machine for its whole life. |
 | `User` | The account holder — the single human actor a session belongs to, with one stable identity across every device they connect from. |
 | `Device` | A connected client of that account — a phone, a laptop app, a second desktop. Listed on screen on the **Devices** page of Settings. Defined in [User And Device Model](./user-and-device-model.md). |
-| `Presence` | The ephemeral liveness of one of the user's own devices or runtime nodes — which of them are currently reachable. It is never a roster of other people. |
+| `Presence` | The ephemeral liveness of one of the user's own devices or machines — which of them are currently reachable. It is never a roster of other people. |
 | `RuntimeNode` | The machine that executes a session's work, owned by the user. |
-| `Agent` | A configured execution persona inside a session, used to perform runs. Code and docs say agent for the concept; "sidekick" is the brand and the word a person reads on screen. |
+| `Agent` | A lasting identity in a session, the lead or a helper keyed by its handle, with many runs over time. Code and docs say agent for the concept; "sidekick" is the brand and the word a person reads on screen. |
 | `AgentDefinition` | A saved, reusable agent configuration the Sidekicks destination lists; a run started under one keeps the configuration it was resolved for. |
-| `Run` | A single execution episode performed by one agent inside one session. |
+| `Conversation` | The provider's own ongoing exchange with one agent (a Claude Code session, a Codex thread), idle between turns and never completed. Its on-disk record is the provider's `Conversation file`. |
+| `Run` | One stretch of one agent's work inside one session, started by a send or a launch. It ends once, in `completed`, `failed` or `stopped`; an `interrupted` or `paused` run is not over, and a send continues it. Defined in [Run State Machine](./run-state-machine.md). |
+| `Turn` | The provider's own unit of work, from one input it takes to the end it reports for that input (Codex's `turn/completed`, Claude Code's one `result` per turn). A run holds one or more, and each turn that starts ends exactly once: completed, interrupted or failed. |
 | `RuntimeBinding` | An association between a `Run` and a specific provider driver instance. Fields: `driver_name`, `contract_version`, `resume_handle`, `runtime_metadata`. Persists recovery handles so a run can be resumed after interruption. Created by Plan-003 (provider driver contract), extended by Plan-012 for recovery. Stored in the `runtime_bindings` SQLite table. See [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) and [Spec-013](../specs/013-persistence-and-recovery.md). |
 | `QueueItem` | A persisted unit of deferred work awaiting admission into the run engine. |
 | `Intervention` | An auditable control action that changes, redirects, pauses, resumes, or interrupts active or queued work. |
@@ -36,7 +38,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `WorkflowDocument` | The authored body of a workflow: one JSON document holding exactly one trigger node, the rest of the graph as nodes, and the edges between them. Every kind the runtime offers is a node, and nothing is compiled into a second shape when the document is saved. |
 | `WorkflowStep` | The runtime record of one attempt of one node, keyed by the run, the node and the attempt number, carrying that attempt's status, timings, input, output and log. |
 | `Gate` | A point where a workflow run waits for the person: a `human.approval` step, or a chain's question before it starts more runs. The answer is recorded in `workflow_gate_resolutions`, and the run goes on or stops by it. |
-| `local-only` | An operating constraint meaning the relevant session continuity or execution path remains usable on the user's own local runtime node without requiring current control-plane reachability. `local-only` is not a separate domain object or an alternate session model. |
+| `local-only` | An operating constraint meaning the relevant session continuity or execution path remains usable on the user's own machine without requiring current control-plane reachability. `local-only` is not a separate domain object or an alternate session model. |
 | `Transcript` | The session's own record of its conversation, written by the daemon and drawn on screen in order: messages, tool calls, approvals and replies. There is no replay surface over it: scrollback is scrollback, and a person scrolls it. |
 | `Conversation file` | The provider's own on-disk record of a session's conversation, kept under the credential home it runs in (Claude Code writes `projects/<project folder>/<session id>.jsonl`). An account switch leaves it where it is: the session moves to the new account in place, from its next request, and nothing is copied, resumed or re-sent as text. |
 | `Memory files` | The instruction files a provider reads from its home and the project at a session's start: `CLAUDE.md` and the memory folder on Claude Code, `AGENTS.md` on Codex. `providerAccount.memoryImport` copies the person's ambient store of them into a named account's home once. |
@@ -62,7 +64,7 @@ This glossary is not a substitute for the detailed domain docs. Each term is def
 - `Agent`, `Run`, `QueueItem`, `Workspace`, `Artifact`, and `Approval` are all session-scoped concepts. `User`, `Device`, and `RuntimeNode` are account-scoped, and a `RepoMount` belongs to its machine; each appears inside a session by reference.
 - `Worktree` is a specialized repository execution root inside a `Workspace`; it is not a synonym for `Workspace`.
 - `ExecutionMode` determines how a `Run` uses a repo-bound `Workspace`.
-- `Run` is an execution episode and `Agent` is the live actor inside a session that performs it; `AgentDefinition` is the saved, reusable configuration an `Agent` is resolved from.
+- `Run` is one stretch of an agent's work and `Agent` is the lasting identity inside a session that performs its runs; a `Conversation` is the provider's exchange an agent's runs continue, and a `Turn` is the provider's unit inside a run. `AgentDefinition` is the saved, reusable configuration an `Agent` is resolved from.
 - `RuntimeBinding` ties a `Run` to a specific provider driver instance and carries the recovery handles needed for persistence and rebuilds.
 - `Workflow` is a reusable execution template. `WorkflowDefinition` records the template; `WorkflowVersion` is an immutable snapshot; `WorkflowRun` is an execution instance inside a `Session`.
 - `WorkflowDocument` is the body a `WorkflowVersion` snapshots, and each of its nodes is one step a run executes; a `WorkflowStep` records one attempt of one node; a `Gate` is a `human.approval` step or a chain's question, and the run waits on it until the person answers.
