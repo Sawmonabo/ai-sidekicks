@@ -189,7 +189,7 @@ interface SessionRecord {
   // in which case the machine's own Runtime value applies, and where that is unset the turn is
   // unbounded and each provider does what it does on its own. What the bound does and how each
   // provider realizes it is Spec-003 §The Step Bound On A Turn's; it is not a budget, and reaching
-  // it interrupts the turn (agent.turn.interrupted with cause "step_limit", its partial result kept),
+  // it interrupts the turn (agent.turn.interrupted with cause "stepLimit", its partial result kept),
   // and the run rests as run.interrupted with trigger "step_limit" until a send continues it.
   maxStepsPerTurn?: number;
   // The address another session writes to when it messages this one — what the session inspector

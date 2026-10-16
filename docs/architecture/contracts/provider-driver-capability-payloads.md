@@ -206,7 +206,7 @@ type SubagentPolicy =
 // `maxTurns`): the daemon counts each helper's turns itself on every provider and, at the
 // definition's turn cap,
 // its pre-tool hook denies the helper's next call, so the helper writes its report and its turn
-// ends `agent.turn.interrupted` with cause `step_limit`, the report kept and the run resting
+// ends `agent.turn.interrupted` with cause `stepLimit`, the report kept and the run resting
 // `interrupted` until a send continues it (Spec-026).
 interface SubagentDefinition {
   name: string;

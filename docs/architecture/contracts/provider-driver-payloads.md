@@ -368,7 +368,7 @@ interface CreateSessionParams {
   // onto its own realization: `--max-turns` on the Claude leg, where the provider enforces it, and
   // the daemon's own per-turn count on the Codex leg, that provider publishing no cap. Spawn-bound
   // like posture and speed, so `ResumeSessionParams` re-realizes it below. Reaching the bound ends
-  // the turn as `agent.turn.interrupted` with cause `step_limit`, its partial result kept, and the
+  // the turn as `agent.turn.interrupted` with cause `stepLimit`, its partial result kept, and the
   // run rests `interrupted` with trigger `step_limit` until a send, or `Continue`, carries it on
   // under the same run id. It is not a budget.
   maxStepsPerTurn?: number;
