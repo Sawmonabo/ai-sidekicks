@@ -31,7 +31,7 @@ WSL 2 is a first-class place to run Claude Code and Codex, including keeping the
 
 ## Decision
 
-We will run one background service per Windows computer, on the side where Claude Code and Codex are installed — Windows or one WSL 2 distribution — and inside a distribution it will be the daemon plus the service's Windows half, a small native Windows program started by a per-user logon task, which holds one attached `wsl.exe` running the daemon, serves the one per-user named pipe by carrying each client as a stream on one HTTP/2 channel over that `wsl.exe`'s standard input and output, is the Windows arm of key custody, and does every Windows-only job; on native Windows the daemon serves the pipe and does those jobs in its own process through the same `sidekicks-platforms` code the Windows half runs, so each of those jobs has one implementation.
+We will run one background service per Windows computer, on the side where the person's providers are installed — Windows or one WSL 2 distribution — and inside a distribution it will be the daemon plus the service's Windows half, a small native Windows program started by a per-user logon task, which holds one attached `wsl.exe` running the daemon, serves the one per-user named pipe by carrying each client as a stream on one HTTP/2 channel over that `wsl.exe`'s standard input and output, is the Windows arm of key custody, and does every Windows-only job; on native Windows the daemon serves the pipe and does those jobs in its own process through the same `sidekicks-platforms` code the Windows half runs, so each of those jobs has one implementation.
 
 ### Thesis — Why This Option
 

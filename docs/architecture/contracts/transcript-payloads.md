@@ -217,7 +217,7 @@ type ReasoningSurfaceReadResponse =
       hasMore: false;
       nextCursor?: EventCursor;
     }
-  | { availability: "unavailable" }; // the run surfaced no reasoning; no entries — the client renders the unavailability placeholder from the state itself (I-010-7: absence never renders as nothing)
+  | { availability: "unavailable" }; // the run surfaced no reasoning; no entries — the client draws no reasoning row and no placeholder for it (I-010-7)
 // The contracts' Rust type (T1.3) is an internally tagged enum on availability with closed arms: entries on the
 // unavailable arm or an `available: boolean` member fail parse — no tolerant fallback arm.
 
@@ -247,8 +247,8 @@ type ChildRunExpandResponse = {
 // whole output, read only when the row's control is pressed (`Show full output`, with its size),
 // and the whole a copy from the row lifts.
 // `rowId` is the row's `id`, the id of the event it renders. A session id the daemon does not hold
-// is refused with `session.not_found`; a row id the session does not hold is refused on the `rowId`
-// path, so it never reads like a row that carries no body.
+// is refused with `session.not_found`; a row id the session does not hold is refused with
+// `transcript.row.notFound` at `-31000`, so it never reads like a row that carries no body.
 interface TranscriptBodyReadRequest {
   sessionId: SessionId;
   rowId: string;
@@ -332,7 +332,7 @@ interface TranscriptPathResolveResponse {
 // output figure of Claude Code's per-message usage, and the `last` figure of Codex's token-usage
 // notification — and the turn's figure is their sum. Reasoning is inside that count and is never added to
 // it; the figure is never an iteration count and never a difference of two running totals, so the working
-// line's reading means the same thing on both providers. It holds across a pause and stops at the turn's
+// line's reading means the same thing on every provider. It holds across a pause and stops at the turn's
 // end; it is the only live token figure on the session screen, and the context ring, the cost receipt and
 // a child's own tokens are different facts that keep their own surfaces.
 // The request of both `turn.*` subscriptions: the run whose current turn it follows.
@@ -361,7 +361,7 @@ interface TurnTasksUpdate {
 }
 
 // ---- An agent's question ----
-// Both providers can stop a turn to ask, with different mechanisms and one record: the daemon turns
+// Claude Code and Codex each stop a turn to ask by their own mechanism, with one record: the daemon turns
 // a held Claude Code question request or a Codex user-input request into ONE question record the
 // screen renders and ONE call answers. It holds either request open with NO timer, rebuilds the
 // card on a reload and on the person's other devices, and the first answer settles it everywhere. A

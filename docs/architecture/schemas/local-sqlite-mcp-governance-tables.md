@@ -2,15 +2,14 @@
 
 The MCP server governance tables of the daemon's one SQLite schema. The [Local SQLite Schema](local-sqlite-schema.md) holds its pragmas, its conventions and every other area.
 
-Node-scoped governance state for [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) (V1 feature #15): the binding store (each binding's enabled overlay and native-tool baseline), the per-tool override store, the per-project switch for the servers Claude Code brings itself, the governance-mutation idempotency receipt store, and the record of which OAuth client each server admitted. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-024 § State And Data Implications](../../specs/024-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; settled sign-ins are the `mcp.*` event type in the `mcp_governance` category, appended through the Plan-004 `EventLogService` path, and a status change is a live notice on `mcp.subscribe` written to no log (receipts are retry-window dedup evidence, deliberately not audit rows).
+Machine-scoped governance state for [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) (V1 feature #15): the binding store (each binding's enabled overlay and native-tool baseline), the per-tool override store, the per-project switch for the servers Claude Code brings itself, the governance-mutation idempotency receipt store, and the record of which OAuth client each server admitted. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-024 § State And Data Implications](../../specs/024-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; settled sign-ins are the `mcp.*` event type in the `mcp_governance` category, appended through the Plan-004 `EventLogService` path, and a status change is a live notice on `mcp.subscribe` written to no log (receipts are retry-window dedup evidence, deliberately not audit rows).
 
 ```sql
 -- Owner: Plan-022
 CREATE TABLE mcp_server_bindings (
-  provider           TEXT NOT NULL
-                     CHECK(provider IN ('claude', 'codex')),  -- the McpProvider contract union (driver id namespace); an unchecked value would hand inventory code an impossible row its exhaustive McpProvider handling cannot represent
+  provider           TEXT NOT NULL,  -- the provider's open id, checked against the registered drivers where a request or a provider's reading brings it in; a row keeps it as written
   scope              TEXT NOT NULL
-                     CHECK(scope IN ('user', 'project', 'local', 'plugin', 'connector', 'managed')),  -- scope axis of the binding identity (Spec-024 §Unified Inventory): writable at user, project and local on both providers; 'connector' (a claude.ai connector) and 'managed' (an organization's server) are Claude Code's own, read-only, their rows holding the tool overrides; a Codex 'local' binding is the daemon's emulation and has a row like any other; a 'plugin' binding is a server an installed plugin declares, whose row holds the person's switch and tool overrides while its declaration changes only with the plugin
+                     CHECK(scope IN ('user', 'project', 'local', 'plugin', 'connector', 'managed')),  -- scope axis of the binding identity (Spec-024 §Unified Inventory): writable at user, project and local on every provider; 'connector' (a claude.ai connector) and 'managed' (an organization's server) are the servers a provider brings itself, Claude Code's today, read-only, their rows holding the tool overrides; a Codex 'local' binding is the daemon's emulation and has a row like any other; a 'plugin' binding is a server an installed plugin declares, whose row holds the person's switch and tool overrides while its declaration changes only with the plugin
   scope_ref          TEXT NOT NULL DEFAULT '',  -- canonical project root (project) / keying directory (local) / the plugin's name (plugin) / the provider account's id (connector); '' for user and managed scope
   server_name        TEXT NOT NULL,
   enabled_override   INTEGER
@@ -28,8 +27,7 @@ CREATE TABLE mcp_server_bindings (
 ```sql
 -- Owner: Plan-022
 CREATE TABLE mcp_tool_overrides (
-  provider          TEXT NOT NULL
-                    CHECK(provider IN ('claude', 'codex')),  -- the closed McpProvider union, mirroring mcp_server_bindings
+  provider          TEXT NOT NULL,  -- the provider's open id, as in mcp_server_bindings
   scope             TEXT NOT NULL
                     CHECK(scope IN ('user', 'project', 'local', 'plugin', 'connector', 'managed')),  -- binding identity axes mirror mcp_server_bindings
   scope_ref         TEXT NOT NULL DEFAULT '',
@@ -62,7 +60,7 @@ The FK targets the binding table because first observation of any binding upsert
 ```sql
 -- Owner: Plan-022
 CREATE TABLE mcp_mutation_receipts (
-  client_idempotency_key  TEXT NOT NULL PRIMARY KEY,  -- requester-generated UUID (Spec-004's mandatory clientIdempotencyKey; the interventions UNIQUE(target_run_id, client_idempotency_key) precedent, adapted to node-scoped operations with no run axis)
+  client_idempotency_key  TEXT NOT NULL PRIMARY KEY,  -- requester-generated UUID (Spec-004's mandatory clientIdempotencyKey; the interventions UNIQUE(target_run_id, client_idempotency_key) precedent, adapted to machine-scoped operations with no run axis)
   operation               TEXT NOT NULL,              -- the receipted mcp.* operation the key was spent on (the governance mutations, mcp.oauthLogin and mcp.oauthLogout; mcp.reconnect is unreceipted)
   status                  TEXT NOT NULL
                           CHECK(status IN ('pending', 'committed')),  -- two-phase (the Plan-012 command_receipts discipline, Spec-024 §Authorization): the row INSERTs as a 'pending' intent in its own transaction BEFORE any provider leg runs, and flips to 'committed' in the same transaction as the mutation's store writes — closing both crash windows around the external provider side effect (a durable provider write can never be left unfinalized: startup reconciliation completes any pending intent — verifying provider state, finishing store writes exactly once — or expires an intent whose provider leg never ran)
@@ -76,12 +74,12 @@ Receipts are **two-phase** because the provider config write is an external side
 
 ```sql
 -- Owner: Plan-022 (T22.2.12)
--- The daemon's own per-project switch for a server Claude Code brings itself, a claude.ai connector or an
--- organization's server: one row per such server switched off for one project, deleted when it is switched
+-- The daemon's own per-project switch for a server a provider brings itself (Claude Code's claude.ai
+-- connectors and organization servers): one row per such server switched off for one project, deleted when it is switched
 -- back on. Claude Code's own `disabledMcpServers` is read, never written; a server named there is off for
 -- that project as well.
 CREATE TABLE mcp_project_server_switches (
-  provider      TEXT NOT NULL CHECK(provider = 'claude'),
+  provider      TEXT NOT NULL,  -- the provider's open id, as in mcp_server_bindings
   scope         TEXT NOT NULL CHECK(scope IN ('connector', 'managed')),
   scope_ref     TEXT NOT NULL DEFAULT '',  -- the provider account's id (connector); '' (managed)
   server_name   TEXT NOT NULL,
@@ -98,13 +96,13 @@ CREATE TABLE mcp_project_server_switches (
 ```sql
 -- Owner: Plan-022
 -- Which OAuth client each server admitted at its last sign-in, one row per server: the daemon's own, or
--- Claude Code's or Codex's where the server admits only that provider's client. A fact about the server,
+-- a provider's own client (Claude Code's or Codex's) where the server admits only that one. A fact about the server,
 -- so it is kept once here rather than on each binding that names the server. A sign-out forgets only the
 -- sign-in and keeps this row, so every later sign-in is one press. Not a credential.
 CREATE TABLE mcp_server_admitted_clients (
-  provider              TEXT NOT NULL CHECK(provider IN ('claude', 'codex')),
+  provider              TEXT NOT NULL,  -- the provider's open id, as in mcp_server_bindings
   server_name           TEXT NOT NULL,
-  admitted_oauth_client TEXT NOT NULL CHECK(admitted_oauth_client IN ('daemon', 'claude', 'codex')),
+  admitted_oauth_client TEXT NOT NULL,  -- 'daemon', or the open id of the provider whose own client the server admits
   PRIMARY KEY (provider, server_name)
 );
 ```

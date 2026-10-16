@@ -4,12 +4,18 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ## Voice Method Registry (Plan-003)
 
-Talking instead of typing, on both providers, with the same keys: `/voice` turns voice on in the session it is typed in, and holding Space (or, after `/voice tap`, tapping it) talks. Voice is on in one session at a time on this computer; the daemon holds which, so every window and device showing that session shows the same, and it is off after the daemon restarts. What each provider does with the words differs:
+Talking instead of typing, on Claude Code and on Codex, with the same keys: `/voice` turns voice on in the session it is typed in, and holding Space (or, after `/voice tap`, tapping it) talks. Voice is on in one session at a time on this computer; the daemon holds which, so every window and device showing that session shows the same, and it is off after the daemon restarts. Which of the two ways below a session uses is its provider driver's own fact, carried in the session's provider state as `dictation` or `call`, so a client calls the matching methods without naming a provider. What each provider does with the words differs:
 
 - **Claude Code: dictation into the draft.** The window captures the microphone, cuts it to 16 kHz 16-bit mono and hands the frames to the daemon, which runs its own socket to Anthropic's speech service, one per recording, signed in with the session's account, and relays the words back. Dictation never passes through Claude Code, so no other Claude Code session hears it.
 - **Codex: Codex's own spoken call.** The window is the call's WebRTC peer. The daemon passes the window's offer in `thread/realtime/start` on the account's Codex service and returns Codex's answer from `thread/realtime/sdp`, routes Codex's `thread/realtime/*` notifications to the call by `threadId`, and, when a turn that answers a spoken message ends, sends its final answer to `thread/realtime/appendSpeech`, cut at 990 tokens, so the voice speaks it. A call belongs to the one conversation it is started on.
 
-The mode (hold or tap, one for both providers) and the call voice are keys in the machine's settings file, `voice.mode` (`hold` or `tap`, default `hold`) and `voice.callVoice` (the voice a spoken call answers in; only Codex's call speaks today, and `voice.voiceList` gives the choices; missing reads as Codex's default), read and written through the preload bridge's `machineSettings.read()` / `machineSettings.write(change)` ([§Settings Surface Reads And Writes](./settings-payloads.md#settings-surface-reads-and-writes)). No method here carries the mode, and nothing is written into either provider's own configuration. From another device the device in hand is the microphone: dictation's frames reach the machine over the encrypted relay, and a call's offer and answer pass through the machine. The speech socket and `thread/realtime/appendSpeech` are the daemon's own, and no client calls them.
+The mode, the call voice and the dictation language are keys in the machine's settings file, read and written through the preload bridge's `machineSettings.read()` / `machineSettings.write(change)` ([§Settings Surface Reads And Writes](./settings-payloads.md#settings-surface-reads-and-writes)):
+
+- `voice.mode`: `hold` or `tap`, one for every provider, default `hold`.
+- `voice.callVoice`: the voice a spoken call answers in, picked on the `Voice` row of Settings › Providers › Codex, whose choices `voice.voiceList` gives. Missing, the call takes Codex's own `realtime.voice` where the person's Codex settings set one, and Codex's default where they do not; a pick is sent as `voice` on each `thread/realtime/start`, so it applies from the next call.
+- `voice.dictationLanguage`: the language dictation sends, picked on the `Dictation language` row of Settings › Providers › Claude Code. Missing, it follows Claude Code's own `language` as the person's Claude Code settings give it; a pick is passed to the app's Claude Code sessions as `language` in `--settings`, so it also sets the language Claude Code replies in there.
+
+`/voice settings` in a session opens Settings › Providers at that session's provider, on its voice row. No method here carries the mode, and nothing is written into any provider's own configuration. From another device the device in hand is the microphone: dictation's frames reach the machine over the encrypted relay, and a call's offer and answer pass through the machine. The speech socket and `thread/realtime/appendSpeech` are the daemon's own, and no client calls them.
 
 There is one recording and one call at a time on this computer, so the verbs on the one in progress name no session; the frames they stream still carry it.
 
@@ -26,7 +32,7 @@ There is one recording and one call at a time on this computer, so the verbs on 
 | `voice.callSubscribe` | `subscription` | `EmptyPayload` | `VoiceCallFrame` (stream) |
 | `voice.voiceList` | `query` | `EmptyPayload` | `VoiceListResponse` |
 
-Voice on an account its provider gives no voice (on Claude Code, an account that is neither a Claude sign-in nor a pasted Claude token) is refused with `voice.unavailable`, whose details are `{reason: "provider_sign_in_required", provider}` so the screen draws that provider's own sentence and remedy. `voice.callStart` refuses with `voice.call_start_failed` when Codex could not start the call.
+Voice on an account whose sign-in kind its provider gives no voice (on Claude Code, an API-key or cloud-provider account) is refused with `voice.accountNotEntitled`, reason `signInKindNotEntitled`, and the strip draws one sentence, the same on every provider: `Voice isn't available on <account>.` A provider or installed build without voice refuses `voice.dictationStart` and `voice.callStart` with `driver.capability_unsupported`. `voice.callStart` refuses with `voice.call_start_failed` when Codex's realtime service or the network failed before Codex's answer arrived, and with `provideraccount.not_authenticated` when Codex refused the account's sign-in.
 
 ```ts
 // Which session voice is on in, or null when it is off: the request of `voice.stateUpdate`, its
@@ -79,8 +85,8 @@ type VoiceDictationFailure =
   | { reason: "service_error"; message: string };
 
 // A Codex call, started at the first hold or tap of Space once voice is on there. The daemon passes
-// the offer in `thread/realtime/start` with the voice picked in the machine's settings file and the
-// session's earlier spoken exchange, and returns Codex's answer.
+// the offer in `thread/realtime/start` with the voice picked in the machine's settings file, where
+// one is picked, and the session's earlier spoken exchange, and returns Codex's answer.
 interface VoiceCallStartRequest {
   sessionId: SessionId;
   offerSdp: string; // non-empty
@@ -106,8 +112,8 @@ type VoiceCallEndCause =
   | { cause: "error"; message: string }; // non-empty
 
 // The voices Codex offers a call (its own `v1` list) and the one it uses until the person picks
-// another, for `/voice settings`. The pick is written to the machine's settings file, never into
-// Codex's configuration.
+// another, for the `Voice` row of Settings › Providers › Codex. The pick is written to the
+// machine's settings file, never into Codex's configuration.
 interface VoiceListResponse {
   voices: string[]; // each non-empty
   defaultVoice: string; // non-empty

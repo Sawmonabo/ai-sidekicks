@@ -1,6 +1,6 @@
 # Local SQLite Schema
 
-Canonical schema for the local daemon's SQLite database. Each runtime node maintains its own instance.
+Canonical schema for the local daemon's SQLite database. Each machine keeps its own instance.
 
 The database is one schema, created whole when the daemon first opens it. There are no numbered migrations and no upgrade steps: a feature that needs a table or a column adds it to this schema, and to the schema's test, in the change that builds the feature. Every table is `STRICT`, so each column is typed `INTEGER`, `REAL`, `TEXT`, `BLOB` or `ANY`, JSON is stored as `TEXT`, and a value that cannot be stored losslessly in its column's type is refused on write rather than kept under a looser affinity. A primary-key column of a `STRICT` table is `NOT NULL` whether or not it says so ([SQLite, STRICT Tables](https://www.sqlite.org/stricttables.html)).
 
@@ -35,7 +35,7 @@ PRAGMA cache_size = -2000;      -- on every connection, read-only ones included:
 -- Owner: Plan-001 | Extended by: Plan-004 (event taxonomy), Plan-025 (received-row provenance marker), Plan-012 (projection cursors)
 CREATE TABLE session_events (
   id                     TEXT PRIMARY KEY,           -- ULID or UUID
-  session_id             TEXT NOT NULL,              -- real session ULID/UUID, or a reserved node-scope sentinel for daemon-scope events (no FK; see Spec-005 §Daemon-Scope Event Binding)
+  session_id             TEXT NOT NULL,              -- real session ULID/UUID, or a reserved daemon-scope sentinel for daemon-scope events (no FK; see Spec-005 §Daemon-Scope Event Binding)
   sequence               INTEGER NOT NULL,           -- monotonic per session
   occurred_at            TEXT NOT NULL,              -- RFC 3339 UTC with ms precision (wall-clock; display + audit)
   monotonic_ns           INTEGER NOT NULL,           -- nanoseconds since the daemon's start on std::time::Instant at emit; within-daemon ordering only (see Spec-013 §Clock Handling)
@@ -52,6 +52,7 @@ CREATE TABLE session_events (
                                                                -- lexical TEXT comparison is unsafe, e.g. "1.10" < "1.9")
   run_id                 TEXT,                       -- the run the event belongs to, set by the append from the typed event for every event type that carries one; NULL otherwise
   run_version            INTEGER,                    -- the run's progression counter the event was written at, set by the append beside run_id for every event type that carries one; NULL otherwise
+  turn_number            INTEGER,                    -- the turn's number within its run, from 1, set by the append beside run_id for the turn start and the three turn ends; NULL otherwise
   UNIQUE(session_id, sequence)
 ) STRICT;
 
@@ -61,6 +62,8 @@ CREATE INDEX idx_session_events_skipped ON session_events(session_id) WHERE type
 CREATE INDEX idx_session_events_run ON session_events(session_id, type, run_id, sequence) WHERE run_id IS NOT NULL;
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id) WHERE correlation_id IS NOT NULL;
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(run_id, run_version) WHERE category = 'run_lifecycle' AND type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped');
+-- Every started turn gets exactly one end (Spec-005 §Run Lifecycle).
+CREATE UNIQUE INDEX idx_session_events_turn_end_once ON session_events(run_id, turn_number) WHERE category = 'run_lifecycle' AND type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed');
 
 -- Projection-level terminal-key CHECK (Spec-005 at-most-once terminal emission; assigned to the Plan-004
 -- schema work). A CHECK sees only the row being written, never the row an UPDATE replaces, so the guard is a
@@ -90,15 +93,17 @@ END;
 
 **Terminal-exactly-once backstop.** The `idx_session_events_run_terminal_once` partial unique index is the schema-level terminal-exactly-once backstop (Plan-004): a duplicate terminal `run_lifecycle` row for the same `(run_id, run_version)` epoch fails loud with a `UNIQUE` violation; rows with a NULL `run_id` or `run_version` bypass it (SQLite NULL-distinctness), so the Plan-002 terminal emitter enforces the non-null-key precondition this index backstops. The run keys are real columns the append writes from the typed event, so the index, the triggers and the run reads (`idx_session_events_run`) read columns and no write parses its payload for them, and `STRICT` typing holds `run_id` to text and `run_version` to an integer, per the `RunId` string / any-run-progression-counter payload contract in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle). The engine semantics this backstop relies on are load-bearing, and each is cited to the official SQLite documentation: [partial indexes](https://sqlite.org/partialindex.html) (the `WHERE category = 'run_lifecycle' AND type IN (…)` filter), [UNIQUE-index enforcement](https://sqlite.org/lang_createindex.html#unique_indexes), [NULL-distinctness](https://sqlite.org/nulls.html) (two NULLs are distinct for UNIQUE purposes, so NULL-key rows bypass the constraint) and [STRICT tables](https://www.sqlite.org/stricttables.html). Beside it the schema carries the `trg_run_terminal_key_insert` / `trg_run_terminal_key_update` / `trg_run_terminal_key_promote` trigger trio — the projection-level CHECK-equivalent Spec-005's at-most-once-terminal-emission rule assigns to this schema work — which aborts terminal `run_lifecycle` writes whose `run_id` or `run_version` is NULL. The INSERT leg closes the NULL-distinctness bypass the UNIQUE index cannot catch; the UPDATE leg (`BEFORE UPDATE OF run_id, run_version, category, type`, keyed off `OLD` so a row that WAS terminal cannot escape by mutation) additionally aborts a **value-changing key rewrite** (`NEW` key `IS NOT` `OLD`, null-safe — an UPDATE rewriting `(R,7)` to another non-null pair would otherwise free the index entry for a duplicate terminal) and a **`category`/`type` de-scope** (flipping a terminal row out of the guarded set is the same escape). The promote leg closes the inverse escape: an UPDATE re-typing a non-terminal row INTO the guarded set is rejected outright — terminal rows are INSERT-only — so a null-keyed promotion cannot slip past the OLD-keyed update leg and the NULL-distinct UNIQUE index (Plan-004 schema work).
 
+**Turn-end once backstop.** `idx_session_events_turn_end_once` holds a turn to one end: a second `agent.turn.completed`, `agent.turn.interrupted` or `agent.turn.failed` row for the same `(run_id, turn_number)` fails loud with a `UNIQUE` violation. The run engine's emission gate, keyed by run and turn number, drops a duplicate report before it reaches the write, and this index is the backstop behind it. A turn end is the one row a run's log can take after the run's terminal row, a provider report that arrived late written once as that turn's end, so the terminal index does not cover it ([Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle)).
+
 **Content payload (machine-authored prose).** `content_payload` is the durable home for the prose the _machine_ side of a session produces — the assistant message body, the reasoning-update body, and tool-call arguments / result / error bodies. It exists because [ADR-027](../../decisions/027-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It holds machine-authored session work product ([Spec-020 §PII Data Map](../../specs/020-data-retention-export-and-deletion.md#pii-data-map)), stored plain like every other column. A body of 1 KiB or more is compressed with zstd at level 3 before it is written, and the encoding is recorded in the payload as `contentEncoding`, so every reader decodes it through the daemon's one codec (`crates/sidekicks-daemon/src/events/content/codec.rs`); a smaller body is stored as its UTF-8 bytes.
 
 **Long bodies.** Unlike a person's message, `content_payload` admits machine-scale text: a tool result is routinely a file dump or a command's whole stdout. A body is kept whole, never truncated, refused or dropped, and a client fetches a long one on demand through the daemon's read rather than receiving it inside the event. Nothing removes a body in the background: a session's rows, bodies included, are kept until the person deletes the session with `Delete old data` ([Spec-005 §Event Compaction Policy](../../specs/005-session-event-taxonomy-and-audit-log.md#event-compaction-policy)).
 
 **Purge.** Deleting a session deletes its rows outright, `content_payload` with them, with `secure_delete` on (§Pragmas), so the freed pages hold nothing readable.
 
-**Relay disposition — the column is node-local.** `content_payload` is **never relayed**: the bytes stay on the node that wrote them, and a linked device reads a body only through the daemon's read, paired with the event and never merged into `payload` ([Spec-005 §Assistant Output](../../specs/005-session-event-taxonomy-and-audit-log.md#assistant-output-assistant_output)).
+**Relay disposition — the column stays on its machine.** `content_payload` is **never relayed**: the bytes stay on the machine that wrote them, and a linked device reads a body only through the daemon's read, paired with the event and never merged into `payload` ([Spec-005 §Assistant Output](../../specs/005-session-event-taxonomy-and-audit-log.md#assistant-output-assistant_output)).
 
-**A second node holding a body is unreachable in V1.** A session executes on exactly one bound runtime node ([Spec-027 §Required Behavior](../../specs/027-remote-control.md#required-behavior)), and every row in that session's log is authored by that node. No other daemon holds a row of this session, so there is no projection anywhere that would show a body it does not hold.
+**A second machine holding a body is unreachable in V1.** A session executes on exactly one bound machine ([Spec-027 §Required Behavior](../../specs/027-remote-control.md#required-behavior)), and every row in that session's log is authored by that machine. No other daemon holds a row of this session, so there is no projection anywhere that would show a body it does not hold.
 
 ## Session Snapshots (Plan-001, extended by Plans 004, 012)
 
@@ -248,7 +253,7 @@ It is **configuration, not session history**: it is not events-canonical and is 
 CREATE TABLE session_console_state (
   session_id          TEXT NOT NULL PRIMARY KEY,  -- one row per session: written at `session.create` for a Claude Code session (its advisor), and for any other session on the first press that needs it
   max_steps_per_turn  INTEGER
-                      CHECK (max_steps_per_turn IS NULL OR max_steps_per_turn >= 1),  -- this session's OWN bound on how many steps one turn may take. NULL = no session override, so the machine's own Runtime value applies, and where that is unset each provider does what it does on its own ([Spec-003 §The Step Bound On A Turn](../../specs/003-queue-steer-pause-resume.md#the-step-bound-on-a-turn)). The floor is 1 because a bound of zero would forbid the turn it bounds; the ceiling is the person's, since neither provider publishes one. The MACHINE-wide value is not here: it belongs to the Runtime settings page, so one number has one home on each side of the override
+                      CHECK (max_steps_per_turn IS NULL OR max_steps_per_turn >= 1),  -- this session's OWN bound on how many steps one turn may take. NULL = no session override, so the machine's own Runtime value applies, and where that is unset each provider does what it does on its own ([Spec-003 §The Step Bound On A Turn](../../specs/003-queue-steer-pause-resume.md#the-step-bound-on-a-turn)). The floor is 1 because a bound of zero would forbid the turn it bounds; the ceiling is the person's, since Claude Code and Codex publish none. The MACHINE-wide value is not here: it belongs to the Runtime settings page, so one number has one home on each side of the override
   advisor_model       TEXT,  -- a Claude Code session's own advisor: the model, or NULL when it is off. Copied at `session.create` from the machine settings file's `advisorModel` and changed only by `/advisor` in this session, each change appending `session.advisor_changed`; a later change to the default never reaches it
   session_mode        TEXT NOT NULL DEFAULT 'build'
                       CHECK (session_mode IN ('build', 'plan')),  -- the composer's Build or Plan mode, written `plan` at `session.create` where Claude Code's own `permissions.defaultMode` resolves to `plan`, and otherwise once the provider has taken a `session.modeUpdate`; a restart's resume opens in it
@@ -256,7 +261,7 @@ CREATE TABLE session_console_state (
 ) STRICT;
 ```
 
-The number is carried onto a spawn through `runtime_bindings.spawn_config` and realized by the driver, `--max-turns` on one leg and the daemon's own per-turn count on the other; a change reaches the session's next turn and never the turn in flight. The mode is read when a restart resumes the session, so a session left in Plan comes back in Plan. The advisor rides the same path: every Claude Code process started for the session (after a restart, a resume or a provider switch, and a helper the bridge starts) reads `advisor_model` at launch.
+The number is carried onto a spawn through `runtime_bindings.spawn_config` and realized by the driver, Claude Code's as `--max-turns` and Codex's as the daemon's own per-turn count; a change reaches the session's next turn and never the turn in flight. The mode is read when a restart resumes the session, so a session left in Plan comes back in Plan. The advisor rides the same path: every Claude Code process started for the session (after a restart, a resume or a provider switch, and a helper the bridge starts) reads `advisor_model` at launch.
 
 ```sql
 -- Owner: Plan-008
@@ -434,7 +439,7 @@ CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
 
 ```sql
 -- Owner: Plan-003 | Extended by: Plan-012 (recovery-aware persistence)
--- Provider-output defense-in-depth CHECKs (Plan-003 T2.1): contract_version and
+-- Provider-output defense-in-depth CHECK constraints (Plan-003 T2.1): contract_version and
 -- resume_handle are provider-declared strings persisted at the write seam. The
 -- DB CHECK layer bounds the SQLite-expressible part (length + NUL-rejection);
 -- semver-shape validation is NOT expressible as a pure-SQLite CHECK and is
@@ -471,7 +476,7 @@ CREATE INDEX idx_runtime_bindings_run ON runtime_bindings(run_id);
 CREATE TABLE left_conversations (
   session_id           TEXT NOT NULL,
   driver_name          TEXT NOT NULL,           -- 'claude' or 'codex'
-  provider_account_id  TEXT,                    -- NULL on the node's default home
+  provider_account_id  TEXT,                    -- NULL on the machine's default home
   conversation_id      TEXT NOT NULL            -- provider-owned, bounded as resume_handle is
                        CHECK (length(conversation_id) > 0 AND length(conversation_id) <= 4096 AND instr(conversation_id, char(0)) = 0),
   left_at              TEXT NOT NULL,

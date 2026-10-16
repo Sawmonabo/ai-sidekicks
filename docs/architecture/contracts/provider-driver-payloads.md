@@ -81,11 +81,13 @@ interface ProviderDriver {
   // Compose the hand-over brief a session on a DIFFERENT provider is started from, on a throwaway
   // copy of the old session and never on the live one; required of every driver (Spec-004
   // §Interfaces And Contracts; Spec-014 §Continuity, and what is declared rather than dropped).
-  // It returns the old provider's own summary of the copy, or the fixed template where the copy's
-  // summary is not readable, saying which of the two it did, with the declared-loss list. What
-  // follows the summary — the last two exchanges word for word — and the plain transcript file
-  // written beside the brief are the daemon's. The copy's one turn is spent on the session's own
-  // account; the live session starts no turn and its conversation is unchanged.
+  // It returns the old provider's own summary of the copy, asked for in one shape on every provider,
+  // or the fixed template where that summary is not readable, saying which of the two it is, with
+  // the declared-loss list. What follows the summary — the last two exchanges
+  // word for word — and the plain transcript file written beside the brief are the daemon's. The
+  // copy's one turn is spent on the session's own account; the live session starts no turn and its
+  // conversation is unchanged. The brief starts no turn of its own on the new provider: the daemon
+  // puts it at the head of the person's next message, or sends it alone at an `interruptAndSwitch`.
   exportHandoverBrief(params: ExportHandoverBriefParams): Promise<DriverHandoverBriefResult>;
   // Ask the provider to compact the bound session's OWN context, on a user's explicit
   // request and never on a threshold, timer, or heuristic (Spec-004 §User-
@@ -236,10 +238,14 @@ interface ListProviderCommandsParams {
 // (read on Codex, which never asks a server for its prompts, through the daemon's own MCP client).
 // A word the person types is sent as typed whether or not an entry matches it: a word on no list
 // reaches the provider, which answers it as it does in its own terminal, so nothing here refuses
-// text for starting with `/` and there is no literal-slash escape. The one entry the driver sends on
-// its own is the compaction command, composed by the driver's emulated leg and reached through
-// `compactContext`, which checks presence against this same enumeration and settles on typed
-// evidence ([Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)).
+// text for starting with `/` and there is no literal-slash escape. The app's own words never reach
+// a provider as text: most press a control the app already has, and six — `/goal`, `/review`,
+// `/reload`, `/btw`, `/voice` and `/daybreak` — the daemon carries out itself through the
+// provider's own feature (`/review` starts Codex's own review, or Claude Code's bundled
+// code-review skill). The compaction command is one more the driver sends on its own, composed by
+// the driver's emulated leg and reached through `compactContext`, which checks presence against
+// this same enumeration and settles on typed evidence
+// ([Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)).
 //
 // CHECKED AT THE NORMALIZE BOUNDARY. Every entry is assembled from provider-, skill- and
 // tool-server-authored metadata — a local skill file's front matter is the person's to write, a provider
@@ -248,11 +254,11 @@ interface ListProviderCommandsParams {
 // (length + non-whitespace + NUL-rejection) exactly as the other untrusted provider-output strings
 // enumerated at the head of this section are. The list carries every entry the provider publishes,
 // with no count of the driver's own; the palette draws only the rows in view.
-// The binding an enumeration belongs to: the driver, parsed as a `ProviderName`, and the account.
-// `providerAccountId` is null where the session has bound no account; absence is stated, never
-// synthesized.
+// The binding an enumeration belongs to: the driver, by its open provider id (`ProviderId`, checked
+// against the registered drivers), and the account. `providerAccountId` is null where the session
+// has bound no account; absence is stated, never synthesized.
 interface ProviderCommandBinding {
-  driverName: ProviderName;
+  driverName: ProviderId;
   providerAccountId: string | null;
 }
 interface ProviderCommandEntry {
@@ -319,13 +325,13 @@ interface CreateSessionParams {
   // `undefined` runs the model's default window (Spec-004 §Required Behavior). Required as a key so
   // no constructor can drop it. Codex sends it as the conversation's `model_context_window`, after
   // checking that the catalog still offers that figure for the model: a create whose figure the
-  // catalog no longer offers is refused `driver.larger_window_unavailable`, since the picker row it
+  // catalog no longer offers is refused `agent.provider_axis_invalid` on its `largerWindow` axis, since the picker row it
   // came from was read before the catalog changed. Claude Code's model id carries the window
   // (`[1m]`), so its driver refuses a defined figure.
   largerWindow: number | undefined;
   executionPosture?: ExecutionPosture; // spawn-time posture — provider legs that bind posture at process spawn (Claude `--settings` sandbox) realize it here; the per-run effective posture rides StartRunParams (Spec-004 §Required Behavior)
   // The agent's ACCEPTED accelerated-output mode (Spec-004 §The output-speed axis). Gated on the
-  // `output_speed` flag, which both providers declare. The person's request was validated where it
+  // `output_speed` flag, which Claude Code and Codex both declare. The person's request was validated where it
   // was made (`agent.configUpdate`, refusing an unlisted level with `agent.provider_axis_invalid`);
   // the driver refuses no carried level. It resolves it against the session model's
   // `ProviderModel.outputSpeedLevels` where its provider publishes one (Codex), else the driver's
@@ -361,8 +367,10 @@ interface CreateSessionParams {
   // where that is unset each provider does what it does on its own. The driver carries the number
   // onto its own realization: `--max-turns` on the Claude leg, where the provider enforces it, and
   // the daemon's own per-turn count on the Codex leg, that provider publishing no cap. Spawn-bound
-  // like posture and speed, so `ResumeSessionParams` re-realizes it below; reaching the bound ends
-  // the turn and then the run, as run.interrupted with trigger "step_limit". It is not a budget.
+  // like posture and speed, so `ResumeSessionParams` re-realizes it below. Reaching the bound ends
+  // the turn as `agent.turn.interrupted` with cause `stepLimit`, its partial result kept, and the
+  // run rests `interrupted` with trigger `step_limit` until a send, or `Continue`, carries it on
+  // under the same run id. It is not a budget.
   maxStepsPerTurn?: number;
   onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // daemon-injected callback-tool dispatcher; the driver invokes it on a provider callback-tool request and answers the provider with the result. Gated on the callback_tools flag; the daemon-side host routes through Plan-009's Cedar pipeline (CP-003-5 / Plan-009 T2.8). See CallbackToolInvocation in provider-driver-capability-payloads.md
   onMcpServerStatus?: McpServerStatusProducer; // daemon-injected MCP server-status sink; the driver emits the per-session MCP server-status census (init) + status-change updates through it as typed McpServerStatusEmission values — the closure is pre-bound to the leg identity (sessionId + bindingId) at spawn and stamps them into the consumer-facing McpServerStatusUpdate. Producer-only at Plan-003 — the consumer is Plan-022's status normalizer (mcp-governance-payloads.md §Plan-022 — MCP Governance Contract Surfaces; Spec-024). See McpServerStatusEmission in provider-driver-capability-payloads.md
@@ -611,7 +619,7 @@ type DriverResumeResult =
 // on `RunStateChangeEvent` (run-control-payloads.md) and `DaemonRecoveryStatus.sessions[]` (persistence-payloads.md). `recovery-needed` = generic, the person must
 // reconcile. `reauth-required` = the provider session or credential expired (detected mid-run
 // via the provider's typed auth-failure signals or at resume/probe time); remediation is
-// re-authenticating the provider CLI on the runtime node, after which recovery may retry
+// re-authenticating the provider CLI on the machine, after which recovery may retry
 // (Spec-004 §Fallback Behavior). A resume that cannot load fails the run with its recovery failure
 // detail; one whose provider record holds more than the daemon's, beyond reads, halts the run in
 // `waiting_for_input` with `recovery-needed` for the person's choice (Spec-013 §Fallback Behavior).
@@ -722,22 +730,26 @@ interface SessionNoticeLevelUnavailable {
 interface SessionNoticeProviderUpdated {
   sessionId: SessionId;
   kind: "provider_updated";
-  provider: ProviderName;
+  provider: ProviderId;
   fromVersion: string; // as the provider reports it
   toVersion: string;
 }
 
-// session.notice of kind `provider_restarted`: a provider process that ended on its own under the
-// session is running again, restarted by the daemon or by the person's `Restart`. One flow row,
-// `Restarted · Claude Code is back` (`Restarted · Codex is back` on Codex). A move to an updated
-// build writes none; the daemon's automatic restart of a shared Codex service writes it
-// only to the sessions whose running turn the crash ended, and the person's `Restart` of a service
-// left down writes it to every session that showed the banner.
-interface SessionNoticeProviderRestarted {
+// session.notice of kind `settings_ignored`: the provider started without part of its own settings,
+// read from the provider's own report and quoted, never composed (Spec-005 §Session Lifecycle). It
+// splits by the shape of that report, never by provider: a report naming a file and a line, both
+// always (Codex's `Invalid configuration; using defaults`), or one naming a file and a key, each
+// only where known (the `Invalid settings` block `claude doctor` prints, which names no line).
+type SessionNoticeSettingsIgnored = {
   sessionId: SessionId;
-  kind: "provider_restarted";
-  provider: ProviderName;
-}
+  kind: "settings_ignored";
+  provider: ProviderId;
+} & ({ file: string; line: number; key?: never } | { file?: string; key?: string; line?: never });
+
+// A provider process that ends on its own is restarted silently: the daemon restarts it at once,
+// then after 1 s, 2 s, 4 s and so on, with no notice and no flow row, the working line reading
+// `Reconnecting…` meanwhile. A crash during a turn ends that turn as the run's failed row
+// (`run.failed`'s `processExit`); a crash while idle shows nothing.
 
 // session.notice of kind `provider_crash_loop`: the provider process crashed for the fifth time
 // within three minutes and the daemon stopped restarting it. It draws the banner
@@ -746,18 +758,29 @@ interface SessionNoticeProviderRestarted {
 type SessionNoticeProviderCrashLoop = {
   sessionId: SessionId;
   kind: "provider_crash_loop";
-  provider: ProviderName;
+  provider: ProviderId;
 } & ({ exitCode: number; signal?: never } | { signal: string; exitCode?: never });
+
+// session.notice of kind `provider_restarted`: the person's `Restart` brought back a provider the
+// crash loop stopped. Written on every session that showed the banner, it ends the banner on every
+// device and after a reload and draws no flow row; the daemon's own silent restarts write none.
+type SessionNoticeProviderRestarted = {
+  sessionId: SessionId;
+  kind: "provider_restarted";
+  provider: ProviderId;
+};
 
 // session.notice of kind `provider_missing`: the session's provider is not installed where the
 // background service runs, so no provider process started (Spec-001 §Fallback Behavior). One flow
 // row naming the provider, opening Settings › Providers on its section; `placeHasNeitherProvider`
-// is true on a Windows computer where the place the service runs in has neither provider, and the
-// row then reads `Choose where Claude Code and Codex are installed` and opens the place row.
+// is true on a Windows computer where the place the service runs in has no provider installed, and
+// the row then reads `Choose where Claude Code and Codex are installed` and opens the place row. A
+// stored session whose provider has no registered driver lands the same row with no section to
+// open, and its stored transcript still reads.
 interface SessionNoticeProviderMissing {
   sessionId: SessionId;
   kind: "provider_missing";
-  provider: ProviderName;
+  provider: ProviderId;
   placeHasNeitherProvider: boolean;
 }
 

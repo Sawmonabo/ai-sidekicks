@@ -35,7 +35,7 @@ interface RepoMountHealthChangedPayload {
 
 // RepoAttach — a mount belongs to the machine, not to one session: attach makes the project's one mount
 // and no workspace. A session reaches the mount by binding to it — in the same step as `session.create`
-// for a new session, through `repo.workspaceBind` for a converted chat. The mount's node is the daemon's
+// for a new session, through `repo.workspaceBind` for a converted chat. The mount's machine is the daemon's
 // own, stamped by the daemon and never taken from a caller. A folder that is not a git repository is
 // refused; the repository is keyed by its git common folder, so attaching a linked worktree's folder
 // finds the repository already attached.
@@ -58,7 +58,7 @@ interface RepoMountReadRequest {
 }
 interface RepoMountReadResponse {
   id: RepoMountId;
-  nodeId: NodeId; // the daemon's own node id, stamped at attach — never taken from a caller
+  nodeId: NodeId; // the daemon's own machine id, stamped at attach — never taken from a caller
   // What the mount is: `attached`, a project's folder; `managed`, a chat's own workspace; `worktree`, a
   // worktree the app made, under its project.
   origin: "attached" | "managed" | "worktree";
@@ -135,7 +135,7 @@ interface WorkspaceListResponse {
 
 ## Repo Method-Name Registry
 
-Plan-006's repo-attachment and workspace-binding surface is exposed as `repo.*` methods (Plan-006 D-006-1, CP-006-5). Names register under the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out, and each name matches the `METHOD_NAME_FORMAT`. These methods ride the daemon JSON-RPC transport only — repo mounts and workspaces are node-local filesystem state (ADR-004), so no control-plane route sibling exists. Method strings are imperative and disjoint-by-form from the past-participle names of the daemon's own records (`repo.attached`, `repo.detached`).
+Plan-006's repo-attachment and workspace-binding surface is exposed as `repo.*` methods (Plan-006 D-006-1, CP-006-5). Names register under the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out, and each name follows the [wire-name grammar](./local-ipc-payloads.md#wire-name-grammar). These methods ride the daemon JSON-RPC transport only — repo mounts and workspaces are machine-local filesystem state (ADR-004), so no control-plane route sibling exists. Method strings are imperative and disjoint-by-form from the past-participle names of the daemon's own records (`repo.attached`, `repo.detached`).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |

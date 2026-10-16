@@ -27,7 +27,7 @@ The system is split so that a user's devices can reach a session from anywhere w
 | `CLI Client` | Scriptable client surface over the same daemon client (`sidekicks-client`) and daemon contract. |
 | `Local Runtime Daemon` | Session engine, provider drivers, git engine, terminal and tool execution, local persistence, rebuild, and local policy enforcement. |
 | `Control Plane` | The person's own control plane and relay: identity, the account's statement chain, the device and machine registry, machine registration, the relay between each device and each machine, delivery of push notices each machine has already sealed, and the web client. It keeps no session record. |
-| `Local Event Store And Projection Store` | Durable node-local record of run events, receipts, projections, and recovery state. |
+| `Local Event Store And Projection Store` | Durable machine-local record of run events, receipts, projections, and recovery state. |
 | `Hosted Account Store` | Durable control-plane record of the account, the statement chain, the device registry and each machine's registration, in SQLite inside the relay: the Durable Object's own storage on the Workers relay, a SQLite file on the Compose relay ([Deployment Topology §Account Storage](./deployment-topology.md#account-storage)). |
 
 ## Implementation Topology
@@ -62,7 +62,7 @@ The monorepo layout for implementation is:
 
 ## Transport Protocols
 
-- The control plane serves HTTP routes on `axum` on `worker`, one POST per procedure with a JSON body and a refusal answered `{code, message}`, and its own streams as Server-Sent Events: sign-in, token refresh, device linking, the statement chain, a machine's registration and sealed push notices. The relay's WSS connection carries sealed Noise messages, each belonging to one Noise channel between one device and one machine and holding frames of the one frame codec; inside that channel the device drives the machine through its method proxy. The relay reads no method and no byte of a session, so session transcripts and run output travel only inside those channels ([ADR-009](../decisions/009-json-rpc-ipc-wire-format.md), [ADR-013](../decisions/013-control-plane-api.md)).
+- The control plane serves HTTP routes on `axum` on `worker`, one POST per procedure with a JSON body and a refusal answered `{code, category, message}`, and its own streams as Server-Sent Events: sign-in, token refresh, device linking, the statement chain, a machine's registration and sealed push notices. The relay's WSS connection carries sealed Noise messages, each belonging to one Noise channel between one device and one machine and holding frames of the one frame codec; inside that channel the device drives the machine through its method proxy. The relay reads no method and no byte of a session, so session transcripts and run output travel only inside those channels ([ADR-009](../decisions/009-json-rpc-ipc-wire-format.md), [ADR-013](../decisions/013-control-plane-api.md)).
 - The local daemon uses JSON-RPC 2.0 messages in one frame codec with a 10-byte header, the same on the local socket and inside each Noise message, carrying binary attachments beside the JSON, over a Unix domain socket (named pipe on Windows).
 
 ## Trust Boundaries
@@ -80,7 +80,7 @@ The monorepo layout for implementation is:
 ## Related Domain Docs
 
 - [Session Model](../domain/session-model.md)
-- [Runtime Node Model](../domain/runtime-node-model.md)
+- [Machine Model](../domain/machine-model.md)
 - [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md)
 
 ## Related Specs

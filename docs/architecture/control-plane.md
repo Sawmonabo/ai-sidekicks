@@ -6,7 +6,7 @@ Define the Control Plane, the person's own control plane and relay on their Clou
 
 ## Scope
 
-This document covers the remote services inside the Control Plane that connect one user's devices to the runtime nodes executing that user's sessions.
+This document covers the remote services inside the Control Plane that connect one user's devices to the machines executing that user's sessions.
 
 ## Context
 
@@ -51,7 +51,7 @@ The Control Plane exists so a user's devices can reach the machine a session run
 ## Trust Boundaries
 
 - The control plane is trusted to keep the statement chain available, to route connections and to relay frames. It is not trusted to decide which keys are trusted: every machine verifies the chain itself, and a revoke the control plane withholds from one machine is caught at the next connection of any honest device.
-- The control plane is not trusted as the local filesystem or tool-execution authority for the user's runtime nodes.
+- The control plane is not trusted as the local filesystem or tool-execution authority for the user's machines.
 - The control plane carries relay ciphertext and cannot read it: relay pathways must minimize trust and exposure because they cross remote infrastructure.
 
 ## Failure Modes
@@ -65,7 +65,7 @@ The Control Plane exists so a user's devices can reach the machine a session run
 
 - [Session Model](../domain/session-model.md)
 - [User And Device Model](../domain/user-and-device-model.md)
-- [Runtime Node Model](../domain/runtime-node-model.md)
+- [Machine Model](../domain/machine-model.md)
 
 ## Related Specs
 

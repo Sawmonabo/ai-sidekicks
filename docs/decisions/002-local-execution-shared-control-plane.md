@@ -19,7 +19,7 @@ How should the system divide responsibilities between local execution and shared
 
 ### Trigger
 
-The system context, control-plane architecture, and runtime-node model all depend on this boundary.
+The system context, control-plane architecture, and machine model all depend on this boundary.
 
 ## Decision
 
@@ -31,7 +31,7 @@ This split matches the product goal directly. The machines retain filesystem, to
 
 ### Antithesis — The Strongest Case Against
 
-A hosted execution plane would simplify remote access and reduce device-to-node complexity. A purely local peer-to-peer design would simplify trust boundaries and reduce backend scope. The chosen split inherits complexity from both: Local Runtime Daemon management plus Control Plane coordination.
+A hosted execution plane would simplify remote access and reduce device-to-machine complexity. A purely local peer-to-peer design would simplify trust boundaries and reduce backend scope. The chosen split inherits complexity from both: Local Runtime Daemon management plus Control Plane coordination.
 
 ### Synthesis — Why It Still Holds
 
@@ -41,7 +41,7 @@ Hosted execution fails the product's local-execution requirement and increases t
 
 ### Option A: Local Execution + Shared Control Plane (Chosen)
 
-- **What:** Execution stays on local runtime nodes; coordination lives in shared services.
+- **What:** Execution stays on the person's own machines; coordination lives in shared services.
 - **Steel man:** Best match for privacy, local code access, and driving a session from any device.
 - **Weaknesses:** Requires careful transport, catch-up, and device-liveness design.
 
@@ -53,7 +53,7 @@ Hosted execution fails the product's local-execution requirement and increases t
 
 ### Option C: Pure Peer-To-Peer Coordination (Rejected)
 
-- **What:** Avoid a control plane and coordinate sessions only through direct device-to-node connectivity.
+- **What:** Avoid a control plane and coordinate sessions only through direct device-to-machine connectivity.
 - **Steel man:** Keeps trust local and reduces backend dependency.
 - **Why rejected:** Weak fit for device linking, a durable device registry, notifications, and reconnect-friendly session state.
 
@@ -102,7 +102,7 @@ Hosted execution fails the product's local-execution requirement and increases t
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Local filesystem and tool execution remains Local Runtime Daemon-owned | 100% of execution paths | Architecture and security review | At every architecture and security review |
+| Local filesystem and tool execution remains Local Runtime Daemon-owned | 100% of execution paths | The pull request's review | At every pull request |
 | Control Plane remains free of direct code execution responsibilities | 100% of control-plane components | Architecture review | At every architecture review |
 
 ## References
@@ -118,7 +118,7 @@ Hosted execution fails the product's local-execution requirement and increases t
 
 - [Session Model](../domain/session-model.md)
 - [User And Device Model](../domain/user-and-device-model.md)
-- [Runtime Node Model](../domain/runtime-node-model.md)
+- [Machine Model](../domain/machine-model.md)
 
 ### Related Architecture Docs
 

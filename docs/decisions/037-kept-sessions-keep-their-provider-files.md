@@ -171,7 +171,7 @@ The product already promises the person that nothing goes until they say so, and
 | The `.claude` directory | Vendor docs | What Claude Code cleans up automatically | https://code.claude.com/docs/en/claude-directory |
 | Claude Code settings | Vendor docs | Settings precedence: managed, command line, local, project, user | https://code.claude.com/docs/en/settings |
 | Probe of the sweep, Claude Code 2.1.281 | Measurement | The findings table under Context | This machine, throwaway homes |
-| Codex 0.156.0 app-server schema | Vendor protocol | `thread/delete` is the only delete; nothing by age | The pinned Codex build |
+| Codex 0.156.0 app-server schema | Vendor protocol | `thread/delete` is the only delete; nothing by age | Generated from the 0.156.0 binary |
 
 ### Related ADRs
 

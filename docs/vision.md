@@ -180,7 +180,7 @@ Hosted or self-hosted service for:
 - notifications
 - shared metadata
 
-It does not need to execute code. It coordinates the user's devices and their runtime nodes.
+It does not need to execute code. It coordinates the user's devices and their machines.
 
 ### 5. Session Engine
 
@@ -212,7 +212,7 @@ Provider integrations must live behind explicit drivers:
 - `claude-driver`
 - `codex-driver`
 
-A further provider joins only through the provider-admission contract in [Spec-004](./specs/004-provider-driver-contract-and-capabilities.md).
+Each driver registers under an open provider id with a descriptor of its fixed facts, which every screen reads, and no code outside a driver and its one registration point branches on which provider it is. A further provider joins only through the provider-admission contract in [Spec-004](./specs/004-provider-driver-contract-and-capabilities.md).
 
 The product should not be architected as wrappers around provider CLIs. The drivers are how a run reaches a provider; the conceptual center is the session and its `Run` state machine.
 
@@ -310,7 +310,7 @@ Every technology below ships in V1; the feature list is [ADR-014: V1 Feature Sco
 | --- | --- | --- |
 | PASETO v4 | `pasetors`, in the daemon and the control plane | Internal auth tokens — see [ADR-010 §PASETO v4 Implementation Library](./decisions/010-tokens-passkeys-and-the-remote-channel.md#paseto-v4-implementation-library) |
 | WebAuthn | `@simplewebauthn/server` (relying-party verification on the control plane's Worker, and on each machine, run on `rquickjs`, which verifies the statements a passkey signs in the account's chain) | Passkeys: the web client and the phone apps create them and sign in with them, the relay's sign-in page signs a machine in with one, and a passkey lets a new phone or browser link itself. The desktop app carries no WebAuthn; the machine's background service signs it in to the hosted account through the browser, from Settings › Devices' `Sign in` or `sidekicks sign-in`, and each device's own key is kept as [ADR-010 §Identity Key Storage](./decisions/010-tokens-passkeys-and-the-remote-channel.md#identity-key-storage) records. |
-| Relay channel | `snow` built with `ring-accelerated` on the machine; on each device a maintained Noise implementation whose Diffie-Hellman can be supplied from WebCrypto, chosen and recorded in [Plan-025](./plans/025-remote-control.md) Phase 3 | One channel per device and machine on `Noise_KK_25519_AESGCM_SHA256`, offered first, or `Noise_KK_25519_ChaChaPoly_SHA256`, second, with a fresh handshake on every connection and every 10 minutes; the relay forwards ciphertext only ([ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md)). |
+| Relay channel | `snow` built with `ring-accelerated` on the machine; on each device the channel package's own `KK` handshake and transport, written from Noise revision 34 on WebCrypto's X25519, AES-GCM, SHA-256 and HKDF, with `@noble/ciphers` 2.4.0 for ChaChaPoly, recorded in [Plan-025](./plans/025-remote-control.md) Phase 3 | One channel per device and machine on `Noise_KK_25519_AESGCM_SHA256`, offered first, or `Noise_KK_25519_ChaChaPoly_SHA256`, second, with a fresh handshake on every connection and every 10 minutes; the relay forwards ciphertext only ([ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md)). |
 | Control plane API | `axum` on `worker` | The control plane's HTTP routes, per [ADR-013](./decisions/013-control-plane-api.md) |
 | Cedar | `cedar-policy` | Approval policy engine. The built-in rules are `.cedar` files in the service's own source, compiled into the service with it, changed only by an app update and evaluated in-process by the native authorizer, per [ADR-012](./decisions/012-cedar-approval-policy-engine.md). |
 | Terminal | `alacritty_terminal` in the daemon's `sidekicks-terminal`, the PTY inside the daemon on every operating system per [ADR-018](./decisions/018-windows-v1-tier-and-pty-in-the-daemon.md); `@xterm/xterm` (own React wrapper — no published wrapper is adopted, per Desktop App Implementation Notes §Console Libraries) | Terminal multiplexing inside Desktop GUI (ADR-014 V1 Feature 12); which of the person's devices may type into a shell is Spec-002's per-shell device control lease |

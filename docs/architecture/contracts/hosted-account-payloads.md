@@ -23,7 +23,7 @@ interface AccountNameUpdateResponse {
 
 ## Account Method-Name Registry
 
-The hosted account's name read and update are exposed as `account.*` methods, beside `account.delete` and `account.export` (Plan-015 CP-015-3). The reciprocal `provides` is recorded on [Plan-005](../../plans/005-local-ipc-and-daemon-control.md). Same `dotted-camelCase` `METHOD_NAME_FORMAT` as the other namespaces.
+The hosted account's name read and update are exposed as `account.*` methods, beside `account.delete` and `account.export` (Plan-015 CP-015-3). The reciprocal `provides` is recorded on [Plan-005](../../plans/005-local-ipc-and-daemon-control.md). Names follow the [wire-name grammar](./local-ipc-payloads.md#wire-name-grammar), as every namespace's do.
 
 | Method               | Procedure type | Request schema             | Response schema             |
 | -------------------- | -------------- | -------------------------- | --------------------------- |

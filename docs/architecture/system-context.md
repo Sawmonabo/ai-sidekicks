@@ -10,13 +10,13 @@ This document defines the greenfield system at the highest level: clients, local
 
 ## Context
 
-The product is an agentic coding runtime for one user and their agents. **Remote control is first-class**: one user, many linked devices, one machine executing. Any linked device does everything the desktop can — read the transcript, send, steer, stop, approve, drive agents, view the diff, use the terminal — while code execution stays on the user-controlled runtime node that holds the repo.
+The product is an agentic coding runtime for one user and their agents. **Remote control is first-class**: one user, many linked devices, one machine executing. Any linked device does everything the desktop can — read the transcript, send, steer, stop, approve, drive agents, view the diff, use the terminal — while code execution stays on the user-controlled machine that holds the repo.
 
 Primary actors:
 
 - the user
 - the user's linked devices
-- user-controlled runtime nodes
+- user-controlled machines
 - desktop and CLI clients
 - the control plane
 - external provider runtimes
@@ -25,7 +25,7 @@ Primary actors:
 ## Responsibilities
 
 - provide durable sessions the user can reach from any linked device
-- keep execution local to the user's runtime nodes
+- keep execution local to the user's machines
 - link devices, register machines and relay their channels through the person's own control plane, and send each notification from the machine, sealed so the control plane cannot read it
 - expose one canonical event model for chat, runs, approvals, interventions, and artifacts
 - support repo-bound coding flows with worktree isolation and attributable diffs
@@ -62,7 +62,7 @@ Primary actors:
 
 ## Failure Modes
 
-- The local daemon is unavailable, preventing execution on that node.
+- The local daemon is unavailable, preventing execution on that machine.
 - The control plane is unavailable, preventing device linking or remote access to a running session.
 - Provider drivers fail or drift from expected capability behavior.
 - Event projection lag causes stale client views until catch-up completes.
@@ -72,7 +72,7 @@ Primary actors:
 - [Glossary](../domain/glossary.md)
 - [Session Model](../domain/session-model.md)
 - [User And Device Model](../domain/user-and-device-model.md)
-- [Runtime Node Model](../domain/runtime-node-model.md)
+- [Machine Model](../domain/machine-model.md)
 - [Agent And Run Model](../domain/agent-and-run-model.md)
 
 ## Related Specs

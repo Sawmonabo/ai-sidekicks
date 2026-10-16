@@ -17,7 +17,7 @@ interface SessionCreateRequest {
   // app chose them for a new session. A create names this, `leadDefinitionId`, or both; beside a
   // definition, it is the binding the definition runs on. It names no account: the daemon resolves it.
   // A `largerWindow` the catalog does not offer for that model at that figure refuses
-  // `driver.larger_window_unavailable`: the picker offers only current rows, so it is a stale request.
+  // `agent.provider_axis_invalid` on its `largerWindow` axis: the picker offers only current rows, so it is a stale request.
   lead?: SessionLead;
   // The saved definition this session's LEAD runs under: a request that spells its axes out in full
   // names none, and one naming a definition need not respell the axes the definition supplies. It is how
@@ -189,7 +189,8 @@ interface SessionRecord {
   // in which case the machine's own Runtime value applies, and where that is unset the turn is
   // unbounded and each provider does what it does on its own. What the bound does and how each
   // provider realizes it is Spec-003 §The Step Bound On A Turn's; it is not a budget, and reaching
-  // it ends the turn and then the run, as run.interrupted with trigger "step_limit".
+  // it interrupts the turn (agent.turn.interrupted with cause "stepLimit", its partial result kept),
+  // and the run rests as run.interrupted with trigger "step_limit" until a send continues it.
   maxStepsPerTurn?: number;
   // The address another session writes to when it messages this one — what the session inspector
   // offers as `Copy address`. It names the inbox the daemon holds for the session — one socket (a named
@@ -242,8 +243,9 @@ interface SessionMaxStepsUpdateResponse {
 // `Unlimited`, after which nothing stops or refuses on that limit. A spend limit is a non-negative
 // integer of micro-dollars and a token limit a positive integer; anything else is refused, as is a
 // session id the daemon does not hold (`session.not_found`), and nothing is appended. Saving a higher
-// limit carries on the turn or run that limit stopped, as `Raise limit` does (Spec-014 §Budget
-// Policies). Both answer with the budget state, served from the one budget-accountant accessor as the
+// spend limit continues each run that limit interrupted on its own run id, and saving a higher token
+// limit starts the next run of each agent that limit stopped, under the new number, as `Raise limit`
+// does (Spec-014 §Budget Policies). Both answer with the budget state, served from the one budget-accountant accessor as the
 // read is, so a reply and an immediately following `orchestration.budgetRead` carry the same figures.
 interface SessionSpendLimitUpdateRequest {
   sessionId: SessionId;
@@ -684,7 +686,7 @@ interface SessionTagListResponse {
 
 ### Session Method-Name Registry
 
-The console's `session.*` operations beyond the [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase 3 rows registered in local-ipc-payloads.md §JSON-RPC Method-Name Registry, and beyond the lease verb and the flow-control signal registered in remote-control-payloads.md §Session Terminal-Control Method Registry. Names are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT`. These ride the **daemon JSON-RPC transport only**: a session's name, its working folder, its draft, its staged files and its mute are node-local state the terminal-owning daemon is the record authority for, so no control-plane route sibling exists — the `repo.*` / `approval.*` posture. Method strings stay imperative and disjoint-by-form from the past-participle [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) durable event names (`session.renamed`, `session.goal_updated`, `session.muted`).
+The console's `session.*` operations beyond the [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase 3 rows registered in local-ipc-payloads.md §JSON-RPC Method-Name Registry, and beyond the lease verb and the flow-control signal registered in remote-control-payloads.md §Session Terminal-Control Method Registry. Names follow the [wire-name grammar](./local-ipc-payloads.md#wire-name-grammar). These ride the **daemon JSON-RPC transport only**: a session's name, its working folder, its draft, its staged files and its mute are machine-local state the terminal-owning daemon is the record authority for, so no control-plane route sibling exists — the `repo.*` / `approval.*` posture. Method strings stay imperative and disjoint-by-form from the past-participle [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) durable event names (`session.renamed`, `session.goal_updated`, `session.muted`).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |

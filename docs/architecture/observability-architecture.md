@@ -40,7 +40,7 @@ An agentic coding runtime is only operable if the user and their agents can unde
 
 - Audit data must preserve provenance.
 - Reasoning or tool-output observability must respect artifact visibility and permission policy.
-- Diagnostic logs and traces stay where they are written, and none carries a machine-local secret off the runtime node.
+- Diagnostic logs and traces stay where they are written, and none carries a machine-local secret off its machine.
 
 ## Failure Modes
 

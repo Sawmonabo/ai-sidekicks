@@ -62,7 +62,7 @@ Client-side queueing fails the durability and shared-observation requirements ou
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | Queue and intervention state must survive client restart. | Required by recovery and shared-session goals. | Client-local queue might be enough. |
-| 2 | Drivers will not provide one uniform queue or pause model. | The queue spec and run-state model require canonical runtime-owned semantics with explicit degraded outcomes when providers cannot match them. | Provider-native queue could be the main authority. |
+| 2 | Drivers will not provide one uniform queue or pause model. | The queue spec and run-state model require canonical runtime-owned semantics, which the daemon builds from each provider's own pieces where the provider has no verb of its own. | Provider-native queue could be the main authority. |
 | 3 | The Local Runtime Daemon is the right enforcement point for run truth. | Existing architecture keeps execution local and authoritative there. | Another service would need to become the scheduler of record. |
 
 ## Failure Mode Analysis

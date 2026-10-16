@@ -10,13 +10,11 @@ Contracts per D-013-1..20. The Rust types live in the topic modules [Plan-013 D-
 interface OrchestrationRunConfig {
   tokenLimit?: number; // the run's `Tokens per run`, input and output together; absent = `Unlimited`, the default (Spec-014 §Budget Policies)
 }
-type ChildRunProvenance = "provider_subagent" | "bridge_run" | "workflow_step"; // D-013-12: how a child was reached — the provider's own subagent, a bridge `run` call, or a workflow's `agent.run` step (agent-definition-payloads.md §Plan-024). A `provider_subagent` link is written by the provider driver: Claude Code's subagent start and stop notifications and Codex's collaborating-agent events each add or close the run-link row for that subagent, so a provider's own subagents appear in the agent tree like any other child. Internal provenance: stored with the child's link and never drawn, so no mechanism word reaches the screen
-type InterruptReason =
-  | "step_limit"
-  | "spend_limit"
-  | "token_limit"
-  | "workflow_phase_canceled"
-  | "daemon_restart"; // the reason carried on a system-initiated interrupt, the same set as run.interrupted's `trigger`
+type ChildRunProvenance = "provider_subagent" | "bridge_run" | "workflow_step"; // D-013-12: how a child was reached — the provider's own subagent, the cross-provider bridge's `agent_run`, or a workflow's `agent.run` step (agent-definition-payloads.md §Plan-024). A `provider_subagent` link is written by the provider driver: Claude Code's subagent start and stop notifications and Codex's collaborating-agent events each add or close the run-link row for that subagent, so a provider's own subagents appear in the agent tree like any other child. Internal provenance: stored with the child's link and never drawn, so no mechanism word reaches the screen
+// The reason carried on a system-initiated interrupt, the same set as run.interrupted's `trigger`,
+// which this set rides only. The token limit ends its run, so its `token_limit` rides run.stopped's
+// `trigger` instead.
+type InterruptReason = "step_limit" | "spend_limit" | "workflow_phase_canceled" | "daemon_restart";
 
 // OrchestrationRunCreate — wire: orchestration.runCreate (admission pipeline D-013-9:
 // agent resolution -> Plan-002 queue admission; zero-residue typed refusal + durable
@@ -24,7 +22,7 @@ type InterruptReason =
 // agents, children, nesting depth or queued messages, so a refusal here is the provider's own or a
 // target that does not resolve. A reached spend limit is never a refusal: while it stands no turn
 // starts in the session (Spec-014 §Budget Policies). No console
-// control calls it: its callers are the daemon's own paths (the bridge's `run` verb, agent-definition-payloads.md §Plan-024, and a
+// control calls it: its callers are the daemon's own paths (the bridge's `agent_run` verb, agent-definition-payloads.md §Plan-024, and a
 // workflow's run-an-agent node) and the SDK.
 // The target is EITHER an agent already in the session's agents projection, or a saved
 // definition with no live agent yet, which the daemon resolves at the queue insert and records as
@@ -46,7 +44,7 @@ interface OrchestrationRunCreateResponse {
 
 // ChildRunLinkRead — wire: orchestration.childRunLinkRead. A read OF the daemon's parent-to-child
 // index (the paragraph after the registry below), for the WHOLE session: every child at every depth,
-// whether it has a run of its own (an agent a bridge `run` call started, linked in run_links —
+// whether it has a run of its own (an agent the bridge's `agent_run` started, linked in run_links —
 // single-parent: `child_run_id` is the PK, so a child appears under exactly one parent; D-013-3) or is
 // a provider's own helper inside its parent's run. The pane's list, the transcript's child rows and
 // each child's own view all read this one source; the screen reads it again on subagent.started,
@@ -59,7 +57,7 @@ interface ChildRunLinkReadRequest {
   sessionId: SessionId;
 }
 // One agent in the session's tree as the index names it: an agent with an id in the agents projection
-// (the lead, or an agent a bridge `run` call started), or a provider's own helper by the run it runs
+// (the lead, or an agent the bridge's `agent_run` started), or a provider's own helper by the run it runs
 // in and the handle the index minted for it. The per-agent spend and the child controls key on it.
 type AgentTreeMember =
   | { kind: "agent"; agentId: AgentId }
@@ -107,8 +105,8 @@ interface ChildRunLinkReadResponse {
 
 // BudgetRead — wire: orchestration.budgetRead, and the reply of session.spendLimitUpdate and
 // session.tokensPerRunUpdate (D-013-5; session_budgets row-canonical). Every amount is
-// integer micro-dollars (millionths of a US dollar), the unit both providers report their own figures
-// in, so small requests add up exactly; a figure is rounded once, where it is drawn.
+// integer micro-dollars (millionths of a US dollar), so small requests add up exactly; a figure is
+// rounded once, where it is drawn.
 interface OrchestrationBudgetReadRequest {
   sessionId: SessionId;
 }
@@ -187,26 +185,27 @@ interface AgentConfigUpdateRequest {
   // move it. A `modelId` move must carry it, a figure or `null`, so omitted always means unchanged.
   largerWindow?: number | null;
   // D-013-17 — the provider axis ([Spec-014 §Same-Agent Provider Switch](../../specs/014-multi-agent-orchestration.md#same-agent-provider-switch)).
-  // Moving this is the PROVIDER SWITCH, picked from the composer's model control, which lists both
-  // providers' models under two headings; it applies at the end of the run in flight. Continuity is a
-  // HAND-OVER BRIEF composed on a throwaway copy of the old session, never a replay of the whole
-  // conversation as text (Spec-014 §Continuity). WHICH ACCOUNT PAYS IS NOT A MEMBER HERE: it moves on
+  // Moving this is the PROVIDER SWITCH, picked from the composer's model control, which lists every
+  // installed provider's models, one heading per provider, the session's own first; it applies at
+  // the end of the run in flight. Continuity is a HAND-OVER BRIEF composed on a throwaway copy of
+  // the old session, never a replay of the whole conversation as text (Spec-014 §Continuity). The
+  // brief starts no turn of its own: it opens the person's next message, or goes alone at the
+  // switch on `interruptAndSwitch`. WHICH ACCOUNT PAYS IS NOT A MEMBER HERE: it moves on
   // the provider surface through `providerAccount.setCurrent` (provider-account-payloads.md §Plan-023), which moves every unpinned
   // running session on that provider. A caller supplying an account member is refused, not served — a
   // per-session account switch beside a provider-wide current account would let the two disagree.
   driverName?: string;
   effort?: string;
   // The output-speed axis ([Spec-014 §The mutation surface](../../specs/014-multi-agent-orchestration.md#the-mutation-surface)). Gated on the
-  // target driver's `output_speed` capability flag, which both pinned providers declare;
+  // target driver's `output_speed` capability flag, which Claude Code and Codex both declare;
   // a dispatch against a driver declaring it false refuses as driver.capability_unsupported and
   // is NEVER satisfied by moving `effort` instead, which is a different claim. Its boundary is per
   // driver: a RUN boundary on Claude Code, which takes `apply_flag_settings {fastMode}` between
   // turns with no restart and no file written, and a TURN boundary on Codex, which takes the
   // service tier on each `turn/start`; either way it settles in place like the model and the effort.
   // VALIDATED against the target model's `ProviderModel.outputSpeedLevels` where its provider
-  // publishes one per model, else the target driver's reported
-  // `GetCapabilitiesResult.outputSpeedLevels`, never against a list hardcoded here — the rule
-  // `effort?` above already follows. An absent or empty
+  // publishes one per model, else the target driver's declared `outputSpeedLevels`, never against a
+  // list hardcoded here — the rule `effort?` above already follows. An absent or empty
   // vocabulary makes the axis unsettable and the mutation refuses `agent.provider_axis_invalid`
   // (400) fail-closed, so no unvalidated value is ever forwarded to a provider.
   outputSpeed?: string;
@@ -597,9 +596,9 @@ interface OrchestrationRunLinkCarrier {
 
 `session.maxStepsUpdate`, `session.spendLimitUpdate` and `session.tokensPerRunUpdate`, the session's own `Max steps per turn`, `Spend limit` and `Tokens per run`, are registered with their shapes in session-payloads.md §Session Method-Name Registry.
 
-**The session tools mint no method here, and that is the point.** Sessions find, read, message, start, ask, wait on, stop and organize each other through the twelve tools the daemon serves to the **providers** — `session_list`, `session_search`, `session_options`, `session_read`, `session_start`, `session_send {to, message, files?, wait?}`, `session_ask`, `session_wait`, `session_stop`, `session_update`, `session_group` and, on Codex only, `session_remind` — whose arguments the daemon parses where the call reaches it, served on the daemon's shared `sidekicks` MCP tool server through one `url` entry per session — never a tool server inside Claude Code's `initialize` request and never a Codex dynamic tool — so a call arrives at the daemon as that provider's own MCP tool call and is answered there ([Spec-014 §Session Tool Texts](../../specs/014-multi-agent-orchestration.md#session-tool-texts)). A call is an ordinary tool call under the calling session's own permission level — the levels that ask raise the ordinary approval card, `Sandboxed` and `YOLO` ask nothing, and no switch, setting or cap of the app's gates it — and what a message causes follows the receiving session's own level. The name a model reads is the server's name plus the tool — `mcp__sidekicks__session_send` on Claude Code, `mcp__sidekicks.session_send` on Codex. `to` is the other session's name or id and the daemon resolves the address from its own directory, so no caller spells one; a name two sessions share is refused with both listed by id and project. `wait: true` returns the answer in the same call. `files` is an optional list of paths the sending session can read, which the daemon stages into the receiving session as attachments through [Spec-012](../../specs/012-artifacts-files-and-attachments.md)'s ingest pipeline, so they arrive as paths the receiving model reads with its own file tools on either provider rather than as bytes on this tool's own wire — both `SessionSend` rows carry the file chips a sent turn's attachments already carry, and the only bound on them is that pipeline's. The daemon reads each of those paths **as the person's own user, at send time**, and a path that does not exist or cannot be read **fails the call with that path named in the tool result** rather than being dropped from the list while the rest arrive; there is no second gate on top of that read, since the receiving session runs as the same person on the same machine and could open the path itself. No client calls them, so no wire method is registered, no error code is minted, and no event type is added: a send's result carries one state at a time — `sent`, then `delivered`, `queued`, `held`, `refused` with the provider's own reason, or `not delivered` — and a refusal is the provider's own words rather than this corpus's error envelope. What the screen draws rides documented surfaces. The two rows are the ordinary tool events of the two sessions' logs, and a sent row's later states come over the run-state subscription. The exchange line on a session's row is the `exchange` member (`{peerSessionId, peerName, messageCount}`) of that session's `session.list` entry ([§Plan-001](./session-payloads.md#plan-001--session-core)), present while the session trades messages, so one feed serves every row and the list opens no stream per session. The messages waiting for a paused session are items of that session's own queue, held in arrival order with the sending session as their origin and read through `run.queueList` ([§Run-Control Method-Name Registry](./run-control-payloads.md#run-control-method-name-registry)). The daemon's phone book of sessions and addresses and its exchange table are daemon-interior and reach no wire; beside the exchange line, the one member a client reads is the address on `SessionRecord` (session-payloads.md §Plan-001), which the inspector's `Copy address` lifts.
+**The session tools mint no method here, and that is the point.** Sessions find, read, message, start, ask, wait on, stop and organize each other through the twelve tools the daemon serves to the **providers** — `session_list`, `session_search`, `session_options`, `session_read`, `session_start`, `session_send {to, message, files?, wait?}`, `session_ask`, `session_wait`, `session_stop`, `session_update`, `session_group` and, on Codex only, `session_remind` — whose arguments the daemon parses where the call reaches it, served on the daemon's shared `sidekicks` MCP tool server through one `url` entry per session — never a tool server inside Claude Code's `initialize` request and never a Codex dynamic tool — so a call arrives at the daemon as that provider's own MCP tool call and is answered there ([Spec-014 §Session Tool Texts](../../specs/014-multi-agent-orchestration.md#session-tool-texts)). A call is an ordinary tool call under the calling session's own permission level — the levels that ask raise the ordinary approval card, `Sandboxed` and `YOLO` ask nothing, and no switch, setting or cap of the app's gates it — and what a message causes follows the receiving session's own level. The name a model reads is the server's name plus the tool — `mcp__sidekicks__session_send` on Claude Code, `mcp__sidekicks.session_send` on Codex. `to` is the other session's name or id and the daemon resolves the address from its own directory, so no caller spells one; a name two sessions share is refused with both listed by id and project. `wait: true` returns the answer in the same call. `files` is an optional list of paths the sending session can read, which the daemon stages into the receiving session as attachments through [Spec-012](../../specs/012-artifacts-files-and-attachments.md)'s ingest pipeline, so they arrive as paths the receiving model reads with its own file tools on every provider rather than as bytes on this tool's own wire — both `SessionSend` rows carry the file chips a sent turn's attachments already carry, and the only bound on them is that pipeline's. The daemon reads each of those paths **as the person's own user, at send time**, and a path that does not exist or cannot be read **fails the call with that path named in the tool result** rather than being dropped from the list while the rest arrive; there is no second gate on top of that read, since the receiving session runs as the same person on the same machine and could open the path itself. No client calls them, so no wire method is registered, no error code is minted, and no event type is added: a send's result carries one state at a time — `sent`, then `delivered`, `queued`, `held`, `refused` with the provider's own reason, or `not delivered` — and a refusal is the provider's own words rather than this corpus's error envelope. What the screen draws rides documented surfaces. The two rows are the ordinary tool events of the two sessions' logs, and a sent row's later states come over the run-state subscription. The exchange line on a session's row is the `exchange` member (`{peerSessionId, peerName, messageCount}`) of that session's `session.list` entry ([§Plan-001](./session-payloads.md#plan-001--session-core)), present while the session trades messages, so one feed serves every row and the list opens no stream per session. The messages waiting for a paused session are items of that session's own queue, held in arrival order with the sending session as their origin and read through `run.queueList` ([§Run-Control Method-Name Registry](./run-control-payloads.md#run-control-method-name-registry)). The daemon's phone book of sessions and addresses and its exchange table are daemon-interior and reach no wire; beside the exchange line, the one member a client reads is the address on `SessionRecord` (session-payloads.md §Plan-001), which the inspector's `Copy address` lifts.
 
-**The daemon's own agent tree, and why no verb reads it directly.** The daemon builds a parent-to-child index per session FROM THE PROVIDER STREAM — the task-started frame and its parent call id on one provider, the child's turn-started frame on the other — and persists it, because neither provider lists its children back on a resume. That index is the single source of every fan-out count the screen shows and of every stop that reaches more than one child: a subtree stop is one stop per id walked from the index at every depth, never a relay through the lead, because neither provider's lead can stop a subtree — one provider's own stop tool refuses a grandchild as another agent's, and the other has no stop-all verb at all. The durable handle for a child is the run plus the provider plus the child together, never a bare child id, which is what lets a restart re-attach every child by id. Four further things the index holds are daemon-interior and reach no wire: the per-child hold key that routes a pause to the right leg, the background request issued before a lead interrupt on one provider so a foreground child is not swept with it, the per-child stop behind the two sweeping controls, and the provider's own terminal verbs that end a command an interrupt left running. `orchestration.childRunLinkRead` above is the projection a client reads; it is a read OF the index, and no second verb exposes the index itself. The two child records the screen folds are `subagent.started` and `subagent.completed`, whose taxonomy is [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
+**The daemon's own agent tree, and why no verb reads it directly.** The daemon builds a parent-to-child index per session FROM THE PROVIDER STREAM — the task-started frame and its parent call id on Claude Code, the child's turn-started frame on Codex — and persists it, because neither Claude Code nor Codex lists its children back on a resume. That index is the single source of every fan-out count the screen shows and of every stop that reaches more than one child: a subtree stop is one stop per id walked from the index at every depth, never a relay through the lead, because neither Claude Code's lead nor Codex's can stop a subtree — Claude Code's own stop tool refuses a grandchild as another agent's, and Codex has no stop-all verb at all. The durable handle for a child is the run plus the provider plus the child together, never a bare child id, which is what lets a restart re-attach every child by id. Four further things the index holds are daemon-interior and reach no wire: the per-child hold key that routes a pause to the right leg, the background request issued before a lead interrupt on one provider so a foreground child is not swept with it, the per-child stop behind the two sweeping controls, and the provider's own terminal verbs that end a command an interrupt left running. `orchestration.childRunLinkRead` above is the projection a client reads; it is a read OF the index, and no second verb exposes the index itself. The two child records the screen folds are `subagent.started` and `subagent.completed`, whose taxonomy is [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
 
 Error vocabulary: [error-contracts.md](./error-contracts.md) §Orchestration / §Agent (D-013-11), plus `driver.capability_unsupported` for a switch axis the target driver does not have, and for the goal RPCs `session.not_found` for a session id the daemon does not hold, appending nothing, and `driver.capability_unsupported` where the agent's provider cannot carry a goal. Durable events owned by Plan-013 (Spec-005 registrations): `agent.provider_binding_changed` / `agent.provider_binding_change_failed` (payloads above), `orchestration.rejected`, `session.spend_limit_reached` and `run.token_limit_reached` (a limit the person set, reached), `session.goal_updated` / `session.goal_cleared` (emitted by the goal RPCs above) — see [Spec-005 §Event Type Enumeration](../../specs/005-session-event-taxonomy-and-audit-log.md#event-type-enumeration). `moderation.review_flagged` is not Plan-013's: the Codex normalizer emits it ([Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.33).
 
@@ -624,7 +623,7 @@ interface SessionCostReceipt {
 
 // One provider the session spent on.
 interface SessionCostReceiptProvider {
-  driverName: ProviderName; // the provider, as on an agent's binding
+  driverName: ProviderId; // the provider, as on an agent's binding
   accounts: SessionCostReceiptAccountRow[]; // one row per account this provider spent on
   voice?: SessionCostReceiptVoiceRow; // the `Voice` row, present where the session made voice calls on this provider
   subtotalUsdMicros: number; // computed by the daemon: the account rows plus the voice row

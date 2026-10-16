@@ -1,13 +1,13 @@
 # ADR-017: Cross-Version Compatibility
 
-| Field         | Value                                                 |
-| ------------- | ----------------------------------------------------- |
-| **Status**    | `accepted`                                            |
-| **Type**      | `Type 2 (one-way door)`                               |
-| **Domain**    | `Persistence / Wire Format / Multi-Node Coordination` |
-| **Date**      | `2026-04-18`                                          |
-| **Author(s)** | `Claude (AI-assisted)`                                |
-| **Reviewers** | `Accepted 2026-04-18`                                 |
+| Field         | Value                                                    |
+| ------------- | -------------------------------------------------------- |
+| **Status**    | `accepted`                                               |
+| **Type**      | `Type 2 (one-way door)`                                  |
+| **Domain**    | `Persistence / Wire Format / Multi-Machine Coordination` |
+| **Date**      | `2026-04-18`                                             |
+| **Author(s)** | `Claude (AI-assisted)`                                   |
+| **Reviewers** | `Accepted 2026-04-18`                                    |
 
 ## Context
 
@@ -47,13 +47,13 @@ How do we evolve `EventEnvelope` and event-type semantics when the app, the back
 
 8. **MINOR envelope bumps are additive-only.** Additive = new optional fields with defaults, new event types, new enum values. Forbidden: renaming fields, changing field types, changing field semantics, adding required fields, adding required semantic invariants (e.g., "field X must now be a valid URL"). Semantic invariant changes REQUIRE a MAJOR bump — this is author discipline enforced via the reviewer checklist in §Decision Validation; there is no automated semantic-equivalence gate (Schema Registry cannot catch this either, per precedent).
 
-9. **The event union in `packages/contracts` is the event-type registry, and receivers accept and stub.** Receivers stub anything they don't recognize. No central registry exists, because the app talks only to its own service version and the one before, so a central registry would govern nothing.
+9. **The event union in `crates/sidekicks-contracts` is the event-type registry, and receivers accept and stub.** It is `SessionEventType` in `event/registry.rs` and `SessionEvent` in `event/session.rs`, and its TypeScript is generated into `packages/contracts`. Receivers stub anything they don't recognize. No central registry exists, because the app talks only to its own service version and the one before, so a central registry would govern nothing.
 
 10. **Version failures surface as handshake reasons, never crashes.** The only version refusals are the `version.floor_exceeded` and `version.ceiling_exceeded` reasons on `DaemonHelloAck`, registered in [Error Contracts](../architecture/contracts/error-contracts.md), and the app reads each as the side that is behind (item 4). No write, join or envelope read carries a typed version error.
 
 11. **Retro-rebuild durability contract.** Version stubs remain parseable for the full audit-retention lifetime. The version-stub-metadata schema is versioned separately from envelope `.version` so future stub-schema evolution is itself versionable. A version stub keeps its bytes until its session is deleted, which deletes it with the session's other rows; background compaction never removes a version stub's bytes.
 
-12. **Provider-CLI skew is a different axis and is not governed here.** This ADR governs skew in shapes this corpus defines — the `EventEnvelope` between the user's own service and its clients, where the version range applies and unknowns are stubbed and re-emitted. A provider vendor owns its own surface and ships it faster than we re-verify, so [Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior) sets that axis separately: every installed build is admitted, and every capability is decided individually by a zero-turn probe of the running build. Accept-and-stub has no analog there, because a provider surface that moved cannot be stubbed and re-emitted, only detected and degraded. It is decided at runtime, by the daemon's probes at spawn.
+12. **Provider-CLI skew is a different axis and is not governed here.** This ADR governs skew in shapes this corpus defines — the `EventEnvelope` between the user's own service and its clients, where the version range applies and unknowns are stubbed and re-emitted. A provider vendor owns its own surface and ships it faster than we re-verify, so [Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior) sets that axis separately: every installed build is admitted, and each driver reads what the running build offers. Accept-and-stub has no analog there, because a provider surface that moved cannot be stubbed and re-emitted, only detected. It is decided at runtime, by the driver's reads of the running build.
 
 13. **Until the first release, nothing is kept for an older daemon.** The additive-only MINOR rule and version stubs protect envelopes already written to a production audit log, and they apply from the point of no return ([§Reversibility Assessment](#reversibility-assessment)). Before it, no daemon has shipped: a shape changes in place, and no field is made optional, and no arm is kept, for an older daemon.
 
@@ -93,7 +93,7 @@ Pin-at-session assumes every client updates in the same step as the service, and
 
 - **What:** Like Confluent Schema Registry — a control-plane-hosted registry accepts new event-type schemas and rejects incompatible registrations at publish time.
 - **Steel man:** Catches 100% of structural breaks before they reach the wire. Schema Registry's TRANSITIVE-compatibility enforcement is the gold standard for producer-side evolution.
-- **Why rejected:** The event union in `packages/contracts` is already the registry for every shape the service and its clients exchange, and the app talks only to its own service version and the one before, so a control-plane registry would govern nothing.
+- **Why rejected:** The event union in `crates/sidekicks-contracts` is already the registry for every shape the service and its clients exchange, and the app talks only to its own service version and the one before, so a control-plane registry would govern nothing.
 
 ### Option D: Integer version field instead of semver (Rejected)
 
@@ -137,7 +137,7 @@ Pin-at-session assumes every client updates in the same step as the service, and
 - Mixed versions supported without forced-lockstep upgrades; the app and the service update independently.
 - Wire format is evolvable after release without user-visible breakage on additive changes.
 - Audit log immutability preserved — stubs persist verbatim and are re-read, never converted.
-- Enforcement is at each end; the event union in `packages/contracts` is the only registry.
+- Enforcement is at each end; the event union in `crates/sidekicks-contracts` is the only registry.
 - The handshake reasons (`version.floor_exceeded`, `version.ceiling_exceeded`) turn a version mismatch into a read-only console that names the side behind, rather than a crash.
 
 ### Negative (accepted trade-offs)

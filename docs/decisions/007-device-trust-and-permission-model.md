@@ -75,7 +75,7 @@ The simpler flat model is unacceptable because it collapses account authenticati
 | --- | --- | --- | --- | --- |
 | Users misunderstand which scope granted an action | Med | Med | Approval audit and UI mismatch reports | Keep approval surfaces explicit and auditable |
 | Approval rules drift beyond intended scope | Med | High | Actions succeed unexpectedly under old rules | Keep a revoke per rule in the session inspector and on Settings › Providers, reading the providers' own files; a session rule ends with its session |
-| A linked device's reach is mistaken for an agent's permission in implementation | Low | High | An agent action runs that no permission level, approval rule or answer allowed | Enforce daemon-side policy checks and security review |
+| A linked device's reach is mistaken for an agent's permission in implementation | Low | High | An agent action runs that no permission level, approval rule or answer allowed | Enforce daemon-side policy checks and the pull request's review |
 
 ## Reversibility Assessment
 
@@ -121,7 +121,7 @@ The simpler flat model is unacceptable because it collapses account authenticati
 ### Related Domain Docs
 
 - [User And Device Model](../domain/user-and-device-model.md)
-- [Runtime Node Model](../domain/runtime-node-model.md)
+- [Machine Model](../domain/machine-model.md)
 - [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md)
 
 ### Related Architecture Docs

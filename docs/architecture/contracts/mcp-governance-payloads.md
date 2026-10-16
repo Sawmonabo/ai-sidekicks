@@ -4,12 +4,11 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ## Plan-022 — MCP Governance Contract Surfaces
 
-Governed by [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md). The `mcp.*` operations register against the Plan-005 `MethodRegistry` when Plan-022 lands (the CP-005-2 late-namespace pattern; `mcp.subscribe` rides the Plan-005 streaming primitive, the `session.subscribe` consumer shape); the event payloads mirror [Spec-005 §MCP Governance (`mcp_governance`)](../../specs/005-session-event-taxonomy-and-audit-log.md#mcp-governance-mcp_governance) (registered into contracts by Plan-004 T1.9; payloads authored by Plan-022 — the emitter-authors-payload precedent); the status read model consumes the Plan-003 `McpServerStatusUpdate` seam (provider-driver-capability-payloads.md). Authorization: every mutating operation is open to this machine's own client or any linked device, and no session, with no policy check and no ownership refusal — no `ApprovalCategory` value is added. Idempotency: every governance mutation — and the receipted operational commands `mcp.oauthLogin` and `mcp.oauthLogout` — carries the mandatory requester-generated UUID `clientIdempotencyKey` (Spec-004's mandatory requester-generated key; the intervention-surface precedent) with a durable receipt that returns the saved result on a retry, per Spec-024 §Authorization (`mcp.reconnect` is unreceipted). Error codes: [error-contracts.md §MCP Governance](./error-contracts.md#mcp-governance). Sanitization: no payload below carries config values, env-var values, header values, tokens, or unsanitized paths (Plan-022 I-022-1: credential custody is exactly what ADR-038 records) — raw `scopeRef` filesystem paths included: durable event payloads identify a binding by the path-free audit ref (`McpServerBindingAuditRef` below), never the path itself; `serverName` / `toolName` are untrusted provider-adjacent strings, `FreeFormText<MAX>`-bounded under the trust-boundary header's free-form text rule, classified as non-PII infrastructure identifiers per Spec-024 §Status Observation and Events. Identity throughout is the scope-qualified binding `(provider, scope, scopeRef, serverName)` per Spec-024 §Unified Inventory — a **discriminated union on `scope`**, so an invalid shape (`scopeRef` on `user`, or a missing `scopeRef` on `project`/`local`) is a schema-level rejection, never a service-layer surprise or a collapsed primary key. Every scope exists on both providers: Codex has no private per-project layer, so its `local` scope is the daemon's emulation described with the operations below. Two grains share this section deliberately: the config **binding** above and the Plan-003 **runtime-binding leg** (`sessionId` + `bindingId`) — live per-session state (status legs, live mutation results, reconnect targets) always keys by leg, never by collapsing legs into the binding scalar.
+Governed by [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md). The `mcp.*` operations register against the Plan-005 `MethodRegistry` when Plan-022 lands (the CP-005-2 late-namespace pattern; `mcp.subscribe` rides the Plan-005 streaming primitive, the `session.subscribe` consumer shape); the event payloads mirror [Spec-005 §MCP Governance (`mcp_governance`)](../../specs/005-session-event-taxonomy-and-audit-log.md#mcp-governance-mcp_governance) (registered into contracts by Plan-004 T1.9; payloads authored by Plan-022 — the emitter-authors-payload precedent); the status read model consumes the Plan-003 `McpServerStatusUpdate` seam (provider-driver-capability-payloads.md). Authorization: every mutating operation is open to this machine's own client or any linked device, and no session, with no policy check and no ownership refusal — no `ApprovalCategory` value is added. Idempotency: every governance mutation — and the receipted operational commands `mcp.oauthLogin` and `mcp.oauthLogout` — carries the mandatory requester-generated UUID `clientIdempotencyKey` (Spec-004's mandatory requester-generated key; the intervention-surface precedent) with a durable receipt that returns the saved result on a retry, per Spec-024 §Authorization (`mcp.reconnect` is unreceipted). Error codes: [error-contracts.md §MCP Governance](./error-contracts.md#mcp-governance). Sanitization: no payload below carries config values, env-var values, header values, tokens, or unsanitized paths (Plan-022 I-022-1: credential custody is exactly what ADR-038 records) — raw `scopeRef` filesystem paths included: durable event payloads identify a binding by the path-free audit ref (`McpServerBindingAuditRef` below), never the path itself; `serverName` / `toolName` are untrusted provider-adjacent strings, `FreeFormText<MAX>`-bounded under the trust-boundary header's free-form text rule, classified as non-PII infrastructure identifiers per Spec-024 §Status Observation and Events. Identity throughout is the scope-qualified binding `(provider, scope, scopeRef, serverName)` per Spec-024 §Unified Inventory — a **discriminated union on `scope`**, so an invalid shape (`scopeRef` on `user`, or a missing `scopeRef` on `project`/`local`) is a schema-level rejection, never a service-layer surprise or a collapsed primary key. The three writable scopes exist on every provider: Codex has no private per-project layer, so its `local` scope is the daemon's emulation described with the operations below. A binding's `provider` is the open `ProviderId`, checked against the registered drivers wherever a request or a provider's reading brings one in; a name with no driver is refused, and a stored row keeps the name as it was written. Two grains share this section deliberately: the config **binding** above and the Plan-003 **runtime-binding leg** (`sessionId` + `bindingId`) — live per-session state (status legs, live mutation results, reconnect targets) always keys by leg, never by collapsing legs into the binding scalar.
 
 ```ts
 // ---- Primitives (Spec-024) ----
-type McpProvider = "claude" | "codex";
-type McpBindingScope = "user" | "project" | "local" | "plugin" | "connector" | "managed"; // scope axis of the binding identity; the first three are writable on both providers, `plugin` names a server an installed plugin carries, and `connector` and `managed` (Claude Code only, read-only) name a claude.ai connector and an organization's server: user = the provider's own user configuration, read on the page as `All projects`; project = the project's own file in the repository (Claude Code's `<project>/.mcp.json`, Codex's `<project>/.codex/config.toml`), `This project · in the repo`; local = one project, declared outside the repository (Claude Code's per-project entry in its user configuration; on Codex, which has no such layer, a user entry kept switched off and switched on per conversation in that project's sessions), `This project · not in the repo`. Scope-applicability is PER OPERATION (see the operations block)
+type McpBindingScope = "user" | "project" | "local" | "plugin" | "connector" | "managed"; // scope axis of the binding identity; the first three are writable on every provider, `plugin` names a server an installed plugin carries, and `connector` and `managed` (read-only, the servers a provider brings itself: Claude Code's) name a claude.ai connector and an organization's server: user = the provider's own user configuration, read on the page as `All projects`; project = the project's own file in the repository (Claude Code's `<project>/.mcp.json`, Codex's `<project>/.codex/config.toml`), `This project · in the repo`; local = one project, declared outside the repository (Claude Code's per-project entry in its user configuration; on Codex, which has no such layer, a user entry kept switched off and switched on per conversation in that project's sessions), `This project · not in the repo`. Scope-applicability is PER OPERATION (see the operations block)
 type McpApplicationGrade = "live_reconcile" | "user_config_write" | "next_run" | "daemon_enforced"; // when/where a mutation takes effect — honest, typed, never silent (parity-triad degrade-honestly): live session set / provider config store (subsequent runs) / next-run composed config / daemon decision layer (immediate)
 type McpApprovalMode = "auto" | "prompt" | "writes" | "approve"; // Codex-native vocabulary adopted as the normalized set; Claude-side enforcement is daemon-owned (Spec-024 §Tool-Level Overrides)
 
@@ -28,10 +27,10 @@ type McpApprovalMode = "auto" | "prompt" | "writes" | "approve"; // Codex-native
 // mcp.upsertServer and mcp.removeServer refuse it; mcp.setEnabled and the tool overrides target it.
 // A binding in a scope the person writes, its declaration in a provider's own config.
 type McpWritableBindingRef =
-  | { provider: McpProvider; scope: "user"; serverName: string }
-  | { provider: McpProvider; scope: "project"; scopeRef: string; serverName: string }
-  | { provider: McpProvider; scope: "local"; scopeRef: string; serverName: string };
-// Two read-only arms name the servers Claude Code brings itself, listed in the page's
+  | { provider: ProviderId; scope: "user"; serverName: string }
+  | { provider: ProviderId; scope: "project"; scopeRef: string; serverName: string }
+  | { provider: ProviderId; scope: "local"; scopeRef: string; serverName: string };
+// Two read-only arms name the servers a provider brings itself, Claude Code's today, listed in the page's
 // `claude.ai · <account name>` group of each account and its `Organization` group: a claude.ai connector, its scopeRef the provider account's id (connectors
 // are that claude.ai account's own) and its serverName the display name Claude Code reports
 // (`claude.ai Slack`); and an organization's server, from `managedMcpServers` or `managed-mcp.json`,
@@ -39,11 +38,11 @@ type McpWritableBindingRef =
 // and the tool overrides apply to both; setEnabled takes them with a projectRoot, the daemon's own
 // per-project switch.
 type McpReadOnlyBindingRef =
-  | { provider: "claude"; scope: "connector"; scopeRef: string; serverName: string }
-  | { provider: "claude"; scope: "managed"; serverName: string };
+  | { provider: ProviderId; scope: "connector"; scopeRef: string; serverName: string }
+  | { provider: ProviderId; scope: "managed"; serverName: string };
 type McpServerBindingRef =
   | McpWritableBindingRef
-  | { provider: McpProvider; scope: "plugin"; scopeRef: string; serverName: string }
+  | { provider: ProviderId; scope: "plugin"; scopeRef: string; serverName: string }
   | McpReadOnlyBindingRef;
 
 // Event-side binding identity (Spec-024 §Status Observation and Events): path-free. scopeRef
@@ -53,7 +52,7 @@ type McpServerBindingRef =
 // Requests and inventory reads keep the full McpServerBindingRef (transient wire / the person's read,
 // not durable audit rows).
 interface McpServerBindingAuditRef {
-  provider: McpProvider;
+  provider: ProviderId;
   scope: McpBindingScope;
   serverName: string;
 }
@@ -71,9 +70,11 @@ type McpEffectiveBinding = McpServerBindingRef | null;
 // mcp.upsertServer config input — the normalized governed surface, discriminated on transport.
 // Env-var and header VALUES are write-only credential-adjacent material: accepted here, passed only
 // to the sanctioned provider write path, NEVER round-tripped in inventory reads or event payloads
-// (names may appear; values never do). Provider-conditional validation is enforced by the contract (garde
-// checks), not prose: a field marked Codex-only rejects for provider "claude" and vice versa,
-// so the canonical request type and client signature derive from this union without divergence.
+// (names may appear; values never do). Which transports and members a provider takes is that
+// provider's own declaration, the tool-server transports and fields in its driver's descriptor, which
+// `provider.list` carries: the form checks against it as the person types, and the daemon checks the
+// request against the binding's provider again, refusing a transport or member that provider does not
+// declare with mcp.config_invalid before anything is written. The comments below name the provider whose native field each member is.
 // EVERY SCOPE TAKES WHAT THE PERSON TYPES: at `project` scope the values are written into the
 // project's file in that provider's own format, as at the other scopes. A declaration may name a
 // variable in place of a value — a Claude Code `env` or `headers` value written as a `${VAR}` or
@@ -92,24 +93,24 @@ type McpServerConfigInput =
       command: string; // executable; non-empty, NUL-rejected
       args?: string[];
       env?: Record<string, string>; // write-only values (see above)
-      envVars?: string[]; // Codex-only `env_vars` — variable NAMES the server inherits from the environment Codex starts in
+      envVars?: string[]; // Codex's `env_vars` — variable NAMES the server inherits from the environment Codex starts in
       enabled?: boolean; // Codex: native `enabled` field; Claude: maps to the daemon enabled overlay
-      required?: boolean; // Codex-only — thread start/resume fails if the server cannot initialize
-      startupTimeoutSec?: number; // Codex-only native timeout
-      toolTimeoutSec?: number; // Codex-only native timeout
+      required?: boolean; // Codex's `required` — thread start/resume fails if the server cannot initialize
+      startupTimeoutSec?: number; // Codex's native timeout
+      toolTimeoutSec?: number; // Codex's native timeout
     }
   | {
-      transport: "http" | "sse"; // "sse" is Claude-only (Claude-native transport kind)
+      transport: "http" | "sse"; // "sse" is a Claude Code transport; Codex declares none
       url: string; // absolute http(s) URL, taken as typed and passed to the provider write path as typed, a user name or password in it included. That user name and password and the query-string VALUES are write-only credential-equivalent material: accepted, passed on — never round-tripped (the view serves query param NAMES)
       headers?: Record<string, string>; // write-only values (see above)
-      bearerTokenEnvVar?: string; // Codex-only `bearer_token_env_var` — the env-var NAME, never the value
-      envHttpHeaders?: Record<string, string>; // Codex-only `env_http_headers` — header NAME → env-var NAME (both references, no values; resolved provider-side at connect time)
-      oauthScopes?: string[]; // Codex-only `scopes` — OAuth scopes requested for the server's auth flow
-      oauthResource?: string; // Codex-only `oauth_resource` — the RFC 8707 resource indicator for the flow
+      bearerTokenEnvVar?: string; // Codex's `bearer_token_env_var` — the env-var NAME, never the value
+      envHttpHeaders?: Record<string, string>; // Codex's `env_http_headers` — header NAME → env-var NAME (both references, no values; resolved provider-side at connect time)
+      oauthScopes?: string[]; // Codex's `scopes` — OAuth scopes requested for the server's auth flow
+      oauthResource?: string; // Codex's `oauth_resource` — the RFC 8707 resource indicator for the flow
       enabled?: boolean;
-      required?: boolean; // Codex-only (as above)
-      startupTimeoutSec?: number; // Codex-only (as above)
-      toolTimeoutSec?: number; // Codex-only (as above)
+      required?: boolean; // Codex's (as above)
+      startupTimeoutSec?: number; // Codex's (as above)
+      toolTimeoutSec?: number; // Codex's (as above)
     };
 
 // Redacted normalized config view (Spec-024 §Unified Inventory): the read-back of what
@@ -125,7 +126,7 @@ type McpServerConfigView =
       args?: string[];
       envVarNames?: string[]; // the env map's KEYS; values never round-trip
       enabled?: boolean;
-      required?: boolean; // Codex-only, as on input
+      required?: boolean; // Codex's, as on input
       startupTimeoutSec?: number;
       toolTimeoutSec?: number;
     }
@@ -134,10 +135,10 @@ type McpServerConfigView =
       url: string; // QUERY-REDACTED: scheme + host + path only (a user name or password, like the query values, is credential-equivalent and never round-trips)
       urlQueryParamNames?: string[]; // the query string's parameter NAMES when one existed; values never round-trip (the env/header names-not-values discipline)
       headerNames?: string[]; // the header map's KEYS; values never round-trip
-      bearerTokenEnvVar?: string; // an env-var NAME (Codex-only), safe to serve
-      envHttpHeaders?: Record<string, string>; // Codex-only — header NAME → env-var NAME: a name→name reference map, round-trips verbatim
-      oauthScopes?: string[]; // Codex-only — non-secret auth references, round-trip verbatim
-      oauthResource?: string; // Codex-only — non-secret auth reference, round-trips verbatim
+      bearerTokenEnvVar?: string; // an env-var NAME (Codex's), safe to serve
+      envHttpHeaders?: Record<string, string>; // Codex's — header NAME → env-var NAME: a name→name reference map, round-trips verbatim
+      oauthScopes?: string[]; // Codex's — non-secret auth references, round-trip verbatim
+      oauthResource?: string; // Codex's — non-secret auth reference, round-trips verbatim
       enabled?: boolean;
       required?: boolean;
       startupTimeoutSec?: number;
@@ -163,7 +164,7 @@ interface McpServerLegStatus {
 // All mutations fail closed while degraded.
 type McpServerInventoryEntry = McpServerBindingRef & {
   config: McpServerConfigView; // the redacted normalized declaration (see above)
-  status: McpServerStatus; // deterministic aggregate over legs[]: most severe current live-leg status (failed > needs-auth > unknown > starting > connected — a live leg whose observation source is lost reports "unknown": lost observability outranks known-healthy states, never a concrete failure), else newest node-probe observation, else "unknown" — never fabricated
+  status: McpServerStatus; // deterministic aggregate over legs[]: most severe current live-leg status (failed > needs-auth > unknown > starting > connected — a live leg whose observation source is lost reports "unknown": lost observability outranks known-healthy states, never a concrete failure), else newest machine-probe observation, else "unknown" — never fabricated
   failedReason?: "commandNotRunnable"; // present only on an entry reading "failed" because, after the background service moved between Windows and a WSL distribution, its command or arguments name a program on the side it left; a bare command name such as npx is looked up on the new side and is not marked. One member on the entry, not a status of its own
   legs?: McpServerLegStatus[]; // per-leg session-feed observations; absent when no live leg exists. Legs are LIVE-session observations with a bounded lifecycle: when a leg's backing runtime binding closes (session end / driver exit), the daemon retires it and recomputes the aggregate — a terminated session's last status never pins `status`
   observedAt?: string; // ISO-8601 of the newest status observation backing `status`
@@ -260,11 +261,11 @@ interface McpLiveApplicationResult {
 //   mcp.setEnabled        McpServerBindingRef & {clientIdempotencyKey: string, enabled: boolean, projectRoot?: string} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // projectRoot required on a `connector` or `managed` binding and refused on every other: the daemon's own switch for that one project, never Claude Code's `disabledMcpServers`
 //   mcp.setToolOverride   McpServerBindingRef & {clientIdempotencyKey: string, override: McpToolOverride} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication}
 //   mcp.clearToolOverride McpServerBindingRef & {clientIdempotencyKey: string, toolName: string, facet: McpToolOverrideFacet} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication} // clears that one facet back to the server's own value (a Codex facet restored from the binding's baseline) and leaves the tool's other facets set; clearing a tool's last set facet drops its override row; `applied` carries the cleared facet's grade alone
-//   mcp.oauthLogin        McpServerBindingRef & {clientIdempotencyKey: string} → {authorizationUrl?: string} // starts the daemon's own sign-in for that server, whatever kind of server it is, and returns the address of the sign-in page for the client to open; a new mcp.oauthLogin on a server whose sign-in is still waiting ends that wait and starts the next attempt; mcp.oauth_flow_failed is LAUNCH-phase only — a failure to start the sign-in (discovery, registration, or the provider's own flow in its throwaway home) — and an async completion failure arrives as mcp.server_oauth_completed outcome: 'failure' on the mcp.subscribe stream, never a late JSON-RPC error (Spec-024 §OAuth Orchestration). Its idempotency receipt persists the acknowledgment with authorizationUrl STRUCTURALLY OMITTED (single-use PKCE-bearing launch material is never durable — Plan-022 I-022-1), so an identical-key retry returns a saved acknowledgment with no URL: the sign-in already started, completion arrives as the event, and a caller that never received the URL starts a new sign-in under a fresh key
-//   mcp.oauthLogout       {serverId: string, clientIdempotencyKey: string} → EmptyPayload // `Sign out of this server`. `serverId` is the server's address, not a scope-qualified binding: the daemon holds one sign-in per server, used by both providers and every binding that names it, and each of those bindings' change after the sign-out arrives as its status notice on mcp.subscribe. It deletes the daemon's refresh token for the server, and its signing key where the server demands proof-of-possession tokens, and ends the access tokens it handed out, so each provider's next call to that server carries no token and the server reads needs-auth in every session on both providers until the next sign-in
+//   mcp.oauthLogin        McpServerBindingRef & {clientIdempotencyKey: string} → {authorizationUrl?: string} // starts the daemon's own sign-in for that server, whatever kind of server it is, and returns the address of the sign-in page for the client to open; a new mcp.oauthLogin on a server whose sign-in is still waiting ends that wait and starts the next attempt; a server that publishes no sign-in route (no protected-resource or authorization-server metadata, or metadata the daemon cannot read) is refused with mcp.server.signInUnsupported; mcp.oauth_flow_failed is LAUNCH-phase only — a failure to start the sign-in (discovery, registration, or the provider's own flow in its throwaway home) — and an async completion failure arrives as mcp.server_oauth_completed outcome: 'failure' on the mcp.subscribe stream, never a late JSON-RPC error (Spec-024 §OAuth Orchestration). Its idempotency receipt persists the acknowledgment with authorizationUrl STRUCTURALLY OMITTED (single-use PKCE-bearing launch material is never durable — Plan-022 I-022-1), so an identical-key retry returns a saved acknowledgment with no URL: the sign-in already started, completion arrives as the event, and a caller that never received the URL starts a new sign-in under a fresh key
+//   mcp.oauthLogout       {serverId: string, clientIdempotencyKey: string} → EmptyPayload // `Sign out of this server`. `serverId` is the server's address, not a scope-qualified binding: the daemon holds one sign-in per server, used by every provider and every binding that names it, and each of those bindings' change after the sign-out arrives as its status notice on mcp.subscribe. It deletes the daemon's refresh token for the server, and its signing key where the server demands proof-of-possession tokens, and ends the access tokens it handed out, so each provider's next call to that server carries no token and the server reads needs-auth in every session on every provider until the next sign-in
 //   mcp.reconnect         McpServerBindingRef & {sessionId?: SessionId, bindingId?: string} → {legs: McpServerLegStatus[]} // operational: restarts the binding's live provider leg(s), LEG-ADDRESSABLE — exactly one leg when bindingId is given (with sessionId, both must name the same leg), every live leg of one session when only sessionId is given, every live leg otherwise; per-leg post-reconnect statuses, honest per leg
 // Session operations (Spec-024 §A session's own tool servers), in the session.* namespace; none emits a governance event:
-// `serverName` is the server's name in the session's own list, the name both providers start the session's servers by; it is not the address `mcp.oauthLogout` takes, and a server run as a local command has none.
+// `serverName` is the server's name in the session's own list, the name each provider starts the session's servers by; it is not the address `mcp.oauthLogout` takes, and a server run as a local command has none.
 //   session.mcpServerList   {sessionId} → a live list of the servers the session was started with, each row the server's name, binding, status with its reason, whether it is on for the session, and whether a switch waits for the next turn — names and statuses only, never a config value
 //   session.mcpServerUpdate {sessionId, serverName, enabled} // narrows only: off stops the session offering that server's tools; kept with the session, applied at the next turn and sent again after each resume; a new session starts with every server on
 //   session.mcpResourceList {sessionId, serverName} → {serverName, resources, complete} // what a working server offers, for the composer's attachment row; refused for a server that is off or not working
@@ -273,8 +274,8 @@ interface McpLiveApplicationResult {
 // `plugin`, `connector` or `managed` binding is a schema-level rejection; setEnabled takes any
 // McpServerBindingRef, and on a `plugin` binding it is the daemon's own switch and on a `connector`
 // or `managed` one the daemon's own switch for its projectRoot, neither writing provider
-// configuration. On the three writable scopes, upsertServer, removeServer and setEnabled write the provider's own configuration
-// on both providers:
+// configuration. On the three writable scopes, upsertServer, removeServer and setEnabled write the provider's own configuration,
+// each provider through its own mechanism:
 // Claude Code writes through `claude mcp add-json <name> <json> --scope <scope>` (a `project` write run from the
 // project root, landing in `<project>/.mcp.json`; `local` in Claude Code's per-project entry of its
 // user configuration); Codex `user` writes through `config/value/write`; Codex `project` is a
