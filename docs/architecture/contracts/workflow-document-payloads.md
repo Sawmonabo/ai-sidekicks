@@ -5,7 +5,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 ```ts
 // ---- The node-graph document: what an author writes and what a version stores ----
 // Type names here are prefixed `Workflow` where the unprefixed name is already taken by another
-// domain in this file — `NodeId` is the runtime-node brand and `RunId` the provider-run brand, so a
+// domain in this file — `NodeId` is the machine's brand and `RunId` the provider-run brand, so a
 // workflow node and a workflow run carry their own brands and no reader has to guess which domain a
 // bare `NodeId` belongs to.
 
@@ -209,7 +209,7 @@ type WorkflowStartedBy =
 // provider reports.
 interface WorkflowSpentAccount {
   providerAccountId: ProviderAccountId;
-  provider: "claude" | "codex";
+  provider: ProviderId;
   // Sized for the longest full reported identity — the email, plan and organization caps with the
   // two ` · ` separators (`PROVIDER_ACCOUNT_LABEL_MAX_LEN`) — not for a typed name alone.
   label: string;
@@ -250,7 +250,7 @@ interface WorkflowStep {
   // step parked on a spent provider account reads `waiting` with cause `account`.
   waitCause?: WorkflowWaitCause;
   // Present exactly on a step waiting on `account`: the spent account, which the run header names,
-  // `The Claude Code account <label> is spent…`.
+  // `The <Provider> account <label> is spent until <time>.`
   waitAccount?: WorkflowSpentAccount;
   // Only on a `waiting` step, and only where the wait armed one: the instant it resumes itself. Where
   // none is armed, no instant is invented.
