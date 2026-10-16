@@ -97,7 +97,7 @@ Each is named `session_<action>` with snake_case fields, like every tool the dae
 
 **Every tool reaches the person's other computers.** A session on another of the person's computers is listed with that computer's name and is read, messaged, asked, waited on, stopped and organized the same way, the daemon reaching that computer's daemon over the channel the person's machines already share ([Spec-027 §One user, many devices, any number of machines](027-remote-control.md#one-user-many-devices-any-number-of-machines)); a message to a session on a computer that is offline is queued and goes when that computer reconnects, and the call's result says so.
 
-**The reply chain spans both providers.** Claude Code drops a message whose chain already passes through the receiving session ten times, or that holds more than 28 sessions, and it reads the chain in one form only: the `hop-chain` attribute of the frame, Claude Code's own session ids ([claude.md §A message from another session arrives on the session's own address](../reference/provider-wire/claude.md#a-message-from-another-session-arrives-on-the-sessions-own-address)). The daemon copies the chain it received into every message it delivers onward and carries it across a Codex session, which keeps none, so Claude Code's own limit sees the whole chain whichever providers stand in it. A loop of Codex sessions alone runs until the person's own bounds stop it or the person presses Interrupt: a message loop inside one run is bounded by `Max steps per turn` and `Tokens per run`, and across runs only the session's `Spend limit` bounds it. A message Claude Code drops comes back to the daemon's own socket as Claude Code's own `peer_message_status` frame, and the sending row reads `refused:` with Claude Code's words.
+**The reply chain spans providers.** Claude Code drops a message whose chain already passes through the receiving session ten times, or that holds more than 28 sessions, and it reads the chain in one form only: the `hop-chain` attribute of the frame, Claude Code's own session ids ([claude.md §A message from another session arrives on the session's own address](../reference/provider-wire/claude.md#a-message-from-another-session-arrives-on-the-sessions-own-address)). The daemon copies the chain it received into every message it delivers onward and carries it across a Codex session, which keeps none, so Claude Code's own limit sees the whole chain whichever providers stand in it. A loop of Codex sessions alone runs until the person's own bounds stop it or the person presses Interrupt: a message loop inside one run is bounded by `Max steps per turn` and `Tokens per run`, and across runs only the session's `Spend limit` bounds it. A message Claude Code drops comes back to the daemon's own socket as Claude Code's own `peer_message_status` frame, and the sending row reads `refused:` with Claude Code's words.
 
 **What the daemon keeps.** A directory of its sessions and their addresses, looked up at send time so nothing dies with a provider process. An exchange table naming who is talking to whom and how many messages the two have traded since the person last wrote in either, which the session rows and the arriving row show as a fact and not a limit. For a paused session, a queue of everything addressed to it, delivered one at a time in arrival order when it continues. And what each session is waiting on, which `session_wait` lists, and each reminder a Codex session set.
 
@@ -676,6 +676,54 @@ The brief starts no turn of its own. On a switch that lands at a run's natural e
 **What never travels, on any switch:** the model's private reasoning, which both vendors make unusable outside their own product; tool calls as live calls, which arrive as history and never as work in flight; and the old provider's own skill and command names, which name nothing on the new provider. The daemon also strips from the old provider's summary, before the brief travels, what that summary step reproduces or adds: the old provider's own system prompt, its environment preamble and the instruction files it loaded, and from Claude Code's summary its opening line saying the session is being continued, its pointer to its own session file (the throwaway copy's, deleted with it), its instruction to continue without asking the person anything, and its own compaction instruction where the summary's quote of the person's last message ends with it (`CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.`), because the brief names its own transcript file and frames the continuation itself. Because the summary can quote a tool's output, the list of what did not carry names what the message actually left out, read from the brief, never what a rule says is out of reach. Nothing is written into another vendor's own directories at any point.
 
 **Switching back reopens the old provider's own conversation.** A session that moves from one provider to another and back does not start a third conversation: the daemon reopens the first provider's own session by the identifier it kept, and hands it a brief of what happened while it was away, composed and delivered the same way. That is what makes a switch a move rather than a fork.
+
+**The brief's frame.** The message is one shared frame, written once, around the stripped summary; it adds no instruction in place of anything stripped. On Codex it is the first `turn/start` input of the new or reopened thread, and on Claude Code the first user message of the new or resumed process. Where the brief opens the person's next message, their words follow it under `## The person's message`.
+
+```
+This conversation continues from an earlier part whose record is not in this conversation, so this message stands in for it. Use it to build on the work already done and avoid redoing it.
+
+## 1. Summary of the earlier part, written at its end
+
+<the old provider's summary, stripped>
+
+## 2. The branch and the changes, read from disk just now
+
+Branch: `<branch>`
+
+`git status --short`:
+
+<output, or (clean)>
+
+`git diff HEAD`:
+
+<output, or (no changes)>
+
+## 3. Every earlier step, one line each, with its output left out
+
+- <step>: <what it was> → <how it ended>
+- …
+
+## 4. The last two exchanges, word for word
+
+### Exchange <n> of <total>
+**The person:** <message>
+**Tool call:** <one line> → <how it ended>
+<output>
+**The assistant:** <reply>
+
+### Exchange <n> of <total>
+…
+
+## 5. The whole earlier conversation
+
+If you need specific details from the earlier conversation (like exact code snippets, error messages, or content you generated), read its whole transcript, one plain file at `<absolute path>`, with your file tools.
+```
+
+On a switch back, the first line is the one below, heading 1 reads `## 1. Summary of what happened since, written at its end`, and heading 5 reads `## 5. The whole conversation since your last turn`:
+
+```
+This conversation went on elsewhere since your last turn, and that part's record is not in this conversation, so this message stands in for it. Use it to build on the work already done and avoid redoing it.
+```
 
 Three consequences are stated rather than discovered:
 
