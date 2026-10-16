@@ -34,6 +34,7 @@ The shapes are kept in one file per area, below. They and this index are one doc
 - [Workflow Payload Contracts](./workflow-payloads.md) — Plan-014: the workflow operations, events and method names
 - [Workflow Document Payload Contracts](./workflow-document-payloads.md) — Plan-014: the node-graph document an author writes and a version stores
 - [Workflow Builder And Runs Payload Contracts](./workflow-builder-and-runs-payloads.md) — Plan-014: the builder, the node catalog, the runs surface and workflow secrets
+- [Workflow Tool Texts](./workflow-tool-texts.md) — Plan-014: every word a model reads from the workflow tools an agent holds
 - [Rate Limit And Retention Payload Contracts](./rate-limit-and-retention-payloads.md) — Spec-019 rate limiting and Spec-020 data retention, export and deletion
 - [MCP Governance Payload Contracts](./mcp-governance-payloads.md) — Plan-022: tool-server configuration and governance
 - [Provider Account Payload Contracts](./provider-account-payloads.md) — Plan-023: provider accounts and credential homes

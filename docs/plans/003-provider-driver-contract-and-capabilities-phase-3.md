@@ -402,6 +402,7 @@ Phase 3 of [Plan-003: Provider Driver Contract And Capabilities](./003-provider-
 | `run.intervene {type: "interrupt"}` | DB | T3.27 |
 | `session.modeUpdate` | DB | T3.27 |
 | `driver.compactContext` | DB | T3.27, T4.8 |
+| `driver.listProviderCommands` | DB | T3.21, T4.1 |
 | `session.providerCommandsSubscribe` | DB | T3.27, T4.8 |
 | `session.sideQuestionAsk` | DB | T3.27 |
 | `session.reviewStart` | DB | T3.27 |
