@@ -25,6 +25,8 @@ The architecture program needs a stable IPC contract before CLI, desktop, and da
 
 Use JSON-RPC 2.0 messages in one frame codec (a 10-byte header per frame, with binary attachments carried beside the JSON) over a Unix domain socket (named pipe on Windows) for local daemon IPC; the same frames ride inside each sealed Noise message. A device other than the machine calls the same JSON-RPC methods, sealed inside its own Noise channel through the person's relay ([Spec-027](../specs/027-remote-control.md)): every method the local transport serves is served there, and event subscriptions, the session transcript and run output included, ride the same channel, per [ADR-008](./008-default-transports-and-relay-boundaries.md)'s transport assignment. The relay's WSS connection carries only the sealed channel frames Spec-027 defines and never a payload the relay can read. The control plane's own API is HTTP routes served by `axum` on `worker` per [ADR-013](./013-control-plane-api.md).
 
+Errors use JSON-RPC 2.0's error object. Only protocol outcomes take JSON-RPC's numbers (`-32700` a parse error, `-32600` the envelope or framing, `-32601` an unknown method, `-32602` params that fail the method's contract check, `-32603` the daemon's own fault), with LSP's `-32800` for a call canceled by `$/cancelRequest`. Every domain refusal answers one application number, `-31000`, which lies outside the ranges JSON-RPC, LSP, MCP and A2A claim; the refusal's name rides in `data.type` and its category in `data.category`, so a client branches on the name and falls back to the category only for a name it does not know. An id that resolves to nothing is a domain refusal with category `notFound`, never `-32602` ([Error Contracts §JSON-RPC Wire Mapping](../architecture/contracts/error-contracts.md#json-rpc-wire-mapping)). Every request, event and error code takes its name from one grammar ([Local IPC Payload Contracts §Wire-Name Grammar](../architecture/contracts/local-ipc-payloads.md#wire-name-grammar)).
+
 ## Alternatives Considered
 
 ### Option A: JSON-RPC 2.0 + Frame Codec (Chosen)
@@ -66,7 +68,7 @@ Use JSON-RPC 2.0 messages in one frame codec (a 10-byte header per frame, with b
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
 | JSON payloads become too large (streamed artifacts, large tool results) and parse latency spikes | Med | Med | Round-trip latency measured in the daemon's tests | Add chunked streaming for large artifacts outside the JSON-RPC envelope; keep control messages JSON |
-| A client mis-implements the frame codec and desyncs the stream | Med | High | Framing-error counters and dropped-connection logs | Publish a conformance test suite and reject malformed frames with a clear close code |
+| A client implements the frame codec wrongly and desyncs the stream | Med | High | Framing-error counters and dropped-connection logs | Publish a conformance test suite and reject malformed frames with a clear close code |
 | JSON-RPC 2.0 evolves or a competing successor emerges before the relay arm lands | Low | Low | Spec tracker and upstream MCP/LSP release notes | JSON-RPC 2.0 is effectively frozen; transport layer can wrap a successor without rewriting clients |
 | Windows named pipe semantics diverge from Unix socket behavior (permissions, reconnection) | Med | Med | Platform-specific integration tests and daemon crash reports | Abstract transport in a thin adapter; document per-platform quirks |
 

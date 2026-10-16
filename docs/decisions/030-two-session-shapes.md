@@ -13,7 +13,7 @@
 
 ## Context
 
-The session is the primary object ([ADR-001](001-session-is-the-primary-domain-object.md)). A person starts a session for two different reasons: to work on a repository they have attached, or to talk something through with no repository at all. Both providers need a working folder to run in, and the console's panes (Review, Terminal, Preview, the file pane) each assume something about what that folder is.
+The session is the primary object ([ADR-001](001-session-is-the-primary-domain-object.md)). A person starts a session for two different reasons: to work on a repository they have attached, or to talk something through with no repository at all. Every provider needs a working folder to run in, and the console's panes (Review, Terminal, Preview, the file pane) each assume something about what that folder is.
 
 ## Problem Statement
 
@@ -79,7 +79,7 @@ An empty git-initialized folder costs a few kilobytes and no process. Creating i
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | Both providers run correctly in an empty git-initialized folder | **Unvalidated.** Proved by starting each provider in an empty git-initialized folder on the first build of the chat shape | A chat could not start; the workspace would need seeding |
+| 1 | Every installed provider runs correctly in an empty git-initialized folder | **Unvalidated.** Proved by starting each provider in an empty git-initialized folder on the first build of the chat shape | A chat could not start; the workspace would need seeding |
 | 2 | A mount's origin can always tell a managed workspace from an attached repository | The mount's origin is marked managed when the daemon creates it ([Spec-001](../specs/001-session-core.md)); the mount itself is [Spec-007](../specs/007-repo-attachment-and-workspace-binding.md)'s | The shape could not be derived, and a flag would return |
 | 3 | Copying the chat's files into the repository as uncommitted changes is what a person expects | The copied files open in Review as new changes, so the person sees and decides on each one | A copy could land on a path the repository already uses; such a file is left uncopied, named in the conversion's own system message and named to the session's agent ([Spec-001](../specs/001-session-core.md)) |
 

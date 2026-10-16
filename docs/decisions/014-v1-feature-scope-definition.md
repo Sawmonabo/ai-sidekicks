@@ -37,8 +37,8 @@ V1 consists of **21 features**, and nothing is deferred to a later release. V1 s
 | # | Feature | Governing Spec(s) |
 | --- | --- | --- |
 | 1 | Session creation | [Spec-001](../specs/001-session-core.md) |
-| 2 | Machine registration | [Spec-002](../specs/002-machine-registration.md): the machine that runs your sessions, which the backend calls a runtime node, registers once with the control plane, keyed by the machine and its owner, and is reached through the relay; it is reachable while its relay connection is up, and a session never moves to another machine |
-| 3 | Single-agent runs (Codex, Claude) | [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) |
+| 2 | Machine registration | [Spec-002](../specs/002-machine-registration.md): the machine that runs your sessions registers once with the control plane, keyed by the machine and its owner, and is reached through the relay; it is reachable while its relay connection is up, and a session never moves to another machine |
+| 3 | Single-agent runs (Claude Code, Codex) | [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) |
 | 4 | Queue, steer, pause, resume, interrupt | [Spec-003](../specs/003-queue-steer-pause-resume.md) |
 | 5 | Approval gates | [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) |
 | 6 | Repo attach and workspace binding | [Spec-007](../specs/007-repo-attachment-and-workspace-binding.md) |
@@ -65,7 +65,7 @@ Two behaviors inside V1 features ship whole in V1:
 
 ### Out of Scope
 
-The product has one user, so what exists only to sell to or govern an organization of other people is out of scope: enterprise sign-on (OIDC and SAML), compliance mappings (SOC 2, ISO 27001, HIPAA, FedRAMP), HSM custody, WAF guidance, Helm charts, SLA support, multi-region sign-up discovery, and server-side telemetry. The app collects no usage analytics. The product builds no agent runtime of its own and no provider marketplace: V1 is Claude Code and Codex, and a later provider is admitted through [Spec-004 §Scope](../specs/004-provider-driver-contract-and-capabilities.md#scope)'s provider-admission contract.
+The product has one user, so what exists only to sell to or govern an organization of other people is out of scope: enterprise sign-on (OIDC and SAML), compliance mappings (SOC 2, ISO 27001, HIPAA, FedRAMP), HSM custody, WAF guidance, Helm charts, SLA support, multi-region sign-up discovery, and server-side telemetry. The app collects no usage analytics. The product builds no agent runtime of its own and no provider marketplace: V1 is Claude Code and Codex, and a later provider is one more driver behind [Spec-004 §Scope](../specs/004-provider-driver-contract-and-capabilities.md#scope)'s driver interface: its own folder and one registration line, with nothing outside them naming it.
 
 ### Thesis — Why This Option
 

@@ -121,7 +121,7 @@ The simpler flat model is unacceptable because it collapses account authenticati
 ### Related Domain Docs
 
 - [User And Device Model](../domain/user-and-device-model.md)
-- [Runtime Node Model](../domain/runtime-node-model.md)
+- [Machine Model](../domain/machine-model.md)
 - [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md)
 
 ### Related Architecture Docs

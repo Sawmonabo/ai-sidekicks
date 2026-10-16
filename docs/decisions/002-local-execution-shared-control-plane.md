@@ -19,7 +19,7 @@ How should the system divide responsibilities between local execution and shared
 
 ### Trigger
 
-The system context, control-plane architecture, and runtime-node model all depend on this boundary.
+The system context, control-plane architecture, and machine model all depend on this boundary.
 
 ## Decision
 
@@ -41,7 +41,7 @@ Hosted execution fails the product's local-execution requirement and increases t
 
 ### Option A: Local Execution + Shared Control Plane (Chosen)
 
-- **What:** Execution stays on local runtime nodes; coordination lives in shared services.
+- **What:** Execution stays on the person's own machines; coordination lives in shared services.
 - **Steel man:** Best match for privacy, local code access, and driving a session from any device.
 - **Weaknesses:** Requires careful transport, catch-up, and device-liveness design.
 
@@ -118,7 +118,7 @@ Hosted execution fails the product's local-execution requirement and increases t
 
 - [Session Model](../domain/session-model.md)
 - [User And Device Model](../domain/user-and-device-model.md)
-- [Runtime Node Model](../domain/runtime-node-model.md)
+- [Machine Model](../domain/machine-model.md)
 
 ### Related Architecture Docs
 

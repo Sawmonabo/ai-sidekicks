@@ -47,7 +47,7 @@ Remote Control gives every device the whole console on every machine the person 
    - **Profiles.** A channel profile is one full Noise protocol name, and there are two, offered in this order: `Noise_KK_25519_AESGCM_SHA256` first and `Noise_KK_25519_ChaChaPoly_SHA256` second, because WebKit's WebCrypto refuses ChaCha and AES-GCM costs three to six times less there. The connection's first frame carries the channel version and the profiles the device runs; the machine answers with the first it also runs, or closes the connection when it runs none, with nothing to fall back to. Both ends put the offer and the answer into the handshake's prologue, so a relay that altered them makes the handshake fail on both ends. Nothing weaker is ever offered.
    - **Not post-quantum.** The handshake's X25519 exchange is not post-quantum: traffic recorded today could be opened once a large enough quantum computer exists, and nothing in today's channel protects against that. No reviewed hybrid profile of Noise exists yet; `Noise_XXhfs_25519+MLKEM768_ChaChaPoly_SHA256` is an open working draft with no formal analysis ([libp2p/specs#727](https://github.com/libp2p/specs/pull/727)). The channel ships no draft and no second, TLS-based connection. The hybrid `KK` profile joins once its specification is finished and reviewed for production use, as one more profile in the same first frame, ahead of the classical two, on the same channel keys and frames; that move is a `docs/backlog.md` entry blocked on the specification.
    - **The relay** sees the device id and machine id at connection, the channel version and the profile, frame sizes and times, and never a method, a name or a byte of a session. It holds at most one live connection per key.
-   - **The implementation** on the machine is `snow`, built with its `ring-accelerated` feature, in `sidekicks-daemon`. On a device it is a maintained Noise library whose Diffie-Hellman can be supplied from WebCrypto, chosen and recorded in [Plan-025](../plans/025-remote-control.md) Phase 3.
+   - **The implementation** on the machine is `snow`, built with its `ring-accelerated` feature, in `sidekicks-daemon`. On a device it is the channel package's own `KK`, written from Noise revision 34 on WebCrypto's X25519, AES-GCM, SHA-256 and HKDF with `@noble/ciphers` for ChaChaPoly, because each maintained Noise library takes its Diffie-Hellman as a synchronous call over the private key's bytes and so none can run on a non-extractable WebCrypto key; its key exchange is asynchronous, run by WebCrypto in the web client and natively by the phone's bridge on a phone, so the channel key never enters the page. [Plan-025](../plans/025-remote-control.md) Phase 3 records the libraries considered and the tests that hold it to `snow`.
 
 5. **No other key classes.** There is no session-scoped ephemeral key, no signed key bundle, no first-claim store, no key package and no cap on recipients: a channel's keys belong to a connection. No token is minted for dispatching work to another machine, because a session never runs anywhere but the machine it was started on.
 
@@ -57,7 +57,7 @@ Every property the product needs from the channel is a property of two-party Noi
 
 ### Antithesis — The Strongest Case Against [T2]
 
-The channel is classical: a party recording traffic today gets it all once a quantum computer exists, which a hybrid construction available now would prevent. The hybrid draft could be shipped as it stands, or a TLS 1.3 connection with a hybrid group could be opened beside the channel. A web client depends on WebCrypto's X25519 and on a Noise library that accepts an outside Diffie-Hellman, which narrows the choice of library. And pinning keys with no escape hatch means a person who reinstalls a machine must remove and relink it.
+The channel is classical: a party recording traffic today gets it all once a quantum computer exists, which a hybrid construction available now would prevent. The hybrid draft could be shipped as it stands, or a TLS 1.3 connection with a hybrid group could be opened beside the channel. A web client depends on WebCrypto's X25519, and the devices' end of the channel is the project's own `KK` code, with no library's users to find its bugs: only the test vectors and the interop test against `snow` guard it. And pinning keys with no escape hatch means a person who reinstalls a machine must remove and relink it.
 
 ### Synthesis — Why It Still Holds [T2]
 
@@ -94,7 +94,7 @@ An unreviewed hybrid draft is a construction no one has analyzed, which is what 
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | A maintained Noise implementation for TypeScript accepts a Diffie-Hellman supplied from WebCrypto, so the web client's X25519 channel key stays non-extractable. | In a `capacitor://`-style WebKit page, X25519 `deriveBits` from a non-extractable WebCrypto key worked with both sides agreeing, and that page's AES-256-GCM output was byte-identical to Node's for the same key, nonce and data. Plan-025 Phase 3 picks the library and records the choice under rule 15. | The web client's channel key would have to be extractable, or the channel package would carry more of the protocol itself; either is decided in Plan-025 before the web client ships. |
+| 1 | WebCrypto's X25519 and AES-GCM run from a non-extractable key in WebKit and Android's WebView, so the web client's X25519 channel key stays non-extractable under the channel package's `KK`. | In a `capacitor://`-style WebKit page, X25519 `deriveBits` from a non-extractable WebCrypto key worked with both sides agreeing, and that page's AES-256-GCM output was byte-identical to Node's for the same key, nonce and data. WebCrypto's X25519 is present from Safari and iOS 17, Chrome and Android WebView 133 and Firefox 130. | The web client's channel key would have to be extractable, which the channel does not accept, so the web client could not open a channel. |
 | 2 | A hybrid post-quantum Noise profile will be specified and reviewed for production use. | [libp2p/specs#727](https://github.com/libp2p/specs/pull/727) is an open working draft. | The channel stays classical for longer, and the docs keep saying so; nothing else changes. |
 | 3 | PASETO v4 can be produced and verified by the maintained `pasetors` crate, `v4.local` and `v4.public` alike, in the daemon and in the control plane's Worker. | §PASETO v4 Implementation Library. | We would fork or migrate to another token format, re-issuing every token. |
 | 4 | A machine can hold its DPoP key and refresh token unattended. | Each is its own item in the operating system's credential store, which opens unattended under the person's login ([ADR-020](./020-cli-identity-key-storage-custody.md)). | Sign-in would have to be repeated at each start where the store cannot be read. |
@@ -103,9 +103,9 @@ An unreviewed hybrid draft is a construction no one has analyzed, which is what 
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| A flaw is found in the chosen Noise library | Low | High | Security advisories, dependency scanning in CI | `snow` on the machine and the channel package on the devices each isolate their library; replace the flawed one with a fixed version or another implementation of the same profile. The protocol itself does not change. |
+| A flaw is found in a channel end's Noise code | Low | High | Security advisories and dependency scanning in CI for `snow` and `@noble/ciphers`; the channel package's `KK` vectors and its interop test against `snow` | `snow` on the machine is replaced with a fixed release or another implementation of the same profile; the channel package's own `KK` on the devices is fixed in place and passes its vectors and the interop test again, and a flaw in `@noble/ciphers` takes its fixed release. The protocol itself does not change. |
 | A large enough quantum computer arrives before the hybrid profile is reviewed | Low | High | Public cryptanalysis news; the backlog entry's blocker | Recorded traffic is exposed; the docs already state it. Ship the hybrid profile the day it is reviewed. |
-| A PASETO library bug (key handling, `v4.local` decryption) | Low | High | Security review, fuzzing of token parsing | Take the fixed release; the official PASETO test vectors run against every token `pasetors` makes. |
+| A PASETO library bug (key handling, `v4.local` decryption) | Low | High | The pull request's review, fuzzing of token parsing | Take the fixed release; the official PASETO test vectors run against every token `pasetors` makes. |
 | A stolen device key is used from a second place | Med | Med | The relay holds one live connection per key: the newest wins, and the key seen on two connections is flagged | The device's card says so, and the person revokes it; every machine refuses it from the next chain head. |
 | A control plane withholds a revoke from one machine | Low | Med | Every channel open exchanges the chain head | The next connection of any honest device carries the newer head, and the revoking device sends its statement to every machine it reaches. |
 
@@ -135,7 +135,6 @@ An unreviewed hybrid draft is a construction no one has analyzed, which is what 
 
 ### Unknowns
 
-- Which Noise library meets assumption 1; Plan-025 Phase 3 finds out and records it.
 - When the hybrid profile's specification is finished and reviewed; the backlog entry tracks it.
 
 ## Decision Validation [T2]
@@ -146,7 +145,8 @@ An unreviewed hybrid draft is a construction no one has analyzed, which is what 
 | --- | --- | --- | --- |
 | Frames the relay can read | None | A test that holds the relay's whole view and fails to read a payload (Plan-025 Phase 3) | Before the first release carrying Remote Control |
 | An altered profile offer | Fails the handshake on both ends | Plan-025 Phase 3 test | Before the first release carrying Remote Control |
-| Token-related vulnerabilities affecting our auth flows | 0 exploitable reports | Security review plus dependency scanning | At each release |
+| The channel package's `KK` | Passes snow's and cacophony's four `KK` vectors and completes both profiles against `snow` | Plan-025 Phase 3 tests | Before the first release carrying Remote Control |
+| Token-related vulnerabilities affecting our auth flows | 0 exploitable reports | The pull request's review plus dependency scanning | At each release |
 
 ## PASETO v4 Implementation Library
 
