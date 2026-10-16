@@ -150,22 +150,21 @@ interface GitActionProgress {
 // CommitMessageGenerate / ChangeRequestTextGenerate — a fresh process that carries no conversation,
 // on the provider and model Settings › General's `Commit and pull request text` picks
 // (`commitTextModel`; absent, the session's provider and its lowest-priced model, or the session's
-// model where none is priced), runs
-// read-only and outside the repository at the lowest effort the model takes, with thinking off
-// where the model allows it, and reads the whole working folder's diff, the branch and recent
-// commit subjects. The diff is never cut or thinned: one request when it fits, otherwise several
-// passes over every changed file, lockfiles and generated files included, the daemon tracking which
-// files each pass covered, then one pass that writes the text. A request or a pass fits when it is
-// within the model's window and within any per-message limit the provider has (on Codex, 1,048,576
-// characters of a message's `text`), and every pass is sized under both, so Codex's
-// `input_too_large` never answers a correctly sized pass. The window is the provider's own figure:
-// Codex's catalog row from `codex debug models` (`context_window`, `max_context_window`) and Claude
-// Code's `get_context_usage` read at the process's creation; the price table gives only the price,
-// so a model it does not price is sized the same way. The response
-// names each changed file no pass could read and never claims to cover it. A failure is refused
-// under the codes this contract registers (error-contracts.md §Gitflow): a passing upstream failure
-// under `gitflow.generate_failed`, the provider's refusal of the content by its own policy under
-// `git.generateRefused`, each carrying the provider's own words, while a missing sign-in, a
+// model where none is priced), runs read-only and outside the repository at the lowest effort the
+// model takes, with thinking off where the model allows it, and reads the whole working folder's
+// diff, the branch and recent commit subjects. The diff is never cut or thinned: one request when
+// it fits, otherwise several passes over every changed file, lockfiles and generated files
+// included, the daemon tracking which files each pass covered, then one pass that writes the text.
+// A request or a pass fits when it is within the model's window and within any per-message limit
+// the provider has (on Codex, 1,048,576 characters of a message's `text`), and every pass is sized
+// under both, so Codex's `input_too_large` never answers a correctly sized pass. The window is the
+// provider's own figure: Codex's catalog row from `codex debug models` (`context_window`,
+// `max_context_window`) and Claude Code's `get_context_usage` read at the process's creation; the
+// price table gives only the price, so a model it does not price is sized the same way. The
+// response names each changed file no pass could read and never claims to cover it. A failure is
+// refused under the codes this contract registers (error-contracts.md §Gitflow): a passing upstream
+// failure under `gitflow.generate_failed`, the provider's refusal of the content by its own policy
+// under `git.generateRefused`, each carrying the provider's own words, while a missing sign-in, a
 // timeout, a provider not installed or a spent allowance answers the shared provider and account
 // code for it; it never falls back to another provider, model or account. A chosen provider other
 // than the session's runs on that provider's `Default` account, and a `Default` account that cannot
