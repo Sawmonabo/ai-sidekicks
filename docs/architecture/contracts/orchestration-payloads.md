@@ -120,8 +120,9 @@ interface OrchestrationBudgetState {
   // Display Consistency; Plan-013 I-013-15). The budget accountant folds it from the persisted
   // usage.cost_update rows alone: each request is priced once, at completion, from the live price table
   // and never repriced, so a rebuild gives the same figure. A request on a model or speed the price
-  // table does not price yet is held with its exact tokens and joins this figure when a later fetch
-  // prices it (Spec-014 §Cost Derivation And Absent-Cost Semantics). Plan-013 T2.4 asserts the
+  // table does not price yet is stored with its exact tokens and no dollar figure, never held back,
+  // and joins this figure when a later fetch prices it (Spec-014 §Cost Derivation And Absent-Cost
+  // Semantics). Plan-013 T2.4 asserts the
   // equality with the cost receipt's total at the same fold state.
   committedSpendUsdMicros: number;
   // Spend per agent in the session's tree, the lead included, routed up the parent chain at any depth:
