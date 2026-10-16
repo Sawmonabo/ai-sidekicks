@@ -45,15 +45,25 @@ interface ProviderOutputSpeedState {
   reason?: string;
 }
 
+// One model row, mirrored from the provider's own list in its order and words (Claude Code's
+// `list_models`, which keeps the rows it grays; Codex's `model/list`).
 interface ProviderModel {
   id: string;
   name: string;
   capabilities: string[];
-  effortLevels?: string[]; // per-model reasoning-effort vocabulary, copied verbatim from the provider's own catalog read — the lists differ per model WITHIN one provider, so there is no provider-wide list (Spec-004 §Provider Parameter Vocabularies); absent = the model exposes no effort selection
+  // The provider's own reason, as sent, where it lists the model as unusable for this account; the
+  // row stays in the list, grayed with that reason. Absent on a usable row.
+  unavailableReason?: string;
+  // Per-model reasoning-effort levels, in the provider's order — the lists differ per model WITHIN
+  // one provider, so there is no provider-wide list (Spec-004 §Provider Parameter Vocabularies).
+  // `value` is the level as the provider sends it; `word` is the shared lowercase word the driver's
+  // effort map gives it (`xhigh` reads `extra high`), or the value as sent where the map has none.
+  // Absent = the model exposes no effort selection, and the composer draws no Effort row.
+  effortLevels?: Array<{ value: string; word: string }>;
   // Per-model output-speed vocabulary where the provider publishes one on its catalog read —
-  // Codex's service-tier ids, copied verbatim, by the `effortLevels` rule (Spec-004 §The
-  // output-speed axis); absent = the model exposes no speed selection. A provider that publishes
-  // no per-model set (Claude Code) declares its set on `GetCapabilitiesResult.outputSpeedLevels`.
+  // Codex's service-tier ids, copied verbatim (Spec-004 §The output-speed axis); absent = the model
+  // exposes no speed selection. A provider that publishes no per-model set (Claude Code) has its
+  // set as a fixed fact of its driver, served on the provider read (`provider.list`).
   outputSpeedLevels?: string[];
   // Whether the model has a fast output mode, as its provider reports it (Claude Code's
   // `supportsFastMode`, the Codex tier its catalog names `Fast`). Required so a missing reading
@@ -105,7 +115,7 @@ interface SessionCallbackTool {
 
 // Callback-tool dispatch seam (Plan-003 T1.7 / T3.15 leg 3). The daemon injects
 // `onCallbackToolCall` at spawn (CreateSessionParams in provider-driver-payloads.md); when the provider issues a callback-tool
-// request (a tool call on the daemon's MCP `url` entry, from either provider), the driver translates the wire request
+// request (a tool call on the daemon's MCP `url` entry, from any provider), the driver translates the wire request
 // into a `CallbackToolInvocation`, invokes the injected dispatcher, and answers the provider with the
 // `CallbackToolResult` — no invocation is left unanswered, no approval bypass invented. The daemon-side
 // dispatcher is Plan-003's callback-tool host (`crates/sidekicks-daemon/src/provider/callback_tool_host.rs`), routing every
@@ -192,15 +202,23 @@ type SubagentPolicy =
 // Unified per-subagent definition the driver maps onto its provider form (Claude Code's --agents
 // entries; Codex [agents] config). Fields beyond `name` are optional — each leg maps
 // what its provider supports and ignores the rest (tolerant mapping, graded on the matrix).
+// No turn cap rides here, and no driver passes one to its provider (Claude Code gets no
+// `maxTurns`): the daemon counts each helper's turns itself on every provider and, at the
+// definition's turn cap,
+// its pre-tool hook denies the helper's next call, so the helper writes its report and its turn
+// ends `agent.turn.interrupted` with cause `step_limit`, the report kept and the run resting
+// `interrupted` until a send continues it (Spec-026).
 interface SubagentDefinition {
   name: string;
   description?: string;
   model?: string;
   tools?: string[];
   effort?: string;
-  maxTurns?: number;
 }
 
+// The daemon's own gate on what it asks a driver to do. No client reads these flags: a screen draws
+// a control from the provider read (`provider.list`), the model rows and the session's provider
+// state, and a control a provider does not offer is simply not there.
 interface DriverCapabilities {
   flags: Record<DriverCapabilityFlag, boolean>;
   contractVersion: string; // change-detection signal, not negotiation: recorded at daemon start, compared on each refresh to invalidate capability snapshots; the daemon never version-gates behavior on it (Spec-004 §Default Behavior)
@@ -214,7 +232,7 @@ type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 // Durable MCP Tasks recovery handle (Plan-003 T5.1). A task-augmented MCP call under MCP 2025-11-25's
 // experimental Tasks utility carries a receiver-generated `taskId` (from the `CreateTaskResult`
 // acceptance response). It is NOT a new RPC payload: the daemon persists it on the receipt as the
-// additive nullable `command_receipts.mcp_task_id` column (Plan-003 EXTENDs Plan-002's table per
+// additive nullable `command_receipts.mcp_task_id` column (Plan-003 extends Plan-002's table per
 // cross-plan-dependencies.md; DDL in local-sqlite-schema.md §Queue and Intervention Tables —
 // bounded ≤256 code points + non-empty + NUL-reject: the id is untrusted remote-peer output, and
 // the write seam mirrors it), with `mcp_task_generation` (`v1` or `v2`) beside it, set exactly when
@@ -250,7 +268,7 @@ interface DriverCliVersionReport {
 // envelope refusing unknown keys, correct for an internal owned contract paired with
 // contract versioning. The probe feeds the account's sign-in reading, never a check before a
 // session starts: a start runs, and a real sign-in failure arrives as the provider's own refusal.
-// `indeterminate` (probe surface unavailable or unparseable) stays distinguishable so the person
+// `indeterminate` (probe surface unavailable or unparsable) stays distinguishable so the person
 // can tell probe health from credential state, and it never refuses a start (Spec-004 §Required
 // Behavior). Mid-run credential expiry is a different surface: the
 // provider's typed auth-failure signals map to RecoveryCondition 'reauth-required'.
@@ -282,54 +300,54 @@ interface GetCapabilitiesResult {
   // which persists flag VALUES for change detection and NOT provenance (so no column is
   // minted, and a required member would be unsatisfiable on that path). Absence therefore
   // reads as "cache reconstruction", never as "unknown provenance" — a consumer that needs
-  // provenance re-reads the driver. Driver-side only: deliberately NOT carried on the client-facing
-  // `driver.listCapabilities` payload, which this member does not widen. The client-facing `driver.*`
-  // set is the method table in `crates/sidekicks-contracts/src/provider/driver/methods.rs`: `driver.listModes`,
-  // `driver.listModels`, `driver.listCapabilities`, `driver.interruptRun`,
-  // `driver.applyIntervention` (an interrupt alone: a steer reaches a driver only from the run
-  // queue's `run.queueCreate`, so the wire schema refuses one), `driver.compactContext` and
-  // `driver.listProviderCommands`
+  // provenance re-reads the driver. Daemon-side only, like the whole wrapper: no client reads
+  // capability flags. The client-facing `driver.*` set is the method table in
+  // `crates/sidekicks-contracts/src/provider/driver/methods.rs`: `driver.listModes`,
+  // `driver.listModels`, `driver.compactContext` and `driver.listProviderCommands`
   // (`{sessionId, agentId}` → `ProviderCommandListResult`, an agent's `/` list read once),
   // registered under Plan-005's CP-005-4. Each
   // reads the driver or acts on an already-existing session, and none establishes, restores, starts,
-  // or tears a session down; every other operation in provider-driver-payloads.md is daemon-internal, and the session's `/`
-  // list reaches a client as `session.providerCommandsSubscribe` (running-command-payloads.md §Running-Command Method Registry).
+  // or tears a session down. `interruptRun` and `applyIntervention` are the driver's internal calls,
+  // never on the client table: a client interrupts only through `run.intervene`, and a steer reaches
+  // a driver only from the run queue. Every other operation in provider-driver-payloads.md is
+  // daemon-internal, and the session's `/` list reaches a client as
+  // `session.providerCommandsSubscribe` (running-command-payloads.md §Running-Command Method Registry).
   detectionSource?: Record<DriverCapabilityFlag, CapabilityDetectionSource>;
   // The output-speed axis's VALUE VOCABULARY for a driver whose provider publishes no per-model
   // set (Spec-004 §Provider Parameter Vocabularies + §The output-speed axis). WHERE the set is
   // published decides where it lives: the Codex catalog read publishes a tier list on each model
   // row, so that leg's set is `ProviderModel.outputSpeedLevels`, per model, and this member is
   // absent for it; the Claude leg's provider reports the mode's state but publishes no list of
-  // modes, so its set is STATICALLY DECLARED here from the driver's per-driver table. Present iff
-  // `capabilities.flags.output_speed` is `true` and the driver declares a static set. A mutation
+  // modes, so its set is a FIXED FACT of the driver, declared once in its descriptor. Present iff
+  // `capabilities.flags.output_speed` is `true` and the driver declares a fixed set. A mutation
   // validates against the model's own list where one is published, else this one; absent or
   // empty on both, the axis is unsettable for that model and an `agent.configUpdate` carrying
-  // `outputSpeed` refuses fail-closed rather than forwarding an unvalidated value. Unlike
-  // `detectionSource`, this member IS served on the client-facing `driver.listCapabilities`
-  // payload — its reader is a client control that must offer the choice set, the same reason
+  // `outputSpeed` refuses fail-closed rather than forwarding an unvalidated value. A client reads
+  // the same fixed set on the provider read, `provider.list`, beside the rest of the provider's
+  // descriptor — its reader is a client control that must offer the choice set, the same reason
   // `ProviderModel.effortLevels` travels to the client that renders the effort selector. The
   // values themselves are the provider's own; this contract names none of them.
   //
-  // PRESENT ON BOTH READ PATHS, and that is a consequence of being static rather than a second
-  // rule. Because the static vocabulary is a property of the DRIVER, not of a reading, the
+  // PRESENT ON BOTH READ PATHS, and that is a consequence of being fixed rather than a second
+  // rule. Because the fixed vocabulary is a property of the DRIVER, not of a reading, the
   // wrapper carries it identically whether it was built by a live `getCapabilities()` call or
   // reconstructed by `DriverCapabilitiesWriter.hydrate()` — the hydrating path re-derives it from
-  // the same per-driver table the live path reads, so nothing has to survive the durable cache.
+  // the same descriptor the live path reads, so nothing has to survive the durable cache.
   // This is exactly why it does NOT follow `detectionSource` into absence-on-hydrate: that member
   // is a fact about one reading and cannot be re-derived, while this one is a constant of the
-  // driver and always can. Consequently the durable capability cache gains NO column. A
-  // client therefore never receives a statically declared `output_speed: true` without the values
-  // it must render, on either path, so Plan-013's fail-closed refusal rule can never be triggered
-  // by the cache; the per-model set rides the live `driver.listModels` read.
+  // driver and always can. Consequently the durable capability cache gains NO column, and Plan-013's
+  // fail-closed refusal rule can never be triggered by the cache; the per-model set rides the live
+  // `driver.listModels` read.
   outputSpeedLevels?: string[];
   // Each provider's BUILT-IN TOOLS, in the provider's own spelling — Claude Code: `Read`, `Edit`,
-  // `Write`, `Bash`, `Glob`, `Grep`, `WebFetch`, `WebSearch`, `Agent`; Codex: `shell`, `apply_patch`,
-  // `web_search` — the list an agent definition's tool allowlist picks from, beside the daemon's
-  // callback tools and the MCP catalog. `Agent` is Claude Code's canonical name for its spawn tool,
-  // whose alias `Task` is what its init frame shows. STATIC like `outputSpeedLevels`, from the same
-  // per-driver table, so it is present on both read paths and the durable capability cache gains no
-  // column; served on the client-facing `driver.listCapabilities` payload and bounded there like
-  // `outputSpeedLevels`. The words a person reads for each tool are the renderer's, never this list's.
+  // `Write`, `Bash`, `Glob`, `Grep`, `WebFetch`, `WebSearch`, `Agent`; Codex: `exec_command`,
+  // `apply_patch`, `web_search` — the list an agent definition's tool allowlist picks from, beside
+  // the daemon's callback tools and the MCP catalog. `Agent` is Claude Code's canonical name for its
+  // spawn tool, whose alias `Task` is what its init frame shows. A FIXED FACT like
+  // `outputSpeedLevels`, from the same descriptor, so it is present on both read paths and the
+  // durable capability cache gains no column; a client reads it on the provider read,
+  // `provider.list`, bounded there like `outputSpeedLevels`. The words a person reads for each tool
+  // are the renderer's, never this list's.
   builtInTools: string[];
 }
 
