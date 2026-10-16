@@ -55,16 +55,6 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Named gate: the person's Apple Developer Program membership.
 - Exit Criteria: (a) the membership active in the person's Apple account; (b) the iPhone app built, signed and installed on a registered device; (c) a push delivered through the account's APNs key.
 
-## BL-159: The Firebase project for Android push
-
-- Status: `blocked` (external-world wait — a Firebase project in the person's own Google account)
-- Priority: `P2`
-- Owner: `unassigned`
-- References: [Spec-027](./specs/027-remote-control.md), [Plan-025 §Phase 7 — Frontend](./plans/025-remote-control.md#phase-7--frontend), [BL-158](#bl-158-the-apple-developer-program-membership-for-the-iphone-app) (the iPhone app's counterpart)
-- Summary: The Android app's push goes through FCM, sent from a Firebase project in the person's own Google account; the relay adds that project's credentials to a push the machine has already sealed. Push to the Android app waits on it. Everything else in the Android app builds and installs without it, and every other Remote Control unit builds without it.
-- Named gate: a Firebase project in the person's Google account.
-- Exit Criteria: (a) the Firebase project exists in the person's Google account; (b) its FCM credentials held by the person's relay; (c) a push delivered through FCM to the Android app.
-
 ## BL-160: signalsmith-stretch reading a request added in pieces
 
 - Status: `blocked` (external-world wait — a `signalsmith-stretch` release carrying [Signalsmith-Audio/signalsmith-stretch#30](https://github.com/Signalsmith-Audio/signalsmith-stretch/pull/30))

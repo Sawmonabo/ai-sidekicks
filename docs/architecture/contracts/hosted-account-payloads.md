@@ -34,7 +34,7 @@ The hosted account's name read and update are exposed as `account.*` methods, be
 
 ## WebAuthn Ceremony Procedure Registry
 
-These are **control-plane HTTP procedures, routes served by `axum` on `worker`** (remote-control-payloads.md §Plan-025 — Remote Control Bootstrap), not daemon JSON-RPC methods. Their callers are the web client, the phone apps and the relay's sign-in page, where the platform offers passkeys: the desktop app carries no WebAuthn, so no passkey is added or used from it. No method string is minted, and Plan-015's I-015-3 daemon-as-gateway rule is untouched. The table holds **the ceremony operations and the credential-lifecycle operation**.
+These are **control-plane HTTP procedures, routes served by `axum` on `worker`** (remote-control-payloads.md §Plan-025 — Remote Control Bootstrap), not daemon JSON-RPC methods. Their callers are the web client, the iPhone app and the relay's sign-in page, where the platform offers passkeys: the desktop app carries no WebAuthn, so no passkey is added or used from it. No method string is minted, and Plan-015's I-015-3 daemon-as-gateway rule is untouched. The table holds **the ceremony operations and the credential-lifecycle operation**.
 
 | Operation | Procedure type | Authentication | Request schema | Response schema |
 | --- | --- | --- | --- | --- |

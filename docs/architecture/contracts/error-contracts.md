@@ -267,7 +267,7 @@ The hosted account's sign-in refusals, raised by the service's local `account.si
 
 ### User
 
-WebAuthn-ceremony refusals (Plan-015 Phase 6). Both codes are served on **control-plane routes** rather than a daemon `account.*` method — the web client and the phone apps call them, the authentication pair and account creation's registration with no sign-in and the rest signed in, the relay's sign-in page at `/oauth/authorize` answers them too, and the desktop app carries no WebAuthn — so they carry no §JSON-RPC pin.
+WebAuthn-ceremony refusals (Plan-015 Phase 6). Both codes are served on **control-plane routes** rather than a daemon `account.*` method — the web client and the iPhone app call them, the authentication pair and account creation's registration with no sign-in and the rest signed in, the relay's sign-in page at `/oauth/authorize` answers them too, and the desktop app carries no WebAuthn — so they carry no §JSON-RPC pin.
 
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
