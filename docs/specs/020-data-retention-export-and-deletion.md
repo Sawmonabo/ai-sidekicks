@@ -220,7 +220,7 @@ Erasing a person's data spans three independent storage paths, each carried out 
 
 ### Path 1 — Everything on the machine (`Erase all data`)
 
-**Mechanism.** `Erase all data`, from Settings › Runtime under the line `Removes everything this app keeps on this machine. Project folders stay.`, or `sidekicks erase-data`, confirms in place — `Erase everything this app keeps on this machine? Every session, file, sidekick, workflow and account sign-in goes. Project folders stay. Backups you made before keep their copy. This cannot be undone.`, with `Erase everything` and `Cancel` — and then, in order:
+**Mechanism.** `Erase all data`, from Settings › Runtime under the line `Removes everything this app keeps on this machine. Project folders stay.`, or `sidekicks erase-data`, confirms in place — `Erase everything this app keeps on this computer? Every session, file, sidekick, workflow and account sign-in goes. Project folders stay. Backups you made before keep their copy. This cannot be undone.`, with `Erase everything` and `Cancel` — and then, in order:
 
 1. stops every run and shell, as Runtime's `Stop` does;
 2. signs each provider account out through the provider's own sign-out: `claude auth logout` in each Claude Code account home, and `account/logout` on each Codex service;
