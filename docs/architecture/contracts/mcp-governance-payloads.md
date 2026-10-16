@@ -164,7 +164,7 @@ interface McpServerLegStatus {
 // All mutations fail closed while degraded.
 type McpServerInventoryEntry = McpServerBindingRef & {
   config: McpServerConfigView; // the redacted normalized declaration (see above)
-  status: McpServerStatus; // deterministic aggregate over legs[]: most severe current live-leg status (failed > needs-auth > unknown > starting > connected — a live leg whose observation source is lost reports "unknown": lost observability outranks known-healthy states, never a concrete failure), else newest node-probe observation, else "unknown" — never fabricated
+  status: McpServerStatus; // deterministic aggregate over legs[]: most severe current live-leg status (failed > needs-auth > unknown > starting > connected — a live leg whose observation source is lost reports "unknown": lost observability outranks known-healthy states, never a concrete failure), else newest machine-probe observation, else "unknown" — never fabricated
   failedReason?: "commandNotRunnable"; // present only on an entry reading "failed" because, after the background service moved between Windows and a WSL distribution, its command or arguments name a program on the side it left; a bare command name such as npx is looked up on the new side and is not marked. One member on the entry, not a status of its own
   legs?: McpServerLegStatus[]; // per-leg session-feed observations; absent when no live leg exists. Legs are LIVE-session observations with a bounded lifecycle: when a leg's backing runtime binding closes (session end / driver exit), the daemon retires it and recomputes the aggregate — a terminated session's last status never pins `status`
   observedAt?: string; // ISO-8601 of the newest status observation backing `status`

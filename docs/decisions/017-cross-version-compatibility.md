@@ -1,13 +1,13 @@
 # ADR-017: Cross-Version Compatibility
 
-| Field         | Value                                                 |
-| ------------- | ----------------------------------------------------- |
-| **Status**    | `accepted`                                            |
-| **Type**      | `Type 2 (one-way door)`                               |
-| **Domain**    | `Persistence / Wire Format / Multi-Node Coordination` |
-| **Date**      | `2026-04-18`                                          |
-| **Author(s)** | `Claude (AI-assisted)`                                |
-| **Reviewers** | `Accepted 2026-04-18`                                 |
+| Field         | Value                                                    |
+| ------------- | -------------------------------------------------------- |
+| **Status**    | `accepted`                                               |
+| **Type**      | `Type 2 (one-way door)`                                  |
+| **Domain**    | `Persistence / Wire Format / Multi-Machine Coordination` |
+| **Date**      | `2026-04-18`                                             |
+| **Author(s)** | `Claude (AI-assisted)`                                   |
+| **Reviewers** | `Accepted 2026-04-18`                                    |
 
 ## Context
 

@@ -160,7 +160,7 @@ type AgentDefinitionListEntry = AgentDefinition & {
 interface AgentDefinitionListResponse {
   definitions: AgentDefinitionListEntry[];
   // How many workflow definitions bind each definition, folded per reply over the current body of
-  // every workflow definition on the node (each `agent`-typed param counted once per workflow) and
+  // every workflow definition on the machine (each `agent`-typed param counted once per workflow) and
   // never stored. Optional as a whole, and absent only when the workflow store could not be read;
   // a listed definition no workflow binds maps to 0 (Spec-026 §Interfaces And Contracts).
   workflowUsage?: Record<AgentDefinitionId, number>;
@@ -289,7 +289,7 @@ type AgentDefinitionSubscribeStream = AsyncIterable<AgentDefinitionListResponse>
 
 // callbackTool.list — the daemon's callback tools, one of the allowlist picker's three sources beside
 // the MCP catalog (`mcp.list`, mcp-governance-payloads.md §Plan-022) and each provider's own built-in tools (the `builtInTools`
-// list each driver's descriptor carries on `provider.list`, settings-payloads.md). Node-wide, because the editor has no session: a static
+// list each driver's descriptor carries on `provider.list`, settings-payloads.md). Machine-wide, because the editor has no session: a static
 // catalog of the registrations in code — the bridge's verbs, the session tools and the
 // workflow tools — whose names the daemon curates and never takes from provider output.
 interface CallbackToolListRequest {}
@@ -493,7 +493,7 @@ interface PluginAppListResponse {
 // by a handle an earlier `agent_run` returned; `agent_message`, `agent_wait`, `agent_stop` and
 // `agent_close` name an agent already running in this session, by the handle `agent_run` returned;
 // `agent_list` names none. `agent_run` may also carry a model and a reasoning effort, as both
-// providers' own spawn calls take them. A request naming a provider, an account or a node is REFUSED —
+// providers' own spawn calls take them. A request naming a provider, an account or a machine is REFUSED —
 // the agent's binding names them, and the unit an agent addresses is another configured agent, never a
 // vendor — which is why every argument shape below refuses an unknown member and none carries a
 // provider or account.
@@ -626,6 +626,6 @@ interface AgentBridgeListResult {
 
 **The definition verbs, with the storage folded under them.** The list's reply carries the binding fold above and each definition's origin facts; create gains the bindings, the icon, the hue, the scope, the hooks and the memory scope; update replaces the bindings and the hooks whole and can reattach an orphaned record; delete removes a provider's own file with the agent; export and import move definitions through a file the person picks. The provider columns fold into ONE bindings column on the definition table, beside nullable columns for the icon and the hue — a stored JSON value rather than a child table, because the corpus's convention carries a bounded list that is always read with its row inline, which the tool allowlist on that same table already does, and a binding is never queried across definitions. A definition from a provider's own file keeps in the store only what that file cannot hold — the icon, the accent and, for a Codex agent, its hooks and memory scope — attached to the file by its name and location, and the name index is unique per origin and scope.
 
-**Two library readings are derived on the list reply.** How many workflows bind a definition is `workflowUsage`, a fold over the workflow definitions on the node, and when a definition was last used is `lastUsedAt`, a fold over the session runs and workflow runs that record their resolved-from definition. Both are computed per reply and never stored, so the card, the library's last-used order and the delete confirmation read figures that are true when they are drawn; where a source cannot be read, its reading is absent rather than zero.
+**Two library readings are derived on the list reply.** How many workflows bind a definition is `workflowUsage`, a fold over the workflow definitions on the machine, and when a definition was last used is `lastUsedAt`, a fold over the session runs and workflow runs that record their resolved-from definition. Both are computed per reply and never stored, so the card, the library's last-used order and the delete confirmation read figures that are true when they are drawn; where a source cannot be read, its reading is absent rather than zero.
 
 **How a saved agent reaches a session.** The daemon hands every agent to each provider at launch in the session pack, under the `sidekicks` namespace; nothing here is a wire method. On Claude Code each agent rides the `agents` map of the process's `initialize` request under its namespaced name with every field of its record — its tools, model, effort, tool servers, hooks and memory, and no permission mode, so every agent runs at the session's level, and no `maxTurns`, because the turn cap is the daemon's own count — because Claude Code drops `hooks` and `mcpServers` from a plugin's agent file. That map is fixed for the process's life, so a save reaches a running Claude Code session by a resume at the session's next idle moment — no turn and no background task running — with the new map; several saves before that moment make one restart and one `conversation_reloaded` notice. On Codex a role file carries the agent, and what a role file cannot carry — its hooks, tool servers, sandbox and memory — rides the conversation's `thread/start` configuration, the hooks with their trust records and, for a helper the lead starts, gated on that helper's agent type, each handler kind Codex does not run filled by the daemon's command hook; a save reaches a running Codex session by forking the lead's conversation on the running service.

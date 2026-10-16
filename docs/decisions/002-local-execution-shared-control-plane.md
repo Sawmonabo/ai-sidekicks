@@ -31,7 +31,7 @@ This split matches the product goal directly. The machines retain filesystem, to
 
 ### Antithesis — The Strongest Case Against
 
-A hosted execution plane would simplify remote access and reduce device-to-node complexity. A purely local peer-to-peer design would simplify trust boundaries and reduce backend scope. The chosen split inherits complexity from both: Local Runtime Daemon management plus Control Plane coordination.
+A hosted execution plane would simplify remote access and reduce device-to-machine complexity. A purely local peer-to-peer design would simplify trust boundaries and reduce backend scope. The chosen split inherits complexity from both: Local Runtime Daemon management plus Control Plane coordination.
 
 ### Synthesis — Why It Still Holds
 
@@ -53,7 +53,7 @@ Hosted execution fails the product's local-execution requirement and increases t
 
 ### Option C: Pure Peer-To-Peer Coordination (Rejected)
 
-- **What:** Avoid a control plane and coordinate sessions only through direct device-to-node connectivity.
+- **What:** Avoid a control plane and coordinate sessions only through direct device-to-machine connectivity.
 - **Steel man:** Keeps trust local and reduces backend dependency.
 - **Why rejected:** Weak fit for device linking, a durable device registry, notifications, and reconnect-friendly session state.
 

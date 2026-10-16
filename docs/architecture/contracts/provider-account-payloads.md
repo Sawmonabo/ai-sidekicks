@@ -149,7 +149,7 @@ interface ProviderReadiness {
   // the candidates may well have been probed, and their timestamps are deliberately not summarized
   // into one here, since averaging or picking among them would report an observation of an account
   // this reply did not resolve — or resolution reached an account whose observation pair is still
-  // unset. Absence therefore never means "no probe has ever been taken on this node".
+  // unset. Absence therefore never means "no probe has ever been taken on this machine".
   observedAt?: string;
   // Required on every non-authenticated arm and refused on `authenticated`: the schema checks the
   // remedy kind against the state, so a state the person must act on never parses bare. It exists because the spec REQUIRES every non-authenticated
@@ -159,7 +159,7 @@ interface ProviderReadiness {
   remedy?: ProviderRemedy;
 }
 
-// Guidance for the person that happens to travel structured. The disclosure rule (Spec-025 §Node
+// Guidance for the person that happens to travel structured. The disclosure rule (Spec-025 §Machine
 // provider readiness and the sign-in handoff) governs it UNCHANGED and binds the READER: these
 // values reach the person's screen and NEVER an event payload, anything the control plane can read, a
 // log line, or a refusal envelope. `providerAccount.list` takes the SAME device gate as
@@ -592,11 +592,11 @@ interface ProviderAccountLoginCodeSubmitResponse {
   status: "submitted" | "notFound";
 }
 
-// Read-shaped live tail of registry changes for this node (Plan-005 streaming primitive, the
+// Read-shaped live tail of registry changes for this machine (Plan-005 streaming primitive, the
 // `session.subscribe` consumer shape). It carries a WIRE-ONLY notification and NEVER an
 // `EventEnvelope`: the provider-account registry is un-evented by design (Spec-025 §State And Data
 // Implications), because an account act on the machine's registry has no session to
-// belong to and minting a session event type for it would put node administration into a session's
+// belong to and minting a session event type for it would put machine administration into a session's
 // audit log. So no Spec-005 event type is minted here and the taxonomy census does not move.
 //
 // This is where a brokered sign-in's completion arrives. Ordering matches `mcp.subscribe`'s: a
