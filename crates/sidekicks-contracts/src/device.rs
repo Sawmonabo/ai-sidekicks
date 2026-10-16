@@ -33,7 +33,7 @@ ts_constants! {
     pub const APP_VERSION_MAX_LEN: usize = 64;
     /// The longest pairing id the control plane mints for one link.
     pub const PAIRING_ID_MAX_LEN: usize = 256;
-    /// The longest push address: an APNs or FCM token, or a Web Push endpoint.
+    /// The longest push address: an APNs token or a Web Push endpoint.
     pub const PUSH_ADDRESS_MAX_LEN: usize = 2048;
     /// Where a device's pushes go.
     PUSH_PLATFORMS = PushPlatform::VARIANTS;
@@ -377,13 +377,11 @@ pub struct DeviceTrustedListResponse {
 pub enum PushPlatform {
     /// Apple's push service.
     Apns,
-    /// Firebase Cloud Messaging.
-    Fcm,
     /// A browser's Web Push endpoint.
     WebPush,
 }
 
-/// The calling device's push address: its APNs token, its FCM token or its Web Push endpoint. Set
+/// The calling device's push address: its APNs token or its Web Push endpoint. Set
 /// at link time and whenever the platform changes it. The control plane posts to a Web Push
 /// endpoint, so that one is an `https:` address, never somewhere no push service lives.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -397,11 +395,6 @@ pub enum PushPlatform {
 pub enum DevicePushAddressSetRequest {
     /// An APNs token.
     Apns {
-        /// The token.
-        address: FreeFormText<PUSH_ADDRESS_MAX_LEN>,
-    },
-    /// An FCM token.
-    Fcm {
         /// The token.
         address: FreeFormText<PUSH_ADDRESS_MAX_LEN>,
     },
