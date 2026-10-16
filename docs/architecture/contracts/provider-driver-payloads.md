@@ -776,7 +776,9 @@ type SessionNoticeProviderRestarted = {
 // is true on a Windows computer where the place the service runs in has no provider installed, and
 // the row then reads `Choose where Claude Code and Codex are installed` and opens the place row. A
 // stored session whose provider has no registered driver lands the same row with no section to
-// open, and its stored transcript still reads.
+// open, its row reading
+// `<Provider> isn't available in this version of the app. The transcript stays readable.`,
+// and its stored transcript still reads.
 interface SessionNoticeProviderMissing {
   sessionId: SessionId;
   kind: "provider_missing";

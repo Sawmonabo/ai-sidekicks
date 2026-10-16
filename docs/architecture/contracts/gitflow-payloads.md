@@ -148,8 +148,9 @@ interface GitActionProgress {
 }
 
 // CommitMessageGenerate / ChangeRequestTextGenerate — a fresh process that carries no conversation,
-// on the provider and model the machine's settings pick (`commitTextModel`; absent, the session's
-// provider and its lowest-priced model, or the session's model where none is priced), runs
+// on the provider and model Settings › General's `Commit and pull request text` picks
+// (`commitTextModel`; absent, the session's provider and its lowest-priced model, or the session's
+// model where none is priced), runs
 // read-only and outside the repository at the lowest effort the model takes, with thinking off
 // where the model allows it, and reads the whole working folder's diff, the branch and recent
 // commit subjects. The diff is never cut or thinned: one request when it fits, otherwise several
@@ -166,7 +167,9 @@ interface GitActionProgress {
 // under `gitflow.generate_failed`, the provider's refusal of the content by its own policy under
 // `git.generateRefused`, each carrying the provider's own words, while a missing sign-in, a
 // timeout, a provider not installed or a spent allowance answers the shared provider and account
-// code for it; it never falls back to another provider or model.
+// code for it; it never falls back to another provider, model or account. A chosen provider other
+// than the session's runs on that provider's `Default` account, and a `Default` account that cannot
+// run the request fails with its reason, never swapped.
 interface CommitMessageGenerateRequest {
   sessionId: SessionId;
 }
