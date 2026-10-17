@@ -1,6 +1,6 @@
 //! The daemon's open subscriptions: each one's connection and cancellation, the
 //! `$/subscription/cancel` call that tears one down from its own connection, and the frames the
-//! gateway writes for one once its acknowledgement is on the wire. A subscription owns its feed;
+//! gateway writes for one once its acknowledgment is on the wire. A subscription owns its feed;
 //! what the feed follows is released in its `Drop`, which runs on every end, after the entry leaves
 //! the table. The daemon's own end sends one `$/subscription/end` frame; a client's cancel and a
 //! closed connection send none.
@@ -97,7 +97,7 @@ impl Subscriptions {
     }
 
     /// Opens the subscription a subscribe call to `method` answered, owned by `transport`, before
-    /// the gateway writes its acknowledgement. Refused `connection.subscription.limitReached` with
+    /// the gateway writes its acknowledgment. Refused `connection.subscription.limitReached` with
     /// `{limit}` when the connection already holds `MAX_OPEN_LANES` open subscriptions; the feed is
     /// then dropped and nothing opens.
     pub(crate) fn open(
@@ -182,7 +182,7 @@ pub(crate) enum SubscriptionFrame {
     End(SubscriptionEndParams),
 }
 
-/// One open subscription, which the gateway drives only once the acknowledgement's END chunk is
+/// One open subscription, which the gateway drives only once the acknowledgment's END chunk is
 /// written. Dropping it takes it out of the table, then drops its feed.
 pub(crate) struct Subscription {
     subscriptions: Arc<Subscriptions>,

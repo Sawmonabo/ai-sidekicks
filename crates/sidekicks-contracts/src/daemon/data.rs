@@ -104,7 +104,7 @@ impl DataExportProgress {
 }
 
 methods! {
-    /// The data methods. The export stream's acknowledgement is the subscription, and each
+    /// The data methods. The export stream's acknowledgment is the subscription, and each
     /// emission is the job's progress as it changes.
     pub const DAEMON_DATA_METHOD_DESCRIPTORS = [
         /// Starts an export.

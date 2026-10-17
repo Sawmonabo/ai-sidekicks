@@ -1,4 +1,4 @@
-//! The wire shapes of a streaming subscription: the acknowledgement every `*.subscribe` method
+//! The wire shapes of a streaming subscription: the acknowledgment every `*.subscribe` method
 //! answers with, the `$/subscription/notify` frame carrying one value, the `$/subscription/end`
 //! frame the daemon ends a stream with, and the `$/subscription/cancel` call a client tears one
 //! down with. A subscription holds only its place, never a queue, so a stream loses nothing; only a
@@ -60,8 +60,8 @@ pub enum SubscriptionEndParams {
     },
 }
 
-/// The acknowledgement every `*.subscribe` method answers with: the id the daemon allocated.
-/// Values follow as notify frames, and the acknowledgement settles before any of them.
+/// The acknowledgment every `*.subscribe` method answers with: the id the daemon allocated.
+/// Values follow as notify frames, and the acknowledgment settles before any of them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -168,7 +168,7 @@ impl Method for SubscriptionCancel {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "jsonrpc/streaming",
     doc: "The wire shapes of a streaming subscription: `$/subscription/notify`, \
-          `$/subscription/end` and `$/subscription/cancel`, and the acknowledgement every \
+          `$/subscription/end` and `$/subscription/cancel`, and the acknowledgment every \
           `*.subscribe` method answers with. A subscription holds only its place, never a queue, \
           so nothing is dropped from its frames.",
     definitions: &[

@@ -34,11 +34,11 @@ pub struct SessionAddressedRequest {
     pub session_id: SessionId,
 }
 
-/// The acknowledgement an operation with nothing more to say answers with.
+/// The acknowledgment an operation with nothing more to say answers with.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionAcknowledgement {
+pub struct SessionAcknowledgment {
     /// The session.
     pub session_id: SessionId,
 }
@@ -552,14 +552,14 @@ methods! {
         SessionCodeReviewStart = mutation "session.codeReview.start" {
             mutating: true,
             params: SessionCodeReviewStartRequest,
-            result: SessionAcknowledgement,
+            result: SessionAcknowledgment,
             refusals: [SessionNotFound, ProviderUnavailable],
         },
         /// Reopens the conversation to take new definitions.
         SessionDefinitionReload = mutation "session.definition.reload" {
             mutating: true,
             params: SessionAddressedRequest,
-            result: SessionAcknowledgement,
+            result: SessionAcknowledgment,
             refusals: [SessionNotFound],
         },
         /// Sets or clears the session's step bound.
@@ -600,7 +600,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           session it acts on, and every setting it changes belongs to that session alone.",
     definitions: &[
         Definition::read::<SessionAddressedRequest>().checked(),
-        Definition::read::<SessionAcknowledgement>().checked(),
+        Definition::read::<SessionAcknowledgment>().checked(),
         Definition::read::<PermissionLevel>().checked(),
         Definition::read::<SessionPermissionLevelUpdateRequest>().checked(),
         Definition::read::<SessionPermissionLevelUpdateResponse>().checked(),

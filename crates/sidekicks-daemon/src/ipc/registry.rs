@@ -124,11 +124,11 @@ pub(crate) struct EncodedValue {
 pub(crate) enum Reply {
     /// A query's or mutation's result, checked and encoded.
     Result(EncodedValue),
-    /// A subscribe call's acknowledgement, checked and encoded, its subscription's id, and the
-    /// feed the gateway starts only once it has written the acknowledgement's END chunk.
+    /// A subscribe call's acknowledgment, checked and encoded, its subscription's id, and the
+    /// feed the gateway starts only once it has written the acknowledgment's END chunk.
     Subscription {
-        /// The acknowledgement, which carries `subscription_id`.
-        acknowledgement: EncodedValue,
+        /// The acknowledgment, which carries `subscription_id`.
+        acknowledgment: EncodedValue,
         /// The subscribe method's wire name, which the subscription's log lines carry.
         method: &'static str,
         /// The subscription's id, minted by the registry.
@@ -238,7 +238,7 @@ impl MethodRegistryBuilder {
     }
 
     /// Registers a subscribe call's `handler`, which gets the subscription's id the registry mints
-    /// and answers the acknowledgement carrying it and the typed feed; fails as `register` does.
+    /// and answers the acknowledgment carrying it and the typed feed; fails as `register` does.
     /// The handler is dropped when its call is canceled before it answers.
     pub(crate) fn register_subscription<M, Handler>(
         &mut self,
@@ -362,7 +362,7 @@ where
 }
 
 /// One subscribe call: refused if already canceled, params read, a subscription id minted, the
-/// handler run (dropped on cancel), and the acknowledgement checked and encoded beside the feed.
+/// handler run (dropped on cancel), and the acknowledgment checked and encoded beside the feed.
 async fn answer_subscribe_call<M, Handler>(
     handler: Arc<Handler>,
     params: Option<Box<RawValue>>,
@@ -389,12 +389,12 @@ where
     let cancellation = context.cancellation.clone();
     let subscription_id = mint_subscription_id();
     let answer = (*handler)(params, context, subscription_id);
-    let (acknowledgement, feed) = cancellation
+    let (acknowledgment, feed) = cancellation
         .run_until_cancelled(answer)
         .await
         .ok_or(DispatchError::Canceled)??;
     Ok(Reply::Subscription {
-        acknowledgement: encode_checked(&acknowledgement)?,
+        acknowledgment: encode_checked(&acknowledgment)?,
         method: M::DESCRIPTOR.method,
         subscription_id,
         feed: Box::new(CheckedFeed { feed }),

@@ -227,7 +227,7 @@ pub enum SessionListEntry {
     Chat(#[garde(dive)] SessionListChatEntry),
 }
 
-/// `session.subscribe`'s acknowledgement: the subscription, the first page of every session as it
+/// `session.subscribe`'s acknowledgment: the subscription, the first page of every session as it
 /// stands, and `chatCount`, the chats in the live list as the daemon counts them, so no reader
 /// counts. While `isComplete` is false the rest of the list follows as `page` changes, before any
 /// other change.
@@ -247,7 +247,7 @@ pub struct SessionSubscribeResponse {
     pub is_complete: bool,
 }
 
-/// One change to the list after the acknowledgement, each carrying `chatCount` as it stands after
+/// One change to the list after the acknowledgment, each carrying `chatCount` as it stands after
 /// the change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(

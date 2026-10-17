@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent::definition::AgentId;
 use crate::method::methods;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
-use crate::session::controls::methods::SessionAcknowledgement;
+use crate::session::controls::methods::SessionAcknowledgment;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::text::FreeFormText;
@@ -141,7 +141,7 @@ methods! {
         SessionGoalClear = mutation "session.goal.clear" {
             mutating: true,
             params: SessionGoalClearRequest,
-            result: SessionAcknowledgement,
+            result: SessionAcknowledgment,
             refusals: [SessionNotFound, ProviderCapabilityUnsupported],
         },
     ];

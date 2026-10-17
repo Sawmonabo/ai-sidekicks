@@ -25,7 +25,7 @@ use crate::daemon::recovery::{
     DaemonRecoveryAttemptedPayload, DaemonRecoveryFailedPayload, DaemonRecoverySucceededPayload,
 };
 use crate::event::declared_variants::{
-    AssistantOutputPayload, SessionEventCompactedPayload, ToolActivityPayload,
+    AgentOutputPayload, SessionEventCompactedPayload, ToolActivityPayload,
 };
 use crate::event::envelope::{EventCategory, EventEnvelope};
 use crate::event::registry::SessionEventType;
@@ -244,12 +244,12 @@ session_events! {
     WorktreeRetired(WorktreeRetiredPayload) = "worktree.retired",
     /// Emitted once per session deletion that deleted rows.
     SessionEventCompacted(#[garde(dive)] SessionEventCompactedPayload) = "session.event.compacted",
-    /// Emitted when the assistant produces a message; its body is kept apart from the payload.
-    AgentMessageSent(#[garde(dive)] AssistantOutputPayload) = "agent.message.sent"
-        => read(assistant_output_run),
-    /// Emitted when the assistant reports a reasoning update; its body is kept apart.
-    AgentThinkingUpdated(#[garde(dive)] AssistantOutputPayload) = "agent.thinking.updated"
-        => read(assistant_output_run),
+    /// Emitted when the agent produces a message; its body is kept apart from the payload.
+    AgentMessageSent(#[garde(dive)] AgentOutputPayload) = "agent.message.sent"
+        => read(agent_output_run),
+    /// Emitted when the agent reports a reasoning update; its body is kept apart.
+    AgentThinkingUpdated(#[garde(dive)] AgentOutputPayload) = "agent.thinking.updated"
+        => read(agent_output_run),
     /// Emitted when a tool call starts; its arguments are kept apart from the payload.
     AgentToolCallInvoked(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.invoked" => required,
     /// Emitted when a tool call returns; its result is kept apart from the payload.
@@ -568,14 +568,14 @@ session_events! {
     AgentInterventionFailed(AgentInterventionFailedPayload) = "agent.intervention.failed",
 }
 
-/// The run of an assistant row: a run's row names it, a voice call's answer names none.
-fn assistant_output_run(payload: &AssistantOutputPayload) -> Option<EventRun> {
+/// The run of an agent row: a run's row names it, a voice call's answer names none.
+fn agent_output_run(payload: &AgentOutputPayload) -> Option<EventRun> {
     match payload {
-        AssistantOutputPayload::Run(output) => Some(EventRun {
+        AgentOutputPayload::Run(output) => Some(EventRun {
             run_id: output.run_id,
             run_version: None,
         }),
-        AssistantOutputPayload::Voice(_) => None,
+        AgentOutputPayload::Voice(_) => None,
     }
 }
 

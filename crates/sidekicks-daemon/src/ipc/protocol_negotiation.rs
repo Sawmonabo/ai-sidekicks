@@ -250,7 +250,7 @@ impl ProtocolNegotiator {
             Some(handshake) => HandshakeTurn::Repeat(handshake),
             None => self.latch_handshake(&request, &context).await?,
         };
-        Ok(acknowledgement(turn, context.device_id))
+        Ok(acknowledgment(turn, context.device_id))
     }
 
     async fn answer_repairing_handshake(
@@ -453,7 +453,7 @@ fn negotiate(request: &ConnectionInitializeRequest) -> LatchedHandshake {
 
 /// The answer to a handshake: a repeat gets `connection.handshake.alreadyCompleted` with the
 /// first's version; an incompatible first gets its reason and the daemon's versions.
-fn acknowledgement(turn: HandshakeTurn, device_id: DeviceId) -> ConnectionInitializeResponse {
+fn acknowledgment(turn: HandshakeTurn, device_id: DeviceId) -> ConnectionInitializeResponse {
     let (compatible, protocol_version, reason, daemon_supported_protocols) = match turn {
         HandshakeTurn::Repeat(
             LatchedHandshake::Compatible { version }

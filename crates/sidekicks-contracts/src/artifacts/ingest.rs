@@ -78,7 +78,7 @@ pub struct ArtifactIngestWriteRequest {
     pub chunk: Bytes<0, ARTIFACT_CHUNK_MAX_BYTES>,
 }
 
-/// One chunk's acknowledgement. `receivedBytes` is the stream's running total after the chunk, so
+/// One chunk's acknowledgment. `receivedBytes` is the stream's running total after the chunk, so
 /// progress is the daemon's count and never the sender's.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

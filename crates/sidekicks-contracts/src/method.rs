@@ -13,7 +13,7 @@ use crate::schema::ReceivedCheckError;
 use crate::typescript::TypeName;
 
 /// How a method answers: a `query` reads and a `mutation` changes state, each with one result; a
-/// `subscription` answers with an acknowledgement and then streams emissions.
+/// `subscription` answers with an acknowledgment and then streams emissions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProcedureType {
@@ -37,7 +37,7 @@ pub struct MethodDescriptor {
     pub is_mutating: bool,
     /// The request's type.
     pub params: TypeName,
-    /// The result's type: a subscription's acknowledgement.
+    /// The result's type: a subscription's acknowledgment.
     pub result: TypeName,
     /// A subscription's emission type; `None` exactly for a query or a mutation.
     pub emission: Option<TypeName>,
@@ -66,13 +66,13 @@ pub struct MethodTable {
 pub trait Method {
     /// The request.
     type Params: Serialize + DeserializeOwned + JsonSchema + garde::Validate<Context = ()>;
-    /// The result, or a subscription's acknowledgement, held to its garde rules before it is sent.
+    /// The result, or a subscription's acknowledgment, held to its garde rules before it is sent.
     type Result: Serialize + DeserializeOwned + JsonSchema + garde::Validate<Context = ()>;
     /// The method's table entry.
     const DESCRIPTOR: MethodDescriptor;
 }
 
-/// A subscription method, whose stream carries `Emission` values after the acknowledgement.
+/// A subscription method, whose stream carries `Emission` values after the acknowledgment.
 pub trait SubscriptionMethod: Method {
     /// One value the stream carries, held to its garde rules before it is sent.
     type Emission: Serialize + DeserializeOwned + JsonSchema + garde::Validate<Context = ()>;

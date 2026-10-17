@@ -116,7 +116,7 @@ pub struct SessionLinkRequest {
 methods! {
     /// The session link methods' wire contract: name, procedure type and types.
     pub const SESSION_LINK_METHOD_DESCRIPTORS = [
-        /// Follows a session's related list; the acknowledgement carries only the subscription,
+        /// Follows a session's related list; the acknowledgment carries only the subscription,
         /// and the first emission is the list.
         SessionRelatedSessionSubscribe = subscription "session.relatedSession.subscribe" {
             mutating: false,
