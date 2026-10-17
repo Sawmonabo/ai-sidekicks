@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::place::Place;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::integer::BoundedInt;
+use crate::wire::integer::{BoundedInt, count_bound};
 use crate::wire::list::{BoundedVec, ListKey, UniqueList};
 use crate::wire::record::RecordKey;
 use crate::wire::text::{FreeFormText, pattern_text};
@@ -181,7 +181,7 @@ pub struct ProviderChoiceOption {
 pub type ProviderChoiceOptions = BoundedVec<ProviderChoiceOption, 1, PROVIDER_CHOICE_OPTIONS_MAX>;
 
 /// The longest text one text setting takes, at most [`PROVIDER_VALUE_MAX_LEN`].
-pub type ProviderTextMaxLength = BoundedInt<1, { PROVIDER_VALUE_MAX_LEN as i64 }>;
+pub type ProviderTextMaxLength = BoundedInt<1, { count_bound(PROVIDER_VALUE_MAX_LEN) }>;
 
 /// What a setting row holds, by kind, with its live value: the app's own value once it is changed
 /// in the app, else the one the provider's own settings resolve.
@@ -394,8 +394,10 @@ impl ProviderRow {
             return Err(DeclarationValueError::PlaceNotTaken);
         }
         match (control, value) {
-            (ProviderSettingControl::Switch { .. }, Some(ProviderValue::Switch(_))) => Ok(()),
-            (ProviderSettingControl::Switch { .. }, Some(ProviderValue::Text(_)) | None) => {
+            (ProviderSettingControl::Switch { .. }, Some(ProviderValue::Switch(_)))
+            | (ProviderSettingControl::Text { .. }, None) => Ok(()),
+            (ProviderSettingControl::Switch { .. }, Some(ProviderValue::Text(_)) | None)
+            | (ProviderSettingControl::Text { .. }, Some(ProviderValue::Switch(_))) => {
                 Err(DeclarationValueError::WrongKind)
             }
             (
@@ -406,10 +408,6 @@ impl ProviderRow {
                 },
                 value,
             ) => check_choice(value, none_label.as_ref(), options),
-            (ProviderSettingControl::Text { .. }, None) => Ok(()),
-            (ProviderSettingControl::Text { .. }, Some(ProviderValue::Switch(_))) => {
-                Err(DeclarationValueError::WrongKind)
-            }
             (ProviderSettingControl::Text { max_length, .. }, Some(ProviderValue::Text(text))) => {
                 let length = i64::try_from(text.as_str().chars().count()).unwrap_or(i64::MAX);
                 if length > max_length.get() {

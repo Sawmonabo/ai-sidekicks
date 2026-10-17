@@ -149,6 +149,7 @@ mod tests {
     use std::sync::Arc;
 
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_platforms::Spawner;
     use tokio::runtime::Handle;
 
@@ -172,7 +173,7 @@ mod tests {
             .collect();
         let registry = ProviderRegistry::register_from(&table, &services);
 
-        let registered: Vec<&str> = registry.providers().map(|id| id.as_str()).collect();
+        let registered: Vec<&str> = registry.providers().map(ProviderId::as_str).collect();
         let listed: Vec<&str> = PROVIDERS.iter().map(|descriptor| descriptor.id).collect();
         assert!(listed.len() >= 2, "the table holds two providers or more");
         assert_eq!(registered, listed);

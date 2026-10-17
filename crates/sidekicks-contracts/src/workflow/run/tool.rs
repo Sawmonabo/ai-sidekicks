@@ -17,7 +17,7 @@ ts_constants! {
 
 /// The `workflow_run` input: a workflow named by its name, which the library holds once, and the
 /// project whose repository the run works in, named as `session_options` lists it; the daemon
-/// resolves the name to the project. Its members are snake_case, as the model reads and writes
+/// resolves the name to the project. Its members are `snake_case`, as the model reads and writes
 /// them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
