@@ -15,8 +15,10 @@ ignored = [
   "getrandom",
   "hickory-server",
   "rustls",
-  # The self-hosted relay's SQLite file of account data and its backup.
-  "rusqlite",
+  # The passkey sign-in's token issuer and its DPoP proof checks; `p256` also signs Web Push.
+  "jwt-simple",
+  "p256",
+  "pasetors",
 ]
 
 [lib]
@@ -25,15 +27,15 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 axum.workspace = true
+jiff.workspace = true
 jwt-simple.workspace = true
 p256.workspace = true
 pasetors.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sidekicks-contracts.workspace = true
-sse-stream.workspace = true
 thiserror.workspace = true
-url.workspace = true
+time.workspace = true
 
 # The Compose relay's native program.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -44,6 +46,13 @@ hickory-server.workspace = true
 rusqlite.workspace = true
 rustls.workspace = true
 tokio.workspace = true
+tracing.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+rstest.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+tower-service.workspace = true
 
 # The Worker.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -51,13 +60,8 @@ futures-util.workspace = true
 js-sys.workspace = true
 time = { workspace = true, features = ["wasm-bindgen"] }
 tower-service.workspace = true
-uuid = { workspace = true, features = ["js"] }
 wasm-bindgen.workspace = true
-wasm-bindgen-futures.workspace = true
 worker.workspace = true
-
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test.workspace = true
 
 [lints]
 workspace = true
