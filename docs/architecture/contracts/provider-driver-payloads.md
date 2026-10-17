@@ -775,7 +775,8 @@ type SessionNoticeProviderRestarted = {
 // the provider, opening Settings › Providers on its section. `place` is present on a Windows
 // computer with a WSL 2 distribution and names where the session runs; the row then reads
 // `Claude Code is not installed in Ubuntu.` with `Install in Ubuntu`, which opens that provider's
-// `Ubuntu (WSL)` row. A stored session whose provider has no registered driver lands the same row
+// `Ubuntu (WSL)` row, or, for a Windows folder, `Claude Code is not installed on Windows.` with
+// `Install on Windows`, which opens that provider's `Windows` row. A stored session whose provider has no registered driver lands the same row
 // with no section to open, its row reading
 // `<Provider> isn't available in this version of the app. The transcript stays readable.`,
 // and its stored transcript still reads.
