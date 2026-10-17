@@ -7,7 +7,7 @@ Diagnose and contain driver-level provider failures that affect run execution or
 ## Symptoms
 
 - New runs fail during `starting`
-- Active runs transition to `failed` with `provider failure` detail or visible `recovery-needed` condition
+- Active runs transition to `failed` with `providerFailure` detail or visible `recoveryNeeded` condition
 - What the provider reports it offers (its models, commands or settings rows) is missing or inconsistent
 - Scope and blast radius: one provider account, one provider on this machine, or every session on one provider
 
@@ -28,7 +28,7 @@ Diagnose and contain driver-level provider failures that affect run execution or
 1. Identify whether the failure is startup, active-run, provider re-read, or resume-related.
 2. Turn off `Available for new sessions` for the affected provider on Settings › Providers until the failure is understood.
 3. If the failure is recovery-related, press `Check again` on Settings › Providers to read the provider again, then `Restart` on a session that shows its provider ended; the daemon resumes that session's conversation. When a Claude Code process or a Codex service dies, the daemon restarts it at once and then on waits that double from 1 second, resuming its conversations, and no row names the restart: while it restarts, the working line reads `Reconnecting…`, and only the daemon's diagnostic log records it. A session whose running turn the crash ended reads `Turn ended · <Provider> ended unexpectedly` with the exit code and the last lines the process printed; a session with no turn running shows nothing. After five crashes within three minutes the daemon leaves it down, and each of its sessions shows the banner under the header naming the provider and the exit code, with `Restart`; on a Codex service one `Restart` brings it back for every session on it, and only the session where it was pressed sends its waiting messages, the others' waiting until the person sends them there.
-4. If resume is impossible or the restart fails, mark affected runs as `failed` with `provider failure` detail and visible `recovery-needed` condition rather than silently recreating sessions.
+4. If resume is impossible or the restart fails, mark affected runs as `failed` with `providerFailure` detail and visible `recoveryNeeded` condition rather than silently recreating sessions.
 5. Turn `Available for new sessions` back on only after a known-good test run, sent in a session already on that provider, starts, streams events, and reaches a terminal or valid blocking state normally.
 
 ## Validation
@@ -44,7 +44,7 @@ Use when one registered provider account's credentials have expired or been revo
 
 The daemon refuses rather than substitutes. A run whose bound account is unregistered or whose credential home is missing is refused **before spawn** with a typed refusal and no provider process is created; a run on an account whose login has gone starts and meets the provider's own refusal. Neither falls back to the person's ambient provider configuration, to the provider's current account, or to another registered account ([Spec-025 §Validation at spawn — fail-closed](../specs/025-provider-accounts-and-credential-homes.md#validation-at-spawn--fail-closed)). The refusal is the intended state, not a fault to route around.
 
-Detection: **normally Settings › Providers says so before any run does** — the background observation reads each account's own limits every five minutes, and an account whose login has gone reads `Login expired · Sign in again` on its row with the sign-in beside it, which is the front door to this procedure ([Spec-025 §Credential-home health observation](../specs/025-provider-accounts-and-credential-homes.md#credential-home-health-observation)). The other three arrivals are the account's authentication probe reporting other than `authenticated`, a run bound to it meeting the provider's own sign-in refusal, and a mid-run credential expiry surfacing the `reauth-required` recovery condition. Probe state is per `(driver, account)` — read it for the specific account, because a healthy sibling account says nothing about this one.
+Detection: **normally Settings › Providers says so before any run does** — the background observation reads each account's own limits every five minutes, and an account whose login has gone reads `Login expired · Sign in again` on its row with the sign-in beside it, which is the front door to this procedure ([Spec-025 §Credential-home health observation](../specs/025-provider-accounts-and-credential-homes.md#credential-home-health-observation)). The other three arrivals are the account's authentication probe reporting other than `authenticated`, a run bound to it meeting the provider's own sign-in refusal, and a mid-run credential expiry surfacing the `reauthRequired` recovery condition. Probe state is per `(driver, account)` — read it for the specific account, because a healthy sibling account says nothing about this one.
 
 1. Identify the affected account by its `accountId`, taken from the typed refusal or from the run's `admittedProviderAccountId` admission stamp. Do not act on the provider name alone: a machine may hold several accounts per provider and only one may be affected.
 2. Record that account's current `credentialGeneration` before changing anything. It is the evidence the repair actually landed.
@@ -67,7 +67,7 @@ Detection: **normally Settings › Providers says so before any run does** — t
 
 ## Provider Usage-Limit Outage
 
-Use when a provider reports that the account's plan allowance is spent. **This is a pacing fact with a reset boundary — not a credential failure and not a condition for the person to reconcile.** The distinction is operational, not taxonomic: re-authenticating repairs nothing here and is actively harmful, because a completed re-authentication bumps the account's `credentialGeneration` and marks every stored quota reading as predating a change, while the allowance stays exactly as spent. Nor is it `recovery-needed` — that condition means a human must reconcile something, while a spent allowance needs nothing from the person at all. The usage-limit signal is a sibling axis beside the `RecoveryCondition` set, never a member of it, so finding no `RecoveryCondition` value on a park is correct rather than missing data ([Spec-015 §Provider-limit pacing and durable resumption (SA-37)](../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-37)).
+Use when a provider reports that the account's plan allowance is spent. **This is a pacing fact with a reset boundary — not a credential failure and not a condition for the person to reconcile.** The distinction is operational, not taxonomic: re-authenticating repairs nothing here and is actively harmful, because a completed re-authentication bumps the account's `credentialGeneration` and marks every stored quota reading as predating a change, while the allowance stays exactly as spent. Nor is it `recoveryNeeded` — that condition means a human must reconcile something, while a spent allowance needs nothing from the person at all. The usage-limit signal is a sibling axis beside the `RecoveryCondition` set, never a member of it, so finding no `RecoveryCondition` value on a park is correct rather than missing data ([Spec-015 §Provider-limit pacing and durable resumption (SA-37)](../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-37)).
 
 Recognition is typed and only typed: the refusal is recognized from the driver's normalized usage-limit signal, which is account-scoped and keyed on `(accountId, credentialGeneration)`, and whose declaration is owned by [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md). Never classify from provider prose, an error string, a rate-limit window's name, or a model id.
 
@@ -82,7 +82,7 @@ Recognition is typed and only typed: the refusal is recognized from the driver's
 
 **Validation**:
 
-- The affected runs show a step `waiting` with cause `account`, folded under the correct account's attention entry (`providerAccountId`) — not a `failed` run, and not a `recovery-needed` condition.
+- The affected runs show a step `waiting` with cause `account`, folded under the correct account's attention entry (`providerAccountId`) — not a `failed` run, and not a `recoveryNeeded` condition.
 - Runs bound to the machine's other provider accounts, of this provider and of others, continued unaffected.
 - Where a boundary was reported, the parked run resumed itself at the boundary with no action from the person; where it was not, the park is visibly unscheduled and no countdown is displayed.
 - The affected account's `credentialGeneration` is unchanged. If it moved, an account that was never broken was re-authenticated.

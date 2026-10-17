@@ -34,7 +34,7 @@ This model explains how agents exist between runs, how agents in one session rea
 
 ## Relationships To Adjacent Concepts
 
-- `Agent` executes on the machine that runs its session (`RuntimeNode`).
+- `Agent` executes on the machine that runs its session (`Machine`).
 - `Run` uses `RepoMount`, `Workspace`, and `Worktree` context when the task is code-bearing.
 - `User` and `Agent` both contribute messages or events into the `Session` transcript.
 - `QueueItem` can produce a future `Run`.

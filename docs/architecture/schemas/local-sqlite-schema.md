@@ -43,7 +43,7 @@ CREATE TABLE session_events (
   type                   TEXT NOT NULL,              -- specific event type within category
   actor                  TEXT,                       -- the payload's own actor: the device a connection sent the event from, the agent_id, or 'daemon' on an intervention the daemon made itself; NULL when the payload names none
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON event payload
-  content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-005 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, tool-call arguments / result / error bodies, and the provider's own denial an `approval.reviewer.denied` row keeps for `Allow once` (Claude Code's action as its `PermissionDenied` hook received it, Codex's review as Codex sent it). Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with zstd at level 3, and the encoding is recorded in the payload as `contentEncoding: "zstd"`; a smaller body is stored as its UTF-8 bytes. NULL on every row whose event type carries no prose, event_maintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
+  content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-005 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, tool-call arguments / result / error bodies, and the provider's own denial an `approval.reviewer.denied` row keeps for `Allow once` (Claude Code's action as its `PermissionDenied` hook received it, Codex's review as Codex sent it). Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with zstd at level 3, and the encoding is recorded in the payload as `contentEncoding: "zstd"`; a smaller body is stored as its UTF-8 bytes. NULL on every row whose event type carries no prose, eventMaintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
   correlation_id         TEXT,                       -- links related events
   causation_id           TEXT,                       -- parent event that caused this one
   version                TEXT NOT NULL DEFAULT '1.0'
@@ -67,27 +67,27 @@ CREATE UNIQUE INDEX idx_session_events_turn_end_once ON session_events(run_id, t
 
 -- Projection-level terminal-key CHECK (Spec-005 at-most-once terminal emission; assigned to the Plan-004
 -- schema work). A CHECK sees only the row being written, never the row an UPDATE replaces, so the guard is a
--- trigger trio: abort any terminal run_lifecycle write whose run_id or run_version is NULL. The BEFORE UPDATE leg keys off OLD (the row WAS terminal) and additionally aborts a value-changing key rewrite (NEW key IS NOT OLD, null-safe) or a category/type de-scope — either frees the index entry for a duplicate terminal. The promote leg rejects re-typing any non-terminal row INTO the guarded set (terminal rows are INSERT-only): an OLD-keyed guard alone would let a null-keyed promotion slip both legs and the NULL-distinct UNIQUE index.
+-- trigger trio: abort any terminal runLifecycle write whose run_id or run_version is NULL. The BEFORE UPDATE leg keys off OLD (the row WAS terminal) and additionally aborts a value-changing key rewrite (NEW key IS NOT OLD, null-safe) or a category/type de-scope — either frees the index entry for a duplicate terminal. The promote leg rejects re-typing any non-terminal row INTO the guarded set (terminal rows are INSERT-only): an OLD-keyed guard alone would let a null-keyed promotion slip both legs and the NULL-distinct UNIQUE index.
 CREATE TRIGGER trg_run_terminal_key_insert BEFORE INSERT ON session_events
 WHEN NEW.category = 'runLifecycle'
   AND NEW.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped')
   AND (NEW.run_id IS NULL OR NEW.run_version IS NULL)
 BEGIN
-  SELECT RAISE(ABORT, 'terminal run_lifecycle requires a non-null run_id and run_version');
+  SELECT RAISE(ABORT, 'terminal runLifecycle requires a non-null run_id and run_version');
 END;
 CREATE TRIGGER trg_run_terminal_key_update BEFORE UPDATE OF run_id, run_version, category, type ON session_events
 WHEN OLD.category = 'runLifecycle'
   AND OLD.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped')
   AND (NEW.run_id IS NULL OR NEW.run_version IS NULL OR NEW.run_id IS NOT OLD.run_id OR NEW.run_version IS NOT OLD.run_version OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
 BEGIN
-  SELECT RAISE(ABORT, 'terminal run_lifecycle row must preserve run_id + run_version + category + type');
+  SELECT RAISE(ABORT, 'terminal runLifecycle row must preserve run_id + run_version + category + type');
 END;
 CREATE TRIGGER trg_run_terminal_key_promote BEFORE UPDATE OF category, type ON session_events
 WHEN NOT (OLD.category = 'runLifecycle' AND OLD.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped'))
   AND NEW.category = 'runLifecycle'
   AND NEW.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped')
 BEGIN
-  SELECT RAISE(ABORT, 'session_events rows cannot be promoted to terminal run_lifecycle by UPDATE — terminal rows are INSERT-only');
+  SELECT RAISE(ABORT, 'session_events rows cannot be promoted to terminal runLifecycle by UPDATE — terminal rows are INSERT-only');
 END;
 ```
 
@@ -206,7 +206,7 @@ CREATE TABLE session_create_requests (
   session_id              TEXT NOT NULL UNIQUE,
   project_id              TEXT,
   execution_mode          TEXT NOT NULL
-    CHECK (execution_mode IN ('bound-root', 'provisioned-worktree')),
+    CHECK (execution_mode IN ('boundRoot', 'provisionedWorktree')),
   group_id                TEXT
 ) STRICT;
 
@@ -394,7 +394,7 @@ CREATE TABLE command_receipts (
   -- Plan-003's column: receiver-generated
   -- MCP Tasks taskId for a task-augmented MCP call (from the CreateTaskResult acceptance response).
   -- NULL until the receiver accepts — a crash before that leaves NULL and the call's run halts with
-  -- `recovery-needed`. Spec-013 recovery reads this handle and polls tasks/get to a terminal status, then reads the result (tasks/result on 2025-11-25, inline on 2026-07-28)
+  -- `recoveryNeeded`. Spec-013 recovery reads this handle and polls tasks/get to a terminal status, then reads the result (tasks/result on 2025-11-25, inline on 2026-07-28)
   -- instead of halting. Written by Plan-003 T5.1 through the T3.13 receipt-write seam. Bounded like every persisted
   -- provider-declared string (the runtime_bindings defense-in-depth convention): the taskId is untrusted
   -- remote-peer output, so the CHECK bounds the SQLite-expressible part and the T5.1 write seam mirrors
@@ -491,11 +491,11 @@ CREATE TABLE driver_capabilities (
   driver_name       TEXT NOT NULL,
   capability_flag   TEXT NOT NULL
                     CHECK(capability_flag IN (
-                      'resume', 'steer', 'interactive_requests', 'mcp',
-                      'tool_calls', 'reasoning_stream', 'model_mutation',
-                      'structured_output', 'rollback', 'session_fork', 'session_goals',
-                      'callback_tools', 'subagents', 'context_compaction',
-                      'provider_commands', 'output_speed'
+                      'resume', 'steer', 'interactiveRequests', 'mcp',
+                      'toolCalls', 'reasoningStream', 'modelMutation',
+                      'structuredOutput', 'rollback', 'sessionFork', 'sessionGoals',
+                      'callbackTools', 'subagents', 'contextCompaction',
+                      'providerCommands', 'outputSpeed'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
                     -- The CHECK above lists every flag the capability union declares. Every driver_name holds one
@@ -633,7 +633,7 @@ CREATE INDEX idx_artifact_payload_refs_manifest ON artifact_payload_refs(manifes
 CREATE INDEX idx_artifact_payload_refs_storage_path ON artifact_payload_refs(storage_path);
 ```
 
-> **The OCI manifest envelope.** `artifact_manifests.size_bytes` (OCI manifest-descriptor `size`) realizes the OCI envelope per D-011-1. An artifact is never changed in place: no manifest or payload-ref row is ever updated. A chat's file or folder is the group of manifests sharing `(session_id, workspace_path)`, each write a new manifest with the group's next `version_number`; a folder is one manifest at its creation, of media type `inode/directory` over the empty payload, so it keeps both `NOT NULL` columns. A plan is one manifest per `plan.proposed`, `plan_id` set, and its word lives on the plan record (`plans`, §Approval Tables), which the list joins; a fresh session's seed plan is a second manifest in that session over the same bytes. **`content_hash`/`size_bytes` are `NOT NULL`:** a content-addressed manifest's `digest` is intrinsic to its identity (I-011-1), and each producer (Plan-011 Task 2 AttachmentIngest, Task 3 ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref — the two are independent producers, each writing its own manifest (so the `artifactId` AttachmentIngest returns resolves from the ingest-written manifest, not a later publish), so neither is ever NULL and no payload-less manifest is ever read — this is 1:1 with the **required** `digest`/`size` fields on the `ArtifactManifest` wire shape ([api-payload-contracts.md](../contracts/api-payload-contracts.md)). The file name lives in `metadata`, which the wire carries as `ArtifactManifest.metadata`.
+> **The OCI manifest envelope.** `artifact_manifests.size_bytes` (OCI manifest-descriptor `size`) realizes the OCI envelope per D-011-1. An artifact is never changed in place: no manifest or payload-ref row is ever updated. A chat's file or folder is the group of manifests sharing `(session_id, workspace_path)`, each write a new manifest with the group's next `version_number`; a folder is one manifest at its creation, of media type `inode/directory` over the empty payload, so it keeps both `NOT NULL` columns. A plan is one manifest per `plan.proposed`, `plan_id` set, and its word lives on the plan record (`plans`, §Approval Tables), which the list joins; a fresh session's seed plan is a second manifest in that session over the same bytes. **`content_hash`/`size_bytes` are `NOT NULL`:** a content-addressed manifest's `digest` is intrinsic to its identity (I-011-1), and each producer (Plan-011 Task 2 `artifact.ingest.*`, Task 3 ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref — the two are independent producers, each writing its own manifest (so the `artifactId` `artifact.ingest.*` returns resolves from the ingest-written manifest, not a later publish), so neither is ever NULL and no payload-less manifest is ever read — this is 1:1 with the **required** `digest`/`size` fields on the `ArtifactManifest` wire shape ([api-payload-contracts.md](../contracts/api-payload-contracts.md)). The file name lives in `metadata`, which the wire carries as `ArtifactManifest.metadata`.
 
 ---
 

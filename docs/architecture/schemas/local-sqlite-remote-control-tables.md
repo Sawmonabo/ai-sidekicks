@@ -10,19 +10,19 @@ The Remote Control tables of the daemon's one SQLite schema: this machine's own 
 -- friendly name read then (Spec-002). One row, kept the same at every later start.
 CREATE TABLE local_machine (
   singleton         INTEGER PRIMARY KEY CHECK (singleton = 1),
-  node_id           TEXT NOT NULL,
+  machine_id        TEXT NOT NULL,
   owner_user_id     TEXT NOT NULL,  -- a hosted account signed in to later attaches to it
   name              TEXT NOT NULL,
   minted_at         TEXT NOT NULL
 ) STRICT;
 
 -- Owner: Plan-025
-CREATE TABLE node_trust_state (
-  node_id           TEXT NOT NULL,
+CREATE TABLE machine_trust_state (
+  machine_id        TEXT NOT NULL,
   owner_user_id     TEXT NOT NULL,
   established_at    TEXT NOT NULL,  -- first registration; a re-registration keeps it
   updated_at        TEXT NOT NULL,
-  PRIMARY KEY (node_id, owner_user_id)
+  PRIMARY KEY (machine_id, owner_user_id)
 ) STRICT;
 ```
 

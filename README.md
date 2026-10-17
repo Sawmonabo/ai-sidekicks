@@ -63,7 +63,7 @@ A session contains the user, agents, runs, repo mounts, approvals, artifacts, an
                     └──────────────────────────────────┘
 ```
 
-You open a session from any linked device and chat directly in it. A session has one main agent; other agents take part when the main agent delegates to them or when you name one in the composer. The work itself executes on a runtime node — a machine of yours that holds the repo and runs the provider processes.
+You open a session from any linked device and chat directly in it. A session has one main agent; other agents take part when the main agent delegates to them or when you name one in the composer. The work itself executes on a machine of yours that holds the repo and runs the provider processes.
 
 ---
 
@@ -71,7 +71,7 @@ You open a session from any linked device and chat directly in it. A session has
 
 ### Multi-Agent Sessions
 
-Start a session and let as many sidekicks take part as the work needs — Claude and Codex together, each on your own provider account, with credentials that never leave the machine. Sidekicks hand work to each other, and run under one set of approval policies. Session content — messages, events, artifacts — is end-to-end encrypted in transit between your devices and your runtime node: the relay never sees plaintext.
+Start a session and let as many sidekicks take part as the work needs — Claude and Codex together, each on your own provider account, with credentials that never leave the machine. Sidekicks hand work to each other, and run under one set of approval policies. Session content — messages, events, artifacts — is end-to-end encrypted in transit between your devices and your machine: the relay never sees plaintext.
 
 ### Queue, Steer, Pause, Resume
 
@@ -144,7 +144,7 @@ Any device you have linked drives the same session with full parity — read the
 
 **Local Runtime Daemon** — Machine-local execution authority. Owns provider processes, git worktrees, terminal sessions, tool execution, and local persistence (SQLite).
 
-**Control Plane** — Hosted or self-hosted service for auth (PASETO v4 + WebAuthn), the device directory, device presence (each device's `presence.heartbeat` over its channel to the machine), the E2E-encrypted relay between your devices and your runtime node, and the account's data in SQLite inside the relay.
+**Control Plane** — Hosted or self-hosted service for auth (PASETO v4 + WebAuthn), the device directory, device presence (each device's `presence.heartbeat.send` over its channel to the machine), the E2E-encrypted relay between your devices and your machine, and the account's data in SQLite inside the relay.
 
 ### CLI-First
 

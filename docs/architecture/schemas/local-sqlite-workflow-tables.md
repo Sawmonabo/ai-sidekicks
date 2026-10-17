@@ -113,7 +113,7 @@ CREATE TABLE workflow_runs (
                               'new','running','waiting','succeeded','failed','canceled','crashed'
                             )),
   mode                      TEXT NOT NULL
-                            CHECK(mode IN ('manual','trigger','webhook','chat','agent','retry','sub-workflow')),
+                            CHECK(mode IN ('manual','trigger','webhook','chat','agent','retry','subWorkflow')),
   trigger_json              TEXT NOT NULL DEFAULT '{}' -- JSON: the trigger record — which trigger node started the run and with what
                             CHECK(json_valid(trigger_json)),
   started_by                TEXT NOT NULL              -- JSON: who or what started it: the user, a schedule, chat, an agent, a webhook, a file event or a parent workflow
@@ -222,8 +222,8 @@ CREATE TABLE workflow_steps (
   source_json       TEXT NOT NULL DEFAULT '[]'     -- JSON array, one entry per input slot: the edge that ACTUALLY fed it and which run of the source produced it (null for a slot nothing fed), so a run page can say this merge consumed the third run of a loop
                     CHECK(json_valid(source_json) AND json_type(source_json) = 'array'),
   status            TEXT NOT NULL
-                    CHECK(status IN ('pending', 'running', 'waiting', 'waiting-memory', 'succeeded', 'failed', 'skipped', 'canceled')),
-                                                 -- 'waiting-memory' = held by the memory gate before it starts; 'canceled' = running or waiting when its run ended failed or canceled
+                    CHECK(status IN ('pending', 'running', 'waiting', 'waitingMemory', 'succeeded', 'failed', 'skipped', 'canceled')),
+                                                 -- 'waitingMemory' = held by the memory gate before it starts; 'canceled' = running or waiting when its run ended failed or canceled
   wait_cause        TEXT                         -- what a waiting step waits on: a person ('approval', 'form', 'reply'), its chain's question ('chain'), or a spent provider account ('account')
                     CHECK(wait_cause IS NULL OR wait_cause IN ('approval', 'form', 'reply', 'chain', 'account')),
   resume_at         TEXT,                        -- the instant a step parked on a spent account resumes itself, where one is armed; NULL where none is, which reads as awaiting resume

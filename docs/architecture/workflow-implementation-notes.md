@@ -11,7 +11,7 @@ The implementation notes of [Spec-015: Workflow Authoring And Execution](../spec
 **The kinds that run an agent or ask a person compile down at run time, not at save time**, which is what keeps the document node-shaped end to end. Their executors reimplement nothing:
 
 - The `agent.run` kind calls the existing run admission with the definition id from its `definition` param, with the provider account and tool allowlist resolved from that definition under any per-node `binding` override, and at the workflow run's level.
-- The `agent.multi-agent` kind runs a lead and its helpers in the run's session through the existing orchestration path, `agent.run.create`.
+- The `agent.multiAgent` kind runs a lead and its helpers in the run's session through the existing orchestration path, `agent.run.create`.
 - The approval kind raises a request through the existing approval pipeline and its Cedar check.
 - The form kind writes through the existing form-state store.
 

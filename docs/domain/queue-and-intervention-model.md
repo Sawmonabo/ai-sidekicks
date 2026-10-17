@@ -36,7 +36,7 @@ This model defines how the system stores follow-up work, prioritizes it, and rec
 ## Relationships To Adjacent Concepts
 
 - A `QueueItem` that is a user message sent while a run is active is delivered into that run; an orchestration-authored `QueueItem` starts a new `Run` when it is admitted.
-- An `Intervention` targets a `Run` via `targetRunId`. Queue-item cancellation uses `QueueItemCancel`, not the intervention model.
+- An `Intervention` targets a `Run` via `targetRunId`. Queue-item cancellation uses `agent.queueItem.cancel`, not the intervention model.
 - `Approval` can be required before certain interventions take effect.
 
 ## State Model
@@ -112,14 +112,14 @@ The following field inventory maps each driver payload to its sources.
 
 **The driver's `steer`** (built by the daemon from the queued message when it delivers it, Plan-002 T3.8; it is no intervention and writes no `interventions` row):
 
-| Field | Required | Source: the queued message and the daemon | Source: Spec-004 `ApplyInterventionParams` |
+| Field | Required | Source: the queued message and the daemon | Source: Spec-004 `ApplyInterventionRequest` |
 | --- | --- | --- | --- |
-| `targetRunId` | yes | the run the daemon delivers into | `ApplyInterventionParams.targetRunId` |
-| `expectedRunVersion` | yes | the run's `runVersion` at delivery | `ApplyInterventionParams.expectedRunVersion` |
-| `clientIdempotencyKey` | yes | the daemon's own id on the message | `ApplyInterventionParams.clientIdempotencyKey` |
-| `content` | yes | `QueueItemCreateRequest` (the message's text) | `SteerPayload.content` |
-| `attachments` | no | `QueueItemCreateRequest.attachments` (optional, `ArtifactId[]`) | `SteerPayload.attachments` (optional, `ArtifactId[]`) |
-| `skills` | no | `QueueItemCreateRequest.skills` (each `{name, folderPath}`), which the daemon resolves for a Codex agent to the skill Codex's own `skills/list` names | `SteerPayload.skills` (optional, `PickedSkill[]`, each `{name, path}`, `path` the absolute `SKILL.md` file Codex listed) |
+| `targetRunId` | yes | the run the daemon delivers into | `ApplyInterventionRequest.targetRunId` |
+| `expectedRunVersion` | yes | the run's `runVersion` at delivery | `ApplyInterventionRequest.expectedRunVersion` |
+| `clientIdempotencyKey` | yes | the daemon's own id on the message | `ApplyInterventionRequest.clientIdempotencyKey` |
+| `content` | yes | `AgentQueueItemCreateRequest` (the message's text) | `SteerPayload.content` |
+| `attachments` | no | `AgentQueueItemCreateRequest.attachments` (optional, `ArtifactId[]`) | `SteerPayload.attachments` (optional, `ArtifactId[]`) |
+| `skills` | no | `AgentQueueItemCreateRequest.skills` (each `{name, folderPath}`), which the daemon resolves for a Codex agent to the skill Codex's own `skills/list` names | `SteerPayload.skills` (optional, `PickedSkill[]`, each `{name, path}`, `path` the absolute `SKILL.md` file Codex listed) |
 | `expectedTurnId` | no | never set by the queue's delivery: a steer goes to the live turn | `SteerPayload.expectedTurnId` (optional) |
 
 At-rest routing: `content` rests on the queue item's `payload` column, as plain text like every other column ([Spec-003 §State And Data Implications](../specs/003-queue-steer-pause-resume.md#state-and-data-implications)), beside its `user.message.sent` row, and the driver leg is handed the same text; no intervention row holds it. `attachments` are references, not bodies.
@@ -128,16 +128,16 @@ Element type: both `attachments` columns above are `ArtifactId[]` — ids into [
 
 **`interrupt` payload:**
 
-| Field | Required | Source: API Contracts | Source: Spec-004 `ApplyInterventionParams` |
+| Field | Required | Source: API Contracts | Source: Spec-004 `ApplyInterventionRequest` |
 | --- | --- | --- | --- |
-| `targetRunId` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.targetRunId` |
-| `expectedRunVersion` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.expectedRunVersion` |
-| `clientIdempotencyKey` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.clientIdempotencyKey` |
-| `pending` | yes | `InterventionRequestPayload` | `InterruptPayload.pending` |
-| `deliverFirst` | no | `InterventionRequestPayload` (optional) | none: the daemon puts the named message first itself |
-| `reason` | no | `InterventionRequestPayload` (optional) | `InterruptPayload.reason` (optional) |
+| `targetRunId` | yes | `AgentRunInterveneRequest` | `ApplyInterventionRequest.targetRunId` |
+| `expectedRunVersion` | yes | `AgentRunInterveneRequest` | `ApplyInterventionRequest.expectedRunVersion` |
+| `clientIdempotencyKey` | yes | `AgentRunInterveneRequest` | `ApplyInterventionRequest.clientIdempotencyKey` |
+| `pending` | yes | `AgentRunInterveneRequest` | `InterruptPayload.pending` |
+| `deliverFirst` | no | `AgentRunInterveneRequest` (optional) | none: the daemon puts the named message first itself |
+| `reason` | no | `AgentRunInterveneRequest` (optional) | `InterruptPayload.reason` (optional) |
 
-Note: The `ApplyInterventionParams` interface in Spec-004 splits the payload into `targetRunId`, `expectedRunVersion`, and `clientIdempotencyKey` at the top level and routes the remaining type-specific fields through `SteerPayload` or `InterruptPayload`. The `InterventionRequestPayload` in the API contracts flattens an intervention's fields into one discriminated union, `interrupt` | `fasterModelRetry`: its `interrupt` arm carries the driver's fields plus `deliverFirst`, which the daemon acts on itself, and `fasterModelRetry` never reaches the driver. The driver's `steer` has no request arm: only the queue's delivery builds it. The `DriverApplyInterventionResponse` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full seven-state lifecycle per the normative table below.
+Note: The `ApplyInterventionRequest` interface in Spec-004 splits the payload into `targetRunId`, `expectedRunVersion`, and `clientIdempotencyKey` at the top level and routes the remaining type-specific fields through `SteerPayload` or `InterruptPayload`. The `AgentRunInterveneRequest` in the API contracts flattens an intervention's fields into one discriminated union, `interrupt` | `fasterModelRetry`: its `interrupt` arm carries the driver's fields plus `deliverFirst`, which the daemon acts on itself, and `fasterModelRetry` never reaches the driver. The driver's `steer` has no request arm: only the queue's delivery builds it. The `ApplyInterventionResponse` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full seven-state lifecycle per the normative table below.
 
 ## Driver Result To Lifecycle Mapping
 
@@ -162,8 +162,8 @@ An interrupt never waits behind a pending retry. A run's faster-model retries di
 - `applyIntervention(type: "steer")` delivers a message the user sent mid-turn (a queue send, `agent.queueItem.create`) into the active run, recording no intervention. It is PROACTIVE — the user wants to redirect. On Codex the daemon's run queue holds every waiting message and hands it over at the thread's next tool boundary, so `Remove`, `Edit`, moving, `Waiting to be delivered` and `Not delivered · Retry` act on the daemon's hold; Codex's own `instant_interrupt` setting, read live and never written by the app, decides what that hand-over does: on, Codex's default, Codex stops a reply it has just begun and the turn goes on with the message, the stopped reply staying in the transcript as the text that streamed, ended where Codex stopped; off, a steer aimed at a request that has already gone out lands at the step after. A message from another session and a reminder that comes due take the same hold and the same `turn/steer` at the next tool boundary, never straight into a reply.
 - The two never overlap: a steer reaches a run that is working — `running`, or on Claude Code also `waitingForApproval`, since Claude Code holds the message to its next tool boundary — while a message sent as the run waits on the person's input goes as the next turn instead, except on Claude Code's switch-or-credits choice, which the message settles; a response answers the `waitingForInput` request itself.
 - `interrupt` intervention is the single abort: it targets any non-terminal state after admission and leaves the run `interrupted`, whether it is `starting`, `running`, `pausing`, `paused`, or waiting — except a `starting` run whose start fails while the interrupt waits for it, which ends `failed` on its own and expires the interrupt ([§Driver Result To Lifecycle Mapping](#driver-result-to-lifecycle-mapping)). A stop the daemon makes itself — at the step limit or the spend limit, because a workflow phase was canceled, or because a restart ended a child held in a pause — is the same interrupt, carrying its `trigger` ([Run State Machine](run-state-machine.md)). The run then rests `interrupted`, and its next turn continues it on the same run id: a send into it, or the waiting messages going as the next turn. At the token limit the daemon's stop ends the run `stopped` with `trigger: tokenLimit`, and the agent's next message, or one already waiting, starts a new run. While the interrupt is under way the queue hands the run nothing, and the interrupt's `pending` choice is written in the run's `interrupted` write: `returnToDraft` cancels every waiting message there, a starting run's opening with them, after taking back each message Claude Code holds, and `nextTurn` writes their places, the one `deliverFirst` names first. A run that ended on its own before the interrupt could end it keeps that end, and the choice still applies to its messages.
-- Undo is not an intervention. `Undo to here` on the person's own message, a snapshot's `Restore` and the rewind menu's rows are one operation, `session.restore({ target, scope })`: `target` is a stable message or snapshot identity, never a numeric or provider position, and `scope` is `"conversation-and-files"`, `"conversation"` or `"files"`. `session.restore.preview` takes the same and changes nothing. The result carries `requested` (the same values), `restored` (`"conversation-and-files"`, `"conversation"`, `"files"` or `"nothing"`) and, for each requested part that did not apply, `failures.conversation` / `failures.files` with a `reason`; edit and resend is the same call carrying the edited message, one intent with one result. Every outcome is stored as one event, `session.restore.completed`, and `agent.run.rolledBack` records the conversation cut alone ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)). The conversation half is the driver's `rewindConversation`; the driver's `forkConversation` serves `session.fork` and is never an undo. An undo is never refused because the run is `running`: it stops the later work and ends the turn itself ([Run State Machine §Rollback Transitions](run-state-machine.md#rollback-transitions)).
-- Queue-item cancellation (`QueueItemCancel`) is separate from the `interrupt` intervention — `QueueItemCancel` targets queue items the agent has not yet taken (`Remove`, `agent.queueItem.cancel`), while an interrupt targets runs that already exist in the run state machine.
+- Undo is not an intervention. `Undo to here` on the person's own message, a snapshot's `Restore` and the rewind menu's rows are one operation, `session.restore({ target, scope })`: `target` is a stable message or snapshot identity, never a numeric or provider position, and `scope` is `"conversationAndFiles"`, `"conversation"` or `"files"`. `session.restore.preview` takes the same and changes nothing. The result carries `requested` (the same values), `restored` (`"conversationAndFiles"`, `"conversation"`, `"files"` or `"nothing"`) and, for each requested part that did not apply, `failures.conversation` / `failures.files` with a `reason`; edit and resend is the same call carrying the edited message, one intent with one result. Every outcome is stored as one event, `session.restore.completed`, and `agent.run.rolledBack` records the conversation cut alone ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)). The conversation half is the driver's `rewindConversation`; the driver's `forkConversation` serves `session.fork` and is never an undo. An undo is never refused because the run is `running`: it stops the later work and ends the turn itself ([Run State Machine §Rollback Transitions](run-state-machine.md#rollback-transitions)).
+- Queue-item cancellation (`agent.queueItem.cancel`) is separate from the `interrupt` intervention — `agent.queueItem.cancel` targets queue items the agent has not yet taken (`Remove`, `agent.queueItem.cancel`), while an interrupt targets runs that already exist in the run state machine.
 
 ## Example Flows
 

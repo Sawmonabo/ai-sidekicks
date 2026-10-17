@@ -242,7 +242,7 @@ The core entities must be:
 
 - `Session`
 - `User`
-- `RuntimeNode`
+- `Machine`
 - `Agent`
 - `Run`
 - `QueueItem`

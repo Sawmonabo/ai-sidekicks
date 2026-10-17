@@ -188,7 +188,7 @@
         // A saved workflow's row in the Workflows tab's table of definitions.
         "src/renderer/src/features/workflows/definitions/components/DefinitionListItem.tsx",
         "src/renderer/src/features/workflows/definitions/rows.ts",
-        // The run queue's and run state's live feeds (`run.subscribeState`, `run.subscribeQueue`),
+        // The run queue's and run state's live feeds (`agent.run.subscribe`, `agent.queueItem.subscribe`),
         // for the run controls and the queue rows.
         "src/renderer/src/services/daemon/streams.ts",
         // Reading what the providers support again once a session's stream is repaired.
@@ -275,7 +275,7 @@
         "cloudflare",
         // The push senders that present the person's own credentials: the signed headers of a
         // Web Push, a notice sent through Apple's push service, and the sign-in for Firebase's.
-        "web-push",
+        "webPush",
         "apns2",
         "google-auth-library"
       ]
@@ -339,7 +339,7 @@
         // The picture of an attachment's first page and its covered copy.
         "sharp",
         // Encrypting a Web Push notice on this machine before the relay sends it.
-        "web-push",
+        "webPush",
         // A workflow step that parses YAML.
         "yaml"
       ],
