@@ -165,8 +165,8 @@ interface RelayNegotiationResponse {
   // the forwarding object's name on the Workers relay, the machine id and its continent key; absent
   // on the Compose relay, whose one process forwards every channel
   forwardingObject?: string;
-  // where each end asks its public address for the direct path, as host:port: `stun.cloudflare.com:3478`
-  // on the Workers relay, the relay's own UDP 3478 on the Compose relay
+  // where each end asks its public address for the direct path, as host:port:
+  // `stun.cloudflare.com:3478` on the Workers relay, the relay's own UDP 3478 on the Compose relay
   stunAddress: string;
   transportProtocol: string;
   connectionToken: string; // short-lived connect token bound to the calling device or machine and to the machine it reaches; a token presented for another device or machine is refused, and an expired one is refused
