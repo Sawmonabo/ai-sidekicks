@@ -124,6 +124,10 @@ pub(crate) enum RepoRefusal {
         /// The distribution.
         distro: DistroName,
     },
+    /// The top level was asked for on macOS or Linux, which has none
+    /// (`repo.top_level_unavailable`).
+    #[error("this computer has no top level above its folders")]
+    TopLevelUnavailable,
     /// A clone refused before git starts and before anything is written (`repo.clone_refused`):
     /// the destination holds something, or the address leaves no folder name, with git's line.
     #[error("{}", clone_refused_message(.details))]
@@ -218,6 +222,9 @@ impl From<RepoRefusal> for DomainError {
                 InternalError,
                 Some(refusal_fields(RepoDistributionRefusalDetails { distro })),
             ),
+            RepoRefusal::TopLevelUnavailable => {
+                (RefusalCode::RepoTopLevelUnavailable, InternalError, None)
+            }
             RepoRefusal::CloneRefused { details } => (
                 RefusalCode::RepoCloneRefused,
                 InternalError,
