@@ -226,7 +226,7 @@ Erasing a person's data spans three independent storage paths, each carried out 
 2. signs each provider account out through the provider's own sign-out: `claude auth logout` in each Claude Code account home, and `account/logout` on each Codex service;
 3. revokes this machine's hosted refresh family, when signed in to the hosted account;
 4. deletes every credential-store item the app made ([§Daemon Secrets](#daemon-secrets)): the machine's identity key and channel key, the hosted sign-in's refresh token and DPoP key, pasted tokens, workflow secrets, the web address and its signing secret, the mail password and each tool server's sign-in;
-5. deletes the data folder, the account homes it created included, and, on a Windows computer, each WSL 2 distribution's `~/.ai-sidekicks/` but its worktrees, and the desktop app's main-process log (`main.jsonl` and `main.jsonl.1`), which main deletes from the operating system's logs folder for the app;
+5. deletes the data folder, the account homes it created included, and, on a Windows computer, each WSL 2 distribution's `~/.ai-sidekicks/` but its worktrees, after unmounting the private mount there as uninstall does, since it points at the data folder, and the desktop app's main-process log (`main.jsonl` and `main.jsonl.1`), which main deletes from the operating system's logs folder for the app;
 6. starts again empty, and the app opens as on first launch.
 
 `sidekicks erase-data` is refused while the service holds the data folder; on Windows the CLI deletes the items itself through `sidekicks-platforms`' credential code, and the CLI inside a WSL distribution hands the command to it through interop ([§Daemon Secrets](#daemon-secrets)).

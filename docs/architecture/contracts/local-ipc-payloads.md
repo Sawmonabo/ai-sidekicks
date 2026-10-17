@@ -168,8 +168,8 @@ interface DaemonStatusReadResult {
   // `Arch: not answering since 2:14 PM`.
   wsl?: Array<{
     distro: string; // as `wsl -l` prints it
-    state: "running" | "stopped" | "notAnswering";
-    notAnsweringSince?: string; // ISO 8601, present only with `notAnswering`
+    // Where it stands, a union tagged by `state`; `since` is when WSL stopped answering (ISO 8601).
+    status: { state: "running" } | { state: "stopped" } | { state: "notAnswering"; since: string };
     sessionCount: number;
   }>;
   // The relay block, present ONLY while a relay is configured — absent otherwise, never an empty block

@@ -73,6 +73,10 @@ interface SessionCreatedPayload {
   // Present exactly on a Try-it scratch session (`scratch` on SessionCreateRequest).
   scratchForDefinitionId?: AgentDefinitionId;
   actor?: DeviceId; // the device of the connection that created it
+  // Where the session runs for its whole life, written here once and never changed: present on a
+  // Windows computer with a WSL 2 distribution, absent on macOS and Linux. `Place` is
+  // `@ai-sidekicks/contracts/place`'s `"windows" | { distro: string }`.
+  place?: Place;
 }
 
 // SessionRead
