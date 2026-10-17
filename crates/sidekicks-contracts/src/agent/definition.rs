@@ -29,7 +29,7 @@ pub mod binding;
 pub mod refusal;
 pub mod requests;
 
-use binding::{AgentDefinitionBindings, AgentProviderBinding};
+use binding::{AgentDefinitionBindings, AgentListedBindings, AgentProviderBinding};
 
 ts_constants! {
     /// The longest reason text a refusal or a load failure carries.
@@ -347,7 +347,7 @@ definition_record! {
     #[schemars(transform = add_plugin_origin_rule)]
     #[schemars(transform = add_project_scope_rule)]
     pub struct AgentDefinitionListEntry {
-        bindings: AgentDefinitionBindings,
+        bindings: AgentListedBindings,
         /// Which files it came from.
         pub origin: AgentDefinitionOrigin,
         /// The provider whose own agent files hold it, exactly when `origin` is `provider`.
@@ -435,6 +435,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<binding::AgentProviderBinding>().checked(),
         Definition::read::<binding::AgentDefinitionBindings>(),
         Definition::read::<binding::AgentDefinitionBindingsDraft>().checked(),
+        Definition::read::<binding::AgentListedProviderBinding>().checked(),
+        Definition::read::<binding::AgentListedBindings>(),
         Definition::read::<AgentMemoryScope>().checked(),
         Definition::read::<AgentAccentHue>(),
         Definition::read::<AgentHookGroup>(),

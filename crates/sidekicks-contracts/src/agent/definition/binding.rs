@@ -1,5 +1,5 @@
-//! Which provider runs an agent: the binding a saved definition and a running agent share, and a
-//! definition's default and per-provider bindings.
+//! Which provider runs an agent: the binding a saved definition and a running agent share, a
+//! definition's default and per-provider bindings, and the bindings as the list serves them.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use crate::provider::account::record::ProviderAccountId;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::id::ProviderId;
+use crate::wire::Never;
+use crate::wire::integer::SafeInt;
 use crate::wire::list::unique_by;
 use crate::wire::text::FreeFormText;
 
@@ -82,12 +84,13 @@ provider_binding! {
 }
 
 /// Refuses bindings that name one driver twice, so each provider resolves to exactly one binding.
+/// A listed binding naming a provider no registered driver answers has no driver and is skipped.
 /// The set of providers is open, so no schema rule states it: the daemon's check of a write is
 /// where it holds.
 fn binds_each_driver_once<'binding>(
-    drivers: impl IntoIterator<Item = &'binding ProviderId>,
+    drivers: impl IntoIterator<Item = Option<&'binding ProviderId>>,
 ) -> garde::Result {
-    let drivers: Vec<&ProviderId> = drivers.into_iter().collect();
+    let drivers: Vec<&ProviderId> = drivers.into_iter().flatten().collect();
     unique_by::<[&ProviderId], _, _>(|driver: &&ProviderId| ProviderId::clone(driver))(
         drivers.as_slice(),
         &(),
@@ -95,16 +98,14 @@ fn binds_each_driver_once<'binding>(
 }
 
 /// A definition's bindings: the one used when a caller names no driver, and one per further
-/// provider. The default is one the resolver may pick, never a fallback the others patch. A
-/// binding naming a provider no registered driver answers is listed as stored; starting it is
-/// refused with `provider_unsupported`.
+/// provider. The default is one the resolver may pick, never a fallback the others patch.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[garde(custom(|bindings: &Self, (): &()| binds_each_driver_once(
     std::iter::once(&bindings.default)
         .chain(&bindings.overrides)
-        .map(|binding| &binding.driver_name),
+        .map(|binding| Some(&binding.driver_name)),
 )))]
 pub struct AgentDefinitionBindings {
     /// The default binding.
@@ -120,7 +121,7 @@ pub struct AgentDefinitionBindings {
 #[garde(custom(|bindings: &Self, (): &()| binds_each_driver_once(
     std::iter::once(&bindings.default)
         .chain(bindings.overrides.iter().flatten())
-        .map(|binding| &binding.driver_name),
+        .map(|binding| Some(&binding.driver_name)),
 )))]
 pub struct AgentDefinitionBindingsDraft {
     /// The default binding.
@@ -133,4 +134,121 @@ pub struct AgentDefinitionBindingsDraft {
     )]
     #[schemars(with = "Vec<AgentProviderBinding>")]
     pub overrides: Option<Vec<AgentProviderBinding>>,
+}
+
+/// Declares one arm of [`AgentListedProviderBinding`]: the provider member it names, then the
+/// members every listed binding carries.
+macro_rules! listed_binding_arm {
+    ($(#[doc = $doc:literal])+ $name:ident { $($provider:tt)* }) => {
+        $(#[doc = $doc])+
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        #[schemars(inline)]
+        pub struct $name {
+            $($provider)*
+            /// The model.
+            pub model_id: ProviderToken,
+            /// The account, or `null` to follow the provider's current account.
+            #[serde(deserialize_with = "crate::wire::nullable")]
+            #[schemars(with = "crate::wire::NullableSchema<ProviderAccountId>")]
+            pub provider_account_id: Option<ProviderAccountId>,
+            /// The effort, or `null` for the driver's default.
+            #[serde(deserialize_with = "crate::wire::nullable")]
+            #[schemars(with = "crate::wire::NullableSchema<ProviderToken>")]
+            pub effort: Option<ProviderToken>,
+            /// The speed; a saved definition leaves it absent.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "ProviderToken")]
+            pub output_speed: Option<ProviderToken>,
+            /// The session option values; a saved definition leaves them absent.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "crate::provider::declaration::ProviderOptionSettings")]
+            pub options: Option<crate::provider::declaration::ProviderOptionSettings>,
+            /// The larger window chosen, in tokens.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "SafeInt<1>")]
+            pub larger_window: Option<SafeInt<1>>,
+        }
+    };
+}
+
+listed_binding_arm! {
+    /// A listed binding naming a provider a registered driver answers.
+    SupportedListedBinding {
+        /// The provider.
+        pub driver_name: ProviderId,
+        /// Only a provider no registered driver answers is named as the file gave it.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub unsupported_provider_name: Option<Never>,
+    }
+}
+
+listed_binding_arm! {
+    /// A listed binding naming a provider no registered driver answers.
+    UnsupportedListedBinding {
+        /// A provider a registered driver answers is named by `driverName`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub driver_name: Option<Never>,
+        /// The provider name the file gave.
+        pub unsupported_provider_name: ProviderToken,
+    }
+}
+
+/// A binding as the list serves it: `driverName` where the file names a provider a registered
+/// driver answers, or `unsupportedProviderName`, the name the file gave, where none does.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum AgentListedProviderBinding {
+    /// A provider a registered driver answers.
+    Supported(SupportedListedBinding),
+    /// A provider no registered driver answers.
+    Unsupported(UnsupportedListedBinding),
+}
+
+impl AgentListedProviderBinding {
+    /// The provider, when a registered driver answers it.
+    pub fn driver_name(&self) -> Option<&ProviderId> {
+        match self {
+            Self::Supported(binding) => Some(&binding.driver_name),
+            Self::Unsupported(_) => None,
+        }
+    }
+}
+
+/// A definition's bindings as the list serves them, each provider bound once.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+#[garde(custom(|bindings: &Self, (): &()| binds_each_driver_once(
+    std::iter::once(&bindings.default)
+        .chain(&bindings.overrides)
+        .map(AgentListedProviderBinding::driver_name),
+)))]
+pub struct AgentListedBindings {
+    /// The default binding.
+    pub default: AgentListedProviderBinding,
+    /// One binding per further provider.
+    pub overrides: Vec<AgentListedProviderBinding>,
 }
