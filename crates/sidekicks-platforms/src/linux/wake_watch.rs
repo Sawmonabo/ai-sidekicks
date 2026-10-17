@@ -1,23 +1,16 @@
-//! The machine's wakes from sleep on Linux. On the machine itself, logind's `PrepareForSleep`
-//! signal on the system bus, sent with `true` as the machine goes to sleep and `false` once it has
-//! resumed. Inside a WSL distribution logind never sends it, since Windows pauses the distribution
-//! rather than suspending it, so there the wakes are Windows' own resumes, which the service's
-//! Windows half reports over its channel to the daemon. Wakes that come while no one waits count as
-//! one.
+//! The machine's wakes from sleep on Linux: logind's `PrepareForSleep` signal on the system bus,
+//! sent with `true` as the machine goes to sleep and `false` once it has resumed. Wakes that come
+//! while no one waits count as one.
 
 use std::io;
-use std::sync::Arc;
 
 use futures_util::stream::Fuse;
 use futures_util::{FutureExt, StreamExt};
-use tokio::sync::Notify;
 use zbus::Proxy;
 use zbus::fdo::DBusProxy;
 use zbus::names::BusName;
 use zbus::proxy::{Builder, CacheProperties, SignalStream};
 
-use super::folder_place;
-use crate::folder_place::FolderPlace;
 use crate::wake_watch::WakeWatchError;
 
 // What announces the wakes, as an error names it.
@@ -29,68 +22,31 @@ const LOGIN_OBJECT: &str = "/org/freedesktop/login1";
 const LOGIN_MANAGER_INTERFACE: &str = "org.freedesktop.login1.Manager";
 const PREPARE_FOR_SLEEP_SIGNAL: &str = "PrepareForSleep";
 
-/// The machine's wakes from sleep, heard from logind on the system bus or, inside a WSL
-/// distribution, from the resumes Windows reports.
+/// The machine's wakes from sleep, heard from logind on the system bus.
 pub struct WakeWatch {
-    wake_source: WakeSource,
-}
-
-// Where the wakes come from.
-enum WakeSource {
     // Fused, so once the bus closes every later read sees it closed too.
-    Logind(Fuse<SignalStream<'static>>),
-    WindowsResumes(Arc<Notify>),
+    sleep_signals: Fuse<SignalStream<'static>>,
 }
 
 impl WakeWatch {
-    /// Starts hearing the machine's wakes. Fails with [`WakeWatchError`] when the place the service
-    /// runs in cannot be read, or, outside WSL, when the system bus cannot be reached or logind does
-    /// not answer on it.
+    /// Starts hearing the machine's wakes. Fails with [`WakeWatchError`] when the system bus cannot
+    /// be reached or logind does not answer on it.
     pub async fn start() -> Result<Self, WakeWatchError> {
-        let place = folder_place().map_err(watch_failure)?;
-        let wake_source = match place {
-            FolderPlace::Wsl { .. } => WakeSource::WindowsResumes(Arc::new(Notify::new())),
-            FolderPlace::OwnDisk | FolderPlace::Windows => {
-                WakeSource::Logind(logind_sleep_signals().await?.fuse())
-            }
-        };
-        Ok(Self { wake_source })
+        Ok(Self {
+            sleep_signals: logind_sleep_signals().await?.fuse(),
+        })
     }
 
     /// Waits for the machine's next wake; wakes that came while no one waited count as one.
     /// Cancel-safe. Fails with [`WakeWatchError`] when the system bus closes, after which no wake
     /// is heard; a logind signal that does not read is logged and skipped.
     pub async fn next_wake(&mut self) -> Result<(), WakeWatchError> {
-        match &mut self.wake_source {
-            WakeSource::Logind(sleep_signals) => {
-                // Read until a signal says the machine has resumed.
-                while next_sleep_signal(sleep_signals).await? != Some(false) {}
-                // Signals already queued are read now, so a run of wakes counts as one; a bus closed
-                // meanwhile is seen at the next wait.
-                while let Some(Some(_)) = sleep_signals.next().now_or_never() {}
-                Ok(())
-            }
-            WakeSource::WindowsResumes(resumes) => {
-                resumes.notified().await;
-                Ok(())
-            }
-        }
-    }
-
-    /// What tells each resume the service's Windows half reports to this watch; `None` outside
-    /// WSL, where logind tells them.
-    #[expect(
-        dead_code,
-        reason = "the Windows half's power report on a WSL computer"
-    )]
-    pub(crate) fn windows_resume_sender(&self) -> Option<impl Fn() + Send + Sync + 'static> {
-        match &self.wake_source {
-            WakeSource::Logind(_) => None,
-            WakeSource::WindowsResumes(resumes) => {
-                let resumes = Arc::clone(resumes);
-                Some(move || resumes.notify_one())
-            }
-        }
+        // Read until a signal says the machine has resumed.
+        while next_sleep_signal(&mut self.sleep_signals).await? != Some(false) {}
+        // Signals already queued are read now, so a run of wakes counts as one; a bus closed
+        // meanwhile is seen at the next wait.
+        while let Some(Some(_)) = self.sleep_signals.next().now_or_never() {}
+        Ok(())
     }
 }
 
