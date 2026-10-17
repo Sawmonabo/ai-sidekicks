@@ -10,11 +10,21 @@ Every paged transcript reply is bounded by the frame it becomes (Plan-010 Phase 
 // TranscriptRead. A cursor is a position in the log, and the cursor an event carries is the position
 // right after it: afterCursor answers the events after its position and beforeCursor those before it,
 // the event carrying that cursor among them, so a page before a window's head and the stream after it
-// meet with nothing missed or repeated.
+// meet with nothing missed or repeated. aroundCursor names one row by its cursor and answers the
+// window around it, the way a message list reads `around` one message: that row, up to half the limit
+// before it and the rest after it, read from that position on both sides and never from the whole
+// log, so one read both lands a link on its row and says whether the row exists. No row standing at
+// that cursor (one a skipped range left out, or a position the log never held) refuses the read with
+// `transcript.row.notFound`; a session the daemon does not hold keeps `session.not_found`. The budget
+// keeps the nearest rows on each side and never cuts the anchor, and the page continues as a
+// beforeCursor page does: nextCursor toward the start, and the rows after it read with afterCursor at
+// its newest row's cursor. aroundCursor stands alone: a request naming it with afterCursor or
+// beforeCursor is refused.
 interface TranscriptReadRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor;
   beforeCursor?: EventCursor;
+  aroundCursor?: EventCursor;
   limit?: number;
 }
 // hasMore is the discriminant, not a flag beside an optional. The continuing arm REQUIRES nextCursor:
@@ -248,7 +258,8 @@ type ChildRunExpandResponse = {
 // and the whole a copy from the row lifts.
 // `rowId` is the row's `id`, the id of the event it renders. A session id the daemon does not hold
 // is refused with `session.not_found`; a row id the session does not hold is refused with
-// `transcript.row.notFound` at `-31000`, so it never reads like a row that carries no body.
+// `transcript.row.notFound` at `-31000`, the code an anchored transcript.read answers for a row that
+// does not stand, so it never reads like a row that carries no body.
 interface TranscriptBodyReadRequest {
   sessionId: SessionId;
   rowId: string;

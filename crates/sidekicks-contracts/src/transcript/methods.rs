@@ -16,12 +16,12 @@ use crate::typescript::TypeScriptModule;
 methods! {
     /// The `transcript.*` methods' wire contract: name, procedure type and types.
     pub const TRANSCRIPT_METHOD_DESCRIPTORS = [
-        /// Reads one bounded window of a session's transcript.
+        /// Reads one bounded window of a session's transcript, or the window around one row.
         TranscriptRead = query "transcript.read" {
             mutating: false,
             params: TranscriptReadRequest,
             result: TranscriptReadResponse,
-            refusals: [SessionNotFound, EventCursorUnresolvable],
+            refusals: [SessionNotFound, EventCursorUnresolvable, TranscriptRowNotFound],
         },
         /// Reads a run's reasoning, page by page.
         TranscriptReasoningSurfaceRead = query "transcript.reasoningSurfaceRead" {
@@ -42,7 +42,7 @@ methods! {
             mutating: false,
             params: TranscriptBodyReadRequest,
             result: TranscriptBodyReadResponse,
-            refusals: [SessionNotFound],
+            refusals: [SessionNotFound, TranscriptRowNotFound],
         },
         /// Reads every file patch a tool call left out.
         TranscriptPatchRead = query "transcript.patchRead" {

@@ -529,7 +529,7 @@ Transcript codes ride the daemon JSON-RPC wire with notional HTTP statuses.
 
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
-| `transcript.row.notFound` | A transcript read named a row id the session does not hold, so it never reads like a row that carries no body. `data.fields`: `rowId` | `notFound` | 404 |
+| `transcript.row.notFound` | A transcript read named a row the session does not hold: `transcript.bodyRead`'s row id, so it never reads like a row that carries no body, or `transcript.read`'s `aroundCursor`, at which no row stands. `data.fields`: `rowId` or `aroundCursor` | `notFound` | 404 |
 
 ### Provider
 
