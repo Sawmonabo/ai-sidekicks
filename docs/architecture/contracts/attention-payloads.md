@@ -32,9 +32,8 @@ interface AttentionItem {
   // moment. The main process posts from this projection and from nothing else: a `pending` entry only
   // while no console window is focused (a workflow's Notify step posts either way), and it withdraws the
   // banner when the entry resolves or its session or run is deleted, a Notify step's never — so
-  // answering on another device clears it here. With the app not
-  // running, the daemon starts the app's own program with no window to post the banner, and that process
-  // exits.
+  // answering on another device clears it here. With the app not running, the daemon starts the
+  // app's own program with no window to post the banner, and that process exits.
   momentId: string;
   sessionId?: SessionId; // absent exactly on a `provider_build` entry, which belongs to no session
   runId?: RunId; // present on a run-scoped entry; absent on the session-scoped aggregate
