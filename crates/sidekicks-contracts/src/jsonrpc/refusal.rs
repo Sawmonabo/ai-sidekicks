@@ -359,6 +359,9 @@ refusal_codes! {
     RepoReattachRefused = "repo.reattach_refused" (422);
     /// Canonical repository root could not be resolved for the supplied path.
     RepoRootResolutionFailed = "repo.root_resolution_failed" (422);
+    /// `repo.folderList` asked for the top level (`{top: true}`) on macOS or Linux, which has none:
+    /// only a Windows computer lists drives and distributions above its folders.
+    RepoTopLevelUnavailable = "repo.top_level_unavailable" (422);
     /// A call the client canceled with `$/cancelRequest` before the daemon reached its commit
     /// point.
     RequestCanceled = "request.canceled" ();

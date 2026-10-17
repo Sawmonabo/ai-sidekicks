@@ -321,21 +321,27 @@ pub enum SessionNotice {
         /// The distribution.
         distro: DistroName,
     },
-    /// WSL does not answer, so the session, which runs in a WSL 2 distribution, cannot run until
-    /// Windows restarts.
+    /// The session, which runs in a WSL 2 distribution, cannot run while WSL does not answer; the
+    /// daemon tries WSL again after each wake and once an hour.
     WslNotAnswering {
         /// The session.
         session_id: SessionId,
     },
     /// The WSL 2 distribution the session runs in stopped and could not start again, with the
-    /// error the last start gave, word for word.
+    /// error the last start gave, word for word, where it gave one.
     DistributionRestartFailed {
         /// The session.
         session_id: SessionId,
         /// The distribution.
         distro: DistroName,
-        /// The error the last start gave.
-        error: FreeFormText<ERROR_MESSAGE_MAX_LEN>,
+        /// The error the last start gave; absent where it printed nothing before its deadline.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "FreeFormText<ERROR_MESSAGE_MAX_LEN>")]
+        error: Option<FreeFormText<ERROR_MESSAGE_MAX_LEN>>,
     },
 }
 

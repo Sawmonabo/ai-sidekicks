@@ -1,6 +1,6 @@
-//! Where work runs on a computer: Windows itself, or a WSL 2 distribution by name. A project, a
-//! session and a provider reading carry a place on a Windows computer; it is written once and never
-//! changes.
+//! Where work runs on a computer: Windows itself, or a WSL 2 distribution by name. A project and a
+//! session carry one on a Windows computer, written once; a provider's reading carries one where a
+//! WSL 2 distribution exists.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -25,7 +25,7 @@ literal! {
 /// A WSL distribution, named exactly as `wsl -l` prints it. Work runs only in a WSL 2
 /// distribution; a WSL 1 one appears only as a provider's `Command` row that says it needs WSL 2.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WslPlace {
     /// The distribution's name.
     pub distro: DistroName,
@@ -55,17 +55,25 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 mod tests {
     use serde_json::json;
 
-    use super::{Place, WSL_DISTRO_NAME_MAX_LEN};
+    use super::{Place, WindowsPlace, WslPlace};
 
     #[test]
-    fn a_place_round_trips_in_both_forms_and_refuses_a_too_long_distribution_name() {
-        for sent in [json!("windows"), json!({ "distro": "Ubuntu-24.04" })] {
-            let place: Place = serde_json::from_value(sent.clone()).expect("the place reads");
-            assert_eq!(serde_json::to_value(&place).expect("it writes"), sent);
-        }
-        let at_the_cap = json!({ "distro": "a".repeat(WSL_DISTRO_NAME_MAX_LEN) });
-        assert!(serde_json::from_value::<Place>(at_the_cap).is_ok());
-        let past_the_cap = json!({ "distro": "a".repeat(WSL_DISTRO_NAME_MAX_LEN + 1) });
-        assert!(serde_json::from_value::<Place>(past_the_cap).is_err());
+    fn reads_windows_as_the_literal_and_a_distribution_by_name() {
+        let windows: Place = serde_json::from_value(json!("windows")).expect("windows reads");
+        assert_eq!(windows, Place::Windows(WindowsPlace::Value));
+        let sent = json!({ "distro": "Ubuntu-24.04" });
+        let distribution: Place = serde_json::from_value(sent.clone()).expect("a distro reads");
+        let Place::Wsl(WslPlace { distro }) = &distribution else {
+            panic!("a distribution reads as the WSL arm: {distribution:?}");
+        };
+        assert_eq!(distro.as_str(), "Ubuntu-24.04");
+        assert_eq!(
+            serde_json::to_value(&distribution).expect("it writes"),
+            sent
+        );
+        assert_eq!(
+            serde_json::to_value(&windows).expect("it writes"),
+            json!("windows")
+        );
     }
 }

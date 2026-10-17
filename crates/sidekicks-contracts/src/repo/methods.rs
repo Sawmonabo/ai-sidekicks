@@ -90,7 +90,11 @@ methods! {
             mutating: false,
             params: RepoFolderListRequest,
             result: RepoFolderListResponse,
-            refusals: [RepoDistributionNeedsWsl2, RepoDistributionNotFound],
+            refusals: [
+                RepoDistributionNeedsWsl2,
+                RepoDistributionNotFound,
+                RepoTopLevelUnavailable,
+            ],
         },
         /// Binds a session's workspace to a mount.
         RepoWorkspaceBind = mutation "repo.workspaceBind" {

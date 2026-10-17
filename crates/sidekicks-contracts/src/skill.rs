@@ -18,6 +18,7 @@ use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::place::WslPlace;
 use crate::project::ProjectId;
 use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
 use crate::provider::name::ProviderName;
@@ -150,6 +151,14 @@ pub struct SkillListEntry {
     pub project_id: Option<ProjectId>,
     /// The folder, or for an orphaned record the last path it was known at.
     pub folder_path: FilesystemPath,
+    /// The WSL 2 distribution the folder is in, its path in Linux form; absent elsewhere.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WslPlace")]
+    pub place: Option<WslPlace>,
     /// Every file in the folder; empty for an orphaned record.
     pub files: Vec<SkillFile>,
     /// Which providers it reaches.
@@ -387,6 +396,14 @@ pub struct SkillCallFormCollision {
     pub scope: AgentDefinitionScope,
     /// Its folder.
     pub folder_path: FilesystemPath,
+    /// The WSL 2 distribution the folder is in, its path in Linux form; absent elsewhere.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WslPlace")]
+    pub place: Option<WslPlace>,
     /// What it is called by once the typed one is saved.
     pub call_forms: SkillCallForms,
 }
@@ -565,6 +582,14 @@ pub struct SkillWriteRefusedDetails {
 pub struct SkillNameTakenDetails {
     /// The folder.
     pub folder_path: FilesystemPath,
+    /// The WSL 2 distribution the folder is in, its path in Linux form; absent elsewhere.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WslPlace")]
+    pub place: Option<WslPlace>,
 }
 
 methods! {

@@ -19,7 +19,7 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::{BoundedInt, SafeInt};
 use crate::wire::text::FreeFormText;
-use crate::wire::{NullableSchema, nullable};
+use crate::wire::{NullableSchema, True, nullable};
 
 ts_constants! {
     /// The longest project name the daemon keeps.
@@ -138,6 +138,15 @@ pub struct ProjectListEntry {
     )]
     #[schemars(with = "Place")]
     pub place: Option<Place>,
+    /// Present when the project's distribution is no longer on this computer, so its sessions
+    /// cannot run and the row offers `Remove`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "True")]
+    pub is_distribution_removed: Option<True>,
 }
 
 /// One `repo.projectList` emission: every project, sent once on subscribe and again on each

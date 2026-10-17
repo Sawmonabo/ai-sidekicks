@@ -104,14 +104,14 @@ pub struct RepoFolderListFolderRequest {
     )]
     #[schemars(with = "Never")]
     pub top: Option<Never>,
-    /// Where to browse; absent on macOS and Linux and for Windows itself.
+    /// The distribution to browse; absent on macOS and Linux and for Windows itself.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "Place")]
-    pub place: Option<Place>,
+    #[schemars(with = "WslPlace")]
+    pub place: Option<WslPlace>,
     /// The folder to show, in that place's own form.
     #[serde(
         default,
@@ -139,7 +139,8 @@ pub struct RepoFolderListFolderRequest {
 }
 
 /// `repo.folderList` for the top level of a Windows computer: its drives and its WSL 2
-/// distributions. Listing it starts no distribution.
+/// distributions. Listing it starts no distribution; macOS and Linux refuse it with
+/// `repo.top_level_unavailable`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
@@ -148,8 +149,8 @@ pub struct RepoFolderListTopRequest {
     pub top: True,
 }
 
-/// What `repo.folderList` takes: one folder, or the top level of a Windows computer. On macOS and
-/// Linux a client asks only for folders.
+/// What `repo.folderList` takes: one folder, or the top level of a Windows computer. macOS and
+/// Linux have no top level and refuse it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 #[garde(allow_unvalidated)]
@@ -287,14 +288,15 @@ pub enum RepoFolderListResponse {
 pub struct RepoAttachRequest {
     /// The path as entered.
     pub local_path: FilesystemPath,
-    /// The distribution a Linux path was given in; absent where the path's own form says.
+    /// The distribution a Linux path was given in; absent on macOS and Linux and wherever the
+    /// path's own form says, Windows itself among them.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "Place")]
-    pub place: Option<Place>,
+    #[schemars(with = "WslPlace")]
+    pub place: Option<WslPlace>,
 }
 
 /// The `repo.attach` result: the new mount and the root its path resolved to.

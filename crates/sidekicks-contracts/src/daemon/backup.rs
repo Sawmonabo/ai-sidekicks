@@ -186,12 +186,32 @@ pub struct BackupFailedPayload {
     pub message: FreeFormText<ERROR_MESSAGE_MAX_LEN>,
 }
 
-/// `backup.restored`: the service started again from a backup.
+/// One WSL 2 distribution's part a restore kept in the backup, because no distribution of that
+/// name is on this computer, with how many sessions it holds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BackupKeptDistributionPart {
+    /// The distribution, by name.
+    pub distro: DistroName,
+    /// How many sessions the part holds.
+    pub session_count: SafeInt<0>,
+}
+
+/// `backup.restored`: the service started again from a backup, naming each distribution part it
+/// kept in the backup.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BackupRestoredPayload {
     /// The backup.
     pub backup_id: BackupId,
+    /// The distribution parts kept in the backup; absent where every part was written back.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BoundedVec<BackupKeptDistributionPart, 1, { usize::MAX }>")]
+    pub kept_distribution_parts: Option<BoundedVec<BackupKeptDistributionPart, 1, { usize::MAX }>>,
 }
 
 methods! {
@@ -227,6 +247,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<BackupReadResponse>().checked(),
         Definition::read::<BackupCompletedPayload>().checked(),
         Definition::read::<BackupFailedPayload>().checked(),
+        Definition::read::<BackupKeptDistributionPart>(),
         Definition::read::<BackupRestoredPayload>().checked(),
     ],
     constants: TS_CONSTANTS,
