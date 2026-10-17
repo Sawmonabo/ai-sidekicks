@@ -21,6 +21,7 @@ CREATE TABLE projects (
   setup                TEXT NOT NULL,              -- JSON ProjectSetup: files to copy, commands in order, the step time limit (absent: no limit)
   environment_rows     TEXT NOT NULL DEFAULT '[]', -- JSON EnvironmentRow[]: the project's own rows, each winning over the machine's row of the same name
   branch_pattern       TEXT,                       -- NULL follows the machine's pattern
+  place                TEXT,                       -- where the folder is and its sessions run, fixed at attach: the place's wire JSON ("windows" or {"distro":"Ubuntu"}), NULL on macOS and Linux; folder_path is in that place's own form
   created_at           TEXT NOT NULL,
   updated_at           TEXT NOT NULL,
   CHECK ((state = 'cloning') = (clone_url IS NOT NULL)),
@@ -36,6 +37,7 @@ CREATE TABLE repo_mounts (
   node_id             TEXT NOT NULL,          -- this machine's own id, stamped by the daemon and never taken from the caller; a mount belongs to the machine, not to a session
   local_path          TEXT NOT NULL,          -- user-entered attach path (provenance)
   canonical_root      TEXT NOT NULL,          -- resolver output: absolute, symlink-resolved (envelope/dedupe key)
+  place               TEXT,                   -- where the root is, fixed at attach, stored as projects.place stores it; both paths are in its form
   origin              TEXT NOT NULL DEFAULT 'attached'
                       CHECK(origin IN ('attached', 'managed')),
                                               -- 'attached' = a project's folder the person attached or cloned; 'managed' = a chat's
@@ -57,11 +59,13 @@ CREATE TABLE repo_mounts (
   CHECK (origin = 'managed' OR state <> 'attached' OR project_id IS NOT NULL)
 );
 
--- Active-mount uniqueness binds the CANONICAL root per owning machine (Plan-006 D-006-7): two
--- entered aliases resolving to one root are one mount, whichever session asked, and a folder
--- is listed once per machine with what uses it; detached rows stay re-attachable as new rows.
+-- Active-mount uniqueness binds the CANONICAL root per owning machine and place (Plan-006 D-006-7):
+-- two entered aliases resolving to one root in one place are one mount, whichever session asked,
+-- and a folder is listed once per machine with what uses it; the same path in two distributions is
+-- two folders; detached rows stay re-attachable as new rows. A unique index counts NULLs as
+-- distinct, so the place is keyed as '' where it is NULL, keeping macOS and Linux unique.
 CREATE UNIQUE INDEX idx_repo_mounts_active_root
-  ON repo_mounts(node_id, canonical_root) WHERE state = 'attached';
+  ON repo_mounts(node_id, coalesce(place, ''), canonical_root) WHERE state = 'attached';
 CREATE UNIQUE INDEX idx_repo_mounts_managed_session
   ON repo_mounts(managed_session_id) WHERE managed_session_id IS NOT NULL;
 -- A project has one attached mount, which every session of the project binds to.
@@ -212,4 +216,4 @@ CREATE TABLE run_execution_contexts (
 CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(workspace_id);
 ```
 
-**Project record.** An attached repository is a project, and each project keeps a durable record beside its mount, the `projects` row: its display name, the folder slug fixed at attach, the setup steps its worktrees run after preparation, its own environment rows, its own branch-name pattern when one is set, whether it is archived, and a cloning mark (`state = 'cloning'`, with the address and the failure line) while `repo.clone` fetches it. The repository's identity is its mount's anchor, `repo_mounts.metadata.commonDir`, and attach keeps one project record per repository, so attaching a folder that is already a project finds that project. A project's attached mount names it in `repo_mounts.project_id`, and a re-attach writes its new mount row under the same record. Renaming a project edits the display name alone. Deleting a project forgets the record and detaches its mount; its sessions and the folder on disk stay ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)). The removed-worktree records, the agent definitions and the workflow secrets key a project by this record's id.
+**Project record.** An attached repository is a project, and each project keeps a durable record beside its mount, the `projects` row: its display name, the folder slug fixed at attach, the setup steps its worktrees run after preparation, its own environment rows, its own branch-name pattern when one is set, its place on a Windows computer (Windows or a WSL 2 distribution, fixed at attach, with the folder's path in that place's form), whether it is archived, and a cloning mark (`state = 'cloning'`, with the address and the failure line) while `repo.clone` fetches it. The repository's identity is its mount's anchor, `repo_mounts.metadata.commonDir`, and attach keeps one project record per repository, so attaching a folder that is already a project finds that project. A project's attached mount names it in `repo_mounts.project_id`, and a re-attach writes its new mount row under the same record. Renaming a project edits the display name alone. Deleting a project forgets the record and detaches its mount; its sessions and the folder on disk stay ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)). The removed-worktree records, the agent definitions and the workflow secrets key a project by this record's id.

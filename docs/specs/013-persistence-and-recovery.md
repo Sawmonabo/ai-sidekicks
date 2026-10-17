@@ -251,7 +251,7 @@ Pruning runs as part of the daily backup workflow after the new backup succeeds;
 
 Restoring on the machine that wrote it needs nothing more. A restore on another computer reads the backup directly; the person then signs in to providers and links devices again.
 
-On a Windows computer with sessions in WSL 2 distributions, a restore writes each distribution's part back through that distribution's WSL server, starting it. A part whose distribution is not on this computer is kept in the backup and named in the result line, `Restored, except 3 sessions in Debian, which is not on this computer.` Every stored path is in its own place's form and no session changes place, so nothing is rewritten. A restored session whose conversation file is newer than its database copy resumes through §Fallback Behavior's rule for a diverged record; one whose conversation file is missing continues the way a provider switch does, with the hand-over brief.
+On a Windows computer with sessions in WSL 2 distributions, a restore writes each distribution's part back through that distribution's WSL server, starting it. A part whose distribution is not on this computer is kept in the backup and named in the result line, `Restored, except 3 sessions in Debian, which is not on this computer.`, from `backup.restored`'s `keptDistributionParts`, one `{distro, sessionCount}` per part kept. Every stored path is in its own place's form and no session changes place, so nothing is rewritten. A restored session whose conversation file is newer than its database copy resumes through §Fallback Behavior's rule for a diverged record; one whose conversation file is missing continues the way a provider switch does, with the hand-over brief.
 
 ### Restore SLO
 

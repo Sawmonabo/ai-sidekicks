@@ -25,11 +25,25 @@ type McpApprovalMode = "auto" | "prompt" | "writes" | "approve"; // Codex-native
 // plugin's name: listed on the MCP servers page as `From plugin <name>` and sent
 // to a session only when switched on for it. Its declaration changes only with the plugin, so
 // mcp.upsertServer and mcp.removeServer refuse it; mcp.setEnabled and the tool overrides target it.
-// A binding in a scope the person writes, its declaration in a provider's own config.
+// A binding in a scope the person writes, its declaration in a provider's own config. A `project`
+// or `local` scopeRef is the project's root folder, with `place`, the WSL 2 distribution it is in,
+// its path in Linux form there; absent elsewhere, so one path in two distributions is two roots.
 type McpWritableBindingRef =
   | { provider: ProviderId; scope: "user"; serverName: string }
-  | { provider: ProviderId; scope: "project"; scopeRef: string; serverName: string }
-  | { provider: ProviderId; scope: "local"; scopeRef: string; serverName: string };
+  | {
+      provider: ProviderId;
+      scope: "project";
+      scopeRef: string;
+      place?: WslPlace;
+      serverName: string;
+    }
+  | {
+      provider: ProviderId;
+      scope: "local";
+      scopeRef: string;
+      place?: WslPlace;
+      serverName: string;
+    };
 // Two read-only arms name the servers a provider brings itself, Claude Code's today, listed in the page's
 // `claude.ai · <account name>` group of each account and its `Organization` group: a claude.ai connector, its scopeRef the provider account's id (connectors
 // are that claude.ai account's own) and its serverName the display name Claude Code reports
@@ -153,6 +167,13 @@ interface McpServerLegStatus {
   bindingId: string; // the Plan-003 runtime-binding leg key (provider-driver-capability-payloads.md McpServerStatusUpdate) — NOT this section's config binding
   status: McpServerStatus;
   observedAt?: string; // ISO-8601 of this leg's newest observation
+  // Present only on a leg reading "failed" whose session runs in a WSL 2 distribution, because the
+  // server's command or arguments name a Windows program, which cannot run there; the leg's session
+  // names the distribution. The selected view reads `Its command names a Windows program, which
+  // cannot run in Ubuntu. Use the program's name without its folder.`, and a bare command name such
+  // as npx is looked up in the distribution and is not marked. One member on the leg, not a status
+  // of its own.
+  failedReason?: "commandNotRunnable";
 }
 
 // Inventory read model (mcp.list / mcp.get): four merged sources per binding — provider-declared
@@ -165,11 +186,10 @@ interface McpServerLegStatus {
 type McpServerInventoryEntry = McpServerBindingRef & {
   config: McpServerConfigView; // the redacted normalized declaration (see above)
   status: McpServerStatus; // deterministic aggregate over legs[]: most severe current live-leg status (failed > needs-auth > unknown > starting > connected — a live leg whose observation source is lost reports "unknown": lost observability outranks known-healthy states, never a concrete failure), else newest machine-probe observation, else "unknown" — never fabricated
-  failedReason?: "commandNotRunnable"; // present only on an entry reading "failed" for sessions in a WSL 2 distribution because its command or arguments name a Windows program, which cannot run there; the selected view reads `Its command names a Windows program, which cannot run in Ubuntu. Use the program's name without its folder.`, and a bare command name such as npx is looked up in the distribution and is not marked. One member on the entry, not a status of its own
   legs?: McpServerLegStatus[]; // per-leg session-feed observations; absent when no live leg exists. Legs are LIVE-session observations with a bounded lifecycle: when a leg's backing runtime binding closes (session end / driver exit), the daemon retires it and recomputes the aggregate — a terminated session's last status never pins `status`
   observedAt?: string; // ISO-8601 of the newest status observation backing `status`
-  supersededIn?: string[]; // the project roots where another binding of this provider is the effective one, by the provider's order (a project's `local` binding over its `project` one, either over the `user` one, matched by serverName; on Claude Code a plugin's server or a connector also matched when it points at the same address or command); the daemon already resolves this to send each session its effective set (Spec-024 §Status Observation and Events), so it serves the answer rather than the page working it out. The page reads each one as `Not used in <project>: its own <name> takes its place.` Absent where the binding is used wherever it applies; never empty
-  disabledIn?: string[]; // Claude Code: the project roots where this server is switched off — by `disabledMcpServers` in the person's own `~/.claude.json`, which Claude Code's own `/mcp` writes, or, on a `connector` or `managed` binding, by the daemon's per-project switch; the server stays out of those projects' sessions and the page reads `Off in <project>` beside its state, dimmed, once per project. Absent where no project switched it off; never empty
+  supersededIn?: PlacedPath[]; // unique `{path, place?}` entries, `place` the WSL 2 distribution a root is in: the project roots where another binding of this provider is the effective one, by the provider's order (a project's `local` binding over its `project` one, either over the `user` one, matched by serverName; on Claude Code a plugin's server or a connector also matched when it points at the same address or command); the daemon already resolves this to send each session its effective set (Spec-024 §Status Observation and Events), so it serves the answer rather than the page working it out. The page reads each one as `Not used in <project>: its own <name> takes its place.` Absent where the binding is used wherever it applies; never empty
+  disabledIn?: PlacedPath[]; // unique `{path, place?}` entries, `place` the WSL 2 distribution a root is in. Claude Code: the project roots where this server is switched off — by `disabledMcpServers` in the person's own `~/.claude.json`, which Claude Code's own `/mcp` writes, or, on a `connector` or `managed` binding, by the daemon's per-project switch; the server stays out of those projects' sessions and the page reads `Off in <project>` beside its state, dimmed, once per project. Absent where no project switched it off; never empty
 } & (
     | {
         bindingStoreUnavailable?: never; // the normal (binding-store-available) arm
@@ -258,7 +278,7 @@ interface McpLiveApplicationResult {
 // and reconnect show through the status notices they induce; reconnect is unreceipted:
 //   mcp.upsertServer      McpWritableBindingRef & {clientIdempotencyKey: string, config: McpServerConfigInput} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
 //   mcp.removeServer      McpWritableBindingRef & {clientIdempotencyKey: string} → {applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // removing an emulated Codex local server also removes the daemon's row for it; removing any server removes every approval rule over its tools from the provider's file that holds it, in the same transaction
-//   mcp.setEnabled        McpServerBindingRef & {clientIdempotencyKey: string, enabled: boolean, projectRoot?: string} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // projectRoot required on a `connector` or `managed` binding and refused on every other: the daemon's own switch for that one project, never Claude Code's `disabledMcpServers`
+//   mcp.setEnabled        McpServerBindingRef & {clientIdempotencyKey: string, enabled: boolean, projectRoot?: string, place?: WslPlace} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // projectRoot required on a `connector` or `managed` binding and refused on every other, with `place`, the WSL 2 distribution the root is in, its path in Linux form there: the daemon's own switch for that one project, never Claude Code's `disabledMcpServers`
 //   mcp.setToolOverride   McpServerBindingRef & {clientIdempotencyKey: string, override: McpToolOverride} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication}
 //   mcp.clearToolOverride McpServerBindingRef & {clientIdempotencyKey: string, toolName: string, facet: McpToolOverrideFacet} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication} // clears that one facet back to the server's own value (a Codex facet restored from the binding's baseline) and leaves the tool's other facets set; clearing a tool's last set facet drops its override row; `applied` carries the cleared facet's grade alone
 //   mcp.oauthLogin        McpServerBindingRef & {clientIdempotencyKey: string} → {authorizationUrl?: string} // starts the daemon's own sign-in for that server, whatever kind of server it is, and returns the address of the sign-in page for the client to open; a new mcp.oauthLogin on a server whose sign-in is still waiting ends that wait and starts the next attempt; a server that publishes no sign-in route (no protected-resource or authorization-server metadata, or metadata the daemon cannot read) is refused with mcp.server.signInUnsupported; mcp.oauth_flow_failed is LAUNCH-phase only — a failure to start the sign-in (discovery, registration, or the provider's own flow in its throwaway home) — and an async completion failure arrives as mcp.server_oauth_completed outcome: 'failure' on the mcp.subscribe stream, never a late JSON-RPC error (Spec-024 §OAuth Orchestration). Its idempotency receipt persists the acknowledgment with authorizationUrl STRUCTURALLY OMITTED (single-use PKCE-bearing launch material is never durable — Plan-022 I-022-1), so an identical-key retry returns a saved acknowledgment with no URL: the sign-in already started, completion arrives as the event, and a caller that never received the URL starts a new sign-in under a fresh key

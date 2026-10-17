@@ -74,7 +74,7 @@ interface SessionCreatedPayload {
   scratchForDefinitionId?: AgentDefinitionId;
   actor?: DeviceId; // the device of the connection that created it
   // Where the session runs for its whole life, written here once and never changed: present on a
-  // Windows computer with a WSL 2 distribution, absent on macOS and Linux. `Place` is
+  // Windows computer, absent on macOS and Linux. `Place` is
   // `@ai-sidekicks/contracts/place`'s `"windows" | { distro: string }`.
   place?: Place;
 }
@@ -173,6 +173,7 @@ interface SessionRecord {
   id: SessionId;
   state: SessionState;
   shape: SessionShape;
+  place?: Place; // where it runs, written at its creation and never changed; absent on macOS and Linux
   // The session's own name. Absent means untitled, which is the ordinary state: a surface listing an
   // untitled session shows its first message rather than a generated title, so no default is
   // materialized here.
@@ -196,17 +197,25 @@ interface SessionRecord {
   // it interrupts the turn (agent.turn.interrupted with cause "stepLimit", its partial result kept),
   // and the run rests as run.interrupted with trigger "step_limit" until a send continues it.
   maxStepsPerTurn?: number;
-  // The address another session writes to when it messages this one — what the session inspector
-  // offers as `Copy address`. It names the inbox the daemon holds for the session — one socket (a named
-  // pipe on Windows) in Claude Code's socket directory, stable for the session's whole life; the daemon
-  // forwards each frame to the live process and, while the session sleeps, takes the first frame, wakes
-  // the session through Claude Code's resume and delivers the frame as the message. Present on every
-  // session. No read of its own exists, deliberately — the one surface that shows it already reads this
-  // snapshot, and a second verb would be a second source for one fact (Spec-014 §Sessions Talking To
-  // Each Other).
-  address: string;
+  // The addresses another session writes to when it messages this one — what the session inspector
+  // offers as `Copy address`, one row each. Each names an inbox the daemon holds for the session in one
+  // place where Claude Code is installed — a socket (a named pipe on Windows) in Claude Code's socket
+  // directory, stable for the session's whole life — the session's own place first; the daemon forwards
+  // each frame to the live process and, while the session sleeps, takes the first frame, wakes the
+  // session through Claude Code's resume and delivers the frame as the message. Never empty and unique
+  // by place: one entry with no place on macOS, Linux and a Windows computer without a WSL 2
+  // distribution. No read of its own exists, deliberately — the one surface that shows them already
+  // reads this snapshot, and a second verb would be a second source for one fact (Spec-014 §Sessions
+  // Talking To Each Other).
+  addresses: SessionAddress[];
   createdAt: string;
   updatedAt: string;
+}
+
+// One inbox the daemon holds for a session, in one place; its address is in that place's own form.
+interface SessionAddress {
+  place?: Place;
+  address: string;
 }
 
 // ---- Console session operations ----
@@ -424,7 +433,10 @@ type SessionVerbResponse = Record<string, never>;
 // conversion that stopped part way (`session.convert_incomplete`) resumes when a convert names the
 // same folder, under any key: no file is copied twice, the counts are the whole conversion's, and
 // that request's key takes the conversion over. A convert naming another folder is refused
-// `session.convert_refused`, reason `conversion_unfinished`. A retry with the key of a finished
+// `session.convert_refused`, reason `conversion_unfinished`. The path is read in the chat's own place:
+// a Linux path in the chat's distribution, a drive path or its `/mnt/<drive>` form on Windows; a
+// folder in another place is refused `session.convert_refused`, reason `folder_in_another_place`,
+// naming the chat's `place`, since a session's place never changes. A retry with the key of a finished
 // conversion answers it and copies nothing. Files whose copies land just before the daemon stops,
 // and so have no record yet, read as `repository_has_file` when the conversion resumes.
 interface SessionConvertRequest {
@@ -728,6 +740,6 @@ The console's `session.*` operations beyond the [Plan-005](../../plans/005-local
 
 **Every search read goes over one index.** The palette's search box and a session's own find box are answered by ONE daemon search over session titles, message text, tool calls, session group names and tags, so the find box counts tool rows through it: `session.search`, the cross-session form, returns hits grouped by session, each hit carrying its own message anchor, in the index's own ranked order with no cap; `transcript.search`, the single-session form, pages that session's hits newest first and counts every match in the session, so the find box counts the whole session and loads the history a hit sits in only when the person steps to it. Both shapes are in the §Plan-001 block above. `transcript.search` sits in the `transcript` namespace with the session's other row reads and is registered in [§Transcript Method-Name Registry](./transcript-payloads.md#transcript-method-name-registry). The renderer walks no rows it does not hold, which is the whole reason the read is daemon-side. The index behind both is the daemon's own full-text index on Tantivy over session titles, message text, tool calls, session group names and tags, fed from the daemon's SQLite database through an outbox ([ADR-041](../../decisions/041-session-search-on-tantivy.md), [local-sqlite-schema §Session Search Index](../schemas/local-sqlite-schema.md#session-search-index)).
 
-**A session's address mints no read.** The address another session writes to when it messages this one rides `SessionRecord` above, because the one surface that shows it — the inspector's `Copy address` — already reads that record, and a second verb would be a second source for one fact. It is the inbox the daemon holds for the session, present for the session's whole life. The two operations two sessions actually talk through are tools the daemon serves to the providers and are registered in orchestration-payloads.md §Plan-013's registry note, not here.
+**A session's address mints no read.** The addresses another session writes to when it messages this one ride `SessionRecord` above as `addresses`, one `{place?, address}` per place where Claude Code is installed, the session's own place first, because the one surface that shows it — the inspector's `Copy address` — already reads that record, and a second verb would be a second source for one fact. Each is an inbox the daemon holds for the session, present for the session's whole life. The two operations two sessions actually talk through are tools the daemon serves to the providers and are registered in orchestration-payloads.md §Plan-013's registry note, not here.
 
 **`Copy link` and `sidekicks open <address>` mint no method.** A session's link is `sidekicks://session/<id>`, one form with one function that composes it and one that parses it in `packages/contracts`, and three places share it: the session's `Copy link` copies it as one plain line, main's link handler routes it, and `sidekicks open <address>` on the CLI hands it to the running app through the platform's own registered link type, so it adds no second path into the app and carries nothing the address does not. The link handler is in the main process ([Spec-021 §Main Process Responsibilities](../../specs/021-desktop-app-and-renderer.md#main-process-responsibilities)): it parses the link, drops a malformed one, and hands the renderer only the parsed `SessionId` through `window.subscribeToNavigationRequest`. No daemon wire surface is involved.

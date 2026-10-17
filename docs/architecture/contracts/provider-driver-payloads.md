@@ -808,12 +808,12 @@ interface SessionNoticeWslNotAnswering {
 // session.notice of kind `distribution_restart_failed`: the WSL server for the session's
 // distribution failed its fifth restart. One flow row,
 // `Ubuntu stopped and could not start again. Restarting Windows usually brings it back.`, with
-// `error` under it word for word.
+// `error` under it word for word where the last start gave one.
 interface SessionNoticeDistributionRestartFailed {
   sessionId: SessionId;
   kind: "distribution_restart_failed";
   distro: string; // as `wsl -l` prints it
-  error: string; // what the start gave, word for word
+  error?: string; // what the last start gave, word for word; absent where it printed nothing before its deadline
 }
 
 // session.notice of kind `fast_output_unavailable`: the provider says fast output is not on for a

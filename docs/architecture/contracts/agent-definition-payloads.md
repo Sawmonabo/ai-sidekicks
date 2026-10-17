@@ -149,6 +149,7 @@ type AgentDefinitionListEntry = AgentDefinition & {
   scope: "global" | "project";
   projectId?: ProjectId; // present exactly when scope is "project"
   sourcePath: string; // the file the record lives in, or for an orphaned record the last path its file was known at; display-only data
+  place?: WslPlace; // the WSL 2 distribution the file is in, its path in Linux form there; absent elsewhere
   orphaned: boolean; // a provider's file was renamed or deleted outside the app: the record keeps its extras until it is reattached or discarded
   disabledInProvider: boolean; // the provider's own configuration switches the agent off
   loadError: string | null; // its file failed to load: the reason, from the daemon's own parse
