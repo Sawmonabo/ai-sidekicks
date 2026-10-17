@@ -487,7 +487,7 @@ interface ChildrenStopResponse {
     outcome: "stopped" | "already_ended" | "failed";
     // The run state the stop left the child in, present exactly when outcome = 'stopped':
     // `stopped` where the provider's stop is final, `interrupted` where a send can continue it.
-    state?: RunState;
+    state?: "stopped" | "interrupted";
     reason?: string; // the daemon's reason, present exactly when outcome = 'failed'
   }>;
 }
