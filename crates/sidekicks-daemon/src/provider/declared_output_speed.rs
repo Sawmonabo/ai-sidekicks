@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
-use sidekicks_contracts::provider::name::ProviderName;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -20,7 +20,7 @@ use crate::provider::driver::diagnostics::{
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct DeclaredOutputSpeed {
     /// The provider that declared it.
-    pub(crate) provider: ProviderName,
+    pub(crate) provider: ProviderId,
     /// The session whose binding declared it.
     pub(crate) session_id: SessionId,
     /// The declared level, unread.
@@ -71,7 +71,7 @@ struct RejectedLengths {
 }
 
 fn report_rejected_state(
-    provider: ProviderName,
+    provider: ProviderId,
     session_id: &SessionId,
     rejected_field: &str,
     lengths: RejectedLengths,

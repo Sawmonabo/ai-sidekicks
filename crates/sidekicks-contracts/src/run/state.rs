@@ -7,8 +7,8 @@ use strum::{IntoStaticStr, VariantArray};
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 
 /// Where a run stands. `pausing` is the step in flight finishing after a pause was asked for; the
-/// run reads `paused` once nothing runs. `stopped` is a child ended by a stop that reached several
-/// agents: final on Claude Code, resumable by a send on Codex.
+/// run reads `paused` once nothing runs. `stopped` is a child ended for good by a stop that reached
+/// several agents; a provider whose stop leaves a child resumable reads `interrupted` instead.
 #[derive(
     Clone,
     Copy,

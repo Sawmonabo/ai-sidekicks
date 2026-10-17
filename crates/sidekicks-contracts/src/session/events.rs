@@ -13,7 +13,7 @@ use crate::machine_settings::MACHINE_SETTINGS_NAME_MAX_LEN;
 use crate::place::Place;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::{SessionId, UserId};
@@ -168,9 +168,9 @@ pub struct SessionMarkChangePayload {
     pub at: WireInstant,
 }
 
-/// The `session.advisor_changed` payload: a Claude Code session's own advisor, changed by
-/// `/advisor` in that session. `advisor_model` is the session's own setting, `null` when the
-/// advisor is off; `attached_advisor_model` is the advisor Claude Code says it attaches after the
+/// The `session.advisor_changed` payload: the session's own advisor, changed by the provider's own
+/// advisor command in that session. `advisor_model` is the session's own setting, `null` when the
+/// advisor is off; `attached_advisor_model` is the advisor the provider says it attaches after the
 /// change, `null` when none attaches, absent where the build does not report it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -182,7 +182,7 @@ pub struct SessionAdvisorChangedPayload {
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>")]
     pub advisor_model: Option<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>,
-    /// The advisor Claude Code attaches, `null` when none, absent where the build does not say.
+    /// The advisor the provider attaches, `null` when none, absent where the build does not say.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -195,8 +195,8 @@ pub struct SessionAdvisorChangedPayload {
     pub at: WireInstant,
 }
 
-/// The `session.output_style_changed` payload: a Claude Code session's own output style, changed by
-/// `/output-style` in that session, with the time it happened.
+/// The `session.output_style_changed` payload: the session's own output style, changed by the
+/// provider's own output-style command in that session, with the time it happened.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -230,7 +230,7 @@ pub struct SessionProviderStatusPayload {
     #[schemars(with = "RunId")]
     pub run_id: Option<RunId>,
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The status, normalized.
     pub status: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
     /// The provider's display text, where it sent some.

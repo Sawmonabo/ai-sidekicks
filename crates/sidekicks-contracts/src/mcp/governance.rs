@@ -17,7 +17,7 @@ use crate::mcp::server::requests::{
 use crate::mcp::server::{McpBindingScope, McpServerBindingRef, McpServerName, McpServerStatus};
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::{Never, literal};
@@ -50,7 +50,7 @@ macro_rules! status_notice {
                 #[serde(rename = "type")]
                 notice_type: McpServerStatusChangedType,
                 /// The provider.
-                provider: ProviderName,
+                provider: ProviderId,
                 /// The binding's scope.
                 scope: McpBindingScope,
                 /// The server's name.
@@ -123,7 +123,7 @@ pub enum McpOauthOutcome {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct McpServerOauthCompletedPayload {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The binding's scope.
     pub scope: McpBindingScope,
     /// The server's name.
@@ -237,8 +237,8 @@ ts_constants! {
     MCP_SERVER_NOT_FOUND_CODE = RefusalCode::McpServerNotFound;
     /// The submitted configuration failed validation before anything was written.
     MCP_CONFIG_INVALID_CODE = RefusalCode::McpConfigInvalid;
-    /// The provider's config file changed under the write: Codex's version check failed, or a
-    /// Codex project file no longer hashes to what the daemon last read.
+    /// The provider's config file changed under the write: the provider's own version check
+    /// failed, or a project file no longer hashes to what the daemon last read.
     MCP_CONFIG_WRITE_CONFLICT_CODE = RefusalCode::McpConfigWriteConflict;
     /// The sign-in could not be started. A failure after it started arrives as an event.
     MCP_OAUTH_FLOW_FAILED_CODE = RefusalCode::McpOauthFlowFailed;

@@ -16,7 +16,7 @@ use serde_json::Map;
 use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::name::ProviderName;
+use sidekicks_contracts::provider::id::ProviderId;
 use strum::{EnumString, IntoStaticStr, VariantArray};
 
 use crate::provider::driver::diagnostics::{
@@ -475,7 +475,7 @@ pub(crate) fn resolve_claude_frame_emission_route(
 ) -> ClaudeFrameEmissionRoute {
     let Ok(census_kind) = ClaudeWireFrameKind::from_str(frame_kind) else {
         let record = DriverDiagnosticRecord {
-            provider: ProviderName::Claude,
+            provider: ProviderId::new("claude".to_owned()).expect("the id matches the pattern"),
             provider_account_id,
             kind: DriverDiagnosticKind::UnmappedWireKind,
             raw_wire_type: Some(frame_kind.to_owned()),

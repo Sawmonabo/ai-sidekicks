@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use serde_json::{Map, Value};
-use sidekicks_contracts::provider::name::ProviderName;
+use sidekicks_contracts::provider::id::ProviderId;
 use tokio::time::Instant;
 
 use crate::provider::driver::diagnostics::{
@@ -205,7 +205,7 @@ struct QuarantinedFrame {
 /// Holds the thread registry for one session and makes the routing decision for each frame.
 pub(crate) struct ThreadFrameRouter<Frame> {
     /// The provider its diagnostics name.
-    provider: ProviderName,
+    provider: ProviderId,
     /// The bounds on the held states.
     config: ThreadFrameRouterConfig,
     /// The session's own thread, once established.
@@ -222,7 +222,7 @@ pub(crate) struct ThreadFrameRouter<Frame> {
 
 impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
     /// An empty router for one session of `provider`, its held states bounded by `config`.
-    pub(crate) fn new(provider: ProviderName, config: ThreadFrameRouterConfig) -> Self {
+    pub(crate) fn new(provider: ProviderId, config: ThreadFrameRouterConfig) -> Self {
         Self {
             provider,
             config,
@@ -481,7 +481,7 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
         details: [(&str, Value); FIELDS],
     ) {
         emit_driver_diagnostic(&DriverDiagnosticRecord {
-            provider: self.provider,
+            provider: self.provider.clone(),
             provider_account_id: None,
             kind,
             raw_wire_type: raw_wire_type.map(str::to_owned),
@@ -499,7 +499,7 @@ mod tests {
     use std::time::Duration;
 
     use rstest::rstest;
-    use sidekicks_contracts::provider::name::PROVIDER_NAMES;
+    use sidekicks_contracts::provider::id::ProviderId;
     use tokio::time::Instant;
 
     use super::{
@@ -544,7 +544,7 @@ mod tests {
 
     fn router_for_session() -> ThreadFrameRouter<TestFrame> {
         let mut router = ThreadFrameRouter::new(
-            PROVIDER_NAMES[0],
+            ProviderId::new("test-provider".to_owned()).expect("the id matches the pattern"),
             ThreadFrameRouterConfig {
                 max_quarantined_frames: 2,
                 max_pending_hold_frames: 8,

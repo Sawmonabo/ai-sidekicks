@@ -7,7 +7,7 @@ use crate::event::envelope::{
     SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
 use crate::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -28,7 +28,7 @@ pub struct SubagentLifecyclePayload {
     /// The run the helper runs under.
     pub run_id: RunId,
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The provider's own id for the helper.
     pub subagent_id: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
     /// The tool call the helper was opened under, where the provider names one.

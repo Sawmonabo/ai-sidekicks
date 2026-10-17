@@ -118,11 +118,11 @@ pub enum McpApprovalMode {
 
 /// Where a server binding applies: `user` in all projects, `project` in one project with its
 /// declaration in the repository, `local` in one project with its declaration outside the
-/// repository, `plugin` for a server an installed plugin carries, and, on Claude Code only,
-/// `connector` for a claude.ai connector and `managed` for an organization's server. The first
-/// three are writable on both providers; Codex has no per-project layer outside the repository, so
-/// the daemon emulates `local` there with a user entry that is off by default and switched on in
-/// that project's sessions. The last two are read-only.
+/// repository, `plugin` for a server an installed plugin carries, and, on a provider that brings
+/// servers itself, `connector` for a connector of its account and `managed` for an organization's
+/// server. The first three are writable on every provider; where a provider has no per-project
+/// layer outside the repository, the daemon emulates `local` with a user entry that is off by
+/// default and switched on in that project's sessions. The last two are read-only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum McpBindingScope {
@@ -134,7 +134,7 @@ pub enum McpBindingScope {
     Local,
     /// Carried by an installed plugin.
     Plugin,
-    /// A claude.ai connector of one provider account.
+    /// A connector of one provider account.
     Connector,
     /// An organization's server.
     Managed,
@@ -144,8 +144,8 @@ pub enum McpBindingScope {
 /// binding's identity and the members the caller adds. `in writable scopes` keeps the three scopes
 /// a person writes; `in every scope` adds `plugin`, `connector` and `managed`, whose declarations
 /// the daemon never writes. An `in every scope` union may end with `on connector and managed { … }
-/// elsewhere { … }`: members only the two read-only Claude Code arms take, and their form on the
-/// other four arms.
+/// elsewhere { … }`: members only the two read-only arms take, and their form on the other four
+/// arms.
 macro_rules! binding_addressed {
     (
         $(#[$meta:meta])+
@@ -166,7 +166,7 @@ macro_rules! binding_addressed {
                 /// overrides, its declaration changing only with the plugin.
                 Plugin {
                     /// The provider.
-                    provider: $crate::provider::name::ProviderName,
+                    provider: $crate::provider::id::ProviderId,
                     /// The plugin's name.
                     scope_ref: $crate::plugin::PluginToken,
                     /// The server's name.
@@ -174,14 +174,14 @@ macro_rules! binding_addressed {
                     $($extra)*
                     $($($elsewhere)*)?
                 },
-                /// A claude.ai connector, the provider account's own: read-only, switched off per
-                /// project only by the daemon's own switch, and given tool overrides.
+                /// A connector of a provider account, the account's own: read-only, switched off
+                /// per project only by the daemon's own switch, and given tool overrides.
                 Connector {
-                    /// Always `claude`.
-                    provider: $crate::provider::name::ClaudeProviderWord,
+                    /// The provider, one whose accounts bring connectors.
+                    provider: $crate::provider::id::ProviderId,
                     /// The provider account the connector belongs to.
                     scope_ref: $crate::provider::account::record::ProviderAccountId,
-                    /// The name Claude Code reports for it, such as `claude.ai Slack`.
+                    /// The name the provider reports for it.
                     server_name: $crate::mcp::server::McpServerName,
                     $($extra)*
                     $($($read_only)*)?
@@ -190,8 +190,8 @@ macro_rules! binding_addressed {
                 /// address's host only, switched off per project only by the daemon's own switch,
                 /// and given tool overrides.
                 Managed {
-                    /// Always `claude`.
-                    provider: $crate::provider::name::ClaudeProviderWord,
+                    /// The provider, one that reads an organization's managed servers.
+                    provider: $crate::provider::id::ProviderId,
                     /// The server's name.
                     server_name: $crate::mcp::server::McpServerName,
                     $($extra)*
@@ -217,7 +217,7 @@ macro_rules! binding_addressed {
             /// A binding in all projects.
             User {
                 /// The provider.
-                provider: $crate::provider::name::ProviderName,
+                provider: $crate::provider::id::ProviderId,
                 /// The server's name.
                 server_name: $crate::mcp::server::McpServerName,
                 $($writable_extra)*
@@ -225,7 +225,7 @@ macro_rules! binding_addressed {
             /// A binding in one project, declared in the repository.
             Project {
                 /// The provider.
-                provider: $crate::provider::name::ProviderName,
+                provider: $crate::provider::id::ProviderId,
                 /// The project's root folder.
                 scope_ref: $crate::free_form_string::FilesystemPath,
                 /// The distribution the root is in, in Linux form; absent elsewhere.
@@ -243,7 +243,7 @@ macro_rules! binding_addressed {
             /// A binding in one project, declared outside the repository.
             Local {
                 /// The provider.
-                provider: $crate::provider::name::ProviderName,
+                provider: $crate::provider::id::ProviderId,
                 /// The project's root folder.
                 scope_ref: $crate::free_form_string::FilesystemPath,
                 /// The distribution the root is in, in Linux form; absent elsewhere.
@@ -274,8 +274,8 @@ binding_addressed! {
 
 binding_addressed! {
     /// The scope-qualified identity of one server binding: a writable binding, a server an
-    /// installed plugin carries, or one Claude Code brings itself (a claude.ai connector or an
-    /// organization's server). Same-named servers in two scopes stay two rows.
+    /// installed plugin carries, or one the provider brings itself (a connector of its account or
+    /// an organization's server). Same-named servers in two scopes stay two rows.
     pub enum McpServerBindingRef in every scope {}
 }
 
@@ -312,6 +312,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<McpServerConfigChangedNotice>().checked(),
         Definition::read::<config::McpServerConfigInput>(),
         Definition::read::<config::McpServerConfigView>(),
+        Definition::read::<config::McpTransport>(),
+        Definition::read::<config::McpDeclaredConfigMember>(),
+        Definition::read::<config::ProviderMcpDeclaration>(),
         Definition::read::<inventory::McpRuntimeBindingId>().checked(),
         Definition::read::<inventory::McpServerLegStatus>(),
         Definition::read::<inventory::McpServerFailedReason>(),

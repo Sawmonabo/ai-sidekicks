@@ -7,7 +7,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
-use sidekicks_contracts::provider::name::ProviderName;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemSummary;
@@ -38,7 +38,7 @@ pub(crate) struct DaemonTurnStartRequest {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The provider the turn runs on.
-    pub(crate) provider: ProviderName,
+    pub(crate) provider: ProviderId,
     /// The account the session's process was admitted against, or `None` for none.
     pub(crate) admitted_provider_account_id: Option<ProviderAccountId>,
     /// The session's current level and roots, which the turn runs at like any run.
@@ -63,7 +63,7 @@ pub(crate) struct DaemonTurnStartRequest {
 /// go in the run's `running` write, built when it is written.
 pub(crate) struct RunStartPath {
     /// The provider the run runs on; its settled output speed is read against this one's standard.
-    pub(crate) provider: ProviderName,
+    pub(crate) provider: ProviderId,
     /// The output speed the run starts at, held until its provider reports the speed settled.
     pub(crate) output_speed: Option<ProviderToken>,
     /// The posture the run was requested at; the posture gate checks it, and its resolved form is

@@ -20,7 +20,8 @@ use crate::agent::provider_binding::{
 use crate::jsonrpc::streaming::{SubscribeAckResponse, SubscriptionId};
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
-use crate::provider::name::ProviderName;
+use crate::provider::declaration::ProviderOptionSettings;
+use crate::provider::id::ProviderId;
 use crate::schema::required_member;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -69,15 +70,16 @@ macro_rules! agent_entry {
             #[schemars(with = "crate::provider::driver::output_speed::ProviderOutputSpeedState")]
             pub observed_output_speed:
                 Option<$crate::provider::driver::output_speed::ProviderOutputSpeedState>,
-            /// The Ultracode state the provider reported on the live binding; absent where its
-            /// driver declares no Ultracode or no binding is live, never read as off.
+            /// The session options as the provider reports them on the live binding; absent where
+            /// no binding is live or its driver declares none, never read as off.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
                 deserialize_with = "crate::wire::present"
             )]
-            #[schemars(with = "crate::provider::driver::ultracode::ObservedUltracode")]
-            pub observed_ultracode: Option<$crate::provider::driver::ultracode::ObservedUltracode>,
+            #[schemars(with = "crate::provider::declaration::ObservedProviderOptions")]
+            #[garde(dive)]
+            pub observed_options: Option<$crate::provider::declaration::ObservedProviderOptions>,
             /// Present exactly while a switch waits, so every client learns of it, after a
             /// restart too.
             #[serde(
@@ -129,10 +131,10 @@ pub struct AgentListAck {
     pub agents: Vec<AgentListEntry>,
 }
 
-/// Moves a running agent's model, window, effort, speed, Ultracode or provider: an omitted member
-/// is unchanged and at least one moves, settled by the binding events. A provider switch applies at
-/// the end of the run in flight; the account is no member, since it follows the provider's
-/// current account. A model move names its window.
+/// Moves a running agent's model, window, effort, speed, session options or provider: an omitted
+/// member is unchanged and at least one moves, settled by the binding events. A provider switch
+/// applies at the end of the run in flight; the account is no member, since it follows the
+/// provider's current account. A model move names its window.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -147,8 +149,8 @@ pub struct AgentConfigUpdateRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "ProviderName")]
-    pub driver_name: Option<ProviderName>,
+    #[schemars(with = "ProviderId")]
+    pub driver_name: Option<ProviderId>,
     /// The model.
     #[serde(
         default,
@@ -173,14 +175,18 @@ pub struct AgentConfigUpdateRequest {
     )]
     #[schemars(with = "ProviderToken")]
     pub output_speed: Option<ProviderToken>,
-    /// Ultracode on or off, refused by a driver that declares no Ultracode.
+    /// Values of the session options the target driver declares; an option left out keeps its
+    /// value. The daemon checks each against the driver's declaration: an option the driver does
+    /// not declare is refused with `driver.capability_unsupported`, and a value outside its
+    /// declaration with `agent.provider_axis_invalid`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "bool")]
-    pub ultracode: Option<bool>,
+    #[schemars(with = "ProviderOptionSettings")]
+    #[garde(dive)]
+    pub options: Option<ProviderOptionSettings>,
     /// The window in tokens, or `null` back to the model's default.
     #[serde(
         default,
@@ -209,12 +215,12 @@ fn update_moves_a_member(request: &AgentConfigUpdateRequest, (): &()) -> garde::
         || request.model_id.is_some()
         || request.effort.is_some()
         || request.output_speed.is_some()
-        || request.ultracode.is_some()
+        || request.options.is_some()
         || request.larger_window.is_some();
     if !moves_a_member {
         return Err(garde::Error::new(
             "an update moves at least one of driverName, modelId, largerWindow, effort, \
-             outputSpeed or ultracode",
+             outputSpeed or options",
         ));
     }
     model_move_names_window(request.model_id.as_ref(), request.larger_window.as_ref())
@@ -227,7 +233,7 @@ fn add_moves_a_member_rule(schema: &mut Schema) {
         "modelId",
         "effort",
         "outputSpeed",
-        "ultracode",
+        "options",
         "largerWindow",
     ]
     .map(required_member)

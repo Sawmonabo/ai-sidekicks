@@ -2,6 +2,7 @@
 
 pub(crate) mod attachments;
 pub(crate) mod callback_tool;
+pub(crate) mod capabilities;
 pub(crate) mod contract;
 pub(crate) mod diagnostics;
 pub(crate) mod mcp_server_status;

@@ -23,7 +23,7 @@ use crate::provider::account::sign_in::{
     ProviderAccountRegisterResponse, ProviderAccountResetCredentialHomeRequest,
     ProviderAccountResetCredentialHomeResponse,
 };
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::session::cost::UsdMicros;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -268,7 +268,7 @@ pub struct AccountUsageScope {
 #[schemars(inline)]
 pub struct ProviderUsageScope {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
 }
 
 /// The accounts a usage read covers: one account, or every account of one provider.

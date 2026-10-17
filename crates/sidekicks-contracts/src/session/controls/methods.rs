@@ -1,7 +1,7 @@
 //! A session's own controls and the reads behind its composer chips: the permission level and the
 //! Build or Plan mode, the auto-compact bound, the tool servers and their resources, the live `/`
 //! list, the side question, the review, the definitions reload, the step bound, the spend and token
-//! limits, and the Codex sessions typed in a terminal.
+//! limits, and the provider sessions typed in a terminal.
 //!
 //! Every method here names the session it acts on, and every setting it changes belongs to that
 //! session alone: Settings, other sessions and future sessions are untouched.
@@ -16,7 +16,7 @@ use crate::mcp::server::{McpServerName, McpServerStatus};
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::driver::commands::ProviderCommandEntry;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::session::cost::{OrchestrationBudgetState, TokensPerRun, UsdMicros};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -467,7 +467,7 @@ pub enum TerminalProviderSessionState {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TerminalProviderSession {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The session's name.
     pub name: ComposedText,
     /// The provider's thread id.
@@ -477,7 +477,8 @@ pub struct TerminalProviderSession {
 }
 
 /// The provider sessions typed in a terminal, read off the same directory entries the agents'
-/// `session_list` names. Empty while `Reach Codex sessions started in a terminal` is off.
+/// `session_list` names. Empty while the provider's switch that reaches sessions started in a
+/// terminal is off.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

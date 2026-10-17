@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::method::methods;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
 use crate::session::controls::methods::PermissionLevel;
 use crate::session::id::SessionId;
@@ -99,7 +99,7 @@ pub struct PlanHandedOffPayload {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlanFreshSession {
     /// The provider.
-    pub driver_name: ProviderName,
+    pub driver_name: ProviderId,
     /// The level.
     pub level: PermissionLevel,
 }

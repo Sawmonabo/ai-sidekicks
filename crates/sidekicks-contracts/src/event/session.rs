@@ -270,7 +270,7 @@ session_events! {
     ApprovalRemembered(ApprovalRememberedPayload) = "approval.remembered" => required,
     /// Emitted when a remembered approval rule is revoked.
     ApprovalRuleRevoked(ApprovalRuleRevokedPayload) = "approval.rule_revoked" => optional,
-    /// Emitted when Codex's own reviewer flags an item with a warning or a required review.
+    /// Emitted when a provider's own reviewer flags an item with a warning or a required review.
     ModerationReviewFlagged(ModerationReviewFlaggedPayload) = "moderation.review_flagged" => required,
     /// Emitted when an agent proposes a plan; the payload is the record the screen renders.
     PlanProposed(PlanProposedPayload) = "plan.proposed" => required,
@@ -378,10 +378,11 @@ session_events! {
     /// Emitted when a restart found steps in the provider's own record that only read, added
     /// them to the transcript and let the run go on.
     RunRecoveryStepsAdded(RunRecoveryStepsAddedPayload) = "run.recovery_steps_added" => required,
-    /// Emitted when `/advisor` changes a Claude Code session's own advisor model, or turns it off.
+    /// Emitted when the provider's own advisor command changes the session's advisor, or turns it
+    /// off.
     SessionAdvisorChanged(#[garde(dive)] SessionAdvisorChangedPayload) =
         "session.advisor_changed",
-    /// Emitted when `/output-style` changes a Claude Code session's own output style.
+    /// Emitted when the provider's own output-style command changes the session's output style.
     SessionOutputStyleChanged(#[garde(dive)] SessionOutputStyleChangedPayload) =
         "session.output_style_changed",
     /// Emitted on every session on a mount when the daemon's re-probe changes the mount's health.
@@ -394,15 +395,15 @@ session_events! {
     ArtifactPublished(ArtifactPublicationPayload) = "artifact.published" => optional,
     /// Emitted when a newer version replaces an artifact; its payload keeps unknown members.
     ArtifactSuperseded(ArtifactPublicationPayload) = "artifact.superseded" => optional,
-    /// Emitted when Claude Code refuses a turn, names a fallback model and asks to retry or edit.
+    /// Emitted when the provider refuses a turn, names a fallback model and asks to retry or edit.
     RunRefusalChoiceRequested(RunRefusalChoiceRequestedPayload) =
         "run.refusal_choice_requested" => required,
     /// Emitted when the first answer settles a refused turn's retry-or-edit choice.
     RunRefusalChoiceResolved(RunRefusalChoiceResolvedPayload) = "run.refusal_choice_resolved" => required,
-    /// Emitted when a Fable turn needs usage credits and Claude Code asks to switch or go on.
+    /// Emitted when a turn's model needs usage credits and the provider asks to switch or go on.
     RunUsageCreditsChoiceRequested(RunUsageCreditsChoiceRequestedPayload) =
         "run.usage_credits_choice_requested" => required,
-    /// Emitted when a Fable turn's switch-or-credits choice settles.
+    /// Emitted when a turn's switch-or-credits choice settles.
     RunUsageCreditsChoiceResolved(RunUsageCreditsChoiceResolvedPayload) =
         "run.usage_credits_choice_resolved" => required,
     /// Emitted when a session's goal is set or changes status.

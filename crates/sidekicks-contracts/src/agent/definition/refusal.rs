@@ -62,7 +62,7 @@ macro_rules! agent_resolution_refused_details {
                 $(#[$id_meta])*
                 definition_id: $definition_id,
                 /// The driver.
-                driver_name: $crate::provider::name::ProviderName,
+                driver_name: $crate::provider::id::ProviderId,
                 /// The model, or `null` for none bound.
                 #[serde(deserialize_with = "crate::wire::nullable")]
                 #[schemars(with = "crate::agent::definition::refusal::NullableProviderToken")]
@@ -100,13 +100,13 @@ macro_rules! agent_resolution_refused_details {
                 /// The driver's tools.
                 supported_tool_names: Vec<$crate::agent::definition::ToolName>,
             },
-            /// The provider name the definition's file carries, which this app does not run.
+            /// The provider the definition binds, which no registered driver answers.
             ProviderUnsupported {
                 /// The definition.
                 $(#[$id_meta])*
                 definition_id: $definition_id,
-                /// The name the file gave.
-                unsupported_provider_name: $crate::agent::definition::binding::ProviderToken,
+                /// The provider as the definition names it.
+                unsupported_provider_name: $crate::provider::id::ProviderId,
             },
         }
     };

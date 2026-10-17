@@ -10,7 +10,6 @@ use crate::mcp::server::config::McpServerConfigView;
 use crate::mcp::server::{McpApprovalMode, McpServerStatus, McpToolName, binding_addressed};
 use crate::place::PlacedPath;
 use crate::provider::driver::length_limits::DRIVER_BINDING_ID_MAX_LEN;
-use crate::provider::name::{ClaudeProviderWord, ProviderName};
 use crate::schema::{push_all_of, required_member};
 use crate::session::id::SessionId;
 use crate::wire::instant::WireInstant;
@@ -289,9 +288,9 @@ macro_rules! inventory_entry {
                 /// The project roots, each with the distribution it is in, in which another binding
                 /// of this provider takes this one's place, by the provider's order: a project's
                 /// `local` binding over its `project` one, either over the `user` one, matched by
-                /// server name; on Claude Code a plugin's server or a connector also matches when
-                /// it points at the same address or command. Absent where it is used wherever it
-                /// applies.
+                /// server name, and, on a provider that matches that way, a plugin's server or a
+                /// connector that points at the same address or command. Absent where it is used
+                /// wherever it applies.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
@@ -300,10 +299,10 @@ macro_rules! inventory_entry {
                 #[schemars(with = "UniqueList<PlacedPath, 1, { usize::MAX }>")]
                 #[garde(dive)]
                 superseded_in: Option<UniqueList<PlacedPath, 1, { usize::MAX }>>,
-                /// Claude Code: the project roots, each with its distribution, where the server is
-                /// switched off, by Claude Code's own per-project list or, on a connector or an
-                /// organization's server, by the daemon's per-project switch; it stays out of those
-                /// projects' sessions. Absent where no project switched it off.
+                /// The project roots, each with its distribution, where the server is switched off,
+                /// by the provider's own per-project list or, on a connector or an organization's
+                /// server, by the daemon's per-project switch; it stays out of those projects'
+                /// sessions. Absent where no project switched it off.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
@@ -339,13 +338,12 @@ inventory_entry! {
 inventory_entry! {
     /// An inventory row while the binding store is unavailable: the members that need the store
     /// are absent, not `false`, `unknown` or an empty list, so no made-up verdict exists. A
-    /// Claude Code binding leaves `enabled` out, since its switch lives in the store.
-    #[garde(custom(Self::leaves_claude_enabled_out))]
-    #[schemars(transform = add_claude_enabled_rule)]
+    /// binding whose switch the daemon keeps in the store leaves `enabled` out.
     pub enum McpStoreUnavailableInventoryEntry {
         /// Always `true`.
         binding_store_unavailable: True,
-        /// Whether the binding is on, as Codex's own config says; absent on Claude Code.
+        /// Whether the binding is on, as the provider's own config says; absent where the switch
+        /// lives in the store.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -354,53 +352,6 @@ inventory_entry! {
         #[schemars(with = "bool")]
         enabled: Option<bool>,
     }
-}
-
-impl McpStoreUnavailableInventoryEntry {
-    /// Whether a Claude Code binding leaves `enabled` out.
-    #[expect(
-        clippy::trivially_copy_pass_by_ref,
-        reason = "garde passes a check's context by reference"
-    )]
-    fn leaves_claude_enabled_out(&self, (): &()) -> garde::Result {
-        let (is_claude, enabled) = match self {
-            Self::User {
-                provider, enabled, ..
-            }
-            | Self::Project {
-                provider, enabled, ..
-            }
-            | Self::Local {
-                provider, enabled, ..
-            }
-            | Self::Plugin {
-                provider, enabled, ..
-            } => (*provider == ProviderName::Claude, enabled),
-            Self::Connector { enabled, .. } | Self::Managed { enabled, .. } => (true, enabled),
-        };
-        if is_claude && enabled.is_some() {
-            Err(garde::Error::new(
-                "a Claude Code binding's enabled is unknown while the binding store is unavailable",
-            ))
-        } else {
-            Ok(())
-        }
-    }
-}
-
-/// The schema twin of [`McpStoreUnavailableInventoryEntry::leaves_claude_enabled_out`].
-fn add_claude_enabled_rule(schema: &mut Schema) {
-    push_all_of(
-        schema,
-        json!({
-            "if": {
-                "type": "object",
-                "properties": { "provider": { "const": ClaudeProviderWord::TEXT } },
-                "required": ["provider"],
-            },
-            "then": { "type": "object", "properties": { "enabled": false } },
-        }),
-    );
 }
 
 /// One inventory row: the binding and what is known about it. A client renders an absent member

@@ -6,9 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FilesystemPath;
-use crate::mcp::server::config::{
-    McpRequestText, McpServerAddress, McpServerConfigInput, add_provider_config_rules,
-};
+use crate::mcp::server::config::{McpRequestText, McpServerAddress, McpServerConfigInput};
 use crate::mcp::server::inventory::{
     McpRuntimeBindingId, McpServerInventoryEntry, McpServerLegStatus, McpToolOverride,
     McpToolOverrideFacet,
@@ -38,12 +36,10 @@ pub struct McpListRequest {
 }
 
 binding_addressed! {
-    /// Adds a binding or changes its declaration, at any writable scope on either provider. Every
+    /// Adds a binding or changes its declaration, at any writable scope on any provider. Every
     /// scope takes what the person typed, values included, written in that provider's own file
-    /// format; a plugin's, connector's or organization's server is refused. A member only Codex
-    /// reads is refused on a Claude Code binding, and `sse` on a Codex one.
-    #[garde(custom(Self::fits_its_provider))]
-    #[schemars(transform = add_provider_config_rules)]
+    /// format; a plugin's, connector's or organization's server is refused, and so is a transport
+    /// or member the binding's provider does not declare.
     pub enum McpUpsertServerRequest in writable scopes {
         /// The press's key; a retry reuses it.
         client_idempotency_key: ClientUuid,
@@ -53,29 +49,9 @@ binding_addressed! {
     }
 }
 
-impl McpUpsertServerRequest {
-    /// Whether the declaration fits the binding's provider.
-    #[expect(
-        clippy::trivially_copy_pass_by_ref,
-        reason = "garde passes a check's context by reference"
-    )]
-    fn fits_its_provider(&self, (): &()) -> garde::Result {
-        let (Self::User {
-            provider, config, ..
-        }
-        | Self::Project {
-            provider, config, ..
-        }
-        | Self::Local {
-            provider, config, ..
-        }) = self;
-        config.check_provider(*provider)
-    }
-}
-
 binding_addressed! {
     /// Removes a binding from its provider's config. A plugin's server leaves only with its
-    /// plugin, and a connector or an organization's server only with Claude Code's own account or
+    /// plugin, and a connector or an organization's server only with the provider's own account or
     /// settings, so each is refused.
     pub enum McpRemoveServerRequest in writable scopes {
         /// The press's key; a retry reuses it.
@@ -85,7 +61,7 @@ binding_addressed! {
 
 binding_addressed! {
     /// Turns one binding on or off. A connector or an organization's server is switched for one
-    /// project, `projectRoot`, by the daemon's own switch, never in Claude Code's config; every
+    /// project, `projectRoot`, by the daemon's own switch, never in the provider's config; every
     /// other binding is switched where it applies and takes no `projectRoot`.
     pub enum McpSetEnabledRequest in every scope {
         /// The press's key; a retry reuses it.
@@ -149,7 +125,7 @@ binding_addressed! {
     }
 }
 
-/// Signs out of one server: the daemon's single sign-in for it, which both providers and every
+/// Signs out of one server: the daemon's single sign-in for it, which every provider and every
 /// binding naming it share. `serverId` is the server's address, not a scope-qualified binding.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -304,8 +280,9 @@ literal! {
     pub enum McpDaemonEnforcedGrade = const McpApplicationGrade::DaemonEnforced.as_str();
 }
 
-/// One tool override's result, per facet it touched. A Codex `enabled` or `approvalMode` facet is
-/// written into the provider's own config, so each facet carries its own grade.
+/// One tool override's result, per facet it touched. An `enabled` or `approvalMode` facet may be
+/// written into the provider's own config, where the provider keeps it, so each facet carries its
+/// own grade.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct McpToolOverrideApplication {

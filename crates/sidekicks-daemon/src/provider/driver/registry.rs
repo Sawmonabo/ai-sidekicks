@@ -8,17 +8,15 @@ use std::sync::{Arc, RwLock};
 
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::provider::driver::capabilities::{
-    DriverCapabilities, DriverCapabilityFlag,
-};
-use sidekicks_contracts::provider::name::ProviderName;
+use sidekicks_contracts::provider::id::ProviderId;
 
 use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
 use crate::provider::driver::contract::{DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE, ProviderDriver};
 
 /// The refusal for a call to a driver that is not registered; its detail carries only the
 /// driver's name, so nothing internal leaks.
-pub(crate) fn driver_unavailable(provider: ProviderName) -> DomainError {
+pub(crate) fn driver_unavailable(provider: &ProviderId) -> DomainError {
     DomainError::new(
         "Provider driver is currently unavailable",
         RefusalCode::DriverUnavailable,
@@ -31,7 +29,7 @@ pub(crate) fn driver_unavailable(provider: ProviderName) -> DomainError {
 /// the driver's name and the flag. The params resolve and a protocol-state rule fails, so it
 /// answers as an invalid request.
 pub(crate) fn driver_capability_unsupported(
-    provider: ProviderName,
+    provider: &ProviderId,
     flag: DriverCapabilityFlag,
 ) -> DomainError {
     DomainError::new(
@@ -55,7 +53,7 @@ struct RegisteredDriver {
 #[derive(Default)]
 pub(crate) struct ProviderRegistry {
     /// The registered drivers by provider; each lock is held only for a map read or write.
-    drivers: RwLock<BTreeMap<ProviderName, RegisteredDriver>>,
+    drivers: RwLock<BTreeMap<ProviderId, RegisteredDriver>>,
 }
 
 impl ProviderRegistry {
@@ -63,7 +61,7 @@ impl ProviderRegistry {
     /// earlier registration and its snapshot.
     pub(crate) fn register(
         &self,
-        provider: ProviderName,
+        provider: ProviderId,
         driver: Arc<dyn ProviderDriver>,
         capabilities: DriverCapabilities,
     ) {
@@ -80,11 +78,11 @@ impl ProviderRegistry {
     }
 
     /// The driver registered for `provider`, or `None` when none is.
-    pub(crate) fn lookup(&self, provider: ProviderName) -> Option<Arc<dyn ProviderDriver>> {
+    pub(crate) fn lookup(&self, provider: &ProviderId) -> Option<Arc<dyn ProviderDriver>> {
         self.drivers
             .read()
             .expect("no registry writer panics holding the lock")
-            .get(&provider)
+            .get(provider)
             .map(|registered| Arc::clone(&registered.driver))
     }
 
@@ -92,7 +90,7 @@ impl ProviderRegistry {
     /// no driver is registered for it, and [`driver_capability_unsupported`] otherwise.
     pub(crate) fn check_capability(
         &self,
-        provider: ProviderName,
+        provider: &ProviderId,
         flag: DriverCapabilityFlag,
     ) -> Result<(), DomainError> {
         let drivers = self
@@ -100,7 +98,7 @@ impl ProviderRegistry {
             .read()
             .expect("no registry writer panics holding the lock");
         let registered = drivers
-            .get(&provider)
+            .get(provider)
             .ok_or_else(|| driver_unavailable(provider))?;
         if registered.capabilities.flags.is_on(flag) {
             Ok(())
@@ -110,12 +108,12 @@ impl ProviderRegistry {
     }
 
     /// The providers with a registered driver, in the providers' order.
-    pub(crate) fn list_available(&self) -> Vec<ProviderName> {
+    pub(crate) fn list_available(&self) -> Vec<ProviderId> {
         self.drivers
             .read()
             .expect("no registry writer panics holding the lock")
             .keys()
-            .copied()
+            .cloned()
             .collect()
     }
 }

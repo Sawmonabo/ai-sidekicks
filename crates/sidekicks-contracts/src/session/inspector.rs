@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::session::controls::methods::SessionAddressedRequest;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -19,7 +19,8 @@ use crate::wire::text::ComposedText;
 
 /// Where the session compacts and the slider's range. The top stop is the provider's own compaction
 /// point on this window; the bottom stop is the session's fixed start plus a tenth of the window,
-/// rounded up, and is `null` on Codex until the first usage report says what the session loads.
+/// rounded up, and is `null` where the provider reports what the session loads only with its first
+/// usage report, until that report comes.
 /// `session_override` draws the `session` mark: the bound differs from the Settings default.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -36,7 +37,7 @@ pub struct SessionCompactionBound {
     pub session_override: bool,
 }
 
-/// How Claude Code marks a bucket: counted as used, deferred (dimmed and left out of the used
+/// How the provider marks a bucket: counted as used, deferred (dimmed and left out of the used
 /// figure), the compaction buffer, or free space.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -61,7 +62,7 @@ pub struct SessionContextPart {
     pub tokens: SafeInt<0>,
 }
 
-/// One of Claude Code's buckets, in its own order, with the parts it names.
+/// One of the provider's named buckets, in its own order, with the parts it names.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionContextCategory {
@@ -69,7 +70,7 @@ pub struct SessionContextCategory {
     pub name: ComposedText,
     /// Its tokens.
     pub tokens: SafeInt<0>,
-    /// How Claude Code marks it.
+    /// How the provider marks it.
     pub kind: SessionContextCategoryKind,
     /// The parts it names, where it names any.
     #[serde(
@@ -81,23 +82,23 @@ pub struct SessionContextCategory {
     pub parts: Option<Vec<SessionContextPart>>,
 }
 
-/// What fills the context, per provider. Claude Code reports named buckets; Codex reports totals
-/// only, the four figures of its token-usage update.
+/// What fills the context, by the shape of the provider's report: named buckets with their parts,
+/// or totals only, the four figures of a token-usage report.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
-    tag = "provider",
+    tag = "kind",
     rename_all = "lowercase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
 pub enum SessionContextBreakdown {
-    /// Claude Code's named buckets.
-    Claude {
-        /// The buckets, in Claude Code's order.
+    /// Named buckets.
+    Buckets {
+        /// The buckets, in the provider's order.
         categories: Vec<SessionContextCategory>,
     },
-    /// Codex's totals.
-    Codex {
+    /// Totals only.
+    Totals {
         /// Cached input tokens.
         cached_input_tokens: SafeInt<0>,
         /// Input tokens.
@@ -124,7 +125,7 @@ pub struct SessionContextUsage {
 /// One reading of the session's context, which feeds the ring and the inspector's `Context`
 /// section alike so the two never disagree. Every figure is the provider's own, read at creation,
 /// on every model change and on each usage report. `usage` is `null` until the provider has
-/// reported one, which on Codex is the first turn's report.
+/// reported one, which on some providers is the first turn's report.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -209,13 +210,14 @@ pub struct SessionAutoMemoryUpdateRequest {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionAutoMemoryAppliesAt {
-    /// At once, as on Codex.
+    /// At once, where the provider takes the change live.
     Now,
-    /// At the provider's next start, as on Claude Code.
+    /// At the provider's next start, where it reads the switch only when it starts.
     NextStart,
 }
 
-/// The switch, and when it takes effect: at once on Codex, at the next start on Claude Code.
+/// The switch, and when it takes effect: at once, or at the provider's next start where the
+/// provider reads it only then.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -318,8 +320,8 @@ pub struct ProviderHookFile {
 }
 
 /// The inspector's `Hooks` section, by what it lists: `loadedHooks` where the provider reports the
-/// hooks it loaded (Codex), `hookFiles` where it reports none and the section lists the files it
-/// reads hooks from (Claude Code). The daemon's own hooks are never listed.
+/// hooks it loaded, `hookFiles` where it reports none and the section lists the files it reads
+/// hooks from. The daemon's own hooks are never listed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
@@ -334,7 +336,7 @@ pub enum SessionHookListResponse {
         /// The session.
         session_id: SessionId,
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The folders.
         folders: Vec<ProviderHookSource>,
     },
@@ -343,7 +345,7 @@ pub enum SessionHookListResponse {
         /// The session.
         session_id: SessionId,
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The files.
         files: Vec<ProviderHookFile>,
     },

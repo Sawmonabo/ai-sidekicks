@@ -72,7 +72,8 @@ pub enum QueueItemNotDeliveredReason {
 pub type MessageContent = FreeFormText<{ usize::MAX }>;
 
 /// One skill a send picked: its front-matter name and its folder, as `skill.list` gives them. A
-/// Codex agent's skill input names the `SKILL.md` path Codex lists for that name in that folder.
+/// provider that takes a skill as its own input item receives the `SKILL.md` path its own skill
+/// list gives for that name in that folder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QueuedSkillPick {
@@ -119,7 +120,8 @@ pub struct QueueItemCreateRequest {
     #[schemars(with = "AttachmentReferenceList")]
     pub attachments: Option<AttachmentReferenceList>,
     /// Each skill picked from the composer's `/` and `$` list, in the order picked. The daemon
-    /// refuses a pick a Codex session's own list does not name in that folder.
+    /// refuses a pick the provider's own skill list, where it keeps one, does not name in that
+    /// folder.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -560,6 +562,17 @@ pub struct QueueChangeRefusedDetails {
     pub reason: QueueChangeRefusedReason,
 }
 
+/// The details a `session.message.tooLarge` refusal carries: the provider's limit and the
+/// message's length, both in characters as that provider counts them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionMessageTooLargeDetails {
+    /// The most characters the provider takes in one message.
+    pub limit: SafeInt<1>,
+    /// The characters the refused message held.
+    pub observed: SafeInt<1>,
+}
+
 /// The TypeScript module of the message queue.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/queue",
@@ -590,6 +603,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<QueueReorderRequest>().checked(),
         Definition::read::<QueueChangeRefusedReason>(),
         Definition::read::<QueueChangeRefusedDetails>(),
+        Definition::read::<SessionMessageTooLargeDetails>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

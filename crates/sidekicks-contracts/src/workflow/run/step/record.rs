@@ -11,7 +11,7 @@ use crate::agent::definition::AgentResolvedConfiguration;
 use crate::artifacts::id::ArtifactId;
 use crate::jsonrpc::byte_length::fits_budget;
 use crate::provider::account::record::{PROVIDER_ACCOUNT_LABEL_MAX_LEN, ProviderAccountId};
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::question::QuestionId;
 use crate::run::control::ProcessExit;
 use crate::session::cost::UsdMicros;
@@ -85,7 +85,7 @@ pub struct WorkflowSpentAccount {
     /// The account.
     pub provider_account_id: ProviderAccountId,
     /// Its provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// Its label.
     pub label: FreeFormText<PROVIDER_ACCOUNT_LABEL_MAX_LEN>,
 }

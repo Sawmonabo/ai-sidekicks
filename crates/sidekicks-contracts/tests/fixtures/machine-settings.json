@@ -41,18 +41,6 @@
       "refusal": "credential_shaped"
     },
     {
-      "name": "DISABLE_AUTOUPDATER",
-      "refusal": "set_by_app"
-    },
-    {
-      "name": "disable_updates",
-      "refusal": "set_by_app"
-    },
-    {
-      "name": "CODEX_APP_SERVER_BIN",
-      "refusal": "set_by_app"
-    },
-    {
       "name": "sidekicks_original_env",
       "refusal": "set_by_app"
     }
@@ -64,7 +52,8 @@
         "updatesAutomatic": true,
         "keepCrashReports": true,
         "editorId": null,
-        "advisorModel": null,
+        "providerSettings": {},
+        "commitTextModel": null,
         "defaultCheckout": "provisioned-worktree",
         "newSessionCarriesLastModel": true,
         "lastLeadModel": null,
@@ -110,7 +99,8 @@
         "cloneFolder": null,
         "voice": {
           "mode": "hold",
-          "callVoice": null
+          "callVoice": null,
+          "dictationLanguage": null
         }
       }
     },
@@ -129,7 +119,8 @@
         "updatesAutomatic": true,
         "keepCrashReports": true,
         "editorId": null,
-        "advisorModel": null,
+        "providerSettings": {},
+        "commitTextModel": null,
         "defaultCheckout": "provisioned-worktree",
         "newSessionCarriesLastModel": true,
         "lastLeadModel": null,
@@ -175,7 +166,8 @@
         "cloneFolder": null,
         "voice": {
           "mode": "tap",
-          "callVoice": null
+          "callVoice": null,
+          "dictationLanguage": null
         }
       }
     },
@@ -199,7 +191,8 @@
         "updatesAutomatic": true,
         "keepCrashReports": true,
         "editorId": null,
-        "advisorModel": null,
+        "providerSettings": {},
+        "commitTextModel": null,
         "defaultCheckout": "provisioned-worktree",
         "newSessionCarriesLastModel": true,
         "lastLeadModel": null,
@@ -245,7 +238,8 @@
         "cloneFolder": null,
         "voice": {
           "mode": "hold",
-          "callVoice": null
+          "callVoice": null,
+          "dictationLanguage": null
         }
       }
     },
@@ -269,7 +263,8 @@
         "updatesAutomatic": true,
         "keepCrashReports": true,
         "editorId": null,
-        "advisorModel": null,
+        "providerSettings": {},
+        "commitTextModel": null,
         "defaultCheckout": "provisioned-worktree",
         "newSessionCarriesLastModel": true,
         "lastLeadModel": null,
@@ -315,7 +310,8 @@
         "cloneFolder": null,
         "voice": {
           "mode": "hold",
-          "callVoice": null
+          "callVoice": null,
+          "dictationLanguage": null
         }
       }
     },
@@ -331,7 +327,8 @@
         "updatesAutomatic": true,
         "keepCrashReports": true,
         "editorId": null,
-        "advisorModel": null,
+        "providerSettings": {},
+        "commitTextModel": null,
         "defaultCheckout": "provisioned-worktree",
         "newSessionCarriesLastModel": true,
         "lastLeadModel": {
@@ -381,20 +378,24 @@
         "cloneFolder": null,
         "voice": {
           "mode": "hold",
-          "callVoice": null
+          "callVoice": null,
+          "dictationLanguage": null
         }
       }
     },
     {
       "file": {
         "editorId": null,
-        "cloneFolder": { "path": "/Users/person/code" }
+        "cloneFolder": {
+          "path": "/Users/person/code"
+        }
       },
       "settings": {
         "updatesAutomatic": true,
         "keepCrashReports": true,
         "editorId": null,
-        "advisorModel": null,
+        "providerSettings": {},
+        "commitTextModel": null,
         "defaultCheckout": "provisioned-worktree",
         "newSessionCarriesLastModel": true,
         "lastLeadModel": null,
@@ -437,10 +438,13 @@
           "folder": null
         },
         "branchNamePattern": "sidekicks/{session}/{title}",
-        "cloneFolder": { "path": "/Users/person/code" },
+        "cloneFolder": {
+          "path": "/Users/person/code"
+        },
         "voice": {
           "mode": "hold",
-          "callVoice": null
+          "callVoice": null,
+          "dictationLanguage": null
         }
       }
     },
@@ -468,7 +472,8 @@
         "updatesAutomatic": true,
         "keepCrashReports": true,
         "editorId": null,
-        "advisorModel": null,
+        "providerSettings": {},
+        "commitTextModel": null,
         "defaultCheckout": "provisioned-worktree",
         "newSessionCarriesLastModel": true,
         "lastLeadModel": null,
@@ -514,7 +519,8 @@
         "cloneFolder": null,
         "voice": {
           "mode": "hold",
-          "callVoice": null
+          "callVoice": null,
+          "dictationLanguage": null
         }
       }
     },

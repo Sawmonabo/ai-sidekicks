@@ -65,7 +65,8 @@ refusal_codes! {
     /// from that model's `effortLevels`, a larger window the target model's catalog does not offer
     /// at that figure, an output-speed value absent from the `outputSpeedLevels` published for the
     /// target model (its own list where its provider publishes one per model, else the driver's),
-    /// or `ultracode: true` on a session whose Claude Code reports `ultracodeAvailable` false.
+    /// or a session option's value outside the target driver's declaration of it or one the
+    /// provider reports this session cannot run.
     AgentProviderAxisInvalid = "agent.provider_axis_invalid" (400);
     /// The definition exists but cannot currently produce a runnable agent.
     AgentResolutionRefused = "agent.resolution_refused" (409);
@@ -198,9 +199,10 @@ refusal_codes! {
     McpBindingStoreUnavailable = "mcp.binding_store_unavailable" (503);
     /// The submitted server configuration failed validation.
     McpConfigInvalid = "mcp.config_invalid" (400);
-    /// A Codex config write lost to a concurrent edit, on either arm: a `user`-scope write's
-    /// `expected_version` hit `configVersionConflict`, which is returned at once with no retry, and
-    /// the error carries both version tokens so the caller can re-inspect.
+    /// A write to a provider's own configuration lost to a concurrent edit, on either arm: a
+    /// `user`-scope write's expected version was refused as stale, returned at once with no retry
+    /// and carrying both version tokens so the caller can re-inspect, or the `project` file no
+    /// longer hashes to what the daemon last read, so the edit is not written.
     McpConfigWriteConflict = "mcp.config_write_conflict" (409);
     /// The daemon failed to launch the sign-in.
     McpOauthFlowFailed = "mcp.oauth_flow_failed" (502);
@@ -229,6 +231,9 @@ refusal_codes! {
     ProtocolHandshakeRequired = "protocol.handshake_required" ();
     /// Mutating dispatch attempted in `done-incompatible` state.
     ProtocolVersionMismatch = "protocol.version_mismatch" ();
+    /// The account's plan allowance or credits are spent, shared by every provider call that spends
+    /// from the account; `data.fields` carries the reset time when the provider gives one.
+    ProviderAccountAllowanceExhausted = "provider.account.allowanceExhausted" (429);
     /// Nothing runnable sits at the command path the person typed.
     ProviderCommandNotRunnable = "provider.command_not_runnable" (422);
     /// A per-place provider call named a WSL distribution that runs on WSL 1, where no session
@@ -243,6 +248,11 @@ refusal_codes! {
     /// The provider's command is not installed, so a setting that needs it cannot be turned on:
     /// availability for new sessions, the shared terminal service, and the terminal plugin.
     ProviderNotInstalled = "provider.not_installed" (409);
+    /// `provider.update` named a row the provider's driver does not declare.
+    ProviderRowNotFound = "provider.row.notFound" (404);
+    /// `provider.update` set a row to a value its declaration refuses: another kind, a choice not
+    /// listed or unavailable, a none the row does not offer, or text past its length.
+    ProviderRowValueInvalid = "provider.row.valueInvalid" (422);
     /// `providerAccount.remove` refused because a run bound to the account is live.
     ProvideraccountAccountInUse = "provideraccount.account_in_use" (409);
     /// The account's credential home is missing, unreadable, or structurally unusable.
@@ -259,9 +269,9 @@ refusal_codes! {
     /// Accounts exist for the provider but none carries the current mark, so resolution is
     /// ambiguous and refuses rather than picking one.
     ProvideraccountNoDefault = "provideraccount.no_default" (400);
-    /// `providerAccount.setCurrent` named a known-dead target: its stored reading is
-    /// `reauth_required`, or its last limits read showed its Claude Code login gone
-    /// (`rate_limits_available: false` with `subscription_type: null`).
+    /// The account's sign-in is gone or the provider refused it: `providerAccount.setCurrent` named
+    /// a known-dead target (its stored reading is `reauth_required`, or its last limits read showed
+    /// its provider sign-in gone), or a provider call such as a voice call needed a sign-in.
     ProvideraccountNotAuthenticated = "provideraccount.not_authenticated" (401);
     /// No account is registered for the requested provider.
     ProvideraccountNotRegistered = "provideraccount.not_registered" (400);
@@ -306,8 +316,8 @@ refusal_codes! {
     QuestionAnswersIncomplete = "question.answers_incomplete" (422);
     /// A change to a waiting message refused: a removal (`run.queueCancel`) or an edit
     /// (`run.queueCreate` with `replacesQueueItemId`) of a message the agent has already taken, a
-    /// removal or an edit of one Claude Code did not give back, its withdraw failing or passing the
-    /// daemon's ten-second withdraw deadline, which then reads not delivered, or a
+    /// removal or an edit of one the provider did not give back, its withdraw failing or passing
+    /// the daemon's ten-second withdraw deadline, which then reads not delivered, or a
     /// `run.queueReorder` whose list is not exactly the waiting items.
     QueueChangeRefused = "queue.change_refused" (409);
     /// A change (`run.queueCancel`, an edit through `run.queueCreate` with `replacesQueueItemId`,
@@ -414,6 +424,10 @@ refusal_codes! {
     /// `session.linkRemove` named a link the daemon wrote from an event (`started`, `copied_from`,
     /// `messaged`, `asked`, `mentioned`), which records what happened.
     SessionLinkNotRemovable = "session.link_not_removable" (409);
+    /// The session's provider refused a message, a steer or a queued message as longer than its
+    /// own limit, so none of it reached the conversation (`data.fields`:
+    /// `SessionMessageTooLargeDetails`).
+    SessionMessageTooLarge = "session.message.tooLarge" (413);
     /// Session does not exist.
     SessionNotFound = "session.not_found" (404);
     /// A permission level the session's provider, its account or its model cannot run, sent on
@@ -435,12 +449,15 @@ refusal_codes! {
     /// rebuilding, at the wire for a call naming the session and at the append for any of its
     /// events but the pass's own.
     SessionWriteRefused = "session.write_refused" (409);
+    /// A skill's name is longer than the name limit of a provider the skill is on
+    /// (`data.fields`: `SkillNameTooLongDetails`).
+    SkillNameTooLong = "skill.nameTooLong" (422);
     /// A save would rename a folder of ours onto a name another folder of ours already holds in the
     /// same place.
     SkillNameTaken = "skill.name_taken" (409);
     /// `skill.update` refused a path in the folder it would save, or `run.queueCreate` refused a
-    /// picked skill whose name and folder match no row of `skill.list`, or, for a Codex agent, no
-    /// skill Codex's own list names in that folder.
+    /// picked skill whose name and folder match no row of `skill.list`, or, for an agent whose
+    /// provider keeps its own skill list, no skill that list names in that folder.
     SkillPathRefused = "skill.path_refused" (422);
     /// A write to a skill was refused.
     SkillWriteRefused = "skill.write_refused" (409);
@@ -470,11 +487,12 @@ refusal_codes! {
     VersionCeilingExceeded = "version.ceiling_exceeded" ();
     /// Client below daemon's lex-min supported version.
     VersionFloorExceeded = "version.floor_exceeded" ();
-    /// Codex could not start the call `voice.callStart` asked for.
-    VoiceCallStartFailed = "voice.call_start_failed" (502);
-    /// Voice refused on an account its provider gives no voice: on Claude Code, an account that is
-    /// neither a Claude sign-in nor a pasted Claude token.
-    VoiceUnavailable = "voice.unavailable" (403);
+    /// Voice refused on a signed-in account whose sign-in kind its provider gives no voice
+    /// (`data.fields`: `VoiceAccountNotEntitledDetails`).
+    VoiceAccountNotEntitled = "voice.accountNotEntitled" (403);
+    /// The provider could not start the call `voice.callStart` asked for, for a passing reason: its
+    /// realtime service or the network failed, or the call closed before its answer.
+    VoiceCallStartFailed = "voice.call_start_failed" (503);
     /// A full-tier Code step whose package install did not finish.
     WorkflowCodeInstallFailed = "workflow.code_install_failed" (500);
     /// A Code step over its memory budget, 256 MiB per node by default and settable.

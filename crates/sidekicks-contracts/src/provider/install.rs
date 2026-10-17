@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::provider::settings::{ProviderPlaceRequest, ProviderVersion};
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::text::FreeFormText;
@@ -35,17 +35,17 @@ pub enum ProviderInstallProgress {
     /// The installer runs.
     Running {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
     },
     /// The installer finished.
     Installed {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
     },
     /// The installer failed.
     Failed {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The installer's last lines, credentials removed.
         reason: FreeFormText<PROVIDER_INSTALL_FAILURE_REASON_MAX_LEN>,
         /// The installer command, for the person to run.
@@ -69,12 +69,12 @@ pub enum ProviderInstallUpdateProgress {
     /// The update runs.
     Running {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
     },
     /// The command resolves to a newer build.
     Updated {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The version it left.
         from_version: ProviderVersion,
         /// The version it resolves to.
@@ -83,14 +83,14 @@ pub enum ProviderInstallUpdateProgress {
     /// The command already resolves to the latest build.
     Current {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The version it resolves to.
         version: ProviderVersion,
     },
     /// The update ran and the command resolves to the same build.
     NotUpdated {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The version it still resolves to.
         version: ProviderVersion,
         /// The update's last lines, credentials removed.
@@ -101,7 +101,7 @@ pub enum ProviderInstallUpdateProgress {
     /// The install sits where only an administrator can write, so the person runs the command.
     NeedsAdministrator {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The update command, for the person to run.
         command: FreeFormText<PROVIDER_INSTALL_COMMAND_MAX_LEN>,
     },

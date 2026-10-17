@@ -13,7 +13,7 @@ use crate::provider::account::record::{
     BillingMode, CredentialGeneration, DisplayLabel, PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN,
     ProviderAccount, ProviderAccountHealthState, ProviderAccountId,
 };
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::web_address::HttpsAddress;
 use crate::wire::Never;
@@ -55,7 +55,7 @@ pub type NonInteractiveToken = FreeFormText<PROVIDER_NON_INTERACTIVE_TOKEN_MAX_L
 #[schemars(inline)]
 pub struct SignInRegistration {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// Only an account added from a pasted token carries a name.
     #[serde(
         default,
@@ -99,7 +99,7 @@ pub struct SignInRegistration {
 #[schemars(inline)]
 pub struct TokenRegistration {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The name the person gives the account.
     pub display_label: DisplayLabel,
     /// How the account is charged.
@@ -132,7 +132,7 @@ pub struct TokenRegistration {
 #[schemars(inline)]
 pub struct TokenResupply {
     /// The provider, which must match the stored account's.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// A new name for the account.
     #[serde(
         default,

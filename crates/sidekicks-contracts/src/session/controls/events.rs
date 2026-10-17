@@ -1,7 +1,7 @@
 //! A session's notices and flow rows: the rows its controls write, the notices about its provider
-//! (its build, its restarts, its warnings, a level an account lacks) and about the WSL 2
-//! distribution it runs in, Codex's reviewer flag, and the live frame of Codex's safety hold on a
-//! turn.
+//! (its build, its restarts, its warnings, its ignored settings, a level an account lacks) and
+//! about the WSL 2 distribution it runs in, the flag from a provider's own reviewer, and the live
+//! frame of a provider's safety hold on a turn.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use crate::free_form_string::FilesystemPath;
 use crate::place::{DistroName, Place};
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::{DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN};
-use crate::provider::name::{ClaudeProviderWord, CodexProviderWord, ProviderName};
+use crate::provider::id::ProviderId;
 use crate::provider::settings::PROVIDER_VERSION_MAX_LEN;
 use crate::run::id::RunId;
 use crate::session::controls::methods::{
@@ -23,8 +23,8 @@ use crate::session::cost::{TokensPerRun, UsdMicros};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
-use crate::wire::literal;
 use crate::wire::text::{ComposedText, FreeFormText};
+use crate::wire::{Never, literal};
 
 /// The `session.side_question_answered` payload: the person's question and the provider's answer,
 /// each as written. The aside never enters the conversation.
@@ -79,9 +79,9 @@ pub struct RunTokenLimitReachedPayload {
     pub token_limit: TokensPerRun,
 }
 
-/// Codex's safety hold on a turn (`active`) or its release, with the faster model Codex names, as
-/// sent. Relayed live on the run's state stream and never kept, so a re-opened session does not
-/// show it again.
+/// A provider's safety hold on a turn (`active`) or its release, with the faster model the
+/// provider names, as sent. Relayed live on the run's state stream and never kept, so a re-opened
+/// session does not show it again.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RunSafetyBufferingUpdatedPayload {
@@ -93,7 +93,7 @@ pub struct RunSafetyBufferingUpdatedPayload {
     pub turn_id: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
     /// Whether the hold is on.
     pub active: bool,
-    /// The faster model Codex names, where it names one.
+    /// The faster model the provider names, where it names one.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -108,36 +108,44 @@ literal! {
     pub enum SettingsIgnoredKind = "settings_ignored";
 }
 
-/// Codex started without part of its settings: the file and the line it names.
+/// A provider started without part of its own settings, by a report naming a file and a line in
+/// it, both always; quoted from the provider's report, never composed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
-pub struct CodexSettingsIgnoredNotice {
+pub struct SettingsIgnoredAtLineNotice {
     /// The session.
     pub session_id: SessionId,
     /// Always `settings_ignored`.
     pub kind: SettingsIgnoredKind,
-    /// Always `codex`.
-    pub provider: CodexProviderWord,
+    /// The provider whose settings were ignored.
+    pub provider: ProviderId,
     /// The settings file.
     pub file: FilesystemPath,
     /// The line in it.
     pub line: SafeInt<1>,
+    /// Never present: a report naming a line names no key.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Never")]
+    pub key: Option<Never>,
 }
 
-/// Claude Code started without part of its settings: the file `doctor` names, with the key for one
-/// bad value, or the managed settings file that holds a key lower; absent where no file the daemon
-/// can read sets it.
+/// A provider started without part of its own settings, by a report naming a file and the key with
+/// the bad value, each where known and never a line; quoted from the provider's report.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
-pub struct ClaudeSettingsIgnoredNotice {
+pub struct SettingsIgnoredAtKeyNotice {
     /// The session.
     pub session_id: SessionId,
     /// Always `settings_ignored`.
     pub kind: SettingsIgnoredKind,
-    /// Always `claude`.
-    pub provider: ClaudeProviderWord,
+    /// The provider whose settings were ignored.
+    pub provider: ProviderId,
     /// The settings file, where one is known.
     #[serde(
         default,
@@ -154,6 +162,14 @@ pub struct ClaudeSettingsIgnoredNotice {
     )]
     #[schemars(with = "ComposedText")]
     pub key: Option<ComposedText>,
+    /// Never present: a report naming a key names no line.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Never")]
+    pub line: Option<Never>,
 }
 
 /// Which kind of notice a provider warning came from: a warning or a deprecation notice.
@@ -196,7 +212,7 @@ pub enum SessionNotice {
         /// The session.
         session_id: SessionId,
     },
-    /// Claude Code ended the turn at its cap on unmet checks; the goal stays active.
+    /// The provider ended the turn at its cap on unmet goal checks; the goal stays active.
     GoalNotMet {
         /// The session.
         session_id: SessionId,
@@ -241,19 +257,19 @@ pub enum SessionNotice {
         /// The session.
         session_id: SessionId,
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The version it left.
         from_version: FreeFormText<PROVIDER_VERSION_MAX_LEN>,
         /// The version it runs.
         to_version: FreeFormText<PROVIDER_VERSION_MAX_LEN>,
     },
-    /// A provider process that ended on its own runs again, restarted by the daemon or by the
-    /// person's restart; drawn as one row.
+    /// The person's restart brought back a provider the crash loop stopped; it ends the crash
+    /// loop's banner and draws no row, and the daemon's own restarts write none.
     ProviderRestarted {
         /// The session.
         session_id: SessionId,
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
     },
     /// The provider process ended on its own too many times in a short window and the daemon
     /// stopped restarting it, with the exit code or the signal it ended on, exactly one of them;
@@ -263,7 +279,7 @@ pub enum SessionNotice {
         /// The session.
         session_id: SessionId,
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The exit code it ended with, where it ended with one.
         #[serde(
             default,
@@ -303,7 +319,7 @@ pub enum SessionNotice {
         /// The session.
         session_id: SessionId,
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// Where the session runs.
         #[serde(
             default,
@@ -380,20 +396,20 @@ impl SessionNotice {
 }
 
 /// The `session.notice` payload. Its kinds are a closed set, each drawn as one plain sentence;
-/// `settings_ignored` takes one shape per provider.
+/// `settings_ignored` takes one shape per kind of report: a file and a line, or a file and a key.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 #[garde(allow_unvalidated)]
 pub enum SessionNoticePayload {
-    /// Codex started without part of its settings.
-    CodexSettingsIgnored(CodexSettingsIgnoredNotice),
-    /// Claude Code started without part of its settings.
-    ClaudeSettingsIgnored(ClaudeSettingsIgnoredNotice),
+    /// A provider ignored part of its settings, by a report naming a file and a line.
+    SettingsIgnoredAtLine(SettingsIgnoredAtLineNotice),
+    /// A provider ignored part of its settings, by a report naming a file and a key.
+    SettingsIgnoredAtKey(SettingsIgnoredAtKeyNotice),
     /// Every other notice.
     Notice(#[garde(dive)] SessionNotice),
 }
 
-/// Which of Codex's reviewer signals a flag carries.
+/// Which of a provider's reviewer signals a flag carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ModerationReviewSignal {
@@ -403,8 +419,8 @@ pub enum ModerationReviewSignal {
     ReviewRequired,
 }
 
-/// The `moderation.review_flagged` payload: a warning or a required review from Codex's own
-/// reviewer, drawn as one row in Codex's words. `event_id` names the item the flag is about;
+/// The `moderation.review_flagged` payload: a warning or a required review from the provider's own
+/// reviewer, drawn as one row in the provider's words. `event_id` names the item the flag is about;
 /// `text` is the words the row shows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -427,8 +443,8 @@ pub struct ModerationReviewFlaggedPayload {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "session/controls/events",
     doc: "A session's notices and flow rows: the rows its controls write, the notices about its \
-          provider and about the WSL 2 distribution it runs in, Codex's reviewer flag, and the \
-          live frame of Codex's safety hold on a turn.",
+          provider and about the WSL 2 distribution it runs in, the flag from a provider's own \
+          reviewer, and the live frame of a provider's safety hold on a turn.",
     definitions: &[
         Definition::read::<SessionSideQuestionAnsweredPayload>().checked(),
         Definition::read::<RunStepLimitReachedPayload>().checked(),

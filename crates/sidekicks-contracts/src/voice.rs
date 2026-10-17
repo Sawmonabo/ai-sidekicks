@@ -1,9 +1,10 @@
-//! Voice, as a window drives it through the daemon: which session voice is on in, dictation into
-//! the composer on Claude Code, and Codex's own spoken call on Codex. Voice is on in one session at
-//! a time on this computer, held by the daemon and off after it restarts, and there is one
-//! recording and one call at a time, so the methods on the one in progress name no session.
-//! Dictation audio is 16 kHz 16-bit mono PCM in 100 ms frames; the window is a call's WebRTC peer
-//! and hands its offer here. No provider credential crosses these methods in either direction.
+//! Voice, as a window drives it through the daemon: which session voice is on in, and its two
+//! mechanisms, dictation into the composer and a spoken call with the provider, of which the
+//! session's state says which one a session uses. Voice is on in one session at a time on this
+//! computer, held by the daemon and off after it restarts, and there is one recording and one call
+//! at a time, so the methods on the one in progress name no session. Dictation audio is 16 kHz
+//! 16-bit mono PCM in 100 ms frames; the window is a call's WebRTC peer and hands its offer here.
+//! No provider credential crosses these methods in either direction.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -12,7 +13,7 @@ use strum::VariantArray;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::attachment::Bytes;
@@ -22,8 +23,8 @@ use crate::wire::{NullableSchema, literal, nullable};
 ts_constants! {
     /// The bytes in one 100 ms frame of 16 kHz 16-bit mono audio.
     pub const VOICE_DICTATION_FRAME_MAX_BYTES: usize = 16_000 * 2 / 10;
-    /// Every reason voice can be unavailable, for the composer strip's refusal line.
-    VOICE_UNAVAILABLE_REASONS = VoiceUnavailableReason::VARIANTS;
+    /// Every reason an account is not entitled to voice, for the composer strip's refusal line.
+    VOICE_ACCOUNT_NOT_ENTITLED_REASONS = VoiceAccountNotEntitledReason::VARIANTS;
     /// Every reason a recording can end without its words, for the composer strip's refusal line.
     VOICE_DICTATION_FAILURE_REASONS = VoiceDictationFailureReason::VARIANTS;
 }
@@ -34,25 +35,26 @@ literal! {
     pub enum MessageOrigin = "voice";
 }
 
-/// Why `voice.unavailable` refused: the account is not one its provider gives voice.
+/// Why `voice.accountNotEntitled` refused: the account is signed in, but its provider gives its
+/// sign-in kind no voice.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
-pub enum VoiceUnavailableReason {
-    /// The provider gives voice only to an account signed in with it.
-    ProviderSignInRequired,
+#[serde(rename_all = "camelCase")]
+pub enum VoiceAccountNotEntitledReason {
+    /// The account's sign-in kind has no voice on its provider.
+    SignInKindNotEntitled,
 }
 
-/// The `voice.unavailable` refusal's details: why, and the session's provider, so the screen draws
-/// that provider's own sentence and remedy.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// The `voice.accountNotEntitled` refusal's details: why, and the session's provider; the screen
+/// draws one sentence naming the account, the same on every provider.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct VoiceUnavailableDetails {
+pub struct VoiceAccountNotEntitledDetails {
     /// Why.
-    pub reason: VoiceUnavailableReason,
+    pub reason: VoiceAccountNotEntitledReason,
     /// The session's provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
 }
 
 /// The session voice is on in, or `null` when it is off: the request and result of
@@ -68,7 +70,7 @@ pub struct VoiceState {
     pub session_id: Option<SessionId>,
 }
 
-/// `voice.dictationStart`: starts a recording in a Claude Code session.
+/// `voice.dictationStart`: starts a recording in a session whose voice is dictation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -190,7 +192,8 @@ pub enum VoiceDictationFrame {
     },
 }
 
-/// `voice.callStart`: starts a call in a Codex session with the window's WebRTC offer.
+/// `voice.callStart`: starts a call in a session whose voice is a spoken call, with the window's
+/// WebRTC offer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -201,7 +204,7 @@ pub struct VoiceCallStartRequest {
     pub offer_sdp: NonEmptyText,
 }
 
-/// Codex's WebRTC answer to the window's offer.
+/// The provider's WebRTC answer to the window's offer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -223,9 +226,9 @@ literal! {
     pub enum VoiceCallEndedKind = "ended";
     /// The daemon stopped the call.
     pub enum VoiceCallStoppedCause = "stopped";
-    /// Codex closed the call.
+    /// The provider closed the call.
     pub enum VoiceCallClosedCause = "closed";
-    /// Codex reported an error.
+    /// The provider reported an error.
     pub enum VoiceCallErrorCause = "error";
 }
 
@@ -272,20 +275,20 @@ call_frame! {
         /// Always `stopped`.
         pub cause: VoiceCallStoppedCause,
     }
-    /// Codex closed the call, with its own reason or none.
+    /// The provider closed the call, with its own reason or none.
     VoiceCallClosedFrame(VoiceCallEndedKind) {
         /// Always `closed`.
         pub cause: VoiceCallClosedCause,
-        /// Codex's reason, or `null`.
+        /// The provider's reason, or `null`.
         #[serde(deserialize_with = "nullable")]
         #[schemars(with = "NullableSchema<String>")]
         pub reason: Option<String>,
     }
-    /// Codex reported an error, in its own words.
+    /// The provider reported an error, in its own words.
     VoiceCallErrorFrame(VoiceCallEndedKind) {
         /// Always `error`.
         pub cause: VoiceCallErrorCause,
-        /// Codex's words.
+        /// The provider's words.
         pub message: NonEmptyText,
     }
 }
@@ -306,13 +309,13 @@ pub enum VoiceCallFrame {
     AssistantTranscriptDone(VoiceCallAssistantTranscriptDoneFrame),
     /// The daemon stopped the call.
     Stopped(VoiceCallStoppedFrame),
-    /// Codex closed the call.
+    /// The provider closed the call.
     Closed(VoiceCallClosedFrame),
-    /// Codex reported an error.
+    /// The provider reported an error.
     Error(VoiceCallErrorFrame),
 }
 
-/// The voices Codex offers a call, and the one it uses until the person picks another.
+/// The voices the provider offers a call, and the one it uses until the person picks another.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -346,7 +349,7 @@ methods! {
             mutating: true,
             params: VoiceDictationStartRequest,
             result: EmptyPayload,
-            refusals: [SessionNotFound, VoiceUnavailable],
+            refusals: [SessionNotFound, VoiceAccountNotEntitled, DriverCapabilityUnsupported],
         },
         /// Sends one frame of the recording.
         VoiceDictationWrite = mutation "voice.dictationWrite" {
@@ -370,12 +373,20 @@ methods! {
             emission: VoiceDictationFrame,
             refusals: [],
         },
-        /// Starts a Codex call.
+        /// Starts a spoken call.
         VoiceCallStart = mutation "voice.callStart" {
             mutating: true,
             params: VoiceCallStartRequest,
             result: VoiceCallStartResponse,
-            refusals: [SessionNotFound, VoiceUnavailable, VoiceCallStartFailed],
+            refusals: [
+                SessionNotFound,
+                VoiceAccountNotEntitled,
+                DriverCapabilityUnsupported,
+                VoiceCallStartFailed,
+                ProvideraccountNotAuthenticated,
+                ProviderAccountAllowanceExhausted,
+                DriverTimeout,
+            ],
         },
         /// Stops the call.
         VoiceCallStop = mutation "voice.callStop" {
@@ -392,7 +403,7 @@ methods! {
             emission: VoiceCallFrame,
             refusals: [],
         },
-        /// The voices Codex offers a call.
+        /// The voices the provider offers a call.
         VoiceList = query "voice.voiceList" {
             mutating: false,
             params: EmptyPayload,
@@ -405,12 +416,12 @@ methods! {
 /// The TypeScript module of voice.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "voice",
-    doc: "Voice, as a window drives it through the daemon: which session voice is on in, \
-          dictation on Claude Code, and Codex's own spoken call on Codex.",
+    doc: "Voice, as a window drives it through the daemon: which session voice is on in, and its \
+          two mechanisms, dictation into the composer and a spoken call with the provider.",
     definitions: &[
         Definition::read::<MessageOrigin>().checked(),
-        Definition::read::<VoiceUnavailableReason>(),
-        Definition::read::<VoiceUnavailableDetails>().checked(),
+        Definition::read::<VoiceAccountNotEntitledReason>(),
+        Definition::read::<VoiceAccountNotEntitledDetails>().checked(),
         Definition::read::<VoiceState>().checked(),
         Definition::read::<VoiceDictationStartRequest>(),
         Definition::read::<VoiceDictationWriteRequest>().checked(),

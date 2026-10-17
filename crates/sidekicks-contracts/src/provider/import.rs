@@ -10,7 +10,7 @@ use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::{PlacedPath, WslPlace};
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
@@ -38,26 +38,22 @@ branded_text! {
 }
 
 /// A request naming the provider whose conversations are imported.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct ProviderImportProviderRequest {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
 }
 
 /// How many projects the app does not have the import would attach. A count above zero is
 /// confirmed before the import runs, because attaching a project trusts its folder.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct ProviderImportPreviewResponse {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The projects the import would attach.
     pub projects_to_attach: SafeInt<0>,
 }
@@ -144,7 +140,7 @@ pub enum ProviderImportProgress {
     /// The running import's count so far.
     Progress {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The import.
         import_id: ProviderImportId,
         /// The conversations read so far.
@@ -153,7 +149,7 @@ pub enum ProviderImportProgress {
     /// How the last import ended.
     Settled {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The import.
         import_id: ProviderImportId,
         /// How it ended.

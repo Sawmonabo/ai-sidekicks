@@ -19,7 +19,7 @@ use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
 use crate::session::cost::UsdMicros;
 use crate::session::id::SessionId;
@@ -320,7 +320,7 @@ fn window_dependent_required() -> Value {
 #[garde(allow_unvalidated)]
 pub struct UsageRateLimitUpdatePayload {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The account the quota belongs to.
     pub provider_account_id: ProviderAccountId,
     /// The account's credential generation when the reading was taken, so a reading from before a
@@ -396,7 +396,7 @@ pub struct UsageApiRetryPayload {
     #[schemars(with = "RunId")]
     pub run_id: Option<RunId>,
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// Why the request was retried.
     pub error_kind: ApiRetryErrorKind,
     /// How long the provider waits before the retry, in milliseconds.
@@ -449,7 +449,7 @@ pub struct UsageContextCompactedPayload {
     /// The run whose context was compacted.
     pub run_id: RunId,
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The tokens the context held before the compaction.
     #[serde(
         default,
