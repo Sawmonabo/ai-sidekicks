@@ -389,8 +389,10 @@ pub struct ProviderRequest {
 pub struct ProviderPlaceRequest {
     /// The provider.
     pub provider: ProviderName,
-    /// The place: absent on a computer without a WSL 2 distribution and present on one
-    /// with; either sent wrong is `invalid_params`.
+    /// The place: absent on a computer without a WSL 2 distribution and present on one with. On
+    /// Windows, `"windows"` names Windows and a distribution is refused by its name, whether or not
+    /// a WSL 2 distribution remains; a place on macOS or Linux, or none where a WSL 2 distribution
+    /// is, is `invalid_params`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -438,7 +440,9 @@ macro_rules! provider_update_request {
                 /// The provider.
                 provider: $provider,
                 /// The place: absent on a computer without a WSL 2 distribution and present on one
-                /// with; either sent wrong is `invalid_params`.
+                /// with. On Windows, `"windows"` names Windows and a distribution is refused by its
+                /// name, whether or not a WSL 2 distribution remains; a place on macOS or Linux, or
+                /// none where a WSL 2 distribution is, is `invalid_params`.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
@@ -505,7 +509,9 @@ provider_update_request! {
             /// The provider.
             provider: CodexProviderWord,
             /// The place: absent on a computer without a WSL 2 distribution and present on one
-            /// with; either sent wrong is `invalid_params`.
+            /// with. On Windows, `"windows"` names Windows and a distribution is refused by its
+            /// name, whether or not a WSL 2 distribution remains; a place on macOS or Linux, or
+            /// none where a WSL 2 distribution is, is `invalid_params`.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
@@ -527,8 +533,10 @@ provider_update_request! {
 pub struct ProviderTerminalPluginUpdateRequest {
     /// Always `claude`: the plugin is Claude Code's alone.
     pub provider: ClaudeProviderWord,
-    /// The place: absent on a computer without a WSL 2 distribution and present on one
-    /// with; either sent wrong is `invalid_params`.
+    /// The place: absent on a computer without a WSL 2 distribution and present on one with. On
+    /// Windows, `"windows"` names Windows and a distribution is refused by its name, whether or not
+    /// a WSL 2 distribution remains; a place on macOS or Linux, or none where a WSL 2 distribution
+    /// is, is `invalid_params`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
