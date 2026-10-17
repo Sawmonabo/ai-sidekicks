@@ -41,6 +41,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText, is_ecmascript_whitespace};
 
 use crate::ipc::domain_error::DomainError;
+use crate::ipc::registry::HandlerError;
 use crate::provider::driver::callback_tool::CallbackToolDispatcher;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
@@ -80,6 +81,18 @@ pub(crate) enum DriverError {
     /// The driver or its provider failed.
     #[error("the provider driver failed")]
     Internal(#[source] Box<dyn Error + Send + Sync>),
+}
+
+impl From<DriverError> for HandlerError {
+    /// A driver's refusal answers the call by its code; a steer whose turn ended, reaching a
+    /// handler, is a fault in the daemon, as is the driver's own failure.
+    fn from(error: DriverError) -> Self {
+        match error {
+            DriverError::Refused(refusal) => Self::Refused(refusal),
+            DriverError::SteerTurnEnded(steer) => Self::Internal(Box::new(steer)),
+            DriverError::Internal(fault) => Self::Internal(fault),
+        }
+    }
 }
 
 /// The operations every provider driver carries out for the daemon. Each refusal comes back as

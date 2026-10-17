@@ -1,0 +1,56 @@
+//! The provider driver a handler acts through, found from the run it runs or the session it
+//! serves. The address is refused before the provider, so an id that never existed is never
+//! reported as a provider problem.
+
+use std::sync::Arc;
+
+use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::id::SessionId;
+
+use crate::ipc::domain_error::DomainError;
+use crate::provider::driver::contract::ProviderDriver;
+use crate::provider::driver::registry::ProviderRegistry;
+use crate::session::not_found::session_not_found;
+use crate::session::run::refusals::RunRefusal;
+
+/// A driver as a handler found it, with the provider it answers.
+pub(crate) struct ResolvedDriver {
+    /// The provider the run or session is bound to.
+    pub(crate) provider: ProviderId,
+    /// That provider's driver.
+    pub(crate) driver: Arc<dyn ProviderDriver>,
+}
+
+/// The driver of the provider `bound` names, which the caller read once from the run's live
+/// binding (`None` for a run unknown or not live). Refused `agent.run.notFound` for `None`, then
+/// `provider.notFound` for a provider no driver answers.
+pub(crate) fn resolve_run_driver(
+    providers: &ProviderRegistry,
+    run_id: RunId,
+    bound: Option<ProviderId>,
+) -> Result<ResolvedDriver, DomainError> {
+    let provider = bound.ok_or(RunRefusal::NotFound { run_id })?;
+    resolved(providers, provider)
+}
+
+/// The driver of the provider `bound` names, which the caller read once from the session's
+/// binding (`None` for a session this daemon does not hold or that is not bound here, one answer
+/// for both). Refused `session.notFound` for `None`, then `provider.notFound` for a provider no
+/// driver answers.
+pub(crate) fn resolve_session_driver(
+    providers: &ProviderRegistry,
+    session_id: &SessionId,
+    bound: Option<ProviderId>,
+) -> Result<ResolvedDriver, DomainError> {
+    let provider = bound.ok_or_else(|| session_not_found(session_id))?;
+    resolved(providers, provider)
+}
+
+fn resolved(
+    providers: &ProviderRegistry,
+    provider: ProviderId,
+) -> Result<ResolvedDriver, DomainError> {
+    let driver = providers.lookup(&provider)?;
+    Ok(ResolvedDriver { provider, driver })
+}
