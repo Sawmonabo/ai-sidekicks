@@ -161,6 +161,17 @@ pub struct ChildrenStopRequest {
     pub run_id: RunId,
 }
 
+/// The run state a stop leaves a child in: `stopped` where the provider's stop is final,
+/// `interrupted` where a send can continue it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChildStoppedState {
+    /// The provider's stop is final.
+    Stopped,
+    /// A send can continue it.
+    Interrupted,
+}
+
 /// One child's stop: stopped, with the state it left the child in, already ended, or failed with
 /// the daemon's reason.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -175,9 +186,8 @@ pub enum ChildStopOutcome {
     Stopped {
         /// The child.
         child: AgentTreeMember,
-        /// The state the stop left the child in: `stopped` where the provider's stop is final,
-        /// `interrupted` where a send can continue it.
-        state: RunState,
+        /// The state the stop left the child in.
+        state: ChildStoppedState,
         /// Only a failed stop carries a reason.
         #[serde(
             default,
@@ -277,6 +287,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ChildPauseSetRequest>().checked(),
         Definition::read::<ChildPauseSetResponse>().checked(),
         Definition::read::<ChildrenStopRequest>().checked(),
+        Definition::read::<ChildStoppedState>(),
         Definition::read::<ChildStopOutcome>(),
         Definition::read::<ChildrenStopResponse>().checked(),
         Definition::read::<RunChildControlRefusedReason>(),

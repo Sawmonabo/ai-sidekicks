@@ -8,6 +8,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::jsonrpc::issue::ISSUES_MAX;
+use crate::wire::text::FreeFormText;
 
 /// A list of `MIN..=MAX` items (`usize::MAX` leaves it bounded only by the message cap).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -112,6 +113,41 @@ pub trait ListKey {
     /// read holds every rule it has.
     fn validate_item(&self, parent: &mut dyn FnMut() -> garde::Path, report: &mut garde::Report);
 }
+
+/// A text is its own key; its read holds every rule it has.
+impl<const MAX: usize> ListKey for FreeFormText<MAX> {
+    type Key = Self;
+
+    fn list_key(&self) -> Self {
+        self.clone()
+    }
+
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+/// Makes each closed `Copy` enum named its own list key, with no item check, since a closed value
+/// carries no rule its read does not hold.
+macro_rules! closed_list_key {
+    ($($name:ty),+) => {$(
+        impl $crate::wire::list::ListKey for $name {
+            type Key = Self;
+
+            fn list_key(&self) -> Self {
+                *self
+            }
+
+            fn validate_item(
+                &self,
+                _parent: &mut dyn FnMut() -> garde::Path,
+                _report: &mut garde::Report,
+            ) {
+            }
+        }
+    )+};
+}
+
+pub(crate) use closed_list_key;
 
 /// A list of `MIN..=MAX` items no two of which share their [`ListKey`]; its check reports each
 /// repeat at the repeat's index, as Zod's does, until the report holds [`ISSUES_MAX`] entries. Its

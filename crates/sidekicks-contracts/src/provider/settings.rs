@@ -27,6 +27,8 @@ use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::repo::mount::RepoMountId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::voice::VoiceKind;
+use crate::wire::True;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt};
 use crate::wire::list::{ListKey, UniqueList};
@@ -278,9 +280,11 @@ pub struct ProviderSection {
     /// Its built-in tools in its own order, unique by name; may be empty.
     #[garde(dive)]
     pub built_in_tools: UniqueList<ProviderBuiltInTool, 0, { usize::MAX }>,
-    /// The environment names the app sets on this provider's processes, which a person's own
-    /// environment row may not take; may be empty.
-    pub app_set_environment_names: Vec<FreeFormText<ENVIRONMENT_ROW_MAX_LEN>>,
+    /// The environment names the app sets on this provider's processes and its Terminal pane's
+    /// shells, which a person's own environment row may not take; unique, may be empty.
+    #[garde(dive)]
+    pub app_set_environment_names:
+        UniqueList<FreeFormText<ENVIRONMENT_ROW_MAX_LEN>, 0, { usize::MAX }>,
     /// The transports and declaration members its tool servers take.
     #[garde(dive)]
     pub mcp: ProviderMcpDeclaration,
@@ -289,6 +293,10 @@ pub struct ProviderSection {
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<SafeInt<1>>")]
     pub skill_name_max_length: Option<SafeInt<1>>,
+    /// The voice kinds it offers, each at most once: the composer starts `voice.dictationStart` for
+    /// dictation and `voice.callStart` for a call; empty where it offers none.
+    #[garde(dive)]
+    pub voice_kinds: UniqueList<VoiceKind, 0, { usize::MAX }>,
     /// The output-speed levels every one of its models offers, present only where the provider
     /// publishes none per model.
     #[serde(
@@ -389,10 +397,10 @@ pub struct ProviderListResponse {
     pub stopped_distributions: Option<UniqueList<WslPlace, 1, { usize::MAX }>>,
 }
 
-/// One setting changed, one member per press: a row every provider offers, or one the provider's
+/// One setting changed, one member per press: a row every provider offers, one the provider's
 /// driver declares, whose value the daemon holds to the row's declaration
-/// ([`ProviderRow::check_value`]). A new command path is checked again where it now points and the
-/// provider's model catalog is read again.
+/// ([`ProviderRow::check_value`]), or the run or stop of a declared action row. A new command path
+/// is checked again where it now points and the provider's model catalog is read again.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged, rename_all_fields = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -461,6 +469,42 @@ pub enum ProviderUpdateRequest {
         #[serde(deserialize_with = "crate::wire::nullable")]
         #[schemars(with = "crate::wire::NullableSchema<ProviderValue>")]
         value: Option<ProviderValue>,
+    },
+    /// Runs one action row the provider's driver declares in one place: `enabled` does the action
+    /// there, and off undoes it. Its progress is read on the row.
+    ActionRun {
+        /// The provider.
+        provider: ProviderId,
+        /// The action row.
+        row_id: ProviderDeclarationId,
+        /// The place, as on a per-place switch row.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Place")]
+        place: Option<Place>,
+        /// Whether the action is to be done there, not undone.
+        enabled: bool,
+    },
+    /// Stops the run of one action row in one place, refused where the row is not running there
+    /// or its progress says it cannot stop.
+    ActionStop {
+        /// The provider.
+        provider: ProviderId,
+        /// The action row.
+        row_id: ProviderDeclarationId,
+        /// The place, as on a per-place switch row.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Place")]
+        place: Option<Place>,
+        /// Always `true`: the member that marks a stop.
+        stop: True,
     },
 }
 
@@ -673,6 +717,8 @@ methods! {
                 ProviderDistributionNeedsWsl2,
                 ProviderRowNotFound,
                 ProviderRowValueInvalid,
+                ProviderRowNotRunning,
+                ProviderRowNotStoppable,
             ],
         },
         /// Checks the provider's command again.
@@ -790,6 +836,19 @@ mod tests {
     #[case::null_on_a_plain_knob(r#"{"provider":"claude","availableForNewSessions":null}"#, false)]
     #[case::off_step_percent(r#"{"provider":"codex","autoCompactPercent":42}"#, false)]
     #[case::no_provider(r#"{"commandPath":null}"#, false)]
+    #[case::action_run(
+        r#"{"provider":"codex","rowId":"terminalPlugin","place":"windows","enabled":true}"#,
+        true
+    )]
+    #[case::action_stop(r#"{"provider":"codex","rowId":"terminalPlugin","stop":true}"#, true)]
+    #[case::action_stop_marked_false(
+        r#"{"provider":"codex","rowId":"terminalPlugin","stop":false}"#,
+        false
+    )]
+    #[case::action_run_beside_a_value(
+        r#"{"provider":"codex","rowId":"terminalPlugin","enabled":true,"value":true}"#,
+        false
+    )]
     #[case::place_on_a_machine_wide_knob(
         r#"{"provider":"claude","place":"windows","availableForNewSessions":true}"#,
         false

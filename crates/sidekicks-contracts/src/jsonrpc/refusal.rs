@@ -65,9 +65,9 @@ refusal_codes! {
     /// from that model's `effortLevels`, a larger window the target model's catalog does not offer
     /// at that figure, an output-speed value absent from the `outputSpeedLevels` published for the
     /// target model (its own list where its provider publishes one per model, else the driver's),
-    /// or a session option's value outside the target driver's declaration of it or one the
-    /// provider reports this session cannot run.
-    AgentProviderAxisInvalid = "agent.provider_axis_invalid" (400);
+    /// a session option the target driver does not declare, or a session option's value outside
+    /// the target driver's declaration of it or one the provider reports this session cannot run.
+    AgentProviderAxisInvalid = "agent.provider_axis_invalid" (422);
     /// The definition exists but cannot currently produce a runnable agent.
     AgentResolutionRefused = "agent.resolution_refused" (409);
     /// `agent.definitionUpdate` refused the change.
@@ -168,7 +168,7 @@ refusal_codes! {
     /// the local store is unavailable.
     DaemonWriteRefused = "daemon.write_refused" (503);
     /// Requested capability is not supported by the driver.
-    DriverCapabilityUnsupported = "driver.capability_unsupported" (400);
+    DriverCapabilityUnsupported = "driver.capability_unsupported" (422);
     /// A session create asks for a larger window (`AgentProviderBinding.largerWindow`) that the
     /// catalog does not offer for that model at that figure.
     DriverLargerWindowUnavailable = "driver.larger_window_unavailable" (400);
@@ -250,8 +250,13 @@ refusal_codes! {
     ProviderNotInstalled = "provider.not_installed" (409);
     /// `provider.update` named a row the provider's driver does not declare.
     ProviderRowNotFound = "provider.row.notFound" (404);
+    /// `provider.update` asked to stop an action row that is not running in that place.
+    ProviderRowNotRunning = "provider.row.notRunning" (409);
+    /// `provider.update` asked to stop an action row whose running progress says it cannot stop.
+    ProviderRowNotStoppable = "provider.row.notStoppable" (409);
     /// `provider.update` set a row to a value its declaration refuses: another kind, a choice not
-    /// listed or unavailable, a none the row does not offer, or text past its length.
+    /// listed or unavailable, a none the row does not offer, text past its length, or a place on a
+    /// row that is not set per place.
     ProviderRowValueInvalid = "provider.row.valueInvalid" (422);
     /// `providerAccount.remove` refused because a run bound to the account is live.
     ProvideraccountAccountInUse = "provideraccount.account_in_use" (409);

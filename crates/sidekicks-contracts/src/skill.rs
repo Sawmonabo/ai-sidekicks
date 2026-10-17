@@ -75,10 +75,11 @@ impl ListKey for SkillProviderAvailability {
     }
 }
 
-/// Which providers a skill reaches, one entry per installed provider. Defaulted by origin: a skill
-/// authored here is on every installed provider, one found in a provider's own folder is on that
-/// provider alone, and a plugin's is on the provider the plugin was installed for.
-pub type SkillAvailability = UniqueList<SkillProviderAvailability, 1, { usize::MAX }>;
+/// Which providers a skill reaches, one entry per installed provider, empty while none is
+/// installed. Defaulted by origin: a skill authored here is on every installed provider, one found
+/// in a provider's own folder is on that provider alone, and a plugin's is on the provider the
+/// plugin was installed for.
+pub type SkillAvailability = UniqueList<SkillProviderAvailability, 0, { usize::MAX }>;
 
 /// What a person types to call a skill on one provider, in that provider's own form.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -419,8 +420,9 @@ pub struct SkillCallFormReadRequest {
     pub skill_id: Option<SkillId>,
 }
 
-/// The details a `skill.nameTooLong` refusal carries: the first provider the skill is on whose
-/// name limit the name passes, and that limit in characters.
+/// A provider whose name limit a skill's name passes, and that limit in characters: the details a
+/// `skill.nameTooLong` refusal carries for the first provider the skill is on, and a scan's finding
+/// for the provider it is widened onto.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SkillNameTooLongDetails {
@@ -518,22 +520,34 @@ pub struct SkillScanTool {
     pub what_happens_instead: FreeFormText<SKILL_SCAN_TOOL_INSTEAD_MAX_LEN>,
 }
 
-/// One file that names another provider's tools or its call sigil. The file is named, never the
-/// line, because a line offset goes stale when the file is edited outside the app.
+/// One thing the scan found, by kind.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SkillScanFinding {
-    /// The file.
-    pub path: FilesystemPath,
-    /// The tools it names.
-    pub tools: Vec<SkillScanTool>,
-    /// Whether it names another provider's call sigil.
-    pub call_sigil: bool,
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum SkillScanFinding {
+    /// One file that names another provider's tools or its call sigil. The file is named, never
+    /// the line, because a line offset goes stale when the file is edited outside the app.
+    File {
+        /// The file.
+        path: FilesystemPath,
+        /// The tools it names.
+        tools: Vec<SkillScanTool>,
+        /// Whether it names another provider's call sigil.
+        call_sigil: bool,
+    },
+    /// The skill's name is longer than the provider it is widened onto takes, so that provider
+    /// will not load it until it is shorter; the widening still stands.
+    NameTooLong(SkillNameTooLongDetails),
 }
 
-/// Every file the scan found something in; empty when the folder names no other provider's tools.
-/// A read that stores nothing: the warning it feeds is derived from the availability setting and
-/// never kept.
+/// What the scan found: each file it found another provider's tools or call sigil in, and the
+/// skill's name where it is too long for the target provider; empty when it found neither. A read
+/// that stores nothing: the warning it feeds is derived from the availability setting and never
+/// kept.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

@@ -572,8 +572,8 @@ pub struct RunRolledBackEvent {
 }
 
 /// One delivery on `run.subscribeState`: a state change, a rollback, or the provider's safety hold
-/// on the run's turn. The hold is a live detail only this stream carries, never written to the session's
-/// history. None carries a tag; their closed members keep them apart.
+/// on the run's turn. The hold is a live detail only this stream carries, never written to the
+/// session's history. None carries a tag; their closed members keep them apart.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 pub enum RunStateStreamEvent {

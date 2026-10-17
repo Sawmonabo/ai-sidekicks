@@ -533,6 +533,114 @@
         }
       },
       "settings": null
+    },
+    {
+      "file": {
+        "providerSettings": {
+          "claude": {
+            "advisor": "opus",
+            "outputStyle": null
+          },
+          "codex": {
+            "reachable": [
+              {
+                "place": "windows",
+                "enabled": true
+              },
+              {
+                "place": {
+                  "distro": "Ubuntu"
+                },
+                "enabled": false
+              }
+            ]
+          }
+        }
+      },
+      "settings": {
+        "updatesAutomatic": true,
+        "keepCrashReports": true,
+        "editorId": null,
+        "providerSettings": {
+          "claude": {
+            "advisor": "opus",
+            "outputStyle": null
+          },
+          "codex": {
+            "reachable": [
+              {
+                "place": "windows",
+                "enabled": true
+              },
+              {
+                "place": {
+                  "distro": "Ubuntu"
+                },
+                "enabled": false
+              }
+            ]
+          }
+        },
+        "commitTextModel": null,
+        "defaultCheckout": "provisioned-worktree",
+        "newSessionCarriesLastModel": true,
+        "lastLeadModel": null,
+        "keepAwakeWhileAgentWorks": false,
+        "keepAwakeForOtherDevices": false,
+        "notifications": {
+          "appIconCount": true,
+          "notifyOutsideApp": true,
+          "kinds": {
+            "waitingOnYou": true,
+            "finished": true,
+            "failed": true,
+            "notifyStep": true
+          },
+          "emailDigest": {
+            "enabled": false,
+            "sendTo": null,
+            "mailServer": null,
+            "port": null,
+            "userName": null,
+            "after": "day"
+          },
+          "webAddress": {
+            "enabled": false,
+            "kinds": {
+              "waitingOnYou": true,
+              "finished": true,
+              "failed": true,
+              "notifyStep": true
+            }
+          }
+        },
+        "rememberSiteData": true,
+        "browserToolsForAgents": true,
+        "sandboxBackgroundBrowser": false,
+        "screenReaderMode": false,
+        "environmentRows": [],
+        "backup": {
+          "automatic": false,
+          "folder": null
+        },
+        "branchNamePattern": "sidekicks/{session}/{title}",
+        "cloneFolder": null,
+        "voice": {
+          "mode": "hold",
+          "callVoice": null,
+          "dictationLanguage": null
+        }
+      }
+    },
+    {
+      "file": {
+        "providerSettings": {
+          "codex": {
+            "reachable": true
+          }
+        }
+      },
+      "settings": null
     }
   ]
 }

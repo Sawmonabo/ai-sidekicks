@@ -27,7 +27,9 @@ use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::PlacedPath;
-use crate::provider::declaration::{ProviderDeclarationId, ProviderValue};
+use crate::provider::declaration::{
+    ProviderDeclarationId, ProviderPlaceSwitches, ProviderValueText,
+};
 use crate::provider::id::ProviderId;
 use crate::repo::mount::ExecutionMode;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -425,10 +427,21 @@ pub struct CommitTextModel {
     pub model_id: ProviderToken,
 }
 
-/// One provider's values of the Settings rows its driver declares, by row: a value set in the
-/// app, or `null` for a choice's none. A row left out follows the provider's own value. A row id
-/// never reads `__proto__`, which its pattern excludes, and the schema refuses it too.
-pub type ProviderRowValues = Record<ProviderDeclarationId, Option<ProviderValue>>;
+/// One declared Settings row's value set in the app, split by the row's shape.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum ProviderRowValue {
+    /// A switch's entry for each place it was set in, keyed by place; a place left out follows the
+    /// provider's own value there.
+    Places(ProviderPlaceSwitches),
+    /// A choice's option or `null` for its none, or a text setting's text or `null` for none.
+    Value(#[schemars(with = "NullableSchema<ProviderValueText>")] Option<ProviderValueText>),
+}
+
+/// One provider's values of the Settings rows its driver declares, by row. A row left out follows
+/// the provider's own value. A row id never reads `__proto__`, which its pattern excludes, and the
+/// schema refuses it too.
+pub type ProviderRowValues = Record<ProviderDeclarationId, ProviderRowValue>;
 
 /// Each provider's values of its declared Settings rows, by provider; a provider left out follows
 /// its own values on every row. A provider id never reads `__proto__`, which its pattern excludes,
@@ -758,6 +771,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<BranchNamePattern>().checked(),
         Definition::read::<LastLeadModel>(),
         Definition::read::<CommitTextModel>(),
+        Definition::read::<ProviderRowValue>(),
         Definition::read::<MachineSettings>().checked(),
         Definition::read::<MachineSettingsChange>().checked(),
         Definition::read::<SettingsFileRepairCause>(),

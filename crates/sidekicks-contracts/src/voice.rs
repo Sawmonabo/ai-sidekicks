@@ -1,10 +1,10 @@
 //! Voice, as a window drives it through the daemon: which session voice is on in, and its two
-//! mechanisms, dictation into the composer and a spoken call with the provider, of which the
-//! session's state says which one a session uses. Voice is on in one session at a time on this
-//! computer, held by the daemon and off after it restarts, and there is one recording and one call
-//! at a time, so the methods on the one in progress name no session. Dictation audio is 16 kHz
-//! 16-bit mono PCM in 100 ms frames; the window is a call's WebRTC peer and hands its offer here.
-//! No provider credential crosses these methods in either direction.
+//! kinds, dictation into the composer and a spoken call with the provider, of which each provider's
+//! section declares the ones it offers. Voice is on in one session at a time on this computer,
+//! held by the daemon and off after it restarts, and there is one recording and one call at a
+//! time, so the methods on the one in progress name no session. Dictation audio is 16 kHz 16-bit
+//! mono PCM in 100 ms frames; the window is a call's WebRTC peer and hands its offer here. No
+//! provider credential crosses these methods in either direction.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,7 @@ use crate::provider::id::ProviderId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::attachment::Bytes;
+use crate::wire::list::closed_list_key;
 use crate::wire::text::NonEmptyText;
 use crate::wire::{NullableSchema, literal, nullable};
 
@@ -34,6 +35,21 @@ literal! {
     /// spoken. A typed message carries no origin.
     pub enum MessageOrigin = "voice";
 }
+
+/// A kind of voice a provider offers, which its section declares: the composer starts the
+/// matching method, `voice.dictationStart` or `voice.callStart`.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum VoiceKind {
+    /// Dictation into the composer.
+    Dictation,
+    /// A spoken call with the provider.
+    Call,
+}
+
+closed_list_key!(VoiceKind);
 
 /// Why `voice.accountNotEntitled` refused: the account is signed in, but its provider gives its
 /// sign-in kind no voice.
@@ -420,6 +436,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           two mechanisms, dictation into the composer and a spoken call with the provider.",
     definitions: &[
         Definition::read::<MessageOrigin>().checked(),
+        Definition::read::<VoiceKind>(),
         Definition::read::<VoiceAccountNotEntitledReason>(),
         Definition::read::<VoiceAccountNotEntitledDetails>().checked(),
         Definition::read::<VoiceState>().checked(),

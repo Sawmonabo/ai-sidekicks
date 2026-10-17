@@ -105,8 +105,8 @@ macro_rules! agent_resolution_refused_details {
                 /// The definition.
                 $(#[$id_meta])*
                 definition_id: $definition_id,
-                /// The provider as the definition names it.
-                unsupported_provider_name: $crate::provider::id::ProviderId,
+                /// The provider as the definition's file names it, which may be no provider id.
+                unsupported_provider_name: $crate::agent::definition::binding::ProviderToken,
             },
         }
     };

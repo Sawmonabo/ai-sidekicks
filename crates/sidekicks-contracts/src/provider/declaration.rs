@@ -345,6 +345,9 @@ pub enum DeclarationValueError {
     /// A text setting was sent a text longer than it takes.
     #[error("the text is longer than the setting takes")]
     TextTooLong,
+    /// A place was sent for a row that is not set per place: only a switch is.
+    #[error("the row is not set per place")]
+    PlaceNotTaken,
 }
 
 /// Checks `value` against the options of a choice: `None` only where it offers none, else one of
@@ -372,16 +375,24 @@ fn check_choice(
 }
 
 impl ProviderRow {
-    /// Checks a value `provider.update` sends for this row, `None` being its `null`: a switch takes
-    /// on or off, a choice one of its options that can be picked (or none where it offers that),
-    /// and a text a text within its length (or none). A status or an action takes no value.
-    pub fn check_value(&self, value: Option<&ProviderValue>) -> Result<(), DeclarationValueError> {
+    /// Checks a value `provider.update` sends for this row in `place`, `None` being its `null`: a
+    /// switch takes on or off in any place, a choice one of its options that can be picked (or none
+    /// where it offers that), and a text a text within its length (or none), neither in a place. A
+    /// status or an action takes no value.
+    pub fn check_value(
+        &self,
+        place: Option<&Place>,
+        value: Option<&ProviderValue>,
+    ) -> Result<(), DeclarationValueError> {
         let control = match self {
             Self::Setting { control, .. } => control,
             Self::Status { .. } | Self::Action { .. } => {
                 return Err(DeclarationValueError::NotSettable);
             }
         };
+        if place.is_some() && !matches!(control, ProviderSettingControl::Switch { .. }) {
+            return Err(DeclarationValueError::PlaceNotTaken);
+        }
         match (control, value) {
             (ProviderSettingControl::Switch { .. }, Some(ProviderValue::Switch(_))) => Ok(()),
             (ProviderSettingControl::Switch { .. }, Some(ProviderValue::Text(_)) | None) => {
@@ -563,6 +574,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{DeclarationValueError, ProviderRow, ProviderSessionOption, ProviderValue};
+    use crate::place::Place;
 
     fn choice_row() -> Value {
         json!({
@@ -616,9 +628,17 @@ mod tests {
             "undoFailed": "Couldn't remove the plugin",
         },
         "places": [
-            {"place": "windows", "isDone": false, "progress": {"state": "running", "isDoing": true, "canStop": false}},
+            {
+                "place": "windows",
+                "isDone": false,
+                "progress": {"state": "running", "isDoing": true, "canStop": false},
+            },
             {"place": {"distro": "Ubuntu"}, "isDone": true, "progress": {"state": "settled"}},
-            {"place": {"distro": "Debian"}, "isDone": false, "progress": {"state": "failed", "isDoing": true, "reason": "no network"}},
+            {
+                "place": {"distro": "Debian"},
+                "isDone": false,
+                "progress": {"state": "failed", "isDoing": true, "reason": "no network"},
+            },
         ],
     }))]
     fn a_declared_row_of_each_kind_writes_back_as_read(#[case] row: Value) {
@@ -630,7 +650,7 @@ mod tests {
     #[test]
     fn a_declared_session_option_of_each_kind_writes_back_as_read() {
         for option in [
-            json!({"id": "ultra", "label": "Ultra", "placement": "effortMenu", "control": {"control": "switch"}}),
+            switch_option(),
             json!({
                 "id": "style",
                 "label": "Style",
@@ -647,41 +667,92 @@ mod tests {
         }
     }
 
+    fn switch_option() -> Value {
+        json!({
+            "id": "ultra",
+            "label": "Ultra",
+            "placement": "effortMenu",
+            "control": {"control": "switch"},
+        })
+    }
+
     fn value(json: Value) -> Option<ProviderValue> {
         serde_json::from_value::<Option<ProviderValue>>(json).expect("the value reads")
     }
 
     #[rstest]
-    #[case::switch_takes_on(switch_row(), json!(true), Ok(()))]
-    #[case::switch_refuses_text(switch_row(), json!("on"), Err(DeclarationValueError::WrongKind))]
-    #[case::switch_refuses_none(switch_row(), json!(null), Err(DeclarationValueError::WrongKind))]
-    #[case::choice_takes_an_option(choice_row(), json!("opus"), Ok(()))]
-    #[case::choice_takes_its_none(choice_row(), json!(null), Ok(()))]
+    #[case::switch_takes_on(switch_row(), None, json!(true), Ok(()))]
+    #[case::switch_takes_on_in_a_place(switch_row(), Some(json!("windows")), json!(true), Ok(()))]
+    #[case::switch_refuses_text(
+        switch_row(),
+        None,
+        json!("on"),
+        Err(DeclarationValueError::WrongKind)
+    )]
+    #[case::switch_refuses_none(
+        switch_row(),
+        None,
+        json!(null),
+        Err(DeclarationValueError::WrongKind)
+    )]
+    #[case::choice_takes_an_option(choice_row(), None, json!("opus"), Ok(()))]
+    #[case::choice_takes_its_none(choice_row(), None, json!(null), Ok(()))]
+    #[case::choice_refuses_a_place(
+        choice_row(),
+        Some(json!({"distro": "Ubuntu"})),
+        json!("opus"),
+        Err(DeclarationValueError::PlaceNotTaken)
+    )]
     #[case::choice_refuses_an_unlisted_value(
         choice_row(),
+        None,
         json!("haiku"),
         Err(DeclarationValueError::NotAnOption)
     )]
     #[case::choice_refuses_an_unavailable_option(
         choice_row(),
+        None,
         json!("fable"),
         Err(DeclarationValueError::OptionUnavailable)
     )]
-    #[case::choice_refuses_a_switch(choice_row(), json!(false), Err(DeclarationValueError::WrongKind))]
-    #[case::text_takes_text_within_its_length(text_row(), json!("four"), Ok(()))]
-    #[case::text_refuses_longer_text(text_row(), json!("fives"), Err(DeclarationValueError::TextTooLong))]
+    #[case::choice_refuses_a_switch(
+        choice_row(),
+        None,
+        json!(false),
+        Err(DeclarationValueError::WrongKind)
+    )]
+    #[case::text_takes_text_within_its_length(text_row(), None, json!("four"), Ok(()))]
+    #[case::text_refuses_longer_text(
+        text_row(),
+        None,
+        json!("fives"),
+        Err(DeclarationValueError::TextTooLong)
+    )]
+    #[case::text_refuses_a_place(
+        text_row(),
+        Some(json!("windows")),
+        json!("four"),
+        Err(DeclarationValueError::PlaceNotTaken)
+    )]
     #[case::status_takes_nothing(
         json!({"kind": "status", "id": "build", "label": "Build", "text": "Stable"}),
+        None,
         json!(true),
         Err(DeclarationValueError::NotSettable)
     )]
     fn a_value_is_held_to_its_declaration(
         #[case] row: Value,
+        #[case] place: Option<Value>,
         #[case] sent: Value,
         #[case] expected: Result<(), DeclarationValueError>,
     ) {
         let row: ProviderRow = serde_json::from_value(row).expect("the row reads");
-        assert_eq!(row.check_value(value(sent).as_ref()), expected);
+        let place: Option<Place> =
+            place.map(|place| serde_json::from_value(place).expect("the place reads"));
+        assert_eq!(
+            row.check_value(place.as_ref(), value(sent).as_ref()),
+            expected
+        );
     }
 
     #[test]
@@ -693,14 +764,12 @@ mod tests {
             .remove("noneLabel");
         let row: ProviderRow = serde_json::from_value(row).expect("the row reads");
         assert_eq!(
-            row.check_value(None),
+            row.check_value(None, None),
             Err(DeclarationValueError::NoneNotOffered)
         );
 
-        let option: ProviderSessionOption = serde_json::from_value(
-            json!({"id": "ultra", "label": "Ultra", "placement": "effortMenu", "control": {"control": "switch"}}),
-        )
-        .expect("the option reads");
+        let option: ProviderSessionOption =
+            serde_json::from_value(switch_option()).expect("the option reads");
         assert_eq!(option.check_value(&ProviderValue::Switch(true)), Ok(()));
         assert_eq!(
             option.check_value(&value(json!("on")).expect("a text")),

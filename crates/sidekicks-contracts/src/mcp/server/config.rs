@@ -6,10 +6,10 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
-use strum::VariantArray;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::web_address::WebAddress;
-use crate::wire::list::{ListKey, UniqueList};
+use crate::wire::list::{UniqueList, closed_list_key};
 use crate::wire::number::PositiveNumber;
 use crate::wire::record::Record;
 use crate::wire::text::{BoundedText, FreeFormText, is_within_length};
@@ -315,9 +315,20 @@ server_config! {
 
 /// How a server is reached: a program the provider starts, streamable HTTP or server-sent events.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
 )]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum McpTransport {
     /// A program the provider starts.
     Stdio,
@@ -329,9 +340,20 @@ pub enum McpTransport {
 
 /// A member of a submitted declaration that a provider reads only if its driver declares it.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
 )]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum McpDeclaredConfigMember {
     /// `envVars`.
     EnvVars,
@@ -349,26 +371,6 @@ pub enum McpDeclaredConfigMember {
     OauthScopes,
     /// `oauthResource`.
     OauthResource,
-}
-
-macro_rules! closed_list_key {
-    ($($name:ty),+) => {$(
-        impl ListKey for $name {
-            type Key = Self;
-
-            fn list_key(&self) -> Self {
-                *self
-            }
-
-            // A closed value carries no rule its read does not hold.
-            fn validate_item(
-                &self,
-                _parent: &mut dyn FnMut() -> garde::Path,
-                _report: &mut garde::Report,
-            ) {
-            }
-        }
-    )+};
 }
 
 closed_list_key!(McpTransport, McpDeclaredConfigMember);
@@ -455,14 +457,16 @@ impl McpServerConfigInput {
         let transport = self.transport();
         if !declaration.transports.as_slice().contains(&transport) {
             return Err(garde::Error::new(format!(
-                "the provider does not reach a server over {transport:?}"
+                "the provider does not reach a server over {}",
+                <&str>::from(transport)
             )));
         }
         match McpDeclaredConfigMember::VARIANTS.iter().find(|member| {
             self.sets_member(**member) && !declaration.config_members.as_slice().contains(member)
         }) {
             Some(member) => Err(garde::Error::new(format!(
-                "the provider does not read {member:?}"
+                "the provider does not read {}",
+                <&str>::from(*member)
             ))),
             None => Ok(()),
         }

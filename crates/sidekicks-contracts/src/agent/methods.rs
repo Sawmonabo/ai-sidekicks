@@ -177,8 +177,7 @@ pub struct AgentConfigUpdateRequest {
     pub output_speed: Option<ProviderToken>,
     /// Values of the session options the target driver declares; an option left out keeps its
     /// value. The daemon checks each against the driver's declaration: an option the driver does
-    /// not declare is refused with `driver.capability_unsupported`, and a value outside its
-    /// declaration with `agent.provider_axis_invalid`.
+    /// not declare, or a value outside its declaration, is refused `agent.provider_axis_invalid`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
