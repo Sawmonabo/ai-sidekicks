@@ -29,11 +29,10 @@ pub struct DistributionPath {
 /// any other path. Names that are not UTF-8 read lossily.
 pub fn distribution_of(folder_path: &Path) -> Option<DistributionPath> {
     let components = WindowsPath::new(folder_path.as_os_str().as_encoded_bytes()).components();
-    let (server, share) = match components.prefix_kind() {
-        Some(WindowsPrefix::UNC(server, share) | WindowsPrefix::VerbatimUNC(server, share)) => {
-            (server, share)
-        }
-        _ => return None,
+    let Some(WindowsPrefix::UNC(server, share) | WindowsPrefix::VerbatimUNC(server, share)) =
+        components.prefix_kind()
+    else {
+        return None;
     };
     let is_wsl_server =
         server.eq_ignore_ascii_case(b"wsl$") || server.eq_ignore_ascii_case(b"wsl.localhost");
@@ -59,10 +58,13 @@ pub fn distribution_of(folder_path: &Path) -> Option<DistributionPath> {
     Some(DistributionPath { distro, linux_path })
 }
 
-/// Whether WSL moves `byte` into the private-use range on Windows: a control character or one of
-/// `"*:<>?\|`.
+/// Whether WSL moves `byte` into the private-use range on Windows: a control character other than
+/// NUL, which a Linux name cannot hold, or one of `"*:<>?\|`.
 const fn is_escaped_by_wsl(byte: u8) -> bool {
-    byte <= 0x1F || matches!(byte, b'"' | b'*' | b':' | b'<' | b'>' | b'?' | b'\\' | b'|')
+    matches!(
+        byte,
+        0x01..=0x1F | b'"' | b'*' | b':' | b'<' | b'>' | b'?' | b'\\' | b'|'
+    )
 }
 
 /// `name` with each three-byte sequence WSL reads as an escaped character put back, matching as
@@ -101,6 +103,7 @@ mod tests {
     #[case::dollar_forward_slashes("//wsl$/Ubuntu/home", Some(("Ubuntu", "/home")))]
     #[case::dollar_upper_case(r"\\WSL$\Ubuntu\x", Some(("Ubuntu", "/x")))]
     #[case::escaped_colon("\\\\wsl.localhost\\Ubuntu\\a\u{F03A}b", Some(("Ubuntu", "/a:b")))]
+    #[case::private_use_f000("\\\\wsl$\\Ubuntu\\a\u{F000}b", Some(("Ubuntu", "/a\u{F000}b")))]
     #[case::verbatim(r"\\?\UNC\wsl.localhost\Ubuntu\x", Some(("Ubuntu", "/x")))]
     #[case::share_alone(r"\\wsl$\Ubuntu", Some(("Ubuntu", "/")))]
     #[case::share_with_slash(r"\\wsl$\Ubuntu\", Some(("Ubuntu", "/")))]
