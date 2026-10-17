@@ -137,29 +137,50 @@ impl ProviderRegistry {
     }
 }
 
+/// A provider id for a test that needs any provider; no table holds it.
+#[cfg(test)]
+pub(crate) fn test_provider() -> ProviderId {
+    ProviderId::new("test-provider".to_owned()).expect("the id matches the pattern")
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_platforms::Spawner;
     use tokio::runtime::Handle;
 
-    use super::ProviderRegistry;
-    use crate::provider::driver::DriverServices;
+    use super::{ProviderRegistry, test_provider};
     use crate::provider::driver::capabilities::DriverCapabilityFlag;
+    use crate::provider::driver::contract::MockProviderDriver;
+    use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
 
     #[tokio::test]
-    async fn a_provider_no_driver_answers_is_refused_unavailable() {
+    async fn the_registry_keeps_the_table_order_and_refuses_an_unknown_id() {
         let services = DriverServices {
             spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
             data_folder: PathBuf::from("data"),
         };
-        let registry = ProviderRegistry::register_from(&[], &services);
-        let unknown =
-            ProviderId::new("unregistered".to_owned()).expect("the id matches the pattern");
+        let table: Vec<ProviderRegistration> = PROVIDERS
+            .iter()
+            .map(|descriptor| ProviderRegistration {
+                descriptor,
+                build: |_| Arc::new(MockProviderDriver::new()),
+            })
+            .collect();
+        let registry = ProviderRegistry::register_from(&table, &services);
 
+        let registered: Vec<&str> = registry.providers().map(|id| id.as_str()).collect();
+        let listed: Vec<&str> = PROVIDERS.iter().map(|descriptor| descriptor.id).collect();
+        assert!(listed.len() >= 2, "the table holds two providers or more");
+        assert_eq!(registered, listed);
+        for provider in registry.providers() {
+            assert!(registry.lookup(provider).is_ok(), "{provider:?}");
+        }
+
+        let unknown = test_provider();
         let lookup = registry
             .lookup(&unknown)
             .err()
@@ -167,9 +188,7 @@ mod tests {
         let gate = registry
             .check_capability(&unknown, DriverCapabilityFlag::Steer)
             .expect_err("no driver answers the id");
-
         assert_eq!(lookup.code, RefusalCode::DriverUnavailable);
         assert_eq!(gate.code, RefusalCode::DriverUnavailable);
-        assert_eq!(registry.providers().count(), 0);
     }
 }

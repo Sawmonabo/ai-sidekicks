@@ -19,12 +19,13 @@ use crate::provider::driver::mcp_server_status::{
 };
 
 /// Codex's own model-facing tools, in the names a person picks for an agent's allowlist, each with
-/// the words the picker draws it in: the command tool the model calls as `exec_command`, the patch
-/// tool and the hosted web search.
+/// the shared word for the tool that the picker draws: the command tool the model calls as
+/// `exec_command`, the patch tool, which reads as an edit whatever kinds of change it mixes, and
+/// the hosted web search.
 pub(super) const CODEX_BUILT_IN_TOOLS: [(&str, &str); 3] = [
     ("exec_command", "Command"),
-    ("apply_patch", "Apply a patch"),
-    ("web_search", "Web search"),
+    ("apply_patch", "Edit"),
+    ("web_search", "WebSearch"),
 ];
 
 /// One tool the driver declares a class for. The description is required: the person reconciling

@@ -552,9 +552,8 @@ fn emit_usage_diagnostic<const N: usize>(
 
 #[cfg(test)]
 mod tests {
-    use sidekicks_contracts::provider::id::ProviderId;
-
     use super::*;
+    use crate::provider::driver::registry::test_provider;
 
     fn reading(thread_id: &str, input: u64) -> CumulativeUsageReading {
         CumulativeUsageReading {
@@ -578,9 +577,7 @@ mod tests {
     #[test]
     fn meters_cumulative_readings_into_stream_ordered_deltas() {
         // Any provider: it only labels the accountant's diagnostics.
-        let mut accountant = UsageDeltaAccountant::new(
-            ProviderId::new("test-provider".to_owned()).expect("the id matches the pattern"),
-        );
+        let mut accountant = UsageDeltaAccountant::new(test_provider());
         accountant.establish_thread("fresh".to_owned(), ThreadBaseEstablishment::Fresh);
         assert_eq!(input_delta(&mut accountant, "fresh", 0), 0);
         assert_eq!(input_delta(&mut accountant, "fresh", 100), 100);
@@ -615,22 +612,14 @@ mod tests {
 
         // -0.4 rounds to -0.0, which a sign check made after rounding would let through.
         assert_eq!(
-            resolve_cost_update_provenance(
-                ProviderId::new("test-provider".to_owned()).expect("the id matches the pattern"),
-                Some(-0.4),
-                Some(derived_quote)
-            ),
+            resolve_cost_update_provenance(test_provider(), Some(-0.4), Some(derived_quote)),
             CostUpdateResolution::CostUpdate {
                 cost_source: UsageCostSource::DerivedExact,
                 cost_usd_micros: usd_micros(7),
             }
         );
         assert_eq!(
-            resolve_cost_update_provenance(
-                ProviderId::new("test-provider".to_owned()).expect("the id matches the pattern"),
-                Some(1_250.0),
-                Some(derived_quote)
-            ),
+            resolve_cost_update_provenance(test_provider(), Some(1_250.0), Some(derived_quote)),
             CostUpdateResolution::CostUpdate {
                 cost_source: UsageCostSource::ProviderReported,
                 cost_usd_micros: usd_micros(1_250),

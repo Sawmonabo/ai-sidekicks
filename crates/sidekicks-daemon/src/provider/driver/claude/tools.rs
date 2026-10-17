@@ -15,18 +15,18 @@ use crate::provider::driver::mcp_server_status::{
     McpServerStatusIngestRejection, McpServerStatusIngestResult, bound_mcp_server_status_emission,
 };
 
-/// The tools Claude Code carries itself, in its own names, each with the words the tool allowlist
-/// picker draws it in. Apart from the catalog, which names what a transcript reports.
+/// The tools Claude Code carries itself, in its own names, each with the shared word for the tool
+/// that the allowlist picker draws. Apart from the catalog, which names what a transcript reports.
 pub(super) const CLAUDE_BUILT_IN_TOOLS: [(&str, &str); 9] = [
     ("Read", "Read"),
     ("Edit", "Edit"),
     ("Write", "Write"),
     ("Bash", "Command"),
-    ("Glob", "List files"),
+    ("Glob", "ListFiles"),
     ("Grep", "Search"),
-    ("WebFetch", "Web fetch"),
-    ("WebSearch", "Web search"),
-    ("Agent", "Run a sidekick"),
+    ("WebFetch", "WebFetch"),
+    ("WebSearch", "WebSearch"),
+    ("Agent", "Agent"),
 ];
 
 // Each tool a transcript reports and its class. A tool the daemon cannot establish a repeat is

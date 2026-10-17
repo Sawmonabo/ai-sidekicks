@@ -48,9 +48,6 @@ pub(crate) enum DriverCapabilityFlag {
     ProviderCommands,
     /// A faster-output mode the person sets and the provider declares a state for.
     OutputSpeed,
-    /// A switch the person sets that stays on at any effort, applied between turns and declared
-    /// back by the provider.
-    Ultracode,
 }
 
 /// Each capability flag's value: every flag present, no other member.

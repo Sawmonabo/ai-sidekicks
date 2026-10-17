@@ -63,8 +63,8 @@ pub(crate) async fn find_claude_plan_files(
 }
 
 // The folder the settings name, resolved, or `None` when none names one inside the project or it
-// holds a backslash where that separates nothing, either of which makes Claude Code fall back to the
-// default folder.
+// holds a backslash where that separates nothing, either of which makes Claude Code fall back to
+// the default folder.
 // Where Claude Code reads `plansDirectory`, lowest precedence first: the home's settings, the
 // project's shared settings, then its local settings; an empty value names nothing.
 async fn read_configured_plans_folder(

@@ -248,11 +248,11 @@ impl<Event> NormalizedEventReorderBuffer<Event> {
 mod tests {
     use std::time::Duration;
 
-    use sidekicks_contracts::provider::id::ProviderId;
     use tokio::time::Instant;
 
     use super::{NormalizedEventReorderBuffer, ReorderBufferedEvent, ReorderPairingRole};
     use crate::provider::driver::diagnostics::RecordedEvents;
+    use crate::provider::driver::registry::test_provider;
 
     fn offered(
         tool_call_id: &str,
@@ -268,11 +268,8 @@ mod tests {
 
     #[test]
     fn an_early_completion_goes_out_after_its_initiation() {
-        let mut buffer = NormalizedEventReorderBuffer::new(
-            ProviderId::new("test-provider".to_owned()).expect("the id matches the pattern"),
-            8,
-            Duration::from_secs(5),
-        );
+        let mut buffer =
+            NormalizedEventReorderBuffer::new(test_provider(), 8, Duration::from_secs(5));
         let now = Instant::now();
 
         let held = buffer.admit(
@@ -293,11 +290,8 @@ mod tests {
         let recorded = RecordedEvents::default();
         let mut released = Vec::new();
         recorded.record_during(|| {
-            let mut buffer = NormalizedEventReorderBuffer::new(
-                ProviderId::new("test-provider".to_owned()).expect("the id matches the pattern"),
-                2,
-                Duration::from_secs(5),
-            );
+            let mut buffer =
+                NormalizedEventReorderBuffer::new(test_provider(), 2, Duration::from_secs(5));
             let now = Instant::now();
             let arrivals = [
                 ("call-1", "first"),

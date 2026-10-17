@@ -85,6 +85,7 @@ pub(crate) enum DriverError {
 /// The operations every provider driver carries out for the daemon. Each refusal comes back as
 /// [`DriverError::Refused`]; an operation gated on a capability flag the driver does not declare
 /// is refused as `driver.capability_unsupported` before it reaches the driver.
+#[cfg_attr(test, mockall::automock)]
 pub(crate) trait ProviderDriver: Send + Sync {
     /// Opens a provider session and binds its spawn-time legs.
     fn create_session(

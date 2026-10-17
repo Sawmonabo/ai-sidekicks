@@ -499,7 +499,6 @@ mod tests {
     use std::time::Duration;
 
     use rstest::rstest;
-    use sidekicks_contracts::provider::id::ProviderId;
     use tokio::time::Instant;
 
     use super::{
@@ -508,6 +507,7 @@ mod tests {
         ThreadFrameRouterConfig, ThreadScopedFrameCapability,
     };
     use crate::provider::driver::diagnostics::RecordedEvents;
+    use crate::provider::driver::registry::test_provider;
 
     const PENDING_REGISTRATION_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -544,7 +544,7 @@ mod tests {
 
     fn router_for_session() -> ThreadFrameRouter<TestFrame> {
         let mut router = ThreadFrameRouter::new(
-            ProviderId::new("test-provider".to_owned()).expect("the id matches the pattern"),
+            test_provider(),
             ThreadFrameRouterConfig {
                 max_quarantined_frames: 2,
                 max_pending_hold_frames: 8,

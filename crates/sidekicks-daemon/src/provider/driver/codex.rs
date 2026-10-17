@@ -1,6 +1,7 @@
 //! The Codex driver, over the one shared Codex app-server every session reaches by its socket.
 
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
+use sidekicks_contracts::voice::VoiceKind;
 
 use crate::provider::driver::ProviderDescriptor;
 
@@ -14,10 +15,6 @@ mod tools;
 mod usage_limit_signal;
 
 /// Codex's fixed facts.
-#[expect(
-    dead_code,
-    reason = "the provider table at the daemon's start holds it"
-)]
 pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     id: "codex",
     name: "Codex",
@@ -43,6 +40,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     built_in_tools: &tools::CODEX_BUILT_IN_TOOLS,
     // Carries the app-server binary's path into the launch prelude, which never interpolates it.
     app_set_environment_names: &["CODEX_APP_SERVER_BIN"],
+    screen_reader_environment_name: None,
+    voice_kinds: &[VoiceKind::Call],
     // It reaches no server over server-sent events.
     mcp_transports: &[McpTransport::Stdio, McpTransport::Http],
     mcp_config_members: &[

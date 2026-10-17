@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
+use sidekicks_contracts::provider::id::is_provider_id;
+use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_platforms::Spawner;
 
 use crate::provider::driver::contract::ProviderDriver;
@@ -30,12 +32,9 @@ pub(crate) mod unified_diff;
 
 /// The fixed facts a provider's driver declares about itself, the same for every installed build,
 /// account, model and session; what depends on those comes from the driver's methods.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the provider list and the start-time table read it"
-    )
+#[expect(
+    dead_code,
+    reason = "the provider list and the daemon's start read each descriptor's facts"
 )]
 pub(crate) struct ProviderDescriptor {
     /// The provider's id: a lowercase letter, then up to 31 lowercase letters, digits or hyphens.
@@ -48,6 +47,11 @@ pub(crate) struct ProviderDescriptor {
     pub(crate) built_in_tools: &'static [(&'static str, &'static str)],
     /// The environment names the app sets on the provider's processes.
     pub(crate) app_set_environment_names: &'static [&'static str],
+    /// The environment name a Terminal pane's shell is given while `Simplify for a screen reader`
+    /// is on, where the provider reads one; the section's app-set names list it beside the others.
+    pub(crate) screen_reader_environment_name: Option<&'static str>,
+    /// The voice kinds the provider offers, each at most once.
+    pub(crate) voice_kinds: &'static [VoiceKind],
     /// The transports its tool servers are reached over.
     pub(crate) mcp_transports: &'static [McpTransport],
     /// The tool-server declaration members it reads beyond the shared ones.
@@ -56,15 +60,21 @@ pub(crate) struct ProviderDescriptor {
     pub(crate) skill_name_max_length: Option<u64>,
 }
 
+/// Every provider's descriptor, in the order the providers are listed and their drivers registered.
+pub(crate) const PROVIDERS: &[&ProviderDescriptor] = &[&claude::DESCRIPTOR, &codex::DESCRIPTOR];
+
+const _: () = assert!(
+    has_valid_ids(PROVIDERS),
+    "a provider id breaks the id pattern"
+);
+const _: () = assert!(has_unique_ids(PROVIDERS), "two providers share an id");
+
 /// The shared services every driver's build takes, one bundle, so adding a provider never edits the
 /// daemon's start. Each field is a handle a driver reads; a provider's own folders stay in its
 /// driver.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the drivers' build functions read it at the daemon's start"
-    )
+#[expect(
+    dead_code,
+    reason = "each driver's build reads it at the daemon's start"
 )]
 pub(crate) struct DriverServices {
     /// The one thread every child process is spawned from.
@@ -73,11 +83,14 @@ pub(crate) struct DriverServices {
     pub(crate) data_folder: PathBuf,
 }
 
-/// One table entry: a provider's descriptor and the function that builds its driver from the
-/// shared services, storing its handles without I/O.
+/// One registered provider: its descriptor and the function that builds its driver from the shared
+/// services, storing its handles without I/O.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the start-time table holds one per provider")
+    expect(
+        dead_code,
+        reason = "the daemon's start registers each provider's driver through it"
+    )
 )]
 pub(crate) struct ProviderRegistration {
     /// The provider's fixed facts.
@@ -86,20 +99,25 @@ pub(crate) struct ProviderRegistration {
     pub(crate) build: fn(&DriverServices) -> Arc<dyn ProviderDriver>,
 }
 
-/// Whether no two entries of `table` share an id, checked when the table compiles.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the start-time table's compile-time check calls it"
-    )
-)]
-pub(crate) const fn has_unique_ids(table: &[ProviderRegistration]) -> bool {
+/// Whether every id in `table` matches the provider id pattern.
+const fn has_valid_ids(table: &[&ProviderDescriptor]) -> bool {
+    let mut i = 0;
+    while i < table.len() {
+        if !is_provider_id(table[i].id) {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// Whether no two entries of `table` share an id.
+const fn has_unique_ids(table: &[&ProviderDescriptor]) -> bool {
     let mut i = 0;
     while i < table.len() {
         let mut j = i + 1;
         while j < table.len() {
-            if is_same_text(table[i].descriptor.id, table[j].descriptor.id) {
+            if is_same_text(table[i].id, table[j].id) {
                 return false;
             }
             j += 1;
@@ -110,13 +128,6 @@ pub(crate) const fn has_unique_ids(table: &[ProviderRegistration]) -> bool {
 }
 
 /// Whether two texts hold the same bytes, in a form a constant can call.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the start-time table's compile-time check calls it"
-    )
-)]
 const fn is_same_text(left: &str, right: &str) -> bool {
     let (left, right) = (left.as_bytes(), right.as_bytes());
     if left.len() != right.len() {

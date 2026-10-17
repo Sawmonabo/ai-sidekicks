@@ -1,6 +1,7 @@
 //! The Claude Code driver.
 
 use sidekicks_contracts::mcp::server::config::McpTransport;
+use sidekicks_contracts::voice::VoiceKind;
 
 use crate::provider::driver::ProviderDescriptor;
 
@@ -20,14 +21,10 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     name: "Claude Code",
     plan_words: &[],
     built_in_tools: &tools::CLAUDE_BUILT_IN_TOOLS,
-    // Its two update switches, set to `1` on every process to keep it pinned, and the
-    // screen-reader switch set on a Terminal pane's shell while `Simplify for a screen reader` is
-    // on.
-    app_set_environment_names: &[
-        "DISABLE_AUTOUPDATER",
-        "DISABLE_UPDATES",
-        "CLAUDE_AX_SCREEN_READER",
-    ],
+    // Its two update switches, set to `1` on every process to keep it pinned.
+    app_set_environment_names: &["DISABLE_AUTOUPDATER", "DISABLE_UPDATES"],
+    screen_reader_environment_name: Some("CLAUDE_AX_SCREEN_READER"),
+    voice_kinds: &[VoiceKind::Dictation],
     mcp_transports: &[McpTransport::Stdio, McpTransport::Http, McpTransport::Sse],
     mcp_config_members: &[],
     skill_name_max_length: None,
