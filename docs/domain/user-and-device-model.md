@@ -14,7 +14,7 @@ Account identity, device identity and lifecycle, the executing machine, and sess
 | --- | --- | --- |
 | **User** | The account holder. One per account. | "you", "this account" |
 | **Device** | A phone or a browser linked to that account to reach its sessions. | **Devices** |
-| **Machine** | A computer whose background service runs sessions, `RuntimeNode` in the backend. The desktop app on that computer acts with the machine's own key. | The machine's name; `This computer` on the machine itself; **Computers** |
+| **Machine** | A computer whose background service runs sessions. The desktop app on that computer acts with the machine's own key. | The machine's name; `This computer` on the machine itself; **Computers** |
 | **Session owner** | The user a session belongs to. | — |
 
 ## What This Is
@@ -52,7 +52,7 @@ Ownership is derived, not declared. One account owns the machine, so the owner o
 ## Relationships To Adjacent Concepts
 
 - **User → device.** One user, many devices. The link is a `device.linked` statement on the account's statement chain, signed by a device or machine the chain already trusts and carrying the device's public identity key.
-- **User → machine.** One user, any number of machines. The first machine opens the account's statement chain with a `runtimenode.added` statement it signs itself; every later machine joins either at its sign-in, its `runtimenode.added` signed by one of the account's passkeys, or by linking, which records its `runtimenode.added` signed by the device or machine that links it. The machine's registration names the owning user.
+- **User → machine.** One user, any number of machines. The first machine opens the account's statement chain with a `machine.added` statement it signs itself; every later machine joins either at its sign-in, its `machine.added` signed by one of the account's passkeys, or by linking, which records its `machine.added` signed by the device or machine that links it. The machine's registration names the owning user.
 - **Session → user.** Exactly one owner.
 - **Session → machine.** Exactly one machine, for the session's whole life.
 - **Device → machine.** No ownership edge at all. A device trusts every machine the chain trusts, holds one encrypted channel to each machine it can reach, and opens a session by asking each machine whether it holds it.

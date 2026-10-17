@@ -45,7 +45,7 @@ The plan builds on:
 
 ## Target Areas
 
-- `crates/sidekicks-contracts/src/rate_limiter.rs` — **created by this plan.** The wire devices read: the `RateLimitResponse` 429 body as a serde type, and the two codes a sign-in route refuses with, `rate_limited` and `relay.source_address_unresolvable` (the 400 of §Identity resolution). Its generated TypeScript type and Ajv check sit at `packages/contracts/src/rate-limiter.ts`.
+- `crates/sidekicks-contracts/src/rate_limiter.rs` — **created by this plan.** The wire devices read: the `RateLimitResponse` 429 body as a serde type, and the two codes a sign-in route refuses with, `relay.rateLimited` and `relay.sourceAddressUnresolvable` (the 400 of §Identity resolution). Its generated TypeScript type and Ajv check sit at `packages/contracts/src/rate-limiter.ts`.
 - `crates/sidekicks-control-plane/src/rate_limit/` — **created by this plan.**
   - `limiter.rs` — `RateLimitEndpointGroup`, `RateLimitCheckRequest`/`RateLimitCheckResponse` and the `RateLimiter` trait; the Worker and the Compose relay, `sidekicks-control-plane`'s native program, are their only users.
   - `endpoint_groups.rs` — canonical endpoint-group → `{ limit, period_seconds }` table transcribed from the Spec-019 registry — the one source of the limit for both implementations (T18.2-1).
@@ -56,7 +56,7 @@ The plan builds on:
   - `enforcement_pipeline.rs` — `create_admission_check`, which returns `check_admission` (D-018-1).
 - `crates/sidekicks-control-plane/tests/fixtures/rate_limiter_scenarios.json` — **created by this plan:** the one JSON scenario table of the I-018-2 parity proof, read by the Rust test against the in-memory counter and by the Workers test against the real Durable Object (T18.2-6).
 - `crates/sidekicks-control-plane/src/middleware/rate_limit.rs` — **created by this plan.** The `axum` middleware `rate_limit_layer`.
-- `crates/sidekicks-control-plane/src/server/router.rs` — **extended by this plan:** the router's shared state carries `check_admission`, and each host's entry puts the caller's `SourceAddress` in the request's extensions as the deployment's edge reports it. `ControlPlaneRefusal` answers [ADR-013](../decisions/013-control-plane-api.md)'s refusal body, `{code, category, message}` with the code's own fields beside them, so a 429's body is the `RateLimitResponse`. An internal failure answers 500 with the fixed message `Unexpected internal error`, the wording of error-contracts.md's `system.internal_error`, so a caller never reads the relay's own error text; request paths hold no panicking call, since a panic in the Worker answers 500 and resets the instance.
+- `crates/sidekicks-control-plane/src/server/router.rs` — **extended by this plan:** the router's shared state carries `check_admission`, and each host's entry puts the caller's `SourceAddress` in the request's extensions as the deployment's edge reports it. `ControlPlaneRefusal` answers [ADR-013](../decisions/013-control-plane-api.md)'s refusal body, `{code, category, message}` with the code's own fields beside them, so a 429's body is the `RateLimitResponse`. An internal failure answers 500 with the fixed message `Unexpected internal error`, the wording of error-contracts.md's `system.internalError`, so a caller never reads the relay's own error text; request paths hold no panicking call, since a panic in the Worker answers 500 and resets the instance.
 - `crates/sidekicks-control-plane/src/worker.rs` — **created by this plan:** the Worker entry module, `#[event(fetch)]`, which calls the router through `tower-service` (`router().call(request)`), and the home of the `#[durable_object]` `RateLimitIdentityDurableObject` the deployed script exports. `wrangler.jsonc`'s `main` names the shim `worker-build` writes for it.
 - `crates/sidekicks-control-plane/src/server/host.rs` — **extended by this plan, inside the CP-018-1 stable-mount seam:** `ControlPlaneEnv` gains the `RATE_LIMIT_IDENTITY` binding; the Worker's entry supplies `SourceAddress` from `CF-Connecting-IP` and `check_admission` over the `Workers` factory; an internal failure, such as a counter error, is logged and the caller reads only a 500. No route is wired here; T18.3-3 does that.
 - `docs/architecture/contracts/api-payload-contracts.md` — carries the `RateLimitResponse` (symbol anchor: `interface RateLimitResponse` under §Error Responses), and the `RateLimitCheckRequest` and `RateLimitCheckResponse`. T18.1-2 verifies shape parity against the typed exports at implementation time and lands only drift fixes.
@@ -83,8 +83,8 @@ The 429 body has one shape, the same in error-contracts.md §Rate Limiting and a
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RateLimitResponse {
-    pub code: RateLimitedCode, // always "rate_limited"
-    pub category: RateLimitedCategory, // always "resourceExhausted"
+    pub code: RelayRateLimitedCode, // always "relay.rateLimited"
+    pub category: RelayRateLimitedCategory, // always "resourceExhausted"
     pub message: String,
     pub retry_after: u32, // seconds until retry is allowed
     pub limit: u32, // total allowed requests in the window
@@ -126,7 +126,7 @@ pub trait RateLimiter {
 }
 ```
 
-- `RateLimiter` and its check types live in the control plane's crate: only the relay's control plane checks a limit, on the Worker and in the Compose relay's native program, and the daemon never does ([Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope)). The `RateLimitResponse` body, which devices read, lives in `crates/sidekicks-contracts/src/rate_limiter.rs` as a serde type per the `runtime_node/registration.rs` wire-shape convention.
+- `RateLimiter` and its check types live in the control plane's crate: only the relay's control plane checks a limit, on the Worker and in the Compose relay's native program, and the daemon never does ([Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope)). The `RateLimitResponse` body, which devices read, lives in `crates/sidekicks-contracts/src/rate_limiter.rs` as a serde type per the `machine/registration.rs` wire-shape convention.
 
 ### Admission pipeline (D-018-1)
 
@@ -147,7 +147,7 @@ One stage on every enforced transport (I-018-1): every rate-limited route calls 
 
 - **The source address is the identity.** The check keys on the caller's source address alone (D-018-5).
 - **Canonical form (D-018-4):** IPv4 exact dotted-quad / IPv6 normalized to its /64 prefix (lowercase, compressed); an IPv4-mapped IPv6 address counts as its IPv4 address. The parse is `std::net`'s `IpAddr`, whose IPv6 text is the RFC 5952 compressed form and whose `to_ipv4_mapped` folds a mapped address: it needs no dependency and runs alike on the Worker's `wasm32` build and the Compose relay's native one, where a hand-written parser would be code the project keeps forever.
-- **Client IP provenance.** Workers: the Cloudflare-set `CF-Connecting-IP` header. Compose relay: the rightmost `X-Forwarded-For` entry, read only from a request whose connection comes from the configured Caddy address (Caddy appends the address it saw). Each host puts the address it trusts in the request's `SourceAddress`; the middleware canonicalizes it. A request with no resolvable address is refused 400 with `relay.source_address_unresolvable`, before anything is counted, rather than rate-limited into a shared bucket.
+- **Client IP provenance.** Workers: the Cloudflare-set `CF-Connecting-IP` header. Compose relay: the rightmost `X-Forwarded-For` entry, read only from a request whose connection comes from the configured Caddy address (Caddy appends the address it saw). Each host puts the address it trusts in the request's `SourceAddress`; the middleware canonicalizes it. A request with no resolvable address is refused 400 with `relay.sourceAddressUnresolvable`, before anything is counted, rather than rate-limited into a shared bucket.
 
 ### The `axum` middleware (layered onto the control-plane router per CP-018-1)
 
@@ -164,7 +164,7 @@ async fn rate_limit(
     let admission = (gate.check_admission)(check_request).await?;
     if !admission.admitted {
         // the one retry_after, also sent as `Retry-After`
-        return Err(ControlPlaneRefusal::rate_limited(&admission.check, now()));
+        return Err(ControlPlaneRefusal::relay_rate_limited(&admission.check, now()));
     }
     Ok(next.run(request).await) // an allowed response carries no rate-limit header
 }
@@ -172,7 +172,7 @@ async fn rate_limit(
 
 - Usage on a route: `.route_layer(rate_limit_layer(RateLimitEndpointGroup::AuthEndpoint))`, where `rate_limit_layer` is `axum::middleware::from_fn_with_state` over `rate_limit` ([axum middleware](https://docs.rs/axum/latest/axum/middleware/index.html)). The clock is read through `time` with its `wasm-bindgen` feature on the Worker, never `std::time::SystemTime::now`, which panics on `wasm32-unknown-unknown`.
 - Header policy: `Retry-After` on every 429, and none on an allowed response.
-- The 429 body: `ControlPlaneRefusal` (in `server/router.rs`) answers [ADR-013](../decisions/013-control-plane-api.md)'s refusal body, `{code, category, message}` with the code's own fields beside them, so a 429 answers the `RateLimitResponse` (`{code: "rate_limited", category: "resourceExhausted", message, retryAfter, limit, remaining, resetAt}`) and the 400 answers `{code: "relay.source_address_unresolvable", category: "invalidArgument", message}`. The refusal sets the status and, on a 429, the `Retry-After` header on its own response.
+- The 429 body: `ControlPlaneRefusal` (in `server/router.rs`) answers [ADR-013](../decisions/013-control-plane-api.md)'s refusal body, `{code, category, message}` with the code's own fields beside them, so a 429 answers the `RateLimitResponse` (`{code: "relay.rateLimited", category: "resourceExhausted", message, retryAfter, limit, remaining, resetAt}`) and the 400 answers `{code: "relay.sourceAddressUnresolvable", category: "invalidArgument", message}`. The refusal sets the status and, on a 429, the `Retry-After` header on its own response.
 
 ### Retry-After on 429 responses
 

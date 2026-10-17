@@ -14,19 +14,19 @@ type BranchContextId = string & { readonly __brand: "BranchContextId" };
 // worktree.
 type RemovedWorktreeId = string & { readonly __brand: "RemovedWorktreeId" };
 
-// ExecutionRootPrepare — materializes (or binds) the execution root for the workspace's selected mode.
-// It carries no `runId`: the run-setup gate supplies it service-side, so a caller cannot forge run
-// provenance.
-interface ExecutionRootPrepareRequest {
+// WorkspaceExecutionRootPrepare — materializes (or binds) the execution root for the workspace's
+// selected mode. It carries no `runId`: the run-setup gate supplies it service-side, so a caller
+// cannot forge run provenance.
+interface WorkspaceExecutionRootPrepareRequest {
   workspaceId: WorkspaceId;
-  branchName?: string; // optional in the schema, required in practice: a wire prepare has no run to derive a name from, so omitting it draws the typed workspace.branch_name_required refusal before any git call
+  branchName?: string; // optional in the schema, required in practice: a wire prepare has no run to derive a name from, so omitting it draws the typed workspace.branchNameRequired refusal before any git call
   baseRef?: string; // worktree base; default = mount HEAD branch; detached HEAD without baseRef → typed refusal; a leading dash is refused before git
   carryUncommitted?: boolean; // carry the session's uncommitted work, untracked files included, onto the new tree; refused unless the new base is the branch the work sits on
 }
-interface ExecutionRootPrepareResponse {
+interface WorkspaceExecutionRootPrepareResponse {
   executionRoot: string; // at most FILE_PATH_MAX_LEN; a prepare resolves a root or refuses with a typed error, never a partial success
   state: WorkspaceState;
-  worktreeId?: WorktreeId; // present for a provisioned-worktree prepare only
+  worktreeId?: WorktreeId; // present for a `provisionedWorktree` prepare only
   branchContextId: BranchContextId; // every prepare writes or refreshes a branch context (Spec-008 §State And Data Implications)
 }
 
@@ -41,7 +41,7 @@ interface WorktreeRetireRequest {
 }
 interface WorktreeRetireResponse {
   worktreeId: WorktreeId;
-  state: Extract<WorktreeState, "retired">; // the one success state; a refusal is the typed worktree.retire_conflict error
+  state: Extract<WorktreeState, "retired">; // the one success state; a refusal is the typed worktree.retireConflict error
   kept?: { removedWorktreeId: RemovedWorktreeId }; // present when a discard kept a copy: the kept copy `Put back` restores
 }
 
@@ -56,7 +56,7 @@ interface WorktreeStatusReadRequest {
 // daemon keeps the figures true with a background fetch — every few minutes while a session on the
 // project is live, under the person's own git identity, never pulling and never pruning. Only
 // standing trees are listed, so a row never carries `retired`; a copy kept by a discard is listed by
-// `repo.removedWorktreeList`.
+// `worktree.removed.list`.
 interface WorktreeStatusReadResponse {
   repoRoot: { path: string; branchName: string }; // the project's own checkout and the branch it is on
   worktrees: WorktreeStatusRecord[]; // every standing tree git lists for the repository, empty when it has none
@@ -66,8 +66,8 @@ interface WorktreeStatusReadResponse {
   newWorktree?: NewWorktreeSuggestion; // present when the request named the asking session
 }
 // One worktree git lists for the repository, as its switcher row draws it; `path` is the folder
-// `session.setWorkingFolder` takes. A tree the app made carries its record (`madeBy: "app"`); one the
-// person made with git carries none, and has no removal of its own.
+// `session.workingFolder.update` takes. A tree the app made carries its record (`madeBy: "app"`);
+// one the person made with git carries none, and has no removal of its own.
 type WorktreeStatusRecord = (
   | {
       madeBy: "app";
@@ -110,13 +110,13 @@ interface NewWorktreeSuggestion {
   folderBefore: string;
 }
 
-// session.swept_to_repo_root payload (Spec-005 §Repo, Workspace, and Worktree Lifecycle). A sweep is not
-// a state transition: it records that this session's working folder is now the repository root because the
-// worktree it was attached to was removed. `worktreeId` names the REMOVED tree, and `pendingMoveCleared`
-// is present only where the same removal cleared a pending working-folder move that pointed at it — the
-// presence-discriminator idiom, absent rather than `false`. One event is appended per session the removal
-// moved, so each moved session's own flow row survives a reload.
-interface SessionSweptToRepoRootPayload {
+// session.sweptToCheckout payload (Spec-005 §Repo, Workspace, and Worktree Lifecycle). A sweep is
+// not a state transition: it records that this session's working folder is now the repository root
+// because the worktree it was attached to was removed. `worktreeId` names the REMOVED tree, and
+// `pendingMoveCleared` is present only where the same removal cleared a pending working-folder move
+// that pointed at it — the presence-discriminator idiom, absent rather than `false`. One event is
+// appended per session the removal moved, so each moved session's own flow row survives a reload.
+interface SessionSweptToCheckoutPayload {
   sessionId: SessionId;
   repoMountId: RepoMountId;
   worktreeId: WorktreeId;

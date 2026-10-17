@@ -35,9 +35,9 @@ How do we evolve `EventEnvelope` and event-type semantics when the app, the back
 
 2. **Producer writes its own outgoing wire version at emit time.** `.version` is never copied from a received event. Stubbed-unknown events record their original received version separately in stub metadata, so round-tripping cannot corrupt the field.
 
-3. **The app and the service agree a version range at the handshake.** Each app accepts its own service version and the previous one. The range is checked once per connection, in the `DaemonHello` / `DaemonHelloAck` exchange; a session carries no version floor of its own.
+3. **The app and the service agree a version range at the handshake.** Each app accepts its own service version and the previous one. The range is checked once per connection, in the `ConnectionInitializeRequest` / `ConnectionInitializeResponse` exchange; a session carries no version floor of its own.
 
-4. **Outside the range, the console is read-only and names the side that is behind.** The service answers an out-of-range `DaemonHello` with `DaemonHelloAck { compatible: false, reason }`, where `reason` is `version.floor_exceeded` (the app is older than the service accepts) or `version.ceiling_exceeded` (the app is newer than the service knows). The app draws that machine read-only ([Spec-021](../specs/021-desktop-app-and-renderer.md)), and the working line names the side that is behind, the app or the service, with a press to its fix: the app's own update, or `Update the background service` on Runtime. Nothing crashes and nothing is disconnected.
+4. **Outside the range, the console is read-only and names the side that is behind.** The service answers an out-of-range `ConnectionInitializeRequest` with `ConnectionInitializeResponse { compatible: false, reason }`, where `reason` is `connection.version.floorExceeded` (the app is older than the service accepts) or `connection.version.ceilingExceeded` (the app is newer than the service knows). The app draws that machine read-only ([Spec-021](../specs/021-desktop-app-and-renderer.md)), and the working line names the side that is behind, the app or the service, with a press to its fix: the app's own update, or `Update the background service` on Runtime. Nothing crashes and nothing is disconnected.
 
 5. **Unknown event types MUST persist as version stubs, never dropped.** A version stub preserves the full original canonical bytes verbatim, plus a version-stub-metadata record (`original_version`, `original_type`, `received_at`, `stub_reason`). The canonical row's `.version` field stays the producer's original — version-stubbing is a read-side behavior, not a rewrite. Stubs are what let a service rolled back to the previous version keep every event a newer one wrote.
 
@@ -49,7 +49,7 @@ How do we evolve `EventEnvelope` and event-type semantics when the app, the back
 
 9. **The event union in `crates/sidekicks-contracts` is the event-type registry, and receivers accept and stub.** It is `SessionEventType` in `event/registry.rs` and `SessionEvent` in `event/session.rs`, and its TypeScript is generated into `packages/contracts`. Receivers stub anything they don't recognize. No central registry exists, because the app talks only to its own service version and the one before, so a central registry would govern nothing.
 
-10. **Version failures surface as handshake reasons, never crashes.** The only version refusals are the `version.floor_exceeded` and `version.ceiling_exceeded` reasons on `DaemonHelloAck`, registered in [Error Contracts](../architecture/contracts/error-contracts.md), and the app reads each as the side that is behind (item 4). No write, join or envelope read carries a typed version error.
+10. **Version failures surface as handshake reasons, never crashes.** The only version refusals are the `connection.version.floorExceeded` and `connection.version.ceilingExceeded` reasons on `ConnectionInitializeResponse`, registered in [Error Contracts](../architecture/contracts/error-contracts.md), and the app reads each as the side that is behind (item 4). No write, join or envelope read carries a typed version error.
 
 11. **Retro-rebuild durability contract.** Version stubs remain parseable for the full audit-retention lifetime. The version-stub-metadata schema is versioned separately from envelope `.version` so future stub-schema evolution is itself versionable. A version stub keeps its bytes until its session is deleted, which deletes it with the session's other rows; background compaction never removes a version stub's bytes.
 
@@ -119,7 +119,7 @@ Pin-at-session assumes every client updates in the same step as the service, and
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| App outside the service's version range | High (expected) | Low | `DaemonHelloAck` with `version.floor_exceeded` or `version.ceiling_exceeded` | The console draws the machine read-only; the working line names the side that is behind, with a press to its fix |
+| App outside the service's version range | High (expected) | Low | `ConnectionInitializeResponse` with `connection.version.floorExceeded` or `connection.version.ceilingExceeded` | The console draws the machine read-only; the working line names the side that is behind, with a press to its fix |
 | MINOR bump ships a semantic invariant change (author mistake) | Low | High | Reviewer checklist miss; CI compat-test suite; bug report from an older client | Patch-release as MAJOR bump; issue advisory; invalidate the MINOR and re-release as MAJOR |
 | Version stub storage grows unbounded because MAJOR bumps are rare | Low | Med | Storage metrics on `session_events.version_stub_metadata` column | Version stubs keep their bytes and are removed only with their session; expected acceptable overhead at expected MAJOR cadence (1–2 per year) |
 
@@ -138,7 +138,7 @@ Pin-at-session assumes every client updates in the same step as the service, and
 - Wire format is evolvable after release without user-visible breakage on additive changes.
 - Audit log immutability preserved — stubs persist verbatim and are re-read, never converted.
 - Enforcement is at each end; the event union in `crates/sidekicks-contracts` is the only registry.
-- The handshake reasons (`version.floor_exceeded`, `version.ceiling_exceeded`) turn a version mismatch into a read-only console that names the side behind, rather than a crash.
+- The handshake reasons (`connection.version.floorExceeded`, `connection.version.ceilingExceeded`) turn a version mismatch into a read-only console that names the side behind, rather than a crash.
 
 ### Negative (accepted trade-offs)
 
@@ -171,7 +171,7 @@ Every proposed MINOR bump MUST be reviewed against this checklist before landing
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
 | MINOR bump (e.g., `1.0` → `1.1`) preserves all existing rebuild output | 100% of rebuild test suite passes across all historical MINOR versions within the same MAJOR | CI rebuild-diff suite | First MINOR bump after release |
-| An app outside the service's version range gets `DaemonHelloAck` with the matching reason and a read-only console, never a crash | 100% of out-of-range handshakes in the contract-test matrix | CI contract tests | The handshake's landing (Plan-005) |
+| An app outside the service's version range gets `ConnectionInitializeResponse` with the matching reason and a read-only console, never a crash | 100% of out-of-range handshakes in the contract-test matrix | CI contract tests | The handshake's landing (Plan-005) |
 | A version stub re-read by a receiver that knows its type equals the native read | Byte-identical diff = 0 across reserved event-type test fixtures | CI version-stub tests | First MINOR bump |
 | Unknown-type events persist as version stubs, never dropped | 100% of version stubs keep their original canonical bytes byte-identical | CI version-stub persistence tests | First MINOR bump |
 

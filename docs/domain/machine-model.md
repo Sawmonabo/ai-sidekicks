@@ -10,7 +10,7 @@ This document covers the machine's ownership, registration, reachability, and it
 
 ## Definitions
 
-- Machine: a computer whose background service (the local daemon) runs sessions, `RuntimeNode` in the backend. On screen it is the machine's name, and `This computer` on the machine itself.
+- Machine: a computer whose background service (the local daemon) runs sessions. On screen it is the machine's name, and `This computer` on the machine itself.
 - Reachability: whether the person's other devices can reach the machine now. It is `Reachable` while the machine's relay connection is up, and `Not reachable` once 45 seconds pass without a frame on it.
 
 ## What This Is
@@ -61,12 +61,12 @@ Reachability is read from the machine's relay connection and from nothing else, 
 
 - A session stays valid while its machine is not reachable; the user's devices show the machine as `Not reachable · last seen <when>`, and nothing queues on their behalf.
 - A machine can be reachable even when it is currently hosting no agents.
-- Removing a machine on the Devices page stops the user's devices reaching it; its sessions stay on it, and it comes back only as a new computer joins, at its sign-in with one of the account's passkeys or by linking. Linked again, it first mints a new identity key under its same machine id, and its new `runtimenode.added` moves every device's pin for that id; its store, sessions and id stay. Removing a machine does not touch the account.
+- Removing a machine on the Devices page stops the user's devices reaching it; its sessions stay on it, and it comes back only as a new computer joins, at its sign-in with one of the account's passkeys or by linking. Linked again, it first mints a new identity key under its same machine id, and its new `machine.added` moves every device's pin for that id; its store, sessions and id stay. Removing a machine does not touch the account.
 
 ## Related Domain Docs
 
 - [User And Device Model](./user-and-device-model.md) — the user who owns the machine, and the devices that drive it without executing anything themselves.
-- [Trust And Identity](./trust-and-identity.md) — a machine joins the account through the account's statement chain: the first machine opens the chain with a `runtimenode.added` statement it signs itself, and every later machine joins either at its sign-in, its `runtimenode.added` signed by one of the account's passkeys, or by linking, which records its `runtimenode.added` signed by the device or machine that links it. That is the whole of a machine's identity. What its agents may do is decided by the session's permission level, the approval rules the providers keep, and the trust given per project and per tool server, never by the machine.
+- [Trust And Identity](./trust-and-identity.md) — a machine joins the account through the account's statement chain: the first machine opens the chain with a `machine.added` statement it signs itself, and every later machine joins either at its sign-in, its `machine.added` signed by one of the account's passkeys, or by linking, which records its `machine.added` signed by the device or machine that links it. That is the whole of a machine's identity. What its agents may do is decided by the session's permission level, the approval rules the providers keep, and the trust given per project and per tool server, never by the machine.
 
 ## Related Specs
 

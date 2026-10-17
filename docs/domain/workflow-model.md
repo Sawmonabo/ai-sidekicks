@@ -23,7 +23,7 @@ The workflow model describes how reusable, multi-step execution templates are de
 
 - A workflow is not a free-form conversation or ad-hoc sequence of runs. It is an authored document with an explicit node graph.
 - A workflow definition is not an artifact. Definitions are first-class persisted records. Artifact publication may represent derivative exports or summaries but must not be the canonical source of workflow definition truth.
-- A workflow run is not a single run in the run-state-machine sense. A workflow run executes many steps, and an agent step creates runs — `agent.run` through the run admission, `agent.multi-agent` through `orchestration.runCreate` in the run's own session.
+- A workflow run is not a single run in the run-state-machine sense. A workflow run executes many steps, and an agent step creates runs — `agent.run` through the run admission, `agent.multiAgent` through `agent.run.create` in the run's own session.
 - A workflow is not an external workflow engine (Temporal, Restate). Execution uses the existing daemon-local persistence and run primitives per ADR-002.
 
 ## Invariants
@@ -40,11 +40,11 @@ The workflow model describes how reusable, multi-step execution templates are de
 - `Session` is the containing boundary for every workflow run. A run started from a chat lives in that chat's session, an unattended run in the one session its workflow owns, and a sub-workflow's child run in its parent's session.
 - `Project` is the repository a run works in when the run's session is a project session, or when its Run now panel or trigger names one; no definition belongs to a project ([Spec-015 §State And Data Implications](../specs/015-workflow-authoring-and-execution.md#state-and-data-implications)).
 - `WorkflowStep` records one attempt of one node within a workflow run. See [Workflow Step Model](./workflow-step-model.md).
-- `Run` (from the run state machine) is the execution primitive an agent step uses: `agent.run` starts its run through the run admission, and `agent.multi-agent` runs a lead and its helpers in the workflow run's session through `orchestration.runCreate`.
+- `Run` (from the run state machine) is the execution primitive an agent step uses: `agent.run` starts its run through the run admission, and `agent.multiAgent` runs a lead and its helpers in the workflow run's session through `agent.run.create`.
 - `Agent` (from the [Agent And Run Model](./agent-and-run-model.md)) provides the execution persona for a step's work. A multi-agent step runs its lead and helpers as an orchestration run in the workflow run's own session.
-- `Artifact` holds a step payload over 64 KiB, stored with `artifactType: 'workflow_output'`, the step row keeping its reference; a smaller payload is inline on the step row. Artifacts an agent publishes are outputs of the runs a step created, not of the workflow run itself.
+- `Artifact` holds a step payload over 64 KiB, stored with `artifactType: 'workflowOutput'`, the step row keeping its reference; a smaller payload is inline on the step row. Artifacts an agent publishes are outputs of the runs a step created, not of the workflow run itself.
 - `Approval` primitives from Plan-009 are used by `human.approval` steps, and every resolution is recorded in `workflow_gate_resolutions`.
-- `SessionEvent` transcript captures workflow lifecycle events (`workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.phase_suspended`, `workflow.step_canceled`, `workflow.resumed`, `workflow.canceled`, `workflow.gate_resolved`). The list is illustrative; the full set of `workflow.*` types is in [Spec-015 §Workflow Transcript Integration](../specs/015-workflow-authoring-and-execution.md#workflow-transcript-integration).
+- `SessionEvent` transcript captures workflow lifecycle events (`workflow.phase.started`, `workflow.phase.completed`, `workflow.phase.failed`, `workflow.phase.suspended`, `workflow.step.canceled`, `workflow.run.resumed`, `workflow.run.canceled`, `workflow.gate.resolved`). The list is illustrative; the full set of `workflow.*` types is in [Spec-015 §Workflow Transcript Integration](../specs/015-workflow-authoring-and-execution.md#workflow-transcript-integration).
 
 ## State Model
 
@@ -54,17 +54,17 @@ The workflow model describes how reusable, multi-step execution templates are de
 | --- | --- |
 | `new` | The workflow run has been created but no step has started. |
 | `running` | At least one step is executing, or the run is advancing between steps. |
-| `waiting` | A step of the run is waiting — on a person (an approval, a form or a chat reply), on a child run held behind its chain's question, or on a spent provider account — and the run is neither progressing nor finished. The wait's cause, and the resume instant where one was armed, are per-step state ([Spec-015 §Park integrity and cancelability (SA-39)](../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancelability-sa-39)). A step held by the memory gate before it starts reads `waiting-memory` and leaves the run `running`. |
+| `waiting` | A step of the run is waiting — on a person (an approval, a form or a chat reply), on a child run held behind its chain's question, or on a spent provider account — and the run is neither progressing nor finished. The wait's cause, and the resume instant where one was armed, are per-step state ([Spec-015 §Park integrity and cancelability (SA-39)](../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancelability-sa-39)). A step held by the memory gate before it starts reads `waitingMemory` and leaves the run `running`. |
 | `succeeded` | Every step reached a terminal state and the run finished successfully. |
-| `failed` | A step failed and its node's `onError` is `stop` (after the retries its node allows), a `flow.stop-error` step ran, or a set run cap elapsed. A run parked on a failed step reads `failed` while it waits, with `Resume` and `Cancel` both open. |
-| `canceled` | The workflow run was explicitly canceled by a user or system action, through `workflow.runCancel` ([Spec-015 §Run control (SA-42)](../specs/015-workflow-authoring-and-execution.md#run-control-sa-42)). |
+| `failed` | A step failed and its node's `onError` is `stop` (after the retries its node allows), a `flow.stopError` step ran, or a set run cap elapsed. A run parked on a failed step reads `failed` while it waits, with `Resume` and `Cancel` both open. |
+| `canceled` | The workflow run was explicitly canceled by a user or system action, through `workflow.run.cancel` ([Spec-015 §Run control (SA-42)](../specs/015-workflow-authoring-and-execution.md#run-control-sa-42)). |
 | `crashed` | The daemon restarted while the run was `new` or `running`, or in a state the sweep does not recognize, so the run was swept to this state on the next start. A run in `waiting` is never swept and is never pruned. |
 
 Allowed transitions:
 
 - `new -> running` (the first step starts)
 - `running -> succeeded` (every step has settled and none failed the run)
-- `running -> failed` (a failed step whose `onError` is `stop`, a `flow.stop-error` step, or a set run cap elapsing)
+- `running -> failed` (a failed step whose `onError` is `stop`, a `flow.stopError` step, or a set run cap elapsing)
 - `running -> waiting` (a step waits on a person, on a child run held behind its chain's question, or on a provider usage-limit reset)
 - `waiting -> running` (the wait is answered, a person resumes a parked run, or a durable auto-resume schedule fires)
 - `waiting -> failed` (a waiting step reaches its `Timeout` and its node's `onError` is `stop`; time a step waits never counts against the run cap)
@@ -104,7 +104,7 @@ WorkflowDefinition (1)
 - A workflow run may be canceled even if some steps have already succeeded. Their outputs remain addressable, and the suspension events in the log keep each wait's cause, while each waiting step reads `canceled` with its live wait members — its `waitCause`, its instants and its spent account — cleared.
 - A workflow whose trigger feeds a single node is valid. A node that waits on a person holds the run `waiting` until it is answered; any other node runs and the run ends.
 - A waiting run survives a daemon restart or a client reconnect with its parks, its step state persisted in `workflow_steps`, one row per step attempt. A run that was `new` or `running` when the daemon stopped is swept to `crashed` on the next start, and the person retries it from a step or runs it again; no step resumes mid-attempt.
-- A full-tier Code step or a shell step whose sandbox cannot start at the Sandboxed level refuses with `workflow.sandbox_unavailable`, and the run takes the step's own `onError` from there; it never runs unprotected.
+- A full-tier Code step or a shell step whose sandbox cannot start at the Sandboxed level refuses with `workflow.sandboxUnavailable`, and the run takes the step's own `onError` from there; it never runs unprotected.
 
 ## Related Specs
 

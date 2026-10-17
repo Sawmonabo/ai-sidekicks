@@ -187,7 +187,7 @@ A skeptical staff engineer objects on six grounds.
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Credential material appearing on any event, error, log, metric, or wire **output**, or on any wire input other than the single named registration input | 0 | The no-credential-payload assertions on the provider-account contract surfaces, run against every response, notification, and error type plus every request except `providerAccount.register` | When the sign-in broker ships |
+| Credential material appearing on any event, error, log, metric, or wire **output**, or on any wire input other than the single named registration input | 0 | The no-credential-payload assertions on the provider-account contract surfaces, run against every response, notification, and error type plus every request except `provider.account.register` | When the sign-in broker ships |
 | Wire inputs accepting credential material | Exactly 1, named | The wire-input census on `provider-account-payloads.md` §Plan-023 | Every change to that section |
 | Accounts whose observed authentication mode is recorded rather than assumed | 100% of accounts that have been observed once | The registry column, non-NULL exactly when an observation exists | When the token leg ships |
 | Vendor-policy residual (assumption 2) unrealized | No enforcement or policy signal | Vendor policy-page revision date | Ongoing |
@@ -206,7 +206,7 @@ A skeptical staff engineer objects on six grounds.
 | ADR-020 credential store | Repo (decision) | The local-secret mechanism — each secret its own OS credential-store item verified by write-probe-read-delete, the `0600` file on Linux with no Secret Service, and a loud refusal for a store that cannot take it — whose store and refusal D2 uses. | [ADR-020](./020-cli-identity-key-storage-custody.md) |
 | Codex API-key custody probe, codex-cli 0.156.0 | Primary research (binary and source) | With `cli_auth_credentials_store="ephemeral"`, an `apiKey` login is accepted in 0.025 s, no `auth.json` is written and a byte search of the home finds nothing; in `file` mode Codex writes `OPENAI_API_KEY` in plain text; a restarted service answers no account; the source's `Ephemeral` store is an in-process map. | `openai/codex` `rust-v0.156.0`, `codex-rs/login/src/auth/storage.rs` |
 | Claude Code setup-token channel probe, 2.1.282 | Primary research (binary) | A token delivered on `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR` authenticates the process and is absent from every child's environment. | [Provider Wire Reference §claude](../reference/provider-wire/claude.md) |
-| Provider Failure Runbook step 7 | Repo (operations) | The per-account re-authentication step, which D1's brokered sign-in (`providerAccount.login`) makes executable. | [Provider Failure Runbook §Provider Re-Authentication (Per Account)](../operations/provider-failure-runbook.md#provider-re-authentication-per-account) |
+| Provider Failure Runbook step 7 | Repo (operations) | The per-account re-authentication step, which D1's brokered sign-in (`provider.account.signIn`) makes executable. | [Provider Failure Runbook §Provider Re-Authentication (Per Account)](../operations/provider-failure-runbook.md#provider-re-authentication-per-account) |
 
 ### Related ADRs
 

@@ -8,7 +8,7 @@ Recover RepoMount records, workspace bindings, and worktrees when execution root
 
 - Repo attach or workspace bind fails
 - Worktree creation fails or binds to the wrong branch context
-- Workspace health becomes `stale`
+- A workspace's state becomes `rootLost`
 - Scope and blast radius: one RepoMount, one workspace, or one worktree lineage
 
 ## Detection

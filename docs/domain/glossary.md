@@ -16,7 +16,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `User` | The account holder — the single human actor a session belongs to, with one stable identity across every device they connect from. |
 | `Device` | A connected client of that account — a phone, a laptop app, a second desktop. Listed on screen on the **Devices** page of Settings. Defined in [User And Device Model](./user-and-device-model.md). |
 | `Presence` | The ephemeral liveness of one of the user's own devices or machines — which of them are currently reachable. It is never a roster of other people. |
-| `RuntimeNode` | The machine that executes a session's work, owned by the user. |
+| `Machine` | A computer whose background service executes a session's work, owned by the user. |
 | `Agent` | A lasting identity in a session, the lead or a helper keyed by its handle, with many runs over time. Code and docs say agent for the concept; "sidekick" is the brand and the word a person reads on screen. |
 | `AgentDefinition` | A saved, reusable agent configuration the Sidekicks destination lists; a run started under one keeps the configuration it was resolved for. |
 | `Conversation` | The provider's own ongoing exchange with one agent (a Claude Code session, a Codex thread), idle between turns and never completed. Its on-disk record is the provider's `Conversation file`. |
@@ -28,7 +28,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `RepoMount` | A git repository attached to the machine as a project's folder, once per machine; every session of that project binds to it. A chat's managed workspace is a mount too, owned by its one chat. |
 | `Workspace` | A session's execution context, rooted at one checkout: the project's checkout, a worktree the daemon made, or a chat's managed workspace. |
 | `Worktree` | An isolated checkout derived from a repository and typically used as the default write target for coding runs. |
-| `ExecutionMode` | Where a session's runs work: `bound-root`, the root already bound to its workspace (the project's checkout, or a chat's managed workspace), or `provisioned-worktree`, a worktree the daemon's worktree lifecycle made. There is no disposable copy and no read-only place: how much a session may change is its permission level, not its execution mode. |
+| `ExecutionMode` | Where a session's runs work: `boundRoot`, the root already bound to its workspace (the project's checkout, or a chat's managed workspace), or `provisionedWorktree`, a worktree the daemon's worktree lifecycle made. There is no disposable copy and no read-only place: how much a session may change is its permission level, not its execution mode. |
 | `Artifact` | An immutable output or record produced by a run, a user, or the system. |
 | `Approval` | A durable decision record that resolves a gated request. |
 | `Workflow` | A reusable, versioned execution template that structures multi-step work inside a session. |
@@ -41,7 +41,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `local-only` | An operating constraint meaning the relevant session continuity or execution path remains usable on the user's own machine without requiring current control-plane reachability. `local-only` is not a separate domain object or an alternate session model. |
 | `Transcript` | The session's own record of its conversation, written by the daemon and drawn on screen in order: messages, tool calls, approvals and replies. There is no replay surface over it: scrollback is scrollback, and a person scrolls it. |
 | `Conversation file` | The provider's own on-disk record of a session's conversation, kept under the credential home it runs in (Claude Code writes `projects/<project folder>/<session id>.jsonl`). An account switch leaves it where it is: the session moves to the new account in place, from its next request, and nothing is copied, resumed or re-sent as text. |
-| `Memory files` | The instruction files a provider reads from its home and the project at a session's start: `CLAUDE.md` and the memory folder on Claude Code, `AGENTS.md` on Codex. `providerAccount.memoryImport` copies the person's ambient store of them into a named account's home once. |
+| `Memory files` | The instruction files a provider reads from its home and the project at a session's start: `CLAUDE.md` and the memory folder on Claude Code, `AGENTS.md` on Codex. `provider.account.memory.import` copies the person's ambient store of them into a named account's home once. |
 
 ## What This Is
 
@@ -61,7 +61,7 @@ This glossary is not a substitute for the detailed domain docs. Each term is def
 ## Relationships To Adjacent Concepts
 
 - `Session` is the top-level container.
-- `Agent`, `Run`, `QueueItem`, `Workspace`, `Artifact`, and `Approval` are all session-scoped concepts. `User`, `Device`, and `RuntimeNode` are account-scoped, and a `RepoMount` belongs to its machine; each appears inside a session by reference.
+- `Agent`, `Run`, `QueueItem`, `Workspace`, `Artifact`, and `Approval` are all session-scoped concepts. `User`, `Device`, and `Machine` are account-scoped, and a `RepoMount` belongs to its machine; each appears inside a session by reference.
 - `Worktree` is a specialized repository execution root inside a `Workspace`; it is not a synonym for `Workspace`.
 - `ExecutionMode` determines how a `Run` uses a repo-bound `Workspace`.
 - `Run` is one stretch of an agent's work and `Agent` is the lasting identity inside a session that performs its runs; a `Conversation` is the provider's exchange an agent's runs continue, and a `Turn` is the provider's unit inside a run. `AgentDefinition` is the saved, reusable configuration an `Agent` is resolved from.
@@ -82,7 +82,7 @@ The glossary changes with the domain docs: each entry carries the same meaning a
 ## Edge Cases
 
 - A session may exist without active runs.
-- A workspace may exist without a worktree when its session runs `bound-root` in the project's checkout or a chat's managed workspace; a new project session starts in a worktree of its own.
+- A workspace may exist without a worktree when its session runs `boundRoot` in the project's checkout or a chat's managed workspace; a new project session starts in a worktree of its own.
 
 ## Related Specs
 

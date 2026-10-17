@@ -75,7 +75,7 @@ Out of scope (see Non-Goals):
 ### The relay's key
 
 - **Pinned only without a publicly trusted certificate.** When the machine is linked to a relay whose certificate does not chain to a root the operating system trusts — a self-signed relay, or one on a private certificate authority — the daemon pins the SHA-256 hash of the relay's SubjectPublicKeyInfo. A relay with a publicly trusted certificate is not pinned: the platform's own certificate validation and the host name check it, so a certificate renewal that makes a new key never trips a refusal.
-- **A changed key is refused and recorded.** When a pinned relay presents a different key, the daemon refuses the connection and records `relay.pin_refused` on its sentinel session. `sidekicks daemon status` prints `refused: the relay's key does not match the one pinned when it was linked`. Nothing re-trusts the new key silently: the machine stays off that relay until the person accepts the new key.
+- **A changed key is refused and recorded.** When a pinned relay presents a different key, the daemon refuses the connection and records `relay.pin.refused` on its sentinel session. `sidekicks daemon status` prints `refused: the relay's key does not match the one pinned when it was linked`. Nothing re-trusts the new key silently: the machine stays off that relay until the person accepts the new key.
 - **The recovery.** `sidekicks relay repin --force`, with the new key's hash pasted and sent to the daemon as `relay.repin {spkiHash}`, accepts the new key once the person has checked it out of band. The pasted hash must match the key the relay presents.
 - **Not built.** The pin and its refusal are built in [Plan-025](../plans/025-remote-control.md) Phase 3; `sidekicks relay repin` in [Plan-005 §Phase R3 — Client Delivery](../plans/005-local-ipc-and-daemon-control.md#phase-r3--client-delivery).
 
@@ -106,8 +106,8 @@ sidekicks daemon status              # prints the refusal line while a pinned re
 
 | Event or error | Shape |
 | --- | --- |
-| `relay.pin_refused` (event, on the daemon's sentinel session) | `{relayHost, pinnedSpkiPrefix, presentedSpkiPrefix}` — each prefix the first 8 bytes of its hash, never a token |
-| `relay.spki_mismatch` (error, 409) | the refusal a pinned relay's changed key raises |
+| `relay.pin.refused` (event, on the daemon's sentinel session) | `{relayHost, pinnedSpkiPrefix, presentedSpkiPrefix}` — each prefix the first 8 bytes of its hash, never a token |
+| `relay.spkiMismatch` (error, 409) | the refusal a pinned relay's changed key raises |
 
 Both are listed with the relay's other refusals in [Spec-027 §Interfaces And Contracts](./027-remote-control.md#interfaces-and-contracts); the event is registered in [Spec-005 §Event Type Enumeration](./005-session-event-taxonomy-and-audit-log.md#event-type-enumeration) and the error in [error-contracts.md](../architecture/contracts/error-contracts.md).
 
@@ -121,7 +121,7 @@ First run adds no daemon method and no desktop bridge method.
 ## Example Flows
 
 - `Example: A person installs the app on a Mac where Claude Code is installed and signed in. The app opens under "Starting the background service…", the cover fades, and the sessions list reads "No sessions yet. Press New session to start with a chat or a project." They press New session, pick a chat, and send a message. Nothing asked them anything first.`
-- `Example: A person runs the Compose relay on a home server with a self-signed certificate, so the daemon pinned its key when the machine was linked. They rebuild the server and it makes a new key. The machine's next connection is refused, relay.pin_refused lands on the sentinel session, and "sidekicks daemon status" prints "refused: the relay's key does not match the one pinned when it was linked". They read the new hash on the server, run "sidekicks relay repin --force", paste it, and the machine reconnects.`
+- `Example: A person runs the Compose relay on a home server with a self-signed certificate, so the daemon pinned its key when the machine was linked. They rebuild the server and it makes a new key. The machine's next connection is refused, relay.pin.refused lands on the sentinel session, and "sidekicks daemon status" prints "refused: the relay's key does not match the one pinned when it was linked". They read the new hash on the server, run "sidekicks relay repin --force", paste it, and the machine reconnects.`
 - `Example: A person's Compose relay gets its certificate from Let's Encrypt, and Caddy makes a new key at every renewal. The certificate chains to a publicly trusted root, so nothing is pinned, and every renewal connects without a refusal.`
 
 ## Implementation Notes
@@ -135,7 +135,7 @@ First run adds no daemon method and no desktop bridge method.
 - **Adding a step in front of the first session.** A wizard, a tour, a tip, a consent screen or a sign-in gate each puts a question where the person expected work.
 - **Pinning a publicly trusted relay's key.** Caddy's default key rotation makes that pin refuse the relay at every renewal.
 - **Re-trusting a changed key without the person.** The refusal is the whole protection; a silent re-pin removes it.
-- **Putting more than the prefixes in the refusal event.** `relay.pin_refused` carries the first 8 bytes of each hash and never a token.
+- **Putting more than the prefixes in the refusal event.** `relay.pin.refused` carries the first 8 bytes of each hash and never a token.
 
 ## Acceptance Criteria
 
@@ -143,7 +143,7 @@ First run adds no daemon method and no desktop bridge method.
 - [ ] With no sessions the list reads `No sessions yet. Press New session to start with a chat or a project.` and names nothing else.
 - [ ] No surface draws a welcome wizard, tour, checklist, dismissible tip or sign-in gate, and a session can be created before any provider account, hosted account or relay exists.
 - [ ] A relay whose certificate chains to a root the operating system trusts is never pinned, and a renewal that changes its key connects.
-- [ ] A pinned relay that presents a different key is refused, `relay.pin_refused` is recorded with 8-byte prefixes and no token, `sidekicks daemon status` prints the refusal line, and the machine does not reconnect to it until `sidekicks relay repin --force` is run with a hash matching the presented key.
+- [ ] A pinned relay that presents a different key is refused, `relay.pin.refused` is recorded with 8-byte prefixes and no token, `sidekicks daemon status` prints the refusal line, and the machine does not reconnect to it until `sidekicks relay repin --force` is run with a hash matching the presented key.
 - [ ] `sidekicks relay repin --force` with a hash that does not match the presented key changes nothing.
 
 ## Open Questions

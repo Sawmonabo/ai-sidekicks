@@ -34,7 +34,7 @@ CREATE TABLE projects (
 -- Owner: Plan-006
 CREATE TABLE repo_mounts (
   id                  TEXT PRIMARY KEY,
-  node_id             TEXT NOT NULL,          -- this machine's own id, stamped by the daemon and never taken from the caller; a mount belongs to the machine, not to a session
+  machine_id          TEXT NOT NULL,          -- this machine's own id, stamped by the daemon and never taken from the caller; a mount belongs to the machine, not to a session
   local_path          TEXT NOT NULL,          -- user-entered attach path (provenance)
   canonical_root      TEXT NOT NULL,          -- resolver output: absolute, symlink-resolved (envelope/dedupe key)
   place               TEXT,                   -- where the root is, fixed at attach, stored as projects.place stores it; both paths are in its form
@@ -65,7 +65,7 @@ CREATE TABLE repo_mounts (
 -- two folders; detached rows stay re-attachable as new rows. A unique index counts NULLs as
 -- distinct, so the place is keyed as '' where it is NULL, keeping macOS and Linux unique.
 CREATE UNIQUE INDEX idx_repo_mounts_active_root
-  ON repo_mounts(node_id, coalesce(place, ''), canonical_root) WHERE state = 'attached';
+  ON repo_mounts(machine_id, coalesce(place, ''), canonical_root) WHERE state = 'attached';
 CREATE UNIQUE INDEX idx_repo_mounts_managed_session
   ON repo_mounts(managed_session_id) WHERE managed_session_id IS NOT NULL;
 -- A project has one attached mount, which every session of the project binds to.
@@ -79,12 +79,12 @@ CREATE TABLE workspaces (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL,
   repo_mount_id   TEXT NOT NULL REFERENCES repo_mounts(id),
-  execution_mode  TEXT NOT NULL               -- where the session works, chosen at bind (session.create or repo.workspaceBind): 'bound-root' = the project's own checkout; 'provisioned-worktree' = a worktree of its own. A chat's managed workspace is always 'bound-root'
-                  CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
+  execution_mode  TEXT NOT NULL               -- where the session works, chosen at bind (session.create or workspace.bind): 'boundRoot' = the project's own checkout; 'provisionedWorktree' = a worktree of its own. A chat's managed workspace is always 'boundRoot'
+                  CHECK(execution_mode IN ('boundRoot', 'provisionedWorktree')),
   fs_root         TEXT,                       -- resolved filesystem root
   state           TEXT NOT NULL DEFAULT 'preparing'
-                  CHECK(state IN ('preparing', 'ready', 'stale', 'archived')),  -- no run holds a workspace: an agent runs where its run's execution context is unreleased
-  metadata        TEXT NOT NULL DEFAULT '{}', -- JSON; lastError detail on a failed mode switch (Spec-007); boundRoot: admitted bind origin — the bound-root execution-root carrier, never cleared by a new preparation (Spec-007/Spec-008); checkoutRoot: the top level of the working tree boundRoot sits in, rewritten by every completed preparation, which a run's checkout_root and a worktree's occupancy read
+                  CHECK(state IN ('preparing', 'ready', 'rootLost', 'archived')),  -- no run holds a workspace: an agent runs where its run's execution context is unreleased
+  metadata        TEXT NOT NULL DEFAULT '{}', -- JSON; lastError detail on a failed mode switch (Spec-007); boundRoot: admitted bind origin — the `boundRoot` mode's execution-root carrier, never cleared by a new preparation (Spec-007/Spec-008); checkoutRoot: the top level of the working tree boundRoot sits in, rewritten by every completed preparation, which a run's checkout_root and a worktree's occupancy read
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );
@@ -166,8 +166,8 @@ CREATE TABLE removed_worktrees (
 CREATE INDEX idx_removed_worktrees_project ON removed_worktrees(project_id);
 
 -- Owner: Plan-007 | Extended by: Plan-008
--- Root carrier (D-007-5): provisioned-worktree rows reference the worktree; bound-root rows reference
--- none (the project's own checkout carries no Plan-007 root row).
+-- Root carrier (D-007-5): provisionedWorktree rows reference the worktree; boundRoot rows
+-- reference none (the project's own checkout carries no Plan-007 root row).
 CREATE TABLE branch_contexts (
   id                 TEXT PRIMARY KEY,
   workspace_id       TEXT NOT NULL REFERENCES workspaces(id),
@@ -195,20 +195,20 @@ CREATE TABLE run_execution_contexts (
   session_id         TEXT NOT NULL,                  -- event-sourced session id (no FK, matching session_id columns elsewhere)
   workspace_id       TEXT NOT NULL REFERENCES workspaces(id),
   execution_mode     TEXT NOT NULL
-                     CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
+                     CHECK(execution_mode IN ('boundRoot', 'provisionedWorktree')),
   execution_root     TEXT NOT NULL,
   checkout_root      TEXT NOT NULL,                  -- the top level of the working tree the run works in, from workspaces.metadata.checkoutRoot, written while the tree exists: the caller-supplied checkoutRoot a turn snapshot captures from, so a nested execution_root still captures the whole tree
-  git_common_dir     TEXT NOT NULL,                  -- `git rev-parse --git-common-dir` (absolute) captured at context creation: the surviving canonical git dir for the base pins under `refs/sidekicks/base/<owner id>/` and the alternate a capture is read through, so pin removal outlives a worktree retirement of execution_root (provisioned-worktree → the main repository's git dir; bound-root → <root>/.git)
+  git_common_dir     TEXT NOT NULL,                  -- `git rev-parse --git-common-dir` (absolute) captured at context creation: the surviving canonical git dir for the base pins under `refs/sidekicks/base/<owner id>/` and the alternate a capture is read through, so pin removal outlives a worktree retirement of execution_root (`provisionedWorktree` → the main repository's git dir; `boundRoot` → <root>/.git)
   worktree_id        TEXT REFERENCES worktrees(id),
   branch_context_id  TEXT REFERENCES branch_contexts(id),
   point_capture_error TEXT,                          -- workflow runs: why a snapshot point after the start failed to capture; NULL while every point captured. A fault at the start fails the run before its first step instead
   created_at         TEXT NOT NULL,
   released_at        TEXT,
-  -- Mode-conditional identity: a provisioned-worktree row names its worktree, a bound-root row names none,
-  -- and both carry their branch context (Spec-008 §State And Data Implications).
+  -- Mode-conditional identity: a provisionedWorktree row names its worktree, a boundRoot row
+  -- names none, and both carry their branch context (Spec-008 §State And Data Implications).
   CHECK (
-    (execution_mode = 'bound-root' AND worktree_id IS NULL AND branch_context_id IS NOT NULL)
-    OR (execution_mode = 'provisioned-worktree'
+    (execution_mode = 'boundRoot' AND worktree_id IS NULL AND branch_context_id IS NOT NULL)
+    OR (execution_mode = 'provisionedWorktree'
         AND worktree_id IS NOT NULL AND branch_context_id IS NOT NULL)
   )
 );
@@ -216,4 +216,4 @@ CREATE TABLE run_execution_contexts (
 CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(workspace_id);
 ```
 
-**Project record.** An attached repository is a project, and each project keeps a durable record beside its mount, the `projects` row: its display name, the folder slug fixed at attach, the setup steps its worktrees run after preparation, its own environment rows, its own branch-name pattern when one is set, its place on a Windows computer (Windows or a WSL 2 distribution, fixed at attach, with the folder's path in that place's form), whether it is archived, and a cloning mark (`state = 'cloning'`, with the address and the failure line) while `repo.clone` fetches it. The repository's identity is its mount's anchor, `repo_mounts.metadata.commonDir`, and attach keeps one project record per repository, so attaching a folder that is already a project finds that project. A project's attached mount names it in `repo_mounts.project_id`, and a re-attach writes its new mount row under the same record. Renaming a project edits the display name alone. Deleting a project forgets the record and detaches its mount; its sessions and the folder on disk stay ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)). The removed-worktree records, the agent definitions and the workflow secrets key a project by this record's id.
+**Project record.** An attached repository is a project, and each project keeps a durable record beside its mount, the `projects` row: its display name, the folder slug fixed at attach, the setup steps its worktrees run after preparation, its own environment rows, its own branch-name pattern when one is set, its place on a Windows computer (Windows or a WSL 2 distribution, fixed at attach, with the folder's path in that place's form), whether it is archived, and a cloning mark (`state = 'cloning'`, with the address and the failure line) while `project.clone.start` fetches it. The repository's identity is its mount's anchor, `repo_mounts.metadata.commonDir`, and attach keeps one project record per repository, so attaching a folder that is already a project finds that project. A project's attached mount names it in `repo_mounts.project_id`, and a re-attach writes its new mount row under the same record. Renaming a project edits the display name alone. Deleting a project forgets the record and detaches its mount; its sessions and the folder on disk stay ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)). The removed-worktree records, the agent definitions and the workflow secrets key a project by this record's id.

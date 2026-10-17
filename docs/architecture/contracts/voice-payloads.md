@@ -12,7 +12,7 @@ Talking instead of typing, on Claude Code and on Codex, with the same keys: `/vo
 The mode, the call voice and the dictation language are keys in the machine's settings file, read and written through the preload bridge's `machineSettings.read()` / `machineSettings.write(change)` ([§Settings Surface Reads And Writes](./settings-payloads.md#settings-surface-reads-and-writes)):
 
 - `voice.mode`: `hold` or `tap`, one for every provider, default `hold`.
-- `voice.callVoice`: the voice a spoken call answers in, picked on the `Voice` row of Settings › Providers › Codex, under the line `Applies from the next call.`, whose choices `voice.voiceList` gives. Missing, the call takes Codex's own `realtime.voice` where the person's Codex settings set one, and Codex's default where they do not; a pick is sent as `voice` on each `thread/realtime/start`, so it applies from the next call.
+- `voice.callVoice`: the voice a spoken call answers in, picked on the `Voice` row of Settings › Providers › Codex, under the line `Applies from the next call.`, whose choices `voice.list` gives. Missing, the call takes Codex's own `realtime.voice` where the person's Codex settings set one, and Codex's default where they do not; a pick is sent as `voice` on each `thread/realtime/start`, so it applies from the next call.
 - `voice.dictationLanguage`: the language dictation sends, picked on the `Dictation language` row of Settings › Providers › Claude Code, under the line `Also the language Claude Code replies in. Applies to sessions started later.`. Missing, it follows Claude Code's own `language` as the person's Claude Code settings give it; a pick is passed to the app's Claude Code sessions as `language` in `--settings`, so it also sets the language Claude Code replies in there.
 
 `/voice settings` in a session opens Settings › Providers at that session's provider, on its voice row. No method here carries the mode, and nothing is written into any provider's own configuration. From another device the device in hand is the microphone: dictation's frames reach the machine over the encrypted relay, and a call's offer and answer pass through the machine. The speech socket and `thread/realtime/appendSpeech` are the daemon's own, and no client calls them.
@@ -21,22 +21,22 @@ There is one recording and one call at a time on this computer, so the verbs on 
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
-| `voice.stateUpdate` | `mutation` | `VoiceState` | `VoiceState` |
-| `voice.stateSubscribe` | `subscription` | `EmptyPayload` | `VoiceState` (stream) |
-| `voice.dictationStart` | `mutation` | `VoiceDictationStartRequest` | `EmptyPayload` |
-| `voice.dictationWrite` | `mutation` | `VoiceDictationWriteRequest` | `EmptyPayload` |
-| `voice.dictationStop` | `mutation` | `VoiceDictationStopRequest` | `EmptyPayload` |
-| `voice.dictationSubscribe` | `subscription` | `EmptyPayload` | `VoiceDictationFrame` (stream) |
-| `voice.callStart` | `mutation` | `VoiceCallStartRequest` | `VoiceCallStartResponse` |
-| `voice.callStop` | `mutation` | `EmptyPayload` | `EmptyPayload` |
-| `voice.callSubscribe` | `subscription` | `EmptyPayload` | `VoiceCallFrame` (stream) |
-| `voice.voiceList` | `query` | `EmptyPayload` | `VoiceListResponse` |
+| `voice.state.update` | `mutation` | `VoiceState` | `VoiceState` |
+| `voice.state.subscribe` | `subscription` | `EmptyPayload` | `VoiceState` (stream) |
+| `voice.dictation.start` | `mutation` | `VoiceDictationStartRequest` | `EmptyPayload` |
+| `voice.dictation.write` | `mutation` | `VoiceDictationWriteRequest` | `EmptyPayload` |
+| `voice.dictation.stop` | `mutation` | `VoiceDictationStopRequest` | `EmptyPayload` |
+| `voice.dictation.subscribe` | `subscription` | `EmptyPayload` | `VoiceDictationFrame` (stream) |
+| `voice.call.start` | `mutation` | `VoiceCallStartRequest` | `VoiceCallStartResponse` |
+| `voice.call.stop` | `mutation` | `EmptyPayload` | `EmptyPayload` |
+| `voice.call.subscribe` | `subscription` | `EmptyPayload` | `VoiceCallFrame` (stream) |
+| `voice.list` | `query` | `EmptyPayload` | `VoiceListResponse` |
 
-Voice on an account whose sign-in kind its provider gives no voice (on Claude Code, an API-key or cloud-provider account) is refused with `voice.accountNotEntitled` (403), `data.fields` `{reason: signInKindNotEntitled, provider}`, `provider` the session's, and the strip draws one sentence, the same on every provider: `Voice isn't available on <account>.` A provider or installed build without voice refuses `voice.dictationStart` and `voice.callStart` with `driver.capability_unsupported`. `voice.callStart` refuses with `voice.call_start_failed` (503) when the provider's realtime service or the network failed before its answer arrived, with `provideraccount.not_authenticated` when the provider refused the account's sign-in, with `provider.account.allowanceExhausted` (429) when the account's allowance is spent, and with `driver.timeout` when no answer came in time.
+Voice on an account whose sign-in kind its provider gives no voice (on Claude Code, an API-key or cloud-provider account) is refused with `voice.accountNotEntitled` (403), `data.fields` `{reason: signInKindNotEntitled, provider}`, `provider` the session's, and the strip draws one sentence, the same on every provider: `Voice isn't available on <account>.` A provider or installed build without voice refuses `voice.dictation.start` and `voice.call.start` with `provider.capability.unsupported`. `voice.call.start` refuses with `voice.call.startFailed` (503) when the provider's realtime service or the network failed before its answer arrived, with `provider.account.notAuthenticated` when the provider refused the account's sign-in, with `provider.account.allowanceExhausted` (429) when the account's allowance is spent, and with `provider.timeout` when no answer came in time.
 
 ```ts
-// Which session voice is on in, or null when it is off: the request of `voice.stateUpdate`, its
-// result, and each delivery of `voice.stateSubscribe`, the first of which is the current state.
+// Which session voice is on in, or null when it is off: the request of `voice.state.update`, its
+// result, and each delivery of `voice.state.subscribe`, the first of which is the current state.
 // Moving it ends the other session's call, and `Voice ended` lands there.
 interface VoiceState {
   sessionId: SessionId | null;
@@ -72,17 +72,17 @@ type VoiceDictationFrame =
 // about the microphone itself are the window's own.
 type VoiceDictationFailure =
   // `No sound reached the microphone. Check the input device.`: only silent samples reached it.
-  | { reason: "no_sound" }
+  | { reason: "noSound" }
   // `No speech heard.`: the recording closed having heard sound but no words.
-  | { reason: "no_speech" }
+  | { reason: "noSpeech" }
   // `Dictation couldn't be sent.` with `Try again`: the connection failed after the one retry, or
   // the service refused with a 4xx other than 401 or 403.
-  | { reason: "not_sent" }
+  | { reason: "notSent" }
   // `Dictation couldn't sign in to <account>.` with `Sign in again`: the service refused the
   // account's sign-in (401 or 403).
-  | { reason: "sign_in_refused" }
+  | { reason: "signInRefused" }
   // The speech service's own error, in its own words.
-  | { reason: "service_error"; message: string };
+  | { reason: "serviceError"; message: string };
 
 // A Codex call, started at the first hold or tap of Space once voice is on there. The daemon passes
 // the offer in `thread/realtime/start` with the voice picked in the machine's settings file, where
@@ -94,7 +94,7 @@ interface VoiceCallStartRequest {
 interface VoiceCallStartResponse {
   answerSdp: string; // non-empty
 }
-// `voice.callStop` takes `EmptyPayload`, sent once the window has closed the call: when voice
+// `voice.call.stop` takes `EmptyPayload`, sent once the window has closed the call: when voice
 // is turned off or moves to another session.
 // One push of the call stream: the call started; the words the call hears from the person as they
 // arrive, then settled; the voice's reply, settled; the call ended, with its cause.

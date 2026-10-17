@@ -15,7 +15,7 @@ Rebuild session and audit projections when session history appears incomplete, s
 
 - Compare `EventsReadAfterSequence` results with the latest canonical event sequence for the affected session.
 - Read the `recovery` field on `daemon.status.read` (healthy, rebuilding, degraded or blocked, with each session's state, a damaged session's last good point among them) plus projection lag signals for the affected machine or session.
-- Verify whether missing history is an expected purge (a session removed by `Delete old data` or `Delete session` is deleted with its rows), a range skipped by `Continue from here` (named by its `recovery.damaged_events_skipped` event, its rows still stored), stale projection state, or true canonical-event loss.
+- Verify whether missing history is an expected purge (a session removed by `Delete old data` or `Delete session` is deleted with its rows), a range skipped by `Continue from here` (named by its `session.damagedEvents.skipped` event, its rows still stored), stale projection state, or true canonical-event loss.
 
 ## Preconditions
 

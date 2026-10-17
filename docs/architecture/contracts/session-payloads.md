@@ -13,11 +13,13 @@ interface SessionCreateRequest {
   // Where the new session works, bound in this same call, so no session exists unbound and its shape is
   // known from its first record.
   binding: SessionBinding;
-  // The lead spelled out: its driver, model and effort, and its output speed where one was picked, as the
-  // app chose them for a new session. A create names this, `leadDefinitionId`, or both; beside a
-  // definition, it is the binding the definition runs on. It names no account: the daemon resolves it.
+  // The lead spelled out: its driver, model and effort, and its output speed where one was picked,
+  // as the app chose them for a new session. A create names this, `leadDefinitionId`, or both;
+  // beside a definition, it is the binding the definition runs on. It names no account: the daemon
+  // resolves it.
   // A `largerWindow` the catalog does not offer for that model at that figure refuses
-  // `agent.provider_axis_invalid` on its `largerWindow` axis: the picker offers only current rows, so it is a stale request.
+  // `agent.providerAxisInvalid` on its `largerWindow` axis: the picker offers only current rows, so
+  // it is a stale request.
   lead?: SessionLead;
   // The saved definition this session's LEAD runs under: a request that spells its axes out in full
   // names none, and one naming a definition need not respell the axes the definition supplies. It is how
@@ -35,13 +37,13 @@ interface SessionCreateRequest {
   groupId?: SessionGroupId;
 }
 
-// A chat names nothing more: the daemon makes the chat's managed workspace inside the create and registers
-// it as a mount whose managed origin names this one chat. A project names the project and where the
-// session works in it — the project's own checkout (`bound-root`) or a worktree of its own
-// (`provisioned-worktree`) — and the daemon binds the session to the project's attached mount and checks,
-// in the same step, that the picked root belongs to the project, the check `repo.workspaceBind` makes when
-// a chat converts. A mount belongs to the machine, not to one session, so every project session binds to
-// the project's one mount.
+// A chat names nothing more: the daemon makes the chat's managed workspace inside the create and
+// registers it as a mount whose managed origin names this one chat. A project names the project and
+// where the session works in it — the project's own checkout (`boundRoot`) or a worktree of its own
+// (`provisionedWorktree`) — and the daemon binds the session to the project's attached mount and
+// checks, in the same step, that the picked root belongs to the project, the check `workspace.bind`
+// makes when a chat converts. A mount belongs to the machine, not to one session, so every project
+// session binds to the project's one mount.
 type SessionBinding =
   | { kind: "chat" }
   | { kind: "project"; projectId: ProjectId; executionMode: ExecutionMode };
@@ -60,15 +62,16 @@ interface SessionCreateResponse {
   resolvedConfiguration?: AgentResolvedConfiguration;
 }
 
-// session.created payload (Spec-005 §Session Lifecycle). A session has exactly one main agent and that
-// agent is born with the session rather than joined to it later, so this event is the creating record of
-// that agent's row in the agents projection (`AgentListEntry`, `agent.list` in orchestration-payloads.md §Plan-013) and no attach event exists.
-// It is also the one record of the session's shape at birth, of the session it was forked from, and of the
-// definition a scratch session tries, so the session's row is rebuilt from events alone.
+// session.created payload (Spec-005 §Session Lifecycle). A session has exactly one main agent and
+// that agent is born with the session rather than joined to it later, so this event is the creating
+// record of that agent's row in the agents projection (`AgentListEntry`, `agent.subscribe` in
+// orchestration-payloads.md §Plan-013) and no attach event exists.
+// It is also the one record of the session's shape at birth, of the session it was forked from, and
+// of the definition a scratch session tries, so the session's row is rebuilt from events alone.
 interface SessionCreatedPayload {
   sessionId: SessionId;
   shape: SessionShape;
-  mainAgent: AgentListEntry; // the agent as `agent.list` describes it, one shape for one live agent
+  mainAgent: AgentListEntry; // the agent as `agent.subscribe` describes it, one shape for one live agent
   // Present exactly on a forked session: the session it was forked from and the message it was forked
   // at. Parentage is recorded here and nowhere else (`session.fork` below).
   parent?: { sessionId: SessionId; anchorCursor: EventCursor };
@@ -98,24 +101,25 @@ interface SessionReadResponse {
     parentRunId?: RunId;
     state: RunState;
     runVersion: number;
-    agentId: AgentId; // the agent the run was created for, as its `run.queued` names it
+    agentId: AgentId; // the agent the run was created for, as its `agent.run.queued` names it
     actor?: string; // who the run's first event naming anyone names, as a window's run facts say
-    admittedProviderAccountId?: ProviderAccountId; // the account its `run.queued` admitted it under
-    touchedAt: string; // ISO 8601: when the run's newest `run_lifecycle` event occurred
+    admittedProviderAccountId?: ProviderAccountId; // the account its `agent.run.queued` admitted it under
+    touchedAt: string; // ISO 8601: when the run's newest `runLifecycle` event occurred
   }>;
-  // The newest event of each kind a reader keeps a standing fact from, whole, at the cursor the stream
-  // delivers it at, in sequence order, so a window opened below them still reads those facts: for each
-  // run not yet ended, its newest `usage.context_window_update` that measures the window (both counts,
-  // a window above zero) and its newest `usage.context_compacted`; for each shell, its newest
-  // `pty.control_changed`, and the newest naming no shell; every event that brought an agent into the
-  // session, `session.created` and each `run.queued` carrying `resolvedAgent`; and for each agent, its
-  // newest `agent.provider_binding_changed`. A reader holds them apart from its window, advancing each
-  // by every newer event of its kind and subject it admits.
+  // The newest event of each kind a reader keeps a standing fact from, whole, at the cursor the
+  // stream delivers it at, in sequence order, so a window opened below them still reads those
+  // facts: for each run not yet ended, its newest `usage.contextWindow.updated` that measures the
+  // window (both counts, a window above zero) and its newest `agent.run.context.compacted`; for
+  // each shell, its newest `terminal.control.changed`, and the newest naming no shell; every event
+  // that brought an agent into the session, `session.created` and each `agent.run.queued` carrying
+  // `resolvedAgent`; and for each agent, its newest `agent.providerBinding.changed`. A reader holds
+  // them apart from its window, advancing each by every newer event of its kind and subject it
+  // admits.
   standingEvents: Array<{ cursor: EventCursor; event: EventEnvelope }>;
 }
 
-// SessionSubscribe
-interface SessionSubscribeRequest {
+// SessionEventSubscribe
+interface SessionEventSubscribeRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor; // catch up from just after this position, then follow
 }
@@ -124,7 +128,7 @@ interface SessionSubscribeRequest {
 // `$/subscription/end` frame (`completed`, or `refused` with its error); a client ends one with
 // `$/subscription/cancel`.
 type SubscriptionId = string & { readonly __brand: "SubscriptionId" }; // allocated by the daemon per subscription
-interface SessionSubscribeResponse {
+interface SubscribeAckResponse {
   subscriptionId: SubscriptionId;
 }
 // Each notify's value, framed by the rule of Spec-006 §Required Behavior: the first event of a quiet
@@ -142,13 +146,14 @@ interface SessionSubscribeResponse {
 // next frame after the colorer answers. They are derived from the text and never stored, so a replay
 // from a cursor computes them again. `highlight.read` stays the read for files, diffs and history.
 interface SessionStreamFrame {
-  // At most `STREAM_FRAME_MAX_CHANGES`. EventEnvelope: session-event-payloads.md §Plan-004 — Session Event Taxonomy. `runStamp`
-  // is present exactly on an event of a run: the daemon's turn position, execution epoch and superseded
-  // marker for it, the same stamp a `transcript.read` row of that event carries, because the daemon
-  // stamps a live change and a window row from one fold. A client marks the rows it already holds when
-  // a `run.rolled_back` boundary arrives: a held row of that run at the rollback's epoch or an earlier
-  // one is superseded above the lowest cut of every rollback of the run at its epoch or later, the rule
-  // the daemon's fold applies (on clients `addSupersedingCut` in `packages/contracts/src/transcript/turn-attribution.ts`,
+  // At most `STREAM_FRAME_MAX_CHANGES`. EventEnvelope: session-event-payloads.md §Plan-004 —
+  // Session Event Taxonomy. `runStamp` is present exactly on an event of a run: the daemon's turn
+  // position, execution epoch and superseded marker for it, the same stamp a `transcript.read` row
+  // of that event carries, because the daemon stamps a live change and a window row from one fold.
+  // A client marks the rows it already holds when an `agent.run.rolledBack` boundary arrives: a
+  // held row of that run at the rollback's epoch or an earlier one is superseded above the lowest
+  // cut of every rollback of the run at its epoch or later, the rule the daemon's fold applies (on
+  // clients `addSupersedingCut` in `packages/contracts/src/transcript/turn-attribution.ts`,
   // hand-written TypeScript held to the daemon's Rust fold by one shared case table).
   changes: Array<{ cursor: EventCursor; event: EventEnvelope; runStamp?: TranscriptRunStamp }>;
   // Present only on the frame with no changes that tells a subscriber it is behind: the newest cursor
@@ -181,12 +186,12 @@ interface SessionRecord {
   // materialized here.
   name?: string;
   // Whether the person muted this session's notifications (`session.mute` below). The same fact rides each
-  // `session.list` entry.
+  // `session.subscribe` entry.
   muted: boolean;
   // The session's own tags, ordered ignoring case: the chips on the inspector's Identity `Tags` line.
   tags: string[];
   // The working-folder move a run boundary will apply, the folder it moves to, or null when none is
-  // pending (`session.setWorkingFolder` below).
+  // pending (`session.workingFolder.update` below).
   pendingWorkingFolder: { path: string } | null;
   // The daemon-held composer store below: the whole unsent draft (empty when there is none) and the whole
   // staged set, so every device opens the same half-written message.
@@ -197,7 +202,7 @@ interface SessionRecord {
   // unbounded and each provider does what it does on its own. What the bound does and how each
   // provider realizes it is Spec-003 §The Step Bound On A Turn's; it is not a budget, and reaching
   // it interrupts the turn (agent.turn.interrupted with cause "stepLimit", its partial result kept),
-  // and the run rests as run.interrupted with trigger "step_limit" until a send continues it.
+  // and the run rests as agent.run.interrupted with trigger "stepLimit" until a send continues it.
   maxStepsPerTurn?: number;
   // The addresses another session writes to when it messages this one — what the session inspector
   // offers as `Copy address`, one row each. Each names an inbox the daemon holds for the session in one
@@ -235,14 +240,14 @@ interface SessionRenameResponse {
   name: string | null; // the name the session now holds; null when its first-message title shows
 }
 
-// SessionMaxStepsUpdate — session.maxStepsUpdate. Sets or clears THIS session's own bound on how many
-// steps one turn may take. `null` clears the override and returns the session to the machine's own
-// Runtime value; a number is a positive integer, and a number below 1 is refused. A session id the
-// daemon does not hold is refused with `session.not_found` and nothing is appended. A change reaches
-// the session's NEXT turn and never the turn in flight, which is why the reply echoes the stored
-// override rather than any running turn's effective value. The machine-wide value is not written
-// here — it belongs to the Runtime settings page (settings-payloads.md §Settings Surface Reads And Writes), so one number
-// has one home on each side of the override.
+// SessionMaxStepsUpdate — session.maxSteps.update. Sets or clears THIS session's own bound on how
+// many steps one turn may take. `null` clears the override and returns the session to the machine's
+// own Runtime value; a number is a positive integer, and a number below 1 is refused. A session id
+// the daemon does not hold is refused with `session.notFound` and nothing is appended. A change
+// reaches the session's NEXT turn and never the turn in flight, which is why the reply echoes the
+// stored override rather than any running turn's effective value. The machine-wide value is not
+// written here — it belongs to the Runtime settings page (settings-payloads.md §Settings Surface
+// Reads And Writes), so one number has one home on each side of the override.
 interface SessionMaxStepsUpdateRequest {
   sessionId: SessionId;
   maxStepsPerTurn: number | null;
@@ -252,16 +257,17 @@ interface SessionMaxStepsUpdateResponse {
   maxStepsPerTurn?: number; // absent after a clear, the same shape the session record carries
 }
 
-// SessionSpendLimitUpdate / SessionTokensPerRunUpdate — session.spendLimitUpdate /
-// session.tokensPerRunUpdate. Set or clear THIS session's own `Spend limit` and `Tokens per run`,
+// SessionSpendLimitUpdate / SessionTokensPerRunUpdate — session.spendLimit.update /
+// session.tokensPerRun.update. Set or clear THIS session's own `Spend limit` and `Tokens per run`,
 // which start at the Runtime settings page's values when the session is created. `null` is
 // `Unlimited`, after which nothing stops or refuses on that limit. A spend limit is a non-negative
 // integer of micro-dollars and a token limit a positive integer; anything else is refused, as is a
-// session id the daemon does not hold (`session.not_found`), and nothing is appended. Saving a higher
-// spend limit continues each run that limit interrupted on its own run id, and saving a higher token
-// limit starts the next run of each agent that limit stopped, under the new number, as `Raise limit`
-// does (Spec-014 §Budget Policies). Both answer with the budget state, served from the one budget-accountant accessor as the
-// read is, so a reply and an immediately following `orchestration.budgetRead` carry the same figures.
+// session id the daemon does not hold (`session.notFound`), and nothing is appended. Saving a
+// higher spend limit continues each run that limit interrupted on its own run id, and saving a
+// higher token limit starts the next run of each agent that limit stopped, under the new number, as
+// `Raise limit` does (Spec-014 §Budget Policies). Both answer with the budget state, served from
+// the one budget-accountant accessor as the read is, so a reply and an immediately following
+// `session.budget.read` carry the same figures.
 interface SessionSpendLimitUpdateRequest {
   sessionId: SessionId;
   spendLimitUsdMicros: number | null;
@@ -272,19 +278,21 @@ interface SessionTokensPerRunUpdateRequest {
 }
 
 // SessionFork — session.fork. Mints a session of the SAME shape from a message anchor, carrying the
-// transcript prefix up to and including that message with live timers settled and streams stopped in
-// the copy, and carrying the parent's execution posture and tool set. A `project` fork lands on a
-// new worktree cut off the parent's current one at its current commit; a `chat` fork stays a chat, with
-// a managed workspace of its own, and involves no worktree. Parentage is recorded on the forked session's
-// OWN session-created record (`SessionCreatedPayload.parent`) and NOT as a second event: one read of the
-// new session answers where it came from, and the parent's own history is untouched.
+// transcript prefix up to and including that message with live timers settled and streams stopped
+// in the copy, and carrying the parent's execution posture and tool set. A `project` fork lands on
+// a new worktree cut off the parent's current one at its current commit; a `chat` fork stays a
+// chat, with a managed workspace of its own, and involves no worktree. Parentage is recorded on the
+// forked session's OWN session-created record (`SessionCreatedPayload.parent`) and NOT as a second
+// event: one read of the new session answers where it came from, and the parent's own history is
+// untouched.
 // The fork's `mainAgent` carries the parent main agent's `resolvedConfiguration`, its `accentHue`
 // included, and every copied row keeps its payload unchanged. So the fork's own
-// `session.created.mainAgent`, then the copied prefix's `run.queued` rows with their `resolvedAgent`,
-// admit every agent in the parent's join order, and a forked session keeps its agents' hues.
+// `session.created.mainAgent`, then the copied prefix's `agent.run.queued` rows with their
+// `resolvedAgent`, admit every agent in the parent's join order, and a forked session keeps its
+// agents' hues.
 interface SessionForkRequest {
   sessionId: SessionId;
-  // The anchored message, addressed in the same cursor vocabulary session.subscribe and
+  // The anchored message, addressed in the same cursor vocabulary session.event.subscribe and
   // transcript.read use. The fork carries every row up to and including this position.
   anchorCursor: EventCursor;
   // Absent leaves the fork untitled — the ordinary case, since the fork affordance asks for no name.
@@ -297,20 +305,20 @@ type SessionForkResponse =
   | { sessionId: SessionId; shape: "project"; worktreeId: WorktreeId }
   | { sessionId: SessionId; shape: "chat" };
 
-// SessionSetWorkingFolder — session.setWorkingFolder. ONE call requesting the move of a session's
-// working folder to `path`: the folder of any worktree git lists for the project's repository, one the
-// person made with git included, or the repository's own checkout. An idle session moves at once —
-// same session, same history, new directory, and the live provider process reconnects there. A
-// request made mid-run never refuses: the pending intent is recorded ON THE SESSION ROW rather than
-// queued, and applies at the run boundary. Re-targeting to the current
-// directory IS the cancel, and a later request SUPERSEDES the pending one rather than queuing behind
-// it, so a session holds at most one pending move. Removing a worktree clears every pending move
-// pointing at it and sweeps the sessions standing in it back to the repo root.
-interface SessionSetWorkingFolderRequest {
+// SessionWorkingFolderUpdate — session.workingFolder.update. ONE call requesting the move of a
+// session's working folder to `path`: the folder of any worktree git lists for the project's
+// repository, one the person made with git included, or the repository's own checkout. An idle
+// session moves at once — same session, same history, new directory, and the live provider process
+// reconnects there. A request made mid-run never refuses: the pending intent is recorded ON THE
+// SESSION ROW rather than queued, and applies at the run boundary. Re-targeting to the current
+// directory IS the cancel, and a later request SUPERSEDES the pending one rather than queuing
+// behind it, so a session holds at most one pending move. Removing a worktree clears every pending
+// move pointing at it and sweeps the sessions standing in it back to the repo root.
+interface SessionWorkingFolderUpdateRequest {
   sessionId: SessionId;
-  path: string; // a folder `repo.worktreeStatusRead` lists, or its `repoRoot.path`; at most FILE_PATH_MAX_LEN
+  path: string; // a folder `worktree.status.read` lists, or its `repoRoot.path`; at most FILE_PATH_MAX_LEN
 }
-interface SessionSetWorkingFolderResponse {
+interface SessionWorkingFolderUpdateResponse {
   sessionId: SessionId;
   // `applied` — the session moved now, either because it was idle or because the request
   // re-targeted the current directory and thereby cleared a pending move. `pending` — a run was
@@ -325,7 +333,7 @@ interface SessionSetWorkingFolderResponse {
 // message or review reaches the person's other devices, and Send needs no upload step because the
 // file was already copied. Typed unsent text is NEVER written to renderer-local storage.
 
-// SessionDraftUpdate — session.draftUpdate.
+// SessionDraftUpdate — session.draft.update.
 interface SessionDraftUpdateRequest {
   sessionId: SessionId;
   text: string; // the whole draft; an empty string clears it
@@ -335,16 +343,17 @@ interface SessionDraftUpdateResponse {
   updatedAt: string;
 }
 
-// SessionAttachmentAdd — session.attachmentAdd. Staging COPIES each file to the daemon and keeps the
-// copy OUTSIDE the checkout, so a staged file survives a working-folder move and never appears in a
-// diff. Several items at a time, at least one; a file item is a file, never a folder. The renderer holds
-// only the `FilePathRef` token the platform's own chooser, a drop or a paste gave it
-// ([Preload Bridge Contract](preload-bridge-contract.md)),
-// and main's relay turns the token into the `path` the daemon copies, so a path reaches the daemon only
-// from the main process or the command line; a pasted picture is a file too, written by main to a
-// temporary file whose token it mints. Each accepted item is validated by the Plan-011 ingest pipeline —
-// a picture is stored as it came, and that copy is the only one kept, shown and sent — and is addressed by its `ArtifactId` from then on, so the original path is never read again,
-// which is also why a pasted or dropped file stages through this same operation rather than a second one.
+// SessionAttachmentAdd — session.attachment.add. Staging COPIES each file to the daemon and keeps
+// the copy OUTSIDE the checkout, so a staged file survives a working-folder move and never appears
+// in a diff. Several items at a time, at least one; a file item is a file, never a folder. The
+// renderer holds only the `FilePathRef` token the platform's own chooser, a drop or a paste gave it
+// ([Preload Bridge Contract](preload-bridge-contract.md)), and main's relay turns the token into
+// the `path` the daemon copies, so a path reaches the daemon only from the main process or the
+// command line; a pasted picture is a file too, written by main to a temporary file whose token it
+// mints. Each accepted item is validated by the Plan-011 ingest pipeline — a picture is stored as
+// it came, and that copy is the only one kept, shown and sent — and is addressed by its
+// `ArtifactId` from then on, so the original path is never read again, which is also why a pasted
+// or dropped file stages through this same operation rather than a second one.
 interface SessionAttachmentAddRequest {
   sessionId: SessionId;
   items: SessionAttachmentItem[];
@@ -353,8 +362,9 @@ interface SessionAttachmentAddRequest {
 // daemon answers a repeated id with the item it already staged or refused.
 type SessionAttachmentItem =
   | { kind: "file"; clientStagingId: string; path: string }
-  // Preview's marks chip is staged by `preview.marksSend` (page-host-payloads.md §Page-Host Method Registry), never here.
-  // One resource a tool server offers, picked from `session.mcpResourceList`. Its content is untrusted
+  // Preview's marks chip is staged by `preview.mark.send` (page-host-payloads.md §Page-Host Method
+  // Registry), never here.
+  // One resource a tool server offers, picked from `mcp.resource.list`. Its content is untrusted
   // and its `uri` is never used as a path.
   | { kind: "mcpResource"; clientStagingId: string; serverName: string; uri: string };
 interface SessionAttachmentAddResponse {
@@ -373,28 +383,28 @@ interface SessionAttachmentRefusal {
   name: string;
   cause:
     | {
-        code: "session.attachment_refused";
-        // count_limit: the message already carries as many files as the provider takes; folder: a
-        // folder was offered; provider_takes_no_attachments; card_waiting: a card above the
+        code: "session.attachment.refused";
+        // countLimit: the message already carries as many files as the provider takes; folder: a
+        // folder was offered; providerTakesNoAttachments; cardWaiting: a card above the
         // composer waits on the person.
-        reason: "count_limit" | "folder" | "provider_takes_no_attachments" | "card_waiting";
+        reason: "countLimit" | "folder" | "providerTakesNoAttachments" | "cardWaiting";
       }
     | {
-        code: "session.attachment_refused";
+        code: "session.attachment.refused";
         // The provider's own limit (a file larger than it takes) or its refusal of a picture.
-        reason: "provider_refused";
+        reason: "providerRefused";
         providerMessage: string; // the provider's own words, shown as given
       }
     | {
-        code: "session.attachment_refused";
+        code: "session.attachment.refused";
         // The copy to the daemon did not complete.
-        reason: "copy_failed";
+        reason: "copyFailed";
         detail: string; // the daemon's own cause, the text after `·` on the refusal line
       }
     // The free disk cannot hold the file even with nothing else being taken.
-    | { code: "artifact.too_large"; availableBytes: number }
+    | { code: "artifact.tooLarge"; availableBytes: number }
     // The file only waits on the files already being taken.
-    | { code: "artifact.ingest_capacity_exhausted" };
+    | { code: "artifact.ingest.capacityExhausted" };
 }
 // Every member is what the daemon found in the bytes it copied, never what the caller declared.
 interface SessionAttachmentSummary {
@@ -421,26 +431,27 @@ interface SessionAttachmentRemoveResponse {
 // nothing, and likewise unmuting an unmuted one.
 // The request of every verb that acts on one session and takes nothing else: `session.archive`,
 // `session.reactivate`, `session.close`, `session.pin`, `session.unpin`, `session.mute`,
-// `session.unmute` and `session.restart`.
+// `session.unmute`, `session.restart`, `session.recovery.continue` and `session.recovery.delete`.
 interface SessionTargetRequest {
   sessionId: SessionId;
 }
-// `{}`: the change is read from the event the verb appends, which every device folds. A verb that finds
-// the session already in the state it asks for appends nothing and answers the same.
-type SessionVerbResponse = Record<string, never>;
+// Each answers `EmptyPayload`, `{}`: the change is read from the event the verb appends, which
+// every device folds. A verb that finds the session already in the state it asks for appends
+// nothing and answers the same.
 
-// SessionConvert — session.convert. Converts a chat to a project in place: attaches the repository at
-// the typed `path`, copies the chat's files in, skipping each it cannot copy safely, keeps the managed
-// workspace, and records `session.converted`. Each file's outcome is recorded as it lands, so a
-// conversion that stopped part way (`session.convert_incomplete`) resumes when a convert names the
-// same folder, under any key: no file is copied twice, the counts are the whole conversion's, and
-// that request's key takes the conversion over. A convert naming another folder is refused
-// `session.convert_refused`, reason `conversion_unfinished`. The path is read in the chat's own place:
-// a Linux path in the chat's distribution, a drive path or its `/mnt/<drive>` form on Windows; a
-// folder in another place is refused `session.convert_refused`, reason `folder_in_another_place`,
-// naming the chat's `place`, since a session's place never changes. A retry with the key of a finished
-// conversion answers it and copies nothing. Files whose copies land just before the daemon stops,
-// and so have no record yet, read as `repository_has_file` when the conversion resumes.
+// SessionConvert — session.convert. Converts a chat to a project in place: attaches the repository
+// at the typed `path`, copies the chat's files in, skipping each it cannot copy safely, keeps the
+// managed workspace, and records `session.converted`. Each file's outcome is recorded as it lands,
+// so a conversion that stopped part way (`session.conversion.incomplete`) resumes when a convert
+// names the same folder, under any key: no file is copied twice, the counts are the whole
+// conversion's, and that request's key takes the conversion over. A convert naming another folder
+// is refused `session.conversion.refused`, reason `conversionUnfinished`. The path is read in the
+// chat's own place: a Linux path in the chat's distribution, a drive path or its `/mnt/<drive>`
+// form on Windows; a folder in another place is refused `session.conversion.refused`, reason
+// `folderInAnotherPlace`, naming the chat's `place`, since a session's place never changes. A retry
+// with the key of a finished conversion answers it and copies nothing. Files whose copies land just
+// before the daemon stops, and so have no record yet, read as `repositoryHasFile` when the
+// conversion resumes.
 interface SessionConvertRequest {
   sessionId: SessionId;
   path: string; // the folder as typed, carried as data and checked before anything is copied
@@ -448,7 +459,7 @@ interface SessionConvertRequest {
 }
 interface SessionConvertResponse {
   copiedCount: number;
-  skippedCount: number; // each skipped file, with its reason, is read through session.convertSkippedFileList
+  skippedCount: number; // each skipped file, with its reason, is read through session.conversion.skippedFile.list
 }
 // session.converted payload (Spec-005 §Session Lifecycle).
 interface SessionConvertedPayload extends SessionConvertResponse {
@@ -456,25 +467,25 @@ interface SessionConvertedPayload extends SessionConvertResponse {
   repoMountId: RepoMountId;
 }
 type SessionConvertSkipReason =
-  | "repository_has_file"
-  | "repository_path_not_a_folder"
+  | "repositoryHasFile"
+  | "repositoryPathNotAFolder"
   | "link"
-  | "special_file";
+  | "specialFile";
 interface SessionConvertSkippedFile {
   path: string; // relative to the workspace
   reason: SessionConvertSkipReason;
 }
 
-// SessionConvertSkippedFileList — session.convertSkippedFileList. The files a conversion did not copy,
-// a page at a time in path order, every one on some page. A session never converted, or one that
-// copied every file, answers an empty last page.
-interface SessionConvertSkippedFileListRequest {
+// SessionConversionSkippedFileList — session.conversion.skippedFile.list. The files a conversion
+// did not copy, a page at a time in path order, every one on some page. A session never converted,
+// or one that copied every file, answers an empty last page.
+interface SessionConversionSkippedFileListRequest {
   sessionId: SessionId;
   afterCursor?: SessionConvertSkippedFileCursor; // opaque, the daemon's own: the previous page's nextCursor
   limit?: number; // files per page, at most SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX (256), which is also the default
 }
 // A page's files also fit one frame (PAGE_MAX_BYTES, transcript-payloads.md §Plan-010).
-type SessionConvertSkippedFileListResponse =
+type SessionConversionSkippedFileListResponse =
   | {
       files: SessionConvertSkippedFile[];
       hasMore: true;
@@ -490,7 +501,7 @@ interface SessionMarkChangePayload {
   at: string; // ISO 8601
 }
 
-// session.advisor_changed payload. A Claude Code session's advisor is its own: copied when the
+// session.advisor.changed payload. A Claude Code session's advisor is its own: copied when the
 // session is created from the app's pick where one is set, else from the `advisorModel` Claude
 // Code's own settings resolve for the session's project, and none where neither sets one; held
 // with its other provider settings, and changed only by `/advisor <model>` or `/advisor off` in
@@ -505,7 +516,7 @@ interface SessionAdvisorChangedPayload {
   at: string; // ISO 8601
 }
 
-// session.output_style_changed payload. A Claude Code session's output style is its own, kept like
+// session.outputStyle.changed payload. A Claude Code session's output style is its own, kept like
 // its advisor: it runs on Claude Code's own style until `/output-style <style>` in that session
 // changes it, each change one event. Every Claude Code process started for the session reads the
 // newest at launch.
@@ -525,10 +536,11 @@ interface SessionOutputStyleChangedPayload {
 interface SessionSearchRequest {
   query: string;
   // Opaque, the daemon's own. It continues the search its first page read, so a write between pages
-  // neither repeats a hit nor drops one, except a hit whose row, group membership or session has since
-  // gone or whose title, group name or tag was renamed so the words no longer match it. It is refused `session.search_cursor_unresolvable` when it names no page or names a search the
-  // daemon has let go (5 minutes unpaged, 30 minutes in all, or the least recently paged once more
-  // than 16 are held); the client then searches again.
+  // neither repeats a hit nor drops one, except a hit whose row, group membership or session has
+  // since gone or whose title, group name or tag was renamed so the words no longer match it. It is
+  // refused `session.search.cursorUnresolvable` when it names no page or names a search the daemon
+  // has let go (5 minutes unpaged, 30 minutes in all, or the least recently paged once more than 16
+  // are held); the client then searches again.
   afterCursor?: SessionSearchCursor;
   limit?: number; // hits per page, at most SESSION_SEARCH_PAGE_LIMIT_MAX (256), which is also the default
 }
@@ -579,11 +591,11 @@ interface TranscriptSearchHit {
   matchRanges: SearchMatchRange[];
 }
 
-// SessionList — session.list, live: the list, then each change. The opening list comes as the
-// acknowledgment and then `page` changes, each fitting one message (PAGE_MAX_BYTES), before any other
-// change; it is whole at the acknowledgment or page marked `isComplete`. A reader shows no part of it as
-// the whole list.
-interface SessionListAck {
+// SessionSubscribe — session.subscribe, live: the list, then each change. The opening list comes as
+// the acknowledgment and then `page` changes, each fitting one message (PAGE_MAX_BYTES), before any
+// other change; it is whole at the acknowledgment or page marked `isComplete`. A reader shows no
+// part of it as the whole list.
+interface SessionSubscribeResponse {
   subscriptionId: SubscriptionId;
   sessions: SessionListEntry[];
   chatCount: number; // the chats not archived, closed or awaiting purge, counted by the daemon
@@ -621,13 +633,13 @@ type SessionListEntry = (
 // `session_update` (Spec-014), on the same service and the same tables
 // ([Spec-001 §Groups, Links And Tags](../../specs/001-session-core.md#groups-links-and-tags)). Each
 // verb answers `{}` where nothing else is named, and a client reads the change from the live
-// `session.list`.
+// `session.subscribe`.
 type SessionGroupId = string & { readonly __brand: "SessionGroupId" }; // daemon-minted
 
-// session.groupCreate — `New group…`: makes a session group in the session's project with this
+// session.group.create — `New group…`: makes a session group in the session's project with this
 // session in it, so no group is ever empty. A name another group of the project holds, ignoring
-// case, is refused `session.group_name_taken`; a chat sits in no group and is refused
-// `session.group_refused`.
+// case, is refused `session.group.nameTaken`; a chat sits in no group and is refused
+// `session.group.refused`.
 interface SessionGroupCreateRequest {
   sessionId: SessionId;
   name: string;
@@ -635,29 +647,29 @@ interface SessionGroupCreateRequest {
 interface SessionGroupCreateResponse {
   groupId: SessionGroupId;
 }
-// session.groupMove — `Move to group`, or a drag onto a group's row: moves the session into a group
-// of its own project; `groupId` null takes it out among the project's loose sessions. A session is
-// in at most one group, so a move into another group leaves the first; a group left with no session
-// is removed.
+// session.group.move — `Move to group`, or a drag onto a group's row: moves the session into a
+// group of its own project; `groupId` null takes it out among the project's loose sessions. A
+// session is in at most one group, so a move into another group leaves the first; a group left with
+// no session is removed.
 interface SessionGroupMoveRequest {
   sessionId: SessionId;
   groupId: SessionGroupId | null;
 }
-// session.groupRename — `Rename group…`, or a double-click on the group's row. The same uniqueness
-// as create, refused `session.group_name_taken`.
+// session.group.rename — `Rename group…`, or a double-click on the group's row. The same uniqueness
+// as create, refused `session.group.nameTaken`.
 interface SessionGroupRenameRequest {
   groupId: SessionGroupId;
   name: string;
 }
-// session.groupUngroup — `Ungroup`: its sessions go back loose; nothing is archived or closed.
+// session.group.ungroup — `Ungroup`: its sessions go back loose; nothing is archived or closed.
 interface SessionGroupUngroupRequest {
   groupId: SessionGroupId;
 }
 
-// session.relatedList — the inspector's `Related` section: the sessions linked to this one, highest
-// relevance first, read from the ranked list stored under the session's id. Live: the whole list
-// again each time a link it depends on is re-scored.
-interface SessionRelatedListRequest {
+// session.relatedSession.subscribe — the inspector's `Related` section: the sessions linked to this
+// one, highest relevance first, read from the ranked list stored under the session's id. Live: the
+// whole list again each time a link it depends on is re-scored.
+interface SessionRelatedSessionSubscribeRequest {
   sessionId: SessionId;
 }
 interface SessionRelatedListUpdate {
@@ -667,7 +679,7 @@ interface SessionRelatedListUpdate {
     name?: string; // absent for an untitled session
     // The strongest link's kind, which the row reads in words (`started by planner`,
     // `copy of builder`, `12 messages with review-bot`, `related to stripe-webhook (billing)`).
-    kind: "started" | "copied_from" | "messaged" | "asked" | "mentioned" | "related";
+    kind: "started" | "copiedFrom" | "messaged" | "asked" | "mentioned" | "related";
     // True where this session is the link's source: it started, copied, messaged, asked or
     // mentioned the other, so the row reads `started planner` rather than `started by planner`.
     sessionIsSource: boolean;
@@ -676,28 +688,25 @@ interface SessionRelatedListUpdate {
     removable: boolean;
   }>;
 }
-// session.linkAdd — `Link a session…`, the session picked through the `@` session picker: adds a
+// session.link.add — `Link a session…`, the session picked through the `@` session picker: adds a
 // `related` link between the two sessions, by id, so a rename changes nothing.
-interface SessionLinkAddRequest {
-  sessionId: SessionId;
-  targetSessionId: SessionId;
-}
-// session.linkRemove — `Unlink` on a `related` row. A link the daemon wrote from an event records
-// what happened and is refused `session.link_not_removable`.
-interface SessionLinkRemoveRequest {
+// session.link.remove — `Unlink` on a `related` row. A link the daemon wrote from an event records
+// what happened and is refused `session.link.notRemovable`.
+interface SessionLinkRequest {
   sessionId: SessionId;
   targetSessionId: SessionId;
 }
 
-// session.tagAdd / session.tagRemove — the `Tags` line on the inspector's Identity: `Add tag` and a
-// chip's remove control. A tag is matched ignoring case and nests with `/`; `tag` follows the one tag
-// rule (the `Tag` newtype in `crates/sidekicks-contracts/src/tag.rs`: never empty, no whitespace, no empty level
-// around a `/`), so a tag it refuses is refused as invalid params with nothing written.
+// session.tag.add / session.tag.remove — the `Tags` line on the inspector's Identity: `Add tag` and
+// a chip's remove control. A tag is matched ignoring case and nests with `/`; `tag` follows the one
+// tag rule (the `Tag` newtype in `crates/sidekicks-contracts/src/tag.rs`: never empty, no
+// whitespace, no empty level around a `/`), so a tag it refuses is refused as invalid params with
+// nothing written.
 interface SessionTagRequest {
   sessionId: SessionId;
   tag: string;
 }
-// session.tagList — the tags in use across every session, which `Add tag` suggests.
+// session.tag.list — the tags in use across every session, which `Add tag` suggests.
 interface SessionTagListResponse {
   tags: string[];
 }
@@ -705,40 +714,40 @@ interface SessionTagListResponse {
 
 ### Session Method-Name Registry
 
-The console's `session.*` operations beyond the [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase 3 rows registered in local-ipc-payloads.md §JSON-RPC Method-Name Registry, and beyond the lease verb and the flow-control signal registered in remote-control-payloads.md §Session Terminal-Control Method Registry. Names follow the [wire-name grammar](./local-ipc-payloads.md#wire-name-grammar). These ride the **daemon JSON-RPC transport only**: a session's name, its working folder, its draft, its staged files and its mute are machine-local state the terminal-owning daemon is the record authority for, so no control-plane route sibling exists — the `repo.*` / `approval.*` posture. Method strings stay imperative and disjoint-by-form from the past-participle [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) durable event names (`session.renamed`, `session.goal_updated`, `session.muted`).
+The console's `session.*` operations beyond the [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase 3 rows registered in local-ipc-payloads.md §JSON-RPC Method-Name Registry. Names follow the [wire-name grammar](./local-ipc-payloads.md#wire-name-grammar). These ride the **daemon JSON-RPC transport only**: a session's name, its working folder, its draft, its staged files and its mute are machine-local state the terminal-owning daemon is the record authority for, so no control-plane route sibling exists — the `repoMount.*` / `project.*` / `worktree.*` / `workspace.*` / `approval.*` posture. Method strings stay imperative and disjoint-by-form from the past-participle [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) durable event names (`session.renamed`, `session.goal.updated`, `session.muted`).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
 | `session.rename` | `mutation` | `SessionRenameRequest` | `SessionRenameResponse` |
 | `session.fork` | `mutation` | `SessionForkRequest` | `SessionForkResponse` |
-| `session.setWorkingFolder` | `mutation` | `SessionSetWorkingFolderRequest` | `SessionSetWorkingFolderResponse` |
-| `session.maxStepsUpdate` | `mutation` | `SessionMaxStepsUpdateRequest` | `SessionMaxStepsUpdateResponse` |
-| `session.spendLimitUpdate` | `mutation` | `SessionSpendLimitUpdateRequest` | `OrchestrationBudgetState` |
-| `session.tokensPerRunUpdate` | `mutation` | `SessionTokensPerRunUpdateRequest` | `OrchestrationBudgetState` |
-| `session.draftUpdate` | `mutation` | `SessionDraftUpdateRequest` | `SessionDraftUpdateResponse` |
-| `session.attachmentAdd` | `mutation` | `SessionAttachmentAddRequest` | `SessionAttachmentAddResponse` |
-| `session.attachmentRemove` | `mutation` | `SessionAttachmentRemoveRequest` | `SessionAttachmentRemoveResponse` |
-| `session.mute` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
-| `session.unmute` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
+| `session.workingFolder.update` | `mutation` | `SessionWorkingFolderUpdateRequest` | `SessionWorkingFolderUpdateResponse` |
+| `session.maxSteps.update` | `mutation` | `SessionMaxStepsUpdateRequest` | `SessionMaxStepsUpdateResponse` |
+| `session.spendLimit.update` | `mutation` | `SessionSpendLimitUpdateRequest` | `SessionBudgetState` |
+| `session.tokensPerRun.update` | `mutation` | `SessionTokensPerRunUpdateRequest` | `SessionBudgetState` |
+| `session.draft.update` | `mutation` | `SessionDraftUpdateRequest` | `SessionDraftUpdateResponse` |
+| `session.attachment.add` | `mutation` | `SessionAttachmentAddRequest` | `SessionAttachmentAddResponse` |
+| `session.attachment.remove` | `mutation` | `SessionAttachmentRemoveRequest` | `SessionAttachmentRemoveResponse` |
+| `session.mute` | `mutation` | `SessionTargetRequest` | `EmptyPayload` |
+| `session.unmute` | `mutation` | `SessionTargetRequest` | `EmptyPayload` |
 | `session.convert` | `mutation` | `SessionConvertRequest` | `SessionConvertResponse` |
-| `session.convertSkippedFileList` | `query` | `SessionConvertSkippedFileListRequest` | `SessionConvertSkippedFileListResponse` |
-| `session.recoveryContinue` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
-| `session.recoveryDelete` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
+| `session.conversion.skippedFile.list` | `query` | `SessionConversionSkippedFileListRequest` | `SessionConversionSkippedFileListResponse` |
+| `session.recovery.continue` | `mutation` | `SessionTargetRequest` | `EmptyPayload` |
+| `session.recovery.delete` | `mutation` | `SessionTargetRequest` | `EmptyPayload` |
 | `session.search` | `query` | `SessionSearchRequest` | `SessionSearchResponse` |
-| `session.groupCreate` | `mutation` | `SessionGroupCreateRequest` | `SessionGroupCreateResponse` |
-| `session.groupMove` | `mutation` | `SessionGroupMoveRequest` | `SessionVerbResponse` |
-| `session.groupRename` | `mutation` | `SessionGroupRenameRequest` | `SessionVerbResponse` |
-| `session.groupUngroup` | `mutation` | `SessionGroupUngroupRequest` | `SessionVerbResponse` |
-| `session.relatedList` | `subscription` | `SessionRelatedListRequest` | `SessionRelatedListUpdate` (stream) |
-| `session.linkAdd` | `mutation` | `SessionLinkAddRequest` | `SessionVerbResponse` |
-| `session.linkRemove` | `mutation` | `SessionLinkRemoveRequest` | `SessionVerbResponse` |
-| `session.tagAdd` | `mutation` | `SessionTagRequest` | `SessionVerbResponse` |
-| `session.tagRemove` | `mutation` | `SessionTagRequest` | `SessionVerbResponse` |
-| `session.tagList` | `query` | `EmptyPayload` | `SessionTagListResponse` |
+| `session.group.create` | `mutation` | `SessionGroupCreateRequest` | `SessionGroupCreateResponse` |
+| `session.group.move` | `mutation` | `SessionGroupMoveRequest` | `EmptyPayload` |
+| `session.group.rename` | `mutation` | `SessionGroupRenameRequest` | `EmptyPayload` |
+| `session.group.ungroup` | `mutation` | `SessionGroupUngroupRequest` | `EmptyPayload` |
+| `session.relatedSession.subscribe` | `subscription` | `SessionRelatedSessionSubscribeRequest` | `SessionRelatedListUpdate` (stream) |
+| `session.link.add` | `mutation` | `SessionLinkRequest` | `EmptyPayload` |
+| `session.link.remove` | `mutation` | `SessionLinkRequest` | `EmptyPayload` |
+| `session.tag.add` | `mutation` | `SessionTagRequest` | `EmptyPayload` |
+| `session.tag.remove` | `mutation` | `SessionTagRequest` | `EmptyPayload` |
+| `session.tag.list` | `query` | `EmptyPayload` | `SessionTagListResponse` |
 
-`session.recoveryContinue` (`Continue from here`) and `session.recoveryDelete` (`Delete session`) act only on a session whose history is damaged; their event and refusals are in [persistence-payloads.md §Plan-012](./persistence-payloads.md#plan-012--persistence-and-recovery).
+`session.recovery.continue` (`Continue from here`) and `session.recovery.delete` (`Delete session`) act only on a session whose history is damaged; their event and refusals are in [persistence-payloads.md §Plan-012](./persistence-payloads.md#plan-012--persistence-and-recovery).
 
-`session.goalUpdate` and `session.goalClear` are registered in orchestration-payloads.md §Plan-013's method registry, where the goal's delivery contract lives, and are listed here only so the console's session surface reads whole in one place.
+`session.goal.update` and `session.goal.clear` are registered in orchestration-payloads.md §Plan-013's method registry, where the goal's delivery contract lives, and are listed here only so the console's session surface reads whole in one place.
 
 **Every search read goes over one index.** The palette's search box and a session's own find box are answered by ONE daemon search over session titles, message text, tool calls, session group names and tags, so the find box counts tool rows through it: `session.search`, the cross-session form, returns hits grouped by session, each hit carrying its own message anchor, in the index's own ranked order with no cap; `transcript.search`, the single-session form, pages that session's hits newest first and counts every match in the session, so the find box counts the whole session and loads the history a hit sits in only when the person steps to it. Both shapes are in the §Plan-001 block above. `transcript.search` sits in the `transcript` namespace with the session's other row reads and is registered in [§Transcript Method-Name Registry](./transcript-payloads.md#transcript-method-name-registry). The renderer walks no rows it does not hold, which is the whole reason the read is daemon-side. The index behind both is the daemon's own full-text index on Tantivy over session titles, message text, tool calls, session group names and tags, fed from the daemon's SQLite database through an outbox ([ADR-041](../../decisions/041-session-search-on-tantivy.md), [local-sqlite-schema §Session Search Index](../schemas/local-sqlite-schema.md#session-search-index)).
 

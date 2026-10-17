@@ -5,19 +5,19 @@ The multi-agent orchestration tables of the daemon's one SQLite schema. The [Loc
 DDL per Plan-013 D-013-5. Posture per table: `run_links` and `agents` are events-canonical projections ([ADR-016](../../decisions/016-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events`; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented), and so are the session-messaging tables, the `agents.pending_switch` column (written before a switch is acknowledged, since no event records a switch being asked for) and `agent_tree_nodes` (written by the daemon alone when an agent starts and when it finishes), so none of them is rebuilt from the log.
 
 ```sql
--- Owner: Plan-013 (events-canonical projection of the run.queued orchestration-carrier fields — D-013-3)
+-- Owner: Plan-013 (events-canonical projection of the agent.run.queued orchestration-carrier fields — D-013-3)
 CREATE TABLE run_links (
   parent_run_id     TEXT NOT NULL,
   child_run_id      TEXT NOT NULL,
   session_id        TEXT NOT NULL,                      -- session provenance (I-013-3): local and relay rebuild scope by session
   reached_by        TEXT NOT NULL
-                    CHECK(reached_by IN ('provider_subagent', 'bridge_run', 'workflow_step')),   -- how the child was reached (D-013-12)
+                    CHECK(reached_by IN ('providerSubagent', 'bridgeRun', 'workflowStep')),   -- how the child was reached (D-013-12)
   created_at        TEXT NOT NULL,
-  PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot run.queued linkage D-013-3)
+  PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot agent.run.queued linkage D-013-3)
   CHECK (parent_run_id <> child_run_id)             -- a run never parents itself
 );
 
-CREATE INDEX idx_run_links_parent ON run_links(parent_run_id); -- parent → children scans (orchestration.childRunLinkRead; the session's agent tree)
+CREATE INDEX idx_run_links_parent ON run_links(parent_run_id); -- parent → children scans (agent.childRunLink.list; the session's agent tree)
 CREATE INDEX idx_run_links_session ON run_links(session_id);
 
 -- Owner: Plan-013 (events-canonical projection of the agent events).
@@ -36,7 +36,7 @@ CREATE TABLE agents (
                                                         -- this agent spawns under; NULL = follow the provider's current account, whichever it
                                                         -- is when a run starts, so this agent follows the mark when it moves. Set only when
                                                         -- the binding itself names an account. The account a run landed on is carried on the
-                                                        -- settling agent.provider_binding_changed event, beside the binding, and is never
+                                                        -- settling agent.providerBinding.changed event, beside the binding, and is never
                                                         -- written here, so a following agent is never silently pinned. The Spec-025 spawn gate reads it
   effort          TEXT,                                 -- D-013-17: reasoning effort, validated against the target
                                                         -- model's driver-reported `effortLevels` rather than a schema CHECK --
@@ -69,10 +69,10 @@ CREATE TABLE agents (
   pending_switch  TEXT,                                 -- D-013-17: the JSON AgentBindingSwitchPending shape, status literal
                                                         -- included so the stored blob is self-identifying rather than a wire artifact
                                                         -- reproduced in a column: a row read in isolation names what it is -- {status:
-                                                        -- 'pending', switchId, appliesAt: 'turn_boundary'|'run_boundary',
+                                                        -- 'pending', switchId, appliesAt: 'turnBoundary'|'runBoundary',
                                                         -- interruptRequested, pendingAxes: {driverName?, modelId?, providerAccountId?,
                                                         -- effort?, outputSpeed?}, replacedSwitchId?} -- shared with the mutation reply and
-                                                        -- the `pendingSwitch` member agent.list returns, so what a client was told and what
+                                                        -- the `pendingSwitch` member agent.subscribe returns, so what a client was told and what
                                                         -- a restart re-arms from are the same record. What is stored here is a SUPERSET of
                                                         -- that shared shape: on the immediate arm it additionally carries
                                                         -- interruptDispatch ('requested' | 'dispatched'), which is never returned to a
@@ -84,10 +84,10 @@ CREATE TABLE agents (
                                                         -- durable write, so a crash between the two costs one idempotent redispatch and
                                                         -- never the switch. interruptRequested is stored rather than derived because
                                                         -- appliesAt does not imply it: a deferred switch and an interrupted one can both
-                                                        -- read 'turn_boundary'. pendingAxes carries TARGET VALUES and not axis names: at
+                                                        -- read 'turnBoundary'. pendingAxes carries TARGET VALUES and not axis names: at
                                                         -- the boundary the caller's request is gone, so the row must be sufficient to
-                                                        -- apply the switch by itself. Two writers admit a switch: agent.configUpdate, for
-                                                        -- the provider, model, effort and speed axes, and providerAccount.setCurrent, which
+                                                        -- apply the switch by itself. Two writers admit a switch: agent.config.update, for
+                                                        -- the provider, model, effort and speed axes, and provider.account.current.update, which
                                                         -- records a pending account switch on an agent following the moved mark whose
                                                         -- session cannot move in place at its next request. This is the ONE switch
                                                         -- acknowledged to a caller but not yet applied at its boundary; NULL = none.
@@ -98,7 +98,7 @@ CREATE TABLE agents (
                                                         -- so a queue of half-wanted switches is unrepresentable. Holds the PENDING
                                                         -- binding only; the effective binding stays in the columns above and moves
                                                         -- there at application. Cleared by whichever terminal event settles the switch
-                                                        -- (agent.provider_binding_changed / agent.provider_binding_change_failed, which leaves the
+                                                        -- (agent.providerBinding.changed / agent.providerBinding.changeFailed, which leaves the
                                                         -- columns above untouched, so a switch that fails after it was accepted keeps the
                                                         -- agent on its previous binding) and by supersession
   created_at      TEXT NOT NULL,
@@ -107,7 +107,7 @@ CREATE TABLE agents (
 
 CREATE INDEX idx_agents_session ON agents(session_id);
 
--- Owner: Plan-013 (row-canonical daemon configuration — queue_items posture, NOT evented; one row per session, written when the session is created from the Runtime settings' Spend limit and Tokens per run; mutated only via session.spendLimitUpdate and session.tokensPerRunUpdate — D-013-5)
+-- Owner: Plan-013 (row-canonical daemon configuration — queue_items posture, NOT evented; one row per session, written when the session is created from the Runtime settings' Spend limit and Tokens per run; mutated only via session.spendLimit.update and session.tokensPerRun.update — D-013-5)
 CREATE TABLE session_budgets (
   session_id                    TEXT PRIMARY KEY,
   spend_limit_usd_micros        INTEGER,                        -- integer micro-dollars; NULL = `Unlimited`, the default; the session's `Spend limit` across every provider and account it uses (Spec-014 §Budget Policies)
@@ -172,4 +172,4 @@ CREATE TABLE session_paused_message_queue (
 );
 ```
 
-A run's token limit (`tokenLimit`, input and output together for one run) is `Unlimited` by default; the session's `Tokens per run` value is resolved onto each run at admission as a per-run `OrchestrationRunConfig` value and persisted durably as the `run.queued` payload's `effectiveRunConfig` (Plan-013 D-013-5; api-payload `RunStateChangeEvent`), and enforcement rebuilds from that event field, never by re-merging session values that may have changed mid-run. The service ends a run `stopped` with `trigger: token_limit` at the first usage report past its limit, so one request can overshoot slightly, and the agent's next message starts a new run with a fresh count. Budget _accounting_ (tokens/cost consumed) has no **accumulator** table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt from `usage_telemetry` + `run.*` events (D-013-5). `provider_account_usage_turns` (in [Provider Account Tables (Plan-023)](local-sqlite-provider-account-tables.md)) is not a second accountant: it projects the same `usage_telemetry` events into one row per turn so the figures can be sliced by account, by day and by model, which a running total cannot be (Spec-025 §State And Data Implications).
+A run's token limit (`tokenLimit`, input and output together for one run) is `Unlimited` by default; the session's `Tokens per run` value is resolved onto each run at admission as a per-run `OrchestrationRunConfig` value and persisted durably as the `agent.run.queued` payload's `effectiveRunConfig` (Plan-013 D-013-5; api-payload `RunStateChangeEvent`), and enforcement rebuilds from that event field, never by re-merging session values that may have changed mid-run. The service ends a run `stopped` with `trigger: tokenLimit` at the first usage report past its limit, so one request can overshoot slightly, and the agent's next message starts a new run with a fresh count. Budget _accounting_ (tokens/cost consumed) has no **accumulator** table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt from `usageTelemetry` + `agent.run.*` events (D-013-5). `provider_account_usage_turns` (in [Provider Account Tables (Plan-023)](local-sqlite-provider-account-tables.md)) is not a second accountant: it projects the same `usageTelemetry` events into one row per turn so the figures can be sliced by account, by day and by model, which a running total cannot be (Spec-025 §State And Data Implications).

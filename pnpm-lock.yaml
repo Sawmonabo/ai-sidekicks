@@ -382,9 +382,6 @@ importers:
       '@simplewebauthn/server':
         specifier: 14.0.3
         version: 14.0.3
-      file-type:
-        specifier: 22.1.1
-        version: 22.1.1
       jsonata:
         specifier: 2.2.2
         version: 2.2.2

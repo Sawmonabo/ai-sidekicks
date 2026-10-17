@@ -45,7 +45,7 @@ A session is the durable container that holds:
 ## Relationships To Adjacent Concepts
 
 - [User And Device Model](./user-and-device-model.md) describes who owns the session and which devices drive it.
-- `RuntimeNode` is the machine that runs the session. A session has exactly one, fixed when the session starts.
+- `Machine` is the computer that runs the session. A session has exactly one, fixed when the session starts.
 - `Agent` and `Run` describe who executes work and which stretch of an agent's work is in progress ([Agent And Run Model](./agent-and-run-model.md)); each agent's runs continue its provider conversation.
 - `RepoMount`, `Workspace`, and `Worktree` describe the code-bearing execution contexts used by runs inside the session.
 - `local-only` describes a connectivity state of the one session; it is not a second root model and not a second kind of session.
@@ -58,7 +58,7 @@ A session is the durable container that holds:
 | `active` | The session is usable for communication and execution. |
 | `archived` | The session is retained for history but no longer accepts normal active work. |
 | `closed` | The session has been intentionally terminated and is not resumable without explicit restoration. |
-| `purge_requested` | The person has pressed `Delete old data` and the session is among those it removes. The session row is locked against further modification while the files only this session names are deleted. The purge then deletes the row, with SQLite's `secure_delete` on, so the freed pages hold nothing readable, checkpoints the write-ahead log with `TRUNCATE` once the delete commits, and unlinks the artifact payloads no surviving manifest names after that commit; no state follows, because no row survives to hold one. A failure before that deletion leaves the row `purge_requested`, to be retried. Purge is irreversible. |
+| `purgeRequested` | The person has pressed `Delete old data` and the session is among those it removes. The session row is locked against further modification while the files only this session names are deleted. The purge then deletes the row, with SQLite's `secure_delete` on, so the freed pages hold nothing readable, checkpoints the write-ahead log with `TRUNCATE` once the delete commits, and unlinks the artifact payloads no surviving manifest names after that commit; no state follows, because no row survives to hold one. A failure before that deletion leaves the row `purgeRequested`, to be retried. Purge is irreversible. |
 
 Allowed transitions:
 
@@ -68,8 +68,8 @@ Allowed transitions:
 - `active -> closed`
 - `archived -> active`
 - `archived -> closed`
-- `closed -> purge_requested`
-- `archived -> purge_requested`
+- `closed -> purgeRequested`
+- `archived -> purgeRequested`
 
 ## Session Identity And Local-Only Continuity
 

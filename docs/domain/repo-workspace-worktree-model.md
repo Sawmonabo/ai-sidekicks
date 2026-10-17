@@ -13,7 +13,7 @@ This document covers `RepoMount`, `Workspace`, `Worktree`, and the places a sess
 - `RepoMount`: a git repository attached to the machine as a project's folder, once per machine; every session of that project binds to it. A chat's managed workspace is a mount too, with a managed origin naming its one chat.
 - `Workspace`: a session's execution context, rooted at one checkout: the project's checkout, a worktree the daemon created, or a chat's managed workspace.
 - `Worktree`: an isolated checkout derived from a repository and used as a write target.
-- `ExecutionMode`: which of the two places a session's runs work in: `bound-root` (the root already bound to the workspace) or `provisioned-worktree` (a worktree the daemon's worktree lifecycle made).
+- `ExecutionMode`: which of the two places a session's runs work in: `boundRoot` (the root already bound to the workspace) or `provisionedWorktree` (a worktree the daemon's worktree lifecycle made).
 
 ## What This Is
 
@@ -38,7 +38,7 @@ This model explains how a session gains code context, how execution roots are ch
 
 ## Relationships To Adjacent Concepts
 
-- `RuntimeNode` provides the local filesystem access and git operations used by repo mounts and workspaces.
+- `Machine` provides the local filesystem access and git operations used by repo mounts and workspaces.
 - `Run` executes against a workspace.
 - A diff compares workspace or repository states; the daemon reads it each time Review shows it, and it is not an artifact.
 - `Approval` can gate worktree creation, workspace binding changes, or branch promotion.
@@ -48,10 +48,10 @@ This model explains how a session gains code context, how execution roots are ch
 
 | Mode | Meaning |
 | --- | --- |
-| `bound-root` | The run works at the root already bound to its workspace — the project's checkout, or a chat's managed workspace — and the daemon makes nothing. It carries no worktree. |
-| `provisioned-worktree` | The run works in a worktree the daemon's worktree lifecycle made. This is where a new project session starts by default. A session can also bind to any other worktree git lists for the repository: one the person made binds as an existing checkout and is never stamped as one the daemon provisioned, and removing a worktree or deleting a branch stays limited to what the daemon's records say it made. |
+| `boundRoot` | The run works at the root already bound to its workspace — the project's checkout, or a chat's managed workspace — and the daemon makes nothing. It carries no worktree. |
+| `provisionedWorktree` | The run works in a worktree the daemon's worktree lifecycle made. This is where a new project session starts by default. A session can also bind to any other worktree git lists for the repository: one the person made binds as an existing checkout and is never stamped as one the daemon provisioned, and removing a worktree or deleting a branch stays limited to what the daemon's records say it made. |
 
-- A project session works in one of these places; a chat session is always `bound-root` on its own managed workspace and never gets a worktree.
+- A project session works in one of these places; a chat session is always `boundRoot` on its own managed workspace and never gets a worktree.
 - There is no read-only place and no disposable copy: how much a session may change is its permission level.
 - `ExecutionMode` holds whether the bound root is the repository's main working tree or a linked worktree.
 
@@ -67,12 +67,12 @@ Repo mount lifecycle:
 
 Workspace lifecycle:
 
-| State       | Meaning                                                                 |
-| ----------- | ----------------------------------------------------------------------- |
-| `preparing` | The execution root is being made ready, for either place.               |
-| `ready`     | The workspace is valid for execution.                                   |
-| `stale`     | The workspace exists but needs refresh or repair before safe execution. |
-| `archived`  | The workspace is historical only.                                       |
+| State       | Meaning                                                              |
+| ----------- | -------------------------------------------------------------------- |
+| `preparing` | The execution root is being made ready, for either place.            |
+| `ready`     | The workspace is valid for execution.                                |
+| `rootLost`  | The workspace's root became unavailable; it needs repair before use. |
+| `archived`  | The workspace is historical only.                                    |
 
 Worktree lifecycle:
 
@@ -96,7 +96,7 @@ Worktree lifecycle:
 
 - A folder that is not a git repository is refused at attach (`Could not attach: not a git repository`): a project is a repository, and a chat's own folder is one from its first byte.
 - Two sessions may work in one worktree, or in the project's checkout, at the same time: nothing holds a folder for one session's turn, and `Undo to here` puts back only its own session's changes, naming a file another session also changed and leaving it unless the person includes it.
-- A stale workspace can remain historically linked to completed runs even after the filesystem path is no longer usable.
+- A `rootLost` workspace can remain historically linked to completed runs even after the filesystem path is no longer usable.
 
 ## Related Specs
 
