@@ -16,7 +16,7 @@ use sidekicks_contracts::session::controls::methods::{
 };
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 use crate::provider::port::permission_ask::ProviderAskRule;
 
 /// Params of `update_permission_level`: the level the session moves to and the roots it opens to
@@ -50,7 +50,6 @@ pub(crate) fn permission_level_unavailable(level: PermissionLevel) -> DomainErro
     DomainError::new(
         "The session's provider cannot run at that permission level.",
         RefusalCode::SessionPermissionLevelNotOffered,
-        DomainErrorJsonRpcCode::InvalidParams,
     )
     .with_detail(json!({ "level": level }))
 }

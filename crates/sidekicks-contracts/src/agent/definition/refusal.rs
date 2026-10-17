@@ -12,7 +12,8 @@ use crate::wire::text::FreeFormText;
 literal! {
     /// The code of a definition that cannot resolve to a runnable agent, wherever its refusal is
     /// carried: always `agent.definition.resolutionRefused`.
-    pub enum AgentDefinitionResolutionRefusedCode = const RefusalCode::AgentDefinitionResolutionRefused.as_str();
+    pub enum AgentDefinitionResolutionRefusedCode =
+        const RefusalCode::AgentDefinitionResolutionRefused.as_str();
 }
 
 /// The operating system's own cause of a failed export write, as it reported it.

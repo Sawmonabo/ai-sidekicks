@@ -179,7 +179,11 @@ methods! {
             mutating: true,
             params: McpServerUpsertRequest,
             result: McpServerMutationResponse,
-            refusals: [McpBindingStoreUnavailable, McpServerConfigInvalid, McpServerConfigWriteConflict],
+            refusals: [
+                McpBindingStoreUnavailable,
+                McpServerConfigInvalid,
+                McpServerConfigWriteConflict,
+            ],
         },
         /// Removes a binding.
         McpServerDelete = mutation "mcp.server.delete" {

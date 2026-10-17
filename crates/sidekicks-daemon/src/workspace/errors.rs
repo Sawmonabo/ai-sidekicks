@@ -7,14 +7,13 @@ use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceId};
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 
 /// Why the workspace service refused a call; the execution-root service's `workspace.*` codes are
 /// not among them. Converts into the [`DomainError`] the reply carries.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkspaceRefusal {
-    /// The named workspace does not exist (`workspace.notFound`); the one refusal here that
-    /// answers `-32602`, as `repoMount.notFound` does.
+    /// The named workspace does not exist (`workspace.notFound`).
     #[error("workspace {workspace_id} does not exist")]
     NotFound {
         /// The workspace asked for.
@@ -45,21 +44,17 @@ pub(crate) enum WorkspaceRefusal {
 impl From<WorkspaceRefusal> for DomainError {
     fn from(refusal: WorkspaceRefusal) -> Self {
         let message = refusal.to_string();
-        let (code, json_rpc_code, detail) = match refusal {
+        let (code, detail) = match refusal {
             WorkspaceRefusal::NotFound { workspace_id } => (
                 RefusalCode::WorkspaceNotFound,
-                // An id the call supplies that resolves to nothing is a bad parameter.
-                DomainErrorJsonRpcCode::InvalidParams,
                 json!({ "workspaceId": workspace_id }),
             ),
             WorkspaceRefusal::ModeUnsupported { execution_mode } => (
                 RefusalCode::WorkspaceModeUnsupported,
-                DomainErrorJsonRpcCode::InternalError,
                 json!({ "executionMode": <&'static str>::from(execution_mode) }),
             ),
             WorkspaceRefusal::Stale { workspace_id } => (
                 RefusalCode::WorkspaceRootUnavailable,
-                DomainErrorJsonRpcCode::InternalError,
                 // A refused bind names no workspace, so its detail is empty.
                 workspace_id.map_or_else(
                     || json!({}),
@@ -67,7 +62,7 @@ impl From<WorkspaceRefusal> for DomainError {
                 ),
             ),
         };
-        DomainError::new(message, code, json_rpc_code).with_detail(detail)
+        DomainError::new(message, code).with_detail(detail)
     }
 }
 

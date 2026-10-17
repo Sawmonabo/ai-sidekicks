@@ -291,10 +291,11 @@ impl ClaudeWireFrameKind {
                 "a host-rendered dialog, sent only for a kind the host declared at `initialize`; \
                  the CLI fails closed on any other. The daemon's two kinds are \
                  `refusal_fallback_prompt` and `fable_overage_consent_prompt`, recorded as \
-                 `agent.run.refusalChoice.requested` and `agent.run.usageCreditsChoice.requested`, and \
-                 neither arrives until the driver declares them. `auto_mode_server_fallback` stays \
-                 undeclared, its words reaching the working line as a provider warning, and \
-                 `auto_mode_outside_reads` never reaches a headless host",
+                 `agent.run.refusalChoice.requested` and \
+                 `agent.run.usageCreditsChoice.requested`, and neither arrives until the driver \
+                 declares them. `auto_mode_server_fallback` stays undeclared, its words reaching \
+                 the working line as a provider warning, and `auto_mode_outside_reads` never \
+                 reaches a headless host",
             ),
             Self::ControlRequestHookCallback => self.not_evented(
                 ControlRequest,

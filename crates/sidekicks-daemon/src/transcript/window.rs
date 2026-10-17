@@ -40,7 +40,7 @@ use sidekicks_contracts::wire::{False, True};
 use crate::events::session::read::{
     SessionEventFilter, SessionEventReads, SessionLogReadError, resolve_event_cursor,
 };
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 use crate::session::not_found::session_not_found;
 use crate::transcript::projector::{TranscriptProjectionError, project_window};
 use crate::transcript::run_facts::TranscriptRunFactsReader;
@@ -422,7 +422,6 @@ fn transcript_row_not_found(around_cursor: &EventCursor) -> DomainError {
     DomainError::new(
         "No row of this session stands at that cursor.",
         RefusalCode::TranscriptRowNotFound,
-        DomainErrorJsonRpcCode::InvalidParams,
     )
     .with_detail(json!({ "aroundCursor": around_cursor }))
 }

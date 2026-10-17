@@ -164,8 +164,8 @@ pub enum AgentRunQueuedPayload {
 /// The TypeScript module of a run's creation record.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/queued",
-    doc: "The `agent.run.queued` payload: a run's creation, and the one durable record of how it came \
-          to be.",
+    doc: "The `agent.run.queued` payload: a run's creation, and the one durable record of how it \
+          came to be.",
     definitions: &[
         Definition::read::<ChildRunProvenance>(),
         Definition::read::<ResolvedAgent>(),

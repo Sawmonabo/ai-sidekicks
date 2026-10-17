@@ -485,7 +485,12 @@ methods! {
             mutating: true,
             params: WorkflowHumanFormSubmitRequest,
             result: WorkflowHumanFormSubmitResponse,
-            refusals: [WorkflowRunNotFound, WorkflowStepNotFound, WorkflowHumanFormRevisionStale, WorkflowStepNotWaiting],
+            refusals: [
+                WorkflowRunNotFound,
+                WorkflowStepNotFound,
+                WorkflowHumanFormRevisionStale,
+                WorkflowStepNotWaiting,
+            ],
         },
         /// Opens a new session to fix a failed step, which the run links to.
         WorkflowFixSessionCreate = mutation "workflow.fixSession.create" {

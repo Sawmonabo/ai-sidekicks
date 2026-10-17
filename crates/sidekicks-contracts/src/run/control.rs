@@ -749,7 +749,11 @@ methods! {
             mutating: true,
             params: QueueItemCancelRequest,
             result: QueueItemCancelResponse,
-            refusals: [AgentQueueItemNotFound, AgentQueueItemChangeRefused, AgentChildRunControlRefused],
+            refusals: [
+                AgentQueueItemNotFound,
+                AgentQueueItemChangeRefused,
+                AgentChildRunControlRefused,
+            ],
         },
         /// Puts the waiting messages in a new order.
         AgentQueueItemReorder = mutation "agent.queueItem.reorder" {
@@ -788,14 +792,24 @@ methods! {
             mutating: true,
             params: AgentRunPauseRequest,
             result: AgentRunControlResponse,
-            refusals: [AgentRunNotFound, AgentRunVersionStale, AgentRunInvalidTransition, ProviderUnavailable],
+            refusals: [
+                AgentRunNotFound,
+                AgentRunVersionStale,
+                AgentRunInvalidTransition,
+                ProviderUnavailable,
+            ],
         },
         /// Resumes a paused run.
         AgentRunResume = mutation "agent.run.resume" {
             mutating: true,
             params: AgentRunResumeRequest,
             result: AgentRunControlResponse,
-            refusals: [AgentRunNotFound, AgentRunVersionStale, AgentRunInvalidTransition, ProviderUnavailable],
+            refusals: [
+                AgentRunNotFound,
+                AgentRunVersionStale,
+                AgentRunInvalidTransition,
+                ProviderUnavailable,
+            ],
         },
         /// Follows every run state change in a session.
         AgentRunSubscribe = subscription "agent.run.subscribe" {

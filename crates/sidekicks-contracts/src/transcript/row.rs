@@ -36,7 +36,8 @@ use crate::wire::text::FreeFormText;
 
 ts_constants! {
     /// The event type the `rollbackBoundary` arm pins.
-    pub const TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE: &str = SessionEventType::AgentRunRolledBack.as_str();
+    pub const TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE: &str =
+        SessionEventType::AgentRunRolledBack.as_str();
     /// The category every `runLifecycle` event belongs to, and the one the boundary arm pins.
     /// Every type in it is run-scoped, which is why the `general` arm refuses the category.
     pub const TRANSCRIPT_RUN_LIFECYCLE_CATEGORY: EventCategory = EventCategory::RunLifecycle;

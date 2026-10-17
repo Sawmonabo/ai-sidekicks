@@ -9,7 +9,7 @@ use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::methods::SessionSearchCursor;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 
 /// Where a page starts in a held search: at a session of the search's order, past its best hits
 /// when an earlier page showed some, named by the last one's index key, whose place among the
@@ -83,7 +83,6 @@ pub(crate) fn search_cursor_unresolvable(cursor: &SessionSearchCursor) -> Domain
     DomainError::new(
         "The search cursor does not continue a search the daemon holds.",
         RefusalCode::SessionSearchCursorUnresolvable,
-        DomainErrorJsonRpcCode::InvalidParams,
     )
     .with_detail(json!({ "cursor": cursor.as_str() }))
 }

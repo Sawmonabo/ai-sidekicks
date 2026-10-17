@@ -47,7 +47,8 @@ ts_constants! {
     /// sets to this many UTF-16 units, on a grapheme boundary.
     pub const SHELL_TITLE_MAX_LEN: usize = 256;
     /// The event every change of one shell's holder is broadcast on.
-    pub const TERMINAL_CONTROL_CHANGED_EVENT: &str = SessionEventType::TerminalControlChanged.as_str();
+    pub const TERMINAL_CONTROL_CHANGED_EVENT: &str =
+        SessionEventType::TerminalControlChanged.as_str();
     /// Every reason a shell's holder can change.
     TERMINAL_CONTROL_CHANGED_REASONS = TerminalControlChangedReason::VARIANTS;
 }
@@ -485,14 +486,24 @@ methods! {
             mutating: true,
             params: TerminalResizeRequest,
             result: NullPayload,
-            refusals: [SessionNotFound, TerminalNotFound, TerminalControlHeldByOther, TerminalControlNotHeld],
+            refusals: [
+                SessionNotFound,
+                TerminalNotFound,
+                TerminalControlHeldByOther,
+                TerminalControlNotHeld,
+            ],
         },
         /// Reports the appearance a program's questions are answered from.
         TerminalAppearanceReport = mutation "terminal.appearance.report" {
             mutating: true,
             params: TerminalAppearanceReportRequest,
             result: NullPayload,
-            refusals: [SessionNotFound, TerminalNotFound, TerminalControlHeldByOther, TerminalControlNotHeld],
+            refusals: [
+                SessionNotFound,
+                TerminalNotFound,
+                TerminalControlHeldByOther,
+                TerminalControlNotHeld,
+            ],
         },
     ];
 }

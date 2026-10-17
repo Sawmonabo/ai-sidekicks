@@ -272,8 +272,8 @@ pub struct ProjectCloneFolderReadResponse {
 /// The TypeScript module of cloning.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "repo/clone",
-    doc: "Cloning: project.clone.start makes a project from a repository URL, and its card follows the \
-          clone live.",
+    doc: "Cloning: project.clone.start makes a project from a repository URL, and its card follows \
+          the clone live.",
     definitions: &[
         Definition::read::<ProjectCloneStartRequest>(),
         Definition::read::<ProjectCloneRefusedDetails>(),

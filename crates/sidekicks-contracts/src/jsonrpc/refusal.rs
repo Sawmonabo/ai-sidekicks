@@ -5,6 +5,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::jsonrpc::error_code::JsonRpcErrorCode;
 use crate::typescript::{Definition, TypeScriptModule};
 
 /// What a client can do about a refusal, sent as `data.category` beside its code so a client that
@@ -42,12 +43,14 @@ pub enum RefusalCategory {
 
 /// Declares [`RefusalCode`] from one line per code: its variant, its wire text and, in
 /// parentheses, its category and its HTTP status, no status for a code that rides only the
-/// daemon's JSON-RPC wire.
+/// daemon's JSON-RPC wire, then after a `;` the JSON-RPC number of a protocol outcome, none for a
+/// domain refusal.
 macro_rules! refusal_codes {
     (
         $(
             $(#[doc = $doc:literal])+
-            $variant:ident = $code:literal ($category:ident $(, $status:literal)?);
+            $variant:ident = $code:literal
+                ($category:ident $(, $status:literal)? $(; $protocol:ident)?);
         )+
     ) => {
         $(
@@ -88,6 +91,14 @@ macro_rules! refusal_codes {
                 }
             }
 
+            /// The JSON-RPC number the code answers with: `-31000` for a domain refusal, JSON-RPC's
+            /// own number for a protocol outcome.
+            pub const fn json_rpc_code(self) -> JsonRpcErrorCode {
+                match self {
+                    $(Self::$variant => refusal_codes!(@protocol $($protocol)?),)+
+                }
+            }
+
             /// The HTTP status a control plane route answers the code with; `None` for a code
             /// that rides only the daemon's JSON-RPC wire.
             pub const fn http_status(self) -> Option<u16> {
@@ -97,6 +108,8 @@ macro_rules! refusal_codes {
             }
         }
     };
+    (@protocol) => { JsonRpcErrorCode::DomainRefusal };
+    (@protocol $protocol:ident) => { JsonRpcErrorCode::$protocol };
     (@status) => { None };
     (@status $status:literal) => { Some($status) };
 }
@@ -128,7 +141,8 @@ refusal_codes! {
     /// No definition with the given `definitionId` exists on this node.
     AgentDefinitionNotFound = "agent.definition.notFound" (NotFound, 404);
     /// The definition exists but cannot currently produce a runnable agent.
-    AgentDefinitionResolutionRefused = "agent.definition.resolutionRefused" (FailedPrecondition, 409);
+    AgentDefinitionResolutionRefused = "agent.definition.resolutionRefused"
+        (FailedPrecondition, 409);
     /// The definition registry could not be read: the library's own list read renders this refusal
     /// in place of its rows rather than an empty library, and a run that names a saved agent
     /// refuses rather than starting one the registry could not describe.
@@ -136,7 +150,8 @@ refusal_codes! {
     /// `agent.definition.update` refused the change.
     AgentDefinitionUpdateRefused = "agent.definition.updateRefused" (FailedPrecondition, 409);
     /// A `clientIdempotencyKey` was reused with a differing payload.
-    AgentInterventionIdempotencyConflict = "agent.intervention.idempotencyConflict" (InvalidArgument, 422);
+    AgentInterventionIdempotencyConflict = "agent.intervention.idempotencyConflict"
+        (InvalidArgument, 422);
     /// Agent does not exist in the session (`data.fields`: `agentId`).
     AgentNotFound = "agent.notFound" (NotFound, 404);
     /// A provider-axis member on `agent.config.update` or `session.create` names something the
@@ -161,7 +176,8 @@ refusal_codes! {
     AgentQueueItemNotFound = "agent.queueItem.notFound" (NotFound, 404);
     /// New queued run-control work was rejected fail-closed because the daemon's queue-persistence
     /// layer is unavailable.
-    AgentQueueItemPersistenceUnavailable = "agent.queueItem.persistenceUnavailable" (Unavailable, 503);
+    AgentQueueItemPersistenceUnavailable = "agent.queueItem.persistenceUnavailable"
+        (Unavailable, 503);
     /// A send (`agent.queueItem.create`) whose session's lead run started, ended or was continued
     /// between each read of it and the write that sends into it, every time the daemon tried.
     AgentQueueItemRunChanged = "agent.queueItem.runChanged" (Aborted, 409);
@@ -251,14 +267,17 @@ refusal_codes! {
     /// A call past the connection's calls in flight, refused at once.
     ConnectionCallLimitReached = "connection.call.limitReached" (ResourceExhausted);
     /// Second `connection.initialize` on a connection with latched outcome.
-    ConnectionHandshakeAlreadyCompleted = "connection.handshake.alreadyCompleted" (FailedPrecondition);
+    ConnectionHandshakeAlreadyCompleted = "connection.handshake.alreadyCompleted"
+        (FailedPrecondition);
     /// Any method but `connection.initialize` dispatched in `pre` state.
     ConnectionHandshakeRequired = "connection.handshake.required" (FailedPrecondition);
     /// An inbound message passed the 7 MiB cap on its JSON or the 4 MiB cap on its attachments.
-    ConnectionMessageTooLarge = "connection.message.tooLarge" (ResourceExhausted, 413);
+    ConnectionMessageTooLarge = "connection.message.tooLarge"
+        (ResourceExhausted, 413; InvalidRequest);
     /// A subscribe call found its connection already holding 10,000 open subscriptions; it may
     /// be sent again once one closes.
-    ConnectionSubscriptionLimitReached = "connection.subscription.limitReached" (ResourceExhausted, 429);
+    ConnectionSubscriptionLimitReached = "connection.subscription.limitReached"
+        (ResourceExhausted, 429);
     /// The client cannot reach the daemon's OS-local socket or named pipe, or its link to the
     /// daemon is down.
     ConnectionUnavailable = "connection.unavailable" (Unavailable, 503);
@@ -269,7 +288,8 @@ refusal_codes! {
     /// Mutating dispatch attempted in `done-incompatible` state.
     ConnectionVersionMismatch = "connection.version.mismatch" (FailedPrecondition);
     /// Bootstrap rejected an unrecognized `SecureDefaults` config key.
-    DaemonBootstrapUnknownSetting = "daemon.bootstrap.unknownSetting" (InvalidArgument);
+    DaemonBootstrapUnknownSetting = "daemon.bootstrap.unknownSetting"
+        (InvalidArgument; InvalidParams);
     /// A request would pass a daemon limit.
     DaemonLimitExceeded = "daemon.limitExceeded" (ResourceExhausted, 429);
     /// The answer to a `connection.initialize` carrying the start's session token while the service
@@ -339,12 +359,15 @@ refusal_codes! {
     ProjectEnvironmentNameRefused = "project.environment.nameRefused" (InvalidArgument, 422);
     /// The account's plan allowance or credits are spent, shared by every provider call that spends
     /// from the account; `data.fields` carries the reset time when the provider gives one.
-    ProviderAccountAllowanceExhausted = "provider.account.allowanceExhausted" (ResourceExhausted, 429);
+    ProviderAccountAllowanceExhausted = "provider.account.allowanceExhausted"
+        (ResourceExhausted, 429);
     /// The account's credential home is missing, unreadable, or structurally unusable.
-    ProviderAccountCredentialHomeUnavailable = "provider.account.credentialHome.unavailable" (Unavailable, 503);
+    ProviderAccountCredentialHomeUnavailable = "provider.account.credentialHome.unavailable"
+        (Unavailable, 503);
     /// The operating system's keychain would not take the token, so registration refuses and the
     /// token is stored nowhere else.
-    ProviderAccountCredentialSealRefused = "provider.account.credentialSealRefused" (Unavailable, 503);
+    ProviderAccountCredentialSealRefused = "provider.account.credentialSealRefused"
+        (Unavailable, 503);
     /// A concurrent `provider.account.current.update` lost the partial-unique-index race.
     ProviderAccountCurrentConflict = "provider.account.current.conflict" (Aborted, 409);
     /// Accounts exist for the provider but none carries the current mark, so resolution is
@@ -459,16 +482,17 @@ refusal_codes! {
     RepoMountRootResolutionFailed = "repoMount.rootResolutionFailed" (InvalidArgument, 422);
     /// A call the client canceled with `$/cancelRequest` before the daemon reached its commit
     /// point.
-    RequestCanceled = "request.canceled" (Canceled);
+    RequestCanceled = "request.canceled" (Canceled; RequestCanceled);
     /// The request names a method the daemon does not register; no handler runs.
-    RequestMethodNotFound = "request.methodNotFound" (NotFound);
+    RequestMethodNotFound = "request.methodNotFound" (NotFound; MethodNotFound);
     /// The request's params failed the method's contract check, so no handler ran.
-    RequestParamsInvalid = "request.paramsInvalid" (InvalidArgument);
+    RequestParamsInvalid = "request.paramsInvalid" (InvalidArgument; InvalidParams);
     /// Per-request envelope-level `protocolVersion` field violates, the wrong JSON type, or fails
     /// the ISO 8601 `YYYY-MM-DD` shape.
-    RequestProtocolVersionInvalid = "request.protocolVersion.invalid" (InvalidArgument, 400);
+    RequestProtocolVersionInvalid = "request.protocolVersion.invalid"
+        (InvalidArgument, 400; InvalidRequest);
     /// The handler's result failed the method's result check: a daemon fault, never the client's.
-    RequestResultInvalid = "request.resultInvalid" (Internal);
+    RequestResultInvalid = "request.resultInvalid" (Internal; InternalError);
     /// Session has already been closed and cannot be modified.
     SessionAlreadyClosed = "session.alreadyClosed" (FailedPrecondition, 409);
     /// A file `session.attachment.add` did not stage.
@@ -538,7 +562,7 @@ refusal_codes! {
     /// A write to a skill was refused.
     SkillWriteRefused = "skill.writeRefused" (FailedPrecondition, 409);
     /// Unexpected internal error.
-    SystemInternalError = "system.internalError" (Internal, 500);
+    SystemInternalError = "system.internalError" (Internal, 500; InternalError);
     /// System is undergoing maintenance.
     SystemMaintenance = "system.maintenance" (Unavailable, 503);
     /// The PTY a shell needs cannot be opened: `sidekicks-terminal` in the daemon could not create
@@ -581,7 +605,8 @@ refusal_codes! {
     /// daemon did not write, or one past the end of what it pages; nothing is read.
     WorkflowCursorUnresolvable = "workflow.cursorUnresolvable" (InvalidArgument, 400);
     /// An import whose schema version is unknown.
-    WorkflowDefinitionImportSchemaUnknown = "workflow.definition.importSchemaUnknown" (InvalidArgument, 422);
+    WorkflowDefinitionImportSchemaUnknown = "workflow.definition.importSchemaUnknown"
+        (InvalidArgument, 422);
     /// A workflow definition that does not exist.
     WorkflowDefinitionNotFound = "workflow.definition.notFound" (NotFound, 404);
     /// A saved or imported document the daemon's own re-check refuses.
@@ -610,14 +635,17 @@ refusal_codes! {
     WorkflowRunNotFound = "workflow.run.notFound" (NotFound, 404);
     /// A `workflow.run.start` from a project session that names a project: that session's run works
     /// in the session's own repository, so nothing runs.
-    WorkflowRunProjectOnProjectSession = "workflow.run.projectOnProjectSession" (InvalidArgument, 422);
+    WorkflowRunProjectOnProjectSession = "workflow.run.projectOnProjectSession"
+        (InvalidArgument, 422);
     /// Frozen-definition re-pin refused: a step of the run is still in flight.
-    WorkflowRunRepairAttemptInFlight = "workflow.run.repairAttemptInFlight" (FailedPrecondition, 409);
+    WorkflowRunRepairAttemptInFlight = "workflow.run.repairAttemptInFlight"
+        (FailedPrecondition, 409);
     /// Frozen-definition re-pin refused: the target run is not parked.
     WorkflowRunRepairNotParked = "workflow.run.repairNotParked" (FailedPrecondition, 409);
     /// Frozen-definition re-pin refused: the target version cannot account for the nodes the run
     /// has already completed.
-    WorkflowRunRepairVersionUnaccountable = "workflow.run.repairVersionUnaccountable" (FailedPrecondition, 409);
+    WorkflowRunRepairVersionUnaccountable = "workflow.run.repairVersionUnaccountable"
+        (FailedPrecondition, 409);
     /// A start, or a node run (`workflow.node.execute`), that names no project's repository.
     WorkflowRunRepositoryRequired = "workflow.run.repositoryRequired" (InvalidArgument, 422);
     /// `workflow.run.resume` refused because the target run is not parked.
@@ -665,7 +693,8 @@ refusal_codes! {
     WorkspaceBranchNameRequired = "workspace.branchNameRequired" (InvalidArgument, 400);
     /// A repo-bound run reached the setup gate with no resolved execution root for the workspace's
     /// selected mode and root preparation failed.
-    WorkspaceExecutionRootUnresolved = "workspace.executionRoot.unresolved" (FailedPrecondition, 409);
+    WorkspaceExecutionRootUnresolved = "workspace.executionRoot.unresolved"
+        (FailedPrecondition, 409);
     /// A worktree was requested for a chat's managed workspace, which offers only its own root.
     WorkspaceModeUnsupported = "workspace.modeUnsupported" (InvalidArgument, 422);
     /// Workspace does not exist.

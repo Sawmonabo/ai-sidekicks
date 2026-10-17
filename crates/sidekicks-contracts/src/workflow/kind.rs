@@ -490,7 +490,8 @@ methods! {
 /// The TypeScript module of the node catalog.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/kind",
-    doc: "The node catalog: every node kind the daemon runs, as `workflow.kind.list` serializes it.",
+    doc: "The node catalog: every node kind the daemon runs, as `workflow.kind.list` serializes \
+          it.",
     definitions: &[
         Definition::read::<WorkflowNodeKindCategory>(),
         Definition::read::<WorkflowInputHandleSpec>(),

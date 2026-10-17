@@ -11,7 +11,7 @@ use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::id::ProviderId;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
 use crate::provider::driver::contract::{DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE, ProviderDriver};
 use crate::provider::driver::{DriverServices, ProviderRegistration};
@@ -22,14 +22,12 @@ pub(crate) fn driver_unavailable(provider: &ProviderId) -> DomainError {
     DomainError::new(
         "Provider driver is currently unavailable",
         RefusalCode::ProviderUnavailable,
-        DomainErrorJsonRpcCode::InternalError,
     )
     .with_detail(json!({ "driverId": provider.as_str() }))
 }
 
 /// The refusal for a call gated on `flag` that the driver does not declare; its detail carries only
-/// the driver's id and the flag. The params resolve and a protocol-state rule fails, so it answers
-/// as an invalid request.
+/// the driver's id and the flag.
 pub(crate) fn driver_capability_unsupported(
     provider: &ProviderId,
     flag: DriverCapabilityFlag,
@@ -37,7 +35,6 @@ pub(crate) fn driver_capability_unsupported(
     DomainError::new(
         DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE,
         RefusalCode::ProviderCapabilityUnsupported,
-        DomainErrorJsonRpcCode::InvalidRequest,
     )
     .with_detail(json!({ "driverId": provider.as_str(), "flag": flag }))
 }

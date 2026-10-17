@@ -20,7 +20,7 @@ use sidekicks_contracts::jsonrpc::streaming::{
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 use crate::ipc::jsonrpc_error_mapping::{CallFailure, json_rpc_error_of};
 use crate::ipc::registry::{
     EncodedFeed, EncodedValue, HandlerContext, MethodRegistryBuilder, RegistrationError,
@@ -170,7 +170,6 @@ fn subscription_limit_reached() -> DomainError {
     DomainError::new(
         "the connection holds as many subscriptions as it may open",
         RefusalCode::ConnectionSubscriptionLimitReached,
-        DomainErrorJsonRpcCode::InternalError,
     )
     .with_detail(json!({ "limit": MAX_OPEN_LANES }))
 }

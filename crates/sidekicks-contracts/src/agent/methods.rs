@@ -301,7 +301,11 @@ methods! {
             mutating: true,
             params: AgentDefinitionUpdateRequest,
             result: AgentDefinitionUpdateResponse,
-            refusals: [AgentDefinitionNotFound, AgentDefinitionNameConflict, AgentDefinitionUpdateRefused],
+            refusals: [
+                AgentDefinitionNotFound,
+                AgentDefinitionNameConflict,
+                AgentDefinitionUpdateRefused,
+            ],
         },
         /// Deletes a definition.
         AgentDefinitionDelete = mutation "agent.definition.delete" {

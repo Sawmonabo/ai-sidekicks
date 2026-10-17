@@ -645,8 +645,8 @@ fn window_names_routed_account(
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/account/record",
     doc: "The provider account record and how it is read: the account as sent on the wire, each \
-          provider's readiness and its remedy, the per-limit quota reading, `provider.account.list` \
-          and the `provider.account.subscribe` live tail.",
+          provider's readiness and its remedy, the per-limit quota reading, \
+          `provider.account.list` and the `provider.account.subscribe` live tail.",
     definitions: &[
         Definition::read::<BillingMode>().checked(),
         Definition::read::<ProviderAccountHealthState>().checked(),

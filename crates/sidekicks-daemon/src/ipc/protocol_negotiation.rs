@@ -27,7 +27,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use subtle::ConstantTimeEq as _;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::{
     Dispatch, DispatchError, HandlerContext, HandlerError, MethodRegistry, MethodRegistryBuilder,
     RegistrationError, Reply, Request, TransportId,
@@ -61,7 +61,8 @@ static DAEMON_VERSIONS: LazyLock<BoundedVec<ProtocolVersion, 0, SUPPORTED_PROTOC
 
 /// The message every refusal of a connection without the session token carries, so a refusal says
 /// nothing about the token.
-const TOKEN_INVALID_MESSAGE: &str = "The connection's connection.initialize lacked this daemon's session token, so nothing is served on it";
+const TOKEN_INVALID_MESSAGE: &str =
+    "The connection.initialize call lacked this daemon's session token, so nothing is served on it";
 
 /// The message of a refusal of an agent's connection, or one the system could not name.
 const CALLER_REFUSED_MESSAGE: &str = "The connection was opened by a process this daemon or a \
@@ -92,16 +93,12 @@ enum ConnectionRefusal {
 impl ConnectionRefusal {
     fn error(self) -> DomainError {
         match self {
-            Self::TokenInvalid => DomainError::new(
-                TOKEN_INVALID_MESSAGE,
-                RefusalCode::AuthTokenInvalid,
-                DomainErrorJsonRpcCode::InvalidRequest,
-            ),
-            Self::CallerRefused => DomainError::new(
-                CALLER_REFUSED_MESSAGE,
-                RefusalCode::AuthCallerRefused,
-                DomainErrorJsonRpcCode::InvalidRequest,
-            ),
+            Self::TokenInvalid => {
+                DomainError::new(TOKEN_INVALID_MESSAGE, RefusalCode::AuthTokenInvalid)
+            }
+            Self::CallerRefused => {
+                DomainError::new(CALLER_REFUSED_MESSAGE, RefusalCode::AuthCallerRefused)
+            }
         }
     }
 }
@@ -227,7 +224,6 @@ impl ProtocolNegotiator {
                     DomainError::new(
                         HANDSHAKE_REQUIRED_MESSAGE,
                         RefusalCode::ConnectionHandshakeRequired,
-                        DomainErrorJsonRpcCode::InvalidRequest,
                     )
                 })
             }
@@ -266,15 +262,13 @@ impl ProtocolNegotiator {
             return Err(ConnectionRefusal::TokenInvalid.error().into());
         }
         // A hello always fails, so a client keeps waiting for the repair to end.
-        Err(DomainError::new(
-            REPAIRING_MESSAGE,
-            RefusalCode::DaemonRepairing,
-            DomainErrorJsonRpcCode::InvalidRequest,
+        Err(
+            DomainError::new(REPAIRING_MESSAGE, RefusalCode::DaemonRepairing)
+                .with_detail(DaemonRepairingDetails {
+                    progress: read_progress(),
+                })
+                .into(),
         )
-        .with_detail(DaemonRepairingDetails {
-            progress: read_progress(),
-        })
-        .into())
     }
 
     /// Refuses a hello without this start's token, then one from a caller the daemon refuses or
@@ -384,7 +378,7 @@ impl ProtocolNegotiator {
 
 /// The negotiation gate: refuses every call on a refused connection, every call but
 /// `connection.initialize` before a hello completed, and every mutating call after an incompatible
-/// one, each `-32600` with a fixed message; anything else goes to the next dispatch.
+/// one, each `-31000` with a fixed message; anything else goes to the next dispatch.
 pub(crate) struct NegotiationGate {
     negotiator: Arc<ProtocolNegotiator>,
     next: Arc<dyn Dispatch>,
@@ -412,7 +406,6 @@ fn version_mismatch(reason: NegotiationIncompatibleReason) -> DomainError {
     DomainError::new(
         VERSION_MISMATCH_MESSAGE,
         RefusalCode::ConnectionVersionMismatch,
-        DomainErrorJsonRpcCode::InvalidRequest,
     )
     .with_detail(json!({ "reason": reason }))
 }
@@ -511,7 +504,6 @@ mod tests {
 
     use super::{NegotiationGate, ProtocolNegotiator, RefusedCallerCheck};
     use crate::ipc::call_fixtures::{Nothing, context};
-    use crate::ipc::domain_error::DomainErrorJsonRpcCode;
     use crate::ipc::registry::{
         Dispatch, DispatchError, HandlerContext, MethodRegistryBuilder, Reply, Request,
     };
@@ -671,10 +663,6 @@ mod tests {
                 (Ok(Reply::Result(_)), Answer::Served) => {}
                 (Err(DispatchError::Refused(refusal)), Answer::Refused(code)) => {
                     assert_eq!(refusal.code, code, "{call:?}");
-                    assert_eq!(
-                        refusal.json_rpc_code,
-                        DomainErrorJsonRpcCode::InvalidRequest
-                    );
                     assert!(
                         !refusal.message.contains("test."),
                         "the message names no method"

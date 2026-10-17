@@ -75,7 +75,7 @@ pub struct WorkflowDefinitionCreateResponse {
 
 /// The `workflow.definition.read` input: one definition, at `version` when given and at its latest
 /// version otherwise. A deleted definition still reads; only one never created is refused
-/// `workflow.not_found`.
+/// `workflow.definition.notFound`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -584,7 +584,12 @@ methods! {
             mutating: true,
             params: WorkflowDefinitionUpdateRequest,
             result: WorkflowDefinitionUpdateResponse,
-            refusals: [WorkflowDefinitionNotFound, WorkflowVersionNotFound, WorkflowVersionStale, WorkflowDefinitionRefused],
+            refusals: [
+                WorkflowDefinitionNotFound,
+                WorkflowVersionNotFound,
+                WorkflowVersionStale,
+                WorkflowDefinitionRefused,
+            ],
         },
         /// Deletes a workflow, softly: its runs stay readable.
         WorkflowDefinitionDelete = mutation "workflow.definition.delete" {

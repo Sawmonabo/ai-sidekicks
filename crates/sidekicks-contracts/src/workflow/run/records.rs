@@ -575,7 +575,12 @@ methods! {
             mutating: false,
             params: WorkflowRunListRequest,
             result: WorkflowRunListResponse,
-            refusals: [SessionNotFound, WorkflowDefinitionNotFound, WorkflowVersionNotFound, WorkflowCursorUnresolvable],
+            refusals: [
+                SessionNotFound,
+                WorkflowDefinitionNotFound,
+                WorkflowVersionNotFound,
+                WorkflowCursorUnresolvable,
+            ],
         },
         /// Deletes one ended run with its steps and snapshots.
         WorkflowRunDelete = mutation "workflow.run.delete" {

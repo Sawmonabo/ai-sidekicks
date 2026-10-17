@@ -170,8 +170,8 @@ methods! {
 /// The TypeScript module of a provider's install and update.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/install",
-    doc: "The `provider.install.start*` methods: installing and updating a provider's command in one \
-          place.",
+    doc: "The `provider.install.start*` methods: installing and updating a provider's command in \
+          one place.",
     definitions: &[
         Definition::read::<ProviderInstallProgress>(),
         Definition::read::<ProviderInstallUpdateProgress>(),

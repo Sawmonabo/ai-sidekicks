@@ -188,8 +188,8 @@ impl Method for DaemonHandshake {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "jsonrpc/negotiation",
     doc: "The `connection.initialize` handshake, `ConnectionInitializeRequest` and \
-          `ConnectionInitializeResponse`, shared by the daemon and its clients. A `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date, so lexical order \
-          is chronological.",
+          `ConnectionInitializeResponse`, shared by the daemon and its clients. A \
+          `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date, so lexical order is chronological.",
     definitions: &[
         Definition::read::<ProtocolVersion>(),
         Definition::read::<ConnectionInitializeRequest>().checked(),

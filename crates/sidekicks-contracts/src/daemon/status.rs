@@ -298,8 +298,8 @@ methods! {
 /// The module's TypeScript face.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "daemon/status",
-    doc: "`daemon.status.read`: the service's own facts in one reply, and `daemon.crashReport.list`: the \
-          crash reports this machine keeps.",
+    doc: "`daemon.status.read`: the service's own facts in one reply, and \
+          `daemon.crashReport.list`: the crash reports this machine keeps.",
     definitions: &[
         Definition::read::<DaemonProcessState>(),
         Definition::read::<DaemonProcessorReading>(),

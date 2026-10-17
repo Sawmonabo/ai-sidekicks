@@ -1,12 +1,11 @@
 //! The `repo.*` refusals, each sent on the wire by its code: the refusal's message becomes the
 //! reply's message and its detail `data.fields`.
 //!
-//! Only the two `repoMount.notFound` refusals, a mount's and a project's, answer `-32602`, as a
-//! missing session does; the others answer `-32603` and a client tells them apart by `data.type`.
-//! Two messages are text the daemon did not write: a clone refusal's git line and a failed clone
-//! service start's text, whose paths the reply's sanitizing strips. Every other message names no
-//! path: a closed reason makes that certain, the ones naming an id rely on ids being opaque, and
-//! the two naming a WSL distribution carry its name alone.
+//! Each answers `-31000`, and a client tells them apart by `data.type`. Two messages are text the
+//! daemon did not write: a clone refusal's git line and a failed clone service start's text, whose
+//! paths the reply's sanitizing strips. Every other message names no path: a closed reason makes
+//! that certain, the ones naming an id rely on ids being opaque, and the two naming a WSL
+//! distribution carry its name alone.
 
 use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
@@ -23,7 +22,7 @@ use sidekicks_contracts::repo::folders::{
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode, refusal_fields};
+use crate::ipc::domain_error::{DomainError, refusal_fields};
 
 /// Why a repository call was refused; nothing was written for any of them. Converts into the
 /// [`DomainError`] the reply carries.
@@ -147,32 +146,24 @@ pub(crate) enum RepoRefusal {
 
 impl From<RepoRefusal> for DomainError {
     fn from(refusal: RepoRefusal) -> Self {
-        use DomainErrorJsonRpcCode::{InternalError, InvalidParams};
-
         let message = refusal.to_string();
-        // An id the call supplies that resolves to nothing is a bad parameter, as a missing
-        // session is; every other refusal answers as an internal error.
-        let (code, json_rpc_code, detail) = match refusal {
+        let (code, detail) = match refusal {
             RepoRefusal::ProjectNotFound { project_id } => (
                 RefusalCode::RepoMountNotFound,
-                InvalidParams,
                 Some(refusal_fields(json!({ "projectId": project_id }))),
             ),
             RepoRefusal::MountNotFound { repo_mount_id } => (
                 RefusalCode::RepoMountNotFound,
-                InvalidParams,
                 Some(refusal_fields(json!({ "repoMountId": repo_mount_id }))),
             ),
             RepoRefusal::RootResolutionFailed { reason } => (
                 RefusalCode::RepoMountRootResolutionFailed,
-                InternalError,
                 Some(refusal_fields(RepoMountRootResolutionFailedDetails {
                     reason,
                 })),
             ),
             RepoRefusal::OutsideTrustEnvelope { reason } => (
                 RefusalCode::RepoMountOutsideTrustEnvelope,
-                InternalError,
                 Some(refusal_fields(RepoMountOutsideTrustEnvelopeDetails {
                     reason,
                 })),
@@ -182,7 +173,6 @@ impl From<RepoRefusal> for DomainError {
                 conflicting_project_id,
             } => (
                 RefusalCode::RepoMountAlreadyAttached,
-                InternalError,
                 Some(refusal_fields(RepoMountAlreadyAttachedDetails {
                     conflicting_repo_mount_id,
                     conflicting_project_id,
@@ -190,19 +180,16 @@ impl From<RepoRefusal> for DomainError {
             ),
             RepoRefusal::DetachConflict { running_session_id } => (
                 RefusalCode::RepoMountDetachConflict,
-                InternalError,
                 Some(refusal_fields(
                     json!({ "runningSessionId": running_session_id }),
                 )),
             ),
             RepoRefusal::MountManaged { repo_mount_id } => (
                 RefusalCode::RepoMountManaged,
-                InternalError,
                 Some(refusal_fields(json!({ "repoMountId": repo_mount_id }))),
             ),
             RepoRefusal::ReattachRefused { repo_mount_id: _ } => (
                 RefusalCode::RepoMountReattachRefused,
-                InternalError,
                 Some(refusal_fields(RepoMountReattachRefusedDetails {
                     reason: RepoMountReattachRefusedReason::IdentityMatches,
                 })),
@@ -212,7 +199,6 @@ impl From<RepoRefusal> for DomainError {
                 running_agent_id,
             } => (
                 RefusalCode::RepoMountReattachConflict,
-                InternalError,
                 Some(refusal_fields(RepoMountReattachConflictDetails {
                     running_session_id,
                     running_agent_id,
@@ -220,32 +206,26 @@ impl From<RepoRefusal> for DomainError {
             ),
             RepoRefusal::DistributionNeedsWsl2 { distro } => (
                 RefusalCode::RepoMountDistributionNeedsWsl2,
-                InternalError,
                 Some(refusal_fields(DistributionRefusalDetails { distro })),
             ),
             RepoRefusal::DistributionNotFound { distro } => (
                 RefusalCode::RepoMountDistributionNotFound,
-                InternalError,
                 Some(refusal_fields(DistributionRefusalDetails { distro })),
             ),
-            RepoRefusal::TopLevelUnavailable => (
-                RefusalCode::MachineFolderTopLevelNotOffered,
-                InternalError,
-                None,
-            ),
+            RepoRefusal::TopLevelUnavailable => {
+                (RefusalCode::MachineFolderTopLevelNotOffered, None)
+            }
             RepoRefusal::CloneRefused { details } => (
                 RefusalCode::ProjectCloneRefused,
-                InternalError,
                 Some(refusal_fields(details)),
             ),
             RepoRefusal::CloneUnavailable { message: _ } => {
-                (RefusalCode::ProjectCloneUnavailable, InternalError, None)
+                (RefusalCode::ProjectCloneUnavailable, None)
             }
         };
         DomainError {
             message,
             code,
-            json_rpc_code,
             detail,
             source: None,
         }

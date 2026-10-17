@@ -9,7 +9,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 
 /// Why the run engine refused a call or a move; nothing was written for any of them.
 #[derive(Debug, thiserror::Error)]
@@ -102,22 +102,15 @@ impl From<RunRefusal> for DomainError {
     fn from(refusal: RunRefusal) -> Self {
         let message = refusal.to_string();
         match refusal {
-            RunRefusal::NotFound { run_id } => DomainError::new(
-                message,
-                RefusalCode::AgentRunNotFound,
-                DomainErrorJsonRpcCode::InvalidParams,
-            )
-            .with_detail(json!({ "runId": run_id })),
+            RunRefusal::NotFound { run_id } => {
+                DomainError::new(message, RefusalCode::AgentRunNotFound)
+                    .with_detail(json!({ "runId": run_id }))
+            }
             RunRefusal::VersionStale {
                 run_id,
                 expected_run_version,
                 run_version,
-            } => DomainError::new(
-                message,
-                RefusalCode::AgentRunVersionStale,
-                DomainErrorJsonRpcCode::InvalidRequest,
-            )
-            .with_detail(json!({
+            } => DomainError::new(message, RefusalCode::AgentRunVersionStale).with_detail(json!({
                 "runId": run_id,
                 "expectedRunVersion": expected_run_version,
                 "runVersion": run_version,
@@ -139,15 +132,12 @@ impl From<RunRefusal> for DomainError {
                 from_state,
                 to_state,
             } => transition_refusal(message, &run_id, from_state, to_state),
-            RunRefusal::SessionTurnHeld { session_id } => DomainError::new(
-                message,
-                RefusalCode::ProviderUnavailable,
-                DomainErrorJsonRpcCode::InternalError,
-            )
-            .with_detail(json!({
-                "sessionId": session_id,
-                "reason": "session_turn_in_flight",
-            })),
+            RunRefusal::SessionTurnHeld { session_id } => {
+                DomainError::new(message, RefusalCode::ProviderUnavailable).with_detail(json!({
+                    "sessionId": session_id,
+                    "reason": "session_turn_in_flight",
+                }))
+            }
         }
     }
 }
@@ -160,12 +150,7 @@ fn transition_refusal(
     from_state: RunState,
     to_state: RunStateChangeState,
 ) -> DomainError {
-    DomainError::new(
-        message,
-        RefusalCode::AgentRunInvalidTransition,
-        DomainErrorJsonRpcCode::InvalidRequest,
-    )
-    .with_detail(json!({
+    DomainError::new(message, RefusalCode::AgentRunInvalidTransition).with_detail(json!({
         "runId": run_id,
         "fromState": <&'static str>::from(from_state),
         "toState": <&'static str>::from(RunState::from(to_state)),

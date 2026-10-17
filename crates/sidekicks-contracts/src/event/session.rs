@@ -245,27 +245,35 @@ session_events! {
     /// Emitted once per session deletion that deleted rows.
     SessionEventCompacted(#[garde(dive)] SessionEventCompactedPayload) = "session.event.compacted",
     /// Emitted when the assistant produces a message; its body is kept apart from the payload.
-    AgentMessageSent(#[garde(dive)] AssistantOutputPayload) = "agent.message.sent" => read(assistant_output_run),
+    AgentMessageSent(#[garde(dive)] AssistantOutputPayload) = "agent.message.sent"
+        => read(assistant_output_run),
     /// Emitted when the assistant reports a reasoning update; its body is kept apart.
-    AgentThinkingUpdated(#[garde(dive)] AssistantOutputPayload) = "agent.thinking.updated" => read(assistant_output_run),
+    AgentThinkingUpdated(#[garde(dive)] AssistantOutputPayload) = "agent.thinking.updated"
+        => read(assistant_output_run),
     /// Emitted when a tool call starts; its arguments are kept apart from the payload.
     AgentToolCallInvoked(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.invoked" => required,
     /// Emitted when a tool call returns; its result is kept apart from the payload.
-    AgentToolCallCompleted(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.completed" => required,
+    AgentToolCallCompleted(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.completed"
+        => required,
     /// Emitted when a tool call fails; its error body is kept apart from the payload.
     AgentToolCallFailed(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.failed" => required,
     /// Emitted when a provider's own subagent starts under a run.
-    AgentSubagentStarted(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.started" => required,
+    AgentSubagentStarted(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.started"
+        => required,
     /// Emitted when a provider's own subagent finishes, paired to its start.
-    AgentSubagentCompleted(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.completed" => required,
+    AgentSubagentCompleted(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.completed"
+        => required,
     /// Emitted when the provider process reports its start for a run; it moves no state.
-    AgentRunProviderInitialized(AgentRunProviderInitializedPayload) = "agent.run.providerInitialized" => versioned,
+    AgentRunProviderInitialized(AgentRunProviderInitializedPayload)
+        = "agent.run.providerInitialized" => versioned,
     /// Emitted when a turn opens within a run; it moves no state.
     AgentTurnStarted(AgentTurnStartedPayload) = "agent.turn.started" => versioned,
     /// Emitted when the provider says its worker is shutting down mid-run; never the run's end.
-    AgentRunWorkerShuttingDown(AgentRunWorkerShuttingDownPayload) = "agent.run.workerShuttingDown" => versioned,
+    AgentRunWorkerShuttingDown(AgentRunWorkerShuttingDownPayload) = "agent.run.workerShuttingDown"
+        => versioned,
     /// Emitted when the provider reports a coarse status for its session.
-    SessionProviderStatusReported(#[garde(dive)] SessionProviderStatusReportedPayload) = "session.providerStatus.reported" => optional,
+    SessionProviderStatusReported(#[garde(dive)] SessionProviderStatusReportedPayload)
+        = "session.providerStatus.reported" => optional,
     /// Emitted when an approval request is refused, and by whom.
     ApprovalRejected(ApprovalResolvedPayload) = "approval.rejected" => required,
     /// Emitted when an ask ends with its run and can no longer be answered.
@@ -275,7 +283,8 @@ session_events! {
     /// Emitted when a remembered approval rule is revoked.
     ApprovalRuleRevoked(ApprovalRuleRevokedPayload) = "approval.rule.revoked" => optional,
     /// Emitted when a provider's own reviewer flags an item with a warning or a required review.
-    ApprovalReviewerFlagged(ApprovalReviewerFlaggedPayload) = "approval.reviewer.flagged" => required,
+    ApprovalReviewerFlagged(ApprovalReviewerFlaggedPayload) = "approval.reviewer.flagged"
+        => required,
     /// Emitted when an agent proposes a plan; the payload is the record the screen renders.
     PlanProposed(PlanProposedPayload) = "plan.proposed" => required,
     /// Emitted when a proposed plan is accepted and is being built in its own session.
@@ -283,7 +292,8 @@ session_events! {
     /// Emitted when a plan seeds a fresh session.
     PlanHandedOff(PlanHandedOffPayload) = "plan.handedOff",
     /// Emitted when an agent, tool server or workflow step asks the person a question.
-    QuestionAsked(#[garde(dive)] QuestionAskedPayload) = "question.asked" => read(question_asked_run),
+    QuestionAsked(#[garde(dive)] QuestionAskedPayload) = "question.asked"
+        => read(question_asked_run),
     /// Emitted when the daemon accepts a message the person sent, or a voice call hears one.
     UserMessageSent(UserMessageSentPayload) = "user.message.sent" => optional,
     /// Emitted when a message the person sent is queued.
@@ -307,7 +317,8 @@ session_events! {
     SessionGoalCleared(SessionGoalClearedPayload) = "session.goal.cleared",
     /// Emitted for a plain-sentence notice about the session, such as a warning from the
     /// provider.
-    SessionNoticePosted(#[garde(dive)] SessionNoticePostedPayload) = "session.notice.posted" => read(session_notice_run),
+    SessionNoticePosted(#[garde(dive)] SessionNoticePostedPayload) = "session.notice.posted"
+        => read(session_notice_run),
     /// Emitted when a side question is answered; the aside never enters the conversation.
     SessionSideQuestionAnswered(SessionSideQuestionAnsweredPayload) =
         "session.sideQuestion.answered",
@@ -320,7 +331,8 @@ session_events! {
     /// Emitted when a command ends; it takes the epoch stamp.
     AgentCommandEnded(#[garde(dive)] AgentCommandEndedPayload) = "agent.command.ended" => required,
     /// Emitted when a turn's own token figures are recorded; it takes the epoch stamp.
-    UsageTokenCountRecorded(#[garde(dive)] UsageTokenCountRecordedPayload) = "usage.tokenCount.recorded" => optional,
+    UsageTokenCountRecorded(#[garde(dive)] UsageTokenCountRecordedPayload)
+        = "usage.tokenCount.recorded" => optional,
     /// Emitted when a request is priced; it takes the epoch stamp.
     UsageCostUpdated(#[garde(dive)] UsageCostUpdatedPayload) = "usage.cost.updated" => optional,
     /// Emitted when the context window's reading changes; it takes the epoch stamp.
@@ -329,9 +341,11 @@ session_events! {
     /// Emitted when a provider reports one of an account's quotas.
     UsageRateLimitUpdated(#[garde(dive)] UsageRateLimitUpdatedPayload) = "usage.rateLimit.updated",
     /// Emitted when the provider retries a request mid-run; it takes the epoch stamp.
-    UsageApiRequestRetried(#[garde(dive)] UsageApiRequestRetriedPayload) = "usage.apiRequest.retried" => optional,
+    UsageApiRequestRetried(#[garde(dive)] UsageApiRequestRetriedPayload)
+        = "usage.apiRequest.retried" => optional,
     /// Emitted when the provider compacts a run's context; it takes the epoch stamp.
-    AgentRunContextCompacted(#[garde(dive)] AgentRunContextCompactedPayload) = "agent.run.context.compacted" => required,
+    AgentRunContextCompacted(#[garde(dive)] AgentRunContextCompactedPayload)
+        = "agent.run.context.compacted" => required,
     /// Emitted when the provider moves a turn onto another model; it takes the epoch stamp.
     AgentTurnRerouted(#[garde(dive)] AgentTurnReroutedPayload) = "agent.turn.rerouted" => required,
     /// Emitted when a new session's storage is ready and it moves from provisioning to active.
@@ -368,20 +382,26 @@ session_events! {
     ApprovalApproved(ApprovalResolvedPayload) = "approval.approved" => required,
     /// Emitted when the provider's own reviewer blocks an action; its denial is the row's body,
     /// kept apart from the payload.
-    ApprovalReviewerDenied(ApprovalReviewerDeniedEventPayload) = "approval.reviewer.denied" => required,
+    ApprovalReviewerDenied(ApprovalReviewerDeniedEventPayload) = "approval.reviewer.denied"
+        => required,
     /// Emitted when the person allows a blocked action once.
     ApprovalDenialOverridden(ApprovalDenialOverriddenPayload) = "approval.denial.overridden",
     /// Emitted when a run is queued.
-    AgentRunQueued(#[garde(dive)] AgentRunQueuedPayload) = "agent.run.queued" => read(run_queued_run),
+    AgentRunQueued(#[garde(dive)] AgentRunQueuedPayload) = "agent.run.queued"
+        => read(run_queued_run),
     /// Emitted when a turn reaches the step bound and ends there.
-    AgentRunStepLimitReached(AgentRunStepLimitReachedPayload) = "agent.run.stepLimit.reached" => required,
+    AgentRunStepLimitReached(AgentRunStepLimitReachedPayload) = "agent.run.stepLimit.reached"
+        => required,
     /// Emitted when a run passes its token limit and ends.
-    AgentRunTokenLimitReached(AgentRunTokenLimitReachedPayload) = "agent.run.tokenLimit.reached" => required,
+    AgentRunTokenLimitReached(AgentRunTokenLimitReachedPayload) = "agent.run.tokenLimit.reached"
+        => required,
     /// Emitted when the person's choice settles a run's recovery question.
-    AgentRunRecoveryResolved(AgentRunRecoveryResolvedPayload) = "agent.run.recovery.resolved" => required,
+    AgentRunRecoveryResolved(AgentRunRecoveryResolvedPayload) = "agent.run.recovery.resolved"
+        => required,
     /// Emitted when a restart found steps in the provider's own record that only read, added
     /// them to the transcript and let the run go on.
-    AgentRunRecoveryStepsAdded(AgentRunRecoveryStepsAddedPayload) = "agent.run.recoverySteps.added" => required,
+    AgentRunRecoveryStepsAdded(AgentRunRecoveryStepsAddedPayload) = "agent.run.recoverySteps.added"
+        => required,
     /// Emitted when the provider's own advisor command changes the session's advisor, or turns it
     /// off.
     SessionAdvisorChanged(#[garde(dive)] SessionAdvisorChangedPayload) =
@@ -403,7 +423,8 @@ session_events! {
     AgentRunRefusalChoiceRequested(AgentRunRefusalChoiceRequestedPayload) =
         "agent.run.refusalChoice.requested" => required,
     /// Emitted when the first answer settles a refused turn's retry-or-edit choice.
-    AgentRunRefusalChoiceResolved(AgentRunRefusalChoiceResolvedPayload) = "agent.run.refusalChoice.resolved" => required,
+    AgentRunRefusalChoiceResolved(AgentRunRefusalChoiceResolvedPayload)
+        = "agent.run.refusalChoice.resolved" => required,
     /// Emitted when a turn's model needs usage credits and the provider asks to switch or go on.
     AgentRunUsageCreditsChoiceRequested(AgentRunUsageCreditsChoiceRequestedPayload) =
         "agent.run.usageCreditsChoice.requested" => required,
@@ -415,7 +436,8 @@ session_events! {
     /// Emitted when a session is renamed.
     SessionRenamed(SessionRenamedPayload) = "session.renamed",
     /// Emitted when the holder of a shell changes.
-    TerminalControlChanged(#[garde(dive)] TerminalControlChangedPayload) = "terminal.control.changed",
+    TerminalControlChanged(#[garde(dive)] TerminalControlChangedPayload)
+        = "terminal.control.changed",
     /// Emitted when a workflow run starts.
     WorkflowRunStarted(WorkflowRunStartedPayload) = "workflow.run.started",
     /// Emitted when a workflow run resumes.
@@ -492,9 +514,11 @@ session_events! {
     /// Emitted when the service starts again from a backup.
     DaemonBackupRestored(#[garde(dive)] DaemonBackupRestoredPayload) = "daemon.backup.restored",
     /// Emitted when the service's recovery pass starts, on its own session.
-    DaemonRecoveryAttempted(#[garde(dive)] DaemonRecoveryAttemptedPayload) = "daemon.recovery.attempted",
+    DaemonRecoveryAttempted(#[garde(dive)] DaemonRecoveryAttemptedPayload)
+        = "daemon.recovery.attempted",
     /// Emitted when the service's recovery pass completes, on its own session.
-    DaemonRecoverySucceeded(#[garde(dive)] DaemonRecoverySucceededPayload) = "daemon.recovery.succeeded",
+    DaemonRecoverySucceeded(#[garde(dive)] DaemonRecoverySucceededPayload)
+        = "daemon.recovery.succeeded",
     /// Emitted when the service's recovery pass leaves the node blocked or a session degraded, on
     /// its own session.
     DaemonRecoveryFailed(DaemonRecoveryFailedPayload) = "daemon.recovery.failed",
@@ -510,7 +534,8 @@ session_events! {
     AgentRunWaitingForApproval(#[garde(dive)] AgentRunWaitingForApprovalPayload) =
         "agent.run.waitingForApproval" => versioned,
     /// Emitted when a run blocks on the person's input or answers.
-    AgentRunWaitingForInput(#[garde(dive)] AgentRunWaitingForInputPayload) = "agent.run.waitingForInput" => versioned,
+    AgentRunWaitingForInput(#[garde(dive)] AgentRunWaitingForInputPayload)
+        = "agent.run.waitingForInput" => versioned,
     /// Emitted when a pause is asked for while the step in flight finishes.
     AgentRunPausing(#[garde(dive)] AgentRunPausingPayload) = "agent.run.pausing" => versioned,
     /// Emitted when a run is paused.
@@ -518,7 +543,8 @@ session_events! {
     /// Emitted when a run finishes, as a turn or as its whole task.
     AgentRunCompleted(#[garde(dive)] AgentRunCompletedPayload) = "agent.run.completed" => versioned,
     /// Emitted when a run ends on an interrupt, with the daemon's trigger when it interrupted.
-    AgentRunInterrupted(#[garde(dive)] AgentRunInterruptedPayload) = "agent.run.interrupted" => versioned,
+    AgentRunInterrupted(#[garde(dive)] AgentRunInterruptedPayload) = "agent.run.interrupted"
+        => versioned,
     /// Emitted when a child run ends on a stop that reached several agents.
     AgentRunStopped(#[garde(dive)] AgentRunStoppedPayload) = "agent.run.stopped" => versioned,
     /// Emitted when a run ends on an unrecovered error, with its category and cause.
@@ -701,7 +727,7 @@ mod tests {
     fn a_version_stub_keeps_its_bytes_and_reads_as_the_native_event_once_its_type_is_known() {
         // A newer producer's type this build does not register, its payload nested.
         let stub_text = envelope_text(
-            "session.handed_over",
+            "session.handedOver",
             "sessionLifecycle",
             &json!({
                 "handedTo": { "deviceId": "device-2", "reasons": ["away", null, 3] },
@@ -716,7 +742,7 @@ mod tests {
         );
         assert!(matches!(
             SessionEvent::from_envelope(&stub),
-            Err(SessionEventReadError::UnknownType(name)) if name == "session.handed_over"
+            Err(SessionEventReadError::UnknownType(name)) if name == "session.handedOver"
         ));
 
         // The same path for a registered type reads to the event its native form reads to.

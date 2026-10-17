@@ -28,7 +28,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use super::program::{ASKPASS_OWNER_VARIABLE, ASKPASS_SOCKET_VARIABLE};
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 use crate::random_hex::random_hex;
 
 // Every answer is typed out of sight but git's `Username for '…': ` and ssh's host-key question,
@@ -110,12 +110,7 @@ impl From<AskpassBrokerError> for DomainError {
     /// Clone methods answered while the broker is not serving are `project.clone.unavailable`; the
     /// failure underneath is kept for the service log.
     fn from(error: AskpassBrokerError) -> Self {
-        DomainError::new(
-            error.to_string(),
-            RefusalCode::ProjectCloneUnavailable,
-            DomainErrorJsonRpcCode::InternalError,
-        )
-        .with_source(error)
+        DomainError::new(error.to_string(), RefusalCode::ProjectCloneUnavailable).with_source(error)
     }
 }
 
