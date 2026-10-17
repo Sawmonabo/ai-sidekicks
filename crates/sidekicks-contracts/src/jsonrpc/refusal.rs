@@ -190,8 +190,7 @@ refusal_codes! {
     HighlightReadReplaced = "highlight.read_replaced" (409);
     /// A `clientIdempotencyKey` was reused with a differing payload.
     InterventionIdempotencyConflict = "intervention.idempotency_conflict" (422);
-    /// The request's params failed the method's contract check, so no handler ran, or the handler
-    /// found they name nothing it can read.
+    /// The request's params failed the method's contract check, so no handler ran.
     InvalidParams = "invalid_params" ();
     /// The handler's result failed the method's result check: a daemon fault, never the client's.
     InvalidResult = "invalid_result" ();
@@ -482,8 +481,8 @@ refusal_codes! {
     WorkflowCodeOverBudget = "workflow.code_over_budget" (422);
     /// A start of a workflow version whose Code steps' packages are not locked.
     WorkflowCodePackagesNotLocked = "workflow.code_packages_not_locked" (409);
-    /// A `workflow.runList` or `workflow.stepRead` `cursor` the daemon did not write, or one past
-    /// the end of what it pages; nothing is read.
+    /// A `workflow.runList`, `workflow.stepRead` or `workflow.definitionList` `cursor` the daemon
+    /// did not write, or one past the end of what it pages; nothing is read.
     WorkflowCursorUnresolvable = "workflow.cursor_unresolvable" (400);
     /// A saved or imported document the daemon's own re-check refuses.
     WorkflowDefinitionRefused = "workflow.definition_refused" (422);

@@ -251,7 +251,7 @@ const WORKFLOW_DEFINITION_LIST_CURSOR_MAX_LEN: usize = 256;
 
 branded_text! {
     /// Where the next `workflow.definitionList` page starts, written by the daemon and passed back
-    /// unchanged. One the daemon did not write is refused as `invalid_params`.
+    /// unchanged. One the daemon did not write is refused as `workflow.cursor_unresolvable`.
     pub struct WorkflowDefinitionListCursor(1..=WORKFLOW_DEFINITION_LIST_CURSOR_MAX_LEN);
 }
 
@@ -564,7 +564,7 @@ methods! {
             mutating: false,
             params: WorkflowDefinitionListRequest,
             result: WorkflowDefinitionListResponse,
-            refusals: [],
+            refusals: [WorkflowCursorUnresolvable],
         },
         /// Reads one saved version.
         WorkflowVersionRead = query "workflow.versionRead" {
