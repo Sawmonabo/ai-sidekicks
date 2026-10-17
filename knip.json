@@ -44,7 +44,10 @@
       // `includeEntryExports`, so only the scripts CI does not launch are checked for exports.
       "entry": ["tools/*.mjs", "tools/__tests__/*.test.mjs"],
       "project": ["tools/**/*.mjs"],
-      "includeEntryExports": true
+      "includeEntryExports": true,
+      // lint-staged runs `rustfmt` on staged Rust files; the Rust toolchain `rust-toolchain.toml`
+      // pins supplies it through rustup, never a package dependency.
+      "ignoreBinaries": ["rustfmt"]
     },
 
     "apps/desktop": {
@@ -275,7 +278,7 @@
         "cloudflare",
         // The push senders that present the person's own credentials: the signed headers of a
         // Web Push, a notice sent through Apple's push service, and the sign-in for Firebase's.
-        "webPush",
+        "web-push",
         "apns2",
         "google-auth-library"
       ]
@@ -339,7 +342,7 @@
         // The picture of an attachment's first page and its covered copy.
         "sharp",
         // Encrypting a Web Push notice on this machine before the relay sends it.
-        "webPush",
+        "web-push",
         // A workflow step that parses YAML.
         "yaml"
       ],
