@@ -40,17 +40,14 @@ branded_text! {
 /// A staged file's own name, already cleaned.
 pub type PreviewFileName = BoundedText<1, FILE_PATH_MAX_LEN>;
 
-/// The folder main writes a relayed download into, read once per connection: `null` on a Windows
-/// computer whose daemon runs inside WSL 2, where no Windows path crosses and main stages in a
-/// folder of its own.
+/// The folder main writes a relayed download into, read once per connection: the daemon's own
+/// staging folder, which it reads itself.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct PreviewPageStagingFolderReadResponse {
     /// The folder.
-    #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<FilesystemPath>")]
-    pub folder: Option<FilesystemPath>,
+    pub folder: FilesystemPath,
 }
 
 /// The state a relayed download ended in, as Electron's download item reports it when done.
@@ -68,8 +65,7 @@ pub enum PreviewDownloadState {
 
 /// A download a relayed input owns, which main wrote to `<staging folder>/<fileId>` and reports
 /// once it is done in any state. The daemon resolves `fileId` inside its folder itself and refuses
-/// one main did not mint with `preview.file_path_refused`; on a WSL 2 computer it reads the file
-/// from main in parts.
+/// one main did not mint with `preview.file_path_refused`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -109,53 +105,11 @@ pub struct PreviewPageDownloadReportResponse {
     pub verdict: PreviewDownloadVerdict,
 }
 
-/// WSL 2 only: reads one part of a file main staged in its own folder, a download or a file the
-/// page wrote through a handle the daemon's drop gave it, from `offset`. Main deletes its copy of
-/// a download once the last part is read.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct PreviewPageFileReadRequest {
-    /// The page.
-    pub page_id: PreviewPageId,
-    /// The staged file.
-    pub file_id: PreviewStagedFileId,
-    /// The file's path inside a dropped folder.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "FilesystemPath")]
-    pub path: Option<FilesystemPath>,
-    /// The byte the part starts at.
-    pub offset: SafeInt<0>,
-}
-
 /// One part of a staged file and whether it is the last.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct PreviewFilePartResponse {
-    /// The part's bytes.
-    pub part: PreviewFilePart,
-    /// Whether the file ends with this part.
-    pub is_last_part: bool,
-}
-
-/// WSL 2 only: one part of a file the daemon sets on an input or drops on a page, which main writes
-/// into its own folder as `<fileId>/<path>`. The debug-protocol command that sets or drops it names
-/// the file `sidekicks-staged:<fileId>/<path>`, which main replaces with its own path.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct PreviewPageFileStageRequest {
-    /// The page.
-    pub page_id: PreviewPageId,
-    /// The staged file.
-    pub file_id: PreviewStagedFileId,
-    /// The cleaned name, or the path inside a picked folder.
-    pub path: FilesystemPath,
     /// The part's bytes.
     pub part: PreviewFilePart,
     /// Whether the file ends with this part.

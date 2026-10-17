@@ -1,9 +1,8 @@
 //! The Preview page host's link between the daemon and the desktop's main process, over the
 //! connection the app dials: main reports each page's debug target, relays its debugger traffic,
 //! its menus, the input at the machine and its downloads, and the daemon edits a page from a
-//! device's menu, moves staged files and reads, writes and clears the page host's cookies and site
-//! data. Two method tables follow, one per direction; main's never joins the daemon's own method
-//! map.
+//! device's menu and reads, writes and clears the page host's cookies and site data. Two method
+//! tables follow, one per direction; main's never joins the daemon's own method map.
 
 use std::fmt;
 
@@ -19,8 +18,7 @@ use crate::preview::screencast::{PreviewInputMessageId, PreviewMenuEdit, Preview
 use crate::preview::staging::{
     PREVIEW_STAGED_FILE_ID_MAX_LEN, PreviewDownloadState, PreviewDownloadVerdict,
     PreviewFilePartResponse, PreviewPageDownloadReportRequest, PreviewPageDownloadReportResponse,
-    PreviewPageFileReadRequest, PreviewPageFileStageRequest, PreviewPageStagingFolderReadResponse,
-    PreviewSaveReadRequest, PreviewStagedFileId,
+    PreviewPageStagingFolderReadResponse, PreviewSaveReadRequest, PreviewStagedFileId,
 };
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::True;
@@ -458,20 +456,6 @@ methods! {
             result: PreviewReceivedResponse,
             refusals: [],
         },
-        /// Reads one part of a file main staged in its own folder, on a WSL 2 computer.
-        PreviewPageFileRead = query "preview.pageFileRead" {
-            mutating: false,
-            params: PreviewPageFileReadRequest,
-            result: PreviewFilePartResponse,
-            refusals: [],
-        },
-        /// Sends main one part of a file to set or drop on a page, on a WSL 2 computer.
-        PreviewPageFileStage = mutation "preview.pageFileStage" {
-            mutating: true,
-            params: PreviewPageFileStageRequest,
-            result: PreviewReceivedResponse,
-            refusals: [],
-        },
         /// Applies a device's menu act to a page.
         PreviewPageEdit = mutation "preview.pageEdit" {
             mutating: true,
@@ -540,8 +524,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PreviewPageDownloadReportResponse>().checked(),
         Definition::read::<PreviewSaveReadRequest>().checked(),
         Definition::read::<PreviewFilePartResponse>().checked(),
-        Definition::read::<PreviewPageFileReadRequest>().checked(),
-        Definition::read::<PreviewPageFileStageRequest>().checked(),
         Definition::read::<PreviewPageEditRequest>().checked(),
         Definition::read::<PreviewCookieSameSite>(),
         Definition::read::<PreviewCookie>(),

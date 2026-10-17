@@ -26,6 +26,7 @@ use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::place::PlacedPath;
 use crate::provider::name::ProviderName;
 use crate::repo::mount::ExecutionMode;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -466,10 +467,11 @@ pub struct MachineSettings {
     pub backup: BackupSettings,
     /// `Every project`'s `Branch names`.
     pub branch_name_pattern: BranchNamePattern,
-    /// `Clone new repositories into`; `null` until the person sets one.
+    /// `Clone new repositories into`, with the distribution it is in; `null` until the person
+    /// sets one.
     #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<FilesystemPath>")]
-    pub clone_folder: Option<FilesystemPath>,
+    #[schemars(with = "NullableSchema<PlacedPath>")]
+    pub clone_folder: Option<PlacedPath>,
     /// The voice settings.
     pub voice: VoiceSettings,
 }
@@ -613,8 +615,8 @@ pub enum MachineSettingsChange {
     /// `Clone new repositories into`.
     CloneFolder(
         #[serde(deserialize_with = "nullable")]
-        #[schemars(with = "NullableSchema<FilesystemPath>")]
-        Option<FilesystemPath>,
+        #[schemars(with = "NullableSchema<PlacedPath>")]
+        Option<PlacedPath>,
     ),
     /// The voice settings, whole.
     Voice(VoiceSettings),

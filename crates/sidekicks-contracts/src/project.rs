@@ -13,12 +13,13 @@ use strum::{IntoStaticStr, VariantArray};
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::machine_settings::{BranchNamePattern, BranchNamePatternChange, EnvironmentRow};
+use crate::place::Place;
 use crate::repo::mount::RepoMountId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::{BoundedInt, SafeInt};
 use crate::wire::text::FreeFormText;
-use crate::wire::{NullableSchema, nullable};
+use crate::wire::{NullableSchema, True, nullable};
 
 ts_constants! {
     /// The longest project name the daemon keeps.
@@ -109,7 +110,7 @@ pub struct ProjectListEntry {
     pub repo_mount_id: Option<RepoMountId>,
     /// Its name.
     pub name: ProjectName,
-    /// Its folder.
+    /// Its folder, in its place's own form.
     pub folder_path: FilesystemPath,
     /// Its life.
     pub state: ProjectState,
@@ -129,8 +130,23 @@ pub struct ProjectListEntry {
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<BranchNamePattern>")]
     pub branch_pattern: Option<BranchNamePattern>,
-    /// A folder on the other side's disk of a Windows computer with WSL, read more slowly.
-    pub on_other_side_disk: bool,
+    /// Where its folder is and its sessions run, fixed at attach; absent on macOS and Linux.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
+    /// Present when the project's distribution is no longer on this computer, so its sessions
+    /// cannot run and the row offers `Remove`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "True")]
+    pub is_distribution_removed: Option<True>,
 }
 
 /// One `repo.projectList` emission: every project, sent once on subscribe and again on each

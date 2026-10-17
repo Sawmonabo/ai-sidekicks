@@ -5,15 +5,19 @@
 
 use std::path::{Path, PathBuf};
 
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::mount::{RepoMountHealth, WorkspaceState};
 use sidekicks_contracts::wire::instant::WireInstant;
 
-/// One file-system measurement of a path, handed in by the service. Every projection refuses a
-/// probe of any path but its row's own, so a mispaired probe cannot report a wrong verdict.
+/// One file-system measurement of a path in one place, handed in by the service. Every projection
+/// refuses a probe of any path or place but its row's own, so a mispaired probe cannot report a
+/// wrong verdict.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FilesystemPathProbe {
     /// The path measured.
     pub(crate) probed_path: PathBuf,
+    /// The place it was measured in; `None` on macOS and Linux.
+    pub(crate) probed_place: Option<Place>,
     /// Whether the path could be reached; a mount's identity is observed separately, from git.
     pub(crate) is_reachable: bool,
     /// When it was measured.
@@ -27,6 +31,8 @@ pub(crate) struct FilesystemPathProbe {
 pub(crate) struct RepoMountHealthRow<'row> {
     /// The mount's canonical root.
     pub(crate) canonical_root: &'row Path,
+    /// The place the root is in; `None` on macOS and Linux.
+    pub(crate) place: Option<&'row Place>,
     /// The git common directory recorded at attach; `None` on a mount that carries none.
     pub(crate) common_dir_anchor: Option<&'row Path>,
 }
@@ -49,6 +55,8 @@ pub(crate) struct WorkspaceHealthRow<'row> {
     pub(crate) state: WorkspaceState,
     /// Its execution root, `None` until preparation completes, as the `fs_root` column holds it.
     pub(crate) fs_root: Option<&'row Path>,
+    /// The place of its mount, where the root is; `None` on macOS and Linux.
+    pub(crate) place: Option<&'row Place>,
 }
 
 /// One workspace's health: the state to report, and whether the service must persist it.
@@ -74,6 +82,13 @@ pub(crate) enum HealthProjectionError {
          and the row's path differ"
     )]
     ProbeOfAnotherPath {
+        /// What the probe should have measured.
+        subject: &'static str,
+    },
+    /// The probe measured the row's path in another place: one path in two WSL distributions is
+    /// two folders.
+    #[error("health projection refused a probe that did not measure the {subject} in its place")]
+    ProbeFromAnotherPlace {
         /// What the probe should have measured.
         subject: &'static str,
     },
@@ -119,16 +134,17 @@ pub(crate) enum HealthProjectionError {
 
 /// A mount's health: `unreachable` first, since nothing more can be asked of a root that cannot be
 /// probed, then `identity_mismatch` when the repository observed is not the anchored one. Refuses
-/// a probe of another path, and an identity observation given when none is owed or missing when
-/// one is.
+/// a probe of another path or place, and an identity observation given when none is owed or
+/// missing when one is.
 pub(crate) fn compute_repo_mount_health(
     mount_row: &RepoMountHealthRow<'_>,
     probe: &FilesystemPathProbe,
     identity: Option<RepoMountIdentityObservation>,
 ) -> Result<RepoMountHealth, HealthProjectionError> {
-    refuse_probe_of_another_path(
+    refuse_probe_of_another_root(
         probe,
         mount_row.canonical_root,
+        mount_row.place,
         "repo mount's canonical root",
     )?;
     let is_identity_owed = probe.is_reachable && mount_row.common_dir_anchor.is_some();
@@ -190,7 +206,12 @@ pub(crate) fn compute_workspace_health(
         .fs_root
         .ok_or(HealthProjectionError::ExecutionRootMissing { state })?;
     let probe = probe.ok_or(HealthProjectionError::ProbeMissing { state })?;
-    refuse_probe_of_another_path(probe, fs_root, "workspace's execution root")?;
+    refuse_probe_of_another_root(
+        probe,
+        fs_root,
+        workspace_row.place,
+        "workspace's execution root",
+    )?;
     // The one transition derived here; a reachable root leaves the state as it is.
     let observed_state = if probe.is_reachable {
         state
@@ -206,16 +227,19 @@ pub(crate) fn compute_workspace_health(
 
 // Compares the paths' bytes, since `Path`'s own equality folds components and would accept a
 // probe of a path that merely normalizes alike.
-fn refuse_probe_of_another_path(
+fn refuse_probe_of_another_root(
     probe: &FilesystemPathProbe,
     expected_path: &Path,
+    expected_place: Option<&Place>,
     subject: &'static str,
 ) -> Result<(), HealthProjectionError> {
-    if probe.probed_path.as_os_str() == expected_path.as_os_str() {
-        Ok(())
-    } else {
-        Err(HealthProjectionError::ProbeOfAnotherPath { subject })
+    if probe.probed_path.as_os_str() != expected_path.as_os_str() {
+        return Err(HealthProjectionError::ProbeOfAnotherPath { subject });
     }
+    if probe.probed_place.as_ref() != expected_place {
+        return Err(HealthProjectionError::ProbeFromAnotherPlace { subject });
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -223,12 +247,14 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use rstest::rstest;
+    use sidekicks_contracts::place::{Place, WslPlace};
     use sidekicks_contracts::repo::mount::{RepoMountHealth, WorkspaceState};
     use sidekicks_contracts::wire::instant::WireInstant;
 
     use super::{
-        FilesystemPathProbe, RepoMountHealthRow, RepoMountIdentityObservation, WorkspaceHealthRow,
-        compute_repo_mount_health, compute_workspace_health,
+        FilesystemPathProbe, HealthProjectionError, RepoMountHealthRow,
+        RepoMountIdentityObservation, WorkspaceHealthRow, compute_repo_mount_health,
+        compute_workspace_health,
     };
 
     const ROOT: &str = "/repos/app";
@@ -267,11 +293,13 @@ mod tests {
     ) {
         let probe = FilesystemPathProbe {
             probed_path: PathBuf::from(ROOT),
+            probed_place: None,
             is_reachable,
             checked_at: checked_at(),
         };
         let row = RepoMountHealthRow {
             canonical_root: Path::new(ROOT),
+            place: None,
             common_dir_anchor: is_anchored.then_some(Path::new("/repos/app/.git")),
         };
         assert_eq!(
@@ -304,12 +332,14 @@ mod tests {
     ) {
         let probe = probe_reachability.map(|is_reachable| FilesystemPathProbe {
             probed_path: PathBuf::from(ROOT),
+            probed_place: None,
             is_reachable,
             checked_at: checked_at(),
         });
         let row = WorkspaceHealthRow {
             state,
             fs_root: Some(Path::new(ROOT)),
+            place: None,
         };
         let projection = compute_workspace_health(&row, probe.as_ref());
         assert_eq!(
@@ -319,5 +349,30 @@ mod tests {
             )),
             expected
         );
+    }
+
+    #[test]
+    fn a_probe_of_the_root_in_another_distribution_is_refused() {
+        let distribution = |name: &str| {
+            Place::Wsl(WslPlace {
+                distro: serde_json::from_value(serde_json::json!(name)).expect("a name reads"),
+            })
+        };
+        let ubuntu = distribution("Ubuntu");
+        let probe = FilesystemPathProbe {
+            probed_path: PathBuf::from(ROOT),
+            probed_place: Some(distribution("Debian")),
+            is_reachable: true,
+            checked_at: checked_at(),
+        };
+        let row = RepoMountHealthRow {
+            canonical_root: Path::new(ROOT),
+            place: Some(&ubuntu),
+            common_dir_anchor: None,
+        };
+        assert!(matches!(
+            compute_repo_mount_health(&row, &probe, None),
+            Err(HealthProjectionError::ProbeFromAnotherPlace { .. })
+        ));
     }
 }

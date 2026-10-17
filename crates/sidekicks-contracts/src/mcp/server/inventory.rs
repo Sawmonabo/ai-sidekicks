@@ -6,15 +6,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use strum::VariantArray;
 
-use crate::free_form_string::FilesystemPath;
 use crate::mcp::server::config::McpServerConfigView;
 use crate::mcp::server::{McpApprovalMode, McpServerStatus, McpToolName, binding_addressed};
+use crate::place::PlacedPath;
 use crate::provider::driver::length_limits::DRIVER_BINDING_ID_MAX_LEN;
 use crate::provider::name::{ClaudeProviderWord, ProviderName};
 use crate::schema::{push_all_of, required_member};
 use crate::session::id::SessionId;
 use crate::wire::instant::WireInstant;
-use crate::wire::list::BoundedVec;
+use crate::wire::list::UniqueList;
 use crate::wire::text::branded_text;
 use crate::wire::{Never, True, literal};
 
@@ -29,6 +29,8 @@ branded_text! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
+#[garde(custom(Self::keeps_failure_reason_on_failed))]
+#[schemars(transform = add_failure_reason_rule)]
 pub struct McpServerLegStatus {
     /// The session.
     pub session_id: SessionId,
@@ -45,14 +47,33 @@ pub struct McpServerLegStatus {
     #[schemars(with = "WireInstant")]
     #[garde(dive)]
     pub observed_at: Option<WireInstant>,
+    /// Why the session saw it fail, where the daemon knows; only on a failed leg.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "McpServerFailedReason")]
+    pub failed_reason: Option<McpServerFailedReason>,
 }
 
-/// Why a server reads `failed`, where the daemon knows a reason the person can act on.
+impl McpServerLegStatus {
+    /// Whether a failure reason sits only on a failed leg.
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "garde passes a check's context by reference"
+    )]
+    fn keeps_failure_reason_on_failed(&self, (): &()) -> garde::Result {
+        is_failure_reason_on_failed(self.status, self.failed_reason.as_ref())
+    }
+}
+
+/// Why a session saw a server fail, where the daemon knows a reason the person can act on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum McpServerFailedReason {
-    /// After the service moved between Windows and a WSL distribution, the command or its
-    /// arguments name a program on the side it left.
+    /// The command or its arguments name a Windows program, which cannot run in the WSL 2
+    /// distribution the session runs in; the leg's session names the distribution.
     CommandNotRunnable,
 }
 
@@ -206,7 +227,7 @@ pub struct McpToolReading {
     pub idempotency_class: McpToolSetting<McpAssignableIdempotencyClass, McpServerIdempotencyClass>,
 }
 
-/// Whether a failure reason sits only on a failed server.
+/// Whether a failure reason sits only on a failed leg.
 fn is_failure_reason_on_failed(
     status: McpServerStatus,
     failed_reason: Option<&McpServerFailedReason>,
@@ -215,7 +236,7 @@ fn is_failure_reason_on_failed(
         Ok(())
     } else {
         Err(garde::Error::new(
-            "failedReason is carried only on a failed server",
+            "failedReason is carried only on a failed leg",
         ))
     }
 }
@@ -237,13 +258,11 @@ fn add_failure_reason_rule(schema: &mut Schema) {
 
 /// Declares one inventory arm: the binding, what an entry carries whether or not the binding
 /// store answered, and the members the caller adds. `status` is the daemon's aggregate over
-/// `legs`, and a failure reason sits only on a failed server.
+/// `legs`, and a failure reason sits only on a failed leg.
 macro_rules! inventory_entry {
     ($(#[$meta:meta])+ pub enum $name:ident { $($extra:tt)* }) => {
         binding_addressed! {
             $(#[$meta])+
-            #[garde(custom(Self::keeps_failure_reason_on_failed))]
-            #[schemars(transform = add_failure_reason_rule)]
             pub enum $name in every scope {
                 /// The redacted declaration.
                 config: McpServerConfigView,
@@ -267,51 +286,33 @@ macro_rules! inventory_entry {
                 #[schemars(with = "WireInstant")]
                 #[garde(dive)]
                 observed_at: Option<WireInstant>,
-                /// The project roots in which another binding of this provider takes this one's
-                /// place, by the provider's order: a project's `local` binding over its `project`
-                /// one, either over the `user` one, matched by server name; on Claude Code a
-                /// plugin's server or a connector also matches when it points at the same address
-                /// or command. Absent where it is used wherever it applies.
+                /// The project roots, each with the distribution it is in, in which another binding
+                /// of this provider takes this one's place, by the provider's order: a project's
+                /// `local` binding over its `project` one, either over the `user` one, matched by
+                /// server name; on Claude Code a plugin's server or a connector also matches when
+                /// it points at the same address or command. Absent where it is used wherever it
+                /// applies.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
                     deserialize_with = "crate::wire::present"
                 )]
-                #[schemars(with = "BoundedVec<FilesystemPath, 1, { usize::MAX }>")]
-                superseded_in: Option<BoundedVec<FilesystemPath, 1, { usize::MAX }>>,
-                /// Claude Code: the project roots where the server is switched off, by Claude
-                /// Code's own per-project list or, on a connector or an organization's server, by
-                /// the daemon's per-project switch; it stays out of those projects' sessions.
-                /// Absent where no project switched it off.
+                #[schemars(with = "UniqueList<PlacedPath, 1, { usize::MAX }>")]
+                #[garde(dive)]
+                superseded_in: Option<UniqueList<PlacedPath, 1, { usize::MAX }>>,
+                /// Claude Code: the project roots, each with its distribution, where the server is
+                /// switched off, by Claude Code's own per-project list or, on a connector or an
+                /// organization's server, by the daemon's per-project switch; it stays out of those
+                /// projects' sessions. Absent where no project switched it off.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
                     deserialize_with = "crate::wire::present"
                 )]
-                #[schemars(with = "BoundedVec<FilesystemPath, 1, { usize::MAX }>")]
-                disabled_in: Option<BoundedVec<FilesystemPath, 1, { usize::MAX }>>,
-                /// Why a `failed` server failed, where the daemon knows; only on a failed entry.
-                #[serde(
-                    default,
-                    skip_serializing_if = "Option::is_none",
-                    deserialize_with = "crate::wire::present"
-                )]
-                #[schemars(with = "McpServerFailedReason")]
-                failed_reason: Option<McpServerFailedReason>,
+                #[schemars(with = "UniqueList<PlacedPath, 1, { usize::MAX }>")]
+                #[garde(dive)]
+                disabled_in: Option<UniqueList<PlacedPath, 1, { usize::MAX }>>,
                 $($extra)*
-            }
-        }
-
-        impl $name {
-            /// Whether a failure reason sits only on a failed server.
-            fn keeps_failure_reason_on_failed(&self, (): &()) -> garde::Result {
-                let (Self::User { status, failed_reason, .. }
-                | Self::Project { status, failed_reason, .. }
-                | Self::Local { status, failed_reason, .. }
-                | Self::Plugin { status, failed_reason, .. }
-                | Self::Connector { status, failed_reason, .. }
-                | Self::Managed { status, failed_reason, .. }) = self;
-                is_failure_reason_on_failed(*status, failed_reason.as_ref())
             }
         }
     };

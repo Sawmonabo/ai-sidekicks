@@ -1,6 +1,6 @@
-//! What macOS alone supplies: the machine's computer name, no Windows drive mounts and every folder
-//! on its own disk, reads through a memory map, a process's parent, the bound on a program's
-//! argument, the process's footprint, the machine's wakes from sleep and a wall-clock timer.
+//! What macOS alone supplies: the machine's computer name, no Windows drive mounts, reads through a
+//! memory map, a process's parent, the bound on a program's argument, the process's footprint, the
+//! machine's wakes from sleep and a wall-clock timer.
 
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
@@ -12,7 +12,6 @@ use std::process::Stdio;
 use nix::unistd::SysconfVar;
 use tokio::process::Command;
 
-use crate::folder_place::FolderPlace;
 #[cfg(any(test, feature = "test-support"))]
 use crate::footprint::ProcessFootprint;
 use crate::machine_name::{MachineNameError, require_machine_name};
@@ -72,11 +71,6 @@ pub async fn machine_name(spawner: &Spawner) -> Result<String, MachineNameError>
 /// fails.
 pub fn windows_drive_mounts() -> io::Result<Vec<PathBuf>> {
     Ok(Vec::new())
-}
-
-/// Where folders sit for the service: on its own disk, since macOS has no WSL. Never fails.
-pub fn folder_place() -> io::Result<FolderPlace> {
-    Ok(FolderPlace::OwnDisk)
 }
 
 /// Whether a reader that keeps a file open reads it through a memory map rather than by reads at

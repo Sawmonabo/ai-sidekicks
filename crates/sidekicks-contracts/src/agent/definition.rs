@@ -12,6 +12,7 @@ use strum::VariantArray;
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::place::WslPlace;
 use crate::project::ProjectId;
 use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
 use crate::schema::{push_all_of, required_member};
@@ -346,6 +347,14 @@ definition_record! {
         /// The record's file, or for an orphaned record the last path it was known at; shown,
         /// never a capability.
         pub source_path: FilesystemPath,
+        /// The WSL 2 distribution the file is in, its path in Linux form; absent elsewhere.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WslPlace")]
+        pub place: Option<WslPlace>,
         /// A provider's file was renamed or deleted outside the app; the record keeps its extras
         /// until it is reattached or discarded.
         pub orphaned: bool,

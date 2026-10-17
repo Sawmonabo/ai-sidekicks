@@ -46,7 +46,8 @@ methods! {
             result: RepoAttachResponse,
             refusals: [
                 RepoAlreadyAttached,
-                RepoFolderUnreachable,
+                RepoDistributionNeedsWsl2,
+                RepoDistributionNotFound,
                 RepoRootResolutionFailed,
             ],
         },
@@ -89,7 +90,11 @@ methods! {
             mutating: false,
             params: RepoFolderListRequest,
             result: RepoFolderListResponse,
-            refusals: [],
+            refusals: [
+                RepoDistributionNeedsWsl2,
+                RepoDistributionNotFound,
+                RepoTopLevelUnavailable,
+            ],
         },
         /// Binds a session's workspace to a mount.
         RepoWorkspaceBind = mutation "repo.workspaceBind" {
@@ -166,7 +171,12 @@ methods! {
             mutating: true,
             params: RepoCloneRequest,
             result: RepoCloneResponse,
-            refusals: [RepoCloneRefused, RepoCloneUnavailable],
+            refusals: [
+                RepoCloneRefused,
+                RepoCloneUnavailable,
+                RepoDistributionNeedsWsl2,
+                RepoDistributionNotFound,
+            ],
         },
         /// Follows a clone's card.
         RepoCloneSubscribe = subscription "repo.cloneSubscribe" {

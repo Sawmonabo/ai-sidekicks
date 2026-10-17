@@ -12,6 +12,7 @@ use sidekicks_contracts::event::envelope::{
     DAEMON_SCOPE_SENTINEL_SESSION_ID, EventCategory, EventEnvelope,
 };
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::run::queue::UserMessagePayload;
 use sidekicks_contracts::session::directory::SessionActivity;
 use sidekicks_contracts::session::events::{
@@ -174,6 +175,7 @@ enum DirectoryChange {
         shape: SessionShape,
         scratch_for_definition_id: Option<AgentDefinitionId>,
         parent_session_id: Option<SessionId>,
+        place: Option<Place>,
     },
     Column(ColumnWrite),
 }
@@ -214,6 +216,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
                 shape: created.shape,
                 scratch_for_definition_id: created.scratch_for_definition_id,
                 parent_session_id: created.parent.map(|parent| parent.session_id),
+                place: created.place,
             }
         }
         SessionEventType::SessionActivated | SessionEventType::SessionReactivated => {
@@ -451,6 +454,7 @@ pub(crate) fn open_directory_row(
         shape,
         scratch_for_definition_id,
         parent_session_id,
+        place,
     }) = update.change
     else {
         return Err(DirectoryRowError::NotACreation {
@@ -468,6 +472,7 @@ pub(crate) fn open_directory_row(
         muted_at: None,
         scratch_for_definition_id,
         parent_session_id,
+        place,
         last_run_outcome: SessionActivity::Idle,
         created_at: update.occurred_at.clone(),
         updated_at: update.occurred_at.clone(),
@@ -505,9 +510,9 @@ pub(crate) fn fold_directory_row(
 }
 
 const INSERT_CREATED_ROW_SQL: &str = "INSERT INTO sessions
-        (id, shape, state, scratch_for_definition_id, parent_session_id,
+        (id, shape, state, scratch_for_definition_id, parent_session_id, place,
          created_at, updated_at, last_activity_at)
-      VALUES (?, ?, 'provisioning', ?, ?, ?, ?, ?)";
+      VALUES (?, ?, 'provisioning', ?, ?, ?, ?, ?, ?)";
 
 /// The statements that apply one event's change to the `sessions` row, run in the event's own
 /// write before its row. Each is relative to the event alone. The update expects its one row, so
@@ -527,6 +532,7 @@ pub(crate) fn directory_statements_for(
             shape,
             scratch_for_definition_id,
             parent_session_id,
+            place,
         }) => {
             return Ok(vec![WriteStatement {
                 sql: Cow::Borrowed(INSERT_CREATED_ROW_SQL),
@@ -535,6 +541,7 @@ pub(crate) fn directory_statements_for(
                     SqlValue::Text(<&'static str>::from(shape).to_owned()),
                     SqlValue::from(scratch_for_definition_id.map(|id| id.to_string())),
                     SqlValue::from(parent_session_id.map(|id| id.to_string())),
+                    place_value(place.as_ref()),
                     SqlValue::Text(update.occurred_at.clone()),
                     SqlValue::Text(update.occurred_at.clone()),
                     SqlValue::Text(update.occurred_at),
@@ -577,17 +584,17 @@ pub(crate) fn directory_statements_for(
 
 const UPSERT_ROW_SQL: &str = "INSERT INTO sessions
         (id, shape, state, name, first_message_preview, branch, pinned_at, muted_at,
-         scratch_for_definition_id, parent_session_id, last_run_outcome, created_at,
+         scratch_for_definition_id, parent_session_id, place, last_run_outcome, created_at,
          updated_at, last_activity_at)
       VALUES (@id, @shape, @state, @name, @firstMessagePreview, @branch, @pinnedAt, @mutedAt,
-              @scratchForDefinitionId, @parentSessionId, @lastRunOutcome, @createdAt,
+              @scratchForDefinitionId, @parentSessionId, @place, @lastRunOutcome, @createdAt,
               @updatedAt, @lastActivityAt)
       ON CONFLICT (id) DO UPDATE SET
         shape = excluded.shape, state = excluded.state, name = excluded.name,
         first_message_preview = excluded.first_message_preview, branch = excluded.branch,
         pinned_at = excluded.pinned_at, muted_at = excluded.muted_at,
         scratch_for_definition_id = excluded.scratch_for_definition_id,
-        parent_session_id = excluded.parent_session_id,
+        parent_session_id = excluded.parent_session_id, place = excluded.place,
         last_run_outcome = excluded.last_run_outcome, created_at = excluded.created_at,
         updated_at = excluded.updated_at, last_activity_at = excluded.last_activity_at";
 
@@ -636,6 +643,7 @@ pub(crate) fn directory_row_statement(row: &SessionDirectoryRow) -> WriteStateme
                         .map(UuidText::as_str),
                 ),
             ),
+            (Cow::Borrowed("@place"), place_value(row.place.as_ref())),
             text_binding("@lastRunOutcome", row.last_run_outcome.into()),
             text_binding("@createdAt", &row.created_at),
             text_binding("@updatedAt", &row.updated_at),
@@ -643,4 +651,12 @@ pub(crate) fn directory_row_statement(row: &SessionDirectoryRow) -> WriteStateme
         ]),
         expected_row_count: None,
     }
+}
+
+// The `place` column: the place as its wire JSON (`"windows"` or `{"distro":…}`), NULL on macOS
+// and Linux.
+fn place_value(place: Option<&Place>) -> SqlValue {
+    SqlValue::from(place.map(|place| {
+        serde_json::to_string(place).expect("a place is a string or a one-member object")
+    }))
 }

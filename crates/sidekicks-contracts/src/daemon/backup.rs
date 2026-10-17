@@ -14,11 +14,12 @@ use crate::error::ERROR_MESSAGE_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::place::DistroName;
 use crate::release_manifest::ReleaseVersion;
-use crate::service_place::ServicePlaceLocation;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
+use crate::wire::list::{ListKey, UniqueList};
 use crate::wire::text::FreeFormText;
 
 /// The manifest's file name, beside each backup's database copy.
@@ -70,9 +71,9 @@ impl JsonSchema for BackupId {
 }
 
 /// What a backup records about itself: when it was taken, the app and service versions that wrote
-/// it, its size and the computer that wrote it. On a Windows computer it also names the side that
-/// wrote it, Windows or a WSL distribution, so a restore on the other side rewrites its stored
-/// paths into that side's form.
+/// it, its size and the computer that wrote it. On a Windows computer it also names each WSL 2
+/// distribution whose part it holds, so a restore writes each part back into the distribution of
+/// that name and keeps a part whose distribution is not on the computer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -90,14 +91,15 @@ pub struct BackupManifest {
     pub total_bytes: SafeInt<0>,
     /// The computer that wrote it.
     pub computer_name: FreeFormText<BACKUP_LABEL_MAX_LEN>,
-    /// On a Windows computer, the side that wrote it.
+    /// The WSL 2 distributions whose parts it holds, by name; absent where it holds none.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "ServicePlaceLocation")]
-    pub place: Option<ServicePlaceLocation>,
+    #[schemars(with = "UniqueList<DistroName, 1, { usize::MAX }>")]
+    #[garde(dive)]
+    pub distribution_parts: Option<UniqueList<DistroName, 1, { usize::MAX }>>,
 }
 
 /// One backup in the folder, as `Restore…` lists it.
@@ -185,12 +187,46 @@ pub struct BackupFailedPayload {
     pub message: FreeFormText<ERROR_MESSAGE_MAX_LEN>,
 }
 
-/// `backup.restored`: the service started again from a backup.
+/// One WSL 2 distribution's part a restore kept in the backup, because no distribution of that
+/// name is on this computer, with how many sessions it holds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BackupKeptDistributionPart {
+    /// The distribution, by name.
+    pub distro: DistroName,
+    /// How many sessions the part holds.
+    pub session_count: SafeInt<0>,
+}
+
+impl ListKey for BackupKeptDistributionPart {
+    type Key = DistroName;
+
+    fn list_key(&self) -> DistroName {
+        self.distro.clone()
+    }
+
+    // It carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+/// `backup.restored`: the service started again from a backup, naming each distribution part it
+/// kept in the backup.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct BackupRestoredPayload {
     /// The backup.
     pub backup_id: BackupId,
+    /// The distribution parts kept in the backup; absent where every part was written back.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "UniqueList<BackupKeptDistributionPart, 1, { usize::MAX }>")]
+    #[garde(dive)]
+    pub kept_distribution_parts: Option<UniqueList<BackupKeptDistributionPart, 1, { usize::MAX }>>,
 }
 
 methods! {
@@ -226,6 +262,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<BackupReadResponse>().checked(),
         Definition::read::<BackupCompletedPayload>().checked(),
         Definition::read::<BackupFailedPayload>().checked(),
+        Definition::read::<BackupKeptDistributionPart>(),
         Definition::read::<BackupRestoredPayload>().checked(),
     ],
     constants: TS_CONSTANTS,

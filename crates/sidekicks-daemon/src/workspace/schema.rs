@@ -71,7 +71,9 @@ fn workspace_schema_sql() -> String {
 -- clone_outcome where the clone stands, clone_failure git's last error line after a failed clone,
 -- and clone_staging_folder the folder the daemon made beside the destination for git to clone
 -- into, with clone_staging_identity its <device>:<inode>: the one folder a failure or a restart
--- removes, and only while that path still holds that folder.
+-- removes, and only while that path still holds that folder. place is where the folder is and its
+-- sessions run, fixed at attach: the place's wire JSON (Windows itself or a WSL 2 distribution),
+-- NULL on macOS and Linux; folder_path is in that place's own form.
 CREATE TABLE projects (
   id                     TEXT PRIMARY KEY,
   name                   TEXT NOT NULL,
@@ -86,6 +88,7 @@ CREATE TABLE projects (
   setup                  TEXT NOT NULL,              -- JSON: the setup steps
   environment_rows       TEXT NOT NULL DEFAULT '[]', -- JSON: the project's own environment rows
   branch_pattern         TEXT,                       -- NULL follows the machine's pattern
+  place                  TEXT,
   created_at             TEXT NOT NULL,
   updated_at             TEXT NOT NULL,
   CHECK ((state = '{cloning}') = (clone_url IS NOT NULL)),
@@ -97,12 +100,14 @@ CREATE TABLE projects (
 
 -- A mount belongs to the machine, not to a session. local_path is what the
 -- user entered; canonical_root is the resolver's absolute, symlink-resolved
--- path, and every trust check keys on it.
+-- path, and every trust check keys on it. place is where the root is, fixed at
+-- attach, stored as the projects row stores it; both paths are in its form.
 CREATE TABLE repo_mounts (
   id              TEXT PRIMARY KEY,
   node_id         TEXT NOT NULL,                -- the daemon's own node, stamped at attach
   local_path      TEXT NOT NULL,
   canonical_root  TEXT NOT NULL,
+  place           TEXT,
   vcs_type        TEXT NOT NULL DEFAULT '{git}'
                   CHECK(vcs_type IN ({vcs_types})),
   -- '{attached_origin}' is a project's folder the person attached or cloned; '{managed_origin}'
@@ -128,10 +133,13 @@ CREATE TABLE repo_mounts (
   CHECK (origin = '{managed_origin}' OR state <> '{attached_state}' OR project_id IS NOT NULL)
 ) STRICT;
 
--- Two aliases of one root on one machine are one mount; the same path on two
--- machines is two filesystems; a detached row does not block a re-attach.
+-- Two aliases of one root in one place on one machine are one mount; the same
+-- path on two machines, or in two distributions, is two filesystems; a detached
+-- row does not block a re-attach. A unique index counts NULLs as distinct, so
+-- the place is keyed as '' where it is NULL, keeping macOS and Linux unique.
 CREATE UNIQUE INDEX idx_repo_mounts_active_root
-  ON repo_mounts(node_id, canonical_root) WHERE state = '{attached_state}';
+  ON repo_mounts(node_id, coalesce(place, ''), canonical_root)
+  WHERE state = '{attached_state}';
 CREATE UNIQUE INDEX idx_repo_mounts_managed_session
   ON repo_mounts(managed_session_id) WHERE managed_session_id IS NOT NULL;
 -- A project has one attached mount, which every session of the project binds to.
@@ -166,4 +174,71 @@ CREATE UNIQUE INDEX idx_workspaces_live_session_mount
   ON workspaces(session_id, repo_mount_id) WHERE state <> '{archived_workspace}';
 "
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use rusqlite::{Connection, ErrorCode};
+    use sidekicks_contracts::project::ProjectState;
+
+    use super::WORKSPACE_SCHEMA_SQL;
+
+    const AT: &str = "2026-10-14T09:30:00.000Z";
+
+    // A project and its attached mount of `/home/me/x` in `place`, each project its own, since a
+    // project has one attached mount.
+    fn attached_mount(id: &str, place: Option<&str>) -> [String; 2] {
+        let active = <&'static str>::from(ProjectState::Active);
+        let place = place.map_or_else(|| "NULL".to_owned(), |place| format!("'{place}'"));
+        [
+            format!(
+                "INSERT INTO projects (id, name, slug, folder_path, state, setup, place, \
+                 created_at, updated_at) VALUES ('{id}', 'x', '{id}', '/home/me/x', '{active}', \
+                 '{{}}', {place}, '{AT}', '{AT}')"
+            ),
+            format!(
+                "INSERT INTO repo_mounts (id, node_id, local_path, canonical_root, place, \
+                 project_id, attached_at, updated_at) VALUES ('{id}', 'node', '/home/me/x', \
+                 '/home/me/x', {place}, '{id}', '{AT}', '{AT}')"
+            ),
+        ]
+    }
+
+    #[rstest]
+    #[case::one_root_without_a_place(None, None, false)]
+    #[case::one_path_in_two_distributions(
+        Some(r#"{"distro":"Ubuntu"}"#),
+        Some(r#"{"distro":"Debian"}"#),
+        true
+    )]
+    fn keeps_one_attached_mount_per_root_in_each_place(
+        #[case] first_place: Option<&str>,
+        #[case] second_place: Option<&str>,
+        #[case] is_second_admitted: bool,
+    ) {
+        let connection = Connection::open_in_memory().expect("an in-memory database opens");
+        connection
+            .execute_batch(&WORKSPACE_SCHEMA_SQL)
+            .expect("the workspace schema runs");
+        for row in attached_mount("first", first_place) {
+            connection
+                .execute_batch(&row)
+                .expect("the first mount is admitted");
+        }
+        let [project, mount] = attached_mount("second", second_place);
+        connection
+            .execute_batch(&project)
+            .expect("the second project is admitted");
+        let outcome = connection.execute_batch(&mount);
+        if is_second_admitted {
+            outcome.expect("a second place's root is its own mount");
+        } else {
+            let failure = outcome.expect_err("one place's root is one mount");
+            assert_eq!(
+                failure.sqlite_error_code(),
+                Some(ErrorCode::ConstraintViolation)
+            );
+        }
+    }
 }

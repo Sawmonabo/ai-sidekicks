@@ -31,6 +31,7 @@ pub mod method;
 pub mod method_descriptor;
 pub mod name_fold;
 pub mod orchestration;
+pub mod place;
 pub mod plan;
 pub mod platform;
 pub mod plugin;
@@ -50,7 +51,6 @@ pub mod review_note;
 pub mod run;
 pub mod runtime_node;
 pub mod schema;
-pub mod service_place;
 pub mod session;
 pub mod skill;
 pub mod tag;
@@ -116,6 +116,7 @@ const ROOT_TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &machine_settings::TYPESCRIPT_MODULE,
     &method_descriptor::TYPESCRIPT_MODULE,
     &orchestration::TYPESCRIPT_MODULE,
+    &place::TYPESCRIPT_MODULE,
     &plan::TYPESCRIPT_MODULE,
     &platform::TYPESCRIPT_MODULE,
     &plugin::TYPESCRIPT_MODULE,
@@ -129,7 +130,6 @@ const ROOT_TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &relay::TYPESCRIPT_MODULE,
     &release_manifest::TYPESCRIPT_MODULE,
     &review_note::TYPESCRIPT_MODULE,
-    &service_place::TYPESCRIPT_MODULE,
     &skill::TYPESCRIPT_MODULE,
     &tag::TYPESCRIPT_MODULE,
     &trust_statement::TYPESCRIPT_MODULE,

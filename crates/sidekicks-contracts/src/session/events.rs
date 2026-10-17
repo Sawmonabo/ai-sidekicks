@@ -10,6 +10,7 @@ use crate::event::envelope::{
     SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
 use crate::machine_settings::MACHINE_SETTINGS_NAME_MAX_LEN;
+use crate::place::Place;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::name::ProviderName;
@@ -33,7 +34,8 @@ pub struct SessionCreatedParent {
 }
 
 /// A session's birth, bringing in its lead as `main_agent`. `parent` is present exactly on a fork,
-/// and `scratch_for_definition_id` names the saved definition a scratch session tries.
+/// `scratch_for_definition_id` names the saved definition a scratch session tries, and `place` is
+/// where the session runs for its whole life.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -69,6 +71,14 @@ pub struct SessionCreatedPayload {
     )]
     #[schemars(with = "UserId")]
     pub actor: Option<UserId>,
+    /// Where it runs, written here once and never changed; absent on macOS and Linux.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
 }
 
 /// The payload of a lifecycle move (`session.activated`, `session.archived`,

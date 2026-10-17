@@ -35,7 +35,8 @@ ignored = [
   "image",
   "pdfium-render",
   "webp",
-  # The Windows half's channel to the daemon in WSL.
+  # The channel to each WSL 2 distribution's WSL server, the daemon the client and the WSL server
+  # the server.
   "h2",
   # The Standard Webhooks signature on a run's web address calls.
   "hmac",

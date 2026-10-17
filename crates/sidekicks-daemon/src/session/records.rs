@@ -4,6 +4,7 @@
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::agent::definition::AgentDefinitionId;
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::session::directory::SessionActivity;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
@@ -62,6 +63,8 @@ pub(crate) struct SessionDirectoryRow {
     pub(crate) scratch_for_definition_id: Option<AgentDefinitionId>,
     /// The session it was started from.
     pub(crate) parent_session_id: Option<SessionId>,
+    /// Where it runs, written at creation and never changed; `None` on macOS and Linux.
+    pub(crate) place: Option<Place>,
     /// How its most recent run to end its working time left it: `done`, `failed` or `idle`, the
     /// three activities a run's end can leave.
     pub(crate) last_run_outcome: SessionActivity,

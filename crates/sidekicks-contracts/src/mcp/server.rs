@@ -228,6 +228,14 @@ macro_rules! binding_addressed {
                 provider: $crate::provider::name::ProviderName,
                 /// The project's root folder.
                 scope_ref: $crate::free_form_string::FilesystemPath,
+                /// The distribution the root is in, in Linux form; absent elsewhere.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "crate::place::WslPlace")]
+                place: Option<$crate::place::WslPlace>,
                 /// The server's name.
                 server_name: $crate::mcp::server::McpServerName,
                 $($writable_extra)*
@@ -238,6 +246,14 @@ macro_rules! binding_addressed {
                 provider: $crate::provider::name::ProviderName,
                 /// The project's root folder.
                 scope_ref: $crate::free_form_string::FilesystemPath,
+                /// The distribution the root is in, in Linux form; absent elsewhere.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "crate::place::WslPlace")]
+                place: Option<$crate::place::WslPlace>,
                 /// The server's name.
                 server_name: $crate::mcp::server::McpServerName,
                 $($writable_extra)*
@@ -252,7 +268,7 @@ pub(crate) use binding_addressed;
 binding_addressed! {
     /// A binding in a scope the person writes: its declaration lives in a provider's own config,
     /// so it can be added, changed and removed. `user` carries no `scopeRef`; `project` and `local`
-    /// name the project's root folder.
+    /// name the project's root folder and the distribution it is in.
     pub enum McpWritableBindingRef in writable scopes {}
 }
 

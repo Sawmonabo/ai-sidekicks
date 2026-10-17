@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
+use crate::place::{Place, WslPlace};
 use crate::project::{ProjectId, ProjectName};
 use crate::repo::mount::{RepoMountHealth, RepoMountId, RepoMountState, VcsType, WorkspaceId};
 use crate::runtime_node::id::NodeId;
@@ -18,9 +19,9 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::list::BoundedVec;
+use crate::wire::list::{BoundedVec, ListKey, UniqueList};
 use crate::wire::text::FreeFormText;
-use crate::wire::{NullableSchema, nullable};
+use crate::wire::{Never, NullableSchema, True, nullable};
 use crate::worktree::lifecycle::WorktreeId;
 
 /// Where a folder the service can reach came from, carrying the ids its removal act takes: a
@@ -58,8 +59,8 @@ pub enum RepoMountOrigin {
     },
 }
 
-/// One folder the service can reach, with how many sessions use it. A worktree on the other side's
-/// disk of a Windows computer with WSL is marked `onOtherSideDisk`.
+/// One folder the service can reach, with how many sessions use it and, on a Windows computer,
+/// where it is.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoMountListEntry {
@@ -69,8 +70,14 @@ pub struct RepoMountListEntry {
     pub origin: RepoMountOrigin,
     /// How many sessions use it.
     pub using_session_count: SafeInt<0>,
-    /// Whether it is on the other side's disk.
-    pub on_other_side_disk: bool,
+    /// Where it is; absent on macOS and Linux.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
 }
 
 /// The `repo.mountList` result.
@@ -82,13 +89,30 @@ pub struct RepoMountListResponse {
     pub mounts: Vec<RepoMountListEntry>,
 }
 
-/// `repo.folderList`: the folder to show (the service account's home folder when absent), the text
-/// that narrows its folders, and whether hidden folders are listed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+/// `repo.folderList` for one folder: where to browse (Windows itself when absent, or a WSL 2
+/// distribution), the folder to show there (that place's home folder when absent), the text that
+/// narrows its folders, and whether hidden folders are listed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct RepoFolderListRequest {
-    /// The folder to show.
+#[schemars(inline)]
+pub struct RepoFolderListFolderRequest {
+    /// Never present: this asks for a folder.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Never")]
+    pub top: Option<Never>,
+    /// The distribution to browse; absent on macOS and Linux and for Windows itself.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WslPlace")]
+    pub place: Option<WslPlace>,
+    /// The folder to show, in that place's own form.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -114,6 +138,29 @@ pub struct RepoFolderListRequest {
     pub show_hidden: Option<bool>,
 }
 
+/// `repo.folderList` for the top level of a Windows computer: its drives and its WSL 2
+/// distributions. Listing it starts no distribution; macOS and Linux refuse it with
+/// `repo.top_level_unavailable`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
+pub struct RepoFolderListTopRequest {
+    /// Always `true`.
+    pub top: True,
+}
+
+/// What `repo.folderList` takes: one folder, or the top level of a Windows computer. macOS and
+/// Linux have no top level and refuse it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(untagged)]
+#[garde(allow_unvalidated)]
+pub enum RepoFolderListRequest {
+    /// One folder.
+    Folder(RepoFolderListFolderRequest),
+    /// The top level.
+    Top(RepoFolderListTopRequest),
+}
+
 /// One folder in a listing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -126,23 +173,87 @@ pub struct RepoFolderListEntry {
     pub is_repository: bool,
 }
 
-/// One step of the path to the folder in view, pressable to go back to it.
+/// One step of the path to the folder in view, pressable to go back to it: on Windows the first is
+/// the top level, so the device can go back up and change drive or distribution; every other step
+/// is a folder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RepoFolderPathSegment {
-    /// Its name.
-    pub name: FreeFormText<FILE_PATH_MAX_LEN>,
-    /// Its path.
-    pub path: FilesystemPath,
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum RepoFolderPathSegment {
+    /// The top level of a Windows computer.
+    Top {},
+    /// A folder.
+    Folder {
+        /// Its name.
+        name: FreeFormText<FILE_PATH_MAX_LEN>,
+        /// Its path.
+        path: FilesystemPath,
+    },
 }
 
-/// The `repo.folderList` result: the folder in view as the service writes its path, the path's
-/// segments from the top down (the last is the folder in view), its folders, and `more` when the
-/// filter would narrow further.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+/// One entry of a Windows computer's top level: a drive, or a WSL 2 distribution, which opens on
+/// its home folder through `repo.folderList` with its place.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum RepoFolderTopEntry {
+    /// A drive, by its root folder (`C:\`).
+    Drive {
+        /// Its root folder.
+        path: FilesystemPath,
+    },
+    /// A WSL 2 distribution.
+    Distribution {
+        /// Its place.
+        place: WslPlace,
+    },
+}
+
+// A drive or distribution entry is keyed by its one member, the drive's path or the distribution,
+// and carries no rule its read does not hold.
+impl ListKey for RepoFolderTopEntry {
+    type Key = Self;
+
+    fn list_key(&self) -> Self {
+        self.clone()
+    }
+
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+/// One folder as `repo.folderList` lists it: where the folder in view is, the folder as that place
+/// writes its path, the path's segments from the top down (the last is the folder in view), its
+/// folders, and `more` when the filter would narrow further. Every path in it is in that place's
+/// own form.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct RepoFolderListResponse {
+#[schemars(inline)]
+pub struct RepoFolderListFolderResponse {
+    /// Never present: this is a folder.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Never")]
+    pub top: Option<Never>,
+    /// Where the folder in view is; absent on macOS and Linux.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
     /// The folder in view.
     pub path: FilesystemPath,
     /// The path's segments, at least the folder in view.
@@ -153,16 +264,55 @@ pub struct RepoFolderListResponse {
     pub more: bool,
 }
 
+/// The top level of a Windows computer: its drives, then one entry per WSL 2 distribution, none
+/// twice.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
+#[garde(allow_unvalidated)]
+pub struct RepoFolderListTopResponse {
+    /// Always `true`.
+    pub top: True,
+    /// The drives, then the distributions.
+    #[garde(dive)]
+    pub entries: UniqueList<RepoFolderTopEntry, 0, { usize::MAX }>,
+}
+
+/// The `repo.folderList` result: one folder, or the top level of a Windows computer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(untagged)]
+#[garde(allow_unvalidated)]
+pub enum RepoFolderListResponse {
+    /// One folder.
+    Folder(RepoFolderListFolderResponse),
+    /// The top level.
+    Top(#[garde(dive)] RepoFolderListTopResponse),
+}
+
 /// `repo.attach`: a path on the machine the service runs on, the folder the platform's chooser
-/// returned or, from another device, a folder `repo.folderList` showed. The path is kept as
-/// entered; absoluteness, traversal and existence are the resolver's to refuse, and a path that is
-/// not a git repository is refused.
+/// returned or, from another device, a folder `repo.folderList` showed. A Linux path comes with the
+/// WSL 2 distribution it was given in, since the path alone does not say which one holds it;
+/// without a place, the path's own form says where it is (a drive path on Windows, a
+/// `\\wsl.localhost\<distro>\` path in that distribution). The folder's own disk sets the
+/// mount's place, so a Windows drive reached from a distribution is on Windows. The path is kept as
+/// entered; absoluteness, traversal and existence are the resolver's to refuse, a path that is not
+/// a git repository is refused, and so is a distribution that runs on WSL 1 or is not on this
+/// computer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct RepoAttachRequest {
     /// The path as entered.
     pub local_path: FilesystemPath,
+    /// The distribution a Linux path was given in; absent on macOS and Linux and wherever the
+    /// path's own form says, Windows itself among them.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WslPlace")]
+    pub place: Option<WslPlace>,
 }
 
 /// The `repo.attach` result: the new mount and the root its path resolved to.
@@ -176,8 +326,17 @@ pub struct RepoAttachResponse {
     pub state: RepoMountState,
     /// Its version-control system.
     pub vcs_type: VcsType,
-    /// The resolver's absolute, symlink-resolved root, never the entered path.
+    /// The resolver's absolute, symlink-resolved root, never the entered path, in its place's own
+    /// form.
     pub canonical_root: FilesystemPath,
+    /// Where the root is, fixed for the mount's life; absent on macOS and Linux.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
 }
 
 /// `repo.mountRead`, `repo.detach` and `repo.mountReattach`: the mount to act on.
@@ -210,6 +369,14 @@ pub struct RepoMountReadResponse {
     pub local_path: FilesystemPath,
     /// The resolved root.
     pub canonical_root: FilesystemPath,
+    /// Where both paths are, in that place's own form; absent on macOS and Linux.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
     /// Its version-control system.
     pub vcs_type: VcsType,
     /// Its state.
@@ -365,6 +532,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RepoFolderListRequest>(),
         Definition::read::<RepoFolderListEntry>(),
         Definition::read::<RepoFolderPathSegment>(),
+        Definition::read::<RepoFolderTopEntry>(),
         Definition::read::<RepoFolderListResponse>().checked(),
         Definition::read::<RepoAttachRequest>().checked(),
         Definition::read::<RepoAttachResponse>().checked(),

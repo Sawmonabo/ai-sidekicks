@@ -15,6 +15,7 @@ use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::jsonrpc::streaming::stream_frame;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::place::Place;
 use crate::provider::account::record::ProviderAccountId;
 use crate::run::id::RunId;
 use crate::run::state::RunState;
@@ -33,7 +34,7 @@ use crate::transcript::row::TranscriptRunStamp;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt, count_bound};
-use crate::wire::list::BoundedVec;
+use crate::wire::list::{BoundedVec, ListKey, UniqueList};
 use crate::wire::text::{BoundedText, FreeFormText, NulFreeText, branded_text};
 use crate::wire::{False, True};
 
@@ -91,6 +92,14 @@ pub struct SessionRecord {
     pub state: SessionState,
     /// Its shape.
     pub shape: SessionShape,
+    /// Where it runs, written at its creation and never changed; absent on macOS and Linux.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
     /// Its name; absent while untitled, when a surface shows its first message.
     #[serde(
         default,
@@ -124,13 +133,44 @@ pub struct SessionRecord {
     )]
     #[schemars(with = "SafeInt<1>")]
     pub max_steps_per_turn: Option<SafeInt<1>>,
-    /// The address another session writes to when it messages this one: the inbox the daemon
-    /// holds for it, stable for its whole life.
-    pub address: FilesystemPath,
+    /// The addresses another session writes to when it messages this one: an inbox the daemon
+    /// holds for it in each place where Claude Code is installed, the session's own place first,
+    /// each stable for its whole life.
+    #[garde(dive)]
+    pub addresses: UniqueList<SessionAddress, 1, { usize::MAX }>,
     /// Its tags as first written, in the order of their case fold.
     #[garde(dive, custom(fits_one_page))]
     #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub tags: TagList,
+}
+
+/// One inbox the daemon holds for a session, in one place. A computer without a WSL 2
+/// distribution holds one, which names no place.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionAddress {
+    /// The place.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
+    /// The inbox's address, in that place's own form.
+    pub address: FilesystemPath,
+}
+
+impl ListKey for SessionAddress {
+    type Key = Option<Place>;
+
+    fn list_key(&self) -> Option<Place> {
+        self.place.clone()
+    }
+
+    // An address carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
 }
 
 /// The session `session.read` answers with.
@@ -658,6 +698,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<SessionState>().checked(),
         Definition::read::<SessionShape>().checked(),
+        Definition::read::<SessionAddress>(),
         Definition::read::<SessionRecord>().checked(),
         Definition::read::<SessionReadRequest>().checked(),
         Definition::read::<SessionLiveRun>(),

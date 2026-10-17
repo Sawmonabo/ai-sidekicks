@@ -485,7 +485,7 @@ session_events! {
     /// Emitted when a backup run does not finish.
     BackupFailed(BackupFailedPayload) = "backup.failed",
     /// Emitted when the service starts again from a backup.
-    BackupRestored(BackupRestoredPayload) = "backup.restored",
+    BackupRestored(#[garde(dive)] BackupRestoredPayload) = "backup.restored",
     /// Emitted when the service's recovery pass starts, on its own session.
     RecoveryAttempted(#[garde(dive)] RecoveryAttemptedPayload) = "recovery.attempted",
     /// Emitted when the service's recovery pass completes, on its own session.
