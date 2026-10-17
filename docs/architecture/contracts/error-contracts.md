@@ -90,7 +90,7 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 | `daemon.bootstrap.unknownSetting` | `-32602` | `invalidArgument` | Bootstrap rejected an unrecognized SecureDefaults config key (T-005p-1-3) |
 | `request.methodNotFound` | `-32601` | `unimplemented` | The request names a method the daemon does not register; no handler runs |
 | `request.paramsInvalid` | `-32602` | `invalidArgument` | The request's params failed the method's contract check, so no handler ran. Params that pass the check but name nothing the daemon holds are a domain refusal of the owner's namespace (§Numeric Code Space), and two workflow versions of different workflows are `workflow.version.diffCrossWorkflow` |
-| `request.envelopeInvalid` | `-32600` | `invalidArgument` | The request's envelope breaks the wire format before dispatch: its `id` is over `JSON_RPC_ID_MAX_BYTES` once JSON-encoded, so the refusal carries `id: null` ([Local IPC Payload Contracts §JSON-RPC Request `id` Bound](./local-ipc-payloads.md#json-rpc-request-id-bound)); over HTTP, a body that does not parse or carries no JSON content type |
+| `request.envelopeInvalid` | `-32600` | `invalidArgument` | The request's envelope breaks the wire format before dispatch: its `id` is over `JSON_RPC_ID_MAX_BYTES` once JSON-encoded, so the refusal carries `id: null` ([Local IPC Payload Contracts §JSON-RPC Request `id` Bound](./local-ipc-payloads.md#json-rpc-request-id-bound)); over HTTP, a body that does not parse or carries no JSON content type, or a body over the route's size limit, which answers 413 with `reason: tooLarge` |
 | `request.resultInvalid` | `-32603` | `internal` | The handler's result failed the method's result check, or a transcript read's result does not answer the request it was given; a daemon fault, never the client's |
 | `request.canceled` | `-32800` | `canceled` | A call the client canceled with `$/cancelRequest` before the daemon reached its commit point; the call still gets exactly one response |
 | `connection.unavailable` | `-31000` | `unavailable` | The client cannot reach the daemon's OS-local socket or named pipe, or its link to the daemon is down; no fallback transport exists |
@@ -102,6 +102,7 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 
 - `daemon.bootstrap.unknownSetting`: `{ setting: string, value: unknown }`
 - `request.methodNotFound`: none
+- `request.envelopeInvalid`: over HTTP, `{ reason: "tooLarge" }` for a body over the route's size limit, answered 413; otherwise none
 - `request.paramsInvalid`: `{ issues }`, the failed check's issues, each with its `path` and `message`, absent when the list is empty
 - `request.resultInvalid`: `{ issues }`, the result's failed checks in the same form, absent when the list is empty
 - `request.canceled`: none
@@ -608,7 +609,7 @@ Codes about one call itself, its envelope, params, method or result, before or a
 
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
-| `request.envelopeInvalid` | The message is not a well-formed JSON-RPC envelope; over HTTP, a body that does not parse or carries no JSON content type | `invalidArgument` | 400 |
+| `request.envelopeInvalid` | The message is not a well-formed JSON-RPC envelope; over HTTP, a body that does not parse or carries no JSON content type, or a body over the route's size limit, which answers 413 with `reason: tooLarge` | `invalidArgument` | 400 |
 | `request.protocolVersion.invalid` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format): the field is missing, the wrong JSON type, or fails the ISO 8601 `YYYY-MM-DD` shape. Substrate-side gate; fires BEFORE handler dispatch (I-005-6). Distinct from `connection.version.floorExceeded` / `connection.version.ceilingExceeded` (registry-side handshake-incompatibility) and from `connection.version.mismatch` (registry-side mutating-op gate after handshake declared incompatible). 400 semantic. | `invalidArgument` | 400 |
 | `request.paramsInvalid` | The params failed the method's contract check (`data.fields.issues`); params that pass it but name nothing the daemon holds are a domain refusal of the owner's namespace | `invalidArgument` | 422 |
 | `request.methodNotFound` | The call names a method the daemon does not register, or a route the control plane does not serve | `unimplemented` | 404 |

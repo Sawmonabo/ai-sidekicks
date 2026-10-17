@@ -44,19 +44,19 @@ The plan builds on:
 
 - `crates/sidekicks-contracts/src/rate_limiter.rs` — **created by this plan.** The wire devices read: the `RateLimitResponse` 429 body as a serde type, and the two codes a sign-in route refuses with, `relay.rateLimited` and `relay.sourceAddressUnresolvable` (the 400 of §Identity resolution). Its generated TypeScript type and Ajv check sit at `packages/contracts/src/rate-limiter.ts`.
 - `crates/sidekicks-control-plane/src/rate_limit/` — **created by this plan.**
-  - `limiter.rs` — `RateLimitEndpointGroup`, `RateLimitCheckRequest`/`RateLimitCheckResponse`, and the counter's `check`, `prune` and `next_cleanup_at` over the account store, with `wall_clock`, which reads the time through `time` on both targets.
+  - `limiter.rs` — `RateLimitEndpointGroup`, `RateLimitCheckRequest`/`RateLimitCheckResponse`, and the counter's `check`, `prune` and `find_next_cleanup_at` over the account store, with `read_wall_clock`, which reads the time through `time` on both targets.
   - `endpoint_groups.rs` — canonical endpoint-group → `{ limit, period }` table transcribed from the Spec-019 registry — the one source of the limit (T18.2-1).
   - `enforcement_pipeline.rs` — the `AdmissionCheck` trait and its two hosts: `AccountObjectAdmission`, the Worker's call to the account object (wasm32 only), and `AccountFileAdmission`, the Compose relay's count over its file with its one cleanup task (native only).
-  - `layer.rs` — the `axum` middleware `rate_limit`, its `RateLimitGate` state and `canonical_identity` (D-018-4).
+  - `layer.rs` — the `axum` middleware `rate_limit`, its `CountedRoute` state and `canonicalize_identity` (D-018-4).
 - `crates/sidekicks-control-plane/src/account_store.rs` — **extended by this plan:** the `counted_requests` table and its two indexes in the one schema it builds, and the `AccountStore` calls the counter makes (`execute`, `query`), over the account object's `SqlStorage` on the Worker and the Compose relay's `rusqlite` connection.
 - `crates/sidekicks-control-plane/tests/fixtures/rate_limiter_scenarios.json` — **created by this plan:** the one JSON scenario table of the I-018-2 proof, read by the Rust test against the counter over an account file and by the Workers test against the account object (T18.2-4).
 - `crates/sidekicks-control-plane/src/server/router.rs` — **extended by this plan:** the router's state is the host's `AdmissionCheck`, which a counted route hands the middleware, and each host's entry puts the caller's `SourceAddress` and its `RequestId` in the request's extensions as the deployment's edge reports them. `ControlPlaneRefusal` answers [ADR-013](../decisions/013-control-plane-api.md)'s refusal body, `{code, category, message}` with the code's own fields beside them, so a 429's body is the `RateLimitResponse`. An internal failure is logged with its request id and answers 500 with the fixed message `Unexpected internal error`, the wording of error-contracts.md's `system.internalError`, so a caller never reads the relay's own error text; request paths hold no panicking call, since a panic in the Worker answers 500 and resets the instance.
 - `crates/sidekicks-control-plane/src/worker.rs` — **created by this plan:** the Worker entry module, `#[event(fetch)]`, which serves the host, and the home of the `#[durable_object]` `AccountObject` the deployed script exports, whose `POST /rate-limit/check` runs the counter and whose alarm drops counted requests past their window. `wrangler.jsonc`'s `main` names the shim `worker-build` writes for it.
-- `crates/sidekicks-control-plane/src/server/host.rs` — **extended by this plan, inside the CP-018-1 stable-mount seam:** the Worker's host reads `SourceAddress` from `CF-Connecting-IP` and `RequestId` from `cf-ray`, and builds the router over `AccountObjectAdmission` on the `ACCOUNT` binding; an internal failure, such as a counter error, is logged with that id and the caller reads only a 500. The Compose relay's program does the same from Caddy's headers (§Request ids). No route is wired here; T18.3-3 does that.
+- `crates/sidekicks-control-plane/src/server/host.rs` — **extended by this plan, inside the CP-018-1 stable-mount seam:** the Worker's host reads `SourceAddress` from `CF-Connecting-IP` and `RequestId` from `cf-ray`, and builds the router once per instance over `AccountObjectAdmission`, which reads the `ACCOUNT` binding when a count needs it, so a missing binding fails only a counted route; an internal failure, such as a counter error, is logged with that id and the caller reads only a 500. The Compose relay's program does the same from Caddy's headers (§Request ids). No route is wired here; T18.3-3 does that.
 - `docs/architecture/contracts/api-payload-contracts.md` — carries the `RateLimitResponse` (symbol anchor: `interface RateLimitResponse` under §Error Responses), and the `RateLimitCheckRequest` and `RateLimitCheckResponse`. T18.1-2 verifies shape parity against the typed exports at implementation time and lands only drift fixes.
 - `docs/architecture/contracts/error-contracts.md` — carries the canonical body under §Rate Limiting. T18.1-3 verifies code-table parity at implementation time and lands only drift fixes.
 - `docs/architecture/deployment-topology.md` §Rate Limiting By Deployment — both relays count in `counted_requests`: the Workers relay in the account object's storage, the self-hosted relay in its SQLite file (D-018-1, D-018-2).
-- `wrangler.jsonc` (Workers, the Worker `sidekicks-control-plane`, production `sidekicks-control-plane-production`; extended at Phase-2 landing) — `main` names the `worker-build` shim; declare (a) under `durable_objects.bindings` `{ "name": "ACCOUNT", "class_name": "AccountObject" }`, again under `env.production` since an environment inherits no Durable Object binding, and (b) a `migrations` entry adding `AccountObject` to `new_sqlite_classes`.
+- `packages/control-plane/wrangler.jsonc`, beside the package's `package.json` (Workers, the Worker `sidekicks-control-plane`, production `sidekicks-control-plane-production`; extended at Phase-2 landing) — `main` names the `worker-build` shim; declare (a) under `durable_objects.bindings` `{ "name": "ACCOUNT", "class_name": "AccountObject" }`, again under `env.production` since an environment inherits no Durable Object binding, and (b) a `migrations` entry adding `AccountObject` to `new_sqlite_classes`.
 
 ## Data And Storage Changes
 
@@ -70,13 +70,13 @@ This plan owns one table of the account's one schema, `counted_requests`: every 
 ### Cleanup
 
 - **Workers relay: one alarm.** Cloudflare permits one alarm per object, and each `set_alarm` is a billed row written, so an admitted count sets it only when none is pending, with `ScheduledTime::new(js_sys::Date)` at the earliest instant an address's whole window empties (one window after its newest counted request). `alarm()` drops every row past its window and re-arms at the next such instant while rows remain. The object never calls `delete_all()`, which would drop the account's tables with the counter's.
-- **Compose relay: one task.** `AccountFileAdmission` re-arms one tokio task with each count, sleeping until the same instant; it drops the rows past their window, sleeps again while rows remain, and ends once none is left. Dropping the admission aborts it.
+- **Compose relay: one task.** The same shape: an admitted count starts one tokio task only when none is running, sleeping until the same instant; it drops every row past its window, sleeps again while rows remain, and ends once none is left. The count and the task's last prune each mark the task running or ended while they hold the file, so neither misses the other. Dropping the admission aborts it.
 
 Every registry window is 60 seconds, so an address's rows are gone within a minute of its last request on either relay.
 
 ### The account object's count
 
-The Worker reaches the account object, named `account` (`id_from_name`), with `POST /rate-limit/check` through the stub's `fetch_with_request`: a JSON `RateLimitCheckRequest`, answered with the `RateLimitCheckResponse`. The Worker waits at most 5 seconds; a failed or late answer is an error from `check_admission`, which fails that one request.
+The Worker reaches the account object, named `account` (`id_from_name`), with `POST /rate-limit/check` through the stub's `fetch_with_request`: a JSON `RateLimitCheckRequest`, answered with the `RateLimitCheckResponse`. The Worker waits at most 5 seconds; a failed or late answer is an error from `check_admission`, which fails that one request. The wait covers the answer's body as well as its head. A late answer is not taken back: the object may have counted the request whose caller read a 500, which counts against that address until its window passes. A failed alarm read or set inside the object is logged with the request's id, and the count it already made is still answered.
 
 ### Request ids
 
@@ -93,10 +93,10 @@ pub struct RateLimitResponse {
     pub code: RelayRateLimitedCode, // always "relay.rateLimited"
     pub category: RelayRateLimitedCategory, // always "resourceExhausted"
     pub message: String,
-    pub retry_after: u32, // seconds until retry is allowed
-    pub limit: u32, // total allowed requests in the window
-    pub remaining: u32, // requests remaining in the current window
-    pub reset_at: String, // ISO 8601 instant when the limit resets
+    pub retry_after: SafeInt<0>, // whole seconds until retry is allowed
+    pub limit: SafeInt<0>, // total allowed requests in the window
+    pub remaining: SafeInt<0>, // requests remaining in the current window
+    pub reset_at: WireInstant, // the RFC 3339 instant the oldest counted request leaves the window
 }
 ```
 
@@ -163,7 +163,7 @@ One stage on every enforced transport (I-018-1): every rate-limited route calls 
 ```rust
 // crates/sidekicks-control-plane/src/rate_limit/layer.rs
 pub async fn rate_limit<A: AdmissionCheck>(
-    State(gate): State<RateLimitGate<A>>, // the endpoint group and the host's admission check
+    State(route): State<CountedRoute<A>>, // the host's admission check, endpoint group and clock
     request: Request,
     next: Next,
 ) -> Response {
@@ -174,7 +174,7 @@ pub async fn rate_limit<A: AdmissionCheck>(
 }
 ```
 
-- Usage on a route: `.route_layer(axum::middleware::from_fn_with_state(RateLimitGate { admission, endpoint: RateLimitEndpointGroup::AuthEndpoint }, rate_limit))`, the admission read from the router's state ([axum middleware](https://docs.rs/axum/latest/axum/middleware/index.html)). The clock is read through `time` with its `wasm-bindgen` feature on the Worker, never `std::time::SystemTime::now`, which panics on `wasm32-unknown-unknown`.
+- Usage on a route: `.route_layer(axum::middleware::from_fn_with_state(CountedRoute { admission, endpoint: RateLimitEndpointGroup::AuthEndpoint, clock: read_wall_clock }, rate_limit))`, the admission read from the router's state ([axum middleware](https://docs.rs/axum/latest/axum/middleware/index.html)). The clock is read through `time` with its `wasm-bindgen` feature on the Worker, never `std::time::SystemTime::now`, which panics on `wasm32-unknown-unknown`.
 - Header policy: `Retry-After` on every 429, and none on an allowed response.
 - The 429 body: `ControlPlaneRefusal` (in `server/router.rs`) answers [ADR-013](../decisions/013-control-plane-api.md)'s refusal body, `{code, category, message}` with the code's own fields beside them, so a 429 answers the `RateLimitResponse` (`{code: "relay.rateLimited", category: "resourceExhausted", message, retryAfter, limit, remaining, resetAt}`) and the 400 answers `{code: "relay.sourceAddressUnresolvable", category: "invalidArgument", message}`. The refusal sets the status and, on a 429, the `Retry-After` header on its own response.
 
@@ -259,7 +259,7 @@ The phase builds on the contracts crate (Plan-001 Phase 1 T1.2).
   - **Spec coverage:** Spec-019 §Canonical Endpoint Group Registry (registry table header — single enumeration), Spec-019 §Deployment-Aware Abstraction (the same limit)
   - **Verifies invariant:** I-018-2
   - **Consumes:** `RateLimitEndpointGroup` ← T18.1-1.
-- **T18.2-2 — The counter and `counted_requests`.** The table and its indexes in `account_store.rs`'s one schema; `check`, `prune` and `next_cleanup_at` in `limiter.rs` per §Data And Storage Changes, over `AccountStore`, so the account object's `SqlStorage` and the Compose relay's `rusqlite` connection run the same statements. Its tests are the scenario table's (T18.2-4).
+- **T18.2-2 — The counter and `counted_requests`.** The table and its indexes in `account_store.rs`'s one schema; `check`, `prune` and `find_next_cleanup_at` in `limiter.rs` per §Data And Storage Changes, over `AccountStore`, so the account object's `SqlStorage` and the Compose relay's `rusqlite` connection run the same statements. Its tests are the scenario table's (T18.2-4).
   - **Spec coverage:** Spec-019 §Deployment-Aware Abstraction (one counter over one table), Spec-019 §Implementation Notes (sliding window), Spec-019 §State And Data Implications (counters not persisted beyond their window)
   - **Verifies invariant:** I-018-2, I-018-3
   - **Consumes:** `endpoint_groups.rs` ← T18.2-1; the account store's schema and calls.
@@ -280,11 +280,11 @@ The phase builds on the contracts crate (Plan-001 Phase 1 T1.2).
 
 #### Tasks
 
-- **T18.3-1 — `rate_limit/enforcement_pipeline.rs`.** The `AdmissionCheck` trait per §API And Transport Changes and its two hosts: `AccountObjectAdmission`, the Worker's JSON call to the account object with its bounded wait (§The account object's count), and `AccountFileAdmission`, the count on the Compose relay's file in one transaction with its one cleanup task (§Cleanup). Test: once every window has passed on a paused clock, the file holds nothing counted and no cleanup task is left.
+- **T18.3-1 — `rate_limit/enforcement_pipeline.rs`.** The `AdmissionCheck` trait per §API And Transport Changes and its two hosts: `AccountObjectAdmission`, the Worker's JSON call to the account object with its bounded wait (§The account object's count), and `AccountFileAdmission`, the count on the Compose relay's file in one transaction with its one cleanup task (§Cleanup). Test: once every window has passed on a paused clock, the file holds nothing counted and no cleanup task is left, and a count after the task ended starts another.
   - **Spec coverage:** Spec-019 §Overflow Response (429 + Retry-After on refusal), Spec-019 §Fallback Behavior, Spec-019 §State And Data Implications
   - **Verifies invariant:** I-018-1, I-018-3
   - **Consumes:** the counter ← T18.2-2; the account object ← T18.2-3.
-- **T18.3-2 — `rate_limit/layer.rs` (CREATE).** The `rate_limit` middleware per §API And Transport Changes: the source address (D-018-4), 429 with the canonical body. It reads `SourceAddress` and `RequestId` from the request's extensions and the host's admission check from its `RateLimitGate`, built from the router's state (`server/router.rs`), which each host's entry supplies (§Target Areas). Tests, through a router over a real account file: a request with no countable address → 400 before anything is counted; an allowed request carries no rate-limit header, and the 21st is a 429 whose `Retry-After` equals its body's `retryAfter`; `Retry-After` never falls below 0; a counter error fails that one request with the fixed 500 body, and the next request is counted. The canonical identity is one case table: IPv4, a mapped address folded to IPv4, two addresses of one /64 as one identity, `127.1` and `01.2.3.4` refused.
+- **T18.3-2 — `rate_limit/layer.rs` (CREATE).** The `rate_limit` middleware per §API And Transport Changes: the source address (D-018-4), 429 with the canonical body. It reads `SourceAddress` and `RequestId` from the request's extensions and the host's admission check and clock from its `CountedRoute`, built from the router's state (`server/router.rs`), which each host's entry supplies (§Target Areas). Tests, through a router over a real account file: a request with no countable address → 400 before anything is counted; an allowed request carries no rate-limit header, and the 21st is a 429 whose `Retry-After` equals its body's `retryAfter`; `Retry-After` is the wait in whole seconds rounded up (a reset 59,001 ms away reads 60) and never falls below 0; a counter error fails that one request with the fixed 500 body, and the next request is counted. The canonical identity is one case table: IPv4, a mapped address folded to IPv4, two addresses of one /64 as one identity, `127.1` and `01.2.3.4` refused.
   - **Spec coverage:** Spec-019 §Default Behavior, Spec-019 §Overflow Response (429; Retry-After), Spec-019 §Fallback Behavior
   - **Verifies invariant:** I-018-1, I-018-4
   - **Consumes:** `check_admission` ← T18.3-1; the CP-018-1 router ← the control-plane host (§Preconditions).
@@ -302,7 +302,7 @@ The phase builds on the contracts crate (Plan-001 Phase 1 T1.2).
 #### Tasks
 
 - **T18.4-1 — AC-anchored integration verification (rows (1) and (3) in a Rust test of `crates/sidekicks-control-plane/tests/it/`, row (2) in `rate-limit.workers.test.ts` in the Workers project).** Named rows: (1) the 21st `auth.endpoint` request from one address in 60 s → 429 with `Retry-After` per formula, and the first request after the window frees → allowed; (2) in the Workers test project this task adds, 21 `auth.endpoint` requests from one address through the Worker's own entry, each reaching the account object by name as any edge location does → the 21st refused (local `workerd` runs one location: T18.2-4's fidelity caveat); (3) a counter error fails that one request, and the next request is counted.
-  - **Files:** the Workers test project (CREATE — a TypeScript Vitest project carrying the `cloudflareTest()` plugin from `@cloudflare/vitest-plugin` with `wrangler: { configPath }` naming the crate's `wrangler.jsonc`, so row (2) and T18.2-3's object and alarm tests run in `workerd` against the Rust build with the `ACCOUNT` Durable Object binding Phase 2 declares, `fsModuleCache: false` under Vitest 5; its npm manifest sits outside the crate root, since `worker-build` refuses a `package.json` with dependencies there, and lists `@cloudflare/vitest-plugin` as a devDependency). The plugin is Cloudflare's own Vitest integration for Workers; it runs the test inside the Workers runtime against the Worker's own bindings, which a Rust test cannot ([Cloudflare: Vitest integration](https://developers.cloudflare.com/workers/testing/vitest-integration/); [Testing Durable Objects](https://developers.cloudflare.com/durable-objects/examples/testing-with-durable-objects/); [Known issues](https://developers.cloudflare.com/workers/testing/vitest-integration/known-issues/)). Every test that needs no runtime binding is a Rust test run by nextest, the request-gate test among them.
+  - **Files:** the Workers test project (CREATE — a TypeScript Vitest project carrying the `cloudflareTest()` plugin from `@cloudflare/vitest-plugin` with `wrangler: { configPath }` naming `packages/control-plane/wrangler.jsonc`, so row (2) and T18.2-3's object and alarm tests run in `workerd` against the Rust build with the `ACCOUNT` Durable Object binding Phase 2 declares, `fsModuleCache: false` under Vitest 5; its npm manifest sits outside the crate root, since `worker-build` refuses a `package.json` with dependencies there, and lists `@cloudflare/vitest-plugin` as a devDependency). The plugin is Cloudflare's own Vitest integration for Workers; it runs the test inside the Workers runtime against the Worker's own bindings, which a Rust test cannot ([Cloudflare: Vitest integration](https://developers.cloudflare.com/workers/testing/vitest-integration/); [Testing Durable Objects](https://developers.cloudflare.com/durable-objects/examples/testing-with-durable-objects/); [Known issues](https://developers.cloudflare.com/workers/testing/vitest-integration/known-issues/)). Every test that needs no runtime binding is a Rust test run by nextest, the request-gate test among them.
   - **Spec coverage:** Spec-019 §Acceptance Criteria, Spec-019 §Fallback Behavior, Spec-019 §Example Flows (the auth-endpoint example)
   - **Verifies invariant:** I-018-1
   - **Consumes:** all prior phases.

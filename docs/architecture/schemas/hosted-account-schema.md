@@ -2,7 +2,7 @@
 
 Canonical schema for the hosted account's SQLite database, which lives inside the relay: in the account object's own SQLite storage on the Workers relay, and in a SQLite file the relay's one process writes on the Compose relay ([Deployment Topology §Account Storage](../deployment-topology.md#account-storage)). It is one schema, built whole: there are no numbered migration steps, and every table is in this one schema and its test. The writer creates the whole schema in one transaction when it opens an empty database.
 
-**Types.** Every table is `STRICT`, and every `REFERENCES` is enforced: the Compose relay opens its file with `PRAGMA foreign_keys = ON`, and the relay's first test confirms a Durable Object's SQLite enforces them on the Workers relay. An id the writer mints is a UUID held as `TEXT`; a time is Unix seconds as `INTEGER`, the unit a token's `iat` and `exp` carry, defaulting to `unixepoch()`; a key or a signed statement is a `BLOB`; a list or a JSON value is `TEXT` holding JSON.
+**Types.** Every table is `STRICT`, and every `REFERENCES` is enforced: the Compose relay opens its file with `PRAGMA foreign_keys = ON`, and the relay's first test confirms a Durable Object's SQLite enforces them on the Workers relay. An id the writer mints is a UUID held as `TEXT`; a time is Unix seconds as `INTEGER`, the unit a token's `iat` and `exp` carry, defaulting to `unixepoch()`, except `counted_requests`, whose window frees to the millisecond ([§Counted Requests](#counted-requests-plan-018)); a key or a signed statement is a `BLOB`; a list or a JSON value is `TEXT` holding JSON.
 
 **Storage boundary:** The account and its sign-in state, the person's devices and machines with the signed statement chain that says which of them are trusted. The control plane keeps no session record: a device reaches a session only through its machine, and the machine's service is the session's one store. It stores no artifact either: a session's artifacts stay on the machine that runs it. See [Data Architecture](../data-architecture.md).
 
@@ -174,11 +174,37 @@ CREATE TABLE authorization_requests (
 CREATE INDEX idx_authorization_requests_expires ON authorization_requests(expires_at);
 ```
 
-**Nothing here runs on a timer.** Each insert into `dpop_proof_jtis`, `revoked_jtis` and `authorization_requests` first deletes that table's rows past their time, in the same transaction, on its `expires_at` index, as the [WebAuthn ceremony](#webauthn-ceremony-plan-015)'s issue leg does. An `authorization_requests` row's time is the later of its `expires_at` and its `code_expires_at`: its delete takes the rows past both, which the `expires_at` index still narrows to, so a code approved near the attempt's bound keeps its row until the code's own bound passes. The token route redeems an authorization code only with the PKCE verifier that matches `code_challenge` and a DPoP proof by the key `dpop_jkt` names, and sets the row's `issued_family_id` when it issues the refresh token, keeping the row until `code_expires_at` passes, so a code yields one sign-in and a code presented again is refused (`invalid_grant`) and revokes the family it issued. The approval's creation arm writes the user record from that row's pending columns.
+**Nothing in these tables runs on a timer.** Each insert into `dpop_proof_jtis`, `revoked_jtis` and `authorization_requests` first deletes that table's rows past their time, in the same transaction, on its `expires_at` index, as the [WebAuthn ceremony](#webauthn-ceremony-plan-015)'s issue leg does. An `authorization_requests` row's time is the later of its `expires_at` and its `code_expires_at`: its delete takes the rows past both, which the `expires_at` index still narrows to, so a code approved near the attempt's bound keeps its row until the code's own bound passes. The token route redeems an authorization code only with the PKCE verifier that matches `code_challenge` and a DPoP proof by the key `dpop_jkt` names, and sets the row's `issued_family_id` when it issues the refresh token, keeping the row until `code_expires_at` passes, so a code yields one sign-in and a code presented again is refused (`invalid_grant`) and revokes the family it issued. The approval's creation arm writes the user record from that row's pending columns.
 
 **Account deletion.** On `revoked_jtis`, `user_id` is nullable + `ON DELETE SET NULL` by design: a user hard-DELETE severs the data-subject link, while the denylist key (`jti`, the PRIMARY KEY — **not** `user_id`) survives to its `expires_at + 24h` reap, so erasure cannot resurrect a revoked access token within its validity window. A `revoked_token_families` row is hard-deleted with its account, in `account.delete`'s inbound-foreign-key closure (Plan-019 CP-019-3): no refresh token of a deleted account can be traded, so nothing is left for the row to block. An `authorization_requests` row approved for the account goes with it (`ON DELETE CASCADE`). Canonical: [Plan-019 D-019-3](../../plans/019-data-retention-export-and-deletion.md), [Spec-020 §Erasure Paths](../../specs/020-data-retention-export-and-deletion.md#erasure-paths); `sidekicks account delete` is the one deletion path; the [Hosted Account Deletion Runbook](../../operations/hosted-account-deletion-runbook.md) is the person's break-glass procedure, run only when they can no longer sign in.
 
 **Retention:** A `revoked_jtis` row is deleted by the first insert 24 hours past its `expires_at`, the access token's own 15-minute expiry, so once another revocation is written the table holds no row past its reap time, and a row past it blocks nothing, since its token no longer verifies. A `revoked_token_families` row has no expiry: the refresh token lasts until sign-out or revocation (see [security-architecture.md §Token revocation](../security-architecture.md#token-revocation)), so a revoked family stays on the denylist for its account's life and goes with the account (`account.delete`). The table grows by one row per sign-out or revocation. A `dpop_proof_jtis` row is one DPoP proof inside its `iat` window, deleted by the first insert after its `expires_at`, so the table holds about the proofs of one window at the request rate; its rows and the time each check adds are measured against [Plan-015](../../plans/015-hosted-account-and-identity.md) T6.6's budget. `refresh_token_families` holds one row per live sign-in, a machine's or a phone's or browser's: a trade updates that row in place, so nothing grows per trade, and the row goes at sign-out or revocation (to the denylist) and with the account (`ON DELETE CASCADE`).
+
+---
+
+## Counted Requests (Plan-018)
+
+The sign-in routes' rate limit counts each request per source address in this one table, the same counter on both relays ([Spec-019 §Deployment-Aware Abstraction](../../specs/019-rate-limiting-policy.md#deployment-aware-abstraction)).
+
+```sql
+-- Owner: Plan-018 (Phase 2)
+-- One row per request a sign-in route counted, kept until it leaves its window.
+CREATE TABLE counted_requests (
+  endpoint_group   TEXT NOT NULL,                 -- the endpoint group's key, `auth.endpoint`
+  identity         TEXT NOT NULL,                 -- the source address in canonical form: an IPv4 address, or an IPv6 /64 prefix
+  expires_at_ms    INTEGER NOT NULL               -- Unix milliseconds: the instant the request leaves its window
+) STRICT;
+
+CREATE INDEX idx_counted_requests_window
+  ON counted_requests(endpoint_group, identity, expires_at_ms);
+CREATE INDEX idx_counted_requests_expires ON counted_requests(expires_at_ms);
+```
+
+**Milliseconds.** `expires_at_ms` is the one time in the schema kept in Unix milliseconds, because a window frees to the millisecond and the 429's `resetAt` is read from it.
+
+**Cleanup.** Each check first deletes every row past its window, then counts the address's rows, then refuses or inserts, with nothing awaited between. The rows of an address that stops sending go by a timer: on the Workers relay the account object's one alarm, set by a counted request only when none is pending, and on the Compose relay one cleanup task, started by a counted request only when none is running. Each wakes when the first address's window empties, deletes every row past its window and runs again while rows remain. Every window is 60 seconds, so an address's rows are gone within a minute of its last request.
+
+**Erasure.** A row names a source address and no user, so it joins no erasure path; it goes within a window of the request it counts.
 
 ---
 
