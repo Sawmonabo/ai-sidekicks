@@ -300,7 +300,7 @@ Plan-021 lands one PR per phase — Phases 1–3 map the §Implementation Steps 
       List this session's shells, the terminals the person has open in it: each one's terminal id, title, who holds it now, and whether it reports command marks, which shell_run needs. Use it to pick a shell before shell_run.
       ```
 
-      It answers one line per shell, its terminal id, its title, its holder and `reports marks` or `no marks`, joined by `·`, and with no shell open `This session has no shells open. shell_run opens one when you leave out terminal_id.`
+      It answers one line per shell, its terminal id, its title, its holder and `reports marks` or `no marks`, joined by `·`, the holder reading `held by the person on <device>`, `held by <agent>'s run` or `held by nobody`, as in `t-2 · zsh — shop-api · held by the person on MacBook · reports marks`, and with no shell open `This session has no shells open. shell_run opens one when you leave out terminal_id.`
 
     - `shell_run` takes `terminal_id`, optional, and `command`, each a non-empty string, `command` holding no line break, and no other field. Its description:
 

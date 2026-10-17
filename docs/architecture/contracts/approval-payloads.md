@@ -182,7 +182,9 @@ interface ApprovalResolveRequest {
   // cover more than the words the person pressed.
   rememberedScope?: RememberedScope;
   // What the person typed on `Decline`'s one optional line, sent to the agent through the provider's own
-  // refusal field; absent sends a bare decline. Only on a `rejected` decision (schema-refined).
+  // refusal field, or, on a request the daemon raised itself, handed to the code that raised it (a
+  // workflow command step keeps it with the step's failure); absent sends a bare decline. Only on a
+  // `rejected` decision (schema-refined).
   declineReason?: string;
   // The command or path as the person edited it on the card before answering; it is what goes back with
   // the answer and what the row then records as having run. Absent when the shown text was answered as

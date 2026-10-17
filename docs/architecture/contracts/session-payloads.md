@@ -472,11 +472,12 @@ interface SessionMarkChangePayload {
   at: string; // ISO 8601
 }
 
-// session.advisor_changed payload. A Claude Code session's advisor is its own: copied from the
-// app's default when the session is created, held with its other provider settings, and changed
-// only by `/advisor <model>` or `/advisor off` in that session, each change one event; a later
-// change to the default never reaches it. Every Claude Code process started for the session reads
-// it at launch.
+// session.advisor_changed payload. A Claude Code session's advisor is its own: copied when the
+// session is created from the app's pick where one is set, else from the `advisorModel` Claude
+// Code's own settings resolve for the session's project, and none where neither sets one; held
+// with its other provider settings, and changed only by `/advisor <model>` or `/advisor off` in
+// that session, each change one event; a later change to the default never reaches it. Every
+// Claude Code process started for the session reads it at launch.
 interface SessionAdvisorChangedPayload {
   sessionId: SessionId;
   advisorModel: string | null; // the advisor's model; null when the advisor is off
