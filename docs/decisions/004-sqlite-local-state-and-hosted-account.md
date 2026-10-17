@@ -23,7 +23,7 @@ The data architecture and persistence specs require a concrete storage split bef
 
 ## Decision
 
-We will use SQLite for machine-local execution state, and a separate SQLite database inside the relay for the hosted account. On Cloudflare the account's data lives in the relay's Durable Object, in its SQLite storage; on the self-hosted relay it is a SQLite file the relay's one process writes ([Deployment Topology §Account Storage](../architecture/deployment-topology.md#account-storage), [Hosted Account Schema](../architecture/schemas/hosted-account-schema.md)). The two databases never share a file, a table or a row.
+We will use SQLite for machine-local execution state, and a separate SQLite database inside the relay for the hosted account. On Cloudflare the account's data lives in the relay's account object, a Durable Object, in its SQLite storage; on the self-hosted relay it is a SQLite file the relay's one process writes ([Deployment Topology §Account Storage](../architecture/deployment-topology.md#account-storage), [Hosted Account Schema](../architecture/schemas/hosted-account-schema.md)). The two databases never share a file, a table or a row.
 
 ### Damaged local state
 
@@ -50,7 +50,7 @@ JSON files are too weak for rebuild-heavy, event-oriented runtime truth. A singl
 
 ### Option A: SQLite Local + SQLite Inside The Relay (Chosen)
 
-- **What:** Use embedded SQLite per machine, and the relay's own SQLite for the hosted account: the Durable Object's storage on Cloudflare, a file on the self-hosted relay.
+- **What:** Use embedded SQLite per machine, and the relay's own SQLite for the hosted account: the account object's Durable Object storage on Cloudflare, a file on the self-hosted relay.
 - **Steel man:** Aligns each database with its trust boundary and workload shape, with no outside database service.
 - **Weaknesses:** Requires explicit boundaries between the machine's data and the account's, and the self-hosted relay's file needs a backup of its own.
 

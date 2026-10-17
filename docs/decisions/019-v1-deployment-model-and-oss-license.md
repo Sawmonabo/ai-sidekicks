@@ -73,7 +73,7 @@ Both backends implement the v2 relay protocol behind one shared contract so prot
 Both relays hold the same admission rules:
 
 - The relay counts requests on its sign-in routes (sign-in, token refresh, device linking) only, and answers one past the limit with 429 and a retry time. On the Workers relay they count in the per-identity Durable Object, one global counter that rotating edge locations does not reset; on the one-process Compose relay they count in memory. A counter error fails that one request like any backend error.
-- Each relay hands out its own STUN address when a device or a machine negotiates its connection, and offers no TURN: the relay itself is the direct path's fallback.
+- Each relay hands out a STUN address when a device or a machine negotiates its connection, Cloudflare's `stun.cloudflare.com:3478` on the Workers relay and its own answer on UDP 3478 on the Compose relay, and offers no TURN: the relay itself is the direct path's fallback.
 - On the WebSocket the relay sees only encrypted frames and counts none of them. The machine reads each method inside the sealed connection and keeps the last `presence.heartbeat` per device.
 - The relay forwards each device's frames as fast as the machine drains them; backpressure on the channel bounds frames and bytes in both directions.
 

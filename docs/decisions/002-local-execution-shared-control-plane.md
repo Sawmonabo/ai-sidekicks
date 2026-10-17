@@ -70,7 +70,7 @@ Hosted execution fails the product's local-execution requirement and increases t
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
 | Control-plane outage breaks remote control while local execution remains available | Med | High | Device-link, relay, or liveness operations fail | Preserve `local-only` continuity and explicit degraded mode |
-| Machines become hard to reach or reconnect | Med | Med | Machine cards read `Not reachable`, and the relay block of `sidekicks daemon status` shows reconnects climbing | One outbound relay connection per machine, one live connection per key, and reachability read from that connection |
+| Machines become hard to reach or reconnect | Med | Med | Machine cards read `Not reachable`, and the relay block of `sidekicks daemon status` shows reconnects climbing | One outbound relay connection per machine, at most one live connection per machine key and, for each machine, one per device key, and reachability read from that connection |
 | Security boundary between control plane and machine erodes | Low | High | Unexpected remote execution authority or broad grants appear | Enforce daemon-side policy, and have every machine verify the statement chain itself |
 
 ## Reversibility Assessment

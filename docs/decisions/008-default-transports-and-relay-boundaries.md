@@ -50,11 +50,7 @@ The device always opens on the relay, and that connection stays open while its a
 - **Steel man:** One carrier, one place every frame passes, no UDP socket on the machine and no operating-system prompt for the local network.
 - **Why rejected:** A phone on the same Wi-Fi as the machine would send every frame to the relay's region and back: a 100-byte frame's round trip through a Workers relay object was measured at 130.1 ms at the median ([Deployment Topology §Relay Cost And Delay](../architecture/deployment-topology.md#relay-cost-and-delay)), where the same Wi-Fi's direct path targets 10 ms. The direct path keeps reachability on the relay connection and the trust decision in the one handshake, so it costs no second reachability fact and no second trust record.
 
-### Option D: A Direct Path With No Relay (Rejected)
-
-- **What:** Reach the machine only straight across the network, with a TURN server where no direct pair forms.
-- **Steel man:** No relay to deploy.
-- **Why rejected:** A direct path needs its setup carried somewhere both ends already reach, the machine must not advertise itself on the network, and a TURN server is a relay by another name. The relay already carries the setup, reachability and presence, so it is the fallback.
+A direct path with no relay, with a TURN server where no direct pair forms, is [ADR-019 Option E](./019-v1-deployment-model-and-oss-license.md#option-e-peer-to-peer-with-stunturn-and-no-relay-rejected), rejected there.
 
 ## Reversibility Assessment
 
