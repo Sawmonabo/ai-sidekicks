@@ -3,7 +3,7 @@
 use serde_json::Value;
 use strum::VariantArray;
 
-use crate::provider::driver::providers::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::provider::turn_evidence::{
     TurnEvidenceClass, TurnEvidenceClassification, UNRECOGNIZED_TURN_EVIDENCE,
     observed_turn_evidence,

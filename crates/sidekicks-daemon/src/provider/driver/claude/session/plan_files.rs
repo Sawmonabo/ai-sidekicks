@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use sidekicks_platforms::{PathRules, resolve_path, resolve_path_against};
 
-use crate::provider::driver::providers::claude::session::settings_file::{
+use crate::provider::driver::claude::session::settings_file::{
     is_unreadable_path, read_claude_settings_file,
 };
 
