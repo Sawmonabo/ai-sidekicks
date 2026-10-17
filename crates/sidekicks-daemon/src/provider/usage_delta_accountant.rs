@@ -30,7 +30,7 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::context_window::ContextWindowSource;
-use sidekicks_contracts::provider::name::ProviderName;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::wire::integer::SafeInt;
 use strum::{IntoStaticStr, VariantArray};
@@ -143,7 +143,7 @@ pub(crate) struct UsageDiagnosticBand {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MeteredUsageDelta {
     /// The provider the reading came from.
-    pub(crate) provider: ProviderName,
+    pub(crate) provider: ProviderId,
     /// The provider thread the reading is for.
     pub(crate) thread_id: String,
     /// The turn the frame named, if any.
@@ -176,13 +176,13 @@ pub(crate) enum ThreadBaseEstablishment {
 /// thread. A decrease or an inconsistent reading goes to the diagnostic channel, never to spend.
 #[derive(Debug)]
 pub(crate) struct UsageDeltaAccountant {
-    provider: ProviderName,
+    provider: ProviderId,
     base_registers_by_thread_id: HashMap<String, UsageAxisCounts>,
 }
 
 impl UsageDeltaAccountant {
     /// An accountant for one session on `provider`, with no thread established.
-    pub(crate) fn new(provider: ProviderName) -> Self {
+    pub(crate) fn new(provider: ProviderId) -> Self {
         Self {
             provider,
             base_registers_by_thread_id: HashMap::new(),
@@ -236,7 +236,7 @@ impl UsageDeltaAccountant {
                 // A decrease is a falsified declaration, not a negative charge: floor at zero,
                 // re-base at the observed value, and report.
                 emit_usage_diagnostic(
-                    self.provider,
+                    self.provider.clone(),
                     DriverDiagnosticKind::UsageDeltaFloorHit,
                     "declared-cumulative token axis decreased; emission floored at zero and the \
                      base register re-set to the observed reading",
@@ -258,7 +258,7 @@ impl UsageDeltaAccountant {
             self.normalize_input_tokens(&reading, &axis_deltas);
 
         Some(MeteredUsageDelta {
-            provider: self.provider,
+            provider: self.provider.clone(),
             thread_id: reading.thread_id,
             attributed_turn_id: reading.named_turn_id,
             axis_deltas,
@@ -290,7 +290,7 @@ impl UsageDeltaAccountant {
             };
             if derived_interval != declared_value {
                 emit_usage_diagnostic(
-                    self.provider,
+                    self.provider.clone(),
                     DriverDiagnosticKind::UsageCrossCheckMismatch,
                     "wire-declared per-turn figure disagrees with the derived interval; recorded \
                      as a cross-check and never substituted for it",
@@ -334,7 +334,7 @@ impl UsageDeltaAccountant {
         }
         if cached_input_delta > 0 {
             emit_usage_diagnostic(
-                self.provider,
+                self.provider.clone(),
                 DriverDiagnosticKind::UsageContainmentIdentityUnconfirmed,
                 "token breakdown satisfies no containment identity; input emitted unsubtracted (a \
                  conservative overstatement surfaced for repair, never a silent understatement)",
@@ -415,7 +415,7 @@ pub(crate) enum CostUpdateResolution {
     )
 )]
 pub(crate) fn resolve_cost_update_provenance(
-    provider: ProviderName,
+    provider: ProviderId,
     provider_reported_cost_usd_micros: Option<f64>,
     derived_quote: Option<DerivedCostQuote>,
 ) -> CostUpdateResolution {
@@ -532,7 +532,7 @@ pub(crate) fn derive_window_telemetry(
 // Every usage diagnostic is about the session's provider with no single frame named, so the
 // account and wire type are left out.
 fn emit_usage_diagnostic<const N: usize>(
-    provider: ProviderName,
+    provider: ProviderId,
     kind: DriverDiagnosticKind,
     disposition_reason: &str,
     details: [(&str, Value); N],
@@ -552,9 +552,8 @@ fn emit_usage_diagnostic<const N: usize>(
 
 #[cfg(test)]
 mod tests {
-    use sidekicks_contracts::provider::name::PROVIDER_NAMES;
-
     use super::*;
+    use crate::provider::driver::registry::test_provider;
 
     fn reading(thread_id: &str, input: u64) -> CumulativeUsageReading {
         CumulativeUsageReading {
@@ -578,7 +577,7 @@ mod tests {
     #[test]
     fn meters_cumulative_readings_into_stream_ordered_deltas() {
         // Any provider: it only labels the accountant's diagnostics.
-        let mut accountant = UsageDeltaAccountant::new(PROVIDER_NAMES[0]);
+        let mut accountant = UsageDeltaAccountant::new(test_provider());
         accountant.establish_thread("fresh".to_owned(), ThreadBaseEstablishment::Fresh);
         assert_eq!(input_delta(&mut accountant, "fresh", 0), 0);
         assert_eq!(input_delta(&mut accountant, "fresh", 100), 100);
@@ -613,14 +612,14 @@ mod tests {
 
         // -0.4 rounds to -0.0, which a sign check made after rounding would let through.
         assert_eq!(
-            resolve_cost_update_provenance(PROVIDER_NAMES[0], Some(-0.4), Some(derived_quote)),
+            resolve_cost_update_provenance(test_provider(), Some(-0.4), Some(derived_quote)),
             CostUpdateResolution::CostUpdate {
                 cost_source: UsageCostSource::DerivedExact,
                 cost_usd_micros: usd_micros(7),
             }
         );
         assert_eq!(
-            resolve_cost_update_provenance(PROVIDER_NAMES[0], Some(1_250.0), Some(derived_quote)),
+            resolve_cost_update_provenance(test_provider(), Some(1_250.0), Some(derived_quote)),
             CostUpdateResolution::CostUpdate {
                 cost_source: UsageCostSource::ProviderReported,
                 cost_usd_micros: usd_micros(1_250),

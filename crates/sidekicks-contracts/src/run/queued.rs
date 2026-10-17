@@ -78,7 +78,7 @@ macro_rules! run_queued_payload {
             #[schemars(with = "ChildRunProvenance")]
             pub reached_by: Option<ChildRunProvenance>,
             /// Marks a run whose one turn runs in a process of its own apart from the session's,
-            /// such as Claude Code's review of the staged set; never the session's lead run.
+            /// such as the provider's own review of the staged set; never the session's lead run.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",

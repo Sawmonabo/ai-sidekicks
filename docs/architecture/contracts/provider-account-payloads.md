@@ -13,7 +13,7 @@ Each of the namespace's verbs carries the payload pair named below: the reads `p
 **The identifier is opaque everywhere.** `ProviderAccountId` is daemon-minted and immutable. No client, driver, or renderer parses it, decomposes it, or uses it to locate credential material — it selects a credential environment and nothing else. It is deliberately not derived from an email, a provider subject id, or any credential value, because those rotate and an identity that rotates cannot key historical spend.
 
 ```ts
-// ProviderId is the open provider id, `@ai-sidekicks/contracts/provider/name`: text the service checks
+// ProviderId is the open provider id, `@ai-sidekicks/contracts/provider/id`: text the service checks
 // against the registered drivers wherever a request brings one in; a stored row keeps it as written.
 type ProviderAccountId = string & { readonly __brand: "ProviderAccountId" };
 type BillingMode = "subscription" | "metered" | "unknown"; // `unknown` is the honest-absence arm (Spec-025 §Billing mode) — never rendered as metered

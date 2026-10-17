@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::tree::AgentTreeMember;
 use crate::provider::account::record::{BillingMode, ProviderAccountId};
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
@@ -124,7 +124,7 @@ pub struct SessionCostReceiptVoiceRow {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionCostReceiptProvider {
     /// The provider.
-    pub driver_name: ProviderName,
+    pub driver_name: ProviderId,
     /// A row per account the session spent on.
     pub accounts: Vec<SessionCostReceiptAccountRow>,
     /// The provider's voice calls, where the session made any.

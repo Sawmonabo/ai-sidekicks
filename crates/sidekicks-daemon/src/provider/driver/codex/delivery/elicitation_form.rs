@@ -14,7 +14,7 @@ use sidekicks_contracts::question::{
 use sidekicks_contracts::wire::number::Number;
 use sidekicks_contracts::wire::text::{NonEmptyText, is_ecmascript_whitespace};
 
-use crate::provider::driver::providers::codex::ask_option_sets::{
+use crate::provider::driver::codex::ask_option_sets::{
     CodexAskOptionSetReading, ProviderAskOption, read_codex_elicitation_field_option_set,
 };
 use crate::provider::driver::question_answers::read_question_answer_texts;

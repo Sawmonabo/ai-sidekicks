@@ -1,6 +1,6 @@
-//! The choices a provider asks the person to make while a run waits on the answer: Claude Code's
-//! retry-or-edit choice when its safety check refuses a turn and names a fallback model, and its
-//! switch-or-credits choice when a turn on Fable needs usage credits. Each has a resolve request,
+//! The choices a provider asks the person to make while a run waits on the answer: the
+//! retry-or-edit choice when its safety check refuses a turn and names a fallback model, and the
+//! switch-or-credits choice when a turn's model needs usage credits. Each has a resolve request,
 //! which the `run.*` method table serves, and the payloads of the event that asks and the event
 //! that records how it settled.
 
@@ -18,7 +18,7 @@ use crate::wire::integer::SafeSignedInt;
 use crate::wire::literal;
 use crate::wire::text::FreeFormText;
 
-/// The person's answer when Claude Code's safety check refuses a turn and names a fallback model:
+/// The person's answer when the provider's safety check refuses a turn and names a fallback model:
 /// `retry_fallback` goes on on the fallback model, and `edit_prompt` ends the turn refused and
 /// returns the message to the composer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -84,7 +84,7 @@ pub struct RunRefusalChoiceRequestedPayload {
 
 literal! {
     /// The settlement the daemon records for an interrupt or a message sent while the
-    /// retry-or-edit choice waits; the driver maps Claude Code's own cancel answer to it.
+    /// retry-or-edit choice waits; the driver maps the provider's own cancel answer to it.
     pub enum RunRefusalChoiceCanceled = "canceled";
 }
 
@@ -119,8 +119,8 @@ pub struct RunRefusalChoiceResolvedPayload {
     pub device_id: Option<DeviceId>,
 }
 
-/// The person's answer when a turn on Fable needs usage credits: `switch_default` moves the turn
-/// to the fallback model, and `consent` goes on on usage credits, which Claude Code accepts only
+/// The person's answer when a turn's model needs usage credits: `switch_default` moves the turn to
+/// the fallback model, and `consent` goes on on usage credits, which the provider accepts only
 /// while credits are on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -131,7 +131,7 @@ pub enum RunUsageCreditsChoice {
     Consent,
 }
 
-/// Answers the switch-or-credits choice a Fable run waits on (`run.usageCreditsChoiceResolve`).
+/// Answers the switch-or-credits choice a run waits on (`run.usageCreditsChoiceResolve`).
 /// The first answer settles it; a second or late one is refused with `run.invalid_transition`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -144,8 +144,8 @@ pub struct RunUsageCreditsChoiceResolveRequest {
 }
 
 /// The payload of `run.usage_credits_choice_requested`: the model that needs credits, whether
-/// credits are on, the balance and its currency when Claude Code reports them, and the model a
-/// switch moves to when Claude Code's model list names one.
+/// credits are on, the balance and its currency when the provider reports them, and the model a
+/// switch moves to when the provider's model list names one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RunUsageCreditsChoiceRequestedPayload {
@@ -157,7 +157,7 @@ pub struct RunUsageCreditsChoiceRequestedPayload {
     pub model_name: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
     /// Whether usage credits are on.
     pub overages_enabled: bool,
-    /// The credit balance in cents, where Claude Code reports it.
+    /// The credit balance in cents, where the provider reports it.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -165,7 +165,7 @@ pub struct RunUsageCreditsChoiceRequestedPayload {
     )]
     #[schemars(with = "SafeSignedInt")]
     pub balance_cents: Option<SafeSignedInt>,
-    /// The balance's currency, where Claude Code reports it.
+    /// The balance's currency, where the provider reports it.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -173,7 +173,7 @@ pub struct RunUsageCreditsChoiceRequestedPayload {
     )]
     #[schemars(with = "FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>")]
     pub currency: Option<FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>>,
-    /// The model a switch moves to, where Claude Code's model list names one.
+    /// The model a switch moves to, where the provider's model list names one.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -184,8 +184,8 @@ pub struct RunUsageCreditsChoiceRequestedPayload {
 }
 
 /// How the switch-or-credits choice ended with no answer: `interrupted` is an interrupt or an
-/// undo while it waits, which ends the turn on Fable, and `unanswered` is Claude Code settling it
-/// when a message is sent while it waits.
+/// undo while it waits, which ends the turn on that model, and `unanswered` is the provider
+/// settling it when a message is sent while it waits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RunUsageCreditsChoiceUnanswered {
@@ -230,7 +230,8 @@ pub struct RunUsageCreditsChoiceResolvedPayload {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/provider-choice",
     doc: "The choices a provider asks the person to make while a run waits on the answer: the \
-          retry-or-edit choice after a refusal and the switch-or-credits choice on Fable.",
+          retry-or-edit choice after a refusal and the switch-or-credits choice when a model \
+          needs usage credits.",
     definitions: &[
         Definition::read::<RunRefusalChoice>(),
         Definition::read::<RunRefusalChoiceResolveRequest>().checked(),

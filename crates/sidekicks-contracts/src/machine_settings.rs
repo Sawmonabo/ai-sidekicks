@@ -7,7 +7,7 @@
 //! describes the file for every reader, so a missing key reads as its default wherever it is read.
 //!
 //! The environment-name rule lives here too: the service checks a row's name against it before
-//! saving, and the drivers read the names they set on the processes they start from it.
+//! saving, beside the names each provider's driver declares it sets.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -27,11 +27,15 @@ use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::PlacedPath;
-use crate::provider::name::ProviderName;
+use crate::provider::declaration::{
+    ProviderDeclarationId, ProviderPlaceSwitches, ProviderValueText,
+};
+use crate::provider::id::ProviderId;
 use crate::repo::mount::ExecutionMode;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::Port;
+use crate::wire::record::Record;
 use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText, NulFreeText, pattern_text};
 use crate::wire::{NullableSchema, nullable};
 
@@ -42,7 +46,7 @@ ts_constants! {
     /// The longest environment name or value. Windows caps one variable at 32,767 characters, the
     /// tightest limit of the three platforms.
     pub const ENVIRONMENT_ROW_MAX_LEN: usize = 32_767;
-    /// The longest editor id or call voice name.
+    /// The longest editor id, call voice name or dictation language.
     pub const MACHINE_SETTINGS_NAME_MAX_LEN: usize = 256;
     /// The longest branch-name pattern.
     pub const BRANCH_NAME_PATTERN_MAX_LEN: usize = 256;
@@ -54,14 +58,8 @@ ts_constants! {
     /// then letters, digits and underscores.
     pub const ENVIRONMENT_NAME_PATTERN: &str = "^[A-Za-z_][A-Za-z0-9_]*$";
     /// The endings that make a name credential-shaped. A credential is set on Providers or in a
-    /// workflow step's Credential field, never as a row; `ANTHROPIC_API_KEY` is caught by `_KEY`.
+    /// workflow step's Credential field, never as a row; a provider's API key is caught by `_KEY`.
     pub const CREDENTIAL_NAME_SUFFIXES: [&str; 4] = ["_TOKEN", "_SECRET", "_KEY", "_PASSWORD"];
-    /// Claude Code's two update switches, set to `1` on every Claude process to keep it pinned.
-    pub const CLAUDE_UPDATE_SWITCH_NAMES: [&str; 2] = ["DISABLE_AUTOUPDATER", "DISABLE_UPDATES"];
-    /// Carries the Codex binary path into the Codex launch prelude, which never interpolates it.
-    pub const CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME: &str = "CODEX_APP_SERVER_BIN";
-    /// Set to `1` on a Terminal pane's shell alone while `Simplify for a screen reader` is on.
-    pub const CLAUDE_SCREEN_READER_ENVIRONMENT_NAME: &str = "CLAUDE_AX_SCREEN_READER";
     /// Names the file a Terminal pane's shell reads its mark nonce from; the shell's script deletes
     /// the file and unsets the name, so the nonce never sits in an environment another program can
     /// read.
@@ -83,13 +81,10 @@ ts_constants! {
     /// script.
     pub const SHELL_ORIGINAL_XDG_DATA_DIRS_ENVIRONMENT_NAME: &str =
         "SIDEKICKS_ORIGINAL_XDG_DATA_DIRS";
-    /// The names the app sets itself on the processes it starts. A row with one of these names
-    /// would be overwritten without a word, so it is refused at save.
-    pub const APP_SET_ENVIRONMENT_NAMES: [&str; 11] = [
-        CLAUDE_UPDATE_SWITCH_NAMES[0],
-        CLAUDE_UPDATE_SWITCH_NAMES[1],
-        CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
-        CLAUDE_SCREEN_READER_ENVIRONMENT_NAME,
+    /// The names the app's own shared code sets on the processes it starts. A row with one of
+    /// these names would be overwritten without a word, so it is refused at save; the names a
+    /// provider's driver sets are its own declaration's, which the service checks beside these.
+    pub const APP_SET_ENVIRONMENT_NAMES: [&str; 7] = [
         SHELL_MARK_NONCE_FILE_ENVIRONMENT_NAME,
         SHELL_ORIGINAL_ENV_ENVIRONMENT_NAME,
         SHELL_BASH_SCRIPT_ENVIRONMENT_NAME,
@@ -122,7 +117,7 @@ pub enum EnvironmentNameRefusalReason {
     NotAName,
     /// Ends like a credential's name.
     CredentialShaped,
-    /// A name the app sets itself.
+    /// A name the app sets itself, in its shared code or through a provider's driver.
     SetByApp,
 }
 
@@ -131,8 +126,9 @@ static ENVIRONMENT_NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(ENVIRONMENT_NAME_PATTERN).expect("the environment name pattern is a valid regex")
 });
 
-/// The reason a row's name is refused, or `None` when the name may be saved. Names compare without
-/// case, because Windows reads `disable_updates` and `DISABLE_UPDATES` as one variable.
+/// The reason a row's name is refused by the app's shared rules, or `None` when they let it be
+/// saved; the service also refuses a name a registered driver sets. Names compare without case,
+/// because Windows reads `path` and `PATH` as one variable.
 pub fn environment_name_refusal(name: &str) -> Option<EnvironmentNameRefusalReason> {
     if !ENVIRONMENT_NAME_REGEX.is_match(name) {
         return Some(EnvironmentNameRefusalReason::NotAName);
@@ -301,7 +297,7 @@ pub struct NotificationSettings {
     pub web_address: WebAddressSettings,
 }
 
-/// Whether Space is held while talking or tapped to start and stop, on both providers.
+/// Whether Space is held while talking or tapped to start and stop, on every provider.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
@@ -313,8 +309,8 @@ pub enum VoiceMode {
     Tap,
 }
 
-/// Voice's two settings. `callVoice`, the voice a spoken call answers in, reads as the call's own
-/// default voice when unset.
+/// Voice's settings. `callVoice`, the voice a spoken call answers in, and `dictationLanguage`, the
+/// language dictation hears, are `null` until picked, while the provider's own value is followed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct VoiceSettings {
@@ -324,6 +320,10 @@ pub struct VoiceSettings {
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>")]
     pub call_voice: Option<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>,
+    /// The dictation language, a language name the speech service takes.
+    #[serde(deserialize_with = "nullable")]
+    #[schemars(with = "NullableSchema<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>")]
+    pub dictation_language: Option<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>,
 }
 
 /// `Back up automatically` and `Back up to`; a `folder` unset is the service's default folder.
@@ -408,7 +408,7 @@ impl JsonSchema for BranchNamePattern {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LastLeadModel {
     /// The provider.
-    pub driver_name: ProviderName,
+    pub driver_name: ProviderId,
     /// The model.
     pub model_id: ProviderToken,
     /// The effort, or `null` for the driver's default.
@@ -416,6 +416,37 @@ pub struct LastLeadModel {
     #[schemars(with = "NullableSchema<ProviderToken>")]
     pub effort: Option<ProviderToken>,
 }
+
+/// The provider and model Generate writes its commit and pull-request text with.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CommitTextModel {
+    /// The provider.
+    pub provider: ProviderId,
+    /// The model.
+    pub model_id: ProviderToken,
+}
+
+/// One declared Settings row's value set in the app, split by the row's shape.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum ProviderRowValue {
+    /// A switch's entry for each place it was set in, keyed by place; a place left out follows the
+    /// provider's own value there.
+    Places(ProviderPlaceSwitches),
+    /// A choice's option or `null` for its none, or a text setting's text or `null` for none.
+    Value(#[schemars(with = "NullableSchema<ProviderValueText>")] Option<ProviderValueText>),
+}
+
+/// One provider's values of the Settings rows its driver declares, by row. A row left out follows
+/// the provider's own value. A row id never reads `__proto__`, which its pattern excludes, and the
+/// schema refuses it too.
+pub type ProviderRowValues = Record<ProviderDeclarationId, ProviderRowValue>;
+
+/// Each provider's values of its declared Settings rows, by provider; a provider left out follows
+/// its own values on every row. A provider id never reads `__proto__`, which its pattern excludes,
+/// and the schema refuses it too.
+pub type ProviderSettingValues = Record<ProviderId, ProviderRowValues>;
 
 /// Every value the machine's settings file holds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -433,11 +464,15 @@ pub struct MachineSettings {
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>")]
     pub editor_id: Option<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>,
-    /// Claude Code's `Advisor` for sessions started later: one of the advisor models Claude Code
-    /// offers, or `null` for `Off`.
+    /// The values set in the app on the Settings rows each provider's driver declares, written by
+    /// `provider.update` and passed to the app's own sessions; empty until one is set, while each
+    /// provider's own values are followed.
+    pub provider_settings: ProviderSettingValues,
+    /// `Commit and pull request text`; `null` is `Automatic`, the session's provider and its
+    /// lowest-priced model.
     #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>")]
-    pub advisor_model: Option<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>,
+    #[schemars(with = "NullableSchema<CommitTextModel>")]
+    pub commit_text_model: Option<CommitTextModel>,
     /// `Default checkout for a new project session`.
     pub default_checkout: ExecutionMode,
     /// `Start a new session on the last model and effort used`.
@@ -487,7 +522,8 @@ impl Default for MachineSettings {
             updates_automatic: true,
             keep_crash_reports: true,
             editor_id: None,
-            advisor_model: None,
+            provider_settings: Record::default(),
+            commit_text_model: None,
             default_checkout: ExecutionMode::ProvisionedWorktree,
             new_session_carries_last_model: true,
             last_lead_model: None,
@@ -524,6 +560,7 @@ impl Default for MachineSettings {
             voice: VoiceSettings {
                 mode: VoiceMode::Hold,
                 call_voice: None,
+                dictation_language: None,
             },
         }
     }
@@ -576,11 +613,11 @@ pub enum MachineSettingsChange {
         #[schemars(with = "NullableSchema<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>")]
         Option<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>,
     ),
-    /// Claude Code's `Advisor`.
-    AdvisorModel(
+    /// `Commit and pull request text`.
+    CommitTextModel(
         #[serde(deserialize_with = "nullable")]
-        #[schemars(with = "NullableSchema<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>")]
-        Option<FreeFormText<MACHINE_SETTINGS_NAME_MAX_LEN>>,
+        #[schemars(with = "NullableSchema<CommitTextModel>")]
+        Option<CommitTextModel>,
     ),
     /// `Default checkout for a new project session`.
     DefaultCheckout(ExecutionMode),
@@ -733,6 +770,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<BackupSettings>(),
         Definition::read::<BranchNamePattern>().checked(),
         Definition::read::<LastLeadModel>(),
+        Definition::read::<CommitTextModel>(),
+        Definition::read::<ProviderRowValue>(),
         Definition::read::<MachineSettings>().checked(),
         Definition::read::<MachineSettingsChange>().checked(),
         Definition::read::<SettingsFileRepairCause>(),

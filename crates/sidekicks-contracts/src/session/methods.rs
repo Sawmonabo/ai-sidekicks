@@ -134,8 +134,8 @@ pub struct SessionRecord {
     #[schemars(with = "SafeInt<1>")]
     pub max_steps_per_turn: Option<SafeInt<1>>,
     /// The addresses another session writes to when it messages this one: an inbox the daemon
-    /// holds for it in each place where Claude Code is installed, the session's own place first,
-    /// each stable for its whole life.
+    /// holds for it in each place where a provider that messages other sessions is installed, the
+    /// session's own place first, each stable for its whole life.
     #[garde(dive)]
     pub addresses: UniqueList<SessionAddress, 1, { usize::MAX }>,
     /// Its tags as first written, in the order of their case fold.

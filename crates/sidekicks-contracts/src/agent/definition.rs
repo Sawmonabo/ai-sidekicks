@@ -15,6 +15,7 @@ use crate::jsonrpc::refusal::RefusalCode;
 use crate::place::WslPlace;
 use crate::project::ProjectId;
 use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
+use crate::provider::id::ProviderId;
 use crate::schema::{push_all_of, required_member};
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::inline_scalar_definition;
@@ -69,7 +70,7 @@ pub type ToolName = FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>;
 
 /// Where an agent's one memory lives: `user` in the daemon's own agent-memory folder, for every
 /// project; `project` in the project's repository; `local` in the project but kept out of the
-/// repository. Either provider running the agent reads and writes the same folder.
+/// repository. Whichever provider runs the agent reads and writes the same folder.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentMemoryScope {
@@ -124,7 +125,8 @@ pub enum AgentAccentHue {
     Hue11,
 }
 
-/// One matcher's handlers under a hook event, in Claude Code's own shape.
+/// One matcher's handlers under a hook event, in the canonical hook form each driver translates
+/// into its provider's own.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentHookGroup {
@@ -136,13 +138,12 @@ pub struct AgentHookGroup {
     )]
     #[schemars(with = "String")]
     pub matcher: Option<String>,
-    /// The handlers, each as the provider's hook schema spells it; the daemon checks each when it
-    /// saves.
+    /// The handlers, each in the canonical handler form; the daemon checks each when it saves.
     pub hooks: BoundedVec<JsonRecord, 1, { usize::MAX }>,
 }
 
-/// An agent's own hooks in Claude Code's shape, the form an agent file's `hooks` key holds: per
-/// event name, the matcher groups.
+/// An agent's own hooks in the canonical hook form each driver translates, the form an agent file's
+/// `hooks` key holds: per event name, the matcher groups.
 pub type AgentHooks = Record<ToolName, Vec<AgentHookGroup>>;
 
 /// Whether a definition belongs to every project or to one.
@@ -155,16 +156,15 @@ pub enum AgentDefinitionScope {
     Project,
 }
 
-/// Which files a definition came from: ours, a provider's own, or a plugin's, which is read-only.
+/// Which files a definition came from: ours, a provider's own, whose provider the entry names in
+/// `originProvider`, or a plugin's, which is read-only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentDefinitionOrigin {
     /// Ours, under `.ai-sidekicks/agents/`.
     Ours,
-    /// Claude Code's agent files.
-    Claude,
-    /// Codex's agent files.
-    Codex,
+    /// A provider's own files.
+    Provider,
     /// A plugin's.
     Plugin,
 }
@@ -199,14 +199,31 @@ pub fn plugin_name_matches_origin<T>(
     }
 }
 
-/// Whether a listed entry names its plugin and its project exactly where its origin and scope
-/// say. Listed agents and skills share the rule.
-pub(crate) fn entry_names_its_plugin_and_project<T>(
+/// Whether an origin and its provider agree: a provider's own entry names its provider and no
+/// other does. Saved agents and skills share the rule.
+pub fn origin_provider_matches_origin(
     origin: AgentDefinitionOrigin,
+    origin_provider: Option<&ProviderId>,
+) -> garde::Result {
+    if (origin == AgentDefinitionOrigin::Provider) == origin_provider.is_some() {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "originProvider is present exactly when origin is provider",
+        ))
+    }
+}
+
+/// Whether a listed entry names its provider, its plugin and its project exactly where its origin
+/// and scope say. Listed agents and skills share the rule.
+pub(crate) fn entry_names_its_origin_and_project<T>(
+    origin: AgentDefinitionOrigin,
+    origin_provider: Option<&ProviderId>,
     plugin_name: Option<&T>,
     scope: AgentDefinitionScope,
     project_id: Option<&ProjectId>,
 ) -> garde::Result {
+    origin_provider_matches_origin(origin, origin_provider)?;
     plugin_name_matches_origin(origin, plugin_name)?;
     project_matches_scope(Some(scope), project_id)
 }
@@ -241,6 +258,11 @@ pub(crate) fn add_project_scope_rule(schema: &mut Schema) {
 /// The schema twin of [`plugin_name_matches_origin`], for a schema's `transform`.
 pub(crate) fn add_plugin_origin_rule(schema: &mut Schema) {
     add_present_exactly_when(schema, "origin", "plugin", "pluginName");
+}
+
+/// The schema twin of [`origin_provider_matches_origin`], for a schema's `transform`.
+pub(crate) fn add_provider_origin_rule(schema: &mut Schema) {
+    add_present_exactly_when(schema, "origin", "provider", "originProvider");
 }
 
 /// Declares a definition record: the members every stored definition carries, its bindings, and
@@ -314,18 +336,28 @@ definition_record! {
 definition_record! {
     /// One definition as the list serves it: the record, where it lives, and its provider facts,
     /// none excluding another, since an orphaned record can also carry a load error.
-    #[garde(custom(|entry: &Self, (): &()| entry_names_its_plugin_and_project(
+    #[garde(custom(|entry: &Self, (): &()| entry_names_its_origin_and_project(
         entry.origin,
+        entry.origin_provider.as_ref(),
         entry.plugin_name.as_ref(),
         entry.scope,
         entry.project_id.as_ref(),
     )))]
+    #[schemars(transform = add_provider_origin_rule)]
     #[schemars(transform = add_plugin_origin_rule)]
     #[schemars(transform = add_project_scope_rule)]
     pub struct AgentDefinitionListEntry {
         bindings: AgentListedBindings,
         /// Which files it came from.
         pub origin: AgentDefinitionOrigin,
+        /// The provider whose own agent files hold it, exactly when `origin` is `provider`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ProviderId")]
+        pub origin_provider: Option<ProviderId>,
         /// The plugin, exactly on a plugin's agent.
         #[serde(
             default,
@@ -411,7 +443,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         inline_scalar_definition!(
             AgentHooks,
             "AgentHooks",
-            "An agent's own hooks in Claude Code's shape: per event name, the matcher groups."
+            "An agent's own hooks in the canonical hook form each driver translates: per event \
+             name, the matcher groups."
         ),
         Definition::read::<AgentDefinitionScope>(),
         Definition::read::<AgentDefinitionOrigin>(),

@@ -72,7 +72,7 @@ pub struct InterruptPayload {
     pub reason: Option<FreeFormText<DRIVER_WIRE_REASON_MAX_LEN>>,
 }
 
-/// The one intervention a client sends.
+/// The one intervention the orchestration asks a driver to apply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[schemars(inline)]
@@ -81,8 +81,8 @@ pub enum InterruptInterventionType {
     Interrupt,
 }
 
-/// The request of `driver.applyIntervention`: an interrupt on a live run, so a steer, which only
-/// the run queue delivers, is refused at parse. `expectedRunVersion` is the fail-closed comparand;
+/// An interrupt the orchestration asks a driver to apply to a live run, so a steer, which only the
+/// run queue delivers, is refused at parse. `expectedRunVersion` is the fail-closed comparand;
 /// `clientIdempotencyKey` is the requester's key, passed through unchanged.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

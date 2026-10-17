@@ -1,4 +1,23 @@
 {
+  "providers": {
+    "claude": {
+      "name": "Claude Code",
+      "planWords": []
+    },
+    "codex": {
+      "name": "Codex",
+      "planWords": [
+        {
+          "plan": "team",
+          "word": "Business"
+        },
+        {
+          "plan": "pro",
+          "word": "Pro (More)"
+        }
+      ]
+    }
+  },
   "account": {
     "accountId": "acct_01J8XYZ",
     "provider": "claude",
@@ -19,7 +38,10 @@
   "cases": [
     {
       "name": "a signed-in account by its email and plan",
-      "overrides": { "observedAccountEmail": "sam@example.org", "observedAccountPlan": "max" },
+      "overrides": {
+        "observedAccountEmail": "sam@example.org",
+        "observedAccountPlan": "max"
+      },
       "label": "sam@example.org · Max"
     },
     {
@@ -43,7 +65,10 @@
     },
     {
       "name": "Claude Code's pro as its id",
-      "overrides": { "observedAccountEmail": "sam@example.org", "observedAccountPlan": "pro" },
+      "overrides": {
+        "observedAccountEmail": "sam@example.org",
+        "observedAccountPlan": "pro"
+      },
       "label": "sam@example.org · Pro"
     },
     {
@@ -57,12 +82,17 @@
     },
     {
       "name": "an unknown plan left out",
-      "overrides": { "observedAccountEmail": "sam@example.org", "observedAccountPlan": "unknown" },
+      "overrides": {
+        "observedAccountEmail": "sam@example.org",
+        "observedAccountPlan": "unknown"
+      },
       "label": "sam@example.org"
     },
     {
       "name": "no label for an account its provider has not named",
-      "overrides": { "observedAccountPlan": "unknown" },
+      "overrides": {
+        "observedAccountPlan": "unknown"
+      },
       "label": null
     },
     {
@@ -72,17 +102,27 @@
     },
     {
       "name": "an API-key account by its typed name and credential kind",
-      "overrides": { "provider": "codex", "displayLabel": "Work", "observedAuthMode": "api_key" },
+      "overrides": {
+        "provider": "codex",
+        "displayLabel": "Work",
+        "observedAuthMode": "api_key"
+      },
       "label": "Work · Codex API key"
     },
     {
       "name": "a token account by its typed name and credential kind",
-      "overrides": { "displayLabel": "Personal", "observedAuthMode": "oauth_token" },
+      "overrides": {
+        "displayLabel": "Personal",
+        "observedAuthMode": "oauth_token"
+      },
       "label": "Personal · Claude Code token"
     },
     {
       "name": "a typed name alone before its mode is observed",
-      "overrides": { "displayLabel": "Personal", "observedAuthMode": null },
+      "overrides": {
+        "displayLabel": "Personal",
+        "observedAuthMode": null
+      },
       "label": "Personal"
     }
   ]

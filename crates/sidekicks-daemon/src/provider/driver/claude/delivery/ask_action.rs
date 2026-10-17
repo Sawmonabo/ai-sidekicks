@@ -8,8 +8,8 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::approval::RememberedScopeKind;
 use url::Url;
 
-use crate::provider::driver::providers::claude::delivery::patches::is_claude_file_changing_tool;
-use crate::provider::driver::providers::claude::event_normalizer::CLAUDE_PLAN_EXIT_TOOL_NAME;
+use crate::provider::driver::claude::delivery::patches::is_claude_file_changing_tool;
+use crate::provider::driver::claude::event_normalizer::CLAUDE_PLAN_EXIT_TOOL_NAME;
 use crate::provider::port::permission_ask::ProviderAskAction;
 use crate::provider::record_readers::read_non_empty_string;
 

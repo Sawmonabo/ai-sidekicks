@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use rusqlite::Connection;
 use rusqlite::types::Type;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::name::ProviderName;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::database::statement::{
@@ -36,7 +36,7 @@ pub(crate) struct LeftConversationRecord {
     /// The conversation left.
     pub(crate) conversation: LeftConversation,
     /// The provider whose binding recorded it.
-    pub(crate) driver_name: ProviderName,
+    pub(crate) driver_name: ProviderId,
     /// When the session left it.
     pub(crate) left_at: String,
 }
@@ -85,8 +85,9 @@ pub(crate) fn compose_left_conversation_insert(
 }
 
 /// Every conversation `session_id` left on its providers, oldest first, for the whole-session
-/// purge, which deletes each one from its provider. Fails on a database error, or when a row's
-/// provider name is not one this build drives, which fails the whole read rather than skip a row.
+/// purge, which deletes each one from its provider. A row keeps its provider id as written, a
+/// provider this build has no driver for included; fails on a database error, or on a stored id
+/// that is no valid provider id, which fails the whole read rather than skip a row.
 pub(crate) fn read_left_conversations(
     reader: &Connection,
     session_id: &SessionId,
@@ -94,11 +95,13 @@ pub(crate) fn read_left_conversations(
     let mut statement = reader.prepare_cached(SELECT_LEFT_CONVERSATIONS_SQL)?;
     let rows = statement.query_map([session_id.text().as_str()], |row| {
         let stored_driver_name: String = row.get(0)?;
-        let driver_name = stored_driver_name
-            .parse::<ProviderName>()
-            .map_err(|parse_failure| {
-                rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(parse_failure))
-            })?;
+        let driver_name = ProviderId::new(stored_driver_name).ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                0,
+                Type::Text,
+                Box::new(StoredProviderIdInvalidError),
+            )
+        })?;
         Ok(LeftConversationRecord {
             conversation: LeftConversation {
                 session_id: *session_id,
@@ -111,6 +114,11 @@ pub(crate) fn read_left_conversations(
     })?;
     rows.collect()
 }
+
+/// A stored provider id that is not a valid one.
+#[derive(Debug, thiserror::Error)]
+#[error("the stored provider id is not a valid provider id")]
+struct StoredProviderIdInvalidError;
 
 /// A stored account id that is not a valid one: empty or past its length bound.
 #[derive(Debug, thiserror::Error)]

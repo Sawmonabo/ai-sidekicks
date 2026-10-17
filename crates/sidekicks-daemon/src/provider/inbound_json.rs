@@ -1,6 +1,6 @@
 //! JSON text a provider sends, repaired so that every line a provider writes parses: bytes that
-//! are not UTF-8 become U+FFFD, and a lone UTF-16 surrogate escape, which Claude Code writes as a
-//! JavaScript program and `serde_json` refuses, becomes `\uFFFD`.
+//! are not UTF-8 become U+FFFD, and a lone UTF-16 surrogate escape, which a provider written in
+//! JavaScript writes and `serde_json` refuses, becomes `\uFFFD`.
 
 use std::borrow::Cow;
 

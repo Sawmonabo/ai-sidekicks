@@ -1,6 +1,6 @@
 //! How a change to an agent's provider binding settles for every client, not only the asker.
-//! Every change to a running agent's model, effort, speed, provider or account is a switch,
-//! acknowledged with a disposition (usually `pending`) and settled by one of two events.
+//! Every change to a running agent's model, effort, speed, session options, provider or account is
+//! a switch, acknowledged with a disposition (usually `pending`) and settled by one of two events.
 
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
@@ -10,8 +10,9 @@ use crate::agent::definition::binding::{AgentProviderBinding, ProviderToken};
 use crate::agent::definition::{AgentId, add_present_exactly_when};
 use crate::event::registry::SessionEventType;
 use crate::provider::account::record::ProviderAccountId;
+use crate::provider::declaration::ProviderOptionSettings;
 use crate::provider::driver::declared_loss::DeclaredLossKind;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::schema::push_all_of;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
@@ -134,8 +135,8 @@ pub struct AgentBindingSwitchTarget {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "ProviderName")]
-    pub driver_name: Option<ProviderName>,
+    #[schemars(with = "ProviderId")]
+    pub driver_name: Option<ProviderId>,
     /// The model.
     #[serde(
         default,
@@ -168,14 +169,15 @@ pub struct AgentBindingSwitchTarget {
     )]
     #[schemars(with = "ProviderToken")]
     pub output_speed: Option<ProviderToken>,
-    /// Ultracode on or off.
+    /// The session options it moves, each to its value; an option left out does not move.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "bool")]
-    pub ultracode: Option<bool>,
+    #[schemars(with = "ProviderOptionSettings")]
+    #[garde(dive)]
+    pub options: Option<ProviderOptionSettings>,
     /// The window in tokens, or `null` for the model's default.
     #[serde(
         default,

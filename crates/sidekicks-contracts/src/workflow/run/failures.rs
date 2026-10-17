@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
 use crate::jsonrpc::refusal::RefusalCode;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
 use crate::wire::text::ComposedText;
@@ -69,7 +69,7 @@ pub enum WorkflowCodeInstallFailedReason {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowSandboxUnavailableDetails {
     /// The provider whose sandbox did not start.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The sandbox wrapper's own error.
     pub detail: ComposedText,
 }

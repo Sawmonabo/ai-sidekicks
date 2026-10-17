@@ -1,7 +1,8 @@
-//! The `provider.*` methods: each provider's own settings on this machine, apart from its accounts.
-//! Every figure a knob is bounded by comes from the provider: the compaction stops from its own
-//! models, the output styles from the installed build's own listing. The standing rules are read
-//! from and revoked in the provider's own files, and the daemon keeps no copy.
+//! The `provider.*` methods: each provider's section on this machine, apart from its accounts: the
+//! fixed facts its driver declares, the rows every provider offers, and the rows and session
+//! options its driver declares. Every figure a row is bounded by comes from the provider, the
+//! compaction stops from its own models. The standing rules are read from and revoked in the
+//! provider's own files, and the daemon keeps no copy.
 
 use std::borrow::Cow;
 
@@ -11,27 +12,31 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::machine_settings::ENVIRONMENT_ROW_MAX_LEN;
+use crate::mcp::server::config::ProviderMcpDeclaration;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::{Place, WslPlace};
-use crate::provider::account::record::ProviderAccountId;
-use crate::provider::name::{ClaudeProviderWord, CodexProviderWord, ProviderName};
+use crate::provider::account::record::{PROVIDER_ACCOUNT_PLAN_MAX_LEN, ProviderAccountId};
+use crate::provider::declaration::{
+    ProviderDeclarationId, ProviderDeclarationText, ProviderRow, ProviderSessionOption,
+    ProviderValue,
+};
+use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
+use crate::provider::id::ProviderId;
 use crate::repo::mount::RepoMountId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::voice::VoiceKind;
+use crate::wire::True;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt};
-use crate::wire::list::{BoundedVec, ListKey, UniqueList};
+use crate::wire::list::{ListKey, UniqueList};
 use crate::wire::text::{FreeFormText, branded_text};
 
 ts_constants! {
     /// The longest provider command version, as the command reports it.
     pub const PROVIDER_VERSION_MAX_LEN: usize = 64;
-    /// The longest output style name.
-    pub const PROVIDER_OUTPUT_STYLE_NAME_MAX_LEN: usize = 128;
-    /// The longest output style description.
-    pub const PROVIDER_OUTPUT_STYLE_DESCRIPTION_MAX_LEN: usize = 512;
-    /// The most output styles one build may list.
-    pub const PROVIDER_OUTPUT_STYLES_MAX: usize = 256;
     /// The longest protected-path pattern or standing rule text.
     pub const PROVIDER_RULE_TEXT_MAX_LEN: usize = 4096;
     /// The longest standing rule decision word.
@@ -39,7 +44,8 @@ ts_constants! {
     /// The longest standing rule id.
     pub const PROVIDER_STANDING_RULE_ID_MAX_LEN: usize = 256;
     /// The provider's command is not installed, so a setting that needs it cannot be turned on:
-    /// availability for new sessions, the shared terminal service and the terminal plugin.
+    /// availability for new sessions, a declared row that runs the command, and the terminal
+    /// plugin.
     PROVIDER_NOT_INSTALLED_CODE = RefusalCode::ProviderNotInstalled;
     /// Nothing runnable sits at the command path the person typed.
     PROVIDER_COMMAND_NOT_RUNNABLE_CODE = RefusalCode::ProviderCommandNotRunnable;
@@ -47,8 +53,6 @@ ts_constants! {
 
 /// The provider version as its command printed it.
 pub(crate) type ProviderVersion = FreeFormText<PROVIDER_VERSION_MAX_LEN>;
-/// An output style's name.
-type OutputStyleName = FreeFormText<PROVIDER_OUTPUT_STYLE_NAME_MAX_LEN>;
 /// A protected-path pattern or a standing rule's text.
 type RuleText = FreeFormText<PROVIDER_RULE_TEXT_MAX_LEN>;
 /// A whole percent.
@@ -143,35 +147,6 @@ impl ListKey for ProviderPlaceReading {
     }
 }
 
-/// One place's on-or-off for a provider's per-place switch. A computer without a WSL 2
-/// distribution has one entry and names no place.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProviderPlaceSwitch {
-    /// The place; absent on a computer without a WSL 2 distribution.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "Place")]
-    pub place: Option<Place>,
-    /// Whether the switch is on there.
-    pub enabled: bool,
-}
-
-impl ListKey for ProviderPlaceSwitch {
-    type Key = Option<Place>;
-
-    fn list_key(&self) -> Option<Place> {
-        self.place.clone()
-    }
-
-    // It carries no rule its read does not hold.
-    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
-    }
-}
-
 /// The compaction threshold in percent full: a whole percent on a step of five.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
@@ -242,122 +217,125 @@ fn is_between_stops(value: CompactPercent, bound: &ProviderAutoCompactBound) -> 
     Ok(())
 }
 
-/// One output style the installed build lists, with its description (none on `default`).
+/// One plan id the provider sends and the word a person reads it as. A plan id the provider lists
+/// no word for reads as its own words in sentence case.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProviderOutputStyle {
-    /// The style's name.
-    pub name: OutputStyleName,
-    /// What the style does.
+pub struct ProviderPlanWord {
+    /// The plan id as the provider sends it.
+    pub plan: FreeFormText<PROVIDER_ACCOUNT_PLAN_MAX_LEN>,
+    /// The word a person reads.
+    pub word: ProviderDeclarationText,
+}
+
+impl ListKey for ProviderPlanWord {
+    type Key = FreeFormText<PROVIDER_ACCOUNT_PLAN_MAX_LEN>;
+
+    fn list_key(&self) -> FreeFormText<PROVIDER_ACCOUNT_PLAN_MAX_LEN> {
+        self.plan.clone()
+    }
+
+    // It carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+/// One tool the provider has built in, which the tool allowlist picker offers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderBuiltInTool {
+    /// The tool's name in the provider's own spelling, as an allowlist names it.
+    pub name: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
+    /// The words the picker draws it in.
+    pub label: ProviderDeclarationText,
+}
+
+impl ListKey for ProviderBuiltInTool {
+    type Key = FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>;
+
+    fn list_key(&self) -> FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN> {
+        self.name.clone()
+    }
+
+    // It carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+/// One provider's section as `provider.list` reads it, one per registered driver: the fixed facts
+/// its driver declares, the rows every provider offers, and the rows and session options its driver
+/// declares with their live values. `helpersAtOnce` is `null` for no limit and `0` for none; the
+/// compaction bound is `null` until the provider has been read.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct ProviderSection {
+    /// The provider.
+    pub provider: ProviderId,
+    /// The provider's name as a person reads it.
+    pub name: ProviderDeclarationText,
+    /// The words its plan ids read as, unique by plan id; may be empty.
+    #[garde(dive)]
+    pub plan_words: UniqueList<ProviderPlanWord, 0, { usize::MAX }>,
+    /// Its built-in tools in its own order, unique by name; may be empty.
+    #[garde(dive)]
+    pub built_in_tools: UniqueList<ProviderBuiltInTool, 0, { usize::MAX }>,
+    /// The environment names the app sets on this provider's processes and its Terminal pane's
+    /// shells, which a person's own environment row may not take; unique, may be empty.
+    #[garde(dive)]
+    pub app_set_environment_names:
+        UniqueList<FreeFormText<ENVIRONMENT_ROW_MAX_LEN>, 0, { usize::MAX }>,
+    /// The transports and declaration members its tool servers take.
+    #[garde(dive)]
+    pub mcp: ProviderMcpDeclaration,
+    /// The most characters it takes in a skill's name, or `null` where it sets no limit of its
+    /// own below the shared one.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<SafeInt<1>>")]
+    pub skill_name_max_length: Option<SafeInt<1>>,
+    /// The voice kinds it offers, each at most once: the composer starts `voice.dictationStart` for
+    /// dictation and `voice.callStart` for a call; empty where it offers none.
+    #[garde(dive)]
+    pub voice_kinds: UniqueList<VoiceKind, 0, { usize::MAX }>,
+    /// The output-speed levels every one of its models offers, present only where the provider
+    /// publishes none per model.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<PROVIDER_OUTPUT_STYLE_DESCRIPTION_MAX_LEN>")]
-    pub description: Option<FreeFormText<PROVIDER_OUTPUT_STYLE_DESCRIPTION_MAX_LEN>>,
+    #[schemars(with = "Vec<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>")]
+    pub output_speed_levels: Option<Vec<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>>,
+    /// The command's reading in each place.
+    #[garde(dive)]
+    pub places: UniqueList<ProviderPlaceReading, 1, { usize::MAX }>,
+    /// Whether a new session may use the provider.
+    pub available_for_new_sessions: bool,
+    /// How many helpers run at once: `null` for no limit, `0` for none.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<SafeInt<0>>")]
+    pub helpers_at_once: Option<SafeInt<0>>,
+    /// The compaction threshold, `null` until the provider has been read.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<ProviderAutoCompactBound>")]
+    #[garde(dive)]
+    pub auto_compact_percent: Option<ProviderAutoCompactBound>,
+    /// The rows its driver declares with their live values, in the driver's order; may be empty.
+    #[garde(dive)]
+    pub rows: UniqueList<ProviderRow, 0, { usize::MAX }>,
+    /// The options its driver declares on its sessions; may be empty.
+    #[garde(dive)]
+    pub session_options: UniqueList<ProviderSessionOption, 0, { usize::MAX }>,
 }
 
-/// Claude Code's output style: the one the build is on, among the build's own styles.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct ProviderOutputStyleSetting {
-    /// The style the build is on; one of `styles`.
-    #[garde(custom(|current: &OutputStyleName, (): &()| is_listed_style(current, &self.styles)))]
-    pub current: OutputStyleName,
-    /// The build's own styles.
-    #[schemars(extend("contains" = {
-        "type": "object",
-        "properties": { "name": { "const": { "$data": "3/current" } } },
-    }))]
-    pub styles: OutputStyles,
-}
-
-/// The output styles one build lists.
-type OutputStyles = BoundedVec<ProviderOutputStyle, 1, PROVIDER_OUTPUT_STYLES_MAX>;
-
-/// Whether `current` names one of `styles`.
-fn is_listed_style(current: &OutputStyleName, styles: &OutputStyles) -> garde::Result {
-    if styles.as_slice().iter().any(|style| style.name == *current) {
-        return Ok(());
-    }
-    Err(garde::Error::new(
-        "the current output style is one the installed build lists",
-    ))
-}
-
-/// Declares [`ProviderSettings`] with the members every provider's section carries, then each
-/// provider's own.
-macro_rules! provider_settings {
-    ($(
-        $(#[doc = $doc:literal])+
-        $provider:ident { $($own:tt)* }
-    )+) => {
-        /// One provider's section as `provider.list` reads it: one `Command` row per place, Windows
-        /// first and then each distribution in WSL's list order on a Windows computer with a WSL 2
-        /// distribution, else a single row; `helpersAtOnce` is `null` for no limit and `0` for
-        /// none; the compaction bound and the output style are `null` until the provider has been
-        /// read. Each provider's section carries only its own settings.
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-        #[serde(
-            tag = "provider",
-            rename_all = "lowercase",
-            rename_all_fields = "camelCase",
-            deny_unknown_fields
-        )]
-        #[garde(allow_unvalidated)]
-        pub enum ProviderSettings {$(
-            $(#[doc = $doc])+
-            $provider {
-                /// The command's reading in each place.
-                #[garde(dive)]
-                places: UniqueList<ProviderPlaceReading, 1, { usize::MAX }>,
-                /// Whether a new session may use the provider.
-                available_for_new_sessions: bool,
-                /// How many helpers run at once: `null` for no limit, `0` for none.
-                #[serde(deserialize_with = "crate::wire::nullable")]
-                #[schemars(with = "crate::wire::NullableSchema<SafeInt<0>>")]
-                helpers_at_once: Option<SafeInt<0>>,
-                /// The compaction threshold, `null` until the provider has been read.
-                #[serde(deserialize_with = "crate::wire::nullable")]
-                #[schemars(with = "crate::wire::NullableSchema<ProviderAutoCompactBound>")]
-                #[garde(dive)]
-                auto_compact_percent: Option<ProviderAutoCompactBound>,
-                $($own)*
-            },
-        )+}
-    };
-}
-
-provider_settings! {
-    /// Claude Code's section.
-    Claude {
-        /// The output style, `null` until the provider has been read.
-        #[serde(deserialize_with = "crate::wire::nullable")]
-        #[schemars(with = "crate::wire::NullableSchema<ProviderOutputStyleSetting>")]
-        #[garde(dive)]
-        output_style: Option<ProviderOutputStyleSetting>,
-        /// Whether the app's plugin is in the person's own Claude Code, in each place.
-        #[garde(dive)]
-        terminal_plugin_enabled: UniqueList<ProviderPlaceSwitch, 1, { usize::MAX }>,
-    }
-    /// Codex's section.
-    Codex {
-        /// Whether terminal-started Codex sessions are reachable, in each place; each place's
-        /// shared service runs while on.
-        #[garde(dive)]
-        terminal_sessions_reachable: UniqueList<ProviderPlaceSwitch, 1, { usize::MAX }>,
-    }
-}
-
-/// The reply every `provider.*` change settles with: the section as the provider accepted it.
+/// The reply every `provider.*` change settles with, and each `provider.subscribe` delivery: one
+/// provider's whole section as it now stands.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderSettingsResponse {
     /// The section.
     #[garde(dive)]
-    pub settings: ProviderSettings,
+    pub settings: ProviderSection,
     /// The WSL 2 distributions that are stopped, whose rows show their last reading; a check
     /// there starts the distribution. Absent while none is stopped.
     #[serde(
@@ -371,14 +349,12 @@ pub struct ProviderSettingsResponse {
 }
 
 /// A request naming one provider.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct ProviderRequest {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
 }
 
 /// A request naming one provider in one place: a check, an install or an update of its command
@@ -388,7 +364,7 @@ pub struct ProviderRequest {
 #[garde(allow_unvalidated)]
 pub struct ProviderPlaceRequest {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The place: absent on a computer without a WSL 2 distribution and present on one with. On
     /// Windows, `"windows"` names Windows and a distribution is refused by its name, whether or not
     /// a WSL 2 distribution remains; a place on macOS or Linux, or none where a WSL 2 distribution
@@ -402,13 +378,13 @@ pub struct ProviderPlaceRequest {
     pub place: Option<Place>,
 }
 
-/// Each provider's section, one row per provider.
+/// Each provider's section, in the order the daemon's provider table lists them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderListResponse {
     /// The sections.
     #[garde(dive)]
-    pub providers: Vec<ProviderSettings>,
+    pub providers: Vec<ProviderSection>,
     /// The WSL 2 distributions that are stopped, whose rows show their last reading; a check
     /// there starts the distribution. Absent while none is stopped.
     #[serde(
@@ -421,118 +397,127 @@ pub struct ProviderListResponse {
     pub stopped_distributions: Option<UniqueList<WslPlace, 1, { usize::MAX }>>,
 }
 
-/// Declares [`ProviderUpdateRequest`]: per provider, one closed arm for each knob every provider
-/// has and then its own arms, each arm the provider's word and the knob's one member.
-macro_rules! provider_update_request {
-    ($(
-        $provider:ty => [$command_path:ident, $available:ident, $helpers:ident, $compact:ident]
-        { $($own:tt)* }
-    )+) => {
-        /// One knob changed, one member per press, and only a knob the named provider has. A new
-        /// path is checked again where it now points and the provider's model catalog is read
-        /// again.
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-        #[serde(untagged, rename_all_fields = "camelCase", deny_unknown_fields)]
-        #[garde(allow_unvalidated)]
-        pub enum ProviderUpdateRequest {$(
-            /// A new command path for one place, or `null` to return it to auto-detect.
-            $command_path {
-                /// The provider.
-                provider: $provider,
-                /// The place: absent on a computer without a WSL 2 distribution and present on one
-                /// with. On Windows, `"windows"` names Windows and a distribution is refused by its
-                /// name, whether or not a WSL 2 distribution remains; a place on macOS or Linux, or
-                /// none where a WSL 2 distribution is, is `invalid_params`.
-                #[serde(
-                    default,
-                    skip_serializing_if = "Option::is_none",
-                    deserialize_with = "crate::wire::present"
-                )]
-                #[schemars(with = "Place")]
-                place: Option<Place>,
-                /// The path, or `null` for auto-detect.
-                #[serde(deserialize_with = "crate::wire::nullable")]
-                #[schemars(with = "crate::wire::NullableSchema<FilesystemPath>")]
-                command_path: Option<FilesystemPath>,
-            },
-            /// Whether a new session may use the provider.
-            $available {
-                /// The provider.
-                provider: $provider,
-                /// Whether it may.
-                available_for_new_sessions: bool,
-            },
-            /// How many helpers run at once: `null` lifts the limit, `0` withholds the helper tool.
-            $helpers {
-                /// The provider.
-                provider: $provider,
-                /// The limit, or `null` for none.
-                #[serde(deserialize_with = "crate::wire::nullable")]
-                #[schemars(with = "crate::wire::NullableSchema<SafeInt<0>>")]
-                helpers_at_once: Option<SafeInt<0>>,
-            },
-            /// The compaction threshold.
-            $compact {
-                /// The provider.
-                provider: $provider,
-                /// The threshold.
-                auto_compact_percent: CompactPercent,
-            },
-            $($own)*
-        )+}
-    };
+/// One setting changed, one member per press: a row every provider offers, one the provider's
+/// driver declares, whose value the daemon holds to the row's declaration
+/// ([`ProviderRow::check_value`]), or the run or stop of a declared action row. A new command path
+/// is checked again where it now points and the provider's model catalog is read again.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(untagged, rename_all_fields = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub enum ProviderUpdateRequest {
+    /// A new command path for one place, or `null` to return it to auto-detect.
+    CommandPath {
+        /// The provider.
+        provider: ProviderId,
+        /// The place: absent on a computer without a WSL 2 distribution and present on one with.
+        /// On Windows, `"windows"` names Windows and a distribution is refused by its name,
+        /// whether or not a WSL 2 distribution remains; a place on macOS or Linux, or none where a
+        /// WSL 2 distribution is, is `invalid_params`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Place")]
+        place: Option<Place>,
+        /// The path, or `null` for auto-detect.
+        #[serde(deserialize_with = "crate::wire::nullable")]
+        #[schemars(with = "crate::wire::NullableSchema<FilesystemPath>")]
+        command_path: Option<FilesystemPath>,
+    },
+    /// Whether a new session may use the provider.
+    AvailableForNewSessions {
+        /// The provider.
+        provider: ProviderId,
+        /// Whether it may.
+        available_for_new_sessions: bool,
+    },
+    /// How many helpers run at once: `null` lifts the limit, `0` withholds the helper tool.
+    HelpersAtOnce {
+        /// The provider.
+        provider: ProviderId,
+        /// The limit, or `null` for none.
+        #[serde(deserialize_with = "crate::wire::nullable")]
+        #[schemars(with = "crate::wire::NullableSchema<SafeInt<0>>")]
+        helpers_at_once: Option<SafeInt<0>>,
+    },
+    /// The compaction threshold.
+    AutoCompactPercent {
+        /// The provider.
+        provider: ProviderId,
+        /// The threshold.
+        auto_compact_percent: CompactPercent,
+    },
+    /// A new value for one setting row the provider's driver declares.
+    DeclaredRow {
+        /// The provider.
+        provider: ProviderId,
+        /// The row.
+        row_id: ProviderDeclarationId,
+        /// The place of a per-place switch row: absent on a computer without a WSL 2 distribution
+        /// and present on one with. On Windows, `"windows"` names Windows and a distribution is
+        /// refused by its name, whether or not a WSL 2 distribution remains; a place on macOS or
+        /// Linux, or none where a WSL 2 distribution is, is `invalid_params`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Place")]
+        place: Option<Place>,
+        /// The value, or `null` for none where the row takes none.
+        #[serde(deserialize_with = "crate::wire::nullable")]
+        #[schemars(with = "crate::wire::NullableSchema<ProviderValue>")]
+        value: Option<ProviderValue>,
+    },
+    /// Runs one action row the provider's driver declares in one place: `enabled` does the action
+    /// there, and off undoes it. Its progress is read on the row.
+    ActionRun {
+        /// The provider.
+        provider: ProviderId,
+        /// The action row.
+        row_id: ProviderDeclarationId,
+        /// The place, as on a per-place switch row.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Place")]
+        place: Option<Place>,
+        /// Whether the action is to be done there, not undone.
+        enabled: bool,
+    },
+    /// Stops the run of one action row in one place, refused where the row is not running there
+    /// or its progress says it cannot stop.
+    ActionStop {
+        /// The provider.
+        provider: ProviderId,
+        /// The action row.
+        row_id: ProviderDeclarationId,
+        /// The place, as on a per-place switch row.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Place")]
+        place: Option<Place>,
+        /// Always `true`: the member that marks a stop.
+        stop: True,
+    },
 }
 
-provider_update_request! {
-    ClaudeProviderWord => [
-        ClaudeCommandPath,
-        ClaudeAvailableForNewSessions,
-        ClaudeHelpersAtOnce,
-        ClaudeAutoCompactPercent
-    ] {
-        /// Claude Code's output style.
-        ClaudeOutputStyle {
-            /// The provider.
-            provider: ClaudeProviderWord,
-            /// The style, one the installed build lists.
-            output_style: OutputStyleName,
-        },
-    }
-    CodexProviderWord => [
-        CodexCommandPath,
-        CodexAvailableForNewSessions,
-        CodexHelpersAtOnce,
-        CodexAutoCompactPercent
-    ] {
-        /// Whether terminal-started Codex sessions are reachable in one place.
-        CodexTerminalSessionsReachable {
-            /// The provider.
-            provider: CodexProviderWord,
-            /// The place: absent on a computer without a WSL 2 distribution and present on one
-            /// with. On Windows, `"windows"` names Windows and a distribution is refused by its
-            /// name, whether or not a WSL 2 distribution remains; a place on macOS or Linux, or
-            /// none where a WSL 2 distribution is, is `invalid_params`.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "Place")]
-            place: Option<Place>,
-            /// Whether they are.
-            terminal_sessions_reachable: bool,
-        },
-    }
-}
-
-/// Put the app's terminal plugin into the person's own Claude Code in one place, or take it out;
-/// off removes exactly what on added and nothing the person added.
+/// Put the app's terminal plugin into the person's own provider install in one place, or take it
+/// out, through the provider's own commands; off removes exactly what on added and nothing the
+/// person added. A provider whose driver offers no terminal plugin is refused with
+/// `driver.capability_unsupported`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct ProviderTerminalPluginUpdateRequest {
-    /// Always `claude`: the plugin is Claude Code's alone.
-    pub provider: ClaudeProviderWord,
+    /// The provider.
+    pub provider: ProviderId,
     /// The place: absent on a computer without a WSL 2 distribution and present on one with. On
     /// Windows, `"windows"` names Windows and a distribution is refused by its name, whether or not
     /// a WSL 2 distribution remains; a place on macOS or Linux, or none where a WSL 2 distribution
@@ -597,7 +582,7 @@ pub enum ProviderProtectedPath {
 #[garde(allow_unvalidated)]
 pub struct ProviderProtectedPathListResponse {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// Its protected paths.
     pub entries: Vec<ProviderProtectedPath>,
 }
@@ -662,7 +647,7 @@ pub struct ProviderStandingRule {
 #[garde(allow_unvalidated)]
 pub struct ProviderStandingRuleListResponse {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// Its rules.
     pub rules: Vec<ProviderStandingRule>,
 }
@@ -673,7 +658,7 @@ pub struct ProviderStandingRuleListResponse {
 #[garde(allow_unvalidated)]
 pub struct ProviderStandingRuleRevokeRequest {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The rule.
     pub rule_id: ProviderStandingRuleId,
 }
@@ -710,16 +695,30 @@ methods! {
             result: ProviderListResponse,
             refusals: [],
         },
+        /// Streams each provider's section: first every section in the provider table's order,
+        /// then one provider's whole section after any change to it.
+        ProviderSubscribe = subscription "provider.subscribe" {
+            mutating: false,
+            params: EmptyPayload,
+            result: SubscribeAckResponse,
+            emission: ProviderSettingsResponse,
+            refusals: [],
+        },
         /// Changes one setting.
         ProviderUpdate = mutation "provider.update" {
             mutating: true,
             params: ProviderUpdateRequest,
             result: ProviderSettingsResponse,
             refusals: [
+                DriverUnavailable,
                 ProviderNotInstalled,
                 ProviderCommandNotRunnable,
                 ProviderDistributionNotFound,
                 ProviderDistributionNeedsWsl2,
+                ProviderRowNotFound,
+                ProviderRowValueInvalid,
+                ProviderRowNotRunning,
+                ProviderRowNotStoppable,
             ],
         },
         /// Checks the provider's command again.
@@ -738,6 +737,7 @@ methods! {
                 ProviderNotInstalled,
                 ProviderDistributionNotFound,
                 ProviderDistributionNeedsWsl2,
+                DriverCapabilityUnsupported,
             ],
         },
         /// Lists the paths a provider refuses.
@@ -767,16 +767,16 @@ methods! {
 /// The TypeScript module of the provider settings.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/settings",
-    doc: "The provider settings methods: each provider's own settings on this machine, apart from \
-          its accounts, installs and imports.",
+    doc: "The provider settings methods: each provider's section on this machine, its driver's \
+          fixed facts, shared rows and declared rows, apart from its accounts, installs and \
+          imports.",
     definitions: &[
         Definition::read::<ProviderInstallation>().checked(),
         Definition::read::<ProviderPlaceReading>().checked(),
-        Definition::read::<ProviderPlaceSwitch>(),
         Definition::read::<ProviderAutoCompactBound>().checked(),
-        Definition::read::<ProviderOutputStyle>(),
-        Definition::read::<ProviderOutputStyleSetting>().checked(),
-        Definition::read::<ProviderSettings>().checked(),
+        Definition::read::<ProviderPlanWord>(),
+        Definition::read::<ProviderBuiltInTool>(),
+        Definition::read::<ProviderSection>().checked(),
         Definition::read::<ProviderSettingsResponse>(),
         Definition::read::<ProviderRequest>(),
         Definition::read::<ProviderPlaceRequest>(),
@@ -804,32 +804,56 @@ mod tests {
     use crate::wire::attachment::parse_received;
 
     #[rstest]
-    #[case::claude_path_to_auto_detect(r#"{"provider":"claude","commandPath":null}"#, true)]
-    #[case::codex_helpers_lifted(r#"{"provider":"codex","helpersAtOnce":null}"#, true)]
-    #[case::claude_style(r#"{"provider":"claude","outputStyle":"Explanatory"}"#, true)]
-    #[case::codex_reachable(r#"{"provider":"codex","terminalSessionsReachable":true}"#, true)]
+    #[case::path_to_auto_detect(r#"{"provider":"claude","commandPath":null}"#, true)]
+    #[case::helpers_lifted(r#"{"provider":"codex","helpersAtOnce":null}"#, true)]
+    #[case::declared_choice(
+        r#"{"provider":"claude","rowId":"outputStyle","value":"Explanatory"}"#,
+        true
+    )]
+    #[case::declared_switch_in_a_distribution(
+        r#"{"provider":"codex","rowId":"reachable","place":{"distro":"Ubuntu"},"value":true}"#,
+        true
+    )]
+    #[case::declared_row_to_none(r#"{"provider":"claude","rowId":"advisor","value":null}"#, true)]
+    #[case::declared_row_without_value(r#"{"provider":"claude","rowId":"advisor"}"#, false)]
+    #[case::declared_row_with_a_bad_id(
+        r#"{"provider":"claude","rowId":"Advisor","value":true}"#,
+        false
+    )]
+    #[case::declared_row_with_an_object(
+        r#"{"provider":"claude","rowId":"advisor","value":{}}"#,
+        false
+    )]
     #[case::no_knob(r#"{"provider":"claude"}"#, false)]
     #[case::two_knobs(
         r#"{"provider":"claude","commandPath":null,"availableForNewSessions":true}"#,
         false
     )]
-    #[case::codex_style(r#"{"provider":"codex","outputStyle":"Explanatory"}"#, false)]
-    #[case::claude_reachable(r#"{"provider":"claude","terminalSessionsReachable":true}"#, false)]
+    #[case::a_knob_beside_a_row(
+        r#"{"provider":"codex","rowId":"voice","value":"alloy","helpersAtOnce":2}"#,
+        false
+    )]
     #[case::null_on_a_plain_knob(r#"{"provider":"claude","availableForNewSessions":null}"#, false)]
     #[case::off_step_percent(r#"{"provider":"codex","autoCompactPercent":42}"#, false)]
     #[case::no_provider(r#"{"commandPath":null}"#, false)]
-    #[case::codex_reachable_in_a_distribution(
-        r#"{"provider":"codex","place":{"distro":"Ubuntu"},"terminalSessionsReachable":true}"#,
+    #[case::action_run(
+        r#"{"provider":"codex","rowId":"terminalPlugin","place":"windows","enabled":true}"#,
         true
+    )]
+    #[case::action_stop(r#"{"provider":"codex","rowId":"terminalPlugin","stop":true}"#, true)]
+    #[case::action_stop_marked_false(
+        r#"{"provider":"codex","rowId":"terminalPlugin","stop":false}"#,
+        false
+    )]
+    #[case::action_run_beside_a_value(
+        r#"{"provider":"codex","rowId":"terminalPlugin","enabled":true,"value":true}"#,
+        false
     )]
     #[case::place_on_a_machine_wide_knob(
         r#"{"provider":"claude","place":"windows","availableForNewSessions":true}"#,
         false
     )]
-    fn takes_exactly_one_knob_the_named_provider_has(
-        #[case] request: &str,
-        #[case] is_taken: bool,
-    ) {
+    fn takes_exactly_one_setting_per_press(#[case] request: &str, #[case] is_taken: bool) {
         let parsed = parse_received::<ProviderUpdateRequest>(request.as_bytes(), Vec::new());
         assert_eq!(parsed.is_ok(), is_taken, "{request}: {parsed:?}");
         if let Ok(parsed) = parsed {

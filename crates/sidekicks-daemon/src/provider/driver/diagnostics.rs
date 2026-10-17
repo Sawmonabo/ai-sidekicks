@@ -5,7 +5,7 @@
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::name::ProviderName;
+use sidekicks_contracts::provider::id::ProviderId;
 use strum::IntoStaticStr;
 
 /// The closed set of diagnostic kinds; each names its counter, so a kind is never unmetered, and
@@ -205,7 +205,7 @@ impl DriverDiagnosticKind {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct DriverDiagnosticRecord {
     /// The provider the record is about.
-    pub(crate) provider: ProviderName,
+    pub(crate) provider: ProviderId,
     /// The account the record is about, which its counter is also counted by; `None` on the
     /// node's default home.
     pub(crate) provider_account_id: Option<ProviderAccountId>,

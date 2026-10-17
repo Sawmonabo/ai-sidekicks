@@ -12,10 +12,16 @@ use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::machine_settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::declaration::{
+    ObservedProviderOptions, ProviderDeclarationId, ProviderOptionSetting, ProviderRow,
+    ProviderSessionOption, ProviderValue,
+};
 use sidekicks_contracts::provider::driver::capabilities::{
-    DriverCapabilities, DriverCapabilityFlag, ExecutionPosture, ProviderMode, ProviderModel,
+    ExecutionPosture, ProviderMode, ProviderModel,
 };
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResult;
 use sidekicks_contracts::provider::driver::compaction::DriverCompactionResult;
@@ -28,7 +34,6 @@ use sidekicks_contracts::provider::driver::length_limits::{
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::tools::{ProviderToolMetadata, SessionCallbackTool};
-use sidekicks_contracts::provider::driver::ultracode::ObservedUltracode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
@@ -37,6 +42,7 @@ use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText, is_ecmascript_
 
 use crate::ipc::domain_error::DomainError;
 use crate::provider::driver::callback_tool::CallbackToolDispatcher;
+use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::provider::driver::run_control::{
@@ -79,6 +85,7 @@ pub(crate) enum DriverError {
 /// The operations every provider driver carries out for the daemon. Each refusal comes back as
 /// [`DriverError::Refused`]; an operation gated on a capability flag the driver does not declare
 /// is refused as `driver.capability_unsupported` before it reaches the driver.
+#[cfg_attr(test, mockall::automock)]
 pub(crate) trait ProviderDriver: Send + Sync {
     /// Opens a provider session and binds its spawn-time legs.
     fn create_session(
@@ -251,10 +258,26 @@ pub(crate) trait ProviderDriver: Send + Sync {
     fn observed_output_speed_for(&self, session_id: &SessionId)
     -> Option<ProviderOutputSpeedState>;
 
-    /// The Ultracode state the provider last reported for the session's live binding; `None` with
-    /// no live binding or no report yet, which means unread, never off. A read of state the driver
-    /// holds, never a request.
-    fn observed_ultracode_for(&self, session_id: &SessionId) -> Option<ObservedUltracode>;
+    /// The rows the driver declares on its provider's settings, each with its live value in every
+    /// place, as `provider.list` serves them; read again after each change.
+    fn read_rows(&self) -> BoxFuture<'_, Result<Vec<ProviderRow>, DriverError>>;
+
+    /// Applies a value the daemon checked against the row's declaration and stored: a setting
+    /// reaches sessions started later, and a per-place switch that runs something starts or stops
+    /// it in that place.
+    fn apply_row_value(
+        &self,
+        params: ApplyRowValueParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// The session options the driver declares for its installed build, each drawn where its
+    /// placement says; the composer and `agent.configUpdate` check a value against them.
+    fn session_options(&self) -> BoxFuture<'_, Result<Vec<ProviderSessionOption>, DriverError>>;
+
+    /// The session options the provider last reported for the session's live binding, each with
+    /// whether the session can run it; `None` with no live binding or no report yet, which means
+    /// unread, never off. A read of state the driver holds, never a request.
+    fn observed_options_for(&self, session_id: &SessionId) -> Option<ObservedProviderOptions>;
 
     /// Moves the session between Build and Plan from its next turn.
     fn update_session_mode(
@@ -337,11 +360,13 @@ pub(crate) struct CreateSessionParams {
     /// starts and never refused: a level the model does not list runs at standard. The provider's
     /// declared state is read through `observed_output_speed_for`, never written back here.
     pub(crate) output_speed: Option<ProviderToken>,
-    /// The agent's Ultracode switch, sent when the process starts; `None` leaves the provider's
-    /// default. A driver that does not declare `ultracode` refuses a value as
-    /// `driver.capability_unsupported`, and what the provider reports is read through
-    /// `observed_ultracode_for`.
-    pub(crate) ultracode: Option<bool>,
+    /// The agent's values of the session options its driver declares, sent when the process starts;
+    /// an option left out keeps the provider's default. What the provider reports is read through
+    /// `observed_options_for`.
+    pub(crate) options: Vec<ProviderOptionSetting>,
+    /// The values set in the app on the rows the driver declares, passed to the process through
+    /// the provider's own command-line layer; a row left out follows the provider's own settings.
+    pub(crate) row_values: ProviderRowValues,
     /// The daemon's callback tools (gated on `callback_tools`); a driver may host them as an
     /// ephemeral tool server, under whose name they then surface.
     pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
@@ -385,8 +410,12 @@ pub(crate) struct ResumeSessionParams {
     /// The agent's accepted output-speed level; left out, the leg would relaunch at the
     /// provider's default.
     pub(crate) output_speed: Option<ProviderToken>,
-    /// The agent's Ultracode switch; left out, the leg would relaunch at the provider's default.
-    pub(crate) ultracode: Option<bool>,
+    /// The agent's session option values; an option left out would relaunch at the provider's
+    /// default.
+    pub(crate) options: Vec<ProviderOptionSetting>,
+    /// The values set in the app on the driver's rows as they stand now, which a resumed process
+    /// starts with.
+    pub(crate) row_values: ProviderRowValues,
     /// The daemon's callback tools.
     pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
     /// The provider-native subagent policy.
@@ -405,6 +434,18 @@ pub(crate) struct ResumeSessionParams {
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
 }
 
+/// One declared row's new value, already checked against its declaration and stored.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ApplyRowValueParams {
+    /// The row.
+    pub(crate) row_id: ProviderDeclarationId,
+    /// The place of a per-place switch; `None` on a computer without a WSL 2 distribution or for a
+    /// row that is not per place.
+    pub(crate) place: Option<Place>,
+    /// The value, or `None` for a choice's none.
+    pub(crate) value: Option<ProviderValue>,
+}
+
 /// What the daemon hands a driver to start one run: its id, the agent's config and the run's own
 /// options.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -420,10 +461,9 @@ pub(crate) struct StartRunParams {
     /// the level the process last applied; one that takes it per turn sends it with this turn.
     /// `None` keeps the level the process holds.
     pub(crate) output_speed: Option<ProviderToken>,
-    /// The Ultracode switch, applied between turns before this run's turn like `output_speed`;
-    /// `None` keeps what the process holds. A driver that does not declare `ultracode` refuses a
-    /// value as `driver.capability_unsupported`.
-    pub(crate) ultracode: Option<bool>,
+    /// The session option values to apply between turns before this run's turn, like
+    /// `output_speed`; an option left out keeps what the process holds.
+    pub(crate) options: Vec<ProviderOptionSetting>,
     /// A level for this run's turn alone; the next run carries the agent's own level again.
     pub(crate) output_speed_for_turn: Option<ProviderToken>,
     /// The run's effective posture. A provider that binds posture at spawn meets a change by

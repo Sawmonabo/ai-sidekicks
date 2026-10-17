@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
 use super::ProviderAccountId;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::wire::instant::WireInstant;
 use crate::wire::list::BoundedVec;
 use crate::wire::literal;
@@ -133,7 +133,7 @@ remedies! {
         /// Remedy for `no_account`: register an account for the provider.
         Register(ProviderRegisterRemedy, RegisterRemedyKind = "register") {
             /// The provider.
-            provider: ProviderName,
+            provider: ProviderId,
         }
         /// Remedy for `no_default`: the person picks one of the listed accounts as the default.
         ChooseDefault(ProviderChooseDefaultRemedy, ChooseDefaultRemedyKind = "choose_default") {
@@ -175,7 +175,7 @@ pub enum ProviderReadiness {
     /// Ready; it carries no remedy.
     Authenticated {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The account resolution reached, when it reached exactly one.
         #[serde(
             default,
@@ -201,7 +201,7 @@ pub enum ProviderReadiness {
     } } }]))]
     ReauthRequired {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The account resolution reached.
         resolved_account_id: ProviderAccountId,
         /// When the stored observation the state was read from was made.
@@ -223,7 +223,7 @@ pub enum ProviderReadiness {
     } } }]))]
     HomeMissing {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The account resolution reached.
         resolved_account_id: ProviderAccountId,
         /// When the stored observation the state was read from was made.
@@ -245,7 +245,7 @@ pub enum ProviderReadiness {
     } } }]))]
     Indeterminate {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The account resolution reached.
         resolved_account_id: ProviderAccountId,
         /// When the stored observation the state was read from was made; absent for none yet.
@@ -263,7 +263,7 @@ pub enum ProviderReadiness {
     /// No account is registered for the provider.
     NoAccount {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The account resolution reached, when it reached exactly one.
         #[serde(
             default,
@@ -287,7 +287,7 @@ pub enum ProviderReadiness {
     /// Accounts are registered but none is the default.
     NoDefault {
         /// The provider.
-        provider: ProviderName,
+        provider: ProviderId,
         /// The account resolution reached, when it reached exactly one.
         #[serde(
             default,

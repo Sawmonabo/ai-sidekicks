@@ -1,12 +1,13 @@
-//! Providers: names, accounts, drivers, settings, installs, imports and tools.
+//! Providers: ids, accounts, driver declarations, drivers, settings, installs, imports, tools.
 
 use crate::typescript::TypeScriptModule;
 
 pub mod account;
+pub mod declaration;
 pub mod driver;
+pub mod id;
 pub mod import;
 pub mod install;
-pub mod name;
 pub mod settings;
 pub mod tools;
 
@@ -15,6 +16,7 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &account::methods::TYPESCRIPT_MODULE,
     &account::record::TYPESCRIPT_MODULE,
     &account::sign_in::TYPESCRIPT_MODULE,
+    &declaration::TYPESCRIPT_MODULE,
     &driver::capabilities::TYPESCRIPT_MODULE,
     &driver::commands::TYPESCRIPT_MODULE,
     &driver::compaction::TYPESCRIPT_MODULE,
@@ -25,11 +27,10 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &driver::output_speed::TYPESCRIPT_MODULE,
     &driver::recovery::TYPESCRIPT_MODULE,
     &driver::tools::TYPESCRIPT_MODULE,
-    &driver::ultracode::TYPESCRIPT_MODULE,
     &driver::usage_limit::TYPESCRIPT_MODULE,
+    &id::TYPESCRIPT_MODULE,
     &import::TYPESCRIPT_MODULE,
     &install::TYPESCRIPT_MODULE,
-    &name::TYPESCRIPT_MODULE,
     &settings::TYPESCRIPT_MODULE,
     &tools::TYPESCRIPT_MODULE,
 ];

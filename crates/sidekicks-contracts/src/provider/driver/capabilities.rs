@@ -1,19 +1,12 @@
-//! What a driver offers a client: its models and modes, its capability flags and its contract
-//! version. The `driver.list*` replies that carry them are in the driver's methods.
+//! What a driver offers a client: its models and modes, and the execution posture a run starts
+//! under. The `driver.list*` replies that carry them are in the driver's methods.
 
-use std::borrow::Cow;
-use std::collections::BTreeMap;
-
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::de::Error as _;
-use serde::{Deserialize, Deserializer, Serialize};
-use strum::VariantArray;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FilesystemPath;
-use crate::provider::driver::methods::{
-    DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN, DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN,
-};
-use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::provider::driver::methods::{DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN};
+use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
@@ -81,146 +74,6 @@ pub struct ProviderMode {
     pub id: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
     /// The mode's name.
     pub name: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
-}
-
-/// One driver capability flag. The database's list and every map over the flags follow this
-/// order, and the daemon stores one row per flag.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    VariantArray,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum DriverCapabilityFlag {
-    /// Resumes a provider session.
-    Resume,
-    /// Steers a running turn.
-    Steer,
-    /// Asks the person mid-turn.
-    InteractiveRequests,
-    /// Runs tool servers.
-    Mcp,
-    /// Calls tools.
-    ToolCalls,
-    /// Streams its reasoning.
-    ReasoningStream,
-    /// Changes the model mid-session.
-    ModelMutation,
-    /// Answers in a given shape.
-    StructuredOutput,
-    /// Rolls a conversation back.
-    Rollback,
-    /// Moves the session onto a new provider conversation forked from the bound one at a message;
-    /// never an undo.
-    SessionFork,
-    /// Keeps a session goal.
-    SessionGoals,
-    /// Calls the daemon's callback tools.
-    CallbackTools,
-    /// Runs subagents.
-    Subagents,
-    /// Compacts the bound session's provider-side context when the person asks.
-    ContextCompaction,
-    /// Lists the provider's commands and skills live.
-    ProviderCommands,
-    /// A faster-output mode the person sets and the provider declares a state for.
-    OutputSpeed,
-    /// A switch the person sets that stays on at any effort, applied between turns and declared
-    /// back by the provider.
-    Ultracode,
-}
-
-ts_constants! {
-    /// Every driver capability flag, in canonical order.
-    pub const DRIVER_CAPABILITY_FLAGS: &[DriverCapabilityFlag] = DriverCapabilityFlag::VARIANTS;
-}
-
-/// Each capability flag's value: every flag present, no other member.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
-pub struct DriverCapabilityFlags(BTreeMap<DriverCapabilityFlag, bool>);
-
-impl DriverCapabilityFlags {
-    /// Every flag's value, asked of `value_of` once per flag, so no flag can be left out.
-    pub fn from_fn(value_of: impl Fn(DriverCapabilityFlag) -> bool) -> Self {
-        Self(
-            DRIVER_CAPABILITY_FLAGS
-                .iter()
-                .map(|flag| (*flag, value_of(*flag)))
-                .collect(),
-        )
-    }
-
-    /// Whether the driver declares `flag`. Every flag is held: the constructor asks for each one
-    /// and deserializing refuses a map that misses one.
-    pub fn is_on(&self, flag: DriverCapabilityFlag) -> bool {
-        self.0[&flag]
-    }
-}
-
-impl<'de> Deserialize<'de> for DriverCapabilityFlags {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let flags = BTreeMap::<DriverCapabilityFlag, bool>::deserialize(deserializer)?;
-        match DRIVER_CAPABILITY_FLAGS
-            .iter()
-            .find(|flag| !flags.contains_key(flag))
-        {
-            Some(missing) => Err(D::Error::custom(format!("the flag {missing:?} is missing"))),
-            None => Ok(Self(flags)),
-        }
-    }
-}
-
-impl JsonSchema for DriverCapabilityFlags {
-    fn inline_schema() -> bool {
-        true
-    }
-
-    fn schema_name() -> Cow<'static, str> {
-        "DriverCapabilityFlags".into()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        let names: Vec<serde_json::Value> = DRIVER_CAPABILITY_FLAGS
-            .iter()
-            .map(|flag| serde_json::to_value(flag).expect("a flag serializes as its name"))
-            .collect();
-        let properties: serde_json::Map<String, serde_json::Value> = names
-            .iter()
-            .filter_map(serde_json::Value::as_str)
-            .map(|name| {
-                (
-                    name.to_owned(),
-                    json_schema!({ "type": "boolean" }).to_value(),
-                )
-            })
-            .collect();
-        json_schema!({
-            "type": "object",
-            "properties": properties,
-            "required": names,
-            "additionalProperties": false,
-        })
-    }
-}
-
-/// A driver's capability flags and contract version.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DriverCapabilities {
-    /// Each flag's value.
-    pub flags: DriverCapabilityFlags,
-    /// The driver's contract version.
-    pub contract_version: FreeFormText<DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN>,
 }
 
 /// The name of the credential deny list handed to the provider, a reference so the list itself is
@@ -331,16 +184,14 @@ impl ExecutionPosture {
 /// The TypeScript module of what a driver offers.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/driver/capabilities",
-    doc: "What a driver offers a client: its models and modes, its capability flags and its \
-          contract version.",
+    doc: "What a driver offers a client: its models and modes, and the execution posture a run \
+          starts under.",
     definitions: &[
         Definition::read::<ProviderModel>(),
         Definition::read::<ProviderMode>(),
-        Definition::read::<DriverCapabilityFlag>(),
-        Definition::read::<DriverCapabilities>(),
         Definition::read::<ExecutionPosture>().checked(),
     ],
-    constants: TS_CONSTANTS,
+    constants: &[],
     method_tables: &[],
 };
 

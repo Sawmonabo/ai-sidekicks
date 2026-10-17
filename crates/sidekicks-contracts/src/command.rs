@@ -60,6 +60,9 @@ pub struct RunningCommand {
     pub started_at: WireInstant,
     /// True only while the provider holds the agent's turn on this command.
     pub waiting_in_foreground: bool,
+    /// True while the session's provider offers to move this waited-on command to the background,
+    /// its output held until the command ends; only then does the row carry `Move to background`.
+    pub can_move_to_background: bool,
     /// True when the command can take typed input for its whole run, so its row has an input line.
     pub accepts_input: bool,
     /// True while the daemon reads from the system that the command is blocked reading its input.
@@ -144,8 +147,8 @@ pub struct CommandStopResponse {
 }
 
 /// `command.background`: moves a command the agent is waiting on to the background, so the agent's
-/// turn continues and the command's output streams into its row. Only one provider has this act;
-/// on the other the control does not exist.
+/// turn continues and the command's output streams into its row. Sent only for a command whose
+/// entry reads `canMoveToBackground`; where no entry does, the control does not exist.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

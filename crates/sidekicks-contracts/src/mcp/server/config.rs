@@ -6,11 +6,10 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::json;
+use strum::{IntoStaticStr, VariantArray};
 
-use crate::provider::name::ProviderName;
-use crate::schema::{push_all_of, required_member};
 use crate::web_address::WebAddress;
+use crate::wire::list::{UniqueList, closed_list_key};
 use crate::wire::number::PositiveNumber;
 use crate::wire::record::Record;
 use crate::wire::text::{BoundedText, FreeFormText, is_within_length};
@@ -77,9 +76,9 @@ impl JsonSchema for McpServerAddress {
 pub type McpTextMap = Record<McpRequestText, McpRequestValue>;
 
 /// Declares a declaration union tagged on `transport`: a program the provider starts (`stdio`)
-/// and a server reached at an address over streamable HTTP (`http`) or server-sent events (`sse`,
-/// Claude Code only), each arm ending with the settings every transport carries, the same on a
-/// submitted declaration and its read-back.
+/// and a server reached at an address over streamable HTTP (`http`) or server-sent events (`sse`),
+/// each arm ending with the settings every transport carries, the same on a submitted declaration
+/// and its read-back.
 macro_rules! server_config {
     (
         $(#[doc = $doc:literal])+
@@ -98,8 +97,8 @@ macro_rules! server_config {
                 )]
                 #[schemars(with = "bool")]
                 enabled: Option<bool>,
-                /// Whether a session refuses to start without the server; Codex only. Unset keeps
-                /// the provider's value.
+                /// Whether a session refuses to start without the server. Unset keeps the
+                /// provider's value.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
@@ -107,7 +106,7 @@ macro_rules! server_config {
                 )]
                 #[schemars(with = "bool")]
                 required: Option<bool>,
-                /// How long the server may take to start, in seconds; Codex only.
+                /// How long the server may take to start, in seconds.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
@@ -115,7 +114,7 @@ macro_rules! server_config {
                 )]
                 #[schemars(with = "PositiveNumber")]
                 startup_timeout_sec: Option<PositiveNumber>,
-                /// How long one tool call may take, in seconds; Codex only.
+                /// How long one tool call may take, in seconds.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
@@ -144,7 +143,7 @@ macro_rules! server_config {
             Stdio { $($stdio)* $($shared)* },
             /// A server reached over streamable HTTP.
             Http { $($remote)* $($shared)* },
-            /// A server reached over server-sent events; Claude Code only.
+            /// A server reached over server-sent events.
             Sse { $($remote)* $($shared)* },
         }
     };
@@ -153,8 +152,8 @@ macro_rules! server_config {
 server_config! {
     /// A server's declaration as the person submits it, by transport; unset members keep the
     /// provider's values. Environment and header values are write-only, handed to the provider's
-    /// write path and never served back. A member only Codex reads is refused on a Claude Code
-    /// binding, and `sse` on a Codex one.
+    /// write path and never served back. The daemon refuses a transport or member the binding's
+    /// provider does not declare, the declared set `provider.list` sends.
     pub enum McpServerConfigInput {
         stdio {
             /// The program.
@@ -175,8 +174,8 @@ server_config! {
             )]
             #[schemars(with = "McpTextMap")]
             env: Option<McpTextMap>,
-            /// The names of the variables it inherits from the environment Codex starts in; Codex
-            /// only.
+            /// The names of the variables it inherits from the environment the provider starts
+            /// in.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
@@ -196,7 +195,7 @@ server_config! {
             )]
             #[schemars(with = "McpTextMap")]
             headers: Option<McpTextMap>,
-            /// The environment variable holding a bearer token; Codex only.
+            /// The environment variable holding a bearer token.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
@@ -204,8 +203,7 @@ server_config! {
             )]
             #[schemars(with = "McpRequestText")]
             bearer_token_env_var: Option<McpRequestText>,
-            /// A header name mapped to the name of the environment variable holding its value;
-            /// Codex only.
+            /// A header name mapped to the name of the environment variable holding its value.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
@@ -213,7 +211,7 @@ server_config! {
             )]
             #[schemars(with = "McpTextMap")]
             env_http_headers: Option<McpTextMap>,
-            /// The scopes a sign-in asks for; Codex only.
+            /// The scopes a sign-in asks for.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
@@ -221,7 +219,7 @@ server_config! {
             )]
             #[schemars(with = "Vec<McpRequestText>")]
             oauth_scopes: Option<Vec<McpRequestText>>,
-            /// The resource a sign-in names; Codex only.
+            /// The resource a sign-in names.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
@@ -231,132 +229,6 @@ server_config! {
             oauth_resource: Option<McpRequestText>,
         }
     }
-}
-
-/// The members of a submitted declaration only Codex reads, by wire name; a Claude Code binding
-/// refuses each.
-const CODEX_ONLY_CONFIG_MEMBERS: [&str; 8] = [
-    "envVars",
-    "required",
-    "startupTimeoutSec",
-    "toolTimeoutSec",
-    "bearerTokenEnvVar",
-    "envHttpHeaders",
-    "oauthScopes",
-    "oauthResource",
-];
-
-impl McpServerConfigInput {
-    /// Whether the declaration sets the member of that wire name.
-    fn sets_member(&self, member: &str) -> bool {
-        match self {
-            Self::Stdio {
-                env_vars,
-                required,
-                startup_timeout_sec,
-                tool_timeout_sec,
-                ..
-            } => match member {
-                "envVars" => env_vars.is_some(),
-                "required" => required.is_some(),
-                "startupTimeoutSec" => startup_timeout_sec.is_some(),
-                "toolTimeoutSec" => tool_timeout_sec.is_some(),
-                _ => false,
-            },
-            Self::Http {
-                bearer_token_env_var,
-                env_http_headers,
-                oauth_scopes,
-                oauth_resource,
-                required,
-                startup_timeout_sec,
-                tool_timeout_sec,
-                ..
-            }
-            | Self::Sse {
-                bearer_token_env_var,
-                env_http_headers,
-                oauth_scopes,
-                oauth_resource,
-                required,
-                startup_timeout_sec,
-                tool_timeout_sec,
-                ..
-            } => match member {
-                "bearerTokenEnvVar" => bearer_token_env_var.is_some(),
-                "envHttpHeaders" => env_http_headers.is_some(),
-                "oauthScopes" => oauth_scopes.is_some(),
-                "oauthResource" => oauth_resource.is_some(),
-                "required" => required.is_some(),
-                "startupTimeoutSec" => startup_timeout_sec.is_some(),
-                "toolTimeoutSec" => tool_timeout_sec.is_some(),
-                _ => false,
-            },
-        }
-    }
-
-    /// Whether the declaration fits its provider: a Claude Code binding sets no member only Codex
-    /// reads, and a Codex binding is not reached over `sse`.
-    pub(crate) fn check_provider(&self, provider: ProviderName) -> garde::Result {
-        match provider {
-            ProviderName::Claude => {
-                match CODEX_ONLY_CONFIG_MEMBERS
-                    .into_iter()
-                    .find(|member| self.sets_member(member))
-                {
-                    Some(member) => Err(garde::Error::new(format!(
-                        "{member} is read only by Codex, so a Claude Code binding refuses it"
-                    ))),
-                    None => Ok(()),
-                }
-            }
-            ProviderName::Codex if matches!(self, Self::Sse { .. }) => {
-                Err(garde::Error::new("a Codex binding is not reached over sse"))
-            }
-            ProviderName::Codex => Ok(()),
-        }
-    }
-}
-
-/// The schema twin of [`McpServerConfigInput::check_provider`], on a request whose `provider` sits
-/// beside its `config`.
-pub(crate) fn add_provider_config_rules(schema: &mut Schema) {
-    let provider_is = |provider: ProviderName| {
-        json!({
-            "type": "object",
-            "properties": { "provider": { "const": provider } },
-            "required": ["provider"],
-        })
-    };
-    push_all_of(
-        schema,
-        json!({
-            "if": provider_is(ProviderName::Claude),
-            "then": {
-                "type": "object",
-                "properties": {
-                    "config": {
-                        "not": { "anyOf": CODEX_ONLY_CONFIG_MEMBERS.map(required_member) },
-                    },
-                },
-            },
-        }),
-    );
-    push_all_of(
-        schema,
-        json!({
-            "if": provider_is(ProviderName::Codex),
-            "then": {
-                "type": "object",
-                "properties": {
-                    "config": {
-                        "type": "object",
-                        "properties": { "transport": { "not": { "const": "sse" } } },
-                    },
-                },
-            },
-        }),
-    );
 }
 
 server_config! {
@@ -437,6 +309,166 @@ server_config! {
             )]
             #[schemars(with = "String")]
             oauth_resource: Option<String>,
+        }
+    }
+}
+
+/// How a server is reached: a program the provider starts, streamable HTTP or server-sent events.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
+)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum McpTransport {
+    /// A program the provider starts.
+    Stdio,
+    /// Streamable HTTP.
+    Http,
+    /// Server-sent events.
+    Sse,
+}
+
+/// A member of a submitted declaration that a provider reads only if its driver declares it.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
+)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum McpDeclaredConfigMember {
+    /// `envVars`.
+    EnvVars,
+    /// `required`.
+    Required,
+    /// `startupTimeoutSec`.
+    StartupTimeoutSec,
+    /// `toolTimeoutSec`.
+    ToolTimeoutSec,
+    /// `bearerTokenEnvVar`.
+    BearerTokenEnvVar,
+    /// `envHttpHeaders`.
+    EnvHttpHeaders,
+    /// `oauthScopes`.
+    OauthScopes,
+    /// `oauthResource`.
+    OauthResource,
+}
+
+closed_list_key!(McpTransport, McpDeclaredConfigMember);
+
+/// What a provider's driver declares about the servers it takes: the transports it reaches them
+/// over and the members it reads beyond the ones every provider reads. The desktop's form offers
+/// only these, and the daemon refuses any other.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct ProviderMcpDeclaration {
+    /// The transports, at least one.
+    #[garde(dive)]
+    pub transports: UniqueList<McpTransport, 1, { usize::MAX }>,
+    /// The members it reads beyond the shared ones; may be empty.
+    #[garde(dive)]
+    pub config_members: UniqueList<McpDeclaredConfigMember, 0, { usize::MAX }>,
+}
+
+impl McpServerConfigInput {
+    /// The declaration's transport.
+    pub fn transport(&self) -> McpTransport {
+        match self {
+            Self::Stdio { .. } => McpTransport::Stdio,
+            Self::Http { .. } => McpTransport::Http,
+            Self::Sse { .. } => McpTransport::Sse,
+        }
+    }
+
+    /// Whether the declaration sets `member`; a member its transport does not carry is never set.
+    pub fn sets_member(&self, member: McpDeclaredConfigMember) -> bool {
+        match self {
+            Self::Stdio {
+                env_vars,
+                required,
+                startup_timeout_sec,
+                tool_timeout_sec,
+                ..
+            } => match member {
+                McpDeclaredConfigMember::EnvVars => env_vars.is_some(),
+                McpDeclaredConfigMember::Required => required.is_some(),
+                McpDeclaredConfigMember::StartupTimeoutSec => startup_timeout_sec.is_some(),
+                McpDeclaredConfigMember::ToolTimeoutSec => tool_timeout_sec.is_some(),
+                McpDeclaredConfigMember::BearerTokenEnvVar
+                | McpDeclaredConfigMember::EnvHttpHeaders
+                | McpDeclaredConfigMember::OauthScopes
+                | McpDeclaredConfigMember::OauthResource => false,
+            },
+            Self::Http {
+                bearer_token_env_var,
+                env_http_headers,
+                oauth_scopes,
+                oauth_resource,
+                required,
+                startup_timeout_sec,
+                tool_timeout_sec,
+                ..
+            }
+            | Self::Sse {
+                bearer_token_env_var,
+                env_http_headers,
+                oauth_scopes,
+                oauth_resource,
+                required,
+                startup_timeout_sec,
+                tool_timeout_sec,
+                ..
+            } => match member {
+                McpDeclaredConfigMember::EnvVars => false,
+                McpDeclaredConfigMember::Required => required.is_some(),
+                McpDeclaredConfigMember::StartupTimeoutSec => startup_timeout_sec.is_some(),
+                McpDeclaredConfigMember::ToolTimeoutSec => tool_timeout_sec.is_some(),
+                McpDeclaredConfigMember::BearerTokenEnvVar => bearer_token_env_var.is_some(),
+                McpDeclaredConfigMember::EnvHttpHeaders => env_http_headers.is_some(),
+                McpDeclaredConfigMember::OauthScopes => oauth_scopes.is_some(),
+                McpDeclaredConfigMember::OauthResource => oauth_resource.is_some(),
+            },
+        }
+    }
+
+    /// Whether the declaration fits what its provider's driver declares: a declared transport and
+    /// no member the driver leaves out. The error names the first misfit and never a value.
+    pub fn check_declared(&self, declaration: &ProviderMcpDeclaration) -> garde::Result {
+        let transport = self.transport();
+        if !declaration.transports.as_slice().contains(&transport) {
+            return Err(garde::Error::new(format!(
+                "the provider does not reach a server over {}",
+                <&str>::from(transport)
+            )));
+        }
+        match McpDeclaredConfigMember::VARIANTS.iter().find(|member| {
+            self.sets_member(**member) && !declaration.config_members.as_slice().contains(member)
+        }) {
+            Some(member) => Err(garde::Error::new(format!(
+                "the provider does not read {}",
+                <&str>::from(*member)
+            ))),
+            None => Ok(()),
         }
     }
 }

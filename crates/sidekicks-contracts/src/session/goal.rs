@@ -25,8 +25,8 @@ pub struct SessionGoal {
 }
 
 /// Where a goal stands. `complete` and `impossible` are final; a goal's last status is what its row
-/// draws. Only Claude Code sends `impossible`, carrying the judge's reason. Clearing is the event
-/// `session.goal_cleared`, never a status.
+/// draws. `impossible` comes only from a provider whose judge can rule a goal out, carrying the
+/// judge's reason. Clearing is the event `session.goal_cleared`, never a status.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum SessionGoalStatus {
@@ -70,7 +70,7 @@ pub struct SessionGoalUpdateResponse {
     pub goal: SessionGoal,
 }
 
-/// Removes one agent's goal. With no goal set it succeeds, as Codex's own clear does.
+/// Removes one agent's goal. With no goal set it succeeds, as a provider's own clear does.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

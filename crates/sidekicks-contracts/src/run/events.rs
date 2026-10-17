@@ -14,7 +14,7 @@ use crate::provider::driver::intervention::InterventionType;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::run::control::{InterventionId, ProcessExit, RunCompletionKind, RunFailureCategory};
 use crate::run::failure_cause::RunFailureCause;
 use crate::run::id::RunId;
@@ -280,7 +280,7 @@ run_marker_payloads! {
     /// run, with the model it runs where it named one.
     pub struct RunProviderInitializedPayload {
         /// The provider.
-        pub provider: ProviderName,
+        pub provider: ProviderId,
         /// The model it runs.
         #[serde(
             default,

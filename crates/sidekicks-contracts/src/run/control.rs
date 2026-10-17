@@ -20,7 +20,7 @@ use crate::provider::driver::methods::{
     DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_REASON_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN,
 };
 use crate::provider::driver::recovery::RecoveryCondition;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::run::children::{
     ChildInterruptRequest, ChildInterruptResponse, ChildPauseSetRequest, ChildPauseSetResponse,
     ChildSteerRequest, ChildrenStopRequest, ChildrenStopResponse,
@@ -193,7 +193,8 @@ intervention_interrupt_request! {
 }
 
 /// A caller's request to interrupt or retry a run; a person's steer is a `run.queueCreate`, never
-/// an intervention. `faster_model_retry` resends a turn Codex holds for a safety check on `model`.
+/// an intervention. `faster_model_retry` resends a turn the provider holds for a safety check on
+/// `model`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "type",
@@ -205,7 +206,7 @@ intervention_interrupt_request! {
 pub enum InterventionRequestPayload {
     /// Interrupts the run's turn.
     Interrupt(InterventionInterruptRequest),
-    /// Retries the turn Codex holds on the faster model it names.
+    /// Retries the turn the provider holds on the faster model it names.
     FasterModelRetry {
         /// The run retried.
         target_run_id: RunId,
@@ -570,9 +571,9 @@ pub struct RunRolledBackEvent {
     pub target_position: SourcePosition,
 }
 
-/// One delivery on `run.subscribeState`: a state change, a rollback, or Codex's safety hold on the
-/// run's turn. The hold is a live detail only this stream carries, never written to the session's
-/// history. None carries a tag; their closed members keep them apart.
+/// One delivery on `run.subscribeState`: a state change, a rollback, or the provider's safety hold
+/// on the run's turn. The hold is a live detail only this stream carries, never written to the
+/// session's history. None carries a tag; their closed members keep them apart.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 pub enum RunStateStreamEvent {
@@ -580,13 +581,13 @@ pub enum RunStateStreamEvent {
     StateChange(#[garde(dive)] RunStateChangeEvent),
     /// A rollback.
     RolledBack(#[garde(skip)] RunRolledBackEvent),
-    /// Codex's safety hold or its release.
+    /// The provider's safety hold or its release.
     SafetyBuffering(#[garde(skip)] RunSafetyBufferingUpdatedPayload),
 }
 
 /// One change on `run.subscribeState`: the delivery and the cursor of the event it came from, or,
-/// for Codex's safety hold, which the session's history never records, the session's newest
-/// cursor when it went out.
+/// for the provider's safety hold, which the session's history never records, the session's
+/// newest cursor when it went out.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -691,7 +692,7 @@ pub struct RunRecoveryStepsAddedPayload {
     /// How many steps were added, at least one.
     pub count: SafeInt<1>,
     /// The provider whose record they came from.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
 }
 
 /// Opens a session's run state stream: every run in the session, the lead and each child, which
@@ -733,6 +734,7 @@ methods! {
                 QueueChangeRefused,
                 QueueRunChanged,
                 SkillPathRefused,
+                SessionMessageTooLarge,
             ],
         },
         /// Reads a queue in the daemon's order.
@@ -803,17 +805,18 @@ methods! {
             emission: RunStateStreamFrame,
             refusals: [SessionNotFound, EventCursorUnresolvable],
         },
-        /// Steers one live child of a run.
+        /// Steers one child of a session, live or ended.
         RunChildSteer = mutation "run.childSteer" {
             mutating: true,
             params: ChildSteerRequest,
             result: QueueItemCreateResponse,
             refusals: [
-                RunNotFound,
+                SessionNotFound,
                 RunChildControlRefused,
                 QueueItemNotFound,
                 QueueChangeRefused,
                 QueuePersistenceUnavailable,
+                SessionMessageTooLarge,
             ],
         },
         /// Interrupts one live child of a run.

@@ -11,7 +11,7 @@ use serde_json::Value;
 use strum::VariantArray;
 
 use crate::place::Place;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
@@ -283,7 +283,7 @@ macro_rules! provider_account_arm {
             /// The account's id.
             pub account_id: ProviderAccountId,
             /// The provider.
-            pub provider: ProviderName,
+            pub provider: ProviderId,
             /// The name the person gave an account added from a pasted token or API key; absent
             /// on every other account, which its provider-reported identity names.
             #[serde(
@@ -416,8 +416,6 @@ pub enum ProviderAccount {
 /// The members of an account its label is drawn from: an account's own, or the columns a
 /// workflow step's spent account keeps.
 pub struct AccountLabelFields<'account> {
-    /// The provider.
-    pub provider: ProviderName,
     /// The label the person gave, if any.
     pub display_label: Option<&'account str>,
     /// How the provider says the account signed in.
@@ -449,7 +447,6 @@ impl ProviderAccount {
     /// The members the account's label is drawn from.
     pub fn label_fields(&self) -> AccountLabelFields<'_> {
         either_arm!(self, |account| AccountLabelFields {
-            provider: account.provider,
             display_label: account.display_label.as_ref().map(FreeFormText::as_str),
             observed_auth_mode: account.observed_auth_mode,
             observed_account_email: account
@@ -521,8 +518,8 @@ pub struct ProviderAccountListRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "ProviderName")]
-    pub provider: Option<ProviderName>,
+    #[schemars(with = "ProviderId")]
+    pub provider: Option<ProviderId>,
     /// Scopes readiness to one account instead of the provider's default; an unknown or removed
     /// id is refused, never replaced by the default.
     #[serde(

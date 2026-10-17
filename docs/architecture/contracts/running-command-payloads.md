@@ -13,7 +13,7 @@ The console's window onto the shell commands an agent started. The provider deci
 | `command.background` | `mutation` | `CommandBackgroundRequest` | `CommandBackgroundResponse` |
 | `command.write` | `mutation` | `CommandWriteRequest` | `CommandWriteResponse` |
 
-`command.list` is a subscription and not a read, because the set changes without anyone asking and a command can outlive the turn that started it. `command.background` acts only on a row that carries `Move to background`, a control the session's driver puts on a running-command row, never a flag: Claude Code's driver puts it on a command its agent waits on in the foreground, and Codex's puts none, because every Codex command already streams. Where the driver puts none the control does not exist — absent rather than disabled — so the verb is never dispatched there and a word typed for it is answered by the console with one row rather than a refused call. `command.write` carries what the person typed on a command's input line, or `End input`. A command that can take input, a Codex command given a terminal or one an agent ran with `shell_run`, carries that line for its whole run, so a write is taken whether or not the command is waiting; the waiting signal only brings the line forward and marks the session waiting. `End input` ends the command's input as end of file does on a terminal. A git or ssh prompt that would open the terminal raises the same input line with the prompt's own words, on any command, and there `End input` answers the prompt with nothing, as closing the prompt would.
+`command.list` is a subscription and not a read, because the set changes without anyone asking and a command can outlive the turn that started it. `command.background` acts only on a row that carries `Move to background`, which the row's `canMoveToBackground` says the session's provider offers for that command: today Claude Code's driver offers it on a command its agent waits on in the foreground, and Codex's on none, because every Codex command already streams. Where the driver puts none the control does not exist — absent rather than disabled — so the verb is never dispatched there and a word typed for it is answered by the console with one row rather than a refused call. `command.write` carries what the person typed on a command's input line, or `End input`. A command that can take input, a Codex command given a terminal or one an agent ran with `shell_run`, carries that line for its whole run, so a write is taken whether or not the command is waiting; the waiting signal only brings the line forward and marks the session waiting. `End input` ends the command's input as end of file does on a terminal. A git or ssh prompt that would open the terminal raises the same input line with the prompt's own words, on any command, and there `End input` answers the prompt with nothing, as closing the prompt would.
 
 ```ts
 // One running command, in the order the commands started. `name` is the command as the agent ran it,
@@ -27,6 +27,9 @@ interface RunningCommand {
   name: string;
   startedAt: string;
   waitingInForeground: boolean;
+  // True while the session's provider offers to move this waited-on command to the background, its
+  // output held until the command ends; only then does the row carry `Move to background`.
+  canMoveToBackground: boolean;
   // True for a command that can take typed input for its whole run, a Codex command given a terminal
   // or one an agent ran with `shell_run`, so its row carries the input line from start to end; false
   // for a Claude Code Bash command and a Codex command started without a terminal, whose input the

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use lru::LruCache;
 use serde_json::{Map, Value};
-use sidekicks_contracts::provider::name::ProviderName;
+use sidekicks_contracts::provider::id::ProviderId;
 use tokio::time::Instant;
 
 use crate::provider::driver::diagnostics::{
@@ -53,7 +53,7 @@ struct HeldCompletion<Event> {
 /// timeout flush in arrival order, each with a diagnostic; the caller supplies the clock.
 pub(crate) struct NormalizedEventReorderBuffer<Event> {
     /// The provider its diagnostics name.
-    provider: ProviderName,
+    provider: ProviderId,
     /// How many completions may wait at once before all are flushed.
     max_buffered_events: usize,
     /// How long a completion waits for its initiation.
@@ -69,7 +69,7 @@ impl<Event> NormalizedEventReorderBuffer<Event> {
     /// An empty buffer for `provider` holding at most `max_buffered_events` completions, each for
     /// at most `pairing_timeout`.
     pub(crate) fn new(
-        provider: ProviderName,
+        provider: ProviderId,
         max_buffered_events: usize,
         pairing_timeout: Duration,
     ) -> Self {
@@ -155,7 +155,7 @@ impl<Event> NormalizedEventReorderBuffer<Event> {
             return;
         };
         emit_driver_diagnostic(&DriverDiagnosticRecord {
-            provider: self.provider,
+            provider: self.provider.clone(),
             provider_account_id: None,
             kind: DriverDiagnosticKind::ReorderSeenInitiationEvicted,
             raw_wire_type: None,
@@ -192,7 +192,7 @@ impl<Event> NormalizedEventReorderBuffer<Event> {
             .map(|held| {
                 let held_for = now.saturating_duration_since(held.held_at);
                 emit_driver_diagnostic(&DriverDiagnosticRecord {
-                    provider: self.provider,
+                    provider: self.provider.clone(),
                     provider_account_id: None,
                     kind: DriverDiagnosticKind::ToolPairingTimeout,
                     raw_wire_type: None,
@@ -225,7 +225,7 @@ impl<Event> NormalizedEventReorderBuffer<Event> {
             .map(|held| held.event)
             .collect();
         emit_driver_diagnostic(&DriverDiagnosticRecord {
-            provider: self.provider,
+            provider: self.provider.clone(),
             provider_account_id: None,
             kind: DriverDiagnosticKind::ReorderBufferOverflow,
             raw_wire_type: None,
@@ -248,11 +248,11 @@ impl<Event> NormalizedEventReorderBuffer<Event> {
 mod tests {
     use std::time::Duration;
 
-    use sidekicks_contracts::provider::name::PROVIDER_NAMES;
     use tokio::time::Instant;
 
     use super::{NormalizedEventReorderBuffer, ReorderBufferedEvent, ReorderPairingRole};
     use crate::provider::driver::diagnostics::RecordedEvents;
+    use crate::provider::driver::registry::test_provider;
 
     fn offered(
         tool_call_id: &str,
@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn an_early_completion_goes_out_after_its_initiation() {
         let mut buffer =
-            NormalizedEventReorderBuffer::new(PROVIDER_NAMES[0], 8, Duration::from_secs(5));
+            NormalizedEventReorderBuffer::new(test_provider(), 8, Duration::from_secs(5));
         let now = Instant::now();
 
         let held = buffer.admit(
@@ -291,7 +291,7 @@ mod tests {
         let mut released = Vec::new();
         recorded.record_during(|| {
             let mut buffer =
-                NormalizedEventReorderBuffer::new(PROVIDER_NAMES[0], 2, Duration::from_secs(5));
+                NormalizedEventReorderBuffer::new(test_provider(), 2, Duration::from_secs(5));
             let now = Instant::now();
             let arrivals = [
                 ("call-1", "first"),

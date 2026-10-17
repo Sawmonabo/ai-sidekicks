@@ -66,7 +66,7 @@ pub enum DiffFileUnreadableReason {
 }
 
 /// The details of a `gitflow.generate_failed` refusal: the provider's own words; nothing falls
-/// back to the other provider.
+/// back to another provider, model or account.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GitflowGenerateFailedDetails {
@@ -615,6 +615,9 @@ pub struct GitflowCommitMessageGenerateResponse {
     pub subject: NonEmptyText,
     /// The body.
     pub body: String,
+    /// Each changed file no pass could read, which the text does not cover; empty when every file
+    /// was read.
+    pub unread_paths: Vec<FilesystemPath>,
 }
 
 /// The `gitflow.changeRequestTextGenerate` result.
@@ -626,6 +629,9 @@ pub struct GitflowChangeRequestTextGenerateResponse {
     pub title: NonEmptyText,
     /// The description.
     pub description: String,
+    /// Each changed file no pass could read, which the text does not cover; empty when every file
+    /// was read.
+    pub unread_paths: Vec<FilesystemPath>,
 }
 
 /// The `git.settled` payload: one record per act that left or changed the session's branch, so its

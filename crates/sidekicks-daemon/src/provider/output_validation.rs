@@ -3,7 +3,7 @@
 //! [`ProviderOutputValidationError`] that names the field and never the value.
 
 use sidekicks_contracts::provider::driver::methods::DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN;
-use sidekicks_contracts::provider::name::ProviderName;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::integer::MAX_SAFE_INTEGER;
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -26,7 +26,7 @@ const CLI_VERSION_SEMVER_MAX_LEN: usize = 64;
 #[error("invalid provider {field}: {reason}")]
 pub(crate) struct ProviderOutputValidationError {
     /// The driver whose report was refused, when the check knows it.
-    pub(crate) driver_name: Option<ProviderName>,
+    pub(crate) driver_name: Option<ProviderId>,
     /// The stored field refused.
     pub(crate) field: &'static str,
     /// Why, in words.
@@ -81,7 +81,7 @@ pub(crate) fn check_resume_handle(
 /// when the printed version is blank, holds a NUL or is too long, or the parsed one is not a
 /// canonical semantic version within its bound.
 pub(crate) fn check_cli_version_report(
-    driver_name: ProviderName,
+    driver_name: ProviderId,
     report: &DriverCliVersionReport,
 ) -> Result<(), ProviderOutputValidationError> {
     if !is_free_form_text::<CLI_VERSION_RAW_MAX_LEN>(&report.raw_version) {

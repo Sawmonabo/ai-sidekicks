@@ -9,7 +9,7 @@ use crate::provider::driver::length_limits::{
     DRIVER_MCP_SERVER_NAME_MAX_LEN, DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
     DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN, DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
 };
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::Never;
@@ -23,7 +23,7 @@ use crate::wire::text::FreeFormText;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderCommandBinding {
     /// The provider.
-    pub driver_name: ProviderName,
+    pub driver_name: ProviderId,
     /// The account the session bound, or `null` for none.
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<ProviderAccountId>")]

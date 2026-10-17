@@ -32,28 +32,29 @@ type AgentAccentHue =
 // not rebuilt from the event log. Every axis below is one a run already carries, so this
 // shape composes existing axes into a reusable named bundle and mints no new configuration dimension.
 // One provider binding: which provider runs the agent, on which model, paying from which account, at
-// which reasoning effort, and — on a running agent — at which output speed. A definition carries a
-// DEFAULT binding and any number of overrides, so one saved agent runs on every provider it binds
+// which reasoning effort, and — on a running agent — at which output speed and session options. A
+// definition carries a DEFAULT binding and any number of overrides, so one saved agent runs on every provider it binds
 // without a second definition — the cross-provider bridge the library is for. The default is one of
 // the bindings rather than a fallback beside them: there is no unbound state to resolve from. The same shape is a
 // running agent's binding: `agent.configUpdate` moves its members, and the binding events
 // (orchestration-payloads.md §Plan-013) carry it from and to.
-// Both members of the provider pair are always present: `driverName` is null only when the file
-// names a provider this app does not run, and then `unsupportedProviderName` holds that name as the
-// file gave it, kept apart so a binding's provider is only ever one the app runs.
+// A binding names a provider a registered driver answers. Only the definition list serves a binding
+// whose file names a provider no registered driver answers, and it serves it as its own arm: no
+// `driverName`, and `unsupportedProviderName` holding the name as the file gave it, so a binding's
+// provider is only ever one the app runs.
 interface AgentProviderBinding {
   // provider driver key, an open ProviderId checked against the registered drivers, matching the
-  // agent surface's driver axis; null only on a saved definition whose file names a provider this app
-  // does not run, never on a live agent's binding, whose driver is checked against the registered
-  // drivers where agent.provider_binding_changed writes it
-  driverName: ProviderId | null;
-  // the provider name the file gave when `driverName` is null; null otherwise
-  unsupportedProviderName: string | null;
+  // agent surface's driver axis; on a live agent's binding it is checked where
+  // agent.provider_binding_changed writes it
+  driverName: ProviderId;
   modelId: string;
   providerAccountId: ProviderAccountId | null; // null = follow the provider's current account — the one marked `Default`, which `providerAccount.setCurrent` moves — resolved AT THE MOMENT THE RUN STARTS and followed when the mark moves. Deliberately not a foreign key: a definition may name an account that is later removed, and that must surface as a typed resolution refusal the person can act on, not as a delete-time cascade that silently rewrites the definition
   effort: string | null; // null = the driver's default. Validated at RESOLUTION against the target model's driver-reported `effortLevels` — never against a hardcoded list, and never at save, because the vocabulary belongs to the model a run actually binds
   outputSpeed?: string; // set on a running agent's binding through agent.configUpdate; a saved definition's bindings leave it absent, because the editor authors no speed
-  ultracode?: boolean; // Claude Code's Ultracode, set on a running Claude Code agent's binding through agent.configUpdate
+  // The values of the session options the binding's driver declares, at most one per option id; an
+  // option left out keeps the provider's own value. Set on a running agent's binding through
+  // agent.configUpdate; a saved definition's bindings leave it absent.
+  options?: ProviderOptionSetting[];
   // The larger window chosen, in tokens, recorded when it was picked: the `contextWindow` of the
   // larger row picked (`ProviderModel.largerWindow`). Absent means the model's default window. A
   // figure is recorded only for a larger row that shares its default row's id (Codex); a Claude
@@ -62,6 +63,29 @@ interface AgentProviderBinding {
   // catalog says later. Set on a running agent's binding through agent.configUpdate; a saved
   // definition's bindings leave it absent, because the editor authors no window.
   largerWindow?: number;
+}
+
+// A session option a provider's driver declares on its section of provider.list
+// (`sessionOptions`), drawn by its kind where its placement says, and shown on a session only where
+// the provider reports it available there. No option is per provider in the contract: today Claude
+// Code's driver declares one, Ultracode, a switch in the effort menu.
+interface ProviderSessionOption {
+  id: string; // a lowercase letter, then up to 63 letters or digits; unique within its provider
+  label: string;
+  placement: "effortMenu"; // in the effort menu, under its levels
+  control: { control: "switch" } | { control: "choice"; options: ProviderChoiceOption[] };
+}
+interface ProviderChoiceOption {
+  value: string;
+  label: string;
+  line?: string;
+  unavailableReason?: string; // the provider's reason it cannot be picked; absent while it can
+}
+// One session option's value as an agent's binding sets it: on or off for a switch, an option's
+// value for a choice.
+interface ProviderOptionSetting {
+  id: string;
+  value: boolean | string;
 }
 
 interface AgentDefinition {

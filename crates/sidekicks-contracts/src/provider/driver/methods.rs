@@ -1,7 +1,7 @@
 //! The `driver.*` methods a client calls, their requests and replies. Every reply answers for every
 //! driver as a list grouped by `driverName`, never a merged array: model and mode ids collide
 //! across providers, so grouping keeps one provider's value from being sent through an agent bound
-//! to the other.
+//! to another.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -10,17 +10,13 @@ use crate::agent::definition::AgentId;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
-use crate::provider::driver::capabilities::{DriverCapabilities, ProviderMode, ProviderModel};
+use crate::provider::driver::capabilities::{ProviderMode, ProviderModel};
 use crate::provider::driver::commands::ProviderCommandListResult;
 use crate::provider::driver::compaction::DriverCompactionResult;
-use crate::provider::driver::intervention::{
-    ApplyInterventionRequest, DriverInterventionResult, InterruptRunParams,
-};
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::text::FreeFormText;
 
 ts_constants! {
     /// The longest short identifier or label: a model's and a mode's id and name, and the words
@@ -31,8 +27,7 @@ ts_constants! {
     pub const DRIVER_WIRE_HANDLE_MAX_LEN: usize = 256;
     /// The longest reason the person gives on an interrupt or a cancel.
     pub const DRIVER_WIRE_REASON_MAX_LEN: usize = 512;
-    /// The longest contract version a driver reports, on the capability reply and where the
-    /// daemon stores it.
+    /// The longest contract version a driver reports, where the daemon reads and stores it.
     pub const DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN: usize = 64;
     /// The refusal of a provider operation that outlived its deadline.
     DRIVER_TIMEOUT_CODE = RefusalCode::DriverTimeout;
@@ -47,44 +42,12 @@ pub struct ListModelsRequest {
     pub session_id: SessionId,
 }
 
-/// One driver's entry in the `driver.listCapabilities` reply: its flags, the output-speed levels
-/// it declares for every model, and the provider's own tool names, which the tool picker offers. A
-/// provider that publishes its speed levels per model carries them on each model instead.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DriverCapabilityReport {
-    /// The provider.
-    pub driver_name: ProviderName,
-    /// Its flags and contract version.
-    pub capabilities: DriverCapabilities,
-    /// The output-speed levels it declares for every model, sent exactly when `output_speed` is on
-    /// and the driver declares them statically.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "Vec<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>")]
-    pub output_speed_levels: Option<Vec<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>>,
-    /// The provider's own tool names, in its own words.
-    pub built_in_tools: Vec<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>,
-}
-
-/// The reply of `driver.listCapabilities`: one report per driver.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct ListCapabilitiesResult {
-    /// The reports.
-    pub drivers: Vec<DriverCapabilityReport>,
-}
-
 /// One driver's models in the `driver.listModels` reply.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DriverModelReport {
     /// The provider.
-    pub driver_name: ProviderName,
+    pub driver_name: ProviderId,
     /// Its models.
     pub models: Vec<ProviderModel>,
 }
@@ -103,7 +66,7 @@ pub struct ListModelsResult {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DriverModeReport {
     /// The provider.
-    pub driver_name: ProviderName,
+    pub driver_name: ProviderId,
     /// Its modes.
     pub modes: Vec<ProviderMode>,
 }
@@ -144,13 +107,6 @@ pub struct ListProviderCommandsRequest {
 methods! {
     /// The driver methods a client calls: their names, how each answers, and their shapes.
     pub const DRIVER_METHOD_DESCRIPTORS = [
-        /// Lists each driver's capability flags, speed levels and built-in tools.
-        DriverListCapabilities = query "driver.listCapabilities" {
-            mutating: false,
-            params: EmptyPayload,
-            result: ListCapabilitiesResult,
-            refusals: [],
-        },
         /// Lists each driver's models for a session's model control.
         DriverListModels = query "driver.listModels" {
             mutating: false,
@@ -164,26 +120,6 @@ methods! {
             params: EmptyPayload,
             result: ListModesResult,
             refusals: [],
-        },
-        /// Interrupts one run.
-        DriverInterruptRun = mutation "driver.interruptRun" {
-            mutating: true,
-            params: InterruptRunParams,
-            result: EmptyPayload,
-            refusals: [RunNotFound, DriverUnavailable, DriverTimeout],
-        },
-        /// Applies an interrupt to a live run.
-        DriverApplyIntervention = mutation "driver.applyIntervention" {
-            mutating: true,
-            params: ApplyInterventionRequest,
-            result: DriverInterventionResult,
-            refusals: [
-                RunNotFound,
-                InterventionIdempotencyConflict,
-                DriverUnavailable,
-                DriverCapabilityUnsupported,
-                DriverTimeout,
-            ],
         },
         /// Compacts one run's provider-side context.
         DriverCompactContext = mutation "driver.compactContext" {
@@ -220,8 +156,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The `driver.*` methods a client calls, their requests and replies, grouped by driver.",
     definitions: &[
         Definition::read::<ListModelsRequest>(),
-        Definition::read::<DriverCapabilityReport>().checked(),
-        Definition::read::<ListCapabilitiesResult>(),
         Definition::read::<DriverModelReport>(),
         Definition::read::<ListModelsResult>(),
         Definition::read::<DriverModeReport>(),

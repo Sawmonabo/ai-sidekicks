@@ -11,7 +11,7 @@ use strum::VariantArray;
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::web_address::HttpsAddress;
@@ -59,13 +59,13 @@ pub enum CloudUnavailableReason {
 
 /// The `cloud.unavailable` refusal's details: why, and the session's provider, so the screen draws
 /// that provider's own sentence and remedy.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CloudUnavailableDetails {
     /// Why.
     pub reason: CloudUnavailableReason,
     /// The session's provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
 }
 
 /// What the provider reported when a task's attempt was applied to the session's folder: all of
@@ -133,7 +133,7 @@ macro_rules! cloud_task {
             /// The session that sent it.
             pub session_id: SessionId,
             /// The provider whose cloud runs it.
-            pub provider: ProviderName,
+            pub provider: ProviderId,
             /// The environment it runs in.
             pub environment: CloudEnvironmentLabel,
             /// How many attempts it runs.
@@ -178,7 +178,7 @@ pub struct CloudSession {
     /// The session that sent it.
     pub session_id: SessionId,
     /// The provider whose cloud holds it.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// Always `submitted`.
     pub state: CloudSessionState,
     /// Its address on the provider's site.

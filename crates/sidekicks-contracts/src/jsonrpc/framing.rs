@@ -18,10 +18,10 @@ ts_constants! {
     pub const MAX_CHUNK_BYTES: u32 = 65_509;
     /// The credit each lane starts with in each direction, in body bytes.
     pub const INITIAL_LANE_CREDIT: u32 = 262_144;
-    /// The most bytes of JSON one message carries: a send at Codex's own input limit, 2^20
-    /// characters at up to 6 bytes each once escaped as JSON (6 MiB), and 1 MiB for its envelope,
-    /// the JSON-RPC members, its id of up to 256 bytes and the send's other members. It bounds what
-    /// one message makes the reader hold, never what a person may type.
+    /// The most bytes of JSON one message carries: a send of 2^20 characters, the largest input a
+    /// provider takes, at up to 6 bytes each once escaped as JSON (6 MiB), and 1 MiB for its
+    /// envelope, the JSON-RPC members, its id of up to 256 bytes and the send's other members. It
+    /// bounds what one message makes the reader hold, never what a person may type.
     pub const MAX_MESSAGE_BYTES: usize = 7 * 1024 * 1024;
     /// The most bytes of attachments one message carries, each attachment's 4-byte length
     /// included.

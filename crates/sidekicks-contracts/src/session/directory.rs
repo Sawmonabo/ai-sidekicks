@@ -17,7 +17,7 @@ use crate::method_descriptor::EmptyPayload;
 use crate::place::Place;
 use crate::project::ProjectId;
 use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
-use crate::provider::name::ProviderName;
+use crate::provider::id::ProviderId;
 use crate::repo::mount::ExecutionMode;
 use crate::session::convert::{SessionConvertRequest, SessionConvertResponse};
 use crate::session::event_cursor::EventCursor;
@@ -513,7 +513,7 @@ pub struct SessionOverviewAgent {
     /// The agent's name.
     pub name: FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>,
     /// Its provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// What it is doing.
     pub state: SessionActivity,
 }
@@ -533,7 +533,7 @@ pub struct SessionOverviewSession {
     #[schemars(with = "FreeFormText<SESSION_NAME_MAX_LEN>")]
     pub title: Option<FreeFormText<SESSION_NAME_MAX_LEN>>,
     /// Its lead's provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// What it is doing.
     pub state: SessionActivity,
     /// Its agents.

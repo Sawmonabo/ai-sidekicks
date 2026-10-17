@@ -1,6 +1,6 @@
 //! Plugins: the Browse plugins view's wire. Each provider's plugin catalog, what one plugin
-//! carries, installing and removing it, the installed list, the marketplaces a person adds, and a
-//! Codex plugin's apps per account.
+//! carries, installing and removing it, the installed list, the marketplaces a person adds, and the
+//! apps a plugin carries, per provider account.
 //!
 //! The daemon answers every method through the provider's own plugin commands, run against a
 //! plugin home the daemon owns, one per provider: never an account home and never the person's own
@@ -17,7 +17,7 @@ use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::method::methods;
 use crate::provider::account::record::ProviderAccountId;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
-use crate::provider::name::{CodexProviderWord, ProviderName};
+use crate::provider::id::ProviderId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::web_address::HttpsAddress;
 use crate::wire::integer::SafeInt;
@@ -37,7 +37,7 @@ macro_rules! plugin_summary {
             /// The provider's id for it.
             pub id: PluginToken,
             /// Its provider.
-            pub provider: ProviderName,
+            pub provider: ProviderId,
             /// Its name.
             pub name: PluginToken,
             /// The name a person reads.
@@ -83,15 +83,15 @@ plugin_summary! {
     }
 }
 
-/// `plugin.catalogList`: one provider's catalog, filtered by `query` as the person types. Neither
-/// provider's own command takes a query, so the daemon filters. The catalog is read once per
+/// `plugin.catalogList`: one provider's catalog, filtered by `query` as the person types. The
+/// daemon filters, so a provider's own command needs no query. The catalog is read once per
 /// opening of the view and held only while it is open.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct PluginCatalogListRequest {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The typed filter.
     #[serde(
         default,
@@ -134,7 +134,7 @@ pub struct PluginCatalogListResponse {
 #[garde(allow_unvalidated)]
 pub struct PluginRef {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The provider's id for it.
     pub id: PluginToken,
 }
@@ -234,8 +234,8 @@ pub struct PluginUninstallResponse {
     pub uninstalled: True,
 }
 
-/// `plugin.installedList`: the installed plugins of one provider, or of both when `provider` is
-/// absent.
+/// `plugin.installedList`: the installed plugins of one provider, or of every provider when
+/// `provider` is absent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -246,8 +246,8 @@ pub struct PluginInstalledListRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "ProviderName")]
-    pub provider: Option<ProviderName>,
+    #[schemars(with = "ProviderId")]
+    pub provider: Option<ProviderId>,
 }
 
 /// The plugins installed in the daemon's plugin homes, and those installed in the person's own
@@ -269,7 +269,7 @@ pub struct PluginInstalledListResponse {
 #[garde(allow_unvalidated)]
 pub struct PluginMarketplaceAddRequest {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The repository address or folder.
     pub source: FreeFormText<FILE_PATH_MAX_LEN>,
 }
@@ -289,7 +289,7 @@ pub struct PluginMarketplaceAddResponse {
 #[garde(allow_unvalidated)]
 pub struct PluginMarketplaceRemoveRequest {
     /// The provider.
-    pub provider: ProviderName,
+    pub provider: ProviderId,
     /// The marketplace's name.
     pub name: PluginToken,
 }
@@ -303,20 +303,21 @@ pub struct PluginMarketplaceRemoveResponse {
     pub removed: True,
 }
 
-/// `plugin.appList`: a Codex plugin's apps. An app is a tool server its provider hosts, reached
-/// through a Codex account's `ChatGPT` sign-in, so its link is kept per account and every linked
-/// app reaches every session on that account without loading anything.
+/// `plugin.appList`: a plugin's apps, on a provider whose plugins carry them. An app is a tool
+/// server its provider hosts, reached through a provider account's sign-in, so its link is kept
+/// per account and every linked app reaches every session on that account without loading
+/// anything.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct PluginAppListRequest {
-    /// Always `codex`, the one provider whose plugins carry apps.
-    pub provider: CodexProviderWord,
+    /// The provider, one whose plugins carry apps.
+    pub provider: ProviderId,
     /// The plugin.
     pub plugin_id: PluginToken,
 }
 
-/// One Codex account's link to an app. `connectUrl` is the app's page on the provider's site,
+/// One provider account's link to an app. `connectUrl` is the app's page on the provider's site,
 /// where the person links it while signed in as that account; the view opens it in the browser and
 /// reads the list again when the window regains focus. An account signed in with an API key
 /// answers no apps, so it has no line.
@@ -331,7 +332,7 @@ pub struct PluginAppAccountLink {
     pub connect_url: HttpsAddress<{ usize::MAX }>,
 }
 
-/// One app a plugin carries, and its link on each Codex account.
+/// One app a plugin carries, and its link on each account of its provider.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PluginApp {
@@ -404,12 +405,12 @@ methods! {
             result: PluginMarketplaceRemoveResponse,
             refusals: [],
         },
-        /// A Codex plugin's apps.
+        /// A plugin's apps.
         PluginAppList = query "plugin.appList" {
             mutating: false,
             params: PluginAppListRequest,
             result: PluginAppListResponse,
-            refusals: [],
+            refusals: [DriverCapabilityUnsupported],
         },
     ];
 }
@@ -418,7 +419,7 @@ methods! {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "plugin",
     doc: "Plugins: each provider's catalog, what one plugin carries, installing and removing it, \
-          the installed list, marketplaces, and a Codex plugin's apps per account.",
+          the installed list, marketplaces, and a plugin's apps per provider account.",
     definitions: &[
         Definition::read::<PluginSummary>().checked(),
         Definition::read::<PluginCarriedCounts>(),
