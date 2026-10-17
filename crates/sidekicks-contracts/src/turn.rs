@@ -6,7 +6,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
@@ -90,7 +90,7 @@ methods! {
         AgentTurnUsageSubscribe = subscription "agent.turn.usage.subscribe" {
             mutating: false,
             params: AgentTurnSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: TurnUsageUpdate,
             refusals: [SessionNotFound, AgentRunNotFound],
         },
@@ -98,7 +98,7 @@ methods! {
         AgentTurnTaskSubscribe = subscription "agent.turn.task.subscribe" {
             mutating: false,
             params: AgentTurnSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: TurnTasksUpdate,
             refusals: [SessionNotFound, AgentRunNotFound],
         },

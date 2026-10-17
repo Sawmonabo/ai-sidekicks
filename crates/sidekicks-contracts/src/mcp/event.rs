@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::event::envelope::{EventCategory, EventEnvelope};
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::mcp::governance::McpServerStatusChangedNotice;
 use crate::mcp::server::McpServerConfigChangedNotice;
 use crate::method::methods;
@@ -107,7 +107,7 @@ methods! {
         McpSubscribe = subscription "mcp.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: McpSubscribeEmission,
             refusals: [],
         },

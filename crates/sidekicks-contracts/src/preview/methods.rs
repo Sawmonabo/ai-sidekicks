@@ -2,7 +2,7 @@
 //! `preview.*` methods are the page host's link (`page_host`) and the shared ports (`port`).
 
 use crate::jsonrpc::refusal::RefusalCode;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::preview::dev_server::{
@@ -42,7 +42,7 @@ methods! {
         PreviewPageSubscribe = subscription "preview.page.subscribe" {
             mutating: false,
             params: PreviewPageSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: PreviewPageListFrame,
             refusals: [SessionNotFound],
         },
@@ -92,7 +92,7 @@ methods! {
         PreviewDevServerSubscribe = subscription "preview.devServer.subscribe" {
             mutating: false,
             params: PreviewDevServerSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: PreviewDevServerListFrame,
             refusals: [SessionNotFound],
         },
@@ -107,7 +107,7 @@ methods! {
         PreviewScreencastSubscribe = subscription "preview.screencast.subscribe" {
             mutating: false,
             params: PreviewScreencastSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: PreviewScreencastElement,
             refusals: [SessionNotFound],
         },

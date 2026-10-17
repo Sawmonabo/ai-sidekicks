@@ -1,7 +1,7 @@
 //! The method table of repo mounts, the machine's folders, workspaces, projects, clones, git reads
 //! and worktrees.
 
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::project::{
@@ -121,7 +121,7 @@ methods! {
         ProjectSubscribe = subscription "project.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: ProjectList,
             refusals: [],
         },
@@ -184,7 +184,7 @@ methods! {
         ProjectCloneSubscribe = subscription "project.clone.subscribe" {
             mutating: false,
             params: ProjectCloneRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: ProjectCloneStatus,
             refusals: [ProjectNotFound, ProjectCloneUnavailable],
         },
@@ -234,7 +234,7 @@ methods! {
         SessionWorkingFolderSubscribe = subscription "session.workingFolder.subscribe" {
             mutating: false,
             params: SessionWorkingFolderSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: WorkingTreeChange,
             refusals: [SessionNotFound],
         },
@@ -275,7 +275,7 @@ methods! {
         WorktreeSetupSubscribe = subscription "worktree.setup.subscribe" {
             mutating: false,
             params: WorktreeSetupRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: WorktreeSetupStatus,
             refusals: [WorktreeNotFound],
         },
@@ -290,7 +290,7 @@ methods! {
         WorktreeCopySubscribe = subscription "worktree.copy.subscribe" {
             mutating: false,
             params: WorktreeCopySubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: WorktreeCopyProgress,
             refusals: [ProjectNotFound],
         },

@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FilesystemPath;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::provider::id::ProviderId;
 use crate::session::controls::methods::SessionAddressedRequest;
@@ -358,7 +358,7 @@ methods! {
         SessionContextSubscribe = subscription "session.context.subscribe" {
             mutating: false,
             params: SessionAddressedRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: SessionContextReading,
             refusals: [SessionNotFound],
         },

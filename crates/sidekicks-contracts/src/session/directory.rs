@@ -11,7 +11,7 @@ use strum::IntoStaticStr;
 use crate::agent::definition::binding::{AgentProviderBinding, provider_binding};
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
-use crate::jsonrpc::streaming::{SubscribeAckResponse, SubscriptionId};
+use crate::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::Place;
@@ -602,7 +602,7 @@ methods! {
         SessionEventSubscribe = subscription "session.event.subscribe" {
             mutating: false,
             params: SessionEventSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: SessionStreamFrame,
             refusals: [SessionNotFound, SessionEventCursorUnresolvable],
         },

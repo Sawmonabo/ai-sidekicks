@@ -12,7 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::refusal::RefusalCode;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::machine::settings::ENVIRONMENT_ROW_MAX_LEN;
 use crate::mcp::server::config::ProviderMcpDeclaration;
 use crate::method::methods;
@@ -704,7 +704,7 @@ methods! {
         ProviderSubscribe = subscription "provider.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: ProviderSettingsResponse,
             refusals: [],
         },

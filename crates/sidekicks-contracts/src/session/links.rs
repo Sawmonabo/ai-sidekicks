@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::session::id::SessionId;
@@ -121,7 +121,7 @@ methods! {
         SessionRelatedSessionSubscribe = subscription "session.relatedSession.subscribe" {
             mutating: false,
             params: SessionRelatedSessionSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: SessionRelatedListUpdate,
             refusals: [SessionNotFound],
         },

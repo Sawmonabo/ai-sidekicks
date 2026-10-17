@@ -108,6 +108,11 @@ impl JsonSchema for RunStateEventType {
 pub const USER_MESSAGE_EVENT_TYPE: &str = SessionEventType::UserMessageSent.as_str();
 
 impl RunStateEventType {
+    /// The run state event type stored as `event_type`, or `None` for any other type.
+    pub fn from_wire_name(event_type: &str) -> Option<Self> {
+        SessionEventType::from_wire_name(event_type).and_then(|known| Self::try_from(known).ok())
+    }
+
     /// The session event type this is.
     pub const fn session_event_type(self) -> SessionEventType {
         match self {

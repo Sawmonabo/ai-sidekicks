@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::jsonrpc::refusal::{RefusalCategory, RefusalCode};
+use crate::jsonrpc::refusal::RefusalCode;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
@@ -25,16 +25,8 @@ literal! {
 
 literal! {
     /// The category of a sign-in route's 429, the one `relay.rateLimited` carries.
-    pub enum RelayRateLimitedCategory = "resourceExhausted";
+    pub enum RelayRateLimitedCategory = const RefusalCode::RelayRateLimited.category().as_str();
 }
-
-const _: () = assert!(
-    matches!(
-        RefusalCode::RelayRateLimited.category(),
-        RefusalCategory::ResourceExhausted
-    ),
-    "the 429 body's category is not the one relay.rateLimited carries",
-);
 
 /// The body of a 429 from a sign-in route. `retryAfter` is whole seconds until a retry is allowed,
 /// the same value as the `Retry-After` header; `resetAt` is the instant the oldest counted request

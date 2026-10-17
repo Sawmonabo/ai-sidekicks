@@ -125,7 +125,7 @@ pub fn normalize_observed_provider_auth_mode(reported: Option<&Value>) -> Option
         None | Some(Value::Null) => None,
         Some(Value::String(mode)) => {
             let trimmed = mode.trim_matches(is_ecmascript_whitespace);
-            (!trimmed.is_empty()).then(|| match trimmed {
+            (!trimmed.is_empty()).then_some(match trimmed {
                 "oauth_subscription" => ProviderAuthMode::OauthSubscription,
                 "oauth_token" => ProviderAuthMode::OauthToken,
                 "api_key" => ProviderAuthMode::ApiKey,

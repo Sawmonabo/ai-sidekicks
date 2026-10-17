@@ -41,6 +41,27 @@ pub enum RefusalCategory {
     Internal,
 }
 
+impl RefusalCategory {
+    /// The category's wire text, as its serde form writes it.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidArgument => "invalidArgument",
+            Self::NotFound => "notFound",
+            Self::AlreadyExists => "alreadyExists",
+            Self::FailedPrecondition => "failedPrecondition",
+            Self::Aborted => "aborted",
+            Self::Unauthenticated => "unauthenticated",
+            Self::PermissionDenied => "permissionDenied",
+            Self::ResourceExhausted => "resourceExhausted",
+            Self::Unavailable => "unavailable",
+            Self::Unimplemented => "unimplemented",
+            Self::DeadlineExceeded => "deadlineExceeded",
+            Self::Canceled => "canceled",
+            Self::Internal => "internal",
+        }
+    }
+}
+
 /// Declares [`RefusalCode`] from one line per code: its variant, its wire text and, in
 /// parentheses, its category and its HTTP status, no status for a code that rides only the
 /// daemon's JSON-RPC wire, then after a `;` the JSON-RPC number of a protocol outcome, none for a

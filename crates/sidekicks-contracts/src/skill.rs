@@ -16,7 +16,7 @@ use crate::agent::definition::{
 };
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::internal::branded::branded_uuid_id;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::WslPlace;
@@ -670,7 +670,7 @@ methods! {
         SkillSubscribe = subscription "skill.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: SkillListResponse,
             refusals: [],
         },
@@ -707,14 +707,14 @@ methods! {
             mutating: true,
             params: SkillAvailabilityUpdateRequest,
             result: SkillAvailabilityUpdateResponse,
-            refusals: [SkillWriteRefused],
+            refusals: [ProviderNotFound, SkillWriteRefused],
         },
         /// The scan a widening runs.
         SkillScan = query "skill.scan" {
             mutating: false,
             params: SkillScanRequest,
             result: SkillScanResponse,
-            refusals: [],
+            refusals: [ProviderNotFound],
         },
         /// Reattaches an orphaned record.
         SkillRecordReattach = mutation "skill.record.reattach" {

@@ -16,11 +16,13 @@ use serde::{Deserialize, Serialize};
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::method::methods;
 use crate::provider::account::record::ProviderAccountId;
+use crate::provider::declaration::ProviderValueText;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::web_address::HttpsAddress;
 use crate::wire::integer::SafeInt;
+use crate::wire::record::Record;
 use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText};
 use crate::wire::{NullableSchema, True, nullable};
 
@@ -127,8 +129,8 @@ pub struct PluginCatalogListResponse {
     pub next_cursor: Option<PluginToken>,
 }
 
-/// One plugin, named by its provider and that provider's id for it: what `plugin.read`,
-/// `plugin.install` and `plugin.uninstall` act on.
+/// One plugin, named by its provider and that provider's id for it: what `plugin.read` and
+/// `plugin.uninstall` act on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -137,6 +139,30 @@ pub struct PluginRef {
     pub provider: ProviderId,
     /// The provider's id for it.
     pub id: PluginToken,
+}
+
+/// A plugin's option values by the option's key, as its provider names them. The daemon saves them
+/// through the provider's own verb from its standard input, never on a command line.
+pub type PluginOptionValues = Record<PluginToken, ProviderValueText>;
+
+/// `plugin.install`: the plugin to install into the daemon's plugin home, and the option values
+/// saved before it reaches any session.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct PluginInstallRequest {
+    /// The provider.
+    pub provider: ProviderId,
+    /// The provider's id for it.
+    pub id: PluginToken,
+    /// Its option values.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "PluginOptionValues")]
+    pub options: Option<PluginOptionValues>,
 }
 
 /// One item a plugin carries. A hook is named by its event, which the view puts in plain words;
@@ -361,56 +387,56 @@ methods! {
             mutating: false,
             params: PluginCatalogListRequest,
             result: PluginCatalogListResponse,
-            refusals: [],
+            refusals: [ProviderNotFound, ProviderCapabilityUnsupported],
         },
         /// What one plugin carries.
         PluginRead = query "plugin.read" {
             mutating: false,
             params: PluginRef,
             result: PluginReadResponse,
-            refusals: [],
+            refusals: [ProviderNotFound, ProviderCapabilityUnsupported],
         },
         /// Installs a plugin into the daemon's plugin home.
         PluginInstall = mutation "plugin.install" {
             mutating: true,
-            params: PluginRef,
+            params: PluginInstallRequest,
             result: PluginInstallResponse,
-            refusals: [],
+            refusals: [ProviderNotFound, ProviderCapabilityUnsupported],
         },
         /// Removes a plugin.
         PluginUninstall = mutation "plugin.uninstall" {
             mutating: true,
             params: PluginRef,
             result: PluginUninstallResponse,
-            refusals: [],
+            refusals: [ProviderNotFound, ProviderCapabilityUnsupported],
         },
         /// The installed plugins.
         PluginInstalledList = query "plugin.installed.list" {
             mutating: false,
             params: PluginInstalledListRequest,
             result: PluginInstalledListResponse,
-            refusals: [],
+            refusals: [ProviderNotFound, ProviderCapabilityUnsupported],
         },
         /// Adds a marketplace.
         PluginMarketplaceAdd = mutation "plugin.marketplace.add" {
             mutating: true,
             params: PluginMarketplaceAddRequest,
             result: PluginMarketplaceAddResponse,
-            refusals: [],
+            refusals: [ProviderNotFound, ProviderCapabilityUnsupported],
         },
         /// Removes a marketplace.
         PluginMarketplaceRemove = mutation "plugin.marketplace.remove" {
             mutating: true,
             params: PluginMarketplaceRemoveRequest,
             result: PluginMarketplaceRemoveResponse,
-            refusals: [],
+            refusals: [ProviderNotFound, ProviderCapabilityUnsupported],
         },
         /// A plugin's apps.
         PluginAppList = query "plugin.app.list" {
             mutating: false,
             params: PluginAppListRequest,
             result: PluginAppListResponse,
-            refusals: [ProviderCapabilityUnsupported],
+            refusals: [ProviderNotFound, ProviderCapabilityUnsupported],
         },
     ];
 }
@@ -427,6 +453,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PluginCatalogListRequest>(),
         Definition::read::<PluginCatalogListResponse>(),
         Definition::read::<PluginRef>().checked(),
+        Definition::read::<PluginInstallRequest>().checked(),
         Definition::read::<PluginItem>(),
         Definition::read::<PluginCarriedItems>(),
         Definition::read::<PluginSource>().checked(),

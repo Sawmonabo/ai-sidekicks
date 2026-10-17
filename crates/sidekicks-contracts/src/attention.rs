@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::keychain::KeychainRefusalCause;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -568,7 +568,7 @@ methods! {
         AttentionSubscribe = subscription "attention.subscribe" {
             mutating: false,
             params: AttentionSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: AttentionProjection,
             refusals: [SessionNotFound],
         },

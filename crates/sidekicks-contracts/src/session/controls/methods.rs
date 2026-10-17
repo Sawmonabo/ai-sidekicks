@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use strum::{IntoStaticStr, VariantArray};
 
 use crate::internal::branded::branded_uuid_id;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::mcp::server::{McpServerName, McpServerStatus};
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -515,7 +515,7 @@ methods! {
         SessionMcpServerSubscribe = subscription "session.mcpServer.subscribe" {
             mutating: false,
             params: SessionAddressedRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: SessionMcpServerList,
             refusals: [SessionNotFound],
         },
@@ -537,7 +537,7 @@ methods! {
         SessionProviderCommandSubscribe = subscription "session.providerCommand.subscribe" {
             mutating: false,
             params: SessionAddressedRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: SessionProviderCommandList,
             refusals: [SessionNotFound, ProviderUnavailable, ProviderCapabilityUnsupported],
         },

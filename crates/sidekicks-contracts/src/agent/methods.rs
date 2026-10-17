@@ -17,7 +17,7 @@ use crate::agent::definition::{AgentId, AgentResolvedConfiguration};
 use crate::agent::provider_binding::{
     AgentBindingSwitchDisposition, add_model_move_window_rule, model_move_names_window,
 };
-use crate::jsonrpc::streaming::{SubscribeAckResponse, SubscriptionId};
+use crate::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::declaration::ProviderOptionSettings;
@@ -272,7 +272,12 @@ methods! {
             mutating: true,
             params: AgentConfigUpdateRequest,
             result: AgentConfigUpdateResponse,
-            refusals: [AgentNotFound, AgentProviderAxisInvalid, ProviderCapabilityUnsupported],
+            refusals: [
+                AgentNotFound,
+                AgentProviderAxisInvalid,
+                ProviderNotFound,
+                ProviderCapabilityUnsupported,
+            ],
         },
         /// Reads the definition registry.
         AgentDefinitionList = query "agent.definition.list" {
@@ -285,7 +290,7 @@ methods! {
         AgentDefinitionSubscribe = subscription "agent.definition.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: AgentDefinitionListResponse,
             refusals: [AgentDefinitionUnreadable],
         },

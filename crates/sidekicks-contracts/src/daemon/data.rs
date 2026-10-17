@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::ERROR_MESSAGE_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -118,7 +118,7 @@ methods! {
         DaemonDataExportSubscribe = subscription "daemon.dataExport.subscribe" {
             mutating: false,
             params: DaemonDataExportSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: DataExportProgress,
             refusals: [],
         },

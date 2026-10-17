@@ -5,7 +5,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::id::ProviderId;
@@ -129,7 +129,7 @@ methods! {
         ProviderInstallSubscribe = subscription "provider.install.subscribe" {
             mutating: false,
             params: ProviderPlaceRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: ProviderInstallProgress,
             refusals: [
                 ProviderNotFound,
@@ -170,7 +170,7 @@ methods! {
         ProviderInstallUpdateSubscribe = subscription "provider.installUpdate.subscribe" {
             mutating: false,
             params: ProviderPlaceRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: ProviderInstallUpdateProgress,
             refusals: [
                 ProviderNotFound,

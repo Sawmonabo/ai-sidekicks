@@ -121,7 +121,7 @@ literal! {
 }
 
 literal! {
-    /// The provider's own limit, or its refusal of a picture.
+    /// The provider refused, by its own limit or policy.
     pub enum ProviderRefusedReason = "providerRefused";
     /// The copy to the daemon did not complete.
     pub enum CopyFailedReason = "copyFailed";

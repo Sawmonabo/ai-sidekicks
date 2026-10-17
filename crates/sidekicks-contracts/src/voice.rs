@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::id::ProviderId;
@@ -356,7 +356,7 @@ methods! {
         VoiceStateSubscribe = subscription "voice.state.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: VoiceState,
             refusals: [],
         },
@@ -385,7 +385,7 @@ methods! {
         VoiceDictationSubscribe = subscription "voice.dictation.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: VoiceDictationFrame,
             refusals: [],
         },
@@ -415,7 +415,7 @@ methods! {
         VoiceCallSubscribe = subscription "voice.call.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: VoiceCallFrame,
             refusals: [],
         },

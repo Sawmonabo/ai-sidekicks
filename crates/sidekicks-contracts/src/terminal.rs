@@ -20,7 +20,9 @@ use crate::color::HexColor;
 use crate::command::ExitCode;
 use crate::event::registry::SessionEventType;
 use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
-use crate::jsonrpc::streaming::{STREAM_FRAME_MAX_CHANGES, SubscribeAckResponse, SubscriptionId};
+use crate::jsonrpc::streaming::{
+    STREAM_FRAME_MAX_CHANGES, SubscribeAcknowledgmentResponse, SubscriptionId,
+};
 use crate::method::methods;
 use crate::method_descriptor::NullPayload;
 use crate::session::id::SessionId;
@@ -431,7 +433,7 @@ methods! {
         TerminalSubscribe = subscription "terminal.subscribe" {
             mutating: false,
             params: TerminalSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: TerminalListUpdate,
             refusals: [SessionNotFound],
         },
@@ -465,7 +467,7 @@ methods! {
         TerminalOutputSubscribe = subscription "terminal.output.subscribe" {
             mutating: false,
             params: TerminalOutputSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: TerminalOutputFrame,
             refusals: [SessionNotFound, TerminalNotFound],
         },

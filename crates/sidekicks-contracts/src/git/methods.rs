@@ -15,7 +15,7 @@ use crate::git::local::{
     GitChangeRequestTextGenerateResponse, GitCommitMessageGenerateResponse, GitDiffReadRequest,
     GitDiffReadResponse,
 };
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::typescript::TypeScriptModule;
@@ -76,7 +76,7 @@ methods! {
         GitActionSubscribe = subscription "git.action.subscribe" {
             mutating: false,
             params: GitActionSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: GitActFrame,
             refusals: [],
         },
@@ -116,7 +116,7 @@ methods! {
         GitChangeRequestSubscribe = subscription "git.changeRequest.subscribe" {
             mutating: false,
             params: GitChangeRequestSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: ChangeRequestFrame,
             refusals: [SessionNotFound],
         },

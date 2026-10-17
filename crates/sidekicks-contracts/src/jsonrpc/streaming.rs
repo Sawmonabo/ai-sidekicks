@@ -65,7 +65,7 @@ pub enum SubscriptionEndParams {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SubscribeAckResponse {
+pub struct SubscribeAcknowledgmentResponse {
     /// The subscription's id, which routes its notify frames.
     pub subscription_id: SubscriptionId,
 }
@@ -174,7 +174,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<SubscriptionId>().checked(),
         Definition::read::<SubscriptionEndParams>().checked(),
-        Definition::read::<SubscribeAckResponse>().checked(),
+        Definition::read::<SubscribeAcknowledgmentResponse>().checked(),
         Definition::read::<SubscriptionNotifyParams<AnyValue>>().checked(),
         Definition::read::<SubscriptionCancelRequest>(),
         Definition::read::<SubscriptionCancelResponse>().checked(),

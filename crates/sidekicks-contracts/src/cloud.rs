@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
 use crate::free_form_string::FilesystemPath;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::provider::id::ProviderId;
 use crate::session::id::SessionId;
@@ -347,7 +347,7 @@ methods! {
         CloudTaskSubscribe = subscription "cloud.task.subscribe" {
             mutating: false,
             params: CloudTaskSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: CloudTaskSubscribeFrame,
             refusals: [SessionNotFound],
         },

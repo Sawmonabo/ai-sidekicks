@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::event::envelope::{
     SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::NullPayload;
 use crate::run::id::RunId;
@@ -292,7 +292,7 @@ methods! {
         AgentCommandSubscribe = subscription "agent.command.subscribe" {
             mutating: false,
             params: AgentCommandSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: AgentCommandSubscribeFrame,
             refusals: [SessionNotFound],
         },

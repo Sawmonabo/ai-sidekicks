@@ -14,7 +14,7 @@ use crate::wire::integer::SafeInt;
 #[garde(allow_unvalidated)]
 pub struct WorkflowNewRunHoldUpdateRequest {
     /// Whether the hold is on.
-    pub paused: bool,
+    pub held: bool,
 }
 
 /// The hold and how many starts wait behind it, as the `workflow.newRunHold.update` reply and the
@@ -24,7 +24,7 @@ pub struct WorkflowNewRunHoldUpdateRequest {
 #[garde(allow_unvalidated)]
 pub struct WorkflowNewRunHoldState {
     /// Whether the hold is on.
-    pub paused: bool,
+    pub held: bool,
     /// How many starts wait behind it.
     pub waiting_start_count: SafeInt<0>,
 }

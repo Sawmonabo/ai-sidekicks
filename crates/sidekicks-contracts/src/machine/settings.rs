@@ -23,7 +23,7 @@ use crate::agent::definition::binding::ProviderToken;
 use crate::daemon::data::DAEMON_DATA_FOLDER_NAME;
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::refusal::RefusalCode;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::PlacedPath;
@@ -742,7 +742,7 @@ methods! {
         MachineSettingsSubscribe = subscription "machine.settings.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: MachineSettingsReading,
             refusals: [],
         },

@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FilesystemPath;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::{PlacedPath, WslPlace};
@@ -188,7 +188,7 @@ methods! {
         SessionImportSubscribe = subscription "session.import.subscribe" {
             mutating: false,
             params: SessionImportRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: ProviderImportProgress,
             refusals: [ProviderNotFound],
         },

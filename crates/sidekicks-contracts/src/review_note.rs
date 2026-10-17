@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::repo::git_reads::GitObjectId;
 use crate::session::id::SessionId;
@@ -275,7 +275,7 @@ methods! {
         SessionReviewNoteSubscribe = subscription "session.reviewNote.subscribe" {
             mutating: false,
             params: SessionReviewNoteSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: ReviewNoteSet,
             refusals: [SessionNotFound],
         },

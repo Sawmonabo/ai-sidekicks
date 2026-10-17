@@ -5,7 +5,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -73,7 +73,7 @@ pub enum WorkflowSubscribeNotification {
     /// The hold on starting new runs, and how many starts wait behind it.
     NewRunHold {
         /// Whether the hold is on.
-        paused: bool,
+        held: bool,
         /// How many starts wait behind it.
         waiting_start_count: SafeInt<0>,
     },
@@ -138,7 +138,7 @@ methods! {
         WorkflowSubscribe = subscription "workflow.subscribe" {
             mutating: false,
             params: WorkflowSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: WorkflowSubscribeNotification,
             refusals: [SessionNotFound, WorkflowDefinitionNotFound],
         },

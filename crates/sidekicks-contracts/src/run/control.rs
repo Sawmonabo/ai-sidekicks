@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::command::ExitCode;
 use crate::event::envelope::SourcePosition;
 use crate::jsonrpc::refusal::RefusalCode;
-use crate::jsonrpc::streaming::{SubscribeAckResponse, stream_frame};
+use crate::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, stream_frame};
 use crate::method::methods;
 use crate::orchestration::InterruptReason;
 use crate::provider::driver::capabilities::ExecutionPosture;
@@ -508,7 +508,7 @@ methods! {
         AgentQueueItemSubscribe = subscription "agent.queueItem.subscribe" {
             mutating: false,
             params: AgentQueueItemSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: RunQueueStreamFrame,
             refusals: [
                 SessionNotFound,
@@ -553,7 +553,7 @@ methods! {
         AgentRunSubscribe = subscription "agent.run.subscribe" {
             mutating: false,
             params: AgentRunSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: RunStateStreamFrame,
             refusals: [SessionNotFound, SessionEventCursorUnresolvable],
         },
