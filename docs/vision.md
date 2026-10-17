@@ -203,7 +203,7 @@ An event-sourced engine where everything important is an event:
 
 This gives rebuildable state, auditability, and determinism.
 
-V1 scopes event-sourcing to per-daemon local event logs — each daemon owns its own authoritative log, and events reach the user's other devices via the relay per [ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md). See [ADR-016: Shared Event-Sourcing Scope](./decisions/016-shared-event-sourcing-scope.md).
+V1 scopes event-sourcing to per-daemon local event logs — each daemon owns its own authoritative log, and events reach the user's other devices over each device's end-to-end channel, straight across the network where the two can reach each other and via the relay otherwise, per [ADR-008](./decisions/008-default-transports-and-relay-boundaries.md) and [ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md). See [ADR-016: Shared Event-Sourcing Scope](./decisions/016-shared-event-sourcing-scope.md).
 
 ### 6. Provider Drivers
 
@@ -416,7 +416,7 @@ For details beyond this vision document, see:
 - **Authentication and tokens:** [Security Architecture](./architecture/security-architecture.md) (three-tier auth: local socket, PASETO v4 control plane, the Noise relay channel), [ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md)
 - **Deployment topologies:** [Deployment Topology](./architecture/deployment-topology.md) (4 topologies: single-device local, the Workers relay, the Compose relay, relay-assisted remote access)
 - **Rate limiting:** [Spec-019](./specs/019-rate-limiting-policy.md), [Deployment Topology](./architecture/deployment-topology.md) (a per-identity Durable Object on the Workers relay, an in-memory counter on the Compose relay)
-- **Relay scaling:** [Deployment Topology](./architecture/deployment-topology.md) (one Durable Object for the account; Cloudflare publishes a 1,000 rps per-DO soft cap, and the object's sustained budget is 400 requests a second, 2.5× under it; a pre-launch load test of one account with two machines and three devices validates it)
+- **Relay scaling:** [Deployment Topology](./architecture/deployment-topology.md) (one account object for the account's data and one forwarding object per machine for its channels; Cloudflare publishes a 1,000 rps per-DO soft cap, and each forwarding object's sustained budget is 400 requests a second, 2.5× under it; a pre-launch load test of one account with two machines and three devices validates it)
 - **Deleting and exporting data:** [Spec-020](./specs/020-data-retention-export-and-deletion.md) (deletion with SQLite's `secure_delete`, data export, purge lifecycle)
 
 ## Strategic Conclusion

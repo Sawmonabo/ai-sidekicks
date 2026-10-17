@@ -181,7 +181,7 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-014: V1 Feature Sc
 | # | Feature | Description |
 | --- | --- | --- |
 | 1 | Session creation | Foundational session primitive; any of your linked devices can drive a session you own |
-| 2 | Machine registration | The machine that runs your sessions registers once with the control plane and is reached through the relay |
+| 2 | Machine registration | The machine that runs your sessions registers once with the control plane and is reached straight across the network where a device can reach it, and through the relay otherwise |
 | 3 | Single-agent runs | Claude and Codex via provider drivers |
 | 4 | Queue, steer, pause, resume | Real runtime control and interventions |
 | 5 | Approval gates | 7 categories of human-in-the-loop safety |
