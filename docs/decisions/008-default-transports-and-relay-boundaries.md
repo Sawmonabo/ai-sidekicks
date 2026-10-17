@@ -11,11 +11,11 @@
 
 ## Context
 
-The system needs one default local client-to-daemon transport and one coherent position on when relay is used to reach a session from another of the user's devices.
+The system needs one default local client-to-daemon transport and one coherent position on how another of the user's devices reaches a session: straight across the network, through the relay, or both.
 
 ## Problem Statement
 
-What should be the default local transport boundary, and how should relay fit into remote access?
+What should be the default local transport boundary, and how should the relay fit into remote access?
 
 ### Trigger
 
@@ -23,15 +23,20 @@ The IPC and control-plane specs require a concrete transport stance before imple
 
 ## Decision
 
-We will use OS-local IPC for client-to-daemon communication on the machine itself. Every other device reaches the machine over its own sealed channel through the person's own relay: one Noise channel per device and machine, which carries every method the local transport serves and every event stream, while the relay sees only ids, the channel profile, frame sizes and times. The control plane's authenticated network transport serves its own work only: sign-in, the account's statement chain, device linking, machine registration, and the push notices each machine has already sealed. The relay is never an execution path.
+We will use OS-local IPC for client-to-daemon communication on the machine itself. Every other device reaches the machine over its own sealed channel: one Noise channel per device and machine, which carries every method the local transport serves and every event stream. The channel rides one of two carriers, and the same bytes ride either:
+
+- **The direct path,** a WebRTC data channel straight between the device and the machine wherever the two can reach each other: on the home network always, and away from home where both routers allow it. The device's browser or web view opens it through `RTCPeerConnection`, and the machine through `str0m`; a desktop app on another computer reaches the machine through its own service, service to service.
+- **The person's own relay** otherwise, which sees only ids, the channel profile, frame sizes and times.
+
+The device always opens on the relay, and that connection stays open while its app is open: it carries reachability, presence, the direct path's setup, which travels inside the sealed channel, and the fallback. A connection moves onto the direct path with a cut-over frame and back to the relay through the reconnect recovery, losing, repeating and reordering nothing, and nothing on any screen says which carrier is in use ([Spec-027 §The direct path](../specs/027-remote-control.md#the-direct-path)). There is no TURN server: the relay is the fallback. The control plane's authenticated network transport serves its own work only: sign-in, the account's statement chain, device linking, machine registration, and the push notices each machine has already sealed. Neither carrier is an execution path.
 
 ## Alternatives Considered
 
-### Option A: OS-Local IPC + Relay For Every Other Device (Chosen)
+### Option A: OS-Local IPC + A Direct Path, With The Relay As The Fallback (Chosen)
 
-- **What:** Use local sockets or pipes on the machine itself, a sealed channel through the person's own relay for every other device, and network control-plane APIs for account and registration work.
-- **Steel man:** Best aligns transport choice with trust boundary and deployment shape.
-- **Weaknesses:** Requires multiple transport implementations and clear fallback behavior.
+- **What:** Use local sockets or pipes on the machine itself; for every other device, one sealed channel carried straight across the network where the device and the machine can reach each other and through the person's own relay otherwise; and network control-plane APIs for account and registration work.
+- **Steel man:** A frame between a phone and a computer on the same Wi-Fi never travels to the relay's region and back, while the machine still needs no address a device can reach in advance: the setup rides the relay connection inside the sealed channel, so the machine never advertises itself on the network. Reachability, presence and the one-connection-per-key rule stay facts of the one relay connection, so the direct path adds no second answer to whether a machine can be reached. The trust decision is still the one `KK` handshake against the account's statement chain on both carriers, and the only new surface is a UDP socket, open only while a device is on the direct path, that answers nothing but an ICE check carrying the password exchanged inside the sealed channel.
+- **Weaknesses:** Two carriers to test, a cut-over that must lose nothing, a WebRTC library on the machine whose DTLS layer has had no outside audit, and operating-system prompts for the local network on macOS, Windows and, once Chrome ships its checks, the web client at home.
 
 ### Option B: Loopback Network For All Local And Remote Paths (Rejected)
 
@@ -39,16 +44,22 @@ We will use OS-local IPC for client-to-daemon communication on the machine itsel
 - **Steel man:** Simpler transport stack and easier browser compatibility.
 - **Why rejected:** Weaker local boundary and poorer fit for desktop-supervised daemon control.
 
-### Option C: Relay Only As A Fallback (Rejected)
+### Option C: Relay For Every Other Device (Rejected)
 
-- **What:** Reach the machine directly where the network allows, and use the relay only when topology requires it.
-- **Steel man:** No relay hop when the device and the machine can reach each other directly.
-- **Why rejected:** The machine keeps one outbound connection to the relay, so it needs no address a device can reach, and reachability and the one-connection-per-key rule are both read in one place. A second, direct path would be a second place to secure and a second reachability fact, while the channel's end-to-end sealing already keeps the relay from reading any session.
+- **What:** Carry every channel through the person's own relay, with no direct path.
+- **Steel man:** One carrier, one place every frame passes, no UDP socket on the machine and no operating-system prompt for the local network.
+- **Why rejected:** A phone on the same Wi-Fi as the machine would send every frame to the relay's region and back: a 100-byte frame's round trip through a Workers relay object was measured at 130.1 ms at the median ([Deployment Topology §Relay Cost And Delay](../architecture/deployment-topology.md#relay-cost-and-delay)), where the same Wi-Fi's direct path targets 10 ms. The direct path keeps reachability on the relay connection and the trust decision in the one handshake, so it costs no second reachability fact and no second trust record.
+
+### Option D: A Direct Path With No Relay (Rejected)
+
+- **What:** Reach the machine only straight across the network, with a TURN server where no direct pair forms.
+- **Steel man:** No relay to deploy.
+- **Why rejected:** A direct path needs its setup carried somewhere both ends already reach, the machine must not advertise itself on the network, and a TURN server is a relay by another name. The relay already carries the setup, reachability and presence, so it is the fallback.
 
 ## Reversibility Assessment
 
 - **Reversal cost:** Moderate. Transport clients, daemon endpoints, and operations guidance would need revision.
-- **Blast radius:** Desktop main process, CLI, daemon startup, relay flows, and security assumptions.
+- **Blast radius:** Desktop main process, CLI, daemon startup, relay flows, the direct path's peer and its cut-over, and security assumptions.
 - **Point of no return:** After the client SDK, daemon supervisor, and operations docs all assume the chosen default transports.
 
 ## Consequences
@@ -57,15 +68,19 @@ We will use OS-local IPC for client-to-daemon communication on the machine itsel
 
 - Stronger local security posture for daemon control
 - Clearer distinction between local execution transport and remote-access transport
+- A device near the machine reaches it without the relay's round trip, with nothing to turn on
 
 ### Negative (accepted trade-offs)
 
 - More transport code paths to test
 - Browser-only local clients are less natural than with loopback-first design
+- The machine opens a UDP socket per direct peer and, while a device is away from home, asks its router for a port mapping
 
 ### Unknowns
 
-- None. Every device other than the machine itself reaches it through the relay.
+- Whether the iPhone app's web view needs the Local Network permission for WebRTC; the iPhone app's probe decides.
+- When Chrome turns on its Local Network Access checks for WebRTC; until then the web client at home asks nothing, and after it Chrome's own prompt appears once per site.
+- How often a direct path forms away from home with STUN and a router's port mapping alone; the direct path's NAT matrix measures it.
 
 ## References
 
@@ -74,7 +89,9 @@ We will use OS-local IPC for client-to-daemon communication on the machine itsel
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
 | `specs/006-local-ipc-and-daemon-control.md` | Canonical spec | Local daemon control should default to OS-local IPC | [specs/006-local-ipc-and-daemon-control.md](../specs/006-local-ipc-and-daemon-control.md) |
-| `architecture/security-architecture.md` | Canonical architecture doc | The relay path is treated as less trusted than direct local transport | [architecture/security-architecture.md](../architecture/security-architecture.md) |
+| `architecture/security-architecture.md` | Canonical architecture doc | Both remote carriers are treated as less trusted than local IPC | [architecture/security-architecture.md](../architecture/security-architecture.md) |
+| RFC 8827 §6.5, RFC 8831 §6.1 | Standard | Every WebRTC data channel is secured by DTLS, which cannot be turned off; the sealed channel runs inside it | <https://www.rfc-editor.org/rfc/rfc8827>, <https://www.rfc-editor.org/rfc/rfc8831> |
+| RFC 8445 §5.3 | Standard | ICE's password carries at least 128 random bits, so the machine's socket answers only a check that carries it | <https://www.rfc-editor.org/rfc/rfc8445> |
 
 ### Related Domain Docs
 
