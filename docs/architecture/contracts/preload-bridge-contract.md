@@ -108,6 +108,9 @@ interface PlatformBridge {
     }): Promise<void>;
     // a file or folder shown in the platform's file manager
     revealInFileExplorer(path: FilePathRef): Promise<void>;
+    // iPhone app only, absent elsewhere: each change of the phone's network (Wi-Fi joined or left,
+    // cellular, a new address), on which the channel package restarts ICE on a direct path
+    subscribeNetworkChange?(handler: () => void): Unsubscribe;
   };
 
   // the `browser` pane's native page hosts — the renderer measures, main performs (ADR-034); the renderer owns no page

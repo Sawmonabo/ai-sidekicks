@@ -12,7 +12,7 @@ This document defines what a session contains, how it behaves, and how it relate
 
 - `Session`: the app's primary object, the top-level container for runtime, communication, and work state, holding the lead and its helpers, owned by one user.
 - `SessionState`: the lifecycle state of the session itself, not the state of any specific run.
-- `local-only`: a connectivity state in which a session stays fully usable on the machine that runs it while that machine has no relay connection; the user's other devices reach the same session again once the connection is back.
+- `local-only`: a connectivity state in which a session stays fully usable on the machine that runs it while that machine has no relay connection; the user's other devices reach the same session again once the connection is back, and a device whose channel already runs on a direct path to the machine keeps reaching it meanwhile.
 
 ## What This Is
 
@@ -79,7 +79,7 @@ Every session is created and held by the daemon of the machine that runs it; the
 2. **The daemon generates every session ID.** A session is fully functional with no control-plane contact, and its ID never changes.
 3. **`provisioning -> active` happens on the machine.** It runs once the session's initial storage on its machine is ready, and never waits on the control plane.
 4. **The owner is derived, not stored.** One account owns the machine, so the owner of every session on it is that account's user ([User And Device Model §Session Ownership](./user-and-device-model.md#session-ownership)).
-5. **Reaching the session from another device changes nothing about it.** While the machine has no relay connection the session is in `local-only` continuity; once the connection is up, the user's other devices open the same session on its machine. Nothing is promoted, copied or re-created.
+5. **Reaching the session from another device changes nothing about it.** While the machine has no relay connection the session is in `local-only` continuity; once the connection is up, the user's other devices open the same session on its machine, and a device whose channel already runs on a direct path keeps it open through a relay outage. Nothing is promoted, copied or re-created.
 
 State-machine precedent for the `provisioning -> active` split: Kubernetes Pod (`Pending -> Running`) and Amazon ECS (`PROVISIONING -> PENDING -> ACTIVATING -> RUNNING`) both treat creation-time resource allocation as a distinct pre-ready phase from steady-state operation.
 
@@ -87,7 +87,7 @@ State-machine precedent for the `provisioning -> active` split: Kubernetes Pod (
 
 - Example: A user creates a new session around a repository on one of their machines and starts an implementation run. All later messages, approvals, diffs, and artifacts remain inside that same session, on that machine.
 - Example: A device reconnects after a transport failure. The session remains `active`, and the device reopens the existing session instead of creating a second one.
-- Example: A user starts work while their machine has no relay connection. The session is the same domain object in `local-only` continuity, fully usable on that machine, and the user's other devices open it once the connection is back.
+- Example: A user starts work while their machine has no relay connection. The session is the same domain object in `local-only` continuity, fully usable on that machine, and the user's other devices open it once the connection is back, or at once where a device's channel already runs on a direct path to the machine.
 
 ## Edge Cases
 

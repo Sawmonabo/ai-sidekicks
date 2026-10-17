@@ -66,7 +66,7 @@ Per [ADR-018](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md), the te
 - The local event store is unavailable or inconsistent.
 - Worktree creation or repo binding fails before a run can start.
 - Terminal or tool subprocesses outlive the client connection and require daemon-owned cleanup.
-- The daemon loses its relay connection; work on this machine continues, a device whose channel is already on a direct path keeps working, and every other device cannot reach it and shows it as `Not reachable · last seen <when>` until the connection is back, per [Spec-027 §Fallback Behavior](../specs/027-remote-control.md#fallback-behavior).
+- The daemon loses its relay connection; work on this machine continues, and every device's card reads it `Not reachable · last seen <when>` until the connection is back; a device whose channel is already on a direct path keeps working under that card, and every other device cannot reach it, per [Spec-027 §Fallback Behavior](../specs/027-remote-control.md#fallback-behavior).
 - A direct path is lost; the device opens a new connection on the relay channel it still holds, and every stream resumes through the reconnect recovery.
 
 ## Related Domain Docs

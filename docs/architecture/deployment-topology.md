@@ -57,7 +57,7 @@ Both relays enforce the same limit through the same interface, chosen by deploym
 
 ## Relay Scaling Strategy
 
-The relay serves one person: their machines and the devices they link. Each machine and each device holds one connection to it, with at most one live connection per machine key and, on each machine's forwarding object, one per device key, and every channel joins one device to one machine ([Spec-027 §The encryption envelope](../specs/027-remote-control.md#the-encryption-envelope)). The relay forwards sealed frames and reads none of them. A channel on the direct path sends the relay nothing but its connection's keepalive and its rekey.
+The relay serves one person: their machines and the devices they link. Each machine holds one connection to it, and each device one for each machine it reaches, with at most one live connection per machine key and, for each machine, one per device key (on the Workers relay on that machine's forwarding object, on the Compose relay in its one process), and every channel joins one device to one machine ([Spec-027 §The encryption envelope](../specs/027-remote-control.md#the-encryption-envelope)). The relay forwards sealed frames and reads none of them. A channel on the direct path sends the relay nothing but its connection's keepalive and its rekey.
 
 **Cloudflare Durable Object platform limits:**
 
@@ -69,7 +69,7 @@ The relay serves one person: their machines and the devices they link. Each mach
 **Workers relay: one account object, and one forwarding object per machine.** A Durable Object is created near the first request that names it and does not move ([DO data location][do-location]), so one object for everything would sit near the first machine that signed in, and a phone would reach a second machine across the country through it.
 
 - **The account object** holds the account's data ([§Account Storage](#account-storage)) and records each machine's current forwarding object, which the negotiation reply hands to a device. Connects, closes and the two-places flag report back to it, and a revocation fans out from it to every machine's forwarding object.
-- **Each machine's forwarding object** terminates that machine's connection and every device connection to it, and forwards each frame from its sender to the other end of that frame's channel. That machine's own relay connection creates it, so it sits near the machine with no location hint. Its name is the machine id and a region key from Cloudflare's `request.cf.continent`: a laptop that reconnects from another continent gets a new object there, and devices still on the old one are closed with a moved code and reconnect.
+- **Each machine's forwarding object** terminates that machine's connection and every device connection to it, and forwards each frame from its sender to the other end of that frame's channel. That machine's own relay connection creates it, so it sits near the machine with no location hint. Its name is the machine id and a region key from Cloudflare's `request.cf.continent`: a laptop that reconnects from another continent gets a new object there, and devices still on the old one are closed with `relay.forwardingObject.moved` (WebSocket close code 4000) and reconnect.
 - **While the direct path carries a channel,** both ends of its relay connection exchange a fixed keepalive text pair every 15 seconds, outside the frame codec, which the object answers without waking (`setWebSocketAutoResponse`, whose strings are at most 2,048 characters); the 45-second reachability rule reads that answer's timestamp (`getWebSocketAutoResponseTimestamp`), since a protocol ping leaves no record.
 
 A person's machines and devices are a handful of connections, so connection count is never the budget; throughput is:
@@ -103,12 +103,12 @@ Measured on a Rust relay object built on `worker` 0.8.7. These are the figures e
 
 - **Hibernation.** A Rust Durable Object hibernates. After 15 seconds or more with its sockets idle, every wake ran in a new wasm instance, its memory back at its starting 1.2 MB; the isolate's peak memory was 22.9 MB of the 128 MB limit. A wake adds about 27 ms to a frame's round trip at the median.
 - **Cost per frame.** Processor time per incoming message is 351 µs at the median and 1.5 ms at p99. A minute of screencast (15 frames of 64 KiB a second, each acknowledged) bills 0.120 GB-s. One object awake all month uses 331,776 GB-s.
-- **Delay.** A 100 B frame's round trip from a device to the object and back to another device was 130 ms at the median, from Miami to an object in Newark; the distance is most of it.
+- **Delay.** A 100 B frame's round trip from a device to the object and back to another device was 130.1 ms at the median and 181.2 ms at p95, from Miami to an object in Newark; the distance is most of it.
 
 ## Failure Modes
 
 - `local-only` mode cannot be reached from the user's other devices when no control plane is available.
-- Remote-control mode degrades to partial `local-only` continuity when the control plane is unavailable: work at the machine continues, remote devices report it unreachable.
+- Remote-control mode degrades to partial `local-only` continuity when the control plane is unavailable: work at the machine continues, every device's card reads it `Not reachable`, a device whose channel already runs on a direct path keeps working, and every other device cannot reach it.
 - Relay-assisted connectivity fails even though local daemons remain healthy.
 - A direct path does not form, because the routers allow no pair or the operating system's local-network prompt was refused: the channel stays on the relay and works as before.
 - A direct path is lost: the device is back on the relay within 5 seconds, every stream resuming through the reconnect recovery.
@@ -124,7 +124,7 @@ Measured on a Rust relay object built on `worker` 0.8.7. These are the figures e
 
 The hosted account's data (the account, its sign-in state, the device and machine registry and the statement chain) lives in SQLite inside the relay, in the one schema [Hosted Account Schema](./schemas/hosted-account-schema.md) gives; no outside database runs on either relay.
 
-- **Workers relay:** the account object, the one Durable Object named `account` in the relay's namespace, keeps it in its own SQLite storage; the forwarding objects hold no account rows. Only that object's code reads or writes it, apart from Cloudflare's Data Studio, which the [deletion runbook's](../operations/hosted-account-deletion-runbook.md) break-glass edit uses, and a series of its writes with no await between them commits together. The object's storage keeps 30 days of point-in-time recovery.
+- **Workers relay:** the account object, the Durable Object named `account`, keeps it in its own SQLite storage; the forwarding objects hold no account rows. Only that object's code reads or writes it, apart from Cloudflare's Data Studio, which the [deletion runbook's](../operations/hosted-account-deletion-runbook.md) break-glass edit uses, and a series of its writes with no await between them commits together. The object's storage keeps 30 days of point-in-time recovery.
 - **Compose relay:** a SQLite file on the server's disk, opened and written by the relay's one process alone. Its backup reads the database through SQLite while the relay runs, never as a plain copy of a file under a live writer, by the mechanism the Compose deployment names ([Plan-025](../plans/025-remote-control.md) Phase 8).
 
 ## Capacity Targets
@@ -132,7 +132,7 @@ The hosted account's data (the account, its sign-in state, the device and machin
 | Metric | V1 Target |
 | --- | --- |
 | Accounts per relay | 1, the person's own |
-| Relay connections | One per machine and one per linked device, at most one live connection per machine key and, on each machine's forwarding object, one per device key |
+| Relay connections | One per machine, and one per linked device for each machine it reaches, at most one live connection per machine key and, for each machine, one per device key (on the Workers relay on that machine's forwarding object, on the Compose relay in its one process) |
 | Workers relay objects | One account object, and one forwarding object per machine per continent it has connected from |
 | Direct paths | At most one per device and machine, wherever the network allows one |
 

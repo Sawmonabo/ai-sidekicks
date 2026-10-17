@@ -179,6 +179,10 @@ interface DaemonStatusReadResult {
     devices: Array<{
       name: string;
       connected: boolean;
+      // The carrier of this device's channel: the text output prints `direct (local network)`,
+      // `direct (internet)` or `relay`, and the machine-readable output carries the value as sent.
+      // Absent while the device holds no channel to this machine.
+      path?: "directLocalNetwork" | "directInternet" | "relay";
       // Ages rather than timestamps, because the figure a person reads is how long ago; absent means no
       // frame has gone that way at all, which is a different fact from a frame long ago.
       lastFrameOutAgeMs?: number;
