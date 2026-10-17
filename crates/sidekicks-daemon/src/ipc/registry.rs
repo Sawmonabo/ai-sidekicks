@@ -7,12 +7,11 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry as MapEntry;
 use std::error::Error;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use regex::Regex;
 use serde::Serialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
@@ -25,18 +24,6 @@ use uuid::Uuid;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::in_flight_mutations::RecordedCallId;
 use crate::ipc::stream::feed::{Feed, SendGate};
-
-/// A dotted method name: lowercase-led camelCase segments, at least two (`session.create`).
-static DOTTED_METHOD_NAME: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$").expect("the pattern is a valid regex")
-});
-
-/// A protocol method name: `$/`, then lowercase-led camelCase segments joined by `/`
-/// (`$/subscription/cancel`).
-static PROTOCOL_METHOD_NAME: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^\$/[a-z][a-zA-Z0-9]*(/[a-z][a-zA-Z0-9]*)*$")
-        .expect("the pattern is a valid regex")
-});
 
 /// The gateway's id for one connection, unique for the daemon's life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -182,13 +169,6 @@ pub(crate) enum RegistrationError {
         /// The method's wire name.
         method: &'static str,
     },
-    /// A name that is neither a dotted name (`session.create`) nor a protocol name
-    /// (`$/subscription/cancel`).
-    #[error("method name {method} is neither a dotted nor a protocol method name")]
-    InvalidName {
-        /// The method's wire name.
-        method: &'static str,
-    },
     /// A subscribe method registered through `register`, or a query or mutation through
     /// `register_subscription`.
     #[error("method {method} is registered through the form of another kind of method")]
@@ -315,9 +295,6 @@ impl MethodRegistryBuilder {
         call: Call,
     ) -> Result<(), RegistrationError> {
         let method = descriptor.method;
-        if !DOTTED_METHOD_NAME.is_match(method) && !PROTOCOL_METHOD_NAME.is_match(method) {
-            return Err(RegistrationError::InvalidName { method });
-        }
         match self.methods.entry(method) {
             MapEntry::Occupied(_) => Err(RegistrationError::Duplicate { method }),
             MapEntry::Vacant(slot) => {
@@ -511,14 +488,7 @@ mod tests {
     use crate::ipc::call_fixtures::{Named, context};
 
     /// The wire names the markers register under, by index.
-    const NAMES: [&str; 6] = [
-        "test.echo",
-        "Test.echo",
-        "test",
-        "test.echo_one",
-        "$/Subscription/notify",
-        "$/subscription/cancel",
-    ];
+    const NAMES: [&str; 1] = ["test.echo"];
 
     struct Marker<const NAME: usize>;
 
@@ -537,8 +507,6 @@ mod tests {
         };
     }
 
-    type Registration = fn(&mut MethodRegistryBuilder) -> Result<(), RegistrationError>;
-
     fn register_echo<const NAME: usize>(
         builder: &mut MethodRegistryBuilder,
     ) -> Result<(), RegistrationError> {
@@ -556,29 +524,16 @@ mod tests {
         }
     }
 
-    #[rstest]
-    #[case::repeated(register_echo::<0>, Err(RegistrationError::Duplicate { method: "test.echo" }))]
-    #[case::capital_head(
-        register_echo::<1>,
-        Err(RegistrationError::InvalidName { method: "Test.echo" })
-    )]
-    #[case::one_segment(register_echo::<2>, Err(RegistrationError::InvalidName { method: "test" }))]
-    #[case::underscore(
-        register_echo::<3>,
-        Err(RegistrationError::InvalidName { method: "test.echo_one" })
-    )]
-    #[case::capital_protocol_segment(
-        register_echo::<4>,
-        Err(RegistrationError::InvalidName { method: "$/Subscription/notify" })
-    )]
-    #[case::protocol_name(register_echo::<5>, Ok(()))]
-    fn a_repeated_or_malformed_name_fails_the_start(
-        #[case] register_second: Registration,
-        #[case] expected: Result<(), RegistrationError>,
-    ) {
+    #[test]
+    fn a_name_registered_twice_fails_the_start() {
         let mut builder = MethodRegistryBuilder::new();
-        register_echo::<0>(&mut builder).expect("a first well-formed name registers");
-        assert_eq!(register_second(&mut builder), expected);
+        register_echo::<0>(&mut builder).expect("a first name registers");
+        assert_eq!(
+            register_echo::<0>(&mut builder),
+            Err(RegistrationError::Duplicate {
+                method: "test.echo"
+            })
+        );
     }
 
     #[rstest]

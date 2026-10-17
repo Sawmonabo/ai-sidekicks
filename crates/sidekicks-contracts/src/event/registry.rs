@@ -15,6 +15,13 @@ macro_rules! session_event_types {
         $(#[doc = $list_doc:literal])+
         $list:ident = $category:ident [$($variant:ident = $name:literal,)+]
     )+) => {
+        $($(
+            const _: () = assert!(
+                crate::wire::name::is_wire_name($name),
+                concat!("not a wire name: ", $name),
+            );
+        )+)+
+
         /// Every session event type on the wire, each with the payload variant `SessionEvent`
         /// registers for it. An envelope stores its type as text, so a type a newer producer wrote
         /// and this set lacks is still kept.

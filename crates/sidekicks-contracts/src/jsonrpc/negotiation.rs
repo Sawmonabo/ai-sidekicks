@@ -11,6 +11,7 @@ use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeName, TypeScriptModule, ts_constants};
 use crate::wire;
 use crate::wire::list::BoundedVec;
+use crate::wire::name::is_wire_name;
 use crate::wire::text::{BoundedText, pattern_text};
 
 ts_constants! {
@@ -158,6 +159,11 @@ pub struct ConnectionInitializeResponse {
 /// service still repairing its database file.
 #[derive(Clone, Copy, Debug)]
 pub struct DaemonHandshake;
+
+const _: () = assert!(
+    is_wire_name(CONNECTION_INITIALIZE_METHOD),
+    "the handshake method is not a wire name",
+);
 
 impl Method for DaemonHandshake {
     type Params = ConnectionInitializeRequest;

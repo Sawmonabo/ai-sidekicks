@@ -215,6 +215,11 @@ macro_rules! statements {
         )+}
 
         $(
+            const _: () = assert!(
+                crate::wire::name::is_wire_name($kind),
+                concat!("not a wire name: ", $kind),
+            );
+
             literal! {
                 /// The kind one statement carries.
                 pub enum $kind_type = $kind;

@@ -50,6 +50,13 @@ macro_rules! refusal_codes {
             $variant:ident = $code:literal ($category:ident $(, $status:literal)?);
         )+
     ) => {
+        $(
+            const _: () = assert!(
+                crate::wire::name::is_wire_name($code),
+                concat!("not a wire name: ", $code),
+            );
+        )+
+
         /// A refusal's code, the `data.type` of a JSON-RPC error and the `code` of an HTTP error.
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
         pub enum RefusalCode {

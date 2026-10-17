@@ -27,6 +27,7 @@ pub mod id;
 pub mod instant;
 pub mod integer;
 pub mod list;
+pub mod name;
 pub mod number;
 pub mod record;
 pub mod text;

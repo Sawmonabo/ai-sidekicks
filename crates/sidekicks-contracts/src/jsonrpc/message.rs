@@ -17,6 +17,7 @@ use crate::schema::doc_description;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire;
 use crate::wire::integer::SafeSignedInt;
+use crate::wire::name::is_protocol_method_name;
 use crate::wire::record::JsonRecord;
 
 ts_constants! {
@@ -33,6 +34,11 @@ ts_constants! {
 /// The notification that asks the daemon to stop a call it has not answered; the call still gets
 /// exactly one response, `-32800` with `request.canceled` when it stopped before committing.
 pub const CANCEL_REQUEST_METHOD: &str = "$/cancelRequest";
+
+const _: () = assert!(
+    is_protocol_method_name(CANCEL_REQUEST_METHOD),
+    "the cancel method is not a protocol method name",
+);
 
 /// The methods that carry no `protocolVersion` on the message: only `connection.initialize`, which
 /// carries its versions in its params, since none is negotiated before it.

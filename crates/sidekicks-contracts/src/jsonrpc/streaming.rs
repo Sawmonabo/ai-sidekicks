@@ -13,6 +13,7 @@ use crate::method::{Method, MethodDescriptor, ProcedureType};
 use crate::schema::received_check;
 use crate::typescript::{Definition, TypeName, TypeScriptModule, ts_constants};
 use crate::wire::AnyValue;
+use crate::wire::name::is_protocol_method_name;
 
 ts_constants! {
     /// The daemon-to-client notification carrying one subscription value. The `$/` prefix marks a
@@ -140,6 +141,13 @@ pub struct SubscriptionCancelResponse {
 /// a client whose version is incompatible can still tear its subscriptions down.
 #[derive(Clone, Copy, Debug)]
 pub struct SubscriptionCancel;
+
+const _: () = assert!(
+    is_protocol_method_name(SUBSCRIPTION_NOTIFY_METHOD)
+        && is_protocol_method_name(SUBSCRIPTION_CANCEL_METHOD)
+        && is_protocol_method_name(SUBSCRIPTION_END_METHOD),
+    "a subscription method is not a protocol method name",
+);
 
 impl Method for SubscriptionCancel {
     type Params = SubscriptionCancelRequest;

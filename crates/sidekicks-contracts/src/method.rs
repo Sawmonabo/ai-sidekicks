@@ -131,6 +131,11 @@ macro_rules! methods {
         ];
     ) => {
         $(
+            const _: () = assert!(
+                $crate::wire::name::is_wire_name($method),
+                concat!("not a wire name: ", $method),
+            );
+
             $(#[$meta])*
             #[derive(Clone, Copy, Debug)]
             pub struct $marker;
