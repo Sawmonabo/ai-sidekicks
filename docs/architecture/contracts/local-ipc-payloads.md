@@ -35,7 +35,7 @@ Protocol methods keep the slash form of the Language Server Protocol, `$/` and s
 The grammar rejects:
 
 - `session/create`: the slash form belongs to protocol methods.
-- `SessionCreate` and `Session.create`: PascalCase is the type names' form, and `SessionCreate` is already the request's type in `crates/sidekicks-contracts/src/session/methods.rs`.
+- `SessionCreate` and `Session.create`: PascalCase is the type names' form, and `SessionCreate` is already the method descriptor in `crates/sidekicks-contracts/src/session/directory.rs`.
 - `sessionCreate`: one segment names no domain.
 - `session.not_found`: an underscore is no part of a segment.
 
@@ -47,9 +47,9 @@ The grammar rejects:
 
 | Method | Procedure type | Notes |
 | --- | --- | --- |
-| `session.create` | `mutation` | Materialize new session row + emit `SessionCreated`. |
+| `session.create` | `mutation` | Materialize new session row + emit `session.created`. |
 | `session.read` | `query` | Resolve session by id. |
-| `session.event.subscribe` | `subscription` (`SessionEventSubscribeResponse`, then `SessionStreamFrame` notifications) | Event stream that catches up, then follows. |
+| `session.event.subscribe` | `subscription` (`SubscribeAckResponse`, then `SessionStreamFrame` notifications) | Event stream that catches up, then follows. |
 
 Each domain's methods are documented in the section of the plan that owns them, and [§Operations Not Yet Built](./api-payload-contracts.md#operations-not-yet-built) lists every documented method no handler serves yet.
 
@@ -90,9 +90,9 @@ The field is carried across the [Plan-005](../../plans/005-local-ipc-and-daemon-
 ```ts
 // JSON-RPC 2.0 method shapes
 
-// connection.initialize — `ConnectionInitializeRequest` and `ConnectionInitializeResponse` in `crates/sidekicks-contracts/src/jsonrpc/negotiation.rs`.
-// A protocol version is a `YYYY-MM-DD` date; each list holds at most 32 entries, and each free-form
-// string is 1 to 256 characters.
+// connection.initialize — `ConnectionInitializeRequest` and `ConnectionInitializeResponse` in
+// `crates/sidekicks-contracts/src/jsonrpc/negotiation.rs`. A protocol version is a `YYYY-MM-DD`
+// date; each list holds at most 32 entries, and each free-form string is 1 to 256 characters.
 interface ConnectionInitializeRequest {
   protocolVersion: string; // the client's preferred version
   supportedProtocols?: string[]; // at least one; defaults to `[protocolVersion]`
@@ -113,26 +113,26 @@ interface ConnectionInitializeResponse {
     | "connection.version.ceilingExceeded"
     | "connection.handshake.alreadyCompleted"; // only when incompatible
   serverCapabilities?: string[];
-  daemonSupportedProtocols?: string[]; // on an incompatible first handshake, so the client can pick a version to retry with
+  // on an incompatible first handshake, so the client can pick a version to retry with
+  daemonSupportedProtocols?: string[];
   // The connecting device's own id (for a local connection, the service's own device id): the one a
-  // terminal lease names as its holder (`holderDeviceId` on `terminal.control.changed`), so a client tells
-  // this device holding a shell apart from another device holding it, and, by `holderRunId`, from an
-  // agent's run holding it. Lands with Plan-005 Phase 2B (T-005p-2B-1).
+  // terminal lease names as its holder (`holderDeviceId` on `terminal.control.changed`), so a
+  // client tells this device holding a shell apart from another device holding it, and, by
+  // `holderRunId`, from an agent's run holding it. Lands with Plan-005 Phase 2B (T-005p-2B-1).
   deviceId: DeviceId;
 }
 
-// DaemonStatusRead
+// `daemon.status.read` takes `EmptyPayload`.
 // A process as the system knows it (`crates/sidekicks-contracts/src/process_identity.rs`).
 interface ProcessIdentity {
   processId: number; // the operating-system process id
   bootId: string; // the id of the boot it runs in: Linux's boot id, macOS's boot session id
   processStartTime: string; // the system's own record of its start, compared only for equality
 }
-interface DaemonStatusReadParams {}
-interface DaemonStatusReadResult {
+interface DaemonStatusReadResponse {
   processState: "running" | "starting" | "stopping" | "degraded";
-  // The service's own process as the system knows it, by which a client that found it running ends it
-  // and never a process that took over its id.
+  // The service's own process as the system knows it, by which a client that found it running ends
+  // it and never a process that took over its id.
   processIdentity: ProcessIdentity;
   protocolVersion: string;
   transportEndpoint: string;
@@ -145,11 +145,13 @@ interface DaemonStatusReadResult {
   version: string;
   startedAt: string; // ISO 8601
   uptimeMs: number; // how long the service has run, as of this reply
-  processor: { percent: number; readAt: string } | null; // percent of the whole machine, 0 to 100; null when the reading failed at this call
-  memory: { residentBytes: number; readAt: string } | null; // null when the reading failed at this call
-  // The data directory this daemon holds, through an exclusive `File::try_lock` on its `daemon.lock`
-  // taken at start. A second daemon cannot hold it, so the status read says which directory is held,
-  // not merely that something is.
+  // percent of the whole machine, 0 to 100; null when the reading failed at this call
+  processor: { percent: number; readAt: string } | null;
+  // null when the reading failed at this call
+  memory: { residentBytes: number; readAt: string } | null;
+  // The data directory this daemon holds, through an exclusive `File::try_lock` on its
+  // `daemon.lock` taken at start. A second daemon cannot hold it, so the status read says which
+  // directory is held, not merely that something is.
   dataDirectory: string;
   // The path of the file the daemon keeps its secrets in, mode 0600, present ONLY on Linux where no
   // Secret Service answers and on a Mac while its secrets are in `secrets.json`: from the approved
@@ -161,7 +163,9 @@ interface DaemonStatusReadResult {
   // out.`, and once the service is turned off in Login Items & Extensions, `because the service was
   // set up to run while you are logged out.` Absent on every other machine.
   secretsFile?: string;
-  recovery: DaemonRecoveryStatus; // healthy, rebuilding, degraded or blocked, per session (persistence-payloads.md §Plan-012, T12.4)
+  // healthy, rebuilding, degraded or blocked, per session (persistence-payloads.md §Plan-012,
+  // T12.4)
+  recovery: DaemonRecoveryStatus;
   // The WSL block, present ONLY on a Windows computer with a WSL server running or a session in a
   // WSL 2 distribution, one entry per such distribution; `sidekicks daemon status` prints one line
   // each: `Ubuntu: running · 3 sessions`, `Debian: stopped · 1 session`,
@@ -172,9 +176,9 @@ interface DaemonStatusReadResult {
     status: { state: "running" } | { state: "stopped" } | { state: "notAnswering"; since: string };
     sessionCount: number;
   }>;
-  // The relay block, present ONLY while a relay is configured — absent otherwise, never an empty block
-  // and never a disabled one, in the text output and the machine-readable output alike. Its fields are
-  // Remote Control's own relay wire; nothing here is a second reading of it.
+  // The relay block, present ONLY while a relay is configured — absent otherwise, never an empty
+  // block and never a disabled one, in the text output and the machine-readable output alike. Its
+  // fields are Remote Control's own relay wire; nothing here is a second reading of it.
   relay?: {
     devices: Array<{
       name: string;
@@ -183,12 +187,13 @@ interface DaemonStatusReadResult {
       // `direct (internet)` or `relay`, and the machine-readable output carries the value as sent.
       // Absent while the device holds no channel to this machine.
       path?: "directLocalNetwork" | "directInternet" | "relay";
-      // Ages rather than timestamps, because the figure a person reads is how long ago; absent means no
-      // frame has gone that way at all, which is a different fact from a frame long ago.
+      // Ages rather than timestamps, because the figure a person reads is how long ago; absent
+      // means no frame has gone that way at all, which is a different fact from a frame long ago.
       lastFrameOutAgeMs?: number;
       lastFrameInAgeMs?: number;
       reconnectCount: number;
-      // Counts each frame the relay refuses as malformed or unauthenticated; there is no per-device quota.
+      // Counts each frame the relay refuses as malformed or unauthenticated; there is no per-device
+      // quota.
       rejectedFrameCount: number;
     }>;
     // The pinned relay presented a key other than the one pinned when it was linked
@@ -197,91 +202,89 @@ interface DaemonStatusReadResult {
   };
 }
 
-// DaemonStop / DaemonRestart (no DaemonStart: a service that is not running answers no method, so starting it is never an IPC method. The command line starts it with `sidekicks daemon start` (Plan-005 T-005r-3-4); the desktop app's main process starts it through the preload bridge's `daemon.requestStart()`, and quitting the app leaves the service and every run running)
-// Separate per-method schemas (no shared `action` discriminator). Stop and restart take no
-// parameters. A stop or restart is: flush pending writes, ask, wait up to the service's drain
-// bound (DAEMON_STOP_DRAIN_BOUND_MS) for it to exit, and only if it still runs SIGTERM, then
-// SIGKILL 2 s later, from the app and from `sidekicks daemon stop` and `restart` alike. A
-// confirmed stop or restart wins: another connected client never refuses it, so both results are
-// the uniform { accepted: true }.
-interface DaemonStopParams {}
-interface DaemonStopResult {
-  accepted: true;
-}
-interface DaemonRestartParams {}
-interface DaemonRestartResult {
+// `daemon.stop` / `daemon.restart` (no `daemon.start`: a service that is not running answers no
+// method, so starting it is never an IPC method. The command line starts it with `sidekicks daemon
+// start` (Plan-005 T-005r-3-4); the desktop app's main process starts it through the preload
+// bridge's `daemon.requestStart()`, and quitting the app leaves the service and every run running)
+// Separate methods (no shared `action` discriminator). Stop and restart take `EmptyPayload`. A stop
+// or restart is: flush pending writes, ask, wait up to the service's drain bound
+// (DAEMON_STOP_DRAIN_BOUND_MS) for it to exit, and only if it still runs SIGTERM, then SIGKILL 2 s
+// later, from the app and from `sidekicks daemon stop` and `restart` alike. A confirmed stop or
+// restart wins: another connected client never refuses it, so both results are the uniform {
+// accepted: true }, one type for both.
+interface DaemonLifecycleAccepted {
   accepted: true;
 }
 
-// DaemonFlush — `daemon.flush`, sent before a quit: every write pending when it arrives is made
-// durable. It never stops the service, and every run and shell keeps running.
-interface DaemonFlushParams {}
-interface DaemonFlushResult {
+// `daemon.flush`, sent before a quit and taking `EmptyPayload`: every write pending when it arrives
+// is made durable. It never stops the service, and every run and shell keeps running.
+interface DaemonFlushResponse {
   flushed: true;
 }
 
-// DaemonPing — `daemon.ping`, the desktop client helper's liveness check on its link to the
-// service. The helper sends it only after 5 s with no frame from the service, so a busy link carries
-// none; after 20 s with no frame the helper counts the link as dead and reports it to main, which
-// shows it on the connection state and restarts the service with its backoff. The answer is the
-// evidence of life, so it carries nothing.
-interface DaemonPingParams {}
-interface DaemonPingResult {}
+// `daemon.ping`, the desktop client helper's liveness check on its link to the service. The helper
+// sends it only after 5 s with no frame from the service, so a busy link carries none; after 20 s
+// with no frame the helper counts the link as dead and reports it to main, which shows it on the
+// connection state and restarts the service with its backoff. The answer is the evidence of life,
+// so it carries nothing: it takes and answers `EmptyPayload`.
 
-// DaemonConfigRead / DaemonConfigUpdate — `daemon.config.read` / `daemon.config.update`, the
+// `daemon.config.read` / `daemon.config.update`, the
 // machine-wide service settings Settings › Runtime edits, one configuration surface (Spec-006).
 // Separate from the per-session `session.maxSteps.update`, `session.spendLimit.update` and
-// `session.tokensPerRun.update`.
-interface DaemonConfigReadParams {}
+// `session.tokensPerRun.update`. The read takes `EmptyPayload`, and both answer `DaemonConfig`.
 interface DaemonConfig {
-  workflowListenerPort: number; // a taken port is saved, not refused; `workflow.webhookListener.read` says whether it listens
+  // a taken port is saved, not refused; `workflow.webhookListener.read` says whether it listens
+  workflowListenerPort: number;
   runTimeLimitMinutes: 30 | 60 | 240 | 720 | 1440 | null; // `Stop a run after`; null is `No limit`
-  workflowChainAskAfterRuns: 25 | 100 | 500 | 2000 | null; // `Ask me after one start leads to`: 25, 100 (the default), 500 or 2,000 runs; null is `Never ask`
+  // `Ask me after one start leads to`: 25, 100 (the default), 500 or 2,000 runs; null is `Never
+  // ask`
+  workflowChainAskAfterRuns: 25 | 100 | 500 | 2000 | null;
   maxStepsPerTurn: number | null; // null is `Unlimited`: each provider does what it does on its own
-  spendLimitUsdMicros: number | null; // `Spend limit`, what each new session starts from; null is `Unlimited`
-  tokensPerRun: number | null; // `Tokens per run`, what each new session starts from; null is `Unlimited`
+  // `Spend limit`, what each new session starts from; null is `Unlimited`
+  spendLimitUsdMicros: number | null;
+  // `Tokens per run`, what each new session starts from; null is `Unlimited`
+  tokensPerRun: number | null;
   toolMemoryCapBytes: number | null;
   toolMemoryCapEnforceable: boolean;
-  packageCacheLimitBytes: number | null; // the package caches' `Cache limit`; null is `Unlimited`, and then the service never clears a cache on its own. With a size set, after each successful install the service reads that tool's cache and clears it when it is larger, leaving the other tool's cache alone
+  // the package caches' `Cache limit`; null is `Unlimited`, and then the service never clears a
+  // cache on its own. With a size set, after each successful install the service reads that tool's
+  // cache and clears it when it is larger, leaving the other tool's cache alone
+  packageCacheLimitBytes: number | null;
   recordTraces: boolean;
   recordProviderMessages: boolean;
-  providerMessagesPath: string; // the folder raw provider messages are written to, which the page names
+  // the folder raw provider messages are written to, which the page names
+  providerMessagesPath: string;
 }
-type DaemonConfigReadResult = DaemonConfig;
 // Exactly one member per press, never none and never two, like `provider.account.update`; the two
-// facts the page draws beside the settings, `toolMemoryCapEnforceable` and `providerMessagesPath`, are not
-// settable. The reply is the whole configuration after the change. A value that is not a port or
-// not a size is refused, and nothing changes.
-type DaemonConfigUpdateParams = Partial<
+// facts the page draws beside the settings, `toolMemoryCapEnforceable` and `providerMessagesPath`,
+// are not settable. The reply is the whole configuration after the change. A value that is not a
+// port or not a size is refused, and nothing changes.
+type DaemonConfigUpdateRequest = Partial<
   Omit<DaemonConfig, "toolMemoryCapEnforceable" | "providerMessagesPath">
 >;
-type DaemonConfigUpdateResult = DaemonConfig;
 
-// DaemonPackageCacheList — `daemon.packageCache.list`, what each workflow package cache holds: one
+// `daemon.packageCache.list`, taking `EmptyPayload`: what each workflow package cache holds: one
 // walk of each cache folder, taken only when called (the page opening, `Check again`) and, under a
 // custom `Cache limit`, after an install; nothing samples it on a timer. The page adds the total.
-interface DaemonPackageCacheListRequest {}
-interface DaemonPackageCacheListResponse {
+interface DaemonPackageCacheReading {
   bun: { bytes: number; readAt: string };
   uv: { bytes: number; readAt: string };
 }
-// DaemonPackageCacheClear — `daemon.packageCache.clear`: `uv`'s cache through `uv cache clean`, bun's
+// `daemon.packageCache.clear`: `uv`'s cache through `uv cache clean`, bun's
 // by removing its folder; never a step's code folder or the Python the service manages, so a step
 // already installed keeps working. A clear waits for the installs using that cache and an install
-// waits for a clear; the reply is the new reading.
+// waits for a clear; the reply is the new reading, a `DaemonPackageCacheReading`.
 interface DaemonPackageCacheClearRequest {
   cache: "bun" | "uv" | "all";
 }
-type DaemonPackageCacheClearResponse = DaemonPackageCacheListResponse;
 
-// ProviderTerminalSessionList — `provider.terminalSession.list`: the provider sessions a
+// `provider.terminalSession.list`, taking `EmptyPayload`: the provider sessions a
 // person typed in a terminal that are inside a provider's shared service, each working, idle or not
 // reachable, with `provider` as data, read off
 // the same directory entries the agents' session listing names, so Runtime and the agents read one
 // fact. `Stop`'s confirm counts them and the service update's waiting step counts the working ones;
 // read when a confirm opens and while an update waits, never on a timer. Empty while `Reach Codex
 // sessions started in a terminal` is off.
-interface ProviderTerminalSessionListRequest {}
 interface TerminalProviderSession {
   provider: ProviderId;
   name: string;
@@ -302,17 +305,18 @@ interface LocalSubscriptionParams {
 // $/subscription/notify method — one frame per batch, never one frame per event.
 
 // The batched subscription frame (Plan-005 Phase 2D), framed by the rule of Spec-006 §Required
-// Behavior: the first event of a quiet stream goes at once, and what follows is coalesced into frames,
-// so a lone event is never held while a burst still collapses into one delivery.
+// Behavior: the first event of a quiet stream goes at once, and what follows is coalesced into
+// frames, so a lone event is never held while a burst still collapses into one delivery.
 interface LocalSubscriptionFrame {
   // Changes only, never the whole record, and every change carries its own cursor — which is what
   // lets a consumer say where it got to without the producer keeping a position per consumer. The
-  // producer never waits for a consumer and drops nothing for it: it holds only the consumer's cursor
-  // and reads the next frame from the daemon's record once the consumer's lane has credit, so a
-  // consumer that falls behind receives every change late, in order, and never a hole. A consumer
-  // further behind the record's newest than that rule's threshold is sent one frame with no changes
-  // that says it is behind and carries the newest cursor; it takes a snapshot read in place of every
-  // change, and the stream carries on from the newest. The record rather than the screen is the truth.
+  // producer never waits for a consumer and drops nothing for it: it holds only the consumer's
+  // cursor and reads the next frame from the daemon's record once the consumer's lane has credit,
+  // so a consumer that falls behind receives every change late, in order, and never a hole. A
+  // consumer further behind the record's newest than that rule's threshold is sent one frame with
+  // no changes that says it is behind and carries the newest cursor; it takes a snapshot read in
+  // place of every change, and the stream carries on from the newest. The record rather than the
+  // screen is the truth.
   changes: Array<{ cursor: EventCursor; value: EventEnvelope }>;
 }
 ```

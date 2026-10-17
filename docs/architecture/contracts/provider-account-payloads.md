@@ -418,10 +418,10 @@ interface ProviderAccountDeleteResponse {
 // `Ask`; it gains one `session.notice.posted` of kind `levelUnavailable` naming the level it left, whose
 // flow row reads "Reviewed isn't available on this Claude Code account". Nothing is blocked.
 //
-// NO PER-SESSION SWITCH VERB EXISTS. `agent.config.update` carries no account member (orchestration-payloads.md §Plan-013): one
-// control setting one fact is what stops a session sitting on an account the provider surface says
-// it is not on. Nothing here copies a credential or a conversation between homes, and the provider's
-// own login in each home is left exactly as it is.
+// NO PER-SESSION SWITCH VERB EXISTS. `agent.config.update` carries no account member
+// (orchestration-payloads.md §Plan-013): one control setting one fact is what stops a session
+// sitting on an account the provider surface says it is not on. Nothing here copies a credential or
+// a conversation between homes, and the provider's own login in each home is left exactly as it is.
 //
 // REFUSES IN PLACE where the named account fails the fail-closed spawn validation, or where its last
 // limits read showed a dead login (Claude Code's read answering `rate_limits_available: false`): the
@@ -588,11 +588,11 @@ interface ProviderAccountSignInAttemptCancelResponse {
 // nowhere else. It is a one-time authorization code bound to that flow's own PKCE verifier in the
 // provider's process, not credential material (I-023-10), and it is never logged, stored, evented or
 // echoed. `notFound` answers an attempt that is not waiting for a code, as cancel does.
-interface ProviderAccountLoginCodeSubmitRequest {
+interface ProviderAccountSignInCodeSubmitRequest {
   attemptId: string;
   code: string;
 }
-interface ProviderAccountLoginCodeSubmitResponse {
+interface ProviderAccountSignInCodeSubmitResponse {
   status: "submitted" | "notFound";
 }
 
@@ -607,8 +607,7 @@ interface ProviderAccountLoginCodeSubmitResponse {
 // client opens the subscription BEFORE calling `provider.account.signIn`, so registration is live
 // before the flow starts and a completion concurrent with the call arrives on the stream rather
 // than falling between them. Re-observation is harmless — every notification is a re-entrant state
-// update, not a delta.
-interface ProviderAccountSubscribeRequest {}
+// update, not a delta. The request is `EmptyPayload`.
 type ProviderAccountSubscribeStream = AsyncIterable<ProviderAccountNotification>;
 
 type ProviderAccountNotification =
@@ -626,7 +625,7 @@ type ProviderAccountNotification =
   // `Paste the code the sign-in page shows` with `Finish sign-in`.
   | { kind: "loginCodeRequested"; attemptId: string }
   | {
-      kind: "loginCompleted";
+      kind: "signInCompleted";
       attemptId: string;
       accountId: ProviderAccountId;
       outcome: "succeeded" | "failed" | "canceled";
@@ -700,17 +699,15 @@ interface ProviderAccountUsageWindow {
 
 **The one-time memory import is `provider.account.memory.import`.** Each account row offers to copy the person's own ambient memory store into THAT account's credential home, once, on a press: after it the row reads how many were copied and when, and an account with nothing to copy settles into saying so and offers the press no more. The two homes are never joined, and the copy is the person's act rather than a background sweep. Its request is `ProviderAccountMemoryImportRequest` and its reply `ProviderAccountMemoryImportOutcome` above, the same outcome it records as `ProviderAccount.memoryImport`.
 
-**The provider's own standing rules are `provider.standingRule.list` and `provider.standingRule.revoke`.** Each provider keeps rules of its own that allow or refuse a command on this machine; they are read from and revoked in the provider's own files, the same files the session inspector's `approval.rule.list` and `approval.rule.revoke` read for one session, so one rule has one place: the provider's. The `provider.standingRule.*` verbs sit beside `provider.account.*`, because a machine-wide page cannot use the driver's reads (`provider.mode.list`, `provider.model.list`, `provider.command.list`), which need an active session.
+**The provider's own standing rules are `provider.standingRule.list` and `provider.standingRule.revoke`.** Each provider keeps rules of its own that allow or refuse a command on this machine; they are read from and revoked in the provider's own files, the same files the session inspector's `approval.rule.list` and `approval.rule.revoke` read for one session, so one rule has one place: the provider's. Both are machine-wide, needing no session, because a machine-wide page cannot use the driver's reads (`provider.mode.list`, `provider.model.list`, `provider.command.list`), which need an active session.
 
 ```ts
 // provider.standingRule.list — one row per rule, in the provider's own words, read from every account
 // home and every attached project: on Codex the `.rules` files under each account home and each
 // trusted project's `.codex/rules/` (loaded only once the project is trusted); on Claude Code the
 // `permissions` of its user-level, project and project-local settings files. A provider holding none
-// answers an empty list, which the page reads as saying so.
-interface ProviderStandingRuleListRequest {
-  provider?: ProviderId;
-}
+// answers an empty list, which the page reads as saying so. Its request is `ProviderRequest`, the
+// provider whose rules are listed.
 interface ProviderStandingRuleListResponse {
   rules: Array<{
     ruleId: string; // daemon-minted from the rule's place, its file and its text, so one file path in two places names two rules

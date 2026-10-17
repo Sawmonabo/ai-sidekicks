@@ -4,10 +4,9 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ```ts
 // ---- The node-graph document: what an author writes and what a version stores ----
-// Type names here are prefixed `Workflow` where the unprefixed name is already taken by another
-// domain in this file — `NodeId` is the machine's brand and `RunId` the provider-run brand, so a
-// workflow node and a workflow run carry their own brands and no reader has to guess which domain a
-// bare `NodeId` belongs to.
+// Type names here are prefixed `Workflow` where the bare name would read as another domain's —
+// `RunId` is the provider-run brand — so a workflow node and a workflow run carry their own brands
+// and no reader has to guess which domain a bare id belongs to.
 
 type WorkflowNodeId = string & { readonly __brand: "WorkflowNodeId" };
 // A kind key, dotted and readable: the family, then the kind within it. It is data rather than a
@@ -82,7 +81,7 @@ interface WorkflowNode {
   notes?: string;
   // What a failure does is set ON THE NODE THAT FAILED, not in a document-wide settings block. The third
   // value materializes a real error output handle the failed items route to.
-  onError?: "stop" | "continue" | "continue-error-output";
+  onError?: "stop" | "continue" | "continueErrorOutput";
   retry?: { maxTries: number; waitMs: number }; // clamped engine-side
   executeOnce?: boolean;
   alwaysOutputData?: boolean;
@@ -179,18 +178,18 @@ type WorkflowRunMode =
   | "chat"
   | "agent"
   | "retry"
-  | "sub-workflow";
+  | "subWorkflow";
 // The kind of trigger node that started the run, which the runs table's trigger column and filter
 // read. A retry keeps its source run's kind. The mode cannot carry it, because `trigger` covers a
 // schedule, a file event, a session event and another workflow failing alike.
 type WorkflowTriggerKind =
   | "trigger.manual"
   | "trigger.schedule"
-  | "trigger.file-watch"
+  | "trigger.fileWatch"
   | "trigger.webhook"
-  | "trigger.session-event"
+  | "trigger.sessionEvent"
   | "trigger.chat"
-  | "trigger.sub-workflow"
+  | "trigger.subWorkflow"
   | "trigger.error";
 // Who or what started it, as the run row renders it. A person's start records the device of the
 // connection that made it, never a person.
@@ -233,7 +232,7 @@ interface WorkflowStep {
   executionIndex: number;
   source: Array<{ nodeId: WorkflowNodeId; outputIndex: number; executionIndex: number } | null>;
   // The step status list, the values of Spec-015 §Execution semantics. `waiting` is a step waiting
-  // on a person, a chain's question or a spent provider account; `waiting-memory` is a step the
+  // on a person, a chain's question or a spent provider account; `waitingMemory` is a step the
   // engine's memory gate holds before it starts, which starts itself when memory frees up and is
   // never a blocker that needs a person; `canceled` is a step that was running or waiting when its
   // run ended failed or canceled, or a branch a first-to-arrive merge stopped.
@@ -241,7 +240,7 @@ interface WorkflowStep {
     | "pending"
     | "running"
     | "waiting"
-    | "waiting-memory"
+    | "waitingMemory"
     | "succeeded"
     | "failed"
     | "skipped"

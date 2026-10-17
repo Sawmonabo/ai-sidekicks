@@ -57,13 +57,13 @@ interface RepoMountAttachResponse {
   place?: Place; // where the root is, fixed for the mount's life; absent on macOS and Linux
 }
 
-// RepoMountRead
-interface RepoMountReadRequest {
+// RepoMountRequest — the mount repoMount.read, repoMount.detach and repoMount.reattach act on.
+interface RepoMountRequest {
   repoMountId: RepoMountId;
 }
 interface RepoMountReadResponse {
   id: RepoMountId;
-  nodeId: NodeId; // the daemon's own machine id, stamped at attach — never taken from a caller
+  machineId: MachineId; // the daemon's own machine id, stamped at attach — never taken from a caller
   localPath: string; // user-entered provenance
   canonicalRoot: string; // resolver output — the trust-envelope and dedupe key
   place?: Place; // where both paths are, in that place's own form; absent on macOS and Linux
@@ -84,37 +84,31 @@ interface RepoMountUser {
   sessionId: SessionId;
 }
 
-// RepoMountDetach (Plan-006 D-006-6; Spec-007 §Detach Semantics)
-interface RepoMountDetachRequest {
-  repoMountId: RepoMountId;
-}
+// RepoMountDetach (Plan-006 D-006-6; Spec-007 §Detach Semantics), on a `RepoMountRequest`
 interface RepoMountDetachResponse {
   repoMountId: RepoMountId;
   state: RepoMountState; // 'detached' — terminal; re-attach creates a new mount row
   archivedWorkspaceIds: WorkspaceId[]; // dependent workspaces archived by the cascade
 }
 
-// RepoMountReattach — the banner's `Re-attach` (Spec-007 §Repo Mount Health). In one transaction the
-// old row turns 'detached' and a new 'attached' row is written at the same canonical root under the
-// same project record, carrying the common directory just derived as its anchor; none of the
+// RepoMountReattach — the banner's `Re-attach` (Spec-007 §Repo Mount Health). In one transaction
+// the old row turns 'detached' and a new 'attached' row is written at the same canonical root under
+// the same project record, carrying the common directory just derived as its anchor; none of the
 // detach's cascade runs, and each workspace on the old mount moves to the new one keeping its id.
-// Refused with repoMount.reattachRefused (reason identityMatches), repoMount.rootResolutionFailed (reason
-// notARepository), repoMount.alreadyAttached (conflictingRepoMountId, and conflictingProjectId, null
-// when a chat's own workspace holds the repository), or repoMount.reattachConflict (runningSessionId and
-// runningAgentId) while an agent runs anywhere in the project.
-interface RepoMountReattachRequest {
-  repoMountId: RepoMountId; // the mount reading identityMismatch
-}
+// Refused with repoMount.reattachRefused (reason identityMatches), repoMount.rootResolutionFailed
+// (reason notARepository), repoMount.alreadyAttached (conflictingRepoMountId, and
+// conflictingProjectId, null when a chat's own workspace holds the repository), or
+// repoMount.reattachConflict (runningSessionId and runningAgentId) while an agent runs anywhere in
+// the project. Its `RepoMountRequest` names the mount reading identityMismatch.
 interface RepoMountReattachResponse {
   repoMountId: RepoMountId; // the new mount
 }
 
-// WorkspaceBind — binds one session to its project's mount and to where it works: a worktree of its own
-// (`provisioned-worktree`) or the checkout the project already has (`bound-root`). A new session binds in
-// the same step as `session.create`; this call serves a converted chat, and it checks, once, that the
-// picked folder belongs to the project.
-// A session already holding a live workspace on the mount is answered that workspace as it stands,
-// and nothing is written.
+// WorkspaceBind — binds one session to its project's mount and to where it works: a worktree of its
+// own (`provisionedWorktree`) or the checkout the project already has (`boundRoot`). A new session
+// binds in the same step as `session.create`; this call serves a converted chat, and it checks,
+// once, that the picked folder belongs to the project. A session already holding a live workspace
+// on the mount is answered that workspace as it stands, and nothing is written.
 interface WorkspaceBindRequest {
   sessionId: SessionId;
   repoMountId: RepoMountId;
@@ -140,7 +134,7 @@ interface WorkspaceListResponse {
     executionMode: ExecutionMode;
     state: WorkspaceState;
     fsRoot?: string;
-    lastError?: string; // present iff state = 'stale' from a recorded failure (workspaces.metadata.lastError, Spec-007 §State And Data Implications)
+    lastError?: string; // present iff state = 'rootLost' from a recorded failure (workspaces.metadata.lastError, Spec-007 §State And Data Implications)
   }>;
 }
 ```
@@ -152,14 +146,14 @@ Plan-006's repo-attachment and workspace-binding surface is exposed as `repoMoun
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
 | `repoMount.attach` | `mutation` | `RepoMountAttachRequest` | `RepoMountAttachResponse` |
-| `repoMount.read` | `query` | `RepoMountReadRequest` | `RepoMountReadResponse` |
+| `repoMount.read` | `query` | `RepoMountRequest` | `RepoMountReadResponse` |
 | `workspace.bind` | `mutation` | `WorkspaceBindRequest` | `WorkspaceBindResponse` |
 | `workspace.list` | `query` | `WorkspaceListRequest` | `WorkspaceListResponse` |
-| `repoMount.detach` | `mutation` | `RepoMountDetachRequest` | `RepoMountDetachResponse` |
-| `repoMount.reattach` | `mutation` | `RepoMountReattachRequest` | `RepoMountReattachResponse` |
-| `repoMount.list` | `query` | `RepoMountListRequest` | `RepoMountListResponse` |
+| `repoMount.detach` | `mutation` | `RepoMountRequest` | `RepoMountDetachResponse` |
+| `repoMount.reattach` | `mutation` | `RepoMountRequest` | `RepoMountReattachResponse` |
+| `repoMount.list` | `query` | `EmptyPayload` | `RepoMountListResponse` |
 | `machine.folder.list` | `query` | `MachineFolderListRequest` | `MachineFolderListResponse` |
-| `project.subscribe` | `subscription` | `ProjectListRequest` | `ProjectListResponse` |
+| `project.subscribe` | `subscription` | `EmptyPayload` | `ProjectList` (stream) |
 | `project.rename` | `mutation` | `ProjectRenameRequest` | `ProjectEditResponse` |
 | `project.archive` | `mutation` | `ProjectStateChangeRequest` | `ProjectEditResponse` |
 | `project.reactivate` | `mutation` | `ProjectStateChangeRequest` | `ProjectEditResponse` |
@@ -167,11 +161,11 @@ Plan-006's repo-attachment and workspace-binding surface is exposed as `repoMoun
 | `project.environment.update` | `mutation` | `ProjectEnvironmentUpdateRequest` | `ProjectEditResponse` |
 | `project.branchPattern.update` | `mutation` | `ProjectBranchPatternUpdateRequest` | `ProjectEditResponse` |
 | `project.clone.start` | `mutation` | `ProjectCloneStartRequest` | `ProjectCloneStartResponse` |
-| `project.clone.subscribe` | `subscription` | `RepoCloneProjectRequest` | `ProjectCloneSubscribeResponse` |
+| `project.clone.subscribe` | `subscription` | `ProjectCloneRequest` | `ProjectCloneStatus` (stream) |
 | `project.clone.answer` | `mutation` | `ProjectCloneAnswerRequest` | `EmptyPayload` |
-| `project.clone.cancel` | `mutation` | `RepoCloneProjectRequest` | `EmptyPayload` |
-| `project.clone.folder.read` | `query` | `ProjectCloneFolderReadRequest` | `ProjectCloneFolderReadResponse` |
-| `project.largeFile.pull` | `mutation` | `RepoCloneProjectRequest` | `EmptyPayload` |
+| `project.clone.cancel` | `mutation` | `ProjectCloneRequest` | `EmptyPayload` |
+| `project.clone.folder.read` | `query` | `EmptyPayload` | `ProjectCloneFolderReadResponse` |
+| `project.largeFile.pull` | `mutation` | `ProjectCloneRequest` | `EmptyPayload` |
 
 The Rust types live in `crates/sidekicks-contracts/src/repo/folders.rs` (`repoMount.attach`, `repoMount.read`, `repoMount.list`, `machine.folder.list`, `repoMount.detach`, `repoMount.reattach`), `crates/sidekicks-contracts/src/repo/workspace.rs` (`workspace.bind`, `workspace.list`), `crates/sidekicks-contracts/src/project.rs` (the `project.*` methods) and `crates/sidekicks-contracts/src/repo/clone.rs` (`project.clone.start`, its card, its questions, its folder and `project.largeFile.pull`), the generated TypeScript at the matching `.ts` paths under `packages/contracts/src/`, per the api-payload-contracts.md §Source-of-Truth Policy; `crates/sidekicks-contracts/src/repo/methods.rs` declares every method of this table in the method table.
 
@@ -181,15 +175,15 @@ Plan-007's worktree surface adds the `worktree.*` methods, `workspace.executionR
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
-| `workspace.executionRoot.prepare` | `mutation` | `ExecutionRootPrepareRequest` | `ExecutionRootPrepareResponse` |
+| `workspace.executionRoot.prepare` | `mutation` | `WorkspaceExecutionRootPrepareRequest` | `WorkspaceExecutionRootPrepareResponse` |
 | `worktree.retire` | `mutation` | `WorktreeRetireRequest` | `WorktreeRetireResponse` |
 | `worktree.status.read` | `query` | `WorktreeStatusReadRequest` | `WorktreeStatusReadResponse` |
 | `project.branch.list` | `query` | `ProjectBranchListRequest` | `ProjectBranchListResponse` |
-| `session.workingFolder.subscribe` | `subscription` | `WorkingTreeSubscribeRequest` | `WorkingTreeSubscribeResponse` |
-| `worktree.setup.subscribe` | `subscription` | `WorktreeSetupRequest` | `WorktreeSetupSubscribeResponse` |
+| `session.workingFolder.subscribe` | `subscription` | `SessionWorkingFolderSubscribeRequest` | `WorkingTreeChange` (stream) |
+| `worktree.setup.subscribe` | `subscription` | `WorktreeSetupRequest` | `WorktreeSetupStatus` (stream) |
 | `worktree.setup.retry` | `mutation` | `WorktreeSetupRequest` | `EmptyPayload` |
-| `worktree.copy.subscribe` | `subscription` | `WorktreeCopySubscribeRequest` | `WorktreeCopySubscribeResponse` |
-| `worktree.removed.list` | `query` | `RemovedWorktreeListRequest` | `RemovedWorktreeListResponse` |
+| `worktree.copy.subscribe` | `subscription` | `WorktreeCopySubscribeRequest` | `WorktreeCopyProgress` (stream) |
+| `worktree.removed.list` | `query` | `WorktreeRemovedListRequest` | `WorktreeRemovedListResponse` |
 | `worktree.restore` | `mutation` | `RemovedWorktreeRequest` | `WorktreeRestoreResponse` |
 | `worktree.removed.delete` | `mutation` | `RemovedWorktreeRequest` | `EmptyPayload` |
 

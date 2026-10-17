@@ -10,7 +10,7 @@ The procedure types follow [API Payload Contracts §Procedure Types](./api-paylo
 
 ## Plan-025 — Machine Registration
 
-The `machine` methods are those of the one machine that runs the daemon. The machine registers with the control plane through `machine.register` each time its service starts, keyed by its id and its owning user and never by a session ([Plan-025](../../plans/025-remote-control.md)). Other devices read whether the machine is reachable from its relay connection, so the namespace has no attach, heartbeat, capability or roster method, and no session carries a `machine.*` event. This document specifies the `machine.*` methods in the §Machine Registration Method Registry below.
+The machine registration methods are those of the one machine that runs the daemon. The machine registers with the control plane through `machine.register` each time its service starts, keyed by its id and its owning user and never by a session ([Plan-025](../../plans/025-remote-control.md)). Other devices read whether the machine is reachable from its relay connection, so registration has no attach, heartbeat, capability or roster method, and no session carries a machine event. This document specifies the four registration methods, `machine.register`, `machine.rename`, `machine.remove` and `machine.certificateChallenge.update`, in the §Machine Registration Method Registry below; `machine.settings.*` and `machine.folder.list` are the daemon's own and are not here.
 
 Method names follow [Local IPC Payload Contracts §Wire-Name Grammar](./local-ipc-payloads.md#wire-name-grammar), whose build-time check refuses an underscore in any segment.
 
@@ -31,21 +31,21 @@ The machine's own record on the control plane: the daemon registers it, and the 
 type EmptyPayload = Record<string, never>; // {}
 
 interface MachineRegisterRequest {
-  nodeId: NodeId;
-  identityKey: MachineIdentityKey; // the service's Ed25519 key, the one key a machine has: `{algorithm: "ed25519", publicKey}`, the public half in base64 (32 bytes); stored as runtime_nodes.public_key and key_algorithm
+  machineId: MachineId;
+  identityKey: MachineIdentityKey; // the service's Ed25519 key, the one key a machine has: `{algorithm: "ed25519", publicKey}`, the public half in base64 (32 bytes); stored as machines.public_key and key_algorithm
   name: string; // the machine's name as the person sees it; at most 256 chars
   platform: string; // the operating system the service runs on, as the service reports it; at most 128 chars
   serviceVersion: string; // the service's version; at most 64 chars
 }
 
 // A rename, as the `machine.renamed` statement a trusted key signed:
-// {kind: "machine.renamed", previousHash, issuedAt, signatures, nodeId, name}.
+// {kind: "machine.renamed", previousHash, issuedAt, signatures, machineId, name}.
 interface MachineRenameRequest {
   statement: MachineRenamedStatement;
 }
 
 // A removal, as the `machine.removed` statement a trusted key signed:
-// {kind: "machine.removed", previousHash, issuedAt, signatures, nodeId}. The machine comes back
+// {kind: "machine.removed", previousHash, issuedAt, signatures, machineId}. The machine comes back
 // only by being linked again, under a new identity key and its same id.
 interface MachineRemoveRequest {
   statement: MachineRemovedStatement;
@@ -66,7 +66,7 @@ The control-plane procedures that keep the person's devices, passkeys and trust 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
 | `device.subscribe` | `subscription` | `EmptyPayload` (`{}`) | `DeviceListSnapshot`, then `DeviceListEvent` (stream) — the machines, devices and passkeys with each one's connected state and last-seen time and `statementHead`, the chain's newest statement; then each statement's event carrying its kind as its name, `device.forgotten` and `machine.registered`, and after every change, a statement's or any other, the whole `DeviceListSnapshot` again, which a reader that holds a list puts in its place; event-driven, no polling; keepalives and the stream's end at its token's expiry or its family's revocation per [ADR-013](../../decisions/013-control-plane-api.md) (Plan-025 Phase 5) |
-| `device.link.start` | `mutation` | `DeviceLinkStartRequest` | `DeviceLinkStartResponse` — opens the five-minute single-use link (Plan-025 Phase 5) |
+| `device.link.start` | `mutation` | `EmptyPayload` (`{}`) | `DeviceLinkStartResponse` — opens the five-minute single-use link (Plan-025 Phase 5) |
 | `device.link.redeem` | `mutation` | `DeviceLinkRedeemRequest` | `DeviceLinkRedeemResponse` — the new device redeems the link; both devices then show the six digits derived from their keys (Plan-025 Phase 5) |
 | `device.link.confirm` | `mutation` | `DeviceLinkConfirmRequest` | `EmptyPayload` (`{}`) — posts the `device.linked` statement; re-linking on the same key is refused (Plan-025 Phase 5) |
 | `device.link.cancel` | `mutation` | `DeviceLinkCancelRequest` | `EmptyPayload` (`{}`) (Plan-025 Phase 5) |
@@ -93,9 +93,9 @@ interface DevicePushSendRequest {
 }
 ```
 
-### Session Terminal-Control Method Registry
+### Terminal Control Method Registry
 
-The shared-terminal write lease ([Spec-002 §Required Behavior](../../specs/002-machine-registration.md#required-behavior)) exposes one `terminal.*` method, `terminal.control.take`. A **second `terminal.*` method sits in the second table row and is not a lease operation at all** — `terminal.flowControl.update`, the renderer's back-pressure signal, registered and specified in its own block after the lease shapes below; it is grouped here because it addresses the same shell surface and takes the same transport posture, and it is called out as separate because it gates no bytes, holds no lease and adjudicates nothing. The lease method is **daemon JSON-RPC ONLY** — deliberately NOT the dual-transport shape of the `machine.*` mutations above: for those, the control-plane callee is itself the record authority, whereas the lease authority is the terminal-owning daemon, so a control-plane route would place the mutation on a party that can neither adjudicate nor enforce it. A Remote Control device calls the same method over its end-to-end channel to the machine, and the relay carries it as ciphertext it cannot read, so every take is adjudicated where the lease lives. **The machine is the only lease authority, and the control plane keeps no copy of the lease.** Every client — the machine's own windows and every Remote Control device alike — reads the holder by folding the daemon's `terminal.control.changed` broadcasts with the holder each shell's `terminal.subscribe` entry and the scrollback frame opening its output name; the daemon broadcasts every take and the auto-releases (disconnect, a closed pane, and an agent run's command ending or the run leaving `running` — [Spec-002 §Required Behavior](../../specs/002-machine-registration.md#required-behavior)). No control-plane table, roster member or projection-sync call carries a holder, so nothing about a shell reaches the control plane.
+The shared-terminal write lease ([Spec-002 §Required Behavior](../../specs/002-machine-registration.md#required-behavior)) has one method, `terminal.control.take`. A **second method sits in the second table row and is not a lease operation at all** — `terminal.flowControl.update`, the renderer's back-pressure signal, registered and specified in its own block after the lease shapes below; it is grouped here because it addresses the same shell surface and takes the same transport posture, and it is called out as separate because it gates no bytes, holds no lease and adjudicates nothing. The lease method is **daemon JSON-RPC ONLY** — deliberately NOT the dual-transport shape of the machine registration mutations above: for those, the control-plane callee is itself the record authority, whereas the lease authority is the terminal-owning daemon, so a control-plane route would place the mutation on a party that can neither adjudicate nor enforce it. A Remote Control device calls the same method over its end-to-end channel to the machine, and the relay carries it as ciphertext it cannot read, so every take is adjudicated where the lease lives. **The machine is the only lease authority, and the control plane keeps no copy of the lease.** Every client — the machine's own windows and every Remote Control device alike — reads the holder by folding the daemon's `terminal.control.changed` broadcasts with the holder each shell's `terminal.subscribe` entry and the scrollback frame opening its output name; the daemon broadcasts every take and the auto-releases (disconnect, a closed pane, and an agent run's command ending or the run leaving `running` — [Spec-002 §Required Behavior](../../specs/002-machine-registration.md#required-behavior)). No control-plane table, roster member or projection-sync call carries a holder, so nothing about a shell reaches the control plane.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -157,7 +157,7 @@ Refusals are typed in [Error Contracts §Terminal](./error-contracts.md#terminal
 // No session appears here: one channel joins one device and one machine and carries every session
 // on that machine.
 interface RelayNegotiationRequest {
-  nodeId: NodeId; // the machine the connection reaches: the caller's own machine, or the machine a device opens its channel to
+  machineId: MachineId; // the machine the connection reaches: the caller's own machine, or the machine a device opens its channel to
   transportPreferences: string[]; // e.g. ['websocket', 'http2']
 }
 interface RelayNegotiationResponse {
@@ -180,4 +180,4 @@ interface RelayNegotiationResponse {
 // from its last event through the machine's own `session.*` methods.
 ```
 
-**The channel.** Each channel is the Noise Protocol Framework's KK handshake and transport in one of two profiles, run afresh on every connection and every 10 minutes on a long one ([Spec-027 §The encryption envelope](../../specs/027-remote-control.md#the-encryption-envelope)). The connection's first frame, before any handshake message, is `{channelVersion, profiles}`: the channel version and the profiles the connecting device runs, in its order of preference. The machine answers `{profile}`, the first of them it also runs, or closes the connection with `relay.channel.noCommonProfile` ([Error Contracts §Relay](./error-contracts.md#relay)), with nothing to fall back to. Both ends bind the offer and the answer into the handshake's prologue. A profile is one full Noise protocol name, and there are two, `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second, on `snow` (built with `ring-accelerated`) on the machine. The first frame's shape, the profile names and `relay.channel.noCommonProfile` are wire, so they live in `crates/sidekicks-contracts`, and the channel's TypeScript side for the web client and the iPhone app, under `packages/`, imports their generated TypeScript.
+**The channel.** Each channel is the Noise Protocol Framework's KK handshake and transport in one of two profiles, run afresh on every connection and every 10 minutes on a long one ([Spec-027 §The encryption envelope](../../specs/027-remote-control.md#the-encryption-envelope)). The connection's first frame, before any handshake message, is `{channelVersion, profiles}`: the channel version and the profiles the connecting device runs, in its order of preference. The machine answers `{profile}`, the first of them it also runs, or closes the connection with `channel.noCommonProfile` ([Error Contracts §Relay](./error-contracts.md#relay)), with nothing to fall back to. Both ends bind the offer and the answer into the handshake's prologue. A profile is one full Noise protocol name, and there are two, `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second, on `snow` (built with `ring-accelerated`) on the machine. The first frame's shape, the profile names and `channel.noCommonProfile` are wire, so they live in `crates/sidekicks-contracts`, and the channel's TypeScript side for the web client and the iPhone app, under `packages/`, imports their generated TypeScript.

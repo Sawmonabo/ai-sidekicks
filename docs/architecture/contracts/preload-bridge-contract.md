@@ -228,7 +228,7 @@ interface PlatformBridge {
       reports: ReadonlyArray<
         | {
             kind: "uncaught-error" | "unhandled-rejection";
-            role: "console-document" | "console-window" | "pane-window"; // the window whose realm raised it
+            role: "consoleDocument" | "consoleWindow" | "paneWindow"; // the window whose realm raised it
             name: string | null; // the error's name, or null for a thrown value that is no error
             message: string; // the error's message, or for a value that is no error a sentence naming its type
             stack: string | null;
@@ -245,8 +245,8 @@ interface PlatformBridge {
             };
           }
         | {
-            kind: "held-back"; // reports the window did not send
-            cause: "window-buffer-full" | "past-rate"; // past those it held while it waited, or past the rate
+            kind: "heldBack"; // reports the window did not send
+            cause: "windowBufferFull" | "pastRate"; // past those it held while it waited, or past the rate
             count: number;
           }
       >,

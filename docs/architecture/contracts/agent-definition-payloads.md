@@ -4,7 +4,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ## Plan-024 — Agent Definitions And Peer Invocation
 
-Governed by [Spec-026](../../specs/026-agent-definitions-and-peer-invocation.md) and, for plugins, [Spec-029](../../specs/029-skills.md). Saved agents are managed through six `agent.definition.*` verbs — `agent.definition.list`, `agent.definition.create`, `agent.definition.update`, `agent.definition.delete`, `agent.definition.export` and `agent.definition.import` — plus the live `agent.definition.subscribe`, and the tool allowlist's catalog read `agent.callbackTool.list`; the `agent.*` verbs register against the Plan-005 `MethodRegistry` when Plan-024 lands, inside the `agent` root Plan-013 registers — the CP-005-2 late-registration pattern. The person's own edits to definitions, export and import included, pass no policy check and no ownership refusal; the definition verbs carry no `sessionId`. A peer-invocation call is an ordinary tool call on the bridge, so it rides the existing `toolExecution` approval category through the approval pipeline at the session's own permission level. No `ApprovalCategory` value is added. Refusals: [error-contracts.md §Agent Definitions](./error-contracts.md#agent-definitions). **No event type is minted**: definition mutation is machine-local configuration rather than session history, and every session-visible consequence of a peer invocation is already carried by the existing tool-activity and run-lifecycle events. A definition reaches the person's linked devices like every other screen, and otherwise leaves the machine only in the export files the person writes, with every binding's account left out.
+Governed by [Spec-026](../../specs/026-agent-definitions-and-peer-invocation.md) and, for plugins, [Spec-029](../../specs/029-skills.md). Saved agents are managed through six `agent.definition.*` verbs — `agent.definition.list`, `agent.definition.create`, `agent.definition.update`, `agent.definition.delete`, `agent.definition.export` and `agent.definition.import` — plus the live `agent.definition.subscribe`, and the tool allowlist's catalog read `agent.callbackTool.list`; these eight verbs register against the Plan-005 `MethodRegistry` when Plan-024 lands, inside the `agent` root Plan-013 registers — the CP-005-2 late-registration pattern. The person's own edits to definitions, export and import included, pass no policy check and no ownership refusal; the definition verbs carry no `sessionId`. A peer-invocation call is an ordinary tool call on the bridge, so it rides the existing `toolExecution` approval category through the approval pipeline at the session's own permission level. No `ApprovalCategory` value is added. Refusals: [error-contracts.md §Agent Definitions](./error-contracts.md#agent-definitions). **No event type is minted**: definition mutation is machine-local configuration rather than session history, and every session-visible consequence of a peer invocation is already carried by the existing tool-activity and run-lifecycle events. A definition reaches the person's linked devices like every other screen, and otherwise leaves the machine only in the export files the person writes, with every binding's account left out.
 
 ```ts
 // A daemon-minted opaque immutable identifier. NEVER the definition's name: the name is a mutable
@@ -15,18 +15,18 @@ type AgentDefinitionId = string & { readonly __brand: "AgentDefinitionId" };
 // One step of the console's twelve-step hue wheel, by its token name: the closed set
 // `AGENT_ACCENT_HUES`, declared once and refused off the wheel.
 type AgentAccentHue =
-  | "hue-00"
-  | "hue-01"
-  | "hue-02"
-  | "hue-03"
-  | "hue-04"
-  | "hue-05"
-  | "hue-06"
-  | "hue-07"
-  | "hue-08"
-  | "hue-09"
-  | "hue-10"
-  | "hue-11";
+  | "hue00"
+  | "hue01"
+  | "hue02"
+  | "hue03"
+  | "hue04"
+  | "hue05"
+  | "hue06"
+  | "hue07"
+  | "hue08"
+  | "hue09"
+  | "hue10"
+  | "hue11";
 
 // A saved, machine-local agent configuration. Configuration, not session state: not events-canonical,
 // not rebuilt from the event log. Every axis below is one a run already carries, so this
@@ -159,11 +159,7 @@ type AgentResolvedConfiguration = {
 // (`.ai-sidekicks/agents/`, global or in a project), each installed provider's own agent files, and a
 // plugin's, which is read-only — one list serving the library, the composer's Sidekicks group, a
 // workflow node's chooser and every label that names an agent. The daemon parses every file itself
-// rather than trusting a provider's own load. The request carries no members, declared as an explicit
-// empty interface rather than omitted, so every operation in this namespace has both halves of its pair
-// and no handler signature special-cases a missing request type (the
-// ProviderAccountSubscribeRequest precedent).
-interface AgentDefinitionListRequest {}
+// rather than trusting a provider's own load. The request carries no members: `EmptyPayload`.
 // One definition as the list serves it: the record, where it lives, and two provider facts, each its
 // own field and neither excluding another.
 type AgentDefinitionListEntry = AgentDefinition & {
@@ -308,16 +304,16 @@ interface AgentDefinitionImportResponse {
 // agent.definition.subscribe — the whole agent.definition.list reply again each time a definition
 // changes: a save, delete or import from any window; a provider's file added, changed or removed on
 // disk as the daemon's watch sees it; a plugin landing or leaving. Every open window's library,
-// composer group and workflow chooser stay current without re-reading.
-interface AgentDefinitionSubscribeRequest {}
+// composer group and workflow chooser stay current without re-reading. The request is
+// `EmptyPayload`.
 type AgentDefinitionSubscribeStream = AsyncIterable<AgentDefinitionListResponse>;
 
 // agent.callbackTool.list — the daemon's callback tools, one of the allowlist picker's three sources beside
 // the MCP catalog (`mcp.server.list`, mcp-governance-payloads.md §Plan-022) and each provider's own built-in tools (the `builtInTools`
 // list each driver's descriptor carries on `provider.list`, settings-payloads.md). Machine-wide, because the editor has no session: a static
 // catalog of the registrations in code — the bridge's verbs, the session tools and the
-// workflow tools — whose names the daemon curates and never takes from provider output.
-interface AgentCallbackToolListRequest {}
+// workflow tools — whose names the daemon curates and never takes from provider output. The request
+// is `EmptyPayload`.
 interface AgentCallbackToolListResponse {
   tools: Array<{
     name: string; // the wire name a provider sees
@@ -356,8 +352,8 @@ interface PluginCatalogListResponse {
     description: string;
     marketplace: string;
     // The section the row is drawn under: the provider's catalog, or on Codex `Workspace`
-    // (`workspace-directory`) or `Shared with me` (`shared-with-me`).
-    section: "catalog" | "workspace-directory" | "shared-with-me";
+    // (`workspaceDirectory`) or `Shared with me` (`sharedWithMe`).
+    section: "catalog" | "workspaceDirectory" | "sharedWithMe";
     carries: { agents: number; skills: number; mcpServers: number; hooks: number };
     installed: boolean;
     installedInTerminal: boolean; // installed in the person's own terminal, read without writing; `Use in Sidekicks` installs the same plugin here
@@ -366,8 +362,9 @@ interface PluginCatalogListResponse {
 }
 // plugin.read — what one plugin carries, each item by name and description, its source, and on
 // Claude Code its options: the `userConfig` of the plugin's `plugin.json` in the marketplace's copy
-// in the plugin home, which `Browse plugins` opens before it installs.
-interface PluginReadRequest {
+// in the plugin home, which `Browse plugins` opens before it installs. `PluginRef` names the plugin
+// plugin.read and plugin.uninstall act on.
+interface PluginRef {
   provider: ProviderId;
   id: string;
 }
@@ -404,7 +401,7 @@ interface PluginOptionsReadResponse {
     isSet: boolean;
   }>;
 }
-interface PluginOptionsSaveRequest {
+interface PluginOptionsUpdateRequest {
   provider: ProviderId; // a provider whose plugins carry options (Claude Code today)
   id: string;
   values: Record<string, string>;
@@ -418,10 +415,6 @@ interface PluginInstallRequest {
   provider: ProviderId;
   id: string;
   options?: Record<string, string>;
-}
-interface PluginUninstallRequest {
-  provider: ProviderId;
-  id: string;
 }
 interface PluginInstallResponse {
   plugin: {
@@ -458,10 +451,11 @@ interface PluginMarketplaceRemoveRequest {
   provider: ProviderId;
   name: string;
 }
-interface PluginMarketplaceChangeResponse {
+interface PluginMarketplaceAddResponse {
   provider: ProviderId;
   name: string;
 }
+type PluginMarketplaceRemoveResponse = PluginMarketplaceAddResponse;
 // plugin.app.list — a Codex plugin's apps, each with its link state on every Codex account, read from
 // that account's own Codex service. `connectUrl` opens the app's page in the browser, where the person
 // links it while signed in as that account. An API-key account carries no apps.

@@ -97,13 +97,16 @@ All domain IDs use branded string types for compile-time safety.
 ```ts
 type SessionId = string & { readonly __brand: "SessionId" };
 type UserId = string & { readonly __brand: "UserId" };
-type NodeId = string & { readonly __brand: "NodeId" };
+type MachineId = string & { readonly __brand: "MachineId" };
 type RunId = string & { readonly __brand: "RunId" };
 type QueueItemId = string & { readonly __brand: "QueueItemId" };
 type InterventionId = string & { readonly __brand: "InterventionId" };
-type ArtifactId = string & { readonly __brand: "ArtifactId" }; // encoding: an RFC 9562 UUID the daemon mints at manifest creation, distinct from the payload's SHA-256 digest — Spec-012 §Required Behavior; this block registers brands, never encodings
+// encoding: an RFC 9562 UUID the daemon mints at manifest creation, distinct from the payload's
+// SHA-256 digest — Spec-012 §Required Behavior; this block registers brands, never encodings
+type ArtifactId = string & { readonly __brand: "ArtifactId" };
 type WorkspaceId = string & { readonly __brand: "WorkspaceId" };
-type WorktreeId = string & { readonly __brand: "WorktreeId" }; // BranchContextId: worktree-payloads.md §Plan-007
+// BranchContextId: worktree-payloads.md §Plan-007
+type WorktreeId = string & { readonly __brand: "WorktreeId" };
 type RepoMountId = string & { readonly __brand: "RepoMountId" };
 type ApprovalRequestId = string & { readonly __brand: "ApprovalRequestId" };
 type WorkflowDefinitionId = string & { readonly __brand: "WorkflowDefinitionId" };
@@ -136,19 +139,23 @@ interface ErrorResponse {
 type ErrorNamespace =
   | "session" // session lifecycle errors
   | "auth" // authentication/authorization
-  | "agent" // agent run state machine violations
+  | "agent" // agents and what they own: runs, turns, queue items, child runs, commands
   | "approval" // approval flow errors
-  | "workspace" // workspace lifecycle errors; sibling "repoMount" mount-lifecycle namespace per the canonical registry
+  // workspace lifecycle errors; sibling "repoMount" mount-lifecycle namespace per the canonical
+  // registry
+  | "workspace"
   | "artifact" // artifact publication errors
   | "workflow" // workflow execution errors
   | "provider" // provider driver errors
-  | "relay" // relay/transport errors
+  | "relay" // the relay: its pinned key, its connections, its sign-in routes
+  | "connection" // one connection: handshake, protocol version, message size, subscriptions
   | "system"; // internal system errors
 // Illustrative V1 subset; `error-contracts.md` is the canonical namespace registry.
 
-// Rate limiting response (Spec-019; canonical shape per Plan-018 I-018-4 —
-// identical in error-contracts.md §Rate Limiting and in the Rust type RateLimitResponse in
-// crates/sidekicks-contracts/src/rate_limiter.rs, generated into packages/contracts/src/rate-limiter.ts)
+// Rate limiting response (Spec-019; canonical shape per Plan-018 I-018-4 — identical in
+// error-contracts.md §Rate Limiting and in the Rust type RateLimitResponse in
+// crates/sidekicks-contracts/src/rate_limiter.rs, generated into
+// packages/contracts/src/rate-limiter.ts)
 interface RateLimitResponse {
   code: "relay.rateLimited";
   category: "resourceExhausted";
@@ -188,15 +195,22 @@ type RunState =
 type TerminalRunState = "completed" | "interrupted" | "stopped" | "failed";
 type BlockingRunState = "waitingForApproval" | "waitingForInput" | "paused";
 type RunFailureCategory =
-  | "provider failure"
-  | "transport failure"
-  | "local persistence failure"
-  | "projection failure"
-  | "refused" // the provider's safety check refused a turn and no other model could take it (Spec-005 §Run Lifecycle)
-  | "setup failure"; // a setup gate threw before the provider started the run (Spec-005 §Run Lifecycle)
+  | "providerFailure"
+  | "transportFailure"
+  | "localPersistenceFailure"
+  | "projectionFailure"
+  // the provider's safety check refused a turn and no other model could take it (Spec-005 §Run
+  // Lifecycle)
+  | "refused"
+  // a setup gate threw before the provider started the run (Spec-005 §Run Lifecycle)
+  | "setupFailure";
 
 type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "notDelivered";
-type InterventionType = "interrupt" | "fasterModelRetry"; // Spec-003 §Interfaces And Contracts and Spec-004 §Required Behavior; ApplyInterventionParams (Plan-003 T1.7) carries the interrupt beside the driver's own `steer`, the queue's delivery of a waiting message, which no intervention records, and the daemon carries out `fasterModelRetry` itself. Undo is `session.restore`, never an intervention
+// Spec-003 §Interfaces And Contracts and Spec-004 §Required Behavior; ApplyInterventionRequest
+// (Plan-003 T1.7) carries the interrupt beside the driver's own `steer`, the queue's delivery of a
+// waiting message, which no intervention records, and the daemon carries out `fasterModelRetry`
+// itself. Undo is `session.restore`, never an intervention
+type InterventionType = "interrupt" | "fasterModelRetry";
 type InterventionState =
   | "requested"
   | "accepted"
@@ -210,56 +224,79 @@ type ApprovalCategory = "toolExecution" | "fileWrite" | "networkAccess" | "destr
 type ApprovalDecision = "approved" | "rejected";
 type ApprovalState = "pending" | "approved" | "rejected" | "canceled";
 
-// The five permission levels, most careful to least, in the one vocabulary every surface that names a
-// level uses ([Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior)).
-// Only the first three ever raise an approval; at `sandboxed` and `yolo` the daemon answers every ask
-// itself under the level's own posture. Plan is deliberately NOT a member: planning is a session's own
-// mode, not a permission level, and the level still governs what a plan may read. A provider's own mode
-// name never appears here — each level is one of that provider's own modes underneath, and the realized
-// sandbox-and-network composition is `ExecutionPosture` in provider-driver-capability-payloads.md.
+// The five permission levels, most careful to least, in the one vocabulary every surface that names
+// a level uses ([Spec-010 §Required
+// Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior)). Only
+// the first three ever raise an approval; at `sandboxed` and `yolo` the daemon answers every ask
+// itself under the level's own posture. Plan is deliberately NOT a member: planning is a session's
+// own mode, not a permission level, and the level still governs what a plan may read. A provider's
+// own mode name never appears here — each level is one of that provider's own modes underneath, and
+// the realized sandbox-and-network composition is `ExecutionPosture` in
+// provider-driver-capability-payloads.md.
 type PermissionLevel = "readonly" | "ask" | "reviewed" | "sandboxed" | "yolo";
 
-// Where a session's work runs. `bound-root` works in the root already bound to the workspace — the
-// project's own checkout, or a chat's managed workspace — and makes nothing; `provisioned-worktree`
+// Where a session's work runs. `boundRoot` works in the root already bound to the workspace — the
+// project's own checkout, or a chat's managed workspace — and makes nothing; `provisionedWorktree`
 // works in a new worktree the daemon's worktree lifecycle made for it. A session moves into another
 // tree only through `session.workingFolder.update`.
-type ExecutionMode = "bound-root" | "provisioned-worktree";
-// `preparing` covers both modes while the root is made ready (`workspace.executionRoot.prepare`); it is a
-// different fact from the session state `provisioning` and never appears on screen.
-type WorkspaceState = "preparing" | "ready" | "stale" | "archived";
+type ExecutionMode = "boundRoot" | "provisionedWorktree";
+// `preparing` covers both modes while the root is made ready (`workspace.executionRoot.prepare`);
+// it is a different fact from the session state `provisioning` and never appears on screen.
+type WorkspaceState = "preparing" | "ready" | "rootLost" | "archived";
 type WorktreeState = "creating" | "ready" | "dirty" | "merged" | "retired" | "failed";
-type RepoMountState = "attached" | "detached" | "archived"; // VcsType + RepoMountHealth: repo-payloads.md §Plan-006
+// VcsType + RepoMountHealth: repo-payloads.md §Plan-006
+type RepoMountState = "attached" | "detached" | "archived";
 
-// Where a plan record stands: `waiting` while its card is up, `accepted` once built in its own session,
-// `handedOff` once built in a fresh one, and `open` after `Keep planning` or after a Claude Code plan's
-// held request ends unanswered. The artifact list reads it as a plan's state word (artifact-payloads.md).
+// Where a plan record stands: `waiting` while its card is up, `accepted` once built in its own
+// session, `handedOff` once built in a fresh one, and `open` after `Keep planning` or after a
+// Claude Code plan's held request ends unanswered. The artifact list reads it as a plan's state
+// word (artifact-payloads.md).
 type PlanState = "waiting" | "accepted" | "handedOff" | "open";
 
 type DriverCapabilityFlag =
   | "resume"
   | "steer"
-  | "interactive_requests"
+  | "interactiveRequests"
   | "mcp"
-  | "tool_calls"
-  | "reasoning_stream"
-  | "model_mutation"
-  | "structured_output" // schema-constrained final output (Spec-004 §Per-Driver Capability Matrix)
-  | "rollback" // cuts the bound conversation back to an earlier message in place, the driver's conversation cut (Spec-004 §Per-Driver Capability Matrix)
-  | "session_fork" // gates moveSessionToFork, which moves the session onto a new provider conversation carrying history up to and including a message; never an undo (Spec-004 §Per-Driver Capability Matrix)
-  | "session_goals" // setSessionGoal / clearSessionGoal
-  | "callback_tools" // daemon-curated callback-tool registry
+  | "toolCalls"
+  | "reasoningStream"
+  | "modelMutation"
+  | "structuredOutput" // schema-constrained final output (Spec-004 §Per-Driver Capability Matrix)
+  // cuts the bound conversation back to an earlier message in place, the driver's conversation cut
+  // (Spec-004 §Per-Driver Capability Matrix)
+  | "rollback"
+  // gates moveSessionToFork, which moves the session onto a new provider conversation carrying
+  // history up to and including a message; never an undo (Spec-004 §Per-Driver Capability Matrix)
+  | "sessionFork"
+  | "sessionGoals" // setSessionGoal / clearSessionGoal
+  | "callbackTools" // daemon-curated callback-tool registry
   | "subagents" // provider-native in-session subagents under subagentPolicy
-  | "context_compaction" // compacts the bound session's own provider-side context on user request via compactContext (Spec-004 §User-triggered context compaction)
-  | "provider_commands" // enumerates the provider's native slash-commands and skills via listProviderCommands — a LIVE read, never a stored registry (Spec-004 §The provider command and skill surface)
-  | "output_speed"; // declares a user-settable provider-side output-speed mode; BOTH pinned drivers declare it; detectionSource is PROBED on Claude Code, from the fast-mode state its `initialize` reply reports before any turn, and STATIC on Codex, where reading a returned tier as a speed tier is a judgment (Spec-004 §The output-speed axis). Claude realizes the axis through its own fast-output setting, `apply_flag_settings {fastMode}`, sent after every spawn and before a run that changes it; Codex realizes it through the person-settable `serviceTier` member — present in the default, non-field-gated generation — carried on thread establishment (`thread/start`), resume (`thread/resume`), fork (`thread/fork`) and each `turn/start`, against the speed tiers its model catalog publishes (`Model.serviceTiers`, `defaultServiceTier`, each tier `{ id, name, description }`, with a `Fast` tier carried in upstream source), behind the provider's own `features.fast_mode` gate and surfaced to the person as the composer's `Fast` / `Standard` control and the `/fast` word
+  // compacts the bound session's own provider-side context on user request via compactContext
+  // (Spec-004 §User-triggered context compaction)
+  | "contextCompaction"
+  // enumerates the provider's native slash-commands and skills via listProviderCommands — a LIVE
+  // read, never a stored registry (Spec-004 §The provider command and skill surface)
+  | "providerCommands"
+  // declares a user-settable provider-side output-speed mode; BOTH pinned drivers declare it;
+  // detectionSource is PROBED on Claude Code, from the fast-mode state its `initialize` reply
+  // reports before any turn, and STATIC on Codex, where reading a returned tier as a speed tier is
+  // a judgment (Spec-004 §The output-speed axis). Claude realizes the axis through its own
+  // fast-output setting, `apply_flag_settings {fastMode}`, sent after every spawn and before a run
+  // that changes it; Codex realizes it through the person-settable `serviceTier` member — present
+  // in the default, non-field-gated generation — carried on thread establishment (`thread/start`),
+  // resume (`thread/resume`), fork (`thread/fork`) and each `turn/start`, against the speed tiers
+  // its model catalog publishes (`Model.serviceTiers`, `defaultServiceTier`, each tier `{ id, name,
+  // description }`, with a `Fast` tier carried in upstream source), behind the provider's own
+  // `features.fast_mode` gate and surfaced to the person as the composer's `Fast` / `Standard`
+  // control and the `/fast` word
+  | "outputSpeed";
 // The daemon's own gate on what it asks a driver to do; no client reads these flags, and a screen
 // draws a control from the provider read (`provider.list`), the model rows and the session's
 // provider state. The executable union
-// (crates/sidekicks-daemon/src/provider/driver/capabilities.rs) must declare every member above, so no member is
-// declarable in doc only. assertValidCapabilityFlags rejects
-// any snapshot whose key count differs, so the union, the validator, the
-// driver_capabilities.capability_flag CHECK in the one local schema and the conformance tests
-// change together as ONE change or not at all.
+// (crates/sidekicks-daemon/src/provider/driver/capabilities.rs) must declare every member above, so
+// no member is declarable in doc only. assertValidCapabilityFlags rejects any snapshot whose key
+// count differs, so the union, the validator, the driver_capabilities.capability_flag CHECK in the
+// one local schema and the conformance tests change together as ONE change or not at all.
 ```
 
 ---
@@ -279,7 +316,7 @@ An index, not a second contract: each region of the session screen, what it need
 | Tool runs | The verb, its target, its duration or live elapsed, a result summary, diff hunks, a failure mark, a held mark; a block by the provider's own reviewer, with its reason line and whether it can be allowed once | The same transcript rows, with the `approval.reviewer.denied` and `approval.denial.overridden` records on the blocked call's row; `agent.command.subscribe` for the ones still running |
 | Child agents | Each child's id and parent, its model and, where it was a peer call, the agent that was asked (`via`), its state, activity, tools, tokens, spend and timer, its own rows and its stream; a child's steer, interrupt and pause, and the stop of a whole subtree | `agent.childRunLink.list` and `agent.subscribe` for the tree and its facts; `transcript.childRun.expand` for a child's rows; `agent.run.subscribe` for state; `agent.childRun.steer`, `agent.childRun.interrupt`, `agent.childRun.paused.update` and `agent.childRun.stopAll` for the controls. The daemon's own paths call `agent.run.create`; no region does |
 | The pending messages and the run's controls | The messages waiting for the agent, their order and their edits, the lead's and each child's; the interrupt, the pause and its continue; the answer to a restart's mismatch | `agent.queueItem.subscribe` and `agent.queueItem.list`; `agent.queueItem.create`, with `replacesQueueItemId` for an edit; `agent.queueItem.cancel` and `agent.queueItem.reorder`, each taking a child as well; `agent.run.intervene` for the interrupt; `agent.run.pause` and `agent.run.resume`; `agent.run.recovery.resolve` |
-| Approvals, plans and questions | One pending request with its title, its summary, the child that raised it, and its answers; `Allow once` on an action the provider's own reviewer blocked at `Reviewed`; the plan card and its verdict; the question card and its answers | `approval.list`, answered by `approval.resolve`; `approval.denial.override` for `Allow once`; `plan.resolve`; `question.resolve`. The daemon raises an approval request itself from a provider's callback, so no region calls `approval.request.create` |
+| Approvals, plans and questions | One pending request with its title, its summary, the child that raised it, and its answers; `Allow once` on an action the provider's own reviewer blocked at `Reviewed`; the plan card and its verdict; the question card and its answers | `approval.list`, answered by `approval.resolve`; `approval.denial.override` for `Allow once`; `plan.resolve`; `question.resolve`. The daemon raises an approval request itself from a provider's callback, so no region calls the daemon's in-process call that creates an approval request |
 | Worktrees | The per-project list with ahead, behind, dirtiness and occupancy; the root branch and the branches to cut from; the progress of the setup steps; removing a worktree, and the removed ones kept to put back | `worktree.status.read`, whose worktree rows carry the candidate facts; `project.branch.list`; `workspace.executionRoot.prepare`, with `carryUncommitted`; `worktree.setup.subscribe` and `worktree.setup.retry`; `worktree.retire`; `worktree.removed.list`, `worktree.restore` and `worktree.removed.delete` |
 | Projects | Attaching a folder, from this machine or from another device; a converted chat's place in its project; cloning from an address, its progress, its questions and its large files | `repoMount.attach`; `machine.folder.list` for another device's folder list; `workspace.bind`; `repoMount.read`; `project.clone.folder.read`, `project.clone.start`, `project.clone.subscribe`, `project.clone.answer`, `project.clone.cancel` and `project.largeFile.pull` |
 | Review | The scope tabs, the base list, the files with their hunks, a file outside the diff, the commits, the pull-request form and state, its checks, logs and threads, the held notes, and staleness; the ship acts and their commands | `git.branchContext.read` for the branch and what the pull-request form opens with; `project.branch.list` for the base list, in the one order both base lists share; `git.diff.read` for the diff and the branch scope's commits; `project.file.read` for a file or a folded gap; `git.action.preview`, `git.action.execute` and `git.action.subscribe` for the ship acts; `git.commitMessage.generate` and `git.changeRequest.text.generate`; `git.changeRequest.subscribe` for the request, its checks and its threads; `git.reviewer.list` and `git.label.list`; `git.review.submit`, `git.reviewThread.resolve` and `git.reviewThread.reply`; `git.checkLog.read`; `session.reviewNote.add`, `session.reviewNote.update`, `session.reviewNote.delete` and `session.reviewNote.subscribe` for the held notes; `session.workingFolder.subscribe` for the tree-staleness signal behind the reload |
@@ -347,8 +384,8 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `agent.queueItem.reorder {sessionId, childHandle?, queueItemIds}` | Reorder the waiting messages: one daemon-held order over the items still waiting, on the lead's queue or a child's | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T2.9 |
 | `agent.run.recovery.resolve {runId, choice: keepProvider \| undoToAgreed \| continueProvider \| handOver}`, event `agent.run.recovery.resolved` | After a restart, settle a mismatch between the session's record and the provider's: a read-only surplus is added with no question, and any other asks with two named choices | [Spec-013](../../specs/013-persistence-and-recovery.md) | [Plan-012](../../plans/012-persistence-and-recovery.md) T12.5 |
 | event `agent.run.recoverySteps.added` {sessionId, runId, count, provider} | After a restart, a part of the provider's own record that the service never wrote down, and that only read, was added to the transcript as the provider recorded it, and the session continued; drawn as one faint row | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-012](../../plans/012-persistence-and-recovery.md) T12.5 |
-| `agent.run.refusalChoice.resolve {runId, choice: retry_fallback \| edit_prompt}`, events `agent.run.refusalChoice.requested {sessionId, runId, refusedModel, fallbackModel, sentence?, safetyCategory?, retractedMessageIds?}` and `agent.run.refusalChoice.resolved {sessionId, runId, choice: retry_fallback \| edit_prompt \| canceled, deviceId?}` | Claude Code's retry-or-edit choice when its safety check refuses a turn and names a fallback model: `Edit message` then `Retry on <fallback model>` on the `Refused` row, the run `waitingForInput` until the first answer; an `Interrupt`, or a message sent while it waits, answers `canceled`, and the retracted messages leave the flow on the answer. A second or late answer is refused with `agent.run.invalidTransition` (409), and the device that answered second closes its row with no error | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), [Spec-011](../../specs/011-transcript-and-reasoning.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.37; [Plan-010](../../plans/010-transcript-and-reasoning.md) T4.17 |
-| `agent.run.usageCreditsChoice.resolve {runId, choice: switch_default \| consent}`, events `agent.run.usageCreditsChoice.requested {sessionId, runId, modelName, overagesEnabled, balanceCents?, currency?, fallbackModel?}` and `agent.run.usageCreditsChoice.resolved {sessionId, runId, choice: switch_default \| consent \| interrupted \| unanswered, deviceId?}` | Claude Code's switch-or-credits choice when a Fable turn needs usage credits: `Switch to <model>` and, only while usage credits are on, `Continue on usage credits` on one row under Claude Code's own title, the run `waitingForInput` until the first answer; an `Interrupt` or an undo interrupts the turn and answers nothing (`interrupted`), and a message sent while it waits is settled by Claude Code itself (`unanswered`). A second or late answer is refused with `agent.run.invalidTransition` (409), and the device that answered second closes its row with no error | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), [Spec-011](../../specs/011-transcript-and-reasoning.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.39; [Plan-010](../../plans/010-transcript-and-reasoning.md) T4.18 |
+| `agent.run.refusalChoice.resolve {runId, choice: retryFallback \| editPrompt}`, events `agent.run.refusalChoice.requested {sessionId, runId, refusedModel, fallbackModel, sentence?, safetyCategory?, retractedMessageIds?}` and `agent.run.refusalChoice.resolved {sessionId, runId, choice: retryFallback \| editPrompt \| canceled, deviceId?}` | Claude Code's retry-or-edit choice when its safety check refuses a turn and names a fallback model: `Edit message` then `Retry on <fallback model>` on the `Refused` row, the run `waitingForInput` until the first answer; an `Interrupt`, or a message sent while it waits, answers `canceled`, and the retracted messages leave the flow on the answer. A second or late answer is refused with `agent.run.invalidTransition` (409), and the device that answered second closes its row with no error | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), [Spec-011](../../specs/011-transcript-and-reasoning.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.37; [Plan-010](../../plans/010-transcript-and-reasoning.md) T4.17 |
+| `agent.run.usageCreditsChoice.resolve {runId, choice: switchDefault \| consent}`, events `agent.run.usageCreditsChoice.requested {sessionId, runId, modelName, overagesEnabled, balanceCents?, currency?, fallbackModel?}` and `agent.run.usageCreditsChoice.resolved {sessionId, runId, choice: switchDefault \| consent \| interrupted \| unanswered, deviceId?}` | Claude Code's switch-or-credits choice when a Fable turn needs usage credits: `Switch to <model>` and, only while usage credits are on, `Continue on usage credits` on one row under Claude Code's own title, the run `waitingForInput` until the first answer; an `Interrupt` or an undo interrupts the turn and answers nothing (`interrupted`), and a message sent while it waits is settled by Claude Code itself (`unanswered`). A second or late answer is refused with `agent.run.invalidTransition` (409), and the device that answered second closes its row with no error | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), [Spec-011](../../specs/011-transcript-and-reasoning.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.39; [Plan-010](../../plans/010-transcript-and-reasoning.md) T4.18 |
 | `agent.run.resume` | The second press of `Pause`, which continues | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.6, T3.4 |
 | event `agent.run.safetyBuffering.updated` {sessionId, runId, turnId, active, fasterModel?}, relayed live on `agent.run.subscribe` and never kept | Codex's own sentence in the working line's action words while Codex holds a turn for a safety check; no flow row | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) |
 | `agent.queueItem.subscribe` | The queue stream | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T2.10 |
@@ -558,7 +595,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `preview.screencast.acknowledge {sessionId, pageId, ackToken}` | Acknowledge a frame | [Spec-027](../../specs/027-remote-control.md) | [Plan-025](../../plans/025-remote-control.md) Phase 7; [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-8-2 |
 | `preview.screencast.input.send {sessionId, pageId, input}` → `{messageId}` | Another device's input to the page | [Spec-027](../../specs/027-remote-control.md) | [Plan-025](../../plans/025-remote-control.md) Phase 7; [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-8-2 |
 | `preview.screencast.edit {sessionId, pageId, messageId, edit}` | The device menu's paste, select all, cut | [Spec-027](../../specs/027-remote-control.md) | [Plan-025](../../plans/025-remote-control.md) Phase 7; [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-8-2 |
-| `preview.screencast.file.choose {sessionId, pageId, messageId, files, folderName?}` | The device's files for a page's chooser or File System Access picker its press or key opened, a folder's each with its path inside it (`files: {artifactId, path?}[]`), each staged first through the `AttachmentIngestInit` / `AttachmentIngestChunk` / `AttachmentIngestComplete` trio, so its bounds and refusals apply; an empty list is a cancel | [Spec-027](../../specs/027-remote-control.md) | [Plan-025](../../plans/025-remote-control.md) Phase 7; [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-8-2 |
+| `preview.screencast.file.choose {sessionId, pageId, messageId, files, folderName?}` | The device's files for a page's chooser or File System Access picker its press or key opened, a folder's each with its path inside it (`files: {artifactId, path?}[]`), each staged first through the `artifact.ingest.start` / `artifact.ingest.write` / `artifact.ingest.complete` trio, so its bounds and refusals apply; an empty list is a cancel | [Spec-027](../../specs/027-remote-control.md) | [Plan-025](../../plans/025-remote-control.md) Phase 7; [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-8-2 |
 | `preview.screencast.save.acknowledge {sessionId, pageId, saveId}` | The device has written a saved file's last part, or thrown a held save away with `Cancel`; the service deletes its copy and starts the device's next save | [Spec-027](../../specs/027-remote-control.md) | [Plan-025](../../plans/025-remote-control.md) Phase 7; [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-8-2 |
 | `preview.page.zoom.update` | Per-page zoom factor (main's `setZoomFactor`; on the headless host a device-metrics override) | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-8-2 |
 
@@ -584,7 +621,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `provider.standingRule.revoke` | Revoke one of them where the provider keeps it | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) Phase 4 T4.4 |
 | `provider.subscribe` | Every provider's section in the provider table's order, then one provider's whole section, `ProviderSettingsResponse` (`{settings, stoppedDistributions?}`), each time anything on it changes | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) Phase 4 T4.4 |
 | `provider.terminalPlugin.update {provider, place?, enabled}` | The terminal plugin's action row, on any provider whose driver offers one, refused `provider.capability.unsupported` on one whose driver does not; on Claude Code, `Use Sidekicks in terminal Claude Code`: put the app's terminal plugin into the person's own Claude Code in the place named (`place` present on a Windows computer with a WSL 2 distribution, refused by the distribution it names: `provider.distributionNotFound` for one not on this computer, `provider.distributionNeedsWsl2` for a WSL 1 one) with Claude Code's own two commands, `claude plugin marketplace add` and `claude plugin install`, or take it out with its two removal commands. The app writes no Claude Code settings file and no `env` key; Claude Code's own commands write its file | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) Phase 4 T4.4 |
-| `provider.update` | Change one setting on a provider's section, one of `{provider, place?, commandPath}`, `{provider, availableForNewSessions}`, `{provider, helpersAtOnce}`, `{provider, autoCompactPercent}`, or `{provider, rowId, place?, value}` for a setting row the provider's driver declares, checked against its declaration, a place taken only by a per-place switch; or one of the two verbs of an action row the driver declares, `{provider, rowId, place?, enabled}`, which runs it in that place (on does the action and off undoes it, its progress read on the row), and `{provider, rowId, place?, stop: true}`, which stops that run. The value is kept in the app's own store (a declared row's in the machine's settings file's `providerSettings`), never written into the provider's own files, and passed to the app's own sessions as the provider's command-line layer, under organization-managed settings. A command-path change names its place, `{provider, place?, commandPath}`, and also re-checks the command there and re-reads its models; a declared per-place switch names its place too, `{provider, rowId, place?, value}`; either is refused by the distribution it names: `provider.distributionNotFound` for one not on this computer, `provider.distributionNeedsWsl2` for a WSL 1 one. Refused `provider.unavailable` for a provider no registered driver answers, `provider.notInstalled` for a setting that needs a command that is not installed, `provider.commandPath.notRunnable` for a command path where nothing runs, `provider.row.notFound` for a row the driver does not declare, `provider.row.valueInvalid` for a value outside the row's declaration or a place on a row that is not per place, `provider.row.notRunning` for a stop of an action that is not running there, and `provider.row.notStoppable` for a stop of one whose progress says it cannot stop. | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) Phase 4 T4.4 |
+| `provider.update` | Change one setting on a provider's section, one of `{provider, place?, commandPath}`, `{provider, availableForNewSessions}`, `{provider, helpersAtOnce}`, `{provider, autoCompactPercent}`, or `{provider, rowId, place?, value}` for a setting row the provider's driver declares, checked against its declaration, a place taken only by a per-place switch; or one of the two verbs of an action row the driver declares, `{provider, rowId, place?, enabled}`, which runs it in that place (on does the action and off undoes it, its progress read on the row), and `{provider, rowId, place?, stop: true}`, which stops that run. The value is kept in the app's own store (a declared row's in the machine's settings file's `providerSettings`), never written into the provider's own files, and passed to the app's own sessions as the provider's command-line layer, under organization-managed settings. A command-path change names its place, `{provider, place?, commandPath}`, and also re-checks the command there and re-reads its models; a declared per-place switch names its place too, `{provider, rowId, place?, value}`; either is refused by the distribution it names: `provider.distributionNotFound` for one not on this computer, `provider.distributionNeedsWsl2` for a WSL 1 one; a per-place call with no place where a WSL 2 distribution is answers `provider.place.required`, and a place sent on macOS or Linux `provider.place.notOffered`. Refused `provider.notFound` for a provider no registered driver answers, `provider.notInstalled` for a setting that needs a command that is not installed, `provider.commandPath.notRunnable` for a command path where nothing runs, `provider.row.notFound` for a row the driver does not declare, `provider.row.valueInvalid` for a value outside the row's declaration or a place on a row that is not per place, `provider.row.notRunning` for a stop of an action that is not running there, and `provider.row.notStoppable` for a stop of one whose progress says it cannot stop. | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) Phase 4 T4.4 |
 | `provider.account.list` | List accounts, with usage windows and read times | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.3 |
 | `provider.account.signIn` | Start a sign-in | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.5 |
 | `provider.account.signInAttempt.cancel` | Cancel a sign-in | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T2.5 |
@@ -663,11 +700,12 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | Field `shape: "chat" \| "project"` on the session record, read through `session.read` and `session.subscribe` | The durable shape column: chat or project | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3 |
 | The `shape: "chat"` field on `session.read`; no read of its own | The strip's `Session workspace` label | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.6 |
 | `session.restart` | Restart a provider process that ended | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.29 |
-| `session.restore`; result `requested`, `restored`, per-part `conversation` and `files` failures, and `reason`; a `resend` member makes Edit and resend one call, and a call carrying `resend` takes the scope `conversation-and-files`, and `includeAlsoChanged: boolean`, false unless the ask's include line was pressed, puts back the dry run's `alsoChangedBy` paths too | Undo: conversation and files, conversation only, or files only | [Spec-013](../../specs/013-persistence-and-recovery.md) | [Plan-012](../../plans/012-persistence-and-recovery.md) T12.7 |
+| `session.restore`; result `requested`, `restored`, per-part `conversation` and `files` failures, and `reason`; a `resend` member makes Edit and resend one call, and a call carrying `resend` takes the scope `conversationAndFiles`, and `includeAlsoChanged: boolean`, false unless the ask's include line was pressed, puts back the dry run's `alsoChangedBy` paths too | Undo: conversation and files, conversation only, or files only | [Spec-013](../../specs/013-persistence-and-recovery.md) | [Plan-012](../../plans/012-persistence-and-recovery.md) T12.7 |
 | `session.restore.preview` {sessionId, target: a message's cursor or a snapshot id, scope} | Undo's dry run: files, lines, skipped files with reasons, the lines on what is not put back, the running commands, the commands that ran uncovered, which agents would stop and whether they can resume | [Spec-013](../../specs/013-persistence-and-recovery.md) | [Plan-012](../../plans/012-persistence-and-recovery.md) T12.7 |
 | `session.codeReview.start` {target: working tree, staged, or branch} | `/review [target]` | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.27 |
 | `session.sideQuestion.ask {sessionId, question}` → `{sideQuestionId}` | `/btw`: a side question on a throwaway copy | [Spec-011](../../specs/011-transcript-and-reasoning.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.27 |
 | `session.snapshot.list` | List snapshots in the inspector | [Spec-013](../../specs/013-persistence-and-recovery.md) | [Plan-012](../../plans/012-persistence-and-recovery.md) T12.6 |
+| event `session.sweptToCheckout` | The per-session sweep: removing a worktree moves its sessions back to the project's checkout | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-004](../../plans/004-session-event-taxonomy-and-audit-log.md) T1.2 |
 
 ### `skill.*`
 
@@ -784,4 +822,4 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| events `worktree.created`, `worktree.retired`, `session.sweptToCheckout` | Worktree lifecycle records and the per-session sweep | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-004](../../plans/004-session-event-taxonomy-and-audit-log.md) T1.2 |
+| events `worktree.created`, `worktree.retired` | Worktree lifecycle records | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-004](../../plans/004-session-event-taxonomy-and-audit-log.md) T1.2 |

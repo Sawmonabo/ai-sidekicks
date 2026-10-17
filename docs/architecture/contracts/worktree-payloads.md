@@ -14,19 +14,19 @@ type BranchContextId = string & { readonly __brand: "BranchContextId" };
 // worktree.
 type RemovedWorktreeId = string & { readonly __brand: "RemovedWorktreeId" };
 
-// ExecutionRootPrepare — materializes (or binds) the execution root for the workspace's selected mode.
-// It carries no `runId`: the run-setup gate supplies it service-side, so a caller cannot forge run
-// provenance.
-interface ExecutionRootPrepareRequest {
+// WorkspaceExecutionRootPrepare — materializes (or binds) the execution root for the workspace's
+// selected mode. It carries no `runId`: the run-setup gate supplies it service-side, so a caller
+// cannot forge run provenance.
+interface WorkspaceExecutionRootPrepareRequest {
   workspaceId: WorkspaceId;
   branchName?: string; // optional in the schema, required in practice: a wire prepare has no run to derive a name from, so omitting it draws the typed workspace.branchNameRequired refusal before any git call
   baseRef?: string; // worktree base; default = mount HEAD branch; detached HEAD without baseRef → typed refusal; a leading dash is refused before git
   carryUncommitted?: boolean; // carry the session's uncommitted work, untracked files included, onto the new tree; refused unless the new base is the branch the work sits on
 }
-interface ExecutionRootPrepareResponse {
+interface WorkspaceExecutionRootPrepareResponse {
   executionRoot: string; // at most FILE_PATH_MAX_LEN; a prepare resolves a root or refuses with a typed error, never a partial success
   state: WorkspaceState;
-  worktreeId?: WorktreeId; // present for a provisioned-worktree prepare only
+  worktreeId?: WorktreeId; // present for a `provisionedWorktree` prepare only
   branchContextId: BranchContextId; // every prepare writes or refreshes a branch context (Spec-008 §State And Data Implications)
 }
 

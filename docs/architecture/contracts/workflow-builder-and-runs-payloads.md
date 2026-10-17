@@ -243,7 +243,7 @@ interface WorkflowNodeExecuteRequest {
   // repository the trigger's `Repository` names; a chat that asks for a node run names its own session,
   // as workflow.run.start does, and works in that session's recorded folder.
   sessionId?: SessionId;
-  // The project the builder's `Repository` panel names for a node run on a `chat` or `sub-workflow`
+  // The project the builder's `Repository` panel names for a node run on a `chat` or `subWorkflow`
   // trigger, which carries no `Repository` of its own; absent for `None`, and on every other trigger,
   // whose `Repository` the daemon reads. A version holding a Git, Read a repo diff or Run tests step
   // with none named is refused `workflow.run.repositoryRequired`.
@@ -345,8 +345,8 @@ type WorkflowParamSpec =
         | "cron"
         | "secret"
         | "agent"
-        | "mcp-tool"
-        | "callback-tool" // one of the daemon's own callback tools, chosen from agent.callbackTool.list
+        | "mcpTool"
+        | "callbackTool" // one of the daemon's own callback tools, chosen from agent.callbackTool.list
         | "session"
         | "project"; // a trigger's Repository: one of the person's projects, or None (absent)
       required?: boolean;
@@ -406,7 +406,7 @@ interface WorkflowKindListResponse {
 interface WorkflowNewRunHoldUpdateRequest {
   paused: boolean;
 }
-interface WorkflowRunsPauseState {
+interface WorkflowNewRunHoldState {
   paused: boolean;
   waitingStartCount: number;
 }

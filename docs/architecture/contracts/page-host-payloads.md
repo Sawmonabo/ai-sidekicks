@@ -10,46 +10,46 @@ The Preview pane and the machine-wide Browser page are served by two daemon JSON
 
 | Method | Procedure type | Request → Response | What it carries |
 | --- | --- | --- | --- |
-| `preview.page.subscribe` | `subscription` | `PreviewPageSubscribeRequest` → `PreviewPageSubscribeResponse` (stream) | The session's open pages in the session's order — address, title, favicon, load state, history depth, zoom, and whether the page is released — plus the active index; read by the renderer and by the main process, which keeps one page view per page in step with it |
+| `preview.page.subscribe` | `subscription` | `PreviewPageSubscribeRequest` → `PreviewPageListFrame` (stream) | The session's open pages in the session's order — address, title, favicon, load state, history depth, zoom, and whether the page is released — plus the active index; read by the renderer and by the main process, which keeps one page view per page in step with it |
 | `preview.page.open` | `mutation` | `PreviewPageOpenRequest` → `PreviewPageOpenResponse` | Opens a page from an address or from a discovered dev server; the main process also calls it with the address of a popup a page opens, so a popup becomes a page and never a window |
-| `preview.page.close` | `mutation` | `PreviewPageCloseRequest` → `PreviewPageCloseResponse` | Closes one page |
-| `preview.page.activate` | `mutation` | `PreviewPageActivateRequest` → `PreviewPageActivateResponse` | Makes one page the open one |
+| `preview.page.close` | `mutation` | `PreviewPageRequest` → `PreviewPageCloseResponse` | Closes one page |
+| `preview.page.activate` | `mutation` | `PreviewPageRequest` → `PreviewPageActivateResponse` | Makes one page the open one |
 | `preview.page.reorder` | `mutation` | `PreviewPageReorderRequest` → `PreviewPageReorderResponse` | Moves one page to a new place in the strip; the order is the session's, so every device draws it the same |
 | `preview.page.navigate` | `mutation` | `PreviewPageNavigateRequest` → `PreviewPageNavigateResponse` | Navigates a page; back, forward and reload ride the same verb rather than three of their own |
 | `preview.page.zoom.update` | `mutation` | `PreviewPageZoomUpdateRequest` → `PreviewPageZoomUpdateResponse` | Sets a page's zoom factor on the executing machine: main's `webContents.setZoomFactor` on the desktop host, and on the headless host one `Emulation.setDeviceMetricsOverride` of the service's own, the page's size divided by the factor and its device scale times it, sent again after any browser call that resizes the page and after a debugger client detaches |
 | `preview.devServer.subscribe` | `subscription` | `PreviewDevServerSubscribeRequest` → `PreviewDevServer[]` (stream) | The dev servers discovered in the session's project — name, framework where known, port. Ticks only while a project session is live |
 | `preview.mark.send` | `mutation` | `PreviewMarkSendRequest` → `PreviewMarkSendResponse` | The frozen picture and its marks, staged as one attachment in the session's composer; it goes to the provider with the ordinary Send |
 | `preview.screencast.subscribe` | `subscription` | `PreviewScreencastSubscribeRequest` → `PreviewScreencastElement` (stream) | The page's live picture for another device: its frames; the page's right-click menu — its point, in frame pixels, the link under the press, whether it landed in a field that takes text, whether the page allows a cut and a copy there, and the selected text, none where it allows no copy, as in a password field, sent when the page leaves a device's menu uncanceled; a file chooser or a File System Access picker a device's press or key opened; a file the page saved for that device, a download its press or key started or a write finished through its picker's handle, as a `save` element followed by its `savePart` parts, one save at a time, a save held while the device had no stream sent whole once it opens Preview on the session again; and `downloadRefused` for a download no person started. Another device only, live only while that device has the pane open |
-| `preview.screencast.acknowledge` | `mutation` | `PreviewScreencastAcknowledgeRequest` → `PreviewScreencastAcknowledgeResponse` | Acknowledges one frame by its `ackToken`, which the service passes to `Page.screencastFrameAck` |
+| `preview.screencast.acknowledge` | `mutation` | `PreviewScreencastAcknowledgeRequest` → `EmptyPayload` | Acknowledges one frame by its `ackToken`, which the service passes to `Page.screencastFrameAck` |
 | `preview.screencast.input.send` | `mutation` | `PreviewScreencastInputSendRequest` → `PreviewScreencastInputSendResponse` | One press, move, release, wheel, touch or key from the device, answered with the `messageId` the service gives it, which a menu, a file chooser or a download that input raised names |
-| `preview.screencast.edit` | `mutation` | `PreviewScreencastEditRequest` → `PreviewScreencastEditResponse` | The device's menu's `Paste` with its text, `Select all`, or `Cut`'s removal, naming the menu's `messageId`; refused with `preview.editRefused`, changing nothing, where the page took other input after the menu opened |
-| `preview.screencast.file.choose` | `mutation` | `PreviewScreencastFileChooseRequest` → `PreviewScreencastFileChooseResponse` | The device's answer to a file chooser or a File System Access picker its press or key opened: the files it picked from its own, each first staged on the machine through the `AttachmentIngestInit` / `AttachmentIngestChunk` / `AttachmentIngestComplete` trio and named here by its artifact id, a folder's each with its path inside the folder, which the service sets on the page's input or drops on the page for its picker, or none for a cancel; a malformed path is refused with `preview.filePathRefused` |
-| `preview.screencast.save.acknowledge` | `mutation` | `PreviewScreencastSaveAcknowledgeRequest` → `PreviewScreencastSaveAcknowledgeResponse` | The device has written a save's last part where its host keeps it, or thrown a held save away with `Cancel`, so the service deletes its copy and starts that device's next save |
-| `browser.siteData.list` | `query` | `BrowserSiteDataListRequest` → `BrowserSiteDataListResponse` | The sites with saved data, each saying whether it holds an unexpired cookie |
-| `browser.siteData.forget` | `mutation` | `BrowserSiteDataForgetRequest` → `BrowserSiteDataForgetResponse` | `Forget`: one site's full erase — cookies, storage, cache and service workers — across its registrable domain |
-| `browser.siteData.clear` | `mutation` | `BrowserSiteDataClearRequest` → `BrowserSiteDataClearResponse` | Clears every site's saved data |
-| `browser.cookie.clear` | `mutation` | `BrowserCookieClearRequest` → `BrowserCookieClearResponse` | `Clear cookies`: one site's cookies across its registrable domain, parent-domain cookies included, and nothing else |
-| `browser.site.signIn` | `mutation` | `BrowserSiteSignInRequest` → `BrowserSiteSignInResponse` | `Sign in`: opens the site in a browser page of its own that belongs to no session, over the machine's one site-data set, showing the address line and nothing else |
-| `browser.chromium.read` | `query` | `BrowserChromiumReadRequest` → `BrowserChromiumReadResponse` | Which browser the headless host uses — an installed Chrome or Edge, or Chrome for Testing's headless shell — with its version and when it was fetched |
-| `browser.chromium.fetch` | `mutation` | `BrowserChromiumFetchRequest` → `BrowserChromiumFetchResponse` | `Fetch it again`: fetches Chrome for Testing's headless shell again; its progress is the fetch's own flow row |
+| `preview.screencast.edit` | `mutation` | `PreviewScreencastEditRequest` → `PreviewMenuEditResponse` | The device's menu's `Paste` with its text, `Select all`, or `Cut`'s removal, naming the menu's `messageId`; refused with `preview.editRefused`, changing nothing, where the page took other input after the menu opened |
+| `preview.screencast.file.choose` | `mutation` | `PreviewScreencastFileChooseRequest` → `PreviewScreencastFileChooseResponse` | The device's answer to a file chooser or a File System Access picker its press or key opened: the files it picked from its own, each first staged on the machine through the `artifact.ingest.start` / `artifact.ingest.write` / `artifact.ingest.complete` trio and named here by its artifact id, a folder's each with its path inside the folder, which the service sets on the page's input or drops on the page for its picker, or none for a cancel; a malformed path is refused with `preview.filePathRefused` |
+| `preview.screencast.save.acknowledge` | `mutation` | `PreviewScreencastSaveAcknowledgeRequest` → `EmptyPayload` | The device has written a save's last part where its host keeps it, or thrown a held save away with `Cancel`, so the service deletes its copy and starts that device's next save |
+| `browser.siteData.list` | `query` | `EmptyPayload` → `BrowserSiteDataListResponse` | The sites with saved data, each saying whether it holds an unexpired cookie |
+| `browser.siteData.forget` | `mutation` | `BrowserSiteRequest` → `BrowserSiteDataForgetResponse` | `Forget`: one site's full erase — cookies, storage, cache and service workers — across its registrable domain |
+| `browser.siteData.clear` | `mutation` | `EmptyPayload` → `BrowserSiteDataClearResponse` | Clears every site's saved data |
+| `browser.cookie.clear` | `mutation` | `BrowserSiteRequest` → `BrowserCookieClearResponse` | `Clear cookies`: one site's cookies across its registrable domain, parent-domain cookies included, and nothing else |
+| `browser.site.signIn` | `mutation` | `BrowserSiteRequest` → `BrowserSiteSignInResponse` | `Sign in`: opens the site in a browser page of its own that belongs to no session, over the machine's one site-data set, showing the address line and nothing else |
+| `browser.chromium.read` | `query` | `EmptyPayload` → `BrowserChromiumReadResponse` | Which browser the headless host uses — an installed Chrome or Edge, or Chrome for Testing's headless shell — with its version and when it was fetched |
+| `browser.chromium.fetch` | `mutation` | `EmptyPayload` → `BrowserChromiumFetchResponse` | `Fetch it again`: fetches Chrome for Testing's headless shell again; its progress is the fetch's own flow row |
 
 **The main process's page host.** The desktop's pages live in the main process, so the daemon also calls the main process, and the main process reports to the daemon, on the `preview` root. These calls ride the client helper's connection to the service, which the app labels with `ConnectionInitializeRequest.clientId` — a label, not authentication — and never the preload bridge or a port.
 
 | Method | Direction | Procedure type | Request → Response | What it carries |
 | --- | --- | --- | --- | --- |
-| `preview.page.target.report` | main → daemon | `mutation` | `PreviewPageTargetReportRequest` → `PreviewPageTargetReportResponse` | Each page view's debug target, so the relay joins exactly the Preview pages |
-| `preview.page.debugger.send` | daemon → main | `mutation` | `PreviewPageDebuggerSendRequest` → `PreviewPageDebuggerSendResponse` | One debug-protocol command to a page, which main passes to that page view's in-process debugger |
-| `preview.page.debugger.report` | main → daemon | `mutation` | `PreviewPageDebuggerReportRequest` → `PreviewPageDebuggerReportResponse` | One debug-protocol reply or event from a page view; main carries no `Page.fileChooserOpened` where a press or key at the machine reached that page while the relayed command it followed awaited its reply, so that chooser reaches no one |
-| `preview.page.menu.report` | main → daemon | `mutation` | `PreviewPageMenuReportRequest` → `PreviewPageMenuReportResponse` | The right-click menu a press main relayed raised, for which main pops no menu, and none where another press at that moment could have raised the same menu: the relayed message's id, the menu's point, its frame's address, the link under the press, whether the press landed in a field that takes text, whether the page allows a cut, a copy and select all there, and the selected text, left out where it allows no copy; the service hands it to the device whose press it was and drops it for an agent's |
-| `preview.page.stagingFolder.read` | main → daemon | `query` | `PreviewPageStagingFolderReadRequest` → `PreviewPageStagingFolderReadResponse` | The folder main writes a relayed download into, read once per connection |
-| `preview.page.localInput.report` | main → daemon | `mutation` | `PreviewPageLocalInputReportRequest` → `PreviewPageLocalInputReportResponse` | A press or key at the machine reached the page, sent once after each relayed input to it, so the page's next download or picker call is the person's at the machine |
+| `preview.page.target.report` | main → daemon | `mutation` | `PreviewPageTargetReportRequest` → `PreviewReceivedResponse` | Each page view's debug target, so the relay joins exactly the Preview pages |
+| `preview.page.debugger.send` | daemon → main | `mutation` | `PreviewPageDebuggerMessageRequest` → `PreviewReceivedResponse` | One debug-protocol command to a page, which main passes to that page view's in-process debugger |
+| `preview.page.debugger.report` | main → daemon | `mutation` | `PreviewPageDebuggerMessageRequest` → `PreviewReceivedResponse` | One debug-protocol reply or event from a page view; main carries no `Page.fileChooserOpened` where a press or key at the machine reached that page while the relayed command it followed awaited its reply, so that chooser reaches no one |
+| `preview.page.menu.report` | main → daemon | `mutation` | `PreviewPageMenuReportRequest` → `PreviewReceivedResponse` | The right-click menu a press main relayed raised, for which main pops no menu, and none where another press at that moment could have raised the same menu: the relayed message's id, the menu's point, its frame's address, the link under the press, whether the press landed in a field that takes text, whether the page allows a cut, a copy and select all there, and the selected text, left out where it allows no copy; the service hands it to the device whose press it was and drops it for an agent's |
+| `preview.page.stagingFolder.read` | main → daemon | `query` | `EmptyPayload` → `PreviewPageStagingFolderReadResponse` | The folder main writes a relayed download into, read once per connection |
+| `preview.page.localInput.report` | main → daemon | `mutation` | `PreviewPageLocalInputReportRequest` → `PreviewReceivedResponse` | A press or key at the machine reached the page, sent once after each relayed input to it, so the page's next download or picker call is the person's at the machine |
 | `preview.page.download.report` | main → daemon | `mutation` | `PreviewPageDownloadReportRequest` → `PreviewPageDownloadReportResponse` | A download a relayed input owns, which main's `will-download` handler wrote under an id it minted, reported in its end state, `completed`, `cancelled` or `interrupted`, with the last relayed input main carried to the page; the service sends a completed one to the device that owns it, or holds it, and deletes every other, refusing one an agent's or a workflow step's input owns, or none does, with `Downloads are off in Preview`; on `refused` for a completed download main raises `downloadRefused` to the pane on this machine's own window |
 | `preview.save.read` | main → its own daemon | `query` | `PreviewSaveReadRequest` → `PreviewSaveReadResponse` | A desktop app reaching another machine: one part of a save its own service kept for it, which main writes to the path the system save dialog chose |
-| `preview.page.edit` | daemon → main | `mutation` | `PreviewPageEditRequest` → `PreviewPageEditResponse` | A device's `Paste` with its text, `Select all`, or `Cut`'s removal from that menu, naming the menu by its message id, which main answers with `webContents.insertText(text)`, `selectAll()` or `delete()` in the frame holding focus while that menu is still the page's current one, and otherwise refuses with `preview.editRefused`, changing nothing; the service hands that refusal back to the device as `preview.screencast.edit`'s |
+| `preview.page.edit` | daemon → main | `mutation` | `PreviewPageEditRequest` → `PreviewMenuEditResponse` | A device's `Paste` with its text, `Select all`, or `Cut`'s removal from that menu, naming the menu by its message id, which main answers with `webContents.insertText(text)`, `selectAll()` or `delete()` in the frame holding focus while that menu is still the page's current one, and otherwise refuses with `preview.editRefused`, changing nothing; the service hands that refusal back to the device as `preview.screencast.edit`'s |
 | `preview.page.cookie.list` | daemon → main | `query` | `PreviewPageCookieListRequest` → `PreviewPageCookieListResponse` | The desktop host's cookies, each a `PreviewCookie`, when the headless host takes over |
 | `preview.page.cookie.update` | daemon → main | `mutation` | `PreviewPageCookieUpdateRequest` → `PreviewPageCookieUpdateResponse` | Cookies written into the desktop host when it takes over, `expires` mapped to Electron's `expirationDate` |
-| `preview.page.cookie.clear` | daemon → main | `mutation` | `PreviewPageCookieClearRequest` → `PreviewPageCookieClearResponse` | One site's cookies cleared across its registrable domain, answered with Electron's `ses.clearData` given `dataTypes: ['cookies']`, the one call that removes a parent-domain cookie |
-| `preview.page.siteData.clear` | daemon → main | `mutation` | `PreviewPageSiteDataClearRequest` → `PreviewPageSiteDataClearResponse` | One site's saved data or, with no origins, every site's, answered with `ses.clearData({origins, dataTypes})` for named sites and `ses.clearData()` for all |
+| `preview.page.cookie.clear` | daemon → main | `mutation` | `PreviewPageCookieClearRequest` → `PreviewClearedResponse` | One site's cookies cleared across its registrable domain, answered with Electron's `ses.clearData` given `dataTypes: ['cookies']`, the one call that removes a parent-domain cookie |
+| `preview.page.siteData.clear` | daemon → main | `mutation` | `PreviewPageSiteDataClearRequest` → `PreviewClearedResponse` | One site's saved data or, with no origins, every site's, answered with `ses.clearData({origins, dataTypes})` for named sites and `ses.clearData()` for all |
 
 The main process attaches Electron's in-process debugger to each Preview page view and to no other `webContents`. The relay joins those pages into one browser whose target list is exactly the Preview pages, the console's own windows absent; on a page's session it passes only `Target.setAutoAttach`, the detach of that page's own children and `Target.getTargetInfo` for its own target, and refuses every other `Target.*` and `Browser.*` command, because a page's debugger reaches every target in the app. On the headless host the daemon does the same on its own CDP session. For `Clear cookies`: `Storage.getCookies`, then `Storage.setCookies` with `expires: 0` for each cookie whose domain falls in the row's registrable domain (`psl`). For `Forget`: that plus `Storage.clearDataForOrigin {origin, storageTypes: "all"}` for each origin the row lists. Moving site data between the two hosts happens only when one takes over from the other: cookies through the cookie calls, local storage and IndexedDB copied by script, and passkeys never crossing, which the pane says rather than silently dropping a login.
 
@@ -83,7 +83,7 @@ interface PreviewPageSubscribeRequest {
 // session's pages — address, order, which is active, zoom — in its own per-session page store: a service
 // restart reconnects the page views the app still holds without reloading them, and headless pages, and
 // every page after an app restart, come back released.
-interface PreviewPageSubscribeResponse {
+interface PreviewPageListFrame {
   pages: PreviewPage[]; // in the session's order
   // The page the pane is showing. -1 where the session has no page open, so an empty pane is
   // representable without an optional member that a reader could mistake for "unknown".
@@ -107,7 +107,8 @@ interface PreviewPageOpenResponse {
   releasedPageId?: string;
 }
 
-interface PreviewPageCloseRequest {
+// The page `preview.page.close` and `preview.page.activate` act on.
+interface PreviewPageRequest {
   sessionId: SessionId;
   pageId: string;
 }
@@ -115,10 +116,6 @@ interface PreviewPageCloseResponse {
   closed: true;
 }
 
-interface PreviewPageActivateRequest {
-  sessionId: SessionId;
-  pageId: string;
-}
 interface PreviewPageActivateResponse {
   activePageId: string;
 }
@@ -320,11 +317,10 @@ interface PreviewScreencastAcknowledgeRequest {
   pageId: string;
   ackToken: string;
 }
-interface PreviewScreencastAcknowledgeResponse {}
 
 // Points are frame pixels; the service maps them to page points from the frame's metadata, the size
 // held and the page's zoom factor.
-type PreviewScreencastInput =
+type PreviewDeviceInput =
   | {
       kind: "mouse";
       type: "press" | "move" | "release";
@@ -351,7 +347,7 @@ type PreviewScreencastInput =
 interface PreviewScreencastInputSendRequest {
   sessionId: SessionId;
   pageId: string;
-  input: PreviewScreencastInput;
+  input: PreviewDeviceInput;
 }
 interface PreviewScreencastInputSendResponse {
   messageId: string;
@@ -365,12 +361,13 @@ interface PreviewScreencastEditRequest {
   messageId: string; // the menu's
   edit: { kind: "paste"; text: string } | { kind: "selectAll" } | { kind: "cut" };
 }
-interface PreviewScreencastEditResponse {
+// The reply of `preview.screencast.edit` and `preview.page.edit`.
+interface PreviewMenuEditResponse {
   applied: true;
 }
 
 // The files come from the device's own picker. Each is staged on the machine first through the
-// AttachmentIngest trio, so its bounds and refusals (`artifact.tooLarge`,
+// ArtifactIngest trio, so its bounds and refusals (`artifact.tooLarge`,
 // `artifact.ingest.capacityExhausted`) apply and no request holds a whole file; the staged artifacts
 // are the session's and go with it. The page reads a file's name from its path, so the service copies
 // each into the session's staging folder under the name the ingest recorded, cleaned, and deletes an
@@ -384,7 +381,7 @@ interface PreviewScreencastFileChooseRequest {
   sessionId: SessionId;
   pageId: string;
   messageId: string; // the chooser's
-  // Each from its AttachmentIngestComplete; for `selectFolder` with the file's `/`-separated path
+  // Each from its artifact.ingest.complete; for `selectFolder` with the file's `/`-separated path
   // inside the picked folder, as `sub/b.txt`.
   files: Array<{ artifactId: ArtifactId; path?: string }>;
   folderName?: string; // the picked folder's own name, for `selectFolder`
@@ -399,7 +396,6 @@ interface PreviewScreencastSaveAcknowledgeRequest {
   pageId: string;
   saveId: string;
 }
-interface PreviewScreencastSaveAcknowledgeResponse {}
 
 // Site data is ONE set per machine, shared by every page, the tools and workflow steps, with per-site
 // forgetting — not a partition per session. Rows are keyed per registrable domain; `origin`
@@ -408,7 +404,6 @@ interface PreviewScreencastSaveAcknowledgeResponse {}
 // clear is `Storage.getCookies`, then `Storage.setCookies` with `expires: 0` for each cookie whose domain
 // falls in the row's registrable domain (`psl`), which Chromium stores as already expired and so deletes;
 // `Forget` adds `Storage.clearDataForOrigin {origin, storageTypes: "all"}` for each origin the row lists.
-interface BrowserSiteDataListRequest {}
 interface BrowserSiteDataListResponse {
   // `hasCookies` is true while the site holds at least one unexpired cookie (the row reads `Saved cookies`
   // and carries `Clear cookies`) and false while it holds other saved data and no cookie (`Saved site
@@ -416,40 +411,32 @@ interface BrowserSiteDataListResponse {
   // proves neither.
   sites: Array<{ origin: string; sizeBytes: number; lastUsedAt: string; hasCookies: boolean }>;
 }
-interface BrowserSiteDataForgetRequest {
+// The site `browser.siteData.forget`, `browser.cookie.clear` and `browser.site.signIn` act on.
+interface BrowserSiteRequest {
   origin: string;
 }
 interface BrowserSiteDataForgetResponse {
   origin: string;
   forgotten: true;
 }
-interface BrowserSiteDataClearRequest {}
 interface BrowserSiteDataClearResponse {
   cleared: true;
 }
 // Clears the site's cookies and nothing else — its storage, cache and service workers stay — and claims
 // nothing about whether the person is signed out.
-interface BrowserCookieClearRequest {
-  origin: string;
-}
 interface BrowserCookieClearResponse {
   origin: string;
   cleared: true;
 }
 // When the sign-in page closes, the Browser page reads `browser.siteData.list` again.
-interface BrowserSiteSignInRequest {
-  origin: string;
-}
 interface BrowserSiteSignInResponse {
   origin: string;
 }
-interface BrowserChromiumReadRequest {}
 interface BrowserChromiumReadResponse {
-  source: "chrome" | "edge" | "chrome-for-testing";
+  source: "desktop" | "chrome" | "edge" | "chromeForTesting"; // `desktop`: the desktop app's own
   version: string;
   fetchedAt?: string; // present for Chrome for Testing's headless shell
 }
-interface BrowserChromiumFetchRequest {}
 interface BrowserChromiumFetchResponse {
   started: true; // a fetch already running is joined, not repeated
 }
@@ -459,19 +446,16 @@ interface PreviewPageTargetReportRequest {
   pageId: string;
   targetId: string;
 }
-interface PreviewPageTargetReportResponse {}
+// The reply of every report and of `preview.page.debugger.send`: the receiving end took it.
+interface PreviewReceivedResponse {
+  received: true;
+}
 // One debug-protocol message, carried verbatim: a command on the send, a reply or an event on the report.
 // The one event main holds back is a `Page.fileChooserOpened` a press at the machine may have raised.
-interface PreviewPageDebuggerSendRequest {
+interface PreviewPageDebuggerMessageRequest {
   pageId: string;
   message: string;
 }
-interface PreviewPageDebuggerSendResponse {}
-interface PreviewPageDebuggerReportRequest {
-  pageId: string;
-  message: string;
-}
-interface PreviewPageDebuggerReportResponse {}
 // The menu a press main relayed raised, named by that relayed message's id; main sends none where
 // another press at that moment could have raised the same menu.
 interface PreviewPageMenuReportRequest {
@@ -488,9 +472,7 @@ interface PreviewPageMenuReportRequest {
     selectionText?: string; // absent where `editFlags` allow no copy, as in a password field
   };
 }
-interface PreviewPageMenuReportResponse {}
 // The staging folder main writes a relayed download into, read once per connection.
-interface PreviewPageStagingFolderReadRequest {}
 interface PreviewPageStagingFolderReadResponse {
   folder: string;
 }
@@ -499,7 +481,6 @@ interface PreviewPageStagingFolderReadResponse {
 interface PreviewPageLocalInputReportRequest {
   pageId: string;
 }
-interface PreviewPageLocalInputReportResponse {}
 // A download a relayed input owns, which main's `will-download` handler wrote to
 // `<staging folder>/<fileId>`, reported once the item is done in any state; the service resolves
 // `fileId` inside its folder itself and refuses one that is not an id main minted with
@@ -536,19 +517,14 @@ interface PreviewPageEditRequest {
   messageId: string; // the menu's
   edit: { kind: "paste"; text: string } | { kind: "selectAll" } | { kind: "cut" };
 }
-interface PreviewPageEditResponse {
-  applied: true;
-}
 interface PreviewPageCookieClearRequest {
   domain: string; // the site's registrable domain
-}
-interface PreviewPageCookieClearResponse {
-  domain: string;
 }
 interface PreviewPageSiteDataClearRequest {
   origins?: string[]; // absent clears every site
 }
-interface PreviewPageSiteDataClearResponse {
+// The reply of `preview.page.cookie.clear` and `preview.page.siteData.clear`.
+interface PreviewClearedResponse {
   cleared: true;
 }
 // `PreviewPageCookieList*` and `PreviewPageCookieUpdate*` carry the cookies as the contract's own

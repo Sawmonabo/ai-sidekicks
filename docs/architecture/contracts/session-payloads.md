@@ -35,13 +35,13 @@ interface SessionCreateRequest {
   groupId?: SessionGroupId;
 }
 
-// A chat names nothing more: the daemon makes the chat's managed workspace inside the create and registers
-// it as a mount whose managed origin names this one chat. A project names the project and where the
-// session works in it — the project's own checkout (`bound-root`) or a worktree of its own
-// (`provisioned-worktree`) — and the daemon binds the session to the project's attached mount and checks,
-// in the same step, that the picked root belongs to the project, the check `workspace.bind` makes when
-// a chat converts. A mount belongs to the machine, not to one session, so every project session binds to
-// the project's one mount.
+// A chat names nothing more: the daemon makes the chat's managed workspace inside the create and
+// registers it as a mount whose managed origin names this one chat. A project names the project and
+// where the session works in it — the project's own checkout (`boundRoot`) or a worktree of its own
+// (`provisionedWorktree`) — and the daemon binds the session to the project's attached mount and
+// checks, in the same step, that the picked root belongs to the project, the check `workspace.bind`
+// makes when a chat converts. A mount belongs to the machine, not to one session, so every project
+// session binds to the project's one mount.
 type SessionBinding =
   | { kind: "chat" }
   | { kind: "project"; projectId: ProjectId; executionMode: ExecutionMode };
@@ -124,7 +124,7 @@ interface SessionEventSubscribeRequest {
 // `$/subscription/end` frame (`completed`, or `refused` with its error); a client ends one with
 // `$/subscription/cancel`.
 type SubscriptionId = string & { readonly __brand: "SubscriptionId" }; // allocated by the daemon per subscription
-interface SessionEventSubscribeResponse {
+interface SubscribeAckResponse {
   subscriptionId: SubscriptionId;
 }
 // Each notify's value, framed by the rule of Spec-006 §Required Behavior: the first event of a quiet
@@ -421,13 +421,13 @@ interface SessionAttachmentRemoveResponse {
 // nothing, and likewise unmuting an unmuted one.
 // The request of every verb that acts on one session and takes nothing else: `session.archive`,
 // `session.reactivate`, `session.close`, `session.pin`, `session.unpin`, `session.mute`,
-// `session.unmute` and `session.restart`.
+// `session.unmute`, `session.restart`, `session.recovery.continue` and `session.recovery.delete`.
 interface SessionTargetRequest {
   sessionId: SessionId;
 }
-// `{}`: the change is read from the event the verb appends, which every device folds. A verb that finds
-// the session already in the state it asks for appends nothing and answers the same.
-type SessionVerbResponse = Record<string, never>;
+// Each answers `EmptyPayload`, `{}`: the change is read from the event the verb appends, which
+// every device folds. A verb that finds the session already in the state it asks for appends
+// nothing and answers the same.
 
 // SessionConvert — session.convert. Converts a chat to a project in place: attaches the repository at
 // the typed `path`, copies the chat's files in, skipping each it cannot copy safely, keeps the managed
@@ -678,13 +678,9 @@ interface SessionRelatedListUpdate {
 }
 // session.link.add — `Link a session…`, the session picked through the `@` session picker: adds a
 // `related` link between the two sessions, by id, so a rename changes nothing.
-interface SessionLinkAddRequest {
-  sessionId: SessionId;
-  targetSessionId: SessionId;
-}
 // session.link.remove — `Unlink` on a `related` row. A link the daemon wrote from an event records
 // what happened and is refused `session.link.notRemovable`.
-interface SessionLinkRemoveRequest {
+interface SessionLinkRequest {
   sessionId: SessionId;
   targetSessionId: SessionId;
 }
@@ -705,7 +701,7 @@ interface SessionTagListResponse {
 
 ### Session Method-Name Registry
 
-The console's `session.*` operations beyond the [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase 3 rows registered in local-ipc-payloads.md §JSON-RPC Method-Name Registry, and beyond the lease verb and the flow-control signal registered in remote-control-payloads.md §Session Terminal-Control Method Registry. Names follow the [wire-name grammar](./local-ipc-payloads.md#wire-name-grammar). These ride the **daemon JSON-RPC transport only**: a session's name, its working folder, its draft, its staged files and its mute are machine-local state the terminal-owning daemon is the record authority for, so no control-plane route sibling exists — the `repoMount.*` / `project.*` / `worktree.*` / `workspace.*` / `approval.*` posture. Method strings stay imperative and disjoint-by-form from the past-participle [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) durable event names (`session.renamed`, `session.goal.updated`, `session.muted`).
+The console's `session.*` operations beyond the [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase 3 rows registered in local-ipc-payloads.md §JSON-RPC Method-Name Registry. Names follow the [wire-name grammar](./local-ipc-payloads.md#wire-name-grammar). These ride the **daemon JSON-RPC transport only**: a session's name, its working folder, its draft, its staged files and its mute are machine-local state the terminal-owning daemon is the record authority for, so no control-plane route sibling exists — the `repoMount.*` / `project.*` / `worktree.*` / `workspace.*` / `approval.*` posture. Method strings stay imperative and disjoint-by-form from the past-participle [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) durable event names (`session.renamed`, `session.goal.updated`, `session.muted`).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -713,27 +709,27 @@ The console's `session.*` operations beyond the [Plan-005](../../plans/005-local
 | `session.fork` | `mutation` | `SessionForkRequest` | `SessionForkResponse` |
 | `session.workingFolder.update` | `mutation` | `SessionWorkingFolderUpdateRequest` | `SessionWorkingFolderUpdateResponse` |
 | `session.maxSteps.update` | `mutation` | `SessionMaxStepsUpdateRequest` | `SessionMaxStepsUpdateResponse` |
-| `session.spendLimit.update` | `mutation` | `SessionSpendLimitUpdateRequest` | `OrchestrationBudgetState` |
-| `session.tokensPerRun.update` | `mutation` | `SessionTokensPerRunUpdateRequest` | `OrchestrationBudgetState` |
+| `session.spendLimit.update` | `mutation` | `SessionSpendLimitUpdateRequest` | `SessionBudgetState` |
+| `session.tokensPerRun.update` | `mutation` | `SessionTokensPerRunUpdateRequest` | `SessionBudgetState` |
 | `session.draft.update` | `mutation` | `SessionDraftUpdateRequest` | `SessionDraftUpdateResponse` |
 | `session.attachment.add` | `mutation` | `SessionAttachmentAddRequest` | `SessionAttachmentAddResponse` |
 | `session.attachment.remove` | `mutation` | `SessionAttachmentRemoveRequest` | `SessionAttachmentRemoveResponse` |
-| `session.mute` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
-| `session.unmute` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
+| `session.mute` | `mutation` | `SessionTargetRequest` | `EmptyPayload` |
+| `session.unmute` | `mutation` | `SessionTargetRequest` | `EmptyPayload` |
 | `session.convert` | `mutation` | `SessionConvertRequest` | `SessionConvertResponse` |
 | `session.conversion.skippedFile.list` | `query` | `SessionConversionSkippedFileListRequest` | `SessionConversionSkippedFileListResponse` |
-| `session.recovery.continue` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
-| `session.recovery.delete` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
+| `session.recovery.continue` | `mutation` | `SessionTargetRequest` | `EmptyPayload` |
+| `session.recovery.delete` | `mutation` | `SessionTargetRequest` | `EmptyPayload` |
 | `session.search` | `query` | `SessionSearchRequest` | `SessionSearchResponse` |
 | `session.group.create` | `mutation` | `SessionGroupCreateRequest` | `SessionGroupCreateResponse` |
-| `session.group.move` | `mutation` | `SessionGroupMoveRequest` | `SessionVerbResponse` |
-| `session.group.rename` | `mutation` | `SessionGroupRenameRequest` | `SessionVerbResponse` |
-| `session.group.ungroup` | `mutation` | `SessionGroupUngroupRequest` | `SessionVerbResponse` |
+| `session.group.move` | `mutation` | `SessionGroupMoveRequest` | `EmptyPayload` |
+| `session.group.rename` | `mutation` | `SessionGroupRenameRequest` | `EmptyPayload` |
+| `session.group.ungroup` | `mutation` | `SessionGroupUngroupRequest` | `EmptyPayload` |
 | `session.relatedSession.subscribe` | `subscription` | `SessionRelatedSessionSubscribeRequest` | `SessionRelatedListUpdate` (stream) |
-| `session.link.add` | `mutation` | `SessionLinkAddRequest` | `SessionVerbResponse` |
-| `session.link.remove` | `mutation` | `SessionLinkRemoveRequest` | `SessionVerbResponse` |
-| `session.tag.add` | `mutation` | `SessionTagRequest` | `SessionVerbResponse` |
-| `session.tag.remove` | `mutation` | `SessionTagRequest` | `SessionVerbResponse` |
+| `session.link.add` | `mutation` | `SessionLinkRequest` | `EmptyPayload` |
+| `session.link.remove` | `mutation` | `SessionLinkRequest` | `EmptyPayload` |
+| `session.tag.add` | `mutation` | `SessionTagRequest` | `EmptyPayload` |
+| `session.tag.remove` | `mutation` | `SessionTagRequest` | `EmptyPayload` |
 | `session.tag.list` | `query` | `EmptyPayload` | `SessionTagListResponse` |
 
 `session.recovery.continue` (`Continue from here`) and `session.recovery.delete` (`Delete session`) act only on a session whose history is damaged; their event and refusals are in [persistence-payloads.md §Plan-012](./persistence-payloads.md#plan-012--persistence-and-recovery).

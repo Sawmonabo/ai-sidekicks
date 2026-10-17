@@ -5,10 +5,11 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 ## Plan-012 — Persistence And Recovery
 
 ```ts
-// DaemonRecoveryStatus — the `recovery` field on `DaemonStatusReadResult` (local-ipc-payloads.md §Plan-005), which
-// Settings › Runtime and `sidekicks daemon status` already read. There is no recovery method of its own.
-// `overall` is `degraded` while any session's history is damaged; only `rebuilding` (the restart's pass)
-// and `blocked` (the store is unavailable) refuse writes for the whole service.
+// DaemonRecoveryStatus — the `recovery` field on `DaemonStatusReadResponse` (local-ipc-payloads.md
+// §Plan-005), which Settings › Runtime and `sidekicks daemon status` already read. There is no
+// recovery method of its own. `overall` is `degraded` while any session's history is damaged; only
+// `rebuilding` (the restart's pass) and `blocked` (the store is unavailable) refuse writes for the
+// whole service.
 interface DaemonRecoveryStatus {
   overall: "healthy" | "rebuilding" | "degraded" | "blocked";
   // The sessions that are not healthy, each damaged session among them.
@@ -17,25 +18,28 @@ interface DaemonRecoveryStatus {
     // degraded: open at its last good point, read-only; damaged: no event of it can be read
     state: "rebuilding" | "degraded" | "damaged" | "blocked";
     lastAppliedSequence?: number; // on degraded, the last good point's sequence
-    lastAppliedAt?: string; // on degraded, when that event happened: the `<time>` of the conversation's line
+    // on degraded, when that event happened: the `<time>` of the conversation's line
+    lastAppliedAt?: string;
     damagedFromSequence?: number; // on degraded, the first event that cannot be read
     failureCategory?: RunFailureCategory;
     recoveryCondition?: RecoveryCondition; // named type in provider-driver-payloads.md §Plan-003
-    // Per-run identities behind a blocked/degraded session entry: names which
-    // runs need reconciliation in a multi-run session — a Plan-012 T12.5 divergence halt or a
-    // failed resume each land one entry. Absent when no run-level recovery condition exists. Entry contract: a divergence-halt entry carries no
-    // failureCategory (the run did not fail), and there is no failure to drill into; a
-    // failed-resume entry carries failureCategory REQUIRED.
+    // Per-run identities behind a blocked/degraded session entry: names which runs need
+    // reconciliation in a multi-run session — a Plan-012 T12.5 divergence halt or a failed resume
+    // each land one entry. Absent when no run-level recovery condition exists. Entry contract: a
+    // divergence-halt entry carries no failureCategory (the run did not fail), and there is no
+    // failure to drill into; a failed-resume entry carries failureCategory REQUIRED.
     haltedRuns?: Array<{
       runId: RunId;
       recoveryCondition: RecoveryCondition;
-      failureCategory?: RunFailureCategory; // REQUIRED on a failed-resume entry; absent on a divergence halt
+      // REQUIRED on a failed-resume entry; absent on a divergence halt
+      failureCategory?: RunFailureCategory;
     }>;
   }>;
 }
 
 // session.recovery.continue (`Continue from here`) and session.recovery.delete (`Delete session`):
-// both take a damaged session and answer `{}`; each is refused `session.recovery.refused` otherwise.
+// both take a damaged session and answer `EmptyPayload`; each is refused `session.recovery.refused`
+// otherwise.
 interface SessionTargetRequest {
   sessionId: SessionId;
 }
@@ -86,26 +90,27 @@ interface RuntimeBindingReadResponse {
 }
 
 // ---- The file checkpoint store, and what undo reads ----
-// The daemon copies aside every file the agent or one of its children is about to edit — Write, Edit,
-// MultiEdit and NotebookEdit on Claude Code, `apply_patch` on Codex — at every prompt that starts a turn,
-// from its own pre-tool hook, the same hook that holds a run for Pause: one mechanism, not a second
-// interception path. What a shell command writes is inside the same store on every provider: around every
-// command an agent or a child runs, the daemon captures the working folder before the command starts,
-// holding the start until the capture is written, and again when it ends, holding nothing; every path
-// that differs between the two captures enters the store as an ordinary copy under the checkpoint of the
-// prompt that started the turn, and a file the command created is recorded as new and removed on undo. A
-// capture is a git tree written from a per-session index into the session's own capture folder, never
-// into the person's `.git`. The copies are held WITH THE SESSION and OUTSIDE THE CHECKOUT, so they never
-// appear in a diff and survive a working-folder move; they survive a resume and a restart, and every
-// checkpoint is kept for the session's life, removed only by an undo or by deleting the session or its
-// data.
+// The daemon copies aside every file the agent or one of its children is about to edit — Write,
+// Edit, MultiEdit and NotebookEdit on Claude Code, `apply_patch` on Codex — at every prompt that
+// starts a turn, from its own pre-tool hook, the same hook that holds a run for Pause: one
+// mechanism, not a second interception path. What a shell command writes is inside the same store
+// on every provider: around every command an agent or a child runs, the daemon captures the working
+// folder before the command starts, holding the start until the capture is written, and again when
+// it ends, holding nothing; every path that differs between the two captures enters the store as an
+// ordinary copy under the checkpoint of the prompt that started the turn, and a file the command
+// created is recorded as new and removed on undo. A capture is a git tree written from a
+// per-session index into the session's own capture folder, never into the person's `.git`. The
+// copies are held WITH THE SESSION and OUTSIDE THE CHECKOUT, so they never appear in a diff and
+// survive a working-folder move; they survive a resume and a restart, and every checkpoint is kept
+// for the session's life, removed only by an undo or by deleting the session or its data.
 //
-// Undo is two moments: a DRY RUN the person reads (`session.restore.preview`), then the restore itself
-// (`session.restore`). Both name the session, a `target` that is one of the person's messages by its
-// cursor or a snapshot by its id, and a `scope` of `conversation-and-files`, `conversation` or `files`; the
-// restore's request adds its idempotency key, the include line and an edit's `resend`, and its result is
-// run-control-payloads.md §Plan-002's undo result. The conversation half of a restore is the provider's OWN rewind verb; the file
-// half is always this checkpointer.
+// Undo is two moments: a DRY RUN the person reads (`session.restore.preview`), then the restore
+// itself (`session.restore`). Both name the session, a `target` that is one of the person's
+// messages by its cursor or a snapshot by its id, and a `scope` of `conversationAndFiles`,
+// `conversation` or `files`; the restore's request adds its idempotency key, the include line and
+// an edit's `resend`, and its result is run-control-payloads.md §Plan-002's undo result. The
+// conversation half of a restore is the provider's OWN rewind verb; the file half is always this
+// checkpointer.
 
 // Why a file would be skipped, each shown with its reason in the count's hover title.
 type SessionRestoreSkipReason =
@@ -114,7 +119,9 @@ type SessionRestoreSkipReason =
   | "notARegularFile"
   | "directoryMoved"
   | "tooLarge" // a file over 10 MiB that a command changed, on a volume that cannot clone it
-  | "branchMovedByCommand"; // changed by a command that moved the branch (a commit, a checkout, a reset, a pull); putting it back would turn the branch's commits into uncommitted reversals
+  // changed by a command that moved the branch (a commit, a checkout, a reset, a pull); putting it
+  // back would turn the branch's commits into uncommitted reversals
+  | "branchMovedByCommand";
 
 // What an undo would do; changes nothing.
 interface SessionRestorePreviewRequest {
@@ -127,22 +134,23 @@ interface SessionRestorePreviewResponse {
   // states before anything is written.
   fileCount: number;
   lineCount: number;
-  // What would be skipped, each with its reason. The count is stated and each entry is readable, because
-  // a skip the person cannot inspect is a silent partial restore.
+  // What would be skipped, each with its reason. The count is stated and each entry is readable,
+  // because a skip the person cannot inspect is a silent partial restore.
   skipped: Array<{ path: string; reason: SessionRestoreSkipReason }>;
   // The agents started after the point, which the question names before it acts: on Claude Code the
-  // conversation cut ends them and they cannot be resumed, on Codex the daemon stops each by id and they
-  // resume. Zero means the question asks nothing extra.
+  // conversation cut ends them and they cannot be resumed, on Codex the daemon stops each by id and
+  // they resume. Zero means the question asks nothing extra.
   affectedChildCount: number;
   // The commands still running after the point, which the undo stops.
   runningCommands: number;
-  // The data of the two lines the count's hover title carries whenever a command ran after the point:
-  // the ignored folders an ordinary undo never puts back, by name, and whether a command ran at all.
+  // The data of the two lines the count's hover title carries whenever a command ran after the
+  // point: the ignored folders an ordinary undo never puts back, by name, and whether a command ran
+  // at all.
   ignoredFolders: string[];
   commandsRanAfterPoint: boolean;
-  // The commands after the point that ran uncovered, because their capture failed or the service did
-  // not acknowledge `starting` in time, by their command text; the dry run names each one `ran while
-  // the service could not capture it`. Empty when every command was captured.
+  // The commands after the point that ran uncovered, because their capture failed or the service
+  // did not acknowledge `starting` in time, by their command text; the dry run names each one `ran
+  // while the service could not capture it`. Empty when every command was captured.
   uncoveredCommands: string[];
   // Paths another session working in the same folder also changed since the point, left as they are
   // unless the restore includes them.
