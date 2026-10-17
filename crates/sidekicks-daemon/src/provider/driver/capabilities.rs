@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
-use sidekicks_contracts::provider::driver::methods::DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN;
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
 use strum::VariantArray;
 
@@ -93,5 +93,5 @@ pub(crate) struct DriverCapabilities {
     /// Each flag's value.
     pub(crate) flags: DriverCapabilityFlags,
     /// The driver's contract version.
-    pub(crate) contract_version: FreeFormText<DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN>,
+    pub(crate) contract_version: FreeFormText<PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN>,
 }

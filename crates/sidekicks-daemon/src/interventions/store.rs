@@ -10,7 +10,7 @@ use sidekicks_contracts::provider::driver::intervention::InterventionType;
 use sidekicks_contracts::provider::driver::length_limits::{
     DRIVER_FAILURE_DETAIL_MAX_LEN, DRIVER_FALLBACK_ACTION_MAX_LEN,
 };
-use sidekicks_contracts::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{InterventionId, InterventionState};
 use sidekicks_contracts::run::state::RunState;
@@ -80,7 +80,7 @@ pub(crate) enum InterventionTransition {
         /// The state it leaves.
         from: UnresolvedInterventionState,
         /// The machine-readable cause.
-        reason: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
+        reason: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
     },
     /// `accepted` to `failed`, with what its dispatch threw.
     Fail {
@@ -111,7 +111,7 @@ pub(crate) struct SavedIntervention {
     /// Its type's own fields, as JSON text.
     pub(crate) payload: String,
     /// Why it was rejected, on a rejected row.
-    pub(crate) rejection_reason: Option<FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>>,
+    pub(crate) rejection_reason: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// What its dispatch threw, on a failed row.
     pub(crate) failure_reason: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
 }
