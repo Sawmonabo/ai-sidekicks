@@ -344,7 +344,7 @@ interface CreateSessionParams {
   // Requesting it is NOT the same as getting it — what the provider actually declared is observed
   // later as binding-held `ProviderOutputSpeedState`.
   outputSpeed?: string;
-  callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session, served on the daemon's shared `sidekicks` MCP tool server through one `url` entry per session (Claude Code through `--mcp-config`, Codex as a `url` entry in the conversation's `mcp_servers` at `thread/start`), never Codex `dynamicTools`; gated on the callback_tools flag
+  callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session, served on the daemon's shared `sidekicks` MCP tool server through one entry per session (Claude Code an in-process server named in `initialize`'s `sdkMcpServers`, Codex a `url` entry in the conversation's `mcp_servers` at `thread/start`), never Codex `dynamicTools`; gated on the callback_tools flag
   subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-014 semantics); gated on the subagents flag
   outputSchema?: Record<string, unknown>; // normalized JSON Schema constraining schema-constrained final output (Spec-004 §Per-Driver Capability Matrix structured_output); gated on the structured_output flag. The Claude leg binds it per session at spawn (--json-schema); the Codex leg realizes it per turn via StartRunParams.outputSchema (turn/start.outputSchema). Named consumers: Plan-013 orchestration reads
   // Provider-account identity at spawn (Plan-003 T3.45). OPAQUE TO THE DRIVER — never parsed, never used to locate credential material: the

@@ -64,11 +64,6 @@ interface RepoMountReadRequest {
 interface RepoMountReadResponse {
   id: RepoMountId;
   nodeId: NodeId; // the daemon's own machine id, stamped at attach — never taken from a caller
-  // What the mount is: `attached`, a project's folder; `managed`, a chat's own workspace; `worktree`, a
-  // worktree the app made, under its project.
-  origin: "attached" | "managed" | "worktree";
-  managedSessionId?: SessionId; // present exactly when origin = 'managed': the one chat whose workspace this is
-  usedBySessionIds: SessionId[]; // the sessions bound to this mount now — one mount serves every session in its project
   localPath: string; // user-entered provenance
   canonicalRoot: string; // resolver output — the trust-envelope and dedupe key
   place?: Place; // where both paths are, in that place's own form; absent on macOS and Linux
@@ -76,6 +71,17 @@ interface RepoMountReadResponse {
   state: RepoMountState;
   health: RepoMountHealth; // derived projection (defined above), never persisted
   attachedAt: string;
+  origin: RepoMountOrigin;
+  displayName?: ProjectName; // its project's name; absent on a chat's own workspace, which belongs to no project
+  usedBy: RepoMountUser[]; // the sessions bound to this mount now — one mount serves every session in its project
+}
+// What the mount is, tagged by `kind`.
+type RepoMountOrigin =
+  | { kind: "attached"; repoMountId: RepoMountId; projectId: ProjectId } // a project's folder
+  | { kind: "managed"; repoMountId: RepoMountId; sessionId: SessionId } // a chat's own workspace: the one chat that owns it
+  | { kind: "worktree"; worktreeId: WorktreeId; projectId: ProjectId }; // a worktree the app made, under its project
+interface RepoMountUser {
+  sessionId: SessionId;
 }
 
 // RepoDetach (Plan-006 D-006-6; Spec-007 §Detach Semantics)
