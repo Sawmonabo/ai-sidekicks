@@ -572,12 +572,15 @@ type WorkflowPhaseSuspendedPayload = WorkflowStepEventPayload &
 interface WorkflowPhaseWaitingOnPoolPayload extends WorkflowStepEventPayload {
   waitingSinceSeq: number;
 }
-// The step boundaries. A started event names the input it ran on, a finished event the output
-// and log it produced plus its cost where a provider was billed, a failed event the error and the
-// item index that failed, a canceled event the step alone, and a skipped event why it was skipped.
-// A step's started event precedes its finished, failed or canceled event.
+// The step boundaries. A started event names the input it ran on and, on an agent step whose
+// account cannot run its run's level, the level it runs at in its place; a finished event the
+// output and log it produced plus its cost where a provider was billed; a failed event the error,
+// the item index that failed and the words typed with the `Decline` that failed a command step; a
+// canceled event the step alone; and a skipped event why it was skipped. A step's started event
+// precedes its finished, failed or canceled event.
 interface WorkflowStepStartedPayload extends WorkflowStepEventPayload {
   inputRef: WorkflowPayloadRef;
+  permissionLevel?: PermissionLevel;
 }
 interface WorkflowStepFinishedPayload extends WorkflowStepEventPayload {
   outputRef: WorkflowPayloadRef;
@@ -587,6 +590,7 @@ interface WorkflowStepFinishedPayload extends WorkflowStepEventPayload {
 interface WorkflowStepFailedPayload extends WorkflowStepEventPayload {
   error: WorkflowStepError;
   failedItemIndex?: number;
+  declineReason?: string; // only where words were typed on the `Decline`
 }
 type WorkflowStepCanceledPayload = WorkflowStepEventPayload;
 interface WorkflowStepSkippedPayload extends WorkflowStepEventPayload {

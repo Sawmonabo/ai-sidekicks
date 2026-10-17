@@ -232,11 +232,11 @@ interface WorkflowStep {
   attempt: number;
   executionIndex: number;
   source: Array<{ nodeId: WorkflowNodeId; outputIndex: number; executionIndex: number } | null>;
-  // The step status list, the values of Spec-015 §Execution semantics. `waiting` is a step waiting on a person, a chain's question or a spent
-  // provider account; `waiting-memory` is a step the engine's memory gate holds before it starts, which
-  // starts itself when memory frees up and is never a blocker that needs a person; `canceled` is a step
-  // that was running or waiting when its run ended failed or canceled, or a branch a first-to-arrive
-  // merge stopped.
+  // The step status list, the values of Spec-015 §Execution semantics. `waiting` is a step waiting
+  // on a person, a chain's question or a spent provider account; `waiting-memory` is a step the
+  // engine's memory gate holds before it starts, which starts itself when memory frees up and is
+  // never a blocker that needs a person; `canceled` is a step that was running or waiting when its
+  // run ended failed or canceled, or a branch a first-to-arrive merge stopped.
   status:
     | "pending"
     | "running"
@@ -250,7 +250,8 @@ interface WorkflowStep {
   // step parked on a spent provider account reads `waiting` with cause `account`.
   waitCause?: WorkflowWaitCause;
   // Present exactly on a step waiting on `account`: the spent account, which the run header names,
-  // `The <Provider> account <label> is spent until <time>.`
+  // `The <Provider> account <label> is spent until <time>.`, or
+  // `The <Provider> account <label> is spent.` where the provider gives no reset.
   waitAccount?: WorkflowSpentAccount;
   // Only on a `waiting` step, and only where the wait armed one: the instant it resumes itself. Where
   // none is armed, no instant is invented.
@@ -266,8 +267,14 @@ interface WorkflowStep {
   question?: { questionId: QuestionId; waitId: string; prompt: string };
   // Present once a person has answered this step, and never on a waiting step: how they answered and
   // when, so the receipt it earns, `Approved at 2:14 PM`, reads the same after a reload. `declined` is
-  // the `Decline` on a command step's own approval card, which fails that step.
-  resolution?: { kind: "approved" | "rejected" | "answered" | "declined"; at: string };
+  // the `Decline` on a command step's own approval card, which fails that step; `declineReason`
+  // holds the words typed with it, carried on the step's `workflow.step_failed`, so
+  // `Declined at 2:14 PM · use the test database` reads the same too.
+  resolution?: {
+    kind: "approved" | "rejected" | "answered" | "declined";
+    at: string;
+    declineReason?: string; // only on `declined`, and only when words were typed
+  };
   // Present on an approval step of a run that captured its checkout: the pause's snapshot. Pinned, it
   // names which execution of the run (each re-execution opens the next epoch) and which of its
   // approval pauses, counted from 1, and `Open in Review` on the step compares that pause to its
@@ -297,10 +304,16 @@ interface WorkflowStep {
   // truncated output. They render as a strip in the output panel and are never errors.
   advisories?: string[];
   // Present exactly where this step ran an agent under a saved definition: every field as actually
-  // applied, including the binding the daemon resolved for it (agent-definition-payloads.md §Plan-024). It rides the step's own record
-  // rather than the run read, because the node's axes are changeable for that one use and the record is
-  // what a step panel reads to say what actually ran.
+  // applied, including the binding the daemon resolved for it (agent-definition-payloads.md
+  // §Plan-024). It rides the step's own record rather than the run read, because the node's axes
+  // are changeable for that one use and the record is what a step panel reads to say what actually
+  // ran.
   resolvedConfiguration?: AgentResolvedConfiguration;
+  // Present only on an agent step whose account cannot run its run's level: the level it ran at
+  // in its place, carried on its `workflow.step_started` — `ask` for a `reviewed` run whose step's
+  // model reports `supportsAutoMode` false on that account, its row reading
+  // `Reviewed isn't available on this Claude Code account`.
+  permissionLevel?: PermissionLevel;
 }
 
 // The value of a node's `tool` param: a reference, and only a reference. Carries NO `enabled`,

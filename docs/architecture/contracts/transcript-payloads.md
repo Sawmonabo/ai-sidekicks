@@ -416,8 +416,9 @@ interface QuestionAskedPayload {
     // option rows, so a secret question carries no options; the value is never written into the flow, and the person's turn afterwards records
     // only that a secret was answered.
     secret: boolean;
-    // `required` comes only from a tool server's form; `default`, `minimum` and `maximum` come from a
-    // tool server's form or a Claude Code number question. Each is present only where its source sets it.
+    // `required` comes only from a tool server's form; `default`, `minimum` and `maximum`
+    // come from a tool server's form or a Claude Code number question. Each is present only
+    // where its source sets it.
     // Whether the form must have this field answered.
     required?: boolean;
     // The answer the field starts from: the label of the option it preselects (several labels on a

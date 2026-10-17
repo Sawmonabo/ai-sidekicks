@@ -248,6 +248,9 @@ CREATE TABLE workflow_steps (
                     CHECK(error_json IS NULL OR json_valid(error_json)),
   advisories_json   TEXT                           -- JSON array of non-fatal hints — an unwired branch that dropped items, a deprecated param, a truncated output. Never errors, and NULL where the step attached none
                     CHECK(advisories_json IS NULL OR (json_valid(advisories_json) AND json_type(advisories_json) = 'array')),
+  permission_level  TEXT                           -- an agent step whose account cannot run its run's level: the level it ran at in its place, from its workflow.step_started; NULL on every other step
+                    CHECK(permission_level IS NULL OR permission_level IN ('readonly','ask','reviewed','sandboxed','yolo')),
+  decline_reason    TEXT,                          -- the words typed with the Decline on a command step's own approval card that failed it, from its workflow.step_failed; NULL on every other step and on a bare decline
   PRIMARY KEY (workflow_run_id, node_id, attempt, execution_index),  -- the whole WorkflowStepKey the contracts address a step by; with node_id after the run id it also serves a lookup by run and node
   UNIQUE(workflow_run_id, execution_index),      -- the execution index is a total order per run
   CHECK((cost_usd_micros IS NULL) = (cost_account_id IS NULL)),  -- a figure always names the account that paid it
@@ -256,7 +259,8 @@ CREATE TABLE workflow_steps (
   CHECK((status = 'waiting') = (wait_started_at IS NOT NULL)),
   CHECK(status = 'waiting' OR (resume_at IS NULL AND wait_account_id IS NULL AND wait_deadline_at IS NULL)),
   CHECK(wait_cause = 'account' OR (resume_at IS NULL AND wait_account_id IS NULL)),
-  CHECK(wait_deadline_at IS NULL OR wait_cause IN ('approval', 'form', 'reply'))
+  CHECK(wait_deadline_at IS NULL OR wait_cause IN ('approval', 'form', 'reply')),
+  CHECK(decline_reason IS NULL OR status = 'failed')
 ) STRICT;
 
 CREATE INDEX idx_workflow_steps_resume ON workflow_steps(resume_at)
