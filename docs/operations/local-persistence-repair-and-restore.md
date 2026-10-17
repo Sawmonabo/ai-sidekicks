@@ -27,7 +27,7 @@ The service heals first, on its own ([Spec-013 §Fallback Behavior](../specs/013
 
 - Access to the affected user machine and daemon-owned SQLite files
 - Permission to stop the Local Runtime Daemon
-- Access to the most recent known-good backup, where the person turned backups on: `Back up automatically` on Settings › Runtime is off by default ([Spec-013 §Backup Policy](../specs/013-persistence-and-recovery.md#backup-policy)). While it is on, 7 daily and 4 weekly database copies and one mirror of the session files are kept in `~/.ai-sidekicks/backups` or the folder the person picked (on a Windows computer whose service runs in WSL 2, the Windows home's `.ai-sidekicks\backups`), and a restore is at most 25 hours stale.
+- Access to the most recent known-good backup, where the person turned backups on: `Back up automatically` on Settings › Runtime is off by default ([Spec-013 §Backup Policy](../specs/013-persistence-and-recovery.md#backup-policy)). While it is on, 7 daily and 4 weekly database copies and one mirror of the session files are kept in `~/.ai-sidekicks/backups` or the folder the person picked (on Windows, the Windows home's `.ai-sidekicks\backups`), and a restore is at most 25 hours stale.
 
 ### Backup Constraints
 
@@ -36,7 +36,7 @@ A backup is a plain copy of what it lists — the service's database, copied onl
 **Restore**:
 
 - Restore the app's own backup: `Restore…` on Settings › Runtime, or `sidekicks db restore <backup>` on a machine with no app, refused while the service holds the data folder. Restoring on the machine that wrote it needs nothing more.
-- A restore on another computer reads the backup directly; the person then signs in to providers and links devices again ([Spec-013 §Backup Policy](../specs/013-persistence-and-recovery.md#backup-policy)). A Windows computer is one machine whichever side runs its service, so a backup made on one side restores on the other as a same-machine restore.
+- A restore on another computer reads the backup directly; the person then signs in to providers and links devices again ([Spec-013 §Backup Policy](../specs/013-persistence-and-recovery.md#backup-policy)). On a Windows computer each WSL 2 distribution's part is written back into its distribution, and a part whose distribution is not on this computer stays in the backup and is named in the result line.
 
 **Validation**:
 
