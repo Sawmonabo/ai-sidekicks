@@ -16,7 +16,7 @@ use sidekicks_contracts::event::envelope::{
 };
 use sidekicks_contracts::event::version::{EVENT_FIELD_MAX_LEN, EventEnvelopeVersion};
 use sidekicks_contracts::session::event_cursor::{
-    EventCursor, EventCursorUnresolvable, START_OF_LOG_POSITION, decode_event_cursor,
+    EventCursor, START_OF_LOG_POSITION, SessionEventCursorUnresolvable, decode_event_cursor,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::{MAX_SAFE_SIGNED_INTEGER, SafeInt};
@@ -369,18 +369,18 @@ where
 
 /// The log position `cursor` names, the start of the log when it is `None`, checked against the
 /// session's `head`, which the caller reads before any page so a cursor past it cannot pass on a
-/// later commit. Fails with [`EventCursorUnresolvable`] for a cursor that names no position or one
-/// past the head.
+/// later commit. Fails with [`SessionEventCursorUnresolvable`] for a cursor that names no position
+/// or one past the head.
 pub(crate) fn resolve_event_cursor(
     cursor: Option<&EventCursor>,
     head: Option<i64>,
-) -> Result<i64, EventCursorUnresolvable> {
+) -> Result<i64, SessionEventCursorUnresolvable> {
     let Some(cursor) = cursor else {
         return Ok(START_OF_LOG_POSITION);
     };
     let position = decode_event_cursor(cursor)?;
     if position > head.unwrap_or(START_OF_LOG_POSITION) {
-        return Err(EventCursorUnresolvable);
+        return Err(SessionEventCursorUnresolvable);
     }
     Ok(position)
 }
@@ -535,16 +535,16 @@ mod tests {
     const WELL_FORMED_INSTANT: &str = "2026-10-14T09:00:00.000Z";
 
     #[rstest]
-    #[case::payload_not_an_object(WELL_FORMED_INSTANT, "session_lifecycle", "[]", "payload")]
+    #[case::payload_not_an_object(WELL_FORMED_INSTANT, "sessionLifecycle", "[]", "payload")]
     #[case::prototype_member(
         WELL_FORMED_INSTANT,
-        "session_lifecycle",
+        "sessionLifecycle",
         r#"{"__proto__":{}}"#,
         "__proto__"
     )]
     #[case::occurred_at_finer_than_a_millisecond(
         "2026-10-14T09:00:00.0001Z",
-        "session_lifecycle",
+        "sessionLifecycle",
         "{}",
         "occurred_at"
     )]

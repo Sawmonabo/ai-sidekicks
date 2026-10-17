@@ -15,7 +15,7 @@ use crate::wire::text::ComposedText;
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowStepTimedOutCause {
     /// The step's own `Timeout`.
     StepTimeout,
@@ -37,7 +37,7 @@ pub struct WorkflowStepTimedOutDetails {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowStepThreadFailedReason {
     /// The step's thread, `rquickjs` runtime or context could not be created.
     StartFailed,
@@ -56,7 +56,7 @@ pub struct WorkflowStepThreadFailedDetails {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowCodeInstallFailedReason {
     /// Too little disk to hold the install.
     DiskSpace,
@@ -85,8 +85,14 @@ pub struct WorkflowCodeInstallFailedDetails {
 }
 
 ts_constants! {
-    /// A workflow definition or run that does not exist.
-    WORKFLOW_NOT_FOUND_CODE = RefusalCode::WorkflowNotFound;
+    /// A workflow definition that does not exist.
+    WORKFLOW_DEFINITION_NOT_FOUND_CODE = RefusalCode::WorkflowDefinitionNotFound;
+    /// A workflow version that does not exist.
+    WORKFLOW_VERSION_NOT_FOUND_CODE = RefusalCode::WorkflowVersionNotFound;
+    /// A workflow run that does not exist.
+    WORKFLOW_RUN_NOT_FOUND_CODE = RefusalCode::WorkflowRunNotFound;
+    /// A step key that does not exist in its run.
+    WORKFLOW_STEP_NOT_FOUND_CODE = RefusalCode::WorkflowStepNotFound;
     /// A step cut by a time limit: its own `Timeout`, or the run's cap.
     WORKFLOW_STEP_TIMED_OUT_CODE = RefusalCode::WorkflowStepTimedOut;
     /// Every limit that cuts a step.
@@ -102,7 +108,7 @@ ts_constants! {
     WORKFLOW_CODE_INSTALL_FAILED_CODE = RefusalCode::WorkflowCodeInstallFailed;
     /// Every reason a package install fails.
     WORKFLOW_CODE_INSTALL_FAILED_REASONS = WorkflowCodeInstallFailedReason::VARIANTS;
-    /// A Code step over its memory budget; a deadline cut is `workflow.step_timed_out` instead.
+    /// A Code step over its memory budget; a deadline cut is `workflow.step.timedOut` instead.
     WORKFLOW_CODE_OVER_BUDGET_CODE = RefusalCode::WorkflowCodeOverBudget;
 }
 

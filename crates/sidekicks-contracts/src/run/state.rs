@@ -22,8 +22,8 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
     IntoStaticStr,
     VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum RunState {
     /// Created and waiting to start.
     Queued,

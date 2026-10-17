@@ -19,7 +19,7 @@ use crate::workflow::run::id::WorkflowRunId;
 
 branded_uuid_id! {
     /// Identifies one answer to a run's gate, its append-only row's id; the
-    /// `workflow.gate_resolved` event names it.
+    /// `workflow.gate.resolved` event names it.
     WorkflowGateResolutionId
 }
 
@@ -38,8 +38,8 @@ branded_uuid_id! {
     IntoStaticStr,
     VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum WorkflowGateApprovalCategory {
     /// Running a tool.
     ToolExecution,

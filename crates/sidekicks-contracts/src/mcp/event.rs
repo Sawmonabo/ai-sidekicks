@@ -1,4 +1,4 @@
-//! The MCP governance stream: the stored events of the `mcp_governance` category, the live notices
+//! The MCP governance stream: the stored events of the `mcpGovernance` category, the live notices
 //! of an edit to a binding and of a status change, and the `mcp.subscribe` method that carries
 //! them.
 
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::event::envelope::{EventCategory, EventEnvelope};
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::mcp::governance::McpServerStatusChangedNotice;
 use crate::mcp::server::McpServerConfigChangedNotice;
 use crate::method::methods;
@@ -17,7 +17,7 @@ use crate::method_descriptor::EmptyPayload;
 use crate::schema::push_all_of;
 use crate::typescript::{Definition, TypeScriptModule};
 
-/// Refuses an envelope of any category but `mcp_governance`.
+/// Refuses an envelope of any category but `mcpGovernance`.
 #[expect(
     clippy::trivially_copy_pass_by_ref,
     reason = "garde passes a check's context by reference"
@@ -27,20 +27,20 @@ fn is_mcp_governance(envelope: &EventEnvelope, (): &()) -> garde::Result {
         Ok(())
     } else {
         Err(garde::Error::new(
-            "an MCP governance event is of the mcp_governance category",
+            "an MCP governance event is of the mcpGovernance category",
         ))
     }
 }
 
-/// A stored session event of the `mcp_governance` category: the event envelope, its `category`
-/// held to `mcp_governance` by its check, and its `type` and `payload` kept as written.
+/// A stored session event of the `mcpGovernance` category: the event envelope, its `category`
+/// held to `mcpGovernance` by its check, and its `type` and `payload` kept as written.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, garde::Validate)]
 #[serde(transparent)]
 #[garde(transparent)]
 pub struct McpGovernanceEvent(#[garde(dive, custom(is_mcp_governance))] EventEnvelope);
 
 impl McpGovernanceEvent {
-    /// `envelope` when its category is `mcp_governance`, else `None`.
+    /// `envelope` when its category is `mcpGovernance`, else `None`.
     pub fn new(envelope: EventEnvelope) -> Option<Self> {
         is_mcp_governance(&envelope, &())
             .is_ok()
@@ -60,8 +60,8 @@ impl JsonSchema for McpGovernanceEvent {
 
     fn json_schema(generator: &mut SchemaGenerator) -> Schema {
         let mut schema = json_schema!({
-            "description": "A stored session event of the `mcp_governance` category: the event \
-                            envelope, its `category` held to `mcp_governance`, and its `type` and \
+            "description": "A stored session event of the `mcpGovernance` category: the event \
+                            envelope, its `category` held to `mcpGovernance`, and its `type` and \
                             `payload` kept as written.",
         });
         push_all_of(
@@ -98,16 +98,16 @@ pub enum McpSubscribeEmission {
 }
 
 methods! {
-    /// `mcp.subscribe`, the MCP governance stream, opened before `mcp.list` is read so nothing
-    /// falls between the two. It reads governance events from the sentinel session's log at the
-    /// subscriber's place and sends each notice's newest value per binding: no cursor, no dropped
-    /// mark.
+    /// `mcp.subscribe`, the MCP governance stream, opened before `mcp.server.list` is read so
+    /// nothing falls between the two. It reads governance events from the sentinel session's log at
+    /// the subscriber's place and sends each notice's newest value per binding: no cursor, no
+    /// dropped mark.
     pub const MCP_EVENT_METHOD_DESCRIPTORS = [
         /// Follows the governance events and the live notices.
         McpSubscribe = subscription "mcp.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: McpSubscribeEmission,
             refusals: [],
         },
@@ -117,7 +117,7 @@ methods! {
 /// The TypeScript module of the MCP governance stream.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "mcp/event",
-    doc: "The MCP governance stream: the stored events of the `mcp_governance` category, the live \
+    doc: "The MCP governance stream: the stored events of the `mcpGovernance` category, the live \
           notices of an edit to a binding and of a status change, and the `mcp.subscribe` method \
           that carries them.",
     definitions: &[

@@ -1,4 +1,4 @@
-//! The runs table's page: the `workflow.runList` filters, one row per run and the count of every
+//! The runs table's page: the `workflow.run.list` filters, one row per run and the count of every
 //! run the filters match.
 
 use schemars::JsonSchema;
@@ -18,16 +18,16 @@ use crate::workflow::run::status::WorkflowRunStatus;
 use crate::workflow::run::step::record::WorkflowCost;
 use crate::workflow::run::trigger::{WorkflowRunMode, WorkflowStartedBy, WorkflowTriggerKind};
 
-/// The longest `workflow.runList` cursor accepted; a guard against pathological lengths.
+/// The longest `workflow.run.list` cursor accepted; a guard against pathological lengths.
 const WORKFLOW_RUN_LIST_CURSOR_MAX_LEN: usize = 256;
 
 branded_text! {
-    /// Where the next `workflow.runList` page starts. The daemon writes it and owns its format; a
+    /// Where the next `workflow.run.list` page starts. The daemon writes it and owns its format; a
     /// client passes it back unchanged with the same filters.
     pub struct WorkflowRunListCursor(1..=WORKFLOW_RUN_LIST_CURSOR_MAX_LEN);
 }
 
-/// The `workflow.runList` input: the runs table's filters (workflow, status, trigger kind and date
+/// The `workflow.run.list` input: the runs table's filters (workflow, status, trigger kind and date
 /// range) and the version scope `Show runs` hands in, which comes only with the workflow it belongs
 /// to. Without `sessionId` it lists every run this daemon ran.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -335,7 +335,7 @@ workflow_run_summary! {
 /// A waiting run's row, by what it waits on, so a wait on a person and a wait on a spent provider
 /// account read apart.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(tag = "waitCause", rename_all = "snake_case")]
+#[serde(tag = "waitCause", rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum WorkflowWaitingRunSummary {
     /// A person's approval.
@@ -354,7 +354,7 @@ pub enum WorkflowWaitingRunSummary {
 /// reads it). A going run carries its live step and no duration, an ended one its duration, and a
 /// failed run parked on its failed step neither.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(tag = "status", rename_all = "snake_case")]
+#[serde(tag = "status", rename_all = "camelCase")]
 pub enum WorkflowRunSummary {
     /// Started, with no step run yet.
     New(#[garde(dive)] WorkflowGoingRunSummary),
@@ -372,7 +372,7 @@ pub enum WorkflowRunSummary {
     Crashed(#[garde(dive)] WorkflowEndedRunSummary),
 }
 
-/// The `workflow.runList` result: one page of runs, each listed once across pages, and how many
+/// The `workflow.run.list` result: one page of runs, each listed once across pages, and how many
 /// runs the filters match in all, which the tab's count reads; never fewer than the page holds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -403,7 +403,7 @@ pub struct WorkflowRunListResponse {
 /// The TypeScript module of the runs table's page.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/run/list",
-    doc: "The runs table's page: the `workflow.runList` filters, one row per run and the count of \
+    doc: "The runs table's page: the `workflow.run.list` filters, one row per run and the count of \
           every run the filters match.",
     definitions: &[
         Definition::read::<WorkflowRunListCursor>(),

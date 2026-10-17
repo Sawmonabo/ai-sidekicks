@@ -20,30 +20,29 @@ use crate::workflow::definition::builder::{
     WorkflowBackgroundBrowser, WorkflowBackgroundBrowserUpdateRequest,
     WorkflowBackgroundBrowserUpdateResponse, WorkflowDefinitionSettingResponse,
     WorkflowDraftReadRequest, WorkflowDraftReadResponse, WorkflowDraftUpdateRequest,
-    WorkflowDraftUpdateResponse, WorkflowEnabledSetRequest, WorkflowEnabledSetResponse,
-    WorkflowExpressionPreviewRequest, WorkflowExpressionPreviewResponse, WorkflowLayoutSetRequest,
-    WorkflowPermissionLevelUpdateRequest, WorkflowPermissionLevelUpdateResponse,
-    WorkflowPinDataSetRequest, WorkflowPinDataSetResponse, WorkflowTagsSetRequest,
-    WorkflowWebhookListenerReadResponse, WorkflowWebhookTokenRotateRequest,
-    WorkflowWebhookTokenRotateResponse,
+    WorkflowDraftUpdateResponse, WorkflowEnabledUpdateRequest, WorkflowEnabledUpdateResponse,
+    WorkflowExpressionPreviewRequest, WorkflowExpressionPreviewResponse,
+    WorkflowLayoutUpdateRequest, WorkflowPermissionLevelUpdateRequest,
+    WorkflowPermissionLevelUpdateResponse, WorkflowPinDataUpdateRequest,
+    WorkflowPinDataUpdateResponse, WorkflowTagsUpdateRequest, WorkflowWebhookListenerReadResponse,
+    WorkflowWebhookTokenRotateRequest, WorkflowWebhookTokenRotateResponse,
 };
 use crate::workflow::definition::document::{
     WorkflowContentHash, WorkflowDefinitionId, WorkflowDocument, WorkflowNodeKindId,
     WorkflowVersionId,
 };
 use crate::workflow::definition::versions::{
-    WorkflowVersionChainReadRequest, WorkflowVersionChainReadResponse,
-    WorkflowVersionDiffReadRequest, WorkflowVersionDiffReadResponse, WorkflowVersionReadRequest,
-    WorkflowVersionReadResponse,
+    WorkflowVersionDiffReadRequest, WorkflowVersionDiffReadResponse, WorkflowVersionListRequest,
+    WorkflowVersionListResponse, WorkflowVersionReadRequest, WorkflowVersionReadResponse,
 };
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::status::WorkflowRunStatus;
 
-// workflow.definitionCreate
+// workflow.definition.create
 
-/// The `workflow.definitionCreate` input, which saving a new workflow, duplicating one and
+/// The `workflow.definition.create` input, which saving a new workflow, duplicating one and
 /// importing a file all send. A name another workflow holds, compared ignoring case, is refused
-/// with `workflow.definition_refused`, finding `name_taken`.
+/// with `workflow.definition.refused`, finding `nameTaken`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -53,7 +52,7 @@ pub struct WorkflowDefinitionCreateRequest {
     pub document: WorkflowDocument,
 }
 
-/// The `workflow.definitionCreate` result: the new definition and its first version, with what a
+/// The `workflow.definition.create` result: the new definition and its first version, with what a
 /// caller needs to pin or start that version without a second read.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -72,11 +71,11 @@ pub struct WorkflowDefinitionCreateResponse {
     pub created_at: WireInstant,
 }
 
-// workflow.definitionRead
+// workflow.definition.read
 
-/// The `workflow.definitionRead` input: one definition, at `version` when given and at its latest
+/// The `workflow.definition.read` input: one definition, at `version` when given and at its latest
 /// version otherwise. A deleted definition still reads; only one never created is refused
-/// `workflow.not_found`.
+/// `workflow.definition.notFound`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -108,8 +107,8 @@ pub struct WorkflowDefinitionReadRequest {
     IntoStaticStr,
     VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum WorkflowWebhookFireOutcome {
     /// A run started.
     Started,
@@ -162,7 +161,7 @@ macro_rules! workflow_definition_read {
             /// reads.
             pub permission_level: PermissionLevel,
             /// The browser the workflow's runs use in the background, which the builder's browser
-            /// pill reads; a new workflow reads `settings_default`.
+            /// pill reads; a new workflow reads `settingsDefault`.
             pub background_browser: WorkflowBackgroundBrowser,
             /// When the workflow was made.
             #[garde(dive)]
@@ -231,7 +230,7 @@ workflow_definition_read! {
     }
 }
 
-/// The `workflow.definitionRead` result, its tags riding the document. The webhook token is never
+/// The `workflow.definition.read` result, its tags riding the document. The webhook token is never
 /// read back, only its hash is kept, so the reply carries the token's dates and the last fire's
 /// outcome, a last use only beside the token's creation.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -244,18 +243,18 @@ pub enum WorkflowDefinitionReadResponse {
     WithoutWebhookToken(#[garde(dive)] WorkflowDefinitionReadWithoutWebhookToken),
 }
 
-// workflow.definitionList
+// workflow.definition.list
 
-/// The longest `workflow.definitionList` cursor accepted; a guard against pathological lengths.
+/// The longest `workflow.definition.list` cursor accepted; a guard against pathological lengths.
 const WORKFLOW_DEFINITION_LIST_CURSOR_MAX_LEN: usize = 256;
 
 branded_text! {
-    /// Where the next `workflow.definitionList` page starts, written by the daemon and passed back
-    /// unchanged. One the daemon did not write is refused as `workflow.cursor_unresolvable`.
+    /// Where the next `workflow.definition.list` page starts, written by the daemon and passed back
+    /// unchanged. One the daemon did not write is refused as `workflow.cursorUnresolvable`.
     pub struct WorkflowDefinitionListCursor(1..=WORKFLOW_DEFINITION_LIST_CURSOR_MAX_LEN);
 }
 
-/// The `workflow.definitionList` input: one page of every saved workflow on this machine. The
+/// The `workflow.definition.list` input: one page of every saved workflow on this machine. The
 /// `workflow_list` agent tool takes it as its input, so each member's description is text a model
 /// reads.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -394,7 +393,7 @@ pub struct WorkflowDefinitionSummary {
     pub updated_at: WireInstant,
 }
 
-/// The `workflow.definitionList` result: one page of definitions, each listed once across pages.
+/// The `workflow.definition.list` result: one page of definitions, each listed once across pages.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -412,14 +411,14 @@ pub struct WorkflowDefinitionListResponse {
     pub next_cursor: Option<WorkflowDefinitionListCursor>,
 }
 
-// workflow.definitionUpdate and workflow.definitionDelete
+// workflow.definition.update and workflow.definition.delete
 
-/// The `workflow.definitionUpdate` input (Save, Restore, a schedule change): it writes a new
-/// version only while `expectedVersionNumber` is the latest, else refuses `workflow.version_stale`,
+/// The `workflow.definition.update` input (Save, Restore, a schedule change): it writes a new
+/// version only while `expectedVersionNumber` is the latest, else refuses `workflow.version.stale`,
 /// and a document identical to the latest writes none and answers with that version. A Restore
 /// names the version it repeats in `restoredVersionNumber`, whose package locks it keeps, and a
 /// name another workflow holds, compared ignoring case, is refused with
-/// `workflow.definition_refused`, finding `name_taken`.
+/// `workflow.definition.refused`, finding `nameTaken`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -441,7 +440,7 @@ pub struct WorkflowDefinitionUpdateRequest {
     pub restored_version_number: Option<SafeInt<1>>,
 }
 
-/// The `workflow.definitionUpdate` result: the new version of the requested definition, or its
+/// The `workflow.definition.update` result: the new version of the requested definition, or its
 /// latest where the document was identical to it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -460,7 +459,7 @@ pub struct WorkflowDefinitionUpdateResponse {
     pub created_at: WireInstant,
 }
 
-/// The `workflow.definitionDelete` input.
+/// The `workflow.definition.delete` input.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -469,7 +468,7 @@ pub struct WorkflowDefinitionDeleteRequest {
     pub definition_id: WorkflowDefinitionId,
 }
 
-/// The `workflow.definitionDelete` result. The delete is soft: the runs that pinned the
+/// The `workflow.definition.delete` result. The delete is soft: the runs that pinned the
 /// definition's versions stay readable, and the reply counts them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -483,9 +482,9 @@ pub struct WorkflowDefinitionDeleteResponse {
     pub retained_run_count: SafeInt<0>,
 }
 
-// workflow.definitionExport and workflow.definitionImport
+// workflow.definition.export and workflow.definition.import
 
-/// The `workflow.definitionExport` input: the daemon writes one version's canonical file, its body
+/// The `workflow.definition.export` input: the daemon writes one version's canonical file, its body
 /// and, unless `includeLayout` is false, its layout, with each Code node's package lock. `filePath`
 /// is the path main forwards in place of the token the platform's save chooser returned.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -514,7 +513,7 @@ pub struct WorkflowDefinitionExportRequest {
     pub file_path: FilesystemPath,
 }
 
-/// The `workflow.definitionExport` result: the version written and its content hash.
+/// The `workflow.definition.export` result: the version written and its content hash.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -527,11 +526,11 @@ pub struct WorkflowDefinitionExportResponse {
     pub content_hash: WorkflowContentHash,
 }
 
-/// The `workflow.definitionImport` input: the daemon reads the picked file at `filePath` (main
+/// The `workflow.definition.import` input: the daemon reads the picked file at `filePath` (main
 /// forwards it in place of the open chooser's token) and creates the definition through the create
 /// path, all or nothing. A name another workflow holds, compared ignoring case, is refused with
-/// `workflow.definition_refused`, finding `name_taken`, and an unknown schema version with
-/// `workflow.import_schema_unknown`.
+/// `workflow.definition.refused`, finding `nameTaken`, and an unknown schema version with
+/// `workflow.definition.importSchemaUnknown`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -546,148 +545,153 @@ methods! {
     /// beside a workflow's versions.
     pub const WORKFLOW_DEFINITION_METHOD_DESCRIPTORS = [
         /// Saves a new workflow as its first version; also Duplicate.
-        WorkflowDefinitionCreate = mutation "workflow.definitionCreate" {
+        WorkflowDefinitionCreate = mutation "workflow.definition.create" {
             mutating: true,
             params: WorkflowDefinitionCreateRequest,
             result: WorkflowDefinitionCreateResponse,
             refusals: [WorkflowDefinitionRefused],
         },
         /// Reads one definition at a version, the latest by default.
-        WorkflowDefinitionRead = query "workflow.definitionRead" {
+        WorkflowDefinitionRead = query "workflow.definition.read" {
             mutating: false,
             params: WorkflowDefinitionReadRequest,
             result: WorkflowDefinitionReadResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowDefinitionNotFound, WorkflowVersionNotFound],
         },
         /// Lists one page of every workflow in the one library.
-        WorkflowDefinitionList = query "workflow.definitionList" {
+        WorkflowDefinitionList = query "workflow.definition.list" {
             mutating: false,
             params: WorkflowDefinitionListRequest,
             result: WorkflowDefinitionListResponse,
             refusals: [WorkflowCursorUnresolvable],
         },
         /// Reads one saved version.
-        WorkflowVersionRead = query "workflow.versionRead" {
+        WorkflowVersionRead = query "workflow.version.read" {
             mutating: false,
             params: WorkflowVersionReadRequest,
             result: WorkflowVersionReadResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowDefinitionNotFound, WorkflowVersionNotFound],
         },
         /// Reads every version of the definition a version id belongs to.
-        WorkflowVersionChainRead = query "workflow.versionChainRead" {
+        WorkflowVersionList = query "workflow.version.list" {
             mutating: false,
-            params: WorkflowVersionChainReadRequest,
-            result: WorkflowVersionChainReadResponse,
-            refusals: [WorkflowNotFound],
+            params: WorkflowVersionListRequest,
+            result: WorkflowVersionListResponse,
+            refusals: [WorkflowVersionNotFound],
         },
         /// Saves a new version of a workflow: Save, Restore and a schedule change.
-        WorkflowDefinitionUpdate = mutation "workflow.definitionUpdate" {
+        WorkflowDefinitionUpdate = mutation "workflow.definition.update" {
             mutating: true,
             params: WorkflowDefinitionUpdateRequest,
             result: WorkflowDefinitionUpdateResponse,
-            refusals: [WorkflowNotFound, WorkflowVersionStale, WorkflowDefinitionRefused],
+            refusals: [
+                WorkflowDefinitionNotFound,
+                WorkflowVersionNotFound,
+                WorkflowVersionStale,
+                WorkflowDefinitionRefused,
+            ],
         },
         /// Deletes a workflow, softly: its runs stay readable.
-        WorkflowDefinitionDelete = mutation "workflow.definitionDelete" {
+        WorkflowDefinitionDelete = mutation "workflow.definition.delete" {
             mutating: true,
             params: WorkflowDefinitionDeleteRequest,
             result: WorkflowDefinitionDeleteResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowDefinitionNotFound],
         },
         /// Writes one version's canonical file to the file the person picked.
-        WorkflowDefinitionExport = mutation "workflow.definitionExport" {
+        WorkflowDefinitionExport = mutation "workflow.definition.export" {
             mutating: true,
             params: WorkflowDefinitionExportRequest,
             result: WorkflowDefinitionExportResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowDefinitionNotFound, WorkflowVersionNotFound],
         },
         /// Reads the file the person picked and saves it through the create path.
-        WorkflowDefinitionImport = mutation "workflow.definitionImport" {
+        WorkflowDefinitionImport = mutation "workflow.definition.import" {
             mutating: true,
             params: WorkflowDefinitionImportRequest,
             result: WorkflowDefinitionCreateResponse,
-            refusals: [WorkflowDefinitionRefused, WorkflowImportSchemaUnknown],
+            refusals: [WorkflowDefinitionRefused, WorkflowDefinitionImportSchemaUnknown],
         },
         /// Arms or disarms every trigger of one workflow.
-        WorkflowEnabledSet = mutation "workflow.enabledSet" {
+        WorkflowEnabledUpdate = mutation "workflow.enabled.update" {
             mutating: true,
-            params: WorkflowEnabledSetRequest,
-            result: WorkflowEnabledSetResponse,
-            refusals: [WorkflowNotFound, WorkflowTriggerUnarmable],
+            params: WorkflowEnabledUpdateRequest,
+            result: WorkflowEnabledUpdateResponse,
+            refusals: [WorkflowDefinitionNotFound, WorkflowTriggerUnarmable],
         },
         /// Saves the canvas layout without a new version.
-        WorkflowLayoutSet = mutation "workflow.layoutSet" {
+        WorkflowLayoutUpdate = mutation "workflow.layout.update" {
             mutating: true,
-            params: WorkflowLayoutSetRequest,
+            params: WorkflowLayoutUpdateRequest,
             result: WorkflowDefinitionSettingResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowDefinitionNotFound],
         },
         /// Replaces the workflow's tags without a new version.
-        WorkflowTagsSet = mutation "workflow.tagsSet" {
+        WorkflowTagsUpdate = mutation "workflow.tags.update" {
             mutating: true,
-            params: WorkflowTagsSetRequest,
+            params: WorkflowTagsUpdateRequest,
             result: WorkflowDefinitionSettingResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowDefinitionNotFound],
         },
         /// Sets the level every run of the workflow uses, without a new version.
-        WorkflowPermissionLevelUpdate = mutation "workflow.permissionLevelUpdate" {
+        WorkflowPermissionLevelUpdate = mutation "workflow.permissionLevel.update" {
             mutating: true,
             params: WorkflowPermissionLevelUpdateRequest,
             result: WorkflowPermissionLevelUpdateResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowDefinitionNotFound],
         },
         /// Sets the background browser every later run of the workflow uses, without a new
         /// version.
-        WorkflowBackgroundBrowserUpdate = mutation "workflow.backgroundBrowserUpdate" {
+        WorkflowBackgroundBrowserUpdate = mutation "workflow.backgroundBrowser.update" {
             mutating: true,
             params: WorkflowBackgroundBrowserUpdateRequest,
             result: WorkflowBackgroundBrowserUpdateResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowDefinitionNotFound],
         },
         /// Pins or unpins a node's test data without a new version.
-        WorkflowPinDataSet = mutation "workflow.pinDataSet" {
+        WorkflowPinDataUpdate = mutation "workflow.pinData.update" {
             mutating: true,
-            params: WorkflowPinDataSetRequest,
-            result: WorkflowPinDataSetResponse,
-            refusals: [WorkflowNotFound],
+            params: WorkflowPinDataUpdateRequest,
+            result: WorkflowPinDataUpdateResponse,
+            refusals: [WorkflowDefinitionNotFound],
         },
         /// Holds the builder's unsaved draft so it survives a reload.
-        WorkflowDraftUpdate = mutation "workflow.draftUpdate" {
+        WorkflowDraftUpdate = mutation "workflow.draft.update" {
             mutating: true,
             params: WorkflowDraftUpdateRequest,
             result: WorkflowDraftUpdateResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowDefinitionNotFound],
         },
         /// Reads the held draft back after a reload.
-        WorkflowDraftRead = query "workflow.draftRead" {
+        WorkflowDraftRead = query "workflow.draft.read" {
             mutating: false,
             params: WorkflowDraftReadRequest,
             result: WorkflowDraftReadResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowDefinitionNotFound],
         },
         /// Evaluates one expression against an item of the last run; never resolves a secret.
-        WorkflowExpressionPreview = query "workflow.expressionPreview" {
+        WorkflowExpressionPreview = query "workflow.expression.preview" {
             mutating: false,
             params: WorkflowExpressionPreviewRequest,
             result: WorkflowExpressionPreviewResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowDefinitionNotFound],
         },
         /// Reads the structural difference between two versions of one workflow.
-        WorkflowVersionDiffRead = query "workflow.versionDiffRead" {
+        WorkflowVersionDiffRead = query "workflow.version.diff.read" {
             mutating: false,
             params: WorkflowVersionDiffReadRequest,
             result: WorkflowVersionDiffReadResponse,
-            refusals: [WorkflowNotFound, WorkflowVersionDiffCrossWorkflow],
+            refusals: [WorkflowVersionNotFound, WorkflowVersionDiffCrossWorkflow],
         },
         /// Creates or replaces the workflow's webhook token, shown once.
-        WorkflowWebhookTokenRotate = mutation "workflow.webhookTokenRotate" {
+        WorkflowWebhookTokenRotate = mutation "workflow.webhookToken.rotate" {
             mutating: true,
             params: WorkflowWebhookTokenRotateRequest,
             result: WorkflowWebhookTokenRotateResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowDefinitionNotFound],
         },
         /// Reads the webhook listener's port and whether it listens.
-        WorkflowWebhookListenerRead = query "workflow.webhookListenerRead" {
+        WorkflowWebhookListenerRead = query "workflow.webhookListener.read" {
             mutating: false,
             params: EmptyPayload,
             result: WorkflowWebhookListenerReadResponse,

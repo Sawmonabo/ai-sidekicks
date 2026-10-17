@@ -1,6 +1,6 @@
 //! A project's session groups as the person places sessions in them: making a group with a session
 //! in it, moving a session in or out, renaming a group and ungrouping it. A client reads every
-//! change from the live `session.list`.
+//! change from the live `session.subscribe`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -30,7 +30,7 @@ pub struct SessionGroupCreateRequest {
     pub name: FreeFormText<SESSION_NAME_MAX_LEN>,
 }
 
-/// The group `session.groupCreate` made.
+/// The group `session.group.create` made.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -77,28 +77,28 @@ methods! {
     /// The session group methods' wire contract: name, procedure type and types.
     pub const SESSION_GROUP_METHOD_DESCRIPTORS = [
         /// Makes a group with one session in it.
-        SessionGroupCreate = mutation "session.groupCreate" {
+        SessionGroupCreate = mutation "session.group.create" {
             mutating: true,
             params: SessionGroupCreateRequest,
             result: SessionGroupCreateResponse,
             refusals: [SessionNotFound, SessionGroupNameTaken, SessionGroupRefused],
         },
         /// Moves a session into a group, or out of every group.
-        SessionGroupMove = mutation "session.groupMove" {
+        SessionGroupMove = mutation "session.group.move" {
             mutating: true,
             params: SessionGroupMoveRequest,
             result: EmptyPayload,
             refusals: [SessionNotFound, SessionGroupRefused],
         },
         /// Renames a group.
-        SessionGroupRename = mutation "session.groupRename" {
+        SessionGroupRename = mutation "session.group.rename" {
             mutating: true,
             params: SessionGroupRenameRequest,
             result: EmptyPayload,
             refusals: [SessionGroupNameTaken, SessionGroupRefused],
         },
         /// Ungroups a group.
-        SessionGroupUngroup = mutation "session.groupUngroup" {
+        SessionGroupUngroup = mutation "session.group.ungroup" {
             mutating: true,
             params: SessionGroupUngroupRequest,
             result: EmptyPayload,

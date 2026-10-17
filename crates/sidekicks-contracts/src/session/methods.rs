@@ -20,7 +20,7 @@ use crate::provider::account::record::ProviderAccountId;
 use crate::run::id::RunId;
 use crate::run::state::RunState;
 use crate::session::convert::{
-    SessionConvertSkippedFileListRequest, SessionConvertSkippedFileListResponse,
+    SessionConversionSkippedFileListRequest, SessionConversionSkippedFileListResponse,
 };
 use crate::session::draft::SessionAttachmentSummary;
 use crate::session::event_cursor::EventCursor;
@@ -42,8 +42,8 @@ use crate::wire::{False, True};
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum SessionState {
     /// Being made.
     Provisioning,
@@ -63,8 +63,8 @@ pub enum SessionState {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum SessionShape {
     /// A managed workspace.
     Chat,
@@ -209,7 +209,7 @@ pub struct SessionLiveRun {
     pub state: RunState,
     /// Its record's version.
     pub run_version: SafeInt<0>,
-    /// The agent the run was created for, as its `run.queued` names it.
+    /// The agent the run was created for, as its `agent.run.queued` names it.
     pub agent_id: AgentId,
     /// Who the run's first event naming anyone names, as sent; absent while none has.
     #[serde(
@@ -227,7 +227,7 @@ pub struct SessionLiveRun {
     )]
     #[schemars(with = "ProviderAccountId")]
     pub admitted_provider_account_id: Option<ProviderAccountId>,
-    /// When the run's newest `run_lifecycle` event occurred.
+    /// When the run's newest `runLifecycle` event occurred.
     #[garde(dive)]
     pub touched_at: WireInstant,
 }
@@ -278,11 +278,12 @@ pub struct SessionReadResponse {
     pub standing_events: Vec<SessionStandingEvent>,
 }
 
-/// The `session.subscribe` input: the session to follow and an `afterCursor` to catch up from.
+/// The `session.event.subscribe` input: the session to follow and an `afterCursor` to catch up
+/// from.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionSubscribeRequest {
+pub struct SessionEventSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
     /// Catch up from after this position.
@@ -318,7 +319,7 @@ pub struct SessionStreamChange {
 }
 
 stream_frame! {
-    /// The value of each `session.subscribe` notify: the changes since the previous frame.
+    /// The value of each `session.event.subscribe` notify: the changes since the previous frame.
     pub struct SessionStreamFrame(SessionStreamChange);
 }
 
@@ -539,7 +540,7 @@ pub enum SessionSearchResponse {
     Terminal(#[garde(dive)] SessionSearchTerminal),
 }
 
-/// The `session.fileSearch` input: the text typed after `@` in a session's draft. An empty query
+/// The `session.file.search` input: the text typed after `@` in a session's draft. An empty query
 /// lists the working folder's files; the list narrows as the name is typed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -551,7 +552,7 @@ pub struct SessionFileSearchRequest {
     pub query: NulFreeText<SESSION_SEARCH_QUERY_MAX_LEN>,
 }
 
-/// The `session.fileSearch` result: the matching files' paths relative to the working folder,
+/// The `session.file.search` result: the matching files' paths relative to the working folder,
 /// best first, and how many files the query was matched against, never fewer than it matched. A
 /// search that failed is an error, never an empty result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -612,7 +613,7 @@ methods! {
                 SessionNotFound,
                 SessionAlreadyClosed,
                 SessionChangeRefused,
-                DriverUnavailable,
+                ProviderUnavailable,
             ],
         },
         /// Pins a session.
@@ -648,11 +649,11 @@ methods! {
             mutating: true,
             params: SessionTargetRequest,
             result: EmptyPayload,
-            refusals: [SessionNotFound, DriverUnavailable, DriverCapabilityUnsupported],
+            refusals: [SessionNotFound, ProviderUnavailable, ProviderCapabilityUnsupported],
         },
         /// `Continue from here`: the session's last good point becomes its end, its damaged events
         /// are skipped from then on, and it takes new work again.
-        SessionRecoveryContinue = mutation "session.recoveryContinue" {
+        SessionRecoveryContinue = mutation "session.recovery.continue" {
             mutating: true,
             params: SessionTargetRequest,
             result: EmptyPayload,
@@ -660,7 +661,7 @@ methods! {
         },
         /// `Delete session` on a session whose history is damaged: every row of it goes, the copy
         /// set aside before the repair stays.
-        SessionRecoveryDelete = mutation "session.recoveryDelete" {
+        SessionRecoveryDelete = mutation "session.recovery.delete" {
             mutating: true,
             params: SessionTargetRequest,
             result: EmptyPayload,
@@ -674,17 +675,17 @@ methods! {
             refusals: [SessionSearchCursorUnresolvable],
         },
         /// Lists a session's working-folder files matching what was typed after `@`.
-        SessionFileSearch = query "session.fileSearch" {
+        SessionFileSearch = query "session.file.search" {
             mutating: false,
             params: SessionFileSearchRequest,
             result: SessionFileSearchResponse,
-            refusals: [SessionNotFound, SessionWorkingFolderUnavailable],
+            refusals: [SessionNotFound, SessionWorkingFolderMissing],
         },
         /// Reads the files a conversion did not copy, page by page.
-        SessionConvertSkippedFileList = query "session.convertSkippedFileList" {
+        SessionConversionSkippedFileList = query "session.conversion.skippedFile.list" {
             mutating: false,
-            params: SessionConvertSkippedFileListRequest,
-            result: SessionConvertSkippedFileListResponse,
+            params: SessionConversionSkippedFileListRequest,
+            result: SessionConversionSkippedFileListResponse,
             refusals: [SessionNotFound],
         },
     ];
@@ -704,7 +705,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionLiveRun>(),
         Definition::read::<SessionStandingEvent>(),
         Definition::read::<SessionReadResponse>().checked(),
-        Definition::read::<SessionSubscribeRequest>().checked(),
+        Definition::read::<SessionEventSubscribeRequest>().checked(),
         Definition::read::<SessionStreamChange>(),
         Definition::read::<SessionStreamFrame>().checked(),
         Definition::read::<SessionTargetRequest>().checked(),

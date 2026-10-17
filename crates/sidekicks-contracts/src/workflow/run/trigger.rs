@@ -34,8 +34,8 @@ ts_constants! {
     IntoStaticStr,
     VariantArray,
 )]
-#[serde(rename_all = "kebab-case")]
-#[strum(serialize_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum WorkflowRunMode {
     /// From Run now.
     Manual,
@@ -67,19 +67,19 @@ pub enum WorkflowTriggerKind {
     #[serde(rename = "trigger.schedule")]
     Schedule,
     /// On a file change.
-    #[serde(rename = "trigger.file-watch")]
+    #[serde(rename = "trigger.fileWatch")]
     FileWatch,
     /// On a webhook.
     #[serde(rename = "trigger.webhook")]
     Webhook,
     /// On a session event.
-    #[serde(rename = "trigger.session-event")]
+    #[serde(rename = "trigger.sessionEvent")]
     SessionEvent,
     /// From chat.
     #[serde(rename = "trigger.chat")]
     Chat,
     /// Called by a workflow.
-    #[serde(rename = "trigger.sub-workflow")]
+    #[serde(rename = "trigger.subWorkflow")]
     SubWorkflow,
     /// When a workflow fails.
     #[serde(rename = "trigger.error")]

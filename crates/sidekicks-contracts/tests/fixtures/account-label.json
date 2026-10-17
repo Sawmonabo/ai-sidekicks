@@ -26,10 +26,10 @@
     "isDefault": true,
     "healthState": "authenticated",
     "healthObservedAt": "2026-08-31T00:00:00.000Z",
-    "observedAuthMode": "oauth_subscription",
-    "loggedInAt": "2026-08-31T00:00:00.000Z",
+    "observedAuthMode": "oauthSubscription",
+    "signedInAt": "2026-08-31T00:00:00.000Z",
     "lastRefreshObservedAt": null,
-    "expectedReloginAtEstimate": null,
+    "signInNeededAtEstimate": null,
     "probeEnabled": true,
     "windowStartEnabled": true,
     "wakeForWindowStartEnabled": false,
@@ -105,7 +105,7 @@
       "overrides": {
         "provider": "codex",
         "displayLabel": "Work",
-        "observedAuthMode": "api_key"
+        "observedAuthMode": "apiKey"
       },
       "label": "Work · Codex API key"
     },
@@ -113,7 +113,7 @@
       "name": "a token account by its typed name and credential kind",
       "overrides": {
         "displayLabel": "Personal",
-        "observedAuthMode": "oauth_token"
+        "observedAuthMode": "oauthToken"
       },
       "label": "Personal · Claude Code token"
     },

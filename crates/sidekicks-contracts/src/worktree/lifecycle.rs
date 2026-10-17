@@ -1,6 +1,6 @@
-//! A worktree's ids, state and lifecycle payload, and the requests and responses of the worktree
-//! methods on the `repo.*` namespace: preparing an execution root, retiring a tree and the details
-//! of its refusals, and reading the project's trees.
+//! A worktree's ids, state and lifecycle payload, and the requests and responses of
+//! `workspace.executionRoot.prepare`, `worktree.retire` with the details of its refusals, and
+//! `worktree.status.read`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use strum::{IntoStaticStr, VariantArray};
 
 use crate::agent::definition::AgentId;
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
-use crate::gitflow::shared::GitRefName;
+use crate::git::shared::GitRefName;
 use crate::internal::branded::branded_uuid_id;
 use crate::project::ProjectId;
 use crate::repo::mount::{RepoMountId, WorkspaceId, WorkspaceState, lifecycle_payload};
@@ -39,8 +39,8 @@ branded_uuid_id! {
 }
 
 /// A worktree's lifecycle state. `retired` and `failed` are not live; moving to `failed` emits no
-/// `worktree.*` event (the failure is evented as `workspace.stale`), and failed rows stay readable
-/// through `repo.worktreeStatusRead`.
+/// `worktree.*` event (the failure is evented as `workspace.rootLost`), and failed rows stay
+/// readable through `worktree.status.read`.
 #[derive(
     Clone,
     Copy,
@@ -54,8 +54,8 @@ branded_uuid_id! {
     VariantArray,
     IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum WorktreeState {
     /// Being made.
     Creating,
@@ -75,7 +75,7 @@ pub enum WorktreeState {
 /// It is a wire enum of its own so a client's table keyed by it covers exactly the listed states;
 /// the conversion from [`WorktreeState`] matches every state, so the two cannot drift apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ListedWorktreeState {
     /// Being made.
     Creating,
@@ -110,16 +110,16 @@ lifecycle_payload! {
     pub struct WorktreeLifecyclePayload(WorktreeState) {}
 }
 
-/// `repo.executionRootPrepare`: the workspace and its branch, which makes the root for the
+/// `workspace.executionRoot.prepare`: the workspace and its branch, which makes the root for the
 /// workspace's execution mode before a run starts. It carries no run id: the daemon supplies it, so
 /// a caller cannot forge run provenance.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ExecutionRootPrepareRequest {
+pub struct WorkspaceExecutionRootPrepareRequest {
     /// The workspace.
     pub workspace_id: WorkspaceId,
-    /// The branch; omitting it draws `workspace.branch_name_required` before any git call.
+    /// The branch; omitting it draws `workspace.branchNameRequired` before any git call.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -147,17 +147,17 @@ pub struct ExecutionRootPrepareRequest {
     pub carry_uncommitted: Option<bool>,
 }
 
-/// The `repo.executionRootPrepare` result: the prepared root and the rows it names. A prepare
+/// The `workspace.executionRoot.prepare` result: the prepared root and the rows it names. A prepare
 /// resolves a root or refuses; there is no partial success.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ExecutionRootPrepareResponse {
+pub struct WorkspaceExecutionRootPrepareResponse {
     /// The root.
     pub execution_root: FilesystemPath,
     /// The workspace's state.
     pub state: WorkspaceState,
-    /// The worktree, for a `provisioned-worktree` prepare only.
+    /// The worktree, for a `provisionedWorktree` prepare only.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -169,7 +169,7 @@ pub struct ExecutionRootPrepareResponse {
     pub branch_context_id: BranchContextId,
 }
 
-/// `repo.worktreeRetire`. `discard: false` is the ordinary removal: it removes nothing the confirm
+/// `worktree.retire`. `discard: false` is the ordinary removal: it removes nothing the confirm
 /// did not show, and is refused with the current risks when the tree changed since they were
 /// read. `discard: true` comes only from the discard confirm, and the daemon keeps the tree whole
 /// instead of deleting it.
@@ -196,7 +196,7 @@ pub struct KeptWorktree {
     pub removed_worktree_id: RemovedWorktreeId,
 }
 
-/// The `repo.worktreeRetire` result: the worktree, now `retired`, and the kept copy when a discard
+/// The `worktree.retire` result: the worktree, now `retired`, and the kept copy when a discard
 /// kept one. A refusal is an error, never a reply with the unchanged state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -232,11 +232,11 @@ pub struct WorktreeRemovalRisks {
     pub occupying_session_ids: Vec<SessionId>,
 }
 
-/// The details of a `worktree.retire_conflict` refusal, by why the removal was refused.
+/// The details of a `worktree.retireConflict` refusal, by why the removal was refused.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "reason",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -258,7 +258,7 @@ pub enum WorktreeRetireConflictDetails {
     },
 }
 
-/// The details of a `worktree.retire_incomplete` refusal: the tree, still live, and the kept copy
+/// The details of a `worktree.retireIncomplete` refusal: the tree, still live, and the kept copy
 /// listed for it. No folder is named; the screen finds both from the lists.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -271,10 +271,10 @@ pub struct WorktreeRetireIncompleteDetails {
 
 literal! {
     /// The reason a carry was refused because a run is live in its checkout.
-    pub enum CarryCheckoutRunningReason = "carry_checkout_running";
+    pub enum CarryCheckoutRunningReason = "carryCheckoutRunning";
 }
 
-/// The details of a `worktree.create_failed` refusal with reason `carry_checkout_running`: the
+/// The details of a `worktree.createFailed` refusal with reason `carryCheckoutRunning`: the
 /// session whose run is live in the checkout the work would be carried from, and that run's agent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -291,12 +291,12 @@ pub struct WorktreeCarryCheckoutRunningDetails {
 macro_rules! worktree_status_record {
     ($($(#[doc = $doc:literal])+ $arm:ident { $($own:tt)* })+) => {
         /// One worktree git lists for the repository, with every figure its switcher row draws;
-        /// `path` is the folder `session.setWorkingFolder` takes. A tree the app made carries its
-        /// record, and one the person made carries none and has no removal of its own.
+        /// `path` is the folder `session.workingFolder.update` takes. A tree the app made carries
+        /// its record, and one the person made carries none and has no removal of its own.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "madeBy",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -374,7 +374,7 @@ worktree_status_record! {
     Person {}
 }
 
-/// `repo.worktreeStatusRead`: the project whose worktrees are listed, and the session asking, when
+/// `worktree.status.read`: the project whose worktrees are listed, and the session asking, when
 /// one is, so the read also answers the new-worktree form's suggestion for it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -415,7 +415,7 @@ pub struct RepoRootStatus {
     pub branch_name: GitRefName,
 }
 
-/// The `repo.worktreeStatusRead` result: the project's own checkout and its standing trees from one
+/// The `worktree.status.read` result: the project's own checkout and its standing trees from one
 /// read, so no row shows a tree free that another read calls occupied. `countsAsOf` says when the
 /// ahead and behind figures were last true if the last fetch failed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -459,8 +459,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorktreeState>().checked(),
         Definition::read::<ListedWorktreeState>(),
         Definition::read::<WorktreeLifecyclePayload>().checked(),
-        Definition::read::<ExecutionRootPrepareRequest>().checked(),
-        Definition::read::<ExecutionRootPrepareResponse>().checked(),
+        Definition::read::<WorkspaceExecutionRootPrepareRequest>().checked(),
+        Definition::read::<WorkspaceExecutionRootPrepareResponse>().checked(),
         Definition::read::<WorktreeRetireRequest>().checked(),
         Definition::read::<KeptWorktree>(),
         Definition::read::<WorktreeRetireResponse>().checked(),

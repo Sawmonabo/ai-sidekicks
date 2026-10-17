@@ -24,7 +24,7 @@ use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_o
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::event_cursor::{
-    EventCursor, EventCursorUnresolvable, decode_event_cursor, encode_event_cursor,
+    EventCursor, SessionEventCursorUnresolvable, decode_event_cursor, encode_event_cursor,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::limits::TRANSCRIPT_READ_LIMIT_MAX;
@@ -40,7 +40,7 @@ use sidekicks_contracts::wire::{False, True};
 use crate::events::session::read::{
     SessionEventFilter, SessionEventReads, SessionLogReadError, resolve_event_cursor,
 };
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 use crate::session::not_found::session_not_found;
 use crate::transcript::projector::{TranscriptProjectionError, project_window};
 use crate::transcript::run_facts::TranscriptRunFactsReader;
@@ -48,13 +48,13 @@ use crate::transcript::run_facts::TranscriptRunFactsReader;
 /// Why a transcript read failed.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum TranscriptReadError {
-    /// The session is not one this daemon holds (`session.not_found`), or no row stands at an
+    /// The session is not one this daemon holds (`session.notFound`), or no row stands at an
     /// anchor cursor (`transcript.row.notFound`).
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// A cursor names no position, or one past the session's newest event.
     #[error(transparent)]
-    CursorUnresolvable(#[from] EventCursorUnresolvable),
+    CursorUnresolvable(#[from] SessionEventCursorUnresolvable),
     /// A read of the session's log failed, or a stored row is not a well-formed event.
     #[error(transparent)]
     Log(#[from] SessionLogReadError),
@@ -68,7 +68,7 @@ pub(crate) enum TranscriptReadError {
 
 /// The head a transcript read checks its cursors against, `None` for a session whose history is
 /// damaged before its first readable event. Fails with [`TranscriptReadError::Refused`]
-/// (`session.not_found`) for a session this daemon holds no events for.
+/// (`session.notFound`) for a session this daemon holds no events for.
 pub(crate) fn read_transcript_head<DamagedFrom>(
     reads: &SessionEventReads<'_, DamagedFrom>,
     read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
@@ -422,7 +422,6 @@ fn transcript_row_not_found(around_cursor: &EventCursor) -> DomainError {
     DomainError::new(
         "No row of this session stands at that cursor.",
         RefusalCode::TranscriptRowNotFound,
-        DomainErrorJsonRpcCode::InvalidParams,
     )
     .with_detail(json!({ "aroundCursor": around_cursor }))
 }
@@ -476,7 +475,7 @@ mod tests {
                     "INSERT INTO session_events
                        (id, session_id, sequence, occurred_at, monotonic_ns, category, type,
                         payload)
-                     VALUES (?1, ?2, ?3, ?4, 0, 'session_lifecycle', 'session.pinned', ?5)",
+                     VALUES (?1, ?2, ?3, ?4, 0, 'sessionLifecycle', 'session.pinned', ?5)",
                     params![
                         mint_uuid_v7().to_string(),
                         session.as_str(),
@@ -492,8 +491,7 @@ mod tests {
             .execute(
                 "INSERT INTO session_events
                    (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload)
-                 VALUES (?1, ?2, 5, ?3, 0, 'recovery_events', 'recovery.damaged_events_skipped',
-                         ?4)",
+                 VALUES (?1, ?2, 5, ?3, 0, 'recoveryEvents', 'session.damagedEvents.skipped', ?4)",
                 params![
                     mint_uuid_v7().to_string(),
                     session.as_str(),

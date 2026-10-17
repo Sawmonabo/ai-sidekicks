@@ -12,15 +12,20 @@ use crate::wire::literal;
 
 ts_constants! {
     /// The code every 429 refusal of a sign-in route carries.
-    RATE_LIMITED_CODE = RefusalCode::RateLimited;
+    RELAY_RATE_LIMITED_CODE = RefusalCode::RelayRateLimited;
     /// The code of the 400 a sign-in route answers when the request carries no source address the
     /// relay can count, so it is refused rather than counted in a bucket other callers share.
-    SOURCE_ADDRESS_UNRESOLVABLE_CODE = RefusalCode::RelaySourceAddressUnresolvable;
+    RELAY_SOURCE_ADDRESS_UNRESOLVABLE_CODE = RefusalCode::RelaySourceAddressUnresolvable;
 }
 
 literal! {
     /// The code of a sign-in route's 429.
-    pub enum RateLimitedCode = const RefusalCode::RateLimited.as_str();
+    pub enum RelayRateLimitedCode = const RefusalCode::RelayRateLimited.as_str();
+}
+
+literal! {
+    /// The category of a sign-in route's 429, the one `relay.rateLimited` carries.
+    pub enum RelayRateLimitedCategory = const RefusalCode::RelayRateLimited.category().as_str();
 }
 
 /// The body of a 429 from a sign-in route. `retryAfter` is whole seconds until a retry is allowed,
@@ -30,8 +35,12 @@ literal! {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct RateLimitResponse {
-    /// Always `rate_limited`.
-    pub code: RateLimitedCode,
+    /// Always `relay.rateLimited`.
+    pub code: RelayRateLimitedCode,
+    /// Always `resourceExhausted`.
+    pub category: RelayRateLimitedCategory,
+    /// A sentence for a person.
+    pub message: String,
     /// Whole seconds until a retry is allowed.
     pub retry_after: SafeInt<0>,
     /// The requests the window admits.

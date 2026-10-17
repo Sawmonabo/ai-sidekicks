@@ -51,7 +51,7 @@ pub struct PreviewScreencastFrameMetadata {
 
 branded_text! {
     /// The token a watcher returns to acknowledge one frame.
-    pub struct PreviewScreencastAckToken(1..=usize::MAX);
+    pub struct PreviewScreencastAcknowledgmentToken(1..=usize::MAX);
 }
 
 /// The longest input message id the daemon mints.
@@ -121,7 +121,7 @@ preview_screencast_element! {
             /// What maps its pixels back to the page.
             metadata: PreviewScreencastFrameMetadata,
             /// The token that acknowledges it.
-            ack_token: PreviewScreencastAckToken,
+            ack_token: PreviewScreencastAcknowledgmentToken,
         },
         /// The page's right-click menu, sent when the page leaves a device's menu uncanceled.
         Menu {
@@ -226,13 +226,13 @@ preview_screencast_element! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewScreencastAckRequest {
+pub struct PreviewScreencastAcknowledgeRequest {
     /// The session.
     pub session_id: SessionId,
     /// The page.
     pub page_id: PreviewPageId,
     /// The frame's token.
-    pub ack_token: PreviewScreencastAckToken,
+    pub ack_token: PreviewScreencastAcknowledgmentToken,
 }
 
 /// The modifier keys held during an input, a bit each: Alt 1, Ctrl 2, Meta 4, Shift 8.
@@ -374,7 +374,7 @@ pub enum PreviewDeviceInput {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewScreencastInputRequest {
+pub struct PreviewScreencastInputSendRequest {
     /// The session.
     pub session_id: SessionId,
     /// The page.
@@ -387,7 +387,7 @@ pub struct PreviewScreencastInputRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewScreencastInputResponse {
+pub struct PreviewScreencastInputSendResponse {
     /// The input's id.
     pub message_id: PreviewInputMessageId,
 }
@@ -414,7 +414,7 @@ pub enum PreviewMenuEdit {
 }
 
 /// A device's act from the menu its input raised, naming that menu by its input's id. Refused with
-/// `preview.edit_refused`, changing nothing, where the page took other input after the menu opened.
+/// `preview.editRefused`, changing nothing, where the page took other input after the menu opened.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -464,7 +464,7 @@ pub struct PreviewChosenFile {
 /// the daemon sets on the page's input or drops on the page for a picker, or none for a cancel.
 /// More than one only for `selectMultiple` or `selectFolder`. A path that is empty, absolute, holds
 /// an empty, `.` or `..` segment, or is missing from a folder's answer is refused with
-/// `preview.file_path_refused`, setting and dropping nothing.
+/// `preview.filePathRefused`, setting and dropping nothing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -503,7 +503,7 @@ pub struct PreviewScreencastFileChooseResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewScreencastSaveAckRequest {
+pub struct PreviewScreencastSaveAcknowledgeRequest {
     /// The session.
     pub session_id: SessionId,
     /// The page.

@@ -8,8 +8,8 @@
 //!
 //! Every governance mutation, and the sign-in and sign-out commands, carries a
 //! `clientIdempotencyKey` the caller mints: a retry of one press reuses it, since a key minted per
-//! call would make every retry a new operation. `mcp.reconnect` alone carries none, because it
-//! writes nothing and has no saved result for a key to return.
+//! call would make every retry a new operation. `mcp.server.reconnect` alone carries none, because
+//! it writes nothing and has no saved result for a key to return.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ pub mod requests;
 
 /// A server's connection state; it says nothing about which of its tools a session can see.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum McpServerStatus {
     /// It could not start or broke.
     Failed,
@@ -76,7 +76,7 @@ pub type McpToolName = FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>;
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum McpApplicationGrade {
     /// Applied to the live sessions now.
     LiveReconcile,
@@ -92,10 +92,10 @@ impl McpApplicationGrade {
     /// The grade's wire name.
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::LiveReconcile => "live_reconcile",
-            Self::UserConfigWrite => "user_config_write",
-            Self::NextRun => "next_run",
-            Self::DaemonEnforced => "daemon_enforced",
+            Self::LiveReconcile => "liveReconcile",
+            Self::UserConfigWrite => "userConfigWrite",
+            Self::NextRun => "nextRun",
+            Self::DaemonEnforced => "daemonEnforced",
         }
     }
 }
@@ -104,7 +104,7 @@ impl McpApplicationGrade {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum McpApprovalMode {
     /// Every call runs without asking.
     Auto,
@@ -124,7 +124,7 @@ pub enum McpApprovalMode {
 /// layer outside the repository, the daemon emulates `local` with a user entry that is off by
 /// default and switched on in that project's sessions. The last two are read-only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum McpBindingScope {
     /// In all projects.
     User,
@@ -207,7 +207,7 @@ macro_rules! binding_addressed {
         )]
         #[serde(
             tag = "scope",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -281,16 +281,16 @@ binding_addressed! {
 
 literal! {
     /// The `type` of a config-changed notice.
-    pub enum McpServerConfigChangedType = "mcp.server_config_changed";
+    pub enum McpServerConfigChangedType = "mcp.server.config.changed";
 }
 
 binding_addressed! {
     /// The live notice `mcp.subscribe` sends after each edit to a binding, from this machine or a
     /// linked device: an add, a change, a switch on or off, a tool override or a removal. A page
-    /// showing the binding reads it again with `mcp.get`; a removed one answers
-    /// `mcp.server_not_found`. Sent live only, written to no session's log.
+    /// showing the binding reads it again with `mcp.server.read`; a removed one answers
+    /// `mcp.server.notFound`. Sent live only, written to no session's log.
     pub enum McpServerConfigChangedNotice in every scope {
-        /// Always `mcp.server_config_changed`.
+        /// Always `mcp.server.config.changed`.
         #[serde(rename = "type")]
         notice_type: McpServerConfigChangedType,
     }
@@ -325,31 +325,31 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<inventory::McpAnsweredInventoryEntry>(),
         Definition::read::<inventory::McpStoreUnavailableInventoryEntry>(),
         Definition::read::<inventory::McpServerInventoryEntry>(),
-        Definition::read::<requests::McpListRequest>().checked(),
-        Definition::read::<requests::McpListResponse>().checked(),
-        Definition::read::<requests::McpGetResponse>().checked(),
+        Definition::read::<requests::McpServerListRequest>().checked(),
+        Definition::read::<requests::McpServerListResponse>().checked(),
+        Definition::read::<requests::McpServerReadResponse>().checked(),
         Definition::read::<requests::McpRegistrySearchRequest>().checked(),
         Definition::read::<requests::McpRegistryEnvironmentVariable>(),
         Definition::read::<requests::McpRegistryPackage>(),
         Definition::read::<requests::McpRegistryRemote>(),
         Definition::read::<requests::McpRegistryServer>(),
         Definition::read::<requests::McpRegistrySearchResponse>().checked(),
-        Definition::read::<requests::McpUpsertServerRequest>().checked(),
+        Definition::read::<requests::McpServerUpsertRequest>().checked(),
         Definition::read::<requests::McpLiveApplicationOutcome>(),
         Definition::read::<requests::McpLiveApplicationResult>(),
         Definition::read::<requests::McpToolOverrideApplication>(),
-        Definition::read::<requests::McpMutationResult>().checked(),
-        Definition::read::<requests::McpRemoveServerRequest>().checked(),
-        Definition::read::<requests::McpRemoveServerResult>().checked(),
-        Definition::read::<requests::McpSetEnabledRequest>().checked(),
-        Definition::read::<requests::McpSetToolOverrideRequest>().checked(),
-        Definition::read::<requests::McpClearToolOverrideRequest>().checked(),
-        Definition::read::<requests::McpToolOverrideMutationResult>().checked(),
-        Definition::read::<requests::McpKeyedBindingRequest>().checked(),
-        Definition::read::<requests::McpOauthLoginResponse>().checked(),
-        Definition::read::<requests::McpOauthLogoutRequest>().checked(),
-        Definition::read::<requests::McpReconnectRequest>().checked(),
-        Definition::read::<requests::McpReconnectResponse>().checked(),
+        Definition::read::<requests::McpServerMutationResponse>().checked(),
+        Definition::read::<requests::McpServerDeleteRequest>().checked(),
+        Definition::read::<requests::McpServerDeleteResponse>().checked(),
+        Definition::read::<requests::McpServerEnabledUpdateRequest>().checked(),
+        Definition::read::<requests::McpToolOverrideUpdateRequest>().checked(),
+        Definition::read::<requests::McpToolOverrideClearRequest>().checked(),
+        Definition::read::<requests::McpToolOverrideMutationResponse>().checked(),
+        Definition::read::<requests::McpServerSignInRequest>().checked(),
+        Definition::read::<requests::McpServerSignInResponse>().checked(),
+        Definition::read::<requests::McpServerSignOutRequest>().checked(),
+        Definition::read::<requests::McpServerReconnectRequest>().checked(),
+        Definition::read::<requests::McpServerReconnectResponse>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

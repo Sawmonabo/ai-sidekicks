@@ -36,7 +36,7 @@ macro_rules! workflow_definition_findings {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(
             tag = "rule",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -106,7 +106,7 @@ workflow_definition_findings! {
     SecretOutsideSensitiveField,
 }
 
-/// The details of `workflow.definition_refused`: the whole list of findings.
+/// The details of `workflow.definition.refused`: the whole list of findings.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowDefinitionRefusedDetails {
@@ -115,7 +115,7 @@ pub struct WorkflowDefinitionRefusedDetails {
 }
 
 /// The loop kind: an edge into its own input closes the loop body and is no cycle.
-const LOOP_KIND: &str = "flow.loop-items";
+const LOOP_KIND: &str = "flow.loopItems";
 
 /// One node's category and the handles it has. For a kind whose outputs derive from its params,
 /// `outputs` is what this node's params give; a node that routes failures to an error output lists
@@ -135,7 +135,7 @@ pub struct WorkflowNodeHandles {
 /// orphans, each in document order. `node_handles` holds each node's handles by node id, built by
 /// the caller from the kinds table; a node missing from it is of a kind the catalog does not list,
 /// whose handles and category then go unchecked though its edges still count toward cycles and
-/// reach. An edge naming a node the document does not hold is `node_missing` and is checked no
+/// reach. An edge naming a node the document does not hold is `nodeMissing` and is checked no
 /// further at that end.
 pub fn check_workflow_graph<S: BuildHasher>(
     document: &WorkflowDraftDocument,
@@ -672,12 +672,12 @@ mod tests {
                 json!([main_in, { "type": "tool", "id": "inputs/tool/0", "label": "Tools" }]),
                 json!([main_out]),
             ),
-            "developer.mcp-tool" => (
+            "developer.mcpTool" => (
                 WorkflowNodeKindCategory::Developer,
                 json!([]),
                 json!([{ "type": "tool", "id": "outputs/tool/0", "label": "Tool" }]),
             ),
-            "flow.loop-items" => (
+            "flow.loopItems" => (
                 WorkflowNodeKindCategory::Flow,
                 json!([main_in]),
                 json!([main_out, { "type": "main", "id": "outputs/main/1", "label": "Each" }]),
@@ -703,7 +703,7 @@ mod tests {
         json!([{ "rule": "cycle", "nodeIds": ["a", "b"] }]),
     )]
     #[case::an_edge_back_into_a_loop_closes_its_body(
-        json!([node("l", "flow.loop-items"), node("x", "agent.run")]),
+        json!([node("l", "flow.loopItems"), node("x", "agent.run")]),
         json!([
             main_edge("t", "l"),
             edge("l", "outputs/main/1", "x", "inputs/main/0"),
@@ -712,25 +712,25 @@ mod tests {
         json!([]),
     )]
     #[case::a_loop_into_itself_is_a_cycle(
-        json!([node("l", "flow.loop-items")]),
+        json!([node("l", "flow.loopItems")]),
         json!([main_edge("t", "l"), main_edge("l", "l")]),
         json!([{ "rule": "cycle", "nodeIds": ["l"] }]),
     )]
     #[case::a_tool_is_reached_through_the_agent_it_serves(
-        json!([node("a", "agent.run"), node("m", "developer.mcp-tool")]),
+        json!([node("a", "agent.run"), node("m", "developer.mcpTool")]),
         json!([main_edge("t", "a"), edge("m", "outputs/tool/0", "a", "inputs/tool/0")]),
         json!([]),
     )]
     #[case::an_input_past_its_connection_limit(
         json!([node("a", "agent.run"), node("n", "output.notify")]),
         json!([main_edge("t", "a"), main_edge("t", "n"), main_edge("a", "n")]),
-        json!([{ "rule": "input_connections_exceeded", "nodeIds": ["n", "a"] }]),
+        json!([{ "rule": "inputConnectionsExceeded", "nodeIds": ["n", "a"] }]),
     )]
     #[case::an_edge_into_the_trigger(
         json!([node("a", "agent.run"), node("b", "agent.run")]),
         json!([main_edge("t", "a"), main_edge("b", "t")]),
         json!([
-            { "rule": "edge_into_trigger", "nodeIds": ["b", "t"] },
+            { "rule": "edgeIntoTrigger", "nodeIds": ["b", "t"] },
             { "rule": "orphan", "nodeIds": ["b"] },
         ]),
     )]
@@ -740,7 +740,7 @@ mod tests {
             edge("t", "outputs/main/0", "u", "inputs/main/3"),
             edge("u", "outputs/weird/0", "a", "inputs/main/0"),
         ]),
-        json!([{ "rule": "handle_type_unknown", "nodeIds": ["u", "a"] }]),
+        json!([{ "rule": "handleTypeUnknown", "nodeIds": ["u", "a"] }]),
     )]
     fn the_graph_check_finds_what_the_save_refuses(
         #[case] nodes: Value,

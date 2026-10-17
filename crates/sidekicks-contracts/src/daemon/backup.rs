@@ -125,7 +125,7 @@ pub struct BackupListEntry {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "outcome",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -152,7 +152,7 @@ pub enum BackupLastRun {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct BackupReadResponse {
+pub struct DaemonBackupReadResponse {
     /// The folder.
     pub folder: FilesystemPath,
     /// Whether the folder sits on the service's own disk.
@@ -169,20 +169,20 @@ pub struct BackupReadResponse {
     pub backups: Vec<BackupListEntry>,
 }
 
-/// `backup.completed`: a run wrote a backup.
+/// `daemon.backup.completed`: a run wrote a backup.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct BackupCompletedPayload {
+pub struct DaemonBackupCompletedPayload {
     /// The backup.
     pub backup_id: BackupId,
     /// Its size in bytes.
     pub total_bytes: SafeInt<0>,
 }
 
-/// `backup.failed`: a run did not finish, in the service's own words.
+/// `daemon.backup.failed`: a run did not finish, in the service's own words.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct BackupFailedPayload {
+pub struct DaemonBackupFailedPayload {
     /// The cause.
     pub message: FreeFormText<ERROR_MESSAGE_MAX_LEN>,
 }
@@ -210,12 +210,12 @@ impl ListKey for BackupKeptDistributionPart {
     }
 }
 
-/// `backup.restored`: the service started again from a backup, naming each distribution part it
-/// kept in the backup.
+/// `daemon.backup.restored`: the service started again from a backup, naming each distribution part
+/// it kept in the backup.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct BackupRestoredPayload {
+pub struct DaemonBackupRestoredPayload {
     /// The backup.
     pub backup_id: BackupId,
     /// The distribution parts kept in the backup; absent where every part was written back.
@@ -230,17 +230,17 @@ pub struct BackupRestoredPayload {
 }
 
 methods! {
-    /// The backup methods. A run started now reports its end through the `backup.*` events.
+    /// The backup methods. A run started now reports its end through the `daemon.backup.*` events.
     pub const DAEMON_BACKUP_METHOD_DESCRIPTORS = [
         /// Reads where the backups stand.
-        DaemonBackupRead = query "daemon.backupRead" {
+        DaemonBackupRead = query "daemon.backup.read" {
             mutating: false,
             params: EmptyPayload,
-            result: BackupReadResponse,
+            result: DaemonBackupReadResponse,
             refusals: [],
         },
         /// Starts a backup run now.
-        DaemonBackupStart = mutation "daemon.backupStart" {
+        DaemonBackupStart = mutation "daemon.backup.start" {
             mutating: true,
             params: EmptyPayload,
             result: EmptyPayload,
@@ -259,11 +259,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<BackupManifest>().checked(),
         Definition::read::<BackupListEntry>(),
         Definition::read::<BackupLastRun>(),
-        Definition::read::<BackupReadResponse>().checked(),
-        Definition::read::<BackupCompletedPayload>().checked(),
-        Definition::read::<BackupFailedPayload>().checked(),
+        Definition::read::<DaemonBackupReadResponse>().checked(),
+        Definition::read::<DaemonBackupCompletedPayload>().checked(),
+        Definition::read::<DaemonBackupFailedPayload>().checked(),
         Definition::read::<BackupKeptDistributionPart>(),
-        Definition::read::<BackupRestoredPayload>().checked(),
+        Definition::read::<DaemonBackupRestoredPayload>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&DAEMON_BACKUP_METHOD_DESCRIPTORS],

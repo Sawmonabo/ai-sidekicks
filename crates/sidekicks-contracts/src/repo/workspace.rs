@@ -1,5 +1,5 @@
 //! Binding a session's workspace to a mount, and listing a session's workspaces. A workspace's
-//! `lastError` is present only when it went `stale` from a recorded failure.
+//! `lastError` is present only when it went `rootLost` from a recorded failure.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ ts_constants! {
     pub const WORKSPACE_LAST_ERROR_MAX_LEN: usize = 8192;
 }
 
-/// `repo.workspaceBind`: the session, the attached mount and the mode to bind in. `directory` is
+/// `workspace.bind`: the session, the attached mount and the mode to bind in. `directory` is
 /// relative to the mount root, and the daemon keeps it inside the mount once symlinks resolve.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -38,7 +38,7 @@ pub struct WorkspaceBindRequest {
     pub directory: Option<FilesystemPath>,
 }
 
-/// The `repo.workspaceBind` result: the new workspace, its bound mode and its state, which may be
+/// The `workspace.bind` result: the new workspace, its bound mode and its state, which may be
 /// other than `preparing`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -52,7 +52,7 @@ pub struct WorkspaceBindResponse {
     pub state: WorkspaceState,
 }
 
-/// `repo.workspaceList`: a session's workspaces, narrowed to one mount when it is named.
+/// `workspace.list`: a session's workspaces, narrowed to one mount when it is named.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -69,7 +69,7 @@ pub struct WorkspaceListRequest {
     pub repo_mount_id: Option<RepoMountId>,
 }
 
-/// One workspace in a `repo.workspaceList` result.
+/// One workspace in a `workspace.list` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkspaceListEntry {
@@ -89,7 +89,7 @@ pub struct WorkspaceListEntry {
     )]
     #[schemars(with = "FilesystemPath")]
     pub fs_root: Option<FilesystemPath>,
-    /// The failure that made it `stale`, when one did.
+    /// The failure that made it `rootLost`, when one did.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -99,7 +99,7 @@ pub struct WorkspaceListEntry {
     pub last_error: Option<FreeFormText<WORKSPACE_LAST_ERROR_MAX_LEN>>,
 }
 
-/// The `repo.workspaceList` result.
+/// The `workspace.list` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

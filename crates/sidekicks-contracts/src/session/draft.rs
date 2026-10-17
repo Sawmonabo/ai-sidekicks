@@ -121,15 +121,15 @@ literal! {
 }
 
 literal! {
-    /// The provider's own limit, or its refusal of a picture.
-    pub enum ProviderRefusedReason = "provider_refused";
+    /// The provider refused, by its own limit or policy.
+    pub enum ProviderRefusedReason = "providerRefused";
     /// The copy to the daemon did not complete.
-    pub enum CopyFailedReason = "copy_failed";
+    pub enum CopyFailedReason = "copyFailed";
 }
 
 /// Why the session would not stage a file, by a rule of its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionAttachmentLimitReason {
     /// The message already carries as many files as the provider takes.
     CountLimit,
@@ -146,7 +146,7 @@ pub enum SessionAttachmentLimitReason {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
 pub struct SessionAttachmentLimitRefusal {
-    /// Always `session.attachment_refused`.
+    /// Always `session.attachment.refused`.
     pub code: SessionAttachmentRefusedCode,
     /// The rule.
     pub reason: SessionAttachmentLimitReason,
@@ -157,9 +157,9 @@ pub struct SessionAttachmentLimitRefusal {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
 pub struct SessionAttachmentProviderRefusal {
-    /// Always `session.attachment_refused`.
+    /// Always `session.attachment.refused`.
     pub code: SessionAttachmentRefusedCode,
-    /// Always `provider_refused`.
+    /// Always `providerRefused`.
     pub reason: ProviderRefusedReason,
     /// The provider's own words, shown as given.
     pub provider_message: NonEmptyText,
@@ -170,9 +170,9 @@ pub struct SessionAttachmentProviderRefusal {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
 pub struct SessionAttachmentCopyFailure {
-    /// Always `session.attachment_refused`.
+    /// Always `session.attachment.refused`.
     pub code: SessionAttachmentRefusedCode,
-    /// Always `copy_failed`.
+    /// Always `copyFailed`.
     pub reason: CopyFailedReason,
     /// The daemon's own cause, the text after `·` on the refusal line.
     pub detail: NonEmptyText,
@@ -183,7 +183,7 @@ pub struct SessionAttachmentCopyFailure {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
 pub struct SessionAttachmentDiskFull {
-    /// Always `artifact.too_large`.
+    /// Always `artifact.tooLarge`.
     pub code: ArtifactTooLargeCode,
     /// The room the disk has, in bytes.
     pub available_bytes: SafeInt<0>,
@@ -194,7 +194,7 @@ pub struct SessionAttachmentDiskFull {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
 pub struct SessionAttachmentIngestBusy {
-    /// Always `artifact.ingest_capacity_exhausted`.
+    /// Always `artifact.ingest.capacityExhausted`.
     pub code: ArtifactIngestCapacityExhaustedCode,
 }
 
@@ -305,28 +305,28 @@ methods! {
     /// The composer store's methods, each with its types.
     pub const SESSION_DRAFT_METHOD_DESCRIPTORS = [
         /// Saves the session's draft.
-        SessionDraftUpdate = mutation "session.draftUpdate" {
+        SessionDraftUpdate = mutation "session.draft.update" {
             mutating: true,
             params: SessionDraftUpdateRequest,
             result: SessionDraftUpdateResponse,
             refusals: [SessionNotFound],
         },
         /// Stages files for the next message; each refused item rides in the reply.
-        SessionAttachmentAdd = mutation "session.attachmentAdd" {
+        SessionAttachmentAdd = mutation "session.attachment.add" {
             mutating: true,
             params: SessionAttachmentAddRequest,
             result: SessionAttachmentAddResponse,
             refusals: [SessionNotFound],
         },
         /// Unstages one file.
-        SessionAttachmentRemove = mutation "session.attachmentRemove" {
+        SessionAttachmentRemove = mutation "session.attachment.remove" {
             mutating: true,
             params: SessionAttachmentRemoveRequest,
             result: SessionAttachmentRemoveResponse,
             refusals: [SessionNotFound],
         },
         /// Covers parts of a staged picture.
-        SessionAttachmentCover = mutation "session.attachmentCover" {
+        SessionAttachmentCover = mutation "session.attachment.cover" {
             mutating: true,
             params: SessionAttachmentCoverRequest,
             result: SessionAttachmentCoverResponse,

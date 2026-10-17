@@ -13,7 +13,7 @@ use crate::database::sql_list::sql_list_of_every;
 /// words, canceled by the person, or interrupted by the service's restart or stop. Converts to the
 /// word the `projects.clone_outcome` column holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, VariantArray, IntoStaticStr)]
-#[strum(serialize_all = "snake_case")]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum CloneOutcome {
     /// Git is running.
     Running,
@@ -28,7 +28,7 @@ pub(crate) enum CloneOutcome {
 /// Where a repository mount came from, as the `repo_mounts.origin` column holds it: a project's
 /// folder the person attached or cloned, or a chat's git-initialized workspace the daemon owns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, VariantArray, IntoStaticStr)]
-#[strum(serialize_all = "snake_case")]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum MountOrigin {
     /// A project's folder.
     Attached,
@@ -104,7 +104,7 @@ CREATE TABLE projects (
 -- attach, stored as the projects row stores it; both paths are in its form.
 CREATE TABLE repo_mounts (
   id              TEXT PRIMARY KEY,
-  node_id         TEXT NOT NULL,                -- the daemon's own node, stamped at attach
+  machine_id      TEXT NOT NULL,                -- the daemon's own machine, stamped at attach
   local_path      TEXT NOT NULL,
   canonical_root  TEXT NOT NULL,
   place           TEXT,
@@ -138,7 +138,7 @@ CREATE TABLE repo_mounts (
 -- row does not block a re-attach. A unique index counts NULLs as distinct, so
 -- the place is keyed as '' where it is NULL, keeping macOS and Linux unique.
 CREATE UNIQUE INDEX idx_repo_mounts_active_root
-  ON repo_mounts(node_id, coalesce(place, ''), canonical_root)
+  ON repo_mounts(machine_id, coalesce(place, ''), canonical_root)
   WHERE state = '{attached_state}';
 CREATE UNIQUE INDEX idx_repo_mounts_managed_session
   ON repo_mounts(managed_session_id) WHERE managed_session_id IS NOT NULL;
@@ -158,9 +158,9 @@ CREATE TABLE workspaces (
   fs_root         TEXT,
   state           TEXT NOT NULL DEFAULT '{preparing}'
                   CHECK(state IN ({workspace_states})),
-  -- JSON: lastError, why a stale workspace's last preparation failed; boundRoot, the folder the
-  -- bind admitted, where a bound-root run works, never cleared; checkoutRoot, the top level of the
-  -- working tree the workspace works in now, the bound checkout's or its worktree's.
+  -- JSON: lastError, why a rootLost workspace's last preparation failed; boundRoot, the folder
+  -- the bind admitted, where a bound-root run works, never cleared; checkoutRoot, the top level of
+  -- the working tree the workspace works in now, the bound checkout's or its worktree's.
   metadata        TEXT NOT NULL DEFAULT '{{}}',
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
@@ -198,8 +198,8 @@ mod tests {
                  '{{}}', {place}, '{AT}', '{AT}')"
             ),
             format!(
-                "INSERT INTO repo_mounts (id, node_id, local_path, canonical_root, place, \
-                 project_id, attached_at, updated_at) VALUES ('{id}', 'node', '/home/me/x', \
+                "INSERT INTO repo_mounts (id, machine_id, local_path, canonical_root, place, \
+                 project_id, attached_at, updated_at) VALUES ('{id}', 'machine', '/home/me/x', \
                  '/home/me/x', {place}, '{id}', '{AT}', '{AT}')"
             ),
         ]

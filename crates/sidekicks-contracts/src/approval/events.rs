@@ -9,8 +9,8 @@ use crate::approval::{
     RememberedScope, ReviewerDenialId,
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
+use crate::machine::id::MachineId;
 use crate::run::id::RunId;
-use crate::runtime_node::id::NodeId;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
 use crate::wire::id::ClientUuid;
@@ -105,11 +105,11 @@ pub struct ApprovalCanceledPayload {
     pub scope: ApprovalScope,
 }
 
-/// The `approval.remembered` payload: the whole rule, so it rebuilds from the log. `nodeId` is the
-/// machine whose provider keeps it.
+/// The `approval.rule.remembered` payload: the whole rule, so it rebuilds from the log.
+/// `machineId` is the machine whose provider keeps it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ApprovalRememberedPayload {
+pub struct ApprovalRuleRememberedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -121,14 +121,14 @@ pub struct ApprovalRememberedPayload {
     /// Its target scope.
     pub scope: ApprovalScope,
     /// The machine whose provider keeps the rule.
-    pub node_id: NodeId,
+    pub machine_id: MachineId,
     /// The rule.
     pub rule_id: RememberedRuleId,
     /// Its reach, subject and sense.
     pub remembered_scope: RememberedScope,
 }
 
-/// The `approval.rule_revoked` payload. The run and the ask are absent where no ask was in flight,
+/// The `approval.rule.revoked` payload. The run and the ask are absent where no ask was in flight,
 /// as when a project is detached or a tool server is removed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -161,7 +161,7 @@ pub struct ApprovalRuleRevokedPayload {
     pub approval_request_id: Option<ApprovalRequestId>,
 }
 
-/// Declares a struct with the `approval.reviewer_denied` members, written once: `plain` gives the
+/// Declares a struct with the `approval.reviewer.denied` members, written once: `plain` gives the
 /// payload as the approval topic reads it, and `described` adds the two members the append path
 /// owns on a body-bearing payload, as the session event carries it.
 macro_rules! approval_reviewer_denied_payload {
@@ -209,7 +209,7 @@ pub(crate) use approval_reviewer_denied_payload;
 
 approval_reviewer_denied_payload! {
     plain
-    /// The `approval.reviewer_denied` payload: a provider's own reviewer blocked an action. The
+    /// The `approval.reviewer.denied` payload: a provider's own reviewer blocked an action. The
     /// daemon keeps the denial whole beside the row, which is what lets the override hold across a
     /// restart. `eventId` names the blocked call's own row, whose reason line reads
     /// `Blocked · <reason>`, or `Blocked` alone where the reviewer gave no reason. `overridable` is
@@ -219,7 +219,7 @@ approval_reviewer_denied_payload! {
     pub struct ApprovalReviewerDeniedPayload
 }
 
-/// The `approval.denial_overridden` payload: the person allowed a blocked action once.
+/// The `approval.denial.overridden` payload: the person allowed a blocked action once.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ApprovalDenialOverriddenPayload {

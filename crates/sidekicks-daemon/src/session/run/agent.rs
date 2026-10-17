@@ -1,5 +1,5 @@
-//! Reads which agent a run is for, from the session's log: the agent its `run.queued` names, the
-//! one minted from a saved definition with it, else the session's lead, for a lead run queued
+//! Reads which agent a run is for, from the session's log: the agent its `agent.run.queued` names,
+//! the one minted from a saved definition with it, else the session's lead, for a lead run queued
 //! before a run named its agent; and the session's lead, which `session.created` names.
 
 use rusqlite::{Connection, OptionalExtension, named_params};
@@ -17,7 +17,7 @@ const SELECT_RUN_AGENT_SQL: &str = "SELECT COALESCE(
           AND created.type = 'session.created')) AS agent_id
    FROM session_events AS queued
   WHERE queued.session_id = @session_id
-    AND queued.type = 'run.queued'
+    AND queued.type = 'agent.run.queued'
     AND queued.run_id = @run_id";
 
 const SELECT_LEAD_AGENT_SQL: &str = "

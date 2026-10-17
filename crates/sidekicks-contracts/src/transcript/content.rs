@@ -1,6 +1,6 @@
 //! A transcript row's body, and the reads for what a row does not carry: a row's large body or
-//! full output (`transcript.bodyRead`), and every file patch a tool call left out
-//! (`transcript.patchRead`). A body travels with its row unless it is large, when the row carries
+//! full output (`transcript.body.read`), and every file patch a tool call left out
+//! (`transcript.patch.list`). A body travels with its row unless it is large, when the row carries
 //! its size alone. Both reads answer with the stored text, or why there is none.
 
 use schemars::JsonSchema;
@@ -30,7 +30,7 @@ pub type StoredBodyText = BoundedText<0, CONTENT_PAYLOAD_PLAINTEXT_MAX>;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "status",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -119,7 +119,7 @@ pub fn hydrated_content_of(
     }
 }
 
-/// A `transcript.bodyRead` offset that is no place to resume from: inside a character, or past
+/// A `transcript.body.read` offset that is no place to resume from: inside a character, or past
 /// the body's end. It is refused on the request's `offset` path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("offset {offset} is inside a character or past the body's {body_length} bytes")]
@@ -130,7 +130,7 @@ pub struct BodyReadOffsetRefused {
     pub body_length: usize,
 }
 
-/// An event's stored body as `transcript.bodyRead` reports it, the part that starts at `offset`:
+/// An event's stored body as `transcript.body.read` reports it, the part that starts at `offset`:
 /// `absent` when none is stored, never an empty `available` body, which would claim the agent said
 /// nothing. A part holds as much of the body as fits one page and names where the next part
 /// starts, so a client reading from each `nextOffset` until it is `null` joins the whole body. The
@@ -269,7 +269,7 @@ pub struct TranscriptBodyReadRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "status",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -326,7 +326,7 @@ pub struct TranscriptPatchCursor {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct TranscriptPatchReadRequest {
+pub struct TranscriptPatchListRequest {
     /// The session.
     pub session_id: SessionId,
     /// The tool call.
@@ -504,7 +504,7 @@ pub enum TranscriptPatchFile {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct TranscriptPatchReadResponse {
+pub struct TranscriptPatchListResponse {
     /// The files.
     #[garde(dive, custom(fits_one_page))]
     #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]

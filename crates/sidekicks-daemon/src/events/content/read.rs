@@ -6,7 +6,7 @@
 //!   pair ([`HydratedSessionEvent`]).
 //! - A row with no body reads on the `unavailable` arm, never as an empty `available` body, which
 //!   would claim the assistant said nothing.
-//! - `content_payload` is node-local, so a row carried in from a peer reads as `absent`.
+//! - `content_payload` stays on its machine, so a row carried in from a peer reads as `absent`.
 
 use sidekicks_contracts::event::envelope::{EventEnvelope, HydratedSessionEvent};
 use sidekicks_contracts::transcript::content::hydrated_content_of;

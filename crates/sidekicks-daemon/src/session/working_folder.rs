@@ -49,7 +49,7 @@ pub(crate) struct SessionWorkingFolder {
 /// Why a session's working folder could not be read.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkingFolderReadError {
-    /// The session is not one this daemon holds (`session.not_found`).
+    /// The session is not one this daemon holds (`session.notFound`).
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// The read failed, or the stored shape names no shape.
@@ -58,7 +58,7 @@ pub(crate) enum WorkingFolderReadError {
 }
 
 /// Reads the working folder of `session_id` on `reader`. Fails with
-/// [`WorkingFolderReadError::Refused`] (`session.not_found`) for a session this daemon holds no row
+/// [`WorkingFolderReadError::Refused`] (`session.notFound`) for a session this daemon holds no row
 /// for, and with [`WorkingFolderReadError::Database`] when the read fails.
 pub(crate) fn read_working_folder(
     reader: &Connection,

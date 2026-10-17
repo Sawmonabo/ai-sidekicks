@@ -35,7 +35,7 @@ ts_constants! {
     /// The longest reason text a refusal or a load failure carries.
     pub const AGENT_REASON_MAX_LEN: usize = 1024;
     /// A definition that exists but cannot produce a runnable agent now.
-    AGENT_RESOLUTION_REFUSED_CODE = RefusalCode::AgentResolutionRefused;
+    AGENT_DEFINITION_RESOLUTION_REFUSED_CODE = RefusalCode::AgentDefinitionResolutionRefused;
     /// The agent hue wheel's twelve steps by token name, in wheel order.
     AGENT_ACCENT_HUES = AgentAccentHue::VARIANTS;
 }
@@ -72,7 +72,7 @@ pub type ToolName = FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>;
 /// project; `project` in the project's repository; `local` in the project but kept out of the
 /// repository. Whichever provider runs the agent reads and writes the same folder.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum AgentMemoryScope {
     /// Every project.
     User,
@@ -88,40 +88,40 @@ pub enum AgentMemoryScope {
 )]
 pub enum AgentAccentHue {
     /// Step 0.
-    #[serde(rename = "hue-00")]
+    #[serde(rename = "hue00")]
     Hue00,
     /// Step 1.
-    #[serde(rename = "hue-01")]
+    #[serde(rename = "hue01")]
     Hue01,
     /// Step 2.
-    #[serde(rename = "hue-02")]
+    #[serde(rename = "hue02")]
     Hue02,
     /// Step 3.
-    #[serde(rename = "hue-03")]
+    #[serde(rename = "hue03")]
     Hue03,
     /// Step 4.
-    #[serde(rename = "hue-04")]
+    #[serde(rename = "hue04")]
     Hue04,
     /// Step 5.
-    #[serde(rename = "hue-05")]
+    #[serde(rename = "hue05")]
     Hue05,
     /// Step 6.
-    #[serde(rename = "hue-06")]
+    #[serde(rename = "hue06")]
     Hue06,
     /// Step 7.
-    #[serde(rename = "hue-07")]
+    #[serde(rename = "hue07")]
     Hue07,
     /// Step 8.
-    #[serde(rename = "hue-08")]
+    #[serde(rename = "hue08")]
     Hue08,
     /// Step 9.
-    #[serde(rename = "hue-09")]
+    #[serde(rename = "hue09")]
     Hue09,
     /// Step 10.
-    #[serde(rename = "hue-10")]
+    #[serde(rename = "hue10")]
     Hue10,
     /// Step 11.
-    #[serde(rename = "hue-11")]
+    #[serde(rename = "hue11")]
     Hue11,
 }
 
@@ -148,7 +148,7 @@ pub type AgentHooks = Record<ToolName, Vec<AgentHookGroup>>;
 
 /// Whether a definition belongs to every project or to one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum AgentDefinitionScope {
     /// Every project.
     Global,
@@ -159,7 +159,7 @@ pub enum AgentDefinitionScope {
 /// Which files a definition came from: ours, a provider's own, whose provider the entry names in
 /// `originProvider`, or a plugin's, which is read-only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum AgentDefinitionOrigin {
     /// Ours, under `.ai-sidekicks/agents/`.
     Ours,
@@ -463,11 +463,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<requests::AgentDefinitionImportRequest>().checked(),
         Definition::read::<requests::SkippedImportFile>(),
         Definition::read::<requests::AgentDefinitionImportResponse>().checked(),
-        Definition::read::<refusal::AgentResolutionRefusedCode>(),
-        Definition::read::<refusal::AgentExportWriteFailedDetails>(),
-        Definition::read::<refusal::AgentResolutionRefusedDetails>().checked(),
-        Definition::read::<refusal::AgentUpdateRefusedReason>(),
-        Definition::read::<refusal::AgentUpdateRefusedDetails>(),
+        Definition::read::<refusal::AgentDefinitionResolutionRefusedCode>(),
+        Definition::read::<refusal::AgentDefinitionExportWriteFailedDetails>(),
+        Definition::read::<refusal::AgentDefinitionResolutionRefusedDetails>().checked(),
+        Definition::read::<refusal::AgentDefinitionUpdateRefusedReason>(),
+        Definition::read::<refusal::AgentDefinitionUpdateRefusedDetails>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

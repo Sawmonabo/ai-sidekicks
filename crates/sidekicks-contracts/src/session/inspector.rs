@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FilesystemPath;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::provider::id::ProviderId;
 use crate::session::controls::methods::SessionAddressedRequest;
@@ -21,7 +21,7 @@ use crate::wire::text::ComposedText;
 /// point on this window; the bottom stop is the session's fixed start plus a tenth of the window,
 /// rounded up, and is `null` where the provider reports what the session loads only with its first
 /// usage report, until that report comes.
-/// `session_override` draws the `session` mark: the bound differs from the Settings default.
+/// `sessionOverride` draws the `session` mark: the bound differs from the Settings default.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionCompactionBound {
@@ -40,7 +40,7 @@ pub struct SessionCompactionBound {
 /// How the provider marks a bucket: counted as used, deferred (dimmed and left out of the used
 /// figure), the compaction buffer, or free space.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionContextCategoryKind {
     /// Counted as used.
     Used,
@@ -87,7 +87,7 @@ pub struct SessionContextCategory {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
-    rename_all = "lowercase",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -144,7 +144,7 @@ pub struct SessionContextReading {
 
 /// Whether a memory path is a file or a folder.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionMemoryEntryKind {
     /// A file.
     File,
@@ -208,7 +208,7 @@ pub struct SessionAutoMemoryUpdateRequest {
 
 /// When an `Auto memory` change takes effect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionAutoMemoryAppliesAt {
     /// At once, where the provider takes the change live.
     Now,
@@ -244,7 +244,7 @@ pub enum SessionProviderHookHandlerType {
     Agent,
 }
 
-/// One hook the provider loaded for the session's folder. `event`, `source` and `trust_status` are
+/// One hook the provider loaded for the session's folder. `event`, `source` and `trustStatus` are
 /// the provider's own words, carried as sent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -355,29 +355,29 @@ methods! {
     /// The inspector methods' wire contract: name, procedure type and types.
     pub const SESSION_INSPECTOR_METHOD_DESCRIPTORS = [
         /// Streams the session's context readings.
-        SessionContextSubscribe = subscription "session.contextSubscribe" {
+        SessionContextSubscribe = subscription "session.context.subscribe" {
             mutating: false,
             params: SessionAddressedRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: SessionContextReading,
             refusals: [SessionNotFound],
         },
         /// Reads the inspector's `Memory` section.
-        SessionMemoryRead = query "session.memoryRead" {
+        SessionMemoryRead = query "session.memory.read" {
             mutating: false,
             params: SessionAddressedRequest,
             result: SessionMemoryReadResponse,
             refusals: [SessionNotFound],
         },
         /// Turns the `Auto memory` switch on or off.
-        SessionAutoMemoryUpdate = mutation "session.autoMemoryUpdate" {
+        SessionAutoMemoryUpdate = mutation "session.autoMemory.update" {
             mutating: true,
             params: SessionAutoMemoryUpdateRequest,
             result: SessionAutoMemoryUpdateResponse,
             refusals: [SessionNotFound],
         },
         /// Reads the inspector's `Hooks` section.
-        SessionHookList = query "session.hookList" {
+        SessionHookList = query "session.hook.list" {
             mutating: false,
             params: SessionAddressedRequest,
             result: SessionHookListResponse,

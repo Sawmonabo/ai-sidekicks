@@ -1,4 +1,4 @@
-//! The method table: every daemon method is declared once, with [`methods!`], in the contract
+//! The method table: every daemon method is declared once, with `methods!`, in the contract
 //! module that owns it. A declaration gives a marker type the daemon registers a handler for and a
 //! table entry the TypeScript method map is generated from.
 
@@ -13,9 +13,9 @@ use crate::schema::ReceivedCheckError;
 use crate::typescript::TypeName;
 
 /// How a method answers: a `query` reads and a `mutation` changes state, each with one result; a
-/// `subscription` answers with an acknowledgement and then streams emissions.
+/// `subscription` answers with an acknowledgment and then streams emissions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ProcedureType {
     /// Reads, with one result.
     Query,
@@ -28,7 +28,7 @@ pub enum ProcedureType {
 /// One method's contract as the table lists it.
 #[derive(Clone, Copy, Debug)]
 pub struct MethodDescriptor {
-    /// The method's wire name (`browser.siteDataList`).
+    /// The method's wire name (`browser.siteData.list`).
     pub method: &'static str,
     /// How the method answers.
     pub procedure_type: ProcedureType,
@@ -37,7 +37,7 @@ pub struct MethodDescriptor {
     pub is_mutating: bool,
     /// The request's type.
     pub params: TypeName,
-    /// The result's type: a subscription's acknowledgement.
+    /// The result's type: a subscription's acknowledgment.
     pub result: TypeName,
     /// A subscription's emission type; `None` exactly for a query or a mutation.
     pub emission: Option<TypeName>,
@@ -66,13 +66,13 @@ pub struct MethodTable {
 pub trait Method {
     /// The request.
     type Params: Serialize + DeserializeOwned + JsonSchema + garde::Validate<Context = ()>;
-    /// The result, or a subscription's acknowledgement, held to its garde rules before it is sent.
+    /// The result, or a subscription's acknowledgment, held to its garde rules before it is sent.
     type Result: Serialize + DeserializeOwned + JsonSchema + garde::Validate<Context = ()>;
     /// The method's table entry.
     const DESCRIPTOR: MethodDescriptor;
 }
 
-/// A subscription method, whose stream carries `Emission` values after the acknowledgement.
+/// A subscription method, whose stream carries `Emission` values after the acknowledgment.
 pub trait SubscriptionMethod: Method {
     /// One value the stream carries, held to its garde rules before it is sent.
     type Emission: Serialize + DeserializeOwned + JsonSchema + garde::Validate<Context = ()>;
@@ -85,7 +85,7 @@ pub trait SubscriptionMethod: Method {
 ///     /// The `browser.*` methods the daemon answers.
 ///     pub const BROWSER_METHOD_DESCRIPTORS = [
 ///         /// Lists the sites holding data in the shared browser profile.
-///         BrowserSiteDataList = query "browser.siteDataList" {
+///         BrowserSiteDataList = query "browser.siteData.list" {
 ///             mutating: false,
 ///             params: EmptyPayload,
 ///             result: BrowserSiteDataListResponse,
@@ -131,6 +131,11 @@ macro_rules! methods {
         ];
     ) => {
         $(
+            const _: () = assert!(
+                $crate::wire::name::is_wire_name($method),
+                concat!("not a wire name: ", $method),
+            );
+
             $(#[$meta])*
             #[derive(Clone, Copy, Debug)]
             pub struct $marker;
@@ -169,8 +174,8 @@ pub(crate) use methods;
 #[cfg(test)]
 mod tests {
     use crate::jsonrpc::message::CancelRequestParams;
-    use crate::jsonrpc::negotiation::DaemonHello;
-    use crate::jsonrpc::streaming::SubscriptionCancelParams;
+    use crate::jsonrpc::negotiation::ConnectionInitializeRequest;
+    use crate::jsonrpc::streaming::SubscriptionCancelRequest;
     use crate::provider::tools::{SessionSendArguments, TaskOutputArguments, TaskStopArguments};
     use crate::schema::received_check;
     use crate::workflow::run::tool::WorkflowRunToolInput;
@@ -190,14 +195,17 @@ mod tests {
         // arguments a model sends.
         failures.extend(
             [
-                ("daemon.hello", received_check::<DaemonHello>().err()),
+                (
+                    "connection.initialize",
+                    received_check::<ConnectionInitializeRequest>().err(),
+                ),
                 (
                     "$/cancelRequest",
                     received_check::<CancelRequestParams>().err(),
                 ),
                 (
                     "$/subscription/cancel",
-                    received_check::<SubscriptionCancelParams>().err(),
+                    received_check::<SubscriptionCancelRequest>().err(),
                 ),
                 (
                     "session_send",

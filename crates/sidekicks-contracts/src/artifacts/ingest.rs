@@ -28,7 +28,7 @@ ts_constants! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AttachmentIngestInitRequest {
+pub struct ArtifactIngestStartRequest {
     /// The session the file is for.
     pub session_id: SessionId,
     /// The run the file is for; absent when no run asked for it.
@@ -58,7 +58,7 @@ pub struct AttachmentIngestInitRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AttachmentIngestInitResponse {
+pub struct ArtifactIngestStartResponse {
     /// The stream's handle.
     pub ingest_id: NonEmptyText,
 }
@@ -69,7 +69,7 @@ pub struct AttachmentIngestInitResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AttachmentIngestChunkRequest {
+pub struct ArtifactIngestWriteRequest {
     /// The stream's handle.
     pub ingest_id: NonEmptyText,
     /// The chunk's place in the stream, from 0.
@@ -78,12 +78,12 @@ pub struct AttachmentIngestChunkRequest {
     pub chunk: Bytes<0, ARTIFACT_CHUNK_MAX_BYTES>,
 }
 
-/// One chunk's acknowledgement. `receivedBytes` is the stream's running total after the chunk, so
+/// One chunk's acknowledgment. `receivedBytes` is the stream's running total after the chunk, so
 /// progress is the daemon's count and never the sender's.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AttachmentIngestChunkResponse {
+pub struct ArtifactIngestWriteResponse {
     /// The stream's handle.
     pub ingest_id: NonEmptyText,
     /// The bytes the stream has received so far.
@@ -95,7 +95,7 @@ pub struct AttachmentIngestChunkResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AttachmentIngestCompleteRequest {
+pub struct ArtifactIngestCompleteRequest {
     /// The stream's handle.
     pub ingest_id: NonEmptyText,
 }
@@ -105,7 +105,7 @@ pub struct AttachmentIngestCompleteRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AttachmentIngestCompleteResponse {
+pub struct ArtifactIngestCompleteResponse {
     /// The artifact the file became.
     pub artifact_id: ArtifactId,
     /// The payload's SHA-256, the manifest's `digest`.
@@ -124,12 +124,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The three calls that stream a caller's file into a session's artifacts: open a stream, \
           send its bytes in numbered chunks, and complete it.",
     definitions: &[
-        Definition::read::<AttachmentIngestInitRequest>().checked(),
-        Definition::read::<AttachmentIngestInitResponse>().checked(),
-        Definition::read::<AttachmentIngestChunkRequest>().checked(),
-        Definition::read::<AttachmentIngestChunkResponse>().checked(),
-        Definition::read::<AttachmentIngestCompleteRequest>().checked(),
-        Definition::read::<AttachmentIngestCompleteResponse>().checked(),
+        Definition::read::<ArtifactIngestStartRequest>().checked(),
+        Definition::read::<ArtifactIngestStartResponse>().checked(),
+        Definition::read::<ArtifactIngestWriteRequest>().checked(),
+        Definition::read::<ArtifactIngestWriteResponse>().checked(),
+        Definition::read::<ArtifactIngestCompleteRequest>().checked(),
+        Definition::read::<ArtifactIngestCompleteResponse>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

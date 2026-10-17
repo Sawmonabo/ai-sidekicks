@@ -9,9 +9,9 @@ use sidekicks_contracts::provider::id::ProviderId;
 use strum::IntoStaticStr;
 
 /// The closed set of diagnostic kinds; each names its counter, so a kind is never unmetered, and
-/// converts to its snake-case name on the log line.
+/// converts to its lowerCamelCase name on the log line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, IntoStaticStr)]
-#[strum(serialize_all = "snake_case")]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum DriverDiagnosticKind {
     /// A wire kind outside the pinned set, or one with no defined session event type.
     UnmappedWireKind,
@@ -47,7 +47,7 @@ pub(crate) enum DriverDiagnosticKind {
     /// lineage, never arrival order.
     ThreadRegistrationRefused,
     /// A second announcement for a child whose usage base exists. The driver declines to re-base
-    /// (that would re-meter the child's whole spend) and to emit a second `subagent.started`.
+    /// (that would re-meter the child's whole spend) and to emit a second `agent.subagent.started`.
     ThreadDuplicateChildAnnouncement,
     /// A capability re-declaration failed or missed its liveness deadline.
     CapabilityRefreshFailed,
@@ -140,62 +140,61 @@ pub(crate) enum DriverDiagnosticKind {
 }
 
 impl DriverDiagnosticKind {
-    /// The kind's counter name, shaped `driver.<band>.<condition>`, or `run.<band>.<condition>`
-    /// for a kind the run engine records.
+    /// The kind's counter name, dotted lowerCamelCase segments as a wire name is: under `driver`
+    /// for a kind a driver records (`driver.reorderBuffer.pairingTimeout`), under `run` for one the
+    /// run engine records (`run.lateEvent.absorbed`).
     pub(crate) const fn counter_name(self) -> &'static str {
         match self {
-            Self::UnmappedWireKind => "driver.normalize.unmapped_wire_kind",
-            Self::ReorderBufferOverflow => "driver.reorder_buffer.overflow",
-            Self::ToolPairingTimeout => "driver.reorder_buffer.pairing_timeout",
-            Self::ReorderSeenInitiationEvicted => "driver.reorder_buffer.seen_initiation_evicted",
-            Self::UsageDeltaFloorHit => "driver.usage_delta.floor_hit",
-            Self::UsageAxisReadingRejected => "driver.usage_delta.axis_reading_rejected",
-            Self::UsageResumeBaseUnavailable => "driver.usage_delta.resume_base_unavailable",
-            Self::UsageCrossCheckMismatch => "driver.usage_delta.cross_check_mismatch",
-            Self::UsageContainmentIdentityUnconfirmed => {
-                "driver.usage_delta.containment_unconfirmed"
-            }
-            Self::ThreadFrameQuarantined => "driver.thread_router.quarantined",
-            Self::ThreadQuarantineShed => "driver.thread_router.quarantine_shed",
-            Self::ThreadPendingHoldShed => "driver.thread_router.pending_hold_shed",
-            Self::ThreadRegistrationRefused => "driver.thread_router.registration_refused",
+            Self::UnmappedWireKind => "driver.normalize.unmappedWireKind",
+            Self::ReorderBufferOverflow => "driver.reorderBuffer.overflow",
+            Self::ToolPairingTimeout => "driver.reorderBuffer.pairingTimeout",
+            Self::ReorderSeenInitiationEvicted => "driver.reorderBuffer.seenInitiationEvicted",
+            Self::UsageDeltaFloorHit => "driver.usageDelta.floorHit",
+            Self::UsageAxisReadingRejected => "driver.usageDelta.axisReadingRejected",
+            Self::UsageResumeBaseUnavailable => "driver.usageDelta.resumeBaseUnavailable",
+            Self::UsageCrossCheckMismatch => "driver.usageDelta.crossCheckMismatch",
+            Self::UsageContainmentIdentityUnconfirmed => "driver.usageDelta.containmentUnconfirmed",
+            Self::ThreadFrameQuarantined => "driver.threadRouter.quarantined",
+            Self::ThreadQuarantineShed => "driver.threadRouter.quarantineShed",
+            Self::ThreadPendingHoldShed => "driver.threadRouter.pendingHoldShed",
+            Self::ThreadRegistrationRefused => "driver.threadRouter.registrationRefused",
             Self::ThreadDuplicateChildAnnouncement => {
-                "driver.thread_router.duplicate_child_announcement"
+                "driver.threadRouter.duplicateChildAnnouncement"
             }
-            Self::CapabilityRefreshFailed => "driver.capability_refresh.declaration_failed",
-            Self::CapabilityFlagWithdrawn => "driver.capability_refresh.flag_withdrawn",
-            Self::CallbackToolSeamAbsent => "driver.callback_tool.seam_absent",
-            Self::CallbackToolRegistryWithheld => "driver.callback_tool.registry_withheld",
-            Self::CallbackToolInvocationRefused => "driver.callback_tool.invocation_refused",
-            Self::CallbackToolRegistrySuperseded => "driver.callback_tool.registry_superseded",
+            Self::CapabilityRefreshFailed => "driver.capabilityRefresh.declarationFailed",
+            Self::CapabilityFlagWithdrawn => "driver.capabilityRefresh.flagWithdrawn",
+            Self::CallbackToolSeamAbsent => "driver.callbackTool.seamAbsent",
+            Self::CallbackToolRegistryWithheld => "driver.callbackTool.registryWithheld",
+            Self::CallbackToolInvocationRefused => "driver.callbackTool.invocationRefused",
+            Self::CallbackToolRegistrySuperseded => "driver.callbackTool.registrySuperseded",
             Self::CallbackToolRegistryReleaseIgnored => {
-                "driver.callback_tool.registry_release_ignored"
+                "driver.callbackTool.registryReleaseIgnored"
             }
-            Self::CallbackToolActivityRecordFailed => "driver.callback_tool.activity_record_failed",
-            Self::SubagentDefinitionFieldWithheld => "driver.subagent.definition_field_withheld",
-            Self::SupersededRunReportFailed => "driver.session.superseded_run_report_failed",
-            Self::CompactionWaitTerminal => "driver.compaction.wait_terminal",
-            Self::ProviderCommandEntryRejected => "driver.provider_commands.entry_rejected",
-            Self::OutputSpeedStateRejected => "driver.output_speed.state_rejected",
-            Self::OutputSpeedApplyRefused => "driver.output_speed.apply_refused",
+            Self::CallbackToolActivityRecordFailed => "driver.callbackTool.activityRecordFailed",
+            Self::SubagentDefinitionFieldWithheld => "driver.subagent.definitionFieldWithheld",
+            Self::SupersededRunReportFailed => "driver.session.supersededRunReportFailed",
+            Self::CompactionWaitTerminal => "driver.compaction.waitTerminal",
+            Self::ProviderCommandEntryRejected => "driver.providerCommands.entryRejected",
+            Self::OutputSpeedStateRejected => "driver.outputSpeed.stateRejected",
+            Self::OutputSpeedApplyRefused => "driver.outputSpeed.applyRefused",
             Self::InteractiveRequestOptionSetDropped => {
-                "driver.interactive_request.option_set_dropped"
+                "driver.interactiveRequest.optionSetDropped"
             }
-            Self::McpTaskHandleWriteRefused => "driver.mcp_task_handle.write_refused",
-            Self::McpTaskHandleWriteFailed => "driver.mcp_task_handle.write_failed",
-            Self::LateEventAbsorbed => "run.late_event.absorbed",
-            Self::EpochAssociationEvicted => "run.epoch.association_evicted",
+            Self::McpTaskHandleWriteRefused => "driver.mcpTaskHandle.writeRefused",
+            Self::McpTaskHandleWriteFailed => "driver.mcpTaskHandle.writeFailed",
+            Self::LateEventAbsorbed => "run.lateEvent.absorbed",
+            Self::EpochAssociationEvicted => "run.epoch.associationEvicted",
             Self::ProviderRestarted => "driver.process.restarted",
-            Self::ProviderCrashLoop => "driver.process.crash_loop",
-            Self::ProcessReportFailed => "driver.process.report_failed",
-            Self::DeliveryDispatchFailed => "driver.delivery.dispatch_failed",
-            Self::ControlFrameMalformed => "driver.control.frame_malformed",
-            Self::ControlAnswerFailed => "driver.control.answer_failed",
-            Self::ProviderFrameOversized => "driver.process.frame_oversized",
-            Self::ControlOnlyReadFailed => "driver.control_only.read_failed",
-            Self::ModelWindowReadFailed => "driver.model_window.read_failed",
-            Self::StreamedTextDiverged => "driver.streamed_text.diverged",
-            Self::StreamedBlocksAbandoned => "driver.streamed_text.blocks_abandoned",
+            Self::ProviderCrashLoop => "driver.process.crashLoop",
+            Self::ProcessReportFailed => "driver.process.reportFailed",
+            Self::DeliveryDispatchFailed => "driver.delivery.dispatchFailed",
+            Self::ControlFrameMalformed => "driver.control.frameMalformed",
+            Self::ControlAnswerFailed => "driver.control.answerFailed",
+            Self::ProviderFrameOversized => "driver.process.frameOversized",
+            Self::ControlOnlyReadFailed => "driver.controlOnly.readFailed",
+            Self::ModelWindowReadFailed => "driver.modelWindow.readFailed",
+            Self::StreamedTextDiverged => "driver.streamedText.diverged",
+            Self::StreamedBlocksAbandoned => "driver.streamedText.blocksAbandoned",
         }
     }
 }
@@ -207,7 +206,7 @@ pub(crate) struct DriverDiagnosticRecord {
     /// The provider the record is about.
     pub(crate) provider: ProviderId,
     /// The account the record is about, which its counter is also counted by; `None` on the
-    /// node's default home.
+    /// machine's default home.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// What happened.
     pub(crate) kind: DriverDiagnosticKind,

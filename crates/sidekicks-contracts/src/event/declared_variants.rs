@@ -1,7 +1,7 @@
-//! The payloads of the session events this module declares itself: event compaction and assistant
+//! The payloads of the session events this module declares itself: event compaction and agent
 //! and tool activity, with the members the append path owns on every body-bearing payload.
 //!
-//! An assistant or tool row's body lives outside the canonical bytes, in the stored row's content;
+//! An agent or tool row's body lives outside the canonical bytes, in the stored row's content;
 //! its payload carries only the body's length and whether it was cut, and a reader pairs the two.
 //! The strict payloads refuse a spliced body. `contentType` is the producer's; the length and the
 //! cut mark are the append path's, which refuses a producer that sends either.
@@ -13,8 +13,8 @@ use crate::event::envelope::{
     EventOccurredAt, SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
+use crate::machine::id::MachineId;
 use crate::run::id::RunId;
-use crate::runtime_node::id::NodeId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::voice::MessageOrigin;
@@ -51,7 +51,7 @@ fn ends_at_or_after_its_start(from_seq: SafeInt<0>, to_seq: SafeInt<0>) -> garde
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct EventCompactedRemovedSession {
+pub struct SessionEventCompactedRemovedSession {
     /// The session removed.
     pub session_id: SessionId,
     /// The first sequence deleted.
@@ -64,15 +64,15 @@ pub struct EventCompactedRemovedSession {
     pub to_seq: SafeInt<0>,
 }
 
-/// The `event.compacted` payload: the receipt of one session deletion, naming every session it
-/// removed and the range of rows it deleted in each. It is written only when a deletion deleted
+/// The `session.event.compacted` payload: the receipt of one session deletion, naming every session
+/// it removed and the range of rows it deleted in each. It is written only when a deletion deleted
 /// rows, so it names at least one session. The daemon writes it under its own sentinel session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct EventCompactedPayload {
+pub struct SessionEventCompactedPayload {
     /// The machine whose daemon ran the deletion.
-    pub node_id: NodeId,
+    pub machine_id: MachineId,
     /// The deletion's correlation id: opaque, with no fixed format.
     pub operation_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
     /// When the deletion ran; the envelope's own instant, repeated in the payload.
@@ -80,7 +80,7 @@ pub struct EventCompactedPayload {
     pub occurred_at: EventOccurredAt,
     /// Every session removed, with its deleted range.
     #[garde(dive)]
-    pub removed_sessions: BoundedVec<EventCompactedRemovedSession, 1, { usize::MAX }>,
+    pub removed_sessions: BoundedVec<SessionEventCompactedRemovedSession, 1, { usize::MAX }>,
 }
 
 /// Declares a body-bearing payload: the struct as written, followed by the two members the append
@@ -113,8 +113,8 @@ macro_rules! with_machine_content_descriptor {
 
 pub(crate) use with_machine_content_descriptor;
 
-/// Declares one arm of the assistant output payload with the members both arms repeat.
-macro_rules! assistant_output_arm {
+/// Declares one arm of the agent output payload with the members both arms repeat.
+macro_rules! agent_output_arm {
     ($(#[$meta:meta])* $name:ident { $($arm:tt)* }) => {
         $crate::event::declared_variants::with_machine_content_descriptor! {
             $(#[$meta])*
@@ -138,15 +138,15 @@ macro_rules! assistant_output_arm {
     };
 }
 
-assistant_output_arm! {
-    /// An assistant row of a run: every assistant row but a voice call's spoken answer. It takes
+agent_output_arm! {
+    /// An agent row of a run: every agent row but a voice call's spoken answer. It takes
     /// the epoch stamp.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
     #[schemars(inline)]
     #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-    RunAssistantOutputPayload {
+    RunAgentOutputPayload {
         /// The run the row belongs to.
         pub run_id: RunId,
         /// Never present: only a voice call's answer carries an origin.
@@ -179,14 +179,14 @@ assistant_output_arm! {
     }
 }
 
-assistant_output_arm! {
+agent_output_arm! {
     /// A voice call's spoken answer, which comes outside any run, so it names no run and takes no
     /// epoch stamp.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
     #[schemars(inline)]
-    VoiceAssistantOutputPayload {
+    VoiceAgentOutputPayload {
         /// Always `voice`.
         pub origin: MessageOrigin,
         /// Never present: a voice call's answer comes outside any run.
@@ -216,20 +216,21 @@ assistant_output_arm! {
     }
 }
 
-/// The payload of `assistant.message` and `assistant.thinking_update`: a run's row, or a voice
+/// The payload of `agent.message.sent` and `agent.thinking.updated`: a run's row, or a voice
 /// call's spoken answer, which alone names no run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
-pub enum AssistantOutputPayload {
+pub enum AgentOutputPayload {
     /// A run's row.
-    Run(#[garde(dive)] RunAssistantOutputPayload),
+    Run(#[garde(dive)] RunAgentOutputPayload),
     /// A voice call's spoken answer.
-    Voice(#[garde(dive)] VoiceAssistantOutputPayload),
+    Voice(#[garde(dive)] VoiceAgentOutputPayload),
 }
 
 with_machine_content_descriptor! {
-    /// The payload of `tool.invoked`, `tool.result` and `tool.error`; the call's arguments, result
-    /// or error body is kept apart from it. It takes the epoch stamp.
+    /// The payload of `agent.toolCall.invoked`, `agent.toolCall.completed` and
+    /// `agent.toolCall.failed`; the call's arguments, result or error body is kept apart from it.
+    /// It takes the epoch stamp.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -284,13 +285,13 @@ with_machine_content_descriptor! {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "event/declared-variants",
     doc: "The payloads of the session events this module declares itself: event compaction and \
-          assistant and tool activity.",
+          agent and tool activity.",
     definitions: &[
-        Definition::read::<EventCompactedRemovedSession>(),
-        Definition::read::<EventCompactedPayload>().checked(),
-        Definition::read::<RunAssistantOutputPayload>(),
-        Definition::read::<VoiceAssistantOutputPayload>(),
-        Definition::read::<AssistantOutputPayload>().checked(),
+        Definition::read::<SessionEventCompactedRemovedSession>(),
+        Definition::read::<SessionEventCompactedPayload>().checked(),
+        Definition::read::<RunAgentOutputPayload>(),
+        Definition::read::<VoiceAgentOutputPayload>(),
+        Definition::read::<AgentOutputPayload>().checked(),
         Definition::read::<ToolActivityPayload>().checked(),
     ],
     constants: TS_CONSTANTS,

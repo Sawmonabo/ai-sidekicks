@@ -31,20 +31,21 @@ ts_constants! {
 // Settings kept beside a version: enabled, layout, tags, permission level, background browser,
 // pinned data.
 
-/// The `workflow.enabledSet` input: arm or disarm every trigger of one workflow. A trigger that
-/// cannot be armed refuses the switch with `workflow.trigger_unarmable`, and nothing turns on.
+/// The `workflow.enabled.update` input: arm or disarm every trigger of one workflow. A trigger that
+/// cannot be armed refuses the switch with `workflow.trigger.unarmable`, and nothing turns on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowEnabledSetRequest {
+pub struct WorkflowEnabledUpdateRequest {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// Whether its triggers are armed.
     pub enabled: bool,
 }
 
-/// The `workflow.enabledSet` result: the switch's state and how many triggers are armed now, none
-/// on a disarm; on an arm it is every trigger the workflow declares, since a partial arm refuses.
+/// The `workflow.enabled.update` result: the switch's state and how many triggers are armed now,
+/// none on a disarm; on an arm it is every trigger the workflow declares, since a partial arm
+/// refuses.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -59,7 +60,7 @@ pub struct WorkflowEnabledSetRequest {
     "if" = { "properties": { "enabled": { "const": false } } },
     "then" = { "properties": { "armedTriggerCount": { "const": 0 } } },
 ))]
-pub struct WorkflowEnabledSetResponse {
+pub struct WorkflowEnabledUpdateResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// Whether its triggers are armed.
@@ -68,20 +69,20 @@ pub struct WorkflowEnabledSetResponse {
     pub armed_trigger_count: SafeInt<0>,
 }
 
-/// The `workflow.layoutSet` input: the whole canvas layout, saved on the definition without a new
-/// version. Saved versions keep the layout they were written with.
+/// The `workflow.layout.update` input: the whole canvas layout, saved on the definition without a
+/// new version. Saved versions keep the layout they were written with.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowLayoutSetRequest {
+pub struct WorkflowLayoutUpdateRequest {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// The layout.
     pub layout: WorkflowLayout,
 }
 
-/// When a setting kept beside the definition was stored; `workflow.layoutSet` and
-/// `workflow.tagsSet` answer with it.
+/// When a setting kept beside the definition was stored; `workflow.layout.update` and
+/// `workflow.tags.update` answer with it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -93,13 +94,13 @@ pub struct WorkflowDefinitionSettingResponse {
     pub updated_at: WireInstant,
 }
 
-/// The `workflow.tagsSet` input: the workflow's whole tag set, which replaces the one held, so a
-/// remove and an add are one write. Tags sit outside the hashed body, so a change mints no version;
-/// a tag that breaks the tag rule, or a repeat ignoring case, fails the parse.
+/// The `workflow.tags.update` input: the workflow's whole tag set, which replaces the one held, so
+/// a remove and an add are one write. Tags sit outside the hashed body, so a change mints no
+/// version; a tag that breaks the tag rule, or a repeat ignoring case, fails the parse.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowTagsSetRequest {
+pub struct WorkflowTagsUpdateRequest {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// The whole tag set.
@@ -107,9 +108,9 @@ pub struct WorkflowTagsSetRequest {
     pub tags: TagList,
 }
 
-/// The `workflow.permissionLevelUpdate` input: the level every run of the workflow uses, a live run
-/// from its next step. A new workflow starts at `yolo`; the level sits outside the hashed body, so
-/// a change mints no version.
+/// The `workflow.permissionLevel.update` input: the level every run of the workflow uses, a live
+/// run from its next step. A new workflow starts at `yolo`; the level sits outside the hashed body,
+/// so a change mints no version.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -133,7 +134,7 @@ pub struct WorkflowPermissionLevelUpdateResponse {
 
 /// The browser a workflow's runs use in the background, picked on the builder's browser pill: the
 /// machine setting's choice, or sandboxed or not whatever that setting says. A new workflow reads
-/// `settings_default`.
+/// `settingsDefault`.
 #[derive(
     Clone,
     Copy,
@@ -148,8 +149,8 @@ pub struct WorkflowPermissionLevelUpdateResponse {
     IntoStaticStr,
     VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum WorkflowBackgroundBrowser {
     /// Whatever the machine's setting picks.
     #[default]
@@ -160,9 +161,9 @@ pub enum WorkflowBackgroundBrowser {
     NotSandboxed,
 }
 
-/// The `workflow.backgroundBrowserUpdate` input: the background-browser pick every later run of the
-/// workflow uses, a live run keeping the browser it started with. The pick sits outside the hashed
-/// body, so a change mints no version.
+/// The `workflow.backgroundBrowser.update` input: the background-browser pick every later run of
+/// the workflow uses, a live run keeping the browser it started with. The pick sits outside the
+/// hashed body, so a change mints no version.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -184,12 +185,12 @@ pub struct WorkflowBackgroundBrowserUpdateResponse {
     pub pick: WorkflowBackgroundBrowser,
 }
 
-/// The `workflow.pinDataSet` input: pin items onto one node as test data, or unpin with `null`,
+/// The `workflow.pinData.update` input: pin items onto one node as test data, or unpin with `null`,
 /// without a new version. Pinned data is honored only in manual runs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowPinDataSetRequest {
+pub struct WorkflowPinDataUpdateRequest {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// The node.
@@ -201,11 +202,11 @@ pub struct WorkflowPinDataSetRequest {
     pub items: Option<Vec<WorkflowPinnedItem>>,
 }
 
-/// The `workflow.pinDataSet` result: whether the node is pinned now.
+/// The `workflow.pinData.update` result: whether the node is pinned now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowPinDataSetResponse {
+pub struct WorkflowPinDataUpdateResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// The node.
@@ -278,9 +279,9 @@ macro_rules! workflow_draft_arms {
 }
 
 workflow_draft_arms! {
-    /// A saved workflow's draft as `workflow.draftUpdate` sends it.
+    /// A saved workflow's draft as `workflow.draft.update` sends it.
     pub struct SavedWorkflowDraftUpdateRequest;
-    /// The new workflow's draft as `workflow.draftUpdate` sends it.
+    /// The new workflow's draft as `workflow.draft.update` sends it.
     pub struct NewWorkflowDraftUpdateRequest;
     {}
 }
@@ -297,7 +298,7 @@ workflow_draft_arms! {
     }
 }
 
-/// The `workflow.draftUpdate` input: the builder's whole unsaved document, which replaces the one
+/// The `workflow.draft.update` input: the builder's whole unsaved document, which replaces the one
 /// held. The daemon holds one draft per saved workflow, named by `definitionId` with the version it
 /// was opened from, and one for a new workflow, which omits both; saving the version clears it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -319,7 +320,7 @@ pub struct WorkflowDraftUpdateResponse {
     pub updated_at: WireInstant,
 }
 
-/// The `workflow.draftRead` input: the draft of the workflow the builder's address names, or, with
+/// The `workflow.draft.read` input: the draft of the workflow the builder's address names, or, with
 /// no `definitionId`, the new workflow's draft. A reload reads it back this way.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -345,7 +346,7 @@ pub enum WorkflowDraft {
     New(#[garde(dive)] NewWorkflowDraft),
 }
 
-/// The `workflow.draftRead` result. A draft that is no longer held is an answer, `null`, not an
+/// The `workflow.draft.read` result. A draft that is no longer held is an answer, `null`, not an
 /// error.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -358,9 +359,9 @@ pub struct WorkflowDraftReadResponse {
     pub draft: Option<WorkflowDraft>,
 }
 
-// workflow.expressionPreview
+// workflow.expression.preview
 
-/// The `workflow.expressionPreview` input: one expression of one node, evaluated in the daemon
+/// The `workflow.expression.preview` input: one expression of one node, evaluated in the daemon
 /// against an item of the last run, the node read from the held draft, else the latest saved
 /// version, or with no `definitionId` the new workflow's draft. It never resolves a secret: a
 /// sensitive field previews the secret's name.
@@ -427,7 +428,7 @@ pub struct WorkflowExpressionUnresolved {
     pub reason: NonEmptyText,
 }
 
-/// The `workflow.expressionPreview` result: the value, or why the expression does not resolve
+/// The `workflow.expression.preview` result: the value, or why the expression does not resolve
 /// against that item.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
@@ -441,8 +442,8 @@ pub enum WorkflowExpressionPreviewResponse {
 
 // The webhook token and the listener
 
-/// The `workflow.webhookTokenRotate` input: create the workflow's webhook token, or replace it. The
-/// old token is refused from that moment.
+/// The `workflow.webhookToken.rotate` input: create the workflow's webhook token, or replace it.
+/// The old token is refused from that moment.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -484,7 +485,7 @@ impl JsonSchema for WorkflowWebhookToken {
     }
 }
 
-/// The `workflow.webhookTokenRotate` result: the new token, shown once. Only its hash is kept, so
+/// The `workflow.webhookToken.rotate` result: the new token, shown once. Only its hash is kept, so
 /// no later read returns it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -501,7 +502,7 @@ pub struct WorkflowWebhookTokenRotateResponse {
 
 /// Whether the webhook listener listens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowWebhookListenerState {
     /// It listens on its port.
     Listening,
@@ -510,7 +511,7 @@ pub enum WorkflowWebhookListenerState {
     PortTaken,
 }
 
-/// The `workflow.webhookListenerRead` result: the one loopback port the listener binds, and
+/// The `workflow.webhookListener.read` result: the one loopback port the listener binds, and
 /// whether it listens.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -530,18 +531,18 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           pinned test data, the builder's unsaved draft, the expression preview, and the webhook \
           token and listener.",
     definitions: &[
-        Definition::read::<WorkflowEnabledSetRequest>().checked(),
-        Definition::read::<WorkflowEnabledSetResponse>().checked(),
-        Definition::read::<WorkflowLayoutSetRequest>().checked(),
+        Definition::read::<WorkflowEnabledUpdateRequest>().checked(),
+        Definition::read::<WorkflowEnabledUpdateResponse>().checked(),
+        Definition::read::<WorkflowLayoutUpdateRequest>().checked(),
         Definition::read::<WorkflowDefinitionSettingResponse>().checked(),
-        Definition::read::<WorkflowTagsSetRequest>().checked(),
+        Definition::read::<WorkflowTagsUpdateRequest>().checked(),
         Definition::read::<WorkflowPermissionLevelUpdateRequest>().checked(),
         Definition::read::<WorkflowPermissionLevelUpdateResponse>().checked(),
         Definition::read::<WorkflowBackgroundBrowser>(),
         Definition::read::<WorkflowBackgroundBrowserUpdateRequest>().checked(),
         Definition::read::<WorkflowBackgroundBrowserUpdateResponse>().checked(),
-        Definition::read::<WorkflowPinDataSetRequest>().checked(),
-        Definition::read::<WorkflowPinDataSetResponse>().checked(),
+        Definition::read::<WorkflowPinDataUpdateRequest>().checked(),
+        Definition::read::<WorkflowPinDataUpdateResponse>().checked(),
         Definition::read::<SavedWorkflowDraftUpdateRequest>(),
         Definition::read::<NewWorkflowDraftUpdateRequest>(),
         Definition::read::<WorkflowDraftUpdateRequest>().checked(),

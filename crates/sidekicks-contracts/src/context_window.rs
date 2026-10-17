@@ -1,4 +1,4 @@
-//! Where the window size on a `usage.context_window_update` row came from.
+//! Where the window size on a `usage.contextWindow.updated` row came from.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ContextWindowSource {
     /// The provider reported the figures.
     ProviderReported,
@@ -27,7 +27,7 @@ ts_constants! {
 /// The TypeScript module of the context window's source.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "context-window",
-    doc: "Where the window size on a `usage.context_window_update` row came from.",
+    doc: "Where the window size on a `usage.contextWindow.updated` row came from.",
     definitions: &[Definition::read::<ContextWindowSource>()],
     constants: TS_CONSTANTS,
     method_tables: &[],

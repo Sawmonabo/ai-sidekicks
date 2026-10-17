@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::gitflow::shared::GitRefName;
+use crate::git::shared::GitRefName;
 use crate::repo::mount::{RepoMountId, lifecycle_payload};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -41,11 +41,11 @@ lifecycle_payload! {
     }
 }
 
-/// `session.swept_to_repo_root`'s payload, appended to each session a removal moved back to the
+/// `session.sweptToCheckout`'s payload, appended to each session a removal moved back to the
 /// repository root. It records a move, not a state change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SessionSweptToRepoRootPayload {
+pub struct SessionSweptToCheckoutPayload {
     /// The session moved.
     pub session_id: SessionId,
     /// The mount.
@@ -62,7 +62,7 @@ pub struct SessionSweptToRepoRootPayload {
     pub pending_move_cleared: Option<True>,
 }
 
-/// `session.branch_changed`'s payload: the branch a session's folder is on changed outside the app,
+/// `session.branch.changed`'s payload: the branch a session's folder is on changed outside the app,
 /// and the daemon wrote it back to the session's record; one is appended to each session standing
 /// in that folder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -94,7 +94,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<WorktreeCreatedPayload>().checked(),
         Definition::read::<WorktreeRetiredPayload>().checked(),
-        Definition::read::<SessionSweptToRepoRootPayload>().checked(),
+        Definition::read::<SessionSweptToCheckoutPayload>().checked(),
         Definition::read::<SessionBranchChangedPayload>().checked(),
     ],
     constants: &[],

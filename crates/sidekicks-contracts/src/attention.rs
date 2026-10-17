@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::keychain::KeychainRefusalCause;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -43,7 +43,7 @@ pub type AttentionId = FreeFormText<ATTENTION_ID_MAX_LEN>;
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum AttentionTrigger {
     /// A pending approval.
     PendingApproval,
@@ -59,7 +59,7 @@ pub enum AttentionTrigger {
 
 /// The triggers of a run's or session's own moment: every trigger but a Notify step's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum AttentionMomentTrigger {
     /// A pending approval.
     PendingApproval,
@@ -76,7 +76,7 @@ pub enum AttentionMomentTrigger {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum AttentionSeverity {
     /// Blocks on the person.
     Actionable,
@@ -90,7 +90,7 @@ pub enum AttentionSeverity {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum AttentionBannerState {
     /// Not yet settled by main.
     Pending,
@@ -104,7 +104,7 @@ pub enum AttentionBannerState {
 
 /// A banner state main settles a `pending` entry to; settling back to `pending` is refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum AttentionBannerSettledState {
     /// Posted.
     Posted,
@@ -118,7 +118,7 @@ pub enum AttentionBannerSettledState {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum AttentionWebAddressState {
     /// Not yet sent, or being retried.
     Pending,
@@ -130,7 +130,7 @@ pub enum AttentionWebAddressState {
 
 literal! {
     /// The trigger of a workflow's Notify step.
-    pub enum WorkflowNotifyTrigger = "workflow_notify";
+    pub enum WorkflowNotifyTrigger = "workflowNotify";
     /// The severity of a Notify step's entry, which never counts as waiting on the person.
     pub enum InformationalSeverity = "informational";
 }
@@ -248,7 +248,7 @@ attention_item! {
     AttentionNotifyItem {
         /// The run.
         pub run_id: AttentionId,
-        /// Always `workflow_notify`.
+        /// Always `workflowNotify`.
         pub trigger: WorkflowNotifyTrigger,
         /// Always `informational`.
         pub severity: InformationalSeverity,
@@ -267,7 +267,7 @@ pub enum AttentionItem {
     Notify(#[garde(dive)] AttentionNotifyItem),
 }
 
-/// The whole projection, as every emission of `attention.projectionRead` carries it.
+/// The whole projection, as every emission of `attention.subscribe` carries it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AttentionProjection {
@@ -276,7 +276,62 @@ pub struct AttentionProjection {
     pub items: Vec<AttentionItem>,
 }
 
-/// `attention.bannerSettle`: main's record of what became of a `pending` entry's banner. Only main
+/// How far an `attention.subscribe` that names a session narrows the projection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum AttentionSubscribeScope {
+    /// One run's entries, the run named by `runId`.
+    Run,
+    /// The session's aggregate alone.
+    Session,
+}
+
+/// `attention.subscribe`: with no session named, the whole projection across every session and
+/// workflow run; naming a session narrows it to that session's entries, or by `scope`. `runId`
+/// is present exactly when `scope` is `run`, so a run read never widens to every run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+#[schemars(extend(
+    "if" = { "properties": { "scope": { "const": "run" } }, "required": ["scope"] },
+    "then" = { "properties": { "runId": true }, "required": ["runId"] },
+    "else" = { "not": { "required": ["runId"] } },
+))]
+pub struct AttentionSubscribeRequest {
+    /// The session to narrow to.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SessionId")]
+    pub session_id: Option<SessionId>,
+    /// How far to narrow; absent reads the run entries and the aggregate together.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "AttentionSubscribeScope")]
+    pub scope: Option<AttentionSubscribeScope>,
+    /// The run, present exactly when `scope` is `run`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "AttentionId")]
+    #[garde(custom(|run_id: &Option<AttentionId>, (): &()| {
+        if run_id.is_some() == (self.scope == Some(AttentionSubscribeScope::Run)) {
+            Ok(())
+        } else {
+            Err(garde::Error::new("a run id goes exactly with the run scope"))
+        }
+    }))]
+    pub run_id: Option<AttentionId>,
+}
+
+/// `attention.banner.settle`: main's record of what became of a `pending` entry's banner. Only main
 /// sends it, and the daemon ignores it once the entry has left `pending`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -288,8 +343,9 @@ pub struct AttentionBannerSettleRequest {
     pub state: AttentionBannerSettledState,
 }
 
-/// `attention.seenUpdate`: marks a session seen, so its finished and failed entries stop reading as
-/// unseen, in the notifications list and on the session's row alike. Opening the session sends it.
+/// `attention.seen.update`: marks a session seen, so its finished and failed entries stop reading
+/// as unseen, in the notifications list and on the session's row alike. Opening the session sends
+/// it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -399,7 +455,7 @@ pub struct AttentionEmailDigestDelivery {
 /// What each channel last did.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AttentionDeliveryReadResponse {
+pub struct AttentionDeliveryListResponse {
     /// The web address.
     #[garde(dive)]
     pub web_address: AttentionWebAddressDelivery,
@@ -408,7 +464,7 @@ pub struct AttentionDeliveryReadResponse {
     pub email_digest: AttentionEmailDigestDelivery,
 }
 
-/// `attention.deliveryTest`: sends one test message on a channel.
+/// `attention.delivery.test`: sends one test message on a channel.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
 )]
@@ -431,23 +487,23 @@ pub struct AttentionDeliveryTestResponse {
 /// A delivery secret: the mail password or the web address.
 pub type AttentionDeliverySecret = FreeFormText<ATTENTION_DELIVERY_SECRET_MAX_LEN>;
 
-/// `attention.mailPasswordSave`: saves the mail account's password. Write-only: it is sealed and
+/// `attention.mailPassword.update`: saves the mail account's password. Write-only: it is sealed and
 /// never sent back.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AttentionMailPasswordSaveRequest {
+pub struct AttentionMailPasswordUpdateRequest {
     /// The password.
     pub password: AttentionDeliverySecret,
 }
 
-/// `attention.webAddressSave`: saves the web address, a secret because chat services put their
+/// `attention.webAddress.update`: saves the web address, a secret because chat services put their
 /// token in it. Whatever is typed is saved as typed; a text that is not an address is kept, and
 /// each message to it fails and is counted as undelivered.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AttentionWebAddressSaveRequest {
+pub struct AttentionWebAddressUpdateRequest {
     /// The address as typed.
     pub address: AttentionDeliverySecret,
 }
@@ -458,7 +514,7 @@ pub struct AttentionWebAddressSaveRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AttentionWebAddressSaveResponse {
+pub struct AttentionWebAddressUpdateResponse {
     /// The host, or `null`.
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<NonEmptyText>")]
@@ -478,7 +534,7 @@ pub struct AttentionWebAddressSecretRotateResponse {
     pub signing_secret: NonEmptyText,
 }
 
-/// The `attention.delivery_store_unavailable` refusal's details: why the keychain holding the
+/// The `attention.delivery.storeUnavailable` refusal's details: why the keychain holding the
 /// delivery secrets could not be used.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -489,7 +545,7 @@ pub struct AttentionDeliveryStoreUnavailableDetails {
 
 /// What a channel asked to test is missing: the web address, or the mail password.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum AttentionDeliveryMissing {
     /// The web address.
     Address,
@@ -497,7 +553,7 @@ pub enum AttentionDeliveryMissing {
     Password,
 }
 
-/// The `attention.delivery_not_configured` refusal's details.
+/// The `attention.delivery.notConfigured` refusal's details.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AttentionDeliveryNotConfiguredDetails {
@@ -509,71 +565,71 @@ methods! {
     /// The `attention.*` methods.
     pub const ATTENTION_METHOD_DESCRIPTORS = [
         /// The machine-wide projection, served live: whole first, then whole on every change.
-        AttentionProjectionRead = subscription "attention.projectionRead" {
+        AttentionSubscribe = subscription "attention.subscribe" {
             mutating: false,
-            params: EmptyPayload,
-            result: SubscribeAckResponse,
+            params: AttentionSubscribeRequest,
+            result: SubscribeAcknowledgmentResponse,
             emission: AttentionProjection,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Settles a pending entry's banner.
-        AttentionBannerSettle = mutation "attention.bannerSettle" {
+        AttentionBannerSettle = mutation "attention.banner.settle" {
             mutating: true,
             params: AttentionBannerSettleRequest,
             result: EmptyPayload,
             refusals: [],
         },
         /// Marks a session seen.
-        AttentionSeenUpdate = mutation "attention.seenUpdate" {
+        AttentionSeenUpdate = mutation "attention.seen.update" {
             mutating: true,
             params: AttentionSeenUpdateRequest,
             result: EmptyPayload,
             refusals: [SessionNotFound],
         },
         /// What each delivery channel last did.
-        AttentionDeliveryRead = query "attention.deliveryRead" {
+        AttentionDeliveryList = query "attention.delivery.list" {
             mutating: false,
             params: EmptyPayload,
-            result: AttentionDeliveryReadResponse,
+            result: AttentionDeliveryListResponse,
             refusals: [AttentionDeliveryStoreUnavailable],
         },
         /// Sends one test message on a channel.
-        AttentionDeliveryTest = mutation "attention.deliveryTest" {
+        AttentionDeliveryTest = mutation "attention.delivery.test" {
             mutating: true,
             params: AttentionDeliveryTestRequest,
             result: AttentionDeliveryTestResponse,
             refusals: [AttentionDeliveryNotConfigured, AttentionDeliveryStoreUnavailable],
         },
         /// Saves the mail password.
-        AttentionMailPasswordSave = mutation "attention.mailPasswordSave" {
+        AttentionMailPasswordUpdate = mutation "attention.mailPassword.update" {
             mutating: true,
-            params: AttentionMailPasswordSaveRequest,
+            params: AttentionMailPasswordUpdateRequest,
             result: EmptyPayload,
             refusals: [AttentionDeliveryStoreUnavailable],
         },
         /// Removes the mail password.
-        AttentionMailPasswordRemove = mutation "attention.mailPasswordRemove" {
+        AttentionMailPasswordDelete = mutation "attention.mailPassword.delete" {
             mutating: true,
             params: EmptyPayload,
             result: EmptyPayload,
             refusals: [AttentionDeliveryStoreUnavailable],
         },
         /// Saves the web address.
-        AttentionWebAddressSave = mutation "attention.webAddressSave" {
+        AttentionWebAddressUpdate = mutation "attention.webAddress.update" {
             mutating: true,
-            params: AttentionWebAddressSaveRequest,
-            result: AttentionWebAddressSaveResponse,
+            params: AttentionWebAddressUpdateRequest,
+            result: AttentionWebAddressUpdateResponse,
             refusals: [AttentionDeliveryStoreUnavailable],
         },
         /// Mints a new signing secret.
-        AttentionWebAddressSecretRotate = mutation "attention.webAddressSecretRotate" {
+        AttentionWebAddressSecretRotate = mutation "attention.webAddress.secret.rotate" {
             mutating: true,
             params: EmptyPayload,
             result: AttentionWebAddressSecretRotateResponse,
             refusals: [AttentionDeliveryStoreUnavailable],
         },
         /// Removes the web address.
-        AttentionWebAddressRemove = mutation "attention.webAddressRemove" {
+        AttentionWebAddressDelete = mutation "attention.webAddress.delete" {
             mutating: true,
             params: EmptyPayload,
             result: EmptyPayload,
@@ -596,6 +652,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AttentionWebAddressState>(),
         Definition::read::<AttentionItem>().checked(),
         Definition::read::<AttentionProjection>().checked(),
+        Definition::read::<AttentionSubscribeScope>(),
+        Definition::read::<AttentionSubscribeRequest>().checked(),
         Definition::read::<AttentionBannerSettleRequest>().checked(),
         Definition::read::<AttentionSeenUpdateRequest>(),
         Definition::read::<AttentionDeliveryChannel>(),
@@ -603,12 +661,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AttentionDeliveryOutcome>(),
         Definition::read::<AttentionWebAddressDelivery>(),
         Definition::read::<AttentionEmailDigestDelivery>(),
-        Definition::read::<AttentionDeliveryReadResponse>().checked(),
+        Definition::read::<AttentionDeliveryListResponse>().checked(),
         Definition::read::<AttentionDeliveryTestRequest>(),
         Definition::read::<AttentionDeliveryTestResponse>(),
-        Definition::read::<AttentionMailPasswordSaveRequest>(),
-        Definition::read::<AttentionWebAddressSaveRequest>(),
-        Definition::read::<AttentionWebAddressSaveResponse>(),
+        Definition::read::<AttentionMailPasswordUpdateRequest>(),
+        Definition::read::<AttentionWebAddressUpdateRequest>(),
+        Definition::read::<AttentionWebAddressUpdateResponse>(),
         Definition::read::<AttentionWebAddressSecretRotateResponse>(),
         Definition::read::<AttentionDeliveryStoreUnavailableDetails>().checked(),
         Definition::read::<AttentionDeliveryMissing>(),

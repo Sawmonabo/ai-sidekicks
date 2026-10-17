@@ -12,7 +12,7 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum KeychainRefusalCause {
     /// The keychain is locked.
     Locked,

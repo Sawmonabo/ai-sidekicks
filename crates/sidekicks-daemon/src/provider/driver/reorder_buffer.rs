@@ -305,6 +305,6 @@ mod tests {
         });
 
         assert_eq!(released, ["first", "second", "third"]);
-        assert_eq!(recorded.counters(), ["driver.reorder_buffer.overflow"]);
+        assert_eq!(recorded.counters(), ["driver.reorderBuffer.overflow"]);
     }
 }

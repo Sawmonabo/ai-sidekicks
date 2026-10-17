@@ -12,8 +12,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::refusal::RefusalCode;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
-use crate::machine_settings::ENVIRONMENT_ROW_MAX_LEN;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
+use crate::machine::settings::ENVIRONMENT_ROW_MAX_LEN;
 use crate::mcp::server::config::ProviderMcpDeclaration;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -48,7 +48,7 @@ ts_constants! {
     /// plugin.
     PROVIDER_NOT_INSTALLED_CODE = RefusalCode::ProviderNotInstalled;
     /// Nothing runnable sits at the command path the person typed.
-    PROVIDER_COMMAND_NOT_RUNNABLE_CODE = RefusalCode::ProviderCommandNotRunnable;
+    PROVIDER_COMMAND_PATH_NOT_RUNNABLE_CODE = RefusalCode::ProviderCommandPathNotRunnable;
 }
 
 /// The provider version as its command printed it.
@@ -293,8 +293,8 @@ pub struct ProviderSection {
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<SafeInt<1>>")]
     pub skill_name_max_length: Option<SafeInt<1>>,
-    /// The voice kinds it offers, each at most once: the composer starts `voice.dictationStart` for
-    /// dictation and `voice.callStart` for a call; empty where it offers none.
+    /// The voice kinds it offers, each at most once: the composer starts `voice.dictation.start`
+    /// for dictation and `voice.call.start` for a call; empty where it offers none.
     #[garde(dive)]
     pub voice_kinds: UniqueList<VoiceKind, 0, { usize::MAX }>,
     /// The output-speed levels every one of its models offers, present only where the provider
@@ -367,8 +367,9 @@ pub struct ProviderPlaceRequest {
     pub provider: ProviderId,
     /// The place: absent on a computer without a WSL 2 distribution and present on one with. On
     /// Windows, `"windows"` names Windows and a distribution is refused by its name, whether or not
-    /// a WSL 2 distribution remains; a place on macOS or Linux, or none where a WSL 2 distribution
-    /// is, is `invalid_params`.
+    /// a WSL 2 distribution remains; a place on macOS or Linux is refused with
+    /// `provider.place.notOffered`, and none where a WSL 2 distribution is with
+    /// `provider.place.required`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -411,8 +412,9 @@ pub enum ProviderUpdateRequest {
         provider: ProviderId,
         /// The place: absent on a computer without a WSL 2 distribution and present on one with.
         /// On Windows, `"windows"` names Windows and a distribution is refused by its name,
-        /// whether or not a WSL 2 distribution remains; a place on macOS or Linux, or none where a
-        /// WSL 2 distribution is, is `invalid_params`.
+        /// whether or not a WSL 2 distribution remains; a place on macOS or Linux is refused with
+        /// `provider.place.notOffered`, and none where a WSL 2 distribution is with
+        /// `provider.place.required`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -457,7 +459,8 @@ pub enum ProviderUpdateRequest {
         /// The place of a per-place switch row: absent on a computer without a WSL 2 distribution
         /// and present on one with. On Windows, `"windows"` names Windows and a distribution is
         /// refused by its name, whether or not a WSL 2 distribution remains; a place on macOS or
-        /// Linux, or none where a WSL 2 distribution is, is `invalid_params`.
+        /// Linux is refused with `provider.place.notOffered`, and none where a WSL 2 distribution
+        /// is with `provider.place.required`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -511,7 +514,7 @@ pub enum ProviderUpdateRequest {
 /// Put the app's terminal plugin into the person's own provider install in one place, or take it
 /// out, through the provider's own commands; off removes exactly what on added and nothing the
 /// person added. A provider whose driver offers no terminal plugin is refused with
-/// `driver.capability_unsupported`.
+/// `provider.capability.unsupported`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -520,8 +523,9 @@ pub struct ProviderTerminalPluginUpdateRequest {
     pub provider: ProviderId,
     /// The place: absent on a computer without a WSL 2 distribution and present on one with. On
     /// Windows, `"windows"` names Windows and a distribution is refused by its name, whether or not
-    /// a WSL 2 distribution remains; a place on macOS or Linux, or none where a WSL 2 distribution
-    /// is, is `invalid_params`.
+    /// a WSL 2 distribution remains; a place on macOS or Linux is refused with
+    /// `provider.place.notOffered`, and none where a WSL 2 distribution is with
+    /// `provider.place.required`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -700,7 +704,7 @@ methods! {
         ProviderSubscribe = subscription "provider.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: ProviderSettingsResponse,
             refusals: [],
         },
@@ -710,9 +714,12 @@ methods! {
             params: ProviderUpdateRequest,
             result: ProviderSettingsResponse,
             refusals: [
-                DriverUnavailable,
+                ProviderNotFound,
+                ProviderPlaceRequired,
+                ProviderPlaceNotOffered,
+                ProviderUnavailable,
                 ProviderNotInstalled,
-                ProviderCommandNotRunnable,
+                ProviderCommandPathNotRunnable,
                 ProviderDistributionNotFound,
                 ProviderDistributionNeedsWsl2,
                 ProviderRowNotFound,
@@ -726,40 +733,49 @@ methods! {
             mutating: true,
             params: ProviderPlaceRequest,
             result: ProviderSettingsResponse,
-            refusals: [ProviderDistributionNotFound, ProviderDistributionNeedsWsl2],
+            refusals: [
+                ProviderNotFound,
+                ProviderPlaceRequired,
+                ProviderPlaceNotOffered,
+                ProviderDistributionNotFound,
+                ProviderDistributionNeedsWsl2,
+            ],
         },
         /// Puts the terminal plugin in or takes it out.
-        ProviderTerminalPluginUpdate = mutation "provider.terminalPluginUpdate" {
+        ProviderTerminalPluginUpdate = mutation "provider.terminalPlugin.update" {
             mutating: true,
             params: ProviderTerminalPluginUpdateRequest,
             result: ProviderSettingsResponse,
             refusals: [
+                ProviderNotFound,
+                ProviderPlaceRequired,
+                ProviderPlaceNotOffered,
                 ProviderNotInstalled,
                 ProviderDistributionNotFound,
                 ProviderDistributionNeedsWsl2,
-                DriverCapabilityUnsupported,
+                ProviderCapabilityUnsupported,
             ],
         },
         /// Lists the paths a provider refuses.
-        ProviderProtectedPathList = query "provider.protectedPathList" {
+        ProviderProtectedPathList = query "provider.protectedPath.list" {
             mutating: false,
             params: ProviderRequest,
             result: ProviderProtectedPathListResponse,
-            refusals: [],
+            refusals: [ProviderNotFound],
         },
         /// Lists a provider's standing rules.
-        ProviderStandingRuleList = query "provider.standingRuleList" {
+        ProviderStandingRuleList = query "provider.standingRule.list" {
             mutating: false,
             params: ProviderRequest,
             result: ProviderStandingRuleListResponse,
-            refusals: [],
+            refusals: [ProviderNotFound],
         },
         /// Revokes one standing rule.
-        ProviderStandingRuleRevoke = mutation "provider.standingRuleRevoke" {
+        ProviderStandingRuleRevoke = mutation "provider.standingRule.revoke" {
             mutating: true,
             params: ProviderStandingRuleRevokeRequest,
             result: ProviderStandingRuleRevokeResponse,
-            refusals: [],
+            refusals: [ProviderNotFound],
         },
     ];
 }

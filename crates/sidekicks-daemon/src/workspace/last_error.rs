@@ -1,4 +1,4 @@
-//! Turns a failure into the bounded, credential-free `lastError` a stale workspace carries.
+//! Turns a failure into the bounded, credential-free `lastError` a `rootLost` workspace carries.
 
 use std::sync::LazyLock;
 

@@ -35,14 +35,14 @@ ts_constants! {
     /// chain's question answered once it is no longer open.
     WORKFLOW_STEP_NOT_WAITING_CODE = RefusalCode::WorkflowStepNotWaiting;
     /// A form draft save or a form submit carrying a revision that is no longer current.
-    WORKFLOW_REVISION_STALE_CODE = RefusalCode::WorkflowRevisionStale;
+    WORKFLOW_HUMAN_FORM_REVISION_STALE_CODE = RefusalCode::WorkflowHumanFormRevisionStale;
 }
 
 /// One tab of a step's panel: its input, output or log, its cost or its error.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowStepTab {
     /// The items the step ran on.
     Input,
@@ -58,7 +58,7 @@ pub enum WorkflowStepTab {
 
 /// Which of a step's three payloads a read returns: the tabs that hold items.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowStepPayloadKind {
     /// The items the step ran on.
     Input,
@@ -78,7 +78,7 @@ impl From<WorkflowStepPayloadKind> for WorkflowStepTab {
     }
 }
 
-/// The longest `workflow.stepRead` cursor accepted; a guard against pathological lengths.
+/// The longest `workflow.step.read` cursor accepted; a guard against pathological lengths.
 const WORKFLOW_STEP_READ_CURSOR_MAX_LEN: usize = 256;
 
 branded_text! {
@@ -88,7 +88,7 @@ branded_text! {
 }
 
 workflow_step_key! {
-    /// The `workflow.stepRead` input: one step's input, output or log, paged. Every secret value
+    /// The `workflow.step.read` input: one step's input, output or log, paged. Every secret value
     /// was redacted before the payload was written, so a read never returns one.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -115,7 +115,7 @@ workflow_step_key! {
     }
 }
 
-/// The `workflow.stepRead` result: the payload inline or as an artifact reference, with a cursor
+/// The `workflow.step.read` result: the payload inline or as an artifact reference, with a cursor
 /// while more remains.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -141,8 +141,8 @@ pub struct WorkflowStepReadResponse {
 }
 
 workflow_step_key! {
-    /// The `workflow.stepTabArtifactCreate` input: the step-panel tab whose content is stored as an
-    /// artifact of the run's session, for the tab's `Open as artifact`.
+    /// The `workflow.step.tabArtifact.create` input: the step-panel tab whose content is stored as
+    /// an artifact of the run's session, for the tab's `Open as artifact`.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -152,7 +152,7 @@ workflow_step_key! {
     }
 }
 
-/// The `workflow.stepTabArtifactCreate` result: the stored artifact's id.
+/// The `workflow.step.tabArtifact.create` result: the stored artifact's id.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -161,7 +161,7 @@ pub struct WorkflowStepTabArtifactCreateResponse {
     pub artifact_id: ArtifactId,
 }
 
-/// The `workflow.stepOutputList` input: the run whose agent and human steps' outputs are listed.
+/// The `workflow.step.output.list` input: the run whose agent and human steps' outputs are listed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -171,12 +171,12 @@ pub struct WorkflowStepOutputListRequest {
 }
 
 /// One saved output of a finished step: its summary and, for an artifact, the artifact's id. An
-/// `artifact_ref` output points at a stored artifact and never carries its bytes; an `inline`
+/// `artifactRef` output points at a stored artifact and never carries its bytes; an `inline`
 /// output carries no artifact.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "valueKind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -204,7 +204,7 @@ pub enum WorkflowStepOutput {
 
 /// The status of a step whose outputs are listed: it finished, succeeded or failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowStepOutputStatus {
     /// Done.
     Succeeded,
@@ -238,8 +238,8 @@ pub struct WorkflowStepOutputs {
     pub outputs: Vec<WorkflowStepOutput>,
 }
 
-/// The `workflow.stepOutputList` result: summaries and artifact references only. One step's full
-/// input, output or log comes from `workflow.stepRead`.
+/// The `workflow.step.output.list` result: summaries and artifact references only. One step's full
+/// input, output or log comes from `workflow.step.read`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -249,7 +249,7 @@ pub struct WorkflowStepOutputListResponse {
     pub steps: Vec<WorkflowStepOutputs>,
 }
 
-/// The `workflow.gateResolve` input: the person's answer to an approval step, named by `nodeId`,
+/// The `workflow.gate.resolve` input: the person's answer to an approval step, named by `nodeId`,
 /// or to the question a chain raises on its first run, which names no node: `approved` keeps the
 /// chain going and `rejected` stops every run of it. The answer goes through the approvals pipeline
 /// and its policy check.
@@ -279,12 +279,12 @@ pub struct WorkflowGateResolveRequest {
     pub feedback: Option<NonEmptyText>,
 }
 
-/// The `workflow.gateResolve` result: the answer's entry in the run's approval record.
+/// The `workflow.gate.resolve` result: the answer's entry in the run's approval record.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct WorkflowGateResolveResponse {
-    /// The answer's record, which the `workflow.gate_resolved` event names.
+    /// The answer's record, which the `workflow.gate.resolved` event names.
     pub gate_resolution_id: WorkflowGateResolutionId,
     /// When the answer was recorded, which the step panel's receipt reads.
     #[garde(dive)]
@@ -306,9 +306,9 @@ pub struct WorkflowHumanFormDraft {
     pub saved_at: WireInstant,
 }
 
-/// The `workflow.humanFormRead` result: the node's prompt, its fields (the same parameter specs the
-/// inspector's form draws), the draft saved so far, and `formRevision`, the token a submit carries
-/// back: 0 while the step has no accepted answer.
+/// The `workflow.humanForm.read` result: the node's prompt, its fields (the same parameter specs
+/// the inspector's form draws), the draft saved so far, and `formRevision`, the token a submit
+/// carries back: 0 while the step has no accepted answer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -331,12 +331,12 @@ pub struct WorkflowHumanFormReadResponse {
 }
 
 workflow_step_key! {
-    /// The `workflow.humanFormDraftSave` input: the form as it is typed. With `expectedRevision`, a
-    /// save over a newer draft is refused rather than overwriting it.
+    /// The `workflow.humanForm.draft.update` input: the form as it is typed. With
+    /// `expectedRevision`, a save over a newer draft is refused rather than overwriting it.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
-    pub struct WorkflowHumanFormDraftSaveRequest {
+    pub struct WorkflowHumanFormDraftUpdateRequest {
         /// The form's values as typed.
         pub form_state: JsonRecord,
         /// The draft revision the save was typed over.
@@ -350,11 +350,11 @@ workflow_step_key! {
     }
 }
 
-/// The `workflow.humanFormDraftSave` result: the draft's new revision and when it was saved.
+/// The `workflow.humanForm.draft.update` result: the draft's new revision and when it was saved.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowHumanFormDraftSaveResponse {
+pub struct WorkflowHumanFormDraftUpdateResponse {
     /// The draft's new revision.
     pub revision: SafeInt<1>,
     /// When it was saved.
@@ -391,7 +391,7 @@ impl ListKey for WorkflowHumanFormPathAnswer {
 }
 
 workflow_step_key! {
-    /// The `workflow.humanFormSubmit` input: every answer is in `fields` but a `path` field's, in
+    /// The `workflow.humanForm.submit` input: every answer is in `fields` but a `path` field's, in
     /// `paths` at most once per field, and a form has no artifact field. `expectedRevision` is the
     /// form's revision when read; a stale one is refused and never overwrites an accepted answer.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -414,7 +414,7 @@ workflow_step_key! {
     }
 }
 
-/// The `workflow.humanFormSubmit` result: when the answer was accepted.
+/// The `workflow.humanForm.submit` result: when the answer was accepted.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -424,9 +424,9 @@ pub struct WorkflowHumanFormSubmitResponse {
     pub submitted_at: WireInstant,
 }
 
-/// The `workflow.fixSessionCreate` result: the fix session, opened on the failed step's own project
-/// and checkout and seeded with the step; the step's own record receives nothing, and the run links
-/// the new session.
+/// The `workflow.fixSession.create` result: the fix session, opened on the failed step's own
+/// project and checkout and seeded with the step; the step's own record receives nothing, and the
+/// run links the new session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -439,60 +439,65 @@ methods! {
     /// The `workflow.*` methods on one step.
     pub const WORKFLOW_STEP_METHOD_DESCRIPTORS = [
         /// Reads one step's input, output or log, paged.
-        WorkflowStepRead = query "workflow.stepRead" {
+        WorkflowStepRead = query "workflow.step.read" {
             mutating: false,
             params: WorkflowStepReadRequest,
             result: WorkflowStepReadResponse,
-            refusals: [WorkflowNotFound, WorkflowCursorUnresolvable],
+            refusals: [WorkflowRunNotFound, WorkflowStepNotFound, WorkflowCursorUnresolvable],
         },
         /// Stores what one step-panel tab holds as an artifact of the run's session.
-        WorkflowStepTabArtifactCreate = mutation "workflow.stepTabArtifactCreate" {
+        WorkflowStepTabArtifactCreate = mutation "workflow.step.tabArtifact.create" {
             mutating: true,
             params: WorkflowStepTabArtifactCreateRequest,
             result: WorkflowStepTabArtifactCreateResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowRunNotFound, WorkflowStepNotFound],
         },
         /// Lists a run's agent and human steps' saved outputs.
-        WorkflowStepOutputList = query "workflow.stepOutputList" {
+        WorkflowStepOutputList = query "workflow.step.output.list" {
             mutating: false,
             params: WorkflowStepOutputListRequest,
             result: WorkflowStepOutputListResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowRunNotFound],
         },
         /// Answers an approval step or a chain's question.
-        WorkflowGateResolve = mutation "workflow.gateResolve" {
+        WorkflowGateResolve = mutation "workflow.gate.resolve" {
             mutating: true,
             params: WorkflowGateResolveRequest,
             result: WorkflowGateResolveResponse,
-            refusals: [WorkflowNotFound, WorkflowStepNotWaiting],
+            refusals: [WorkflowRunNotFound, WorkflowStepNotFound, WorkflowStepNotWaiting],
         },
         /// Reads a waiting form: its prompt, fields, saved draft and submit revision.
-        WorkflowHumanFormRead = query "workflow.humanFormRead" {
+        WorkflowHumanFormRead = query "workflow.humanForm.read" {
             mutating: false,
             params: WorkflowStepKey,
             result: WorkflowHumanFormReadResponse,
-            refusals: [WorkflowNotFound, WorkflowStepNotWaiting],
+            refusals: [WorkflowRunNotFound, WorkflowStepNotFound, WorkflowStepNotWaiting],
         },
         /// Saves a waiting form's draft as it is typed.
-        WorkflowHumanFormDraftSave = mutation "workflow.humanFormDraftSave" {
+        WorkflowHumanFormDraftUpdate = mutation "workflow.humanForm.draft.update" {
             mutating: true,
-            params: WorkflowHumanFormDraftSaveRequest,
-            result: WorkflowHumanFormDraftSaveResponse,
-            refusals: [WorkflowNotFound, WorkflowRevisionStale],
+            params: WorkflowHumanFormDraftUpdateRequest,
+            result: WorkflowHumanFormDraftUpdateResponse,
+            refusals: [WorkflowRunNotFound, WorkflowStepNotFound, WorkflowHumanFormRevisionStale],
         },
         /// Submits a waiting form against the revision it was read at.
-        WorkflowHumanFormSubmit = mutation "workflow.humanFormSubmit" {
+        WorkflowHumanFormSubmit = mutation "workflow.humanForm.submit" {
             mutating: true,
             params: WorkflowHumanFormSubmitRequest,
             result: WorkflowHumanFormSubmitResponse,
-            refusals: [WorkflowNotFound, WorkflowRevisionStale, WorkflowStepNotWaiting],
+            refusals: [
+                WorkflowRunNotFound,
+                WorkflowStepNotFound,
+                WorkflowHumanFormRevisionStale,
+                WorkflowStepNotWaiting,
+            ],
         },
         /// Opens a new session to fix a failed step, which the run links to.
-        WorkflowFixSessionCreate = mutation "workflow.fixSessionCreate" {
+        WorkflowFixSessionCreate = mutation "workflow.fixSession.create" {
             mutating: true,
             params: WorkflowStepKey,
             result: WorkflowFixSessionCreateResponse,
-            refusals: [WorkflowNotFound, WorkflowInvalidTransition],
+            refusals: [WorkflowRunNotFound, WorkflowStepNotFound, WorkflowInvalidTransition],
         },
     ];
 }
@@ -522,8 +527,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowGateResolveResponse>().checked(),
         Definition::read::<WorkflowHumanFormDraft>(),
         Definition::read::<WorkflowHumanFormReadResponse>().checked(),
-        Definition::read::<WorkflowHumanFormDraftSaveRequest>().checked(),
-        Definition::read::<WorkflowHumanFormDraftSaveResponse>().checked(),
+        Definition::read::<WorkflowHumanFormDraftUpdateRequest>().checked(),
+        Definition::read::<WorkflowHumanFormDraftUpdateResponse>().checked(),
         Definition::read::<WorkflowHumanFormPathAnswer>(),
         Definition::read::<WorkflowHumanFormSubmitRequest>().checked(),
         Definition::read::<WorkflowHumanFormSubmitResponse>().checked(),

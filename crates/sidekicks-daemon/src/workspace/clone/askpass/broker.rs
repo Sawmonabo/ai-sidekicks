@@ -28,7 +28,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use super::program::{ASKPASS_OWNER_VARIABLE, ASKPASS_SOCKET_VARIABLE};
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 use crate::random_hex::random_hex;
 
 // Every answer is typed out of sight but git's `Username for '…': ` and ssh's host-key question,
@@ -107,15 +107,10 @@ pub(crate) enum AskpassBrokerError {
 }
 
 impl From<AskpassBrokerError> for DomainError {
-    /// Clone methods answered while the broker is not serving are `repo.clone_unavailable`; the
+    /// Clone methods answered while the broker is not serving are `project.clone.unavailable`; the
     /// failure underneath is kept for the service log.
     fn from(error: AskpassBrokerError) -> Self {
-        DomainError::new(
-            error.to_string(),
-            RefusalCode::RepoCloneUnavailable,
-            DomainErrorJsonRpcCode::InternalError,
-        )
-        .with_source(error)
+        DomainError::new(error.to_string(), RefusalCode::ProjectCloneUnavailable).with_source(error)
     }
 }
 
@@ -176,8 +171,9 @@ pub(crate) struct AskpassBroker {
 
 impl AskpassBroker {
     /// Opens the broker's socket in `folder`, a folder only this account opens, for the askpass
-    /// program at `program_path`, which git and ssh run. Runs inside a tokio runtime; fails when the
-    /// socket cannot be opened, `Unsupported` where the system has no private askpass socket yet.
+    /// program at `program_path`, which git and ssh run. Runs inside a tokio runtime; fails when
+    /// the socket cannot be opened, `Unsupported` where the system has no private askpass socket
+    /// yet.
     pub(crate) fn start(folder: &Path, program_path: PathBuf) -> Result<Self, AskpassBrokerError> {
         let (listener, socket_path) =
             askpass_listener(folder).map_err(AskpassBrokerError::Listen)?;

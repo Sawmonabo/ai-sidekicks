@@ -1,4 +1,4 @@
-//! The wire shapes of a streaming subscription: the acknowledgement every `*.subscribe` method
+//! The wire shapes of a streaming subscription: the acknowledgment every `*.subscribe` method
 //! answers with, the `$/subscription/notify` frame carrying one value, the `$/subscription/end`
 //! frame the daemon ends a stream with, and the `$/subscription/cancel` call a client tears one
 //! down with. A subscription holds only its place, never a queue, so a stream loses nothing; only a
@@ -13,6 +13,7 @@ use crate::method::{Method, MethodDescriptor, ProcedureType};
 use crate::schema::received_check;
 use crate::typescript::{Definition, TypeName, TypeScriptModule, ts_constants};
 use crate::wire::AnyValue;
+use crate::wire::name::is_protocol_method_name;
 
 ts_constants! {
     /// The daemon-to-client notification carrying one subscription value. The `$/` prefix marks a
@@ -40,7 +41,7 @@ branded_uuid_id! {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "reason",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -59,12 +60,12 @@ pub enum SubscriptionEndParams {
     },
 }
 
-/// The acknowledgement every `*.subscribe` method answers with: the id the daemon allocated.
-/// Values follow as notify frames, and the acknowledgement settles before any of them.
+/// The acknowledgment every `*.subscribe` method answers with: the id the daemon allocated.
+/// Values follow as notify frames, and the acknowledgment settles before any of them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SubscribeAckResponse {
+pub struct SubscribeAcknowledgmentResponse {
     /// The subscription's id, which routes its notify frames.
     pub subscription_id: SubscriptionId,
 }
@@ -85,7 +86,7 @@ pub struct SubscriptionNotifyParams<T> {
 ///
 /// ```ignore
 /// stream_frame! {
-///     /// One `run.subscribeQueue` emission.
+///     /// One `agent.queueItem.subscribe` emission.
 ///     pub struct RunQueueStreamFrame(RunQueueStreamChange);
 /// }
 /// ```
@@ -121,7 +122,7 @@ pub(crate) use stream_frame;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SubscriptionCancelParams {
+pub struct SubscriptionCancelRequest {
     /// The subscription to cancel.
     pub subscription_id: SubscriptionId,
 }
@@ -131,7 +132,7 @@ pub struct SubscriptionCancelParams {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SubscriptionCancelResult {
+pub struct SubscriptionCancelResponse {
     /// Whether the subscription was canceled.
     pub canceled: bool,
 }
@@ -141,18 +142,25 @@ pub struct SubscriptionCancelResult {
 #[derive(Clone, Copy, Debug)]
 pub struct SubscriptionCancel;
 
+const _: () = assert!(
+    is_protocol_method_name(SUBSCRIPTION_NOTIFY_METHOD)
+        && is_protocol_method_name(SUBSCRIPTION_CANCEL_METHOD)
+        && is_protocol_method_name(SUBSCRIPTION_END_METHOD),
+    "a subscription method is not a protocol method name",
+);
+
 impl Method for SubscriptionCancel {
-    type Params = SubscriptionCancelParams;
-    type Result = SubscriptionCancelResult;
+    type Params = SubscriptionCancelRequest;
+    type Result = SubscriptionCancelResponse;
     const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
         method: SUBSCRIPTION_CANCEL_METHOD,
         procedure_type: ProcedureType::Query,
         is_mutating: false,
-        params: TypeName::of::<SubscriptionCancelParams>(),
-        result: TypeName::of::<SubscriptionCancelResult>(),
+        params: TypeName::of::<SubscriptionCancelRequest>(),
+        result: TypeName::of::<SubscriptionCancelResponse>(),
         emission: None,
         refusals: &[],
-        received_check: received_check::<SubscriptionCancelParams>,
+        received_check: received_check::<SubscriptionCancelRequest>,
     };
 }
 
@@ -160,16 +168,16 @@ impl Method for SubscriptionCancel {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "jsonrpc/streaming",
     doc: "The wire shapes of a streaming subscription: `$/subscription/notify`, \
-          `$/subscription/end` and `$/subscription/cancel`, and the acknowledgement every \
+          `$/subscription/end` and `$/subscription/cancel`, and the acknowledgment every \
           `*.subscribe` method answers with. A subscription holds only its place, never a queue, \
           so nothing is dropped from its frames.",
     definitions: &[
         Definition::read::<SubscriptionId>().checked(),
         Definition::read::<SubscriptionEndParams>().checked(),
-        Definition::read::<SubscribeAckResponse>().checked(),
+        Definition::read::<SubscribeAcknowledgmentResponse>().checked(),
         Definition::read::<SubscriptionNotifyParams<AnyValue>>().checked(),
-        Definition::read::<SubscriptionCancelParams>(),
-        Definition::read::<SubscriptionCancelResult>().checked(),
+        Definition::read::<SubscriptionCancelRequest>(),
+        Definition::read::<SubscriptionCancelResponse>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

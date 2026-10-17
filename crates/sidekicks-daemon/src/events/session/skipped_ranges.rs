@@ -1,4 +1,4 @@
-//! The damaged ranges a session continued past. Each `recovery.damaged_events_skipped` event names
+//! The damaged ranges a session continued past. Each `session.damagedEvents.skipped` event names
 //! one, and every read of the session's events leaves the range out, so a damaged row stays in the
 //! log, is never rewritten, and is never read again.
 
@@ -6,7 +6,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 
 /// The event that names a skipped range.
 pub(crate) const DAMAGED_EVENTS_SKIPPED_TYPE: SessionEventType =
-    SessionEventType::RecoveryDamagedEventsSkipped;
+    SessionEventType::SessionDamagedEventsSkipped;
 
 /// The SQL condition that holds for a `session_events` row, aliased `event_alias` in the query,
 /// unless the row sits in a range its session skipped. It reads the sessions holding a skip once

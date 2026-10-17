@@ -1,10 +1,10 @@
 //! The session service's reads: one session's record, transcript cursors, live runs and standing
-//! events as `session.read` answers them, from the `sessions` row its events keep in step, its tags,
-//! its console settings, its run rows and its log; the session's whole log, or a page of it after a
-//! known sequence; and a rebuild of the record from that log through the projector, over the same
-//! envelope reads the event log serves, which skip a range the session skipped past as damaged and,
-//! while its history is damaged, stop at its last good point. Each read borrows a connection from
-//! the daemon's read pool and runs on the blocking pool.
+//! events as `session.read` answers them, from the `sessions` row its events keep in step, its
+//! tags, its console settings, its run rows and its log; the session's whole log, or a page of it
+//! after a known sequence; and a rebuild of the record from that log through the projector, over
+//! the same envelope reads the event log serves, which skip a range the session skipped past as
+//! damaged and, while its history is damaged, stop at its last good point. Each read borrows a
+//! connection from the daemon's read pool and runs on the blocking pool.
 
 use std::sync::{Arc, LazyLock};
 
@@ -126,7 +126,7 @@ pub(crate) struct EventsReadAfterSequenceResponse {
 /// Why a session service read failed.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum SessionServiceError {
-    /// The session is not one this daemon holds (`session.not_found`).
+    /// The session is not one this daemon holds (`session.notFound`).
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// SQLite refused a read, or a stored column does not read as its type.
@@ -160,12 +160,12 @@ const SELECT_ROW_SQL: &str = "SELECT state, shape, name, muted_at, pending_worki
 const SELECT_TAGS_SQL: &str =
     "SELECT tag FROM session_tags WHERE session_id = ? ORDER BY tag_folded";
 
-// A run's agent is on its `run.queued` row, by id or inside the agent it brought in. Its newest
-// touch is its newest readable `run_lifecycle` event. Both read the run-and-type index on the
+// A run's agent is on its `agent.run.queued` row, by id or inside the agent it brought in. Its
+// newest touch is its newest readable `runLifecycle` event. Both read the run-and-type index on the
 // event log; the unary `+` drops the run id column's affinity, which would keep the index from
 // serving.
 static SELECT_LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
-    let run_queued = SessionEventType::RunQueued.as_str();
+    let run_queued = SessionEventType::AgentRunQueued.as_str();
     let lifecycle_types = sql_list_of(
         RUN_LIFECYCLE_EVENT_TYPES
             .iter()
@@ -209,11 +209,11 @@ static SELECT_LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 // which the outer select drops. Each newest pick takes the newest readable row, so a damaged or
 // skipped newer one never hides the fact before it.
 static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
-    let window_update = SessionEventType::UsageContextWindowUpdate.as_str();
-    let compacted = SessionEventType::UsageContextCompacted.as_str();
-    let control_changed = SessionEventType::PtyControlChanged.as_str();
+    let window_update = SessionEventType::UsageContextWindowUpdated.as_str();
+    let compacted = SessionEventType::AgentRunContextCompacted.as_str();
+    let control_changed = SessionEventType::TerminalControlChanged.as_str();
     let session_created = SessionEventType::SessionCreated.as_str();
-    let run_queued = SessionEventType::RunQueued.as_str();
+    let run_queued = SessionEventType::AgentRunQueued.as_str();
     let binding_changed = SessionEventType::AgentProviderBindingChanged.as_str();
     let terminal_states = &*RUN_TERMINAL_STATES_SQL;
     let readable_measured = readable_event_sql("measured");
@@ -296,7 +296,7 @@ impl SessionService {
     /// events: `earliest` is the start of the log, `latest` its newest readable event, or the start
     /// of the log too when its history is damaged before any. Everything is read in one snapshot,
     /// so no event the row, a run or a standing event reflects lies past `latest`. Fails with
-    /// [`SessionServiceError::Refused`] (`session.not_found`) for a session this daemon holds no row
+    /// [`SessionServiceError::Refused`] (`session.notFound`) for a session this daemon holds no row
     /// for, [`SessionServiceError::Log`] for a standing event that is not a well-formed envelope,
     /// and [`SessionServiceError::RunNamesNoAgent`] for a live run whose creation names no agent.
     pub(crate) async fn read_session(
@@ -519,7 +519,7 @@ fn live_run_of(
         admitted_provider_account_id: facts.admitted_provider_account_id,
         touched_at: row
             .touched_at
-            .expect("a run whose run.queued reads has a readable run_lifecycle event"),
+            .expect("a run whose agent.run.queued reads has a readable runLifecycle event"),
     })
 }
 
@@ -601,7 +601,7 @@ impl SessionRow {
 }
 
 /// The `runs` columns a live run is answered from, with its agent and newest touch from its
-/// events; both are `None` when its `run.queued` is past the read bound or skipped.
+/// events; both are `None` when its `agent.run.queued` is past the read bound or skipped.
 struct LiveRunRow {
     run_id: RunId,
     parent_run_id: Option<RunId>,

@@ -83,7 +83,7 @@ pattern_text! {
     pub struct SpkiPrefix("^[0-9a-f]{16}$");
 }
 
-/// The `relay.pin_refused` event's payload, recorded on the service's own sentinel session: the
+/// The `relay.pin.refused` event's payload, recorded on the service's own sentinel session: the
 /// relay's host and the first 8 bytes of the pinned and the presented key hashes, never a token.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

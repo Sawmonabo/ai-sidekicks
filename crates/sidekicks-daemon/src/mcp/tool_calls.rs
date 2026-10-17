@@ -1,7 +1,7 @@
 //! The MCP tool-call rules every driver shares: the idempotency floor for a discovered tool, and
 //! the observation half of the durable task handle, which the task handle recorder stores.
 //!
-//! - A discovered tool is always `manual_reconcile_only`, never derived from its annotation hints:
+//! - A discovered tool is always `manualReconcileOnly`, never derived from its annotation hints:
 //!   MCP requires a client to treat annotations as untrusted.
 //! - The `taskId` in a task-augmented call's acceptance is the handle recovery polls instead of
 //!   halting.

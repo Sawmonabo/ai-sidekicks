@@ -10,13 +10,13 @@ use std::sync::Arc;
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::driver::commands::ProviderCommandListResult;
+use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SessionMode, SessionReviewTarget, SideQuestionId,
 };
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 use crate::provider::port::permission_ask::ProviderAskRule;
 
 /// Params of `update_permission_level`: the level the session moves to and the roots it opens to
@@ -44,13 +44,12 @@ pub(crate) struct RevokeRuleParams {
     pub(crate) project_folder: Option<PathBuf>,
 }
 
-/// `session.permission_level_unavailable`: the session's provider, its account or its model cannot
+/// `session.permissionLevel.notOffered`: the session's provider, its account or its model cannot
 /// run at `level`, so nothing was changed. The level goes out as the refusal's detail.
-pub(crate) fn permission_level_unavailable(level: PermissionLevel) -> DomainError {
+pub(crate) fn permission_level_not_offered(level: PermissionLevel) -> DomainError {
     DomainError::new(
         "The session's provider cannot run at that permission level.",
-        RefusalCode::SessionPermissionLevelUnavailable,
-        DomainErrorJsonRpcCode::InvalidParams,
+        RefusalCode::SessionPermissionLevelNotOffered,
     )
     .with_detail(json!({ "level": level }))
 }
@@ -65,7 +64,7 @@ pub(crate) struct ProviderBuildChange {
 }
 
 /// One provider conversation a session opened, by the handle it was resumed from, and the account
-/// home it ran in; `provider_account_id` is `None` for one that ran on the node's default home.
+/// home it ran in; `provider_account_id` is `None` for one that ran on the machine's default home.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PurgedConversation {
     /// The handle the conversation was resumed from.
@@ -96,7 +95,7 @@ pub(crate) struct UpdateSessionModeParams {
 
 /// Params of `ask_side_question`: a question asked on a throwaway copy of the conversation,
 /// leaving the session's own conversation and permissions as they were. Its answer is appended as
-/// `session.side_question_answered` under `side_question_id`.
+/// `session.sideQuestion.answered` under `side_question_id`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AskSideQuestionParams {
     /// The session.
@@ -108,7 +107,7 @@ pub(crate) struct AskSideQuestionParams {
 }
 
 /// Params of `start_review`: the provider's own review of `target`, bracketed by the
-/// `review_started` and `review_finished` notices.
+/// `reviewStarted` and `reviewFinished` notices.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct StartReviewParams {
     /// The session.
@@ -148,4 +147,4 @@ pub(crate) struct SubscribeProviderCommandsParams {
 }
 
 /// Receives each new command list a session's provider and its tool servers offer.
-pub(crate) type ProviderCommandsListener = Arc<dyn Fn(ProviderCommandListResult) + Send + Sync>;
+pub(crate) type ProviderCommandsListener = Arc<dyn Fn(ProviderCommandListResponse) + Send + Sync>;

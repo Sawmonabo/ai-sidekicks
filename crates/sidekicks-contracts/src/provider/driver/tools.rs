@@ -27,7 +27,7 @@ use crate::wire::text::FreeFormText;
     JsonSchema,
     VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum IdempotencyClass {
     /// Safe to repeat.
     Idempotent,
@@ -43,7 +43,7 @@ ts_constants! {
     IDEMPOTENCY_CLASSES = IdempotencyClass::VARIANTS;
 }
 
-/// A tool a driver declares. An undeclared class reads as `manual_reconcile_only`, and unknown
+/// A tool a driver declares. An undeclared class reads as `manualReconcileOnly`, and unknown
 /// members are dropped rather than refused, because providers extend the declaration.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ProviderToolMetadata {

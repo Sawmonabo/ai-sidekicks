@@ -1,7 +1,7 @@
-//! The `repo.*` method table: every method on mounts, workspaces, projects, clones, git reads and
-//! worktrees.
+//! The method table of repo mounts, the machine's folders, workspaces, projects, clones, git reads
+//! and worktrees.
 
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::project::{
@@ -9,17 +9,17 @@ use crate::project::{
     ProjectList, ProjectRenameRequest, ProjectSetupUpdateRequest, ProjectStateChangeRequest,
 };
 use crate::repo::clone::{
-    RepoCloneAnswerRequest, RepoCloneFolderReadResponse, RepoCloneProjectRequest, RepoCloneRequest,
-    RepoCloneResponse, RepoCloneStatus,
+    ProjectCloneAnswerRequest, ProjectCloneFolderReadResponse, ProjectCloneRequest,
+    ProjectCloneStartRequest, ProjectCloneStartResponse, ProjectCloneStatus,
 };
 use crate::repo::folders::{
-    RepoAttachRequest, RepoAttachResponse, RepoDetachResponse, RepoFolderListRequest,
-    RepoFolderListResponse, RepoMountListResponse, RepoMountReadResponse,
+    MachineFolderListRequest, MachineFolderListResponse, RepoMountAttachRequest,
+    RepoMountAttachResponse, RepoMountDetachResponse, RepoMountListResponse, RepoMountReadResponse,
     RepoMountReattachResponse, RepoMountRequest,
 };
 use crate::repo::git_reads::{
-    RepoBranchListRequest, RepoBranchListResponse, RepoFileReadRequest, RepoFileReadResponse,
-    WorkingTreeChange, WorkingTreeSubscribeRequest,
+    ProjectBranchListRequest, ProjectBranchListResponse, ProjectFileReadRequest,
+    ProjectFileReadResponse, SessionWorkingFolderSubscribeRequest, WorkingTreeChange,
 };
 use crate::repo::workspace::{
     WorkspaceBindRequest, WorkspaceBindResponse, WorkspaceListRequest, WorkspaceListResponse,
@@ -27,231 +27,233 @@ use crate::repo::workspace::{
 use crate::typescript::TypeScriptModule;
 use crate::worktree::copy_progress::{WorktreeCopyProgress, WorktreeCopySubscribeRequest};
 use crate::worktree::lifecycle::{
-    ExecutionRootPrepareRequest, ExecutionRootPrepareResponse, WorktreeRetireRequest,
-    WorktreeRetireResponse, WorktreeStatusReadRequest, WorktreeStatusReadResponse,
+    WorkspaceExecutionRootPrepareRequest, WorkspaceExecutionRootPrepareResponse,
+    WorktreeRetireRequest, WorktreeRetireResponse, WorktreeStatusReadRequest,
+    WorktreeStatusReadResponse,
 };
 use crate::worktree::removed::{
-    RemovedWorktreeListRequest, RemovedWorktreeListResponse, RemovedWorktreeRequest,
+    RemovedWorktreeRequest, WorktreeRemovedListRequest, WorktreeRemovedListResponse,
     WorktreeRestoreResponse,
 };
 use crate::worktree::setup::{WorktreeSetupRequest, WorktreeSetupStatus};
 
 methods! {
-    /// Every `repo.*` method.
+    /// Every repo mount, machine folder, workspace, project, clone, git read and worktree method.
     pub const REPO_METHOD_DESCRIPTORS = [
         /// Attaches a folder as a project's mount.
-        RepoAttach = mutation "repo.attach" {
+        RepoMountAttach = mutation "repoMount.attach" {
             mutating: true,
-            params: RepoAttachRequest,
-            result: RepoAttachResponse,
+            params: RepoMountAttachRequest,
+            result: RepoMountAttachResponse,
             refusals: [
-                RepoAlreadyAttached,
-                RepoDistributionNeedsWsl2,
-                RepoDistributionNotFound,
-                RepoRootResolutionFailed,
+                RepoMountAlreadyAttached,
+                RepoMountDistributionNeedsWsl2,
+                RepoMountDistributionNotFound,
+                RepoMountRootResolutionFailed,
             ],
         },
         /// One mount, with its health probed for the read.
-        RepoMountRead = query "repo.mountRead" {
+        RepoMountRead = query "repoMount.read" {
             mutating: false,
             params: RepoMountRequest,
             result: RepoMountReadResponse,
-            refusals: [RepoNotFound],
+            refusals: [RepoMountNotFound],
         },
         /// Every folder the service can reach.
-        RepoMountList = query "repo.mountList" {
+        RepoMountList = query "repoMount.list" {
             mutating: false,
             params: EmptyPayload,
             result: RepoMountListResponse,
             refusals: [],
         },
         /// Detaches a project's mount, deleting the project.
-        RepoDetach = mutation "repo.detach" {
+        RepoMountDetach = mutation "repoMount.detach" {
             mutating: true,
             params: RepoMountRequest,
-            result: RepoDetachResponse,
-            refusals: [RepoNotFound, RepoDetachConflict, RepoMountManaged],
+            result: RepoMountDetachResponse,
+            refusals: [RepoMountNotFound, RepoMountDetachConflict, RepoMountManaged],
         },
         /// Attaches a mismatched mount's folder fresh under the same project.
-        RepoMountReattach = mutation "repo.mountReattach" {
+        RepoMountReattach = mutation "repoMount.reattach" {
             mutating: true,
             params: RepoMountRequest,
             result: RepoMountReattachResponse,
             refusals: [
-                RepoNotFound,
-                RepoReattachRefused,
-                RepoReattachConflict,
-                RepoRootResolutionFailed,
-                RepoAlreadyAttached,
+                RepoMountNotFound,
+                RepoMountReattachRefused,
+                RepoMountReattachConflict,
+                RepoMountRootResolutionFailed,
+                RepoMountAlreadyAttached,
             ],
         },
         /// Lists the machine's folders for another device to browse.
-        RepoFolderList = query "repo.folderList" {
+        MachineFolderList = query "machine.folder.list" {
             mutating: false,
-            params: RepoFolderListRequest,
-            result: RepoFolderListResponse,
+            params: MachineFolderListRequest,
+            result: MachineFolderListResponse,
             refusals: [
-                RepoDistributionNeedsWsl2,
-                RepoDistributionNotFound,
-                RepoTopLevelUnavailable,
+                RepoMountDistributionNeedsWsl2,
+                RepoMountDistributionNotFound,
+                MachineFolderTopLevelNotOffered,
             ],
         },
         /// Binds a session's workspace to a mount.
-        RepoWorkspaceBind = mutation "repo.workspaceBind" {
+        WorkspaceBind = mutation "workspace.bind" {
             mutating: true,
             params: WorkspaceBindRequest,
             result: WorkspaceBindResponse,
             refusals: [
                 SessionNotFound,
-                RepoNotFound,
+                RepoMountNotFound,
                 RepoMountManaged,
-                RepoOutsideTrustEnvelope,
+                RepoMountOutsideTrustEnvelope,
                 WorkspaceModeUnsupported,
             ],
         },
         /// A session's workspaces.
-        RepoWorkspaceList = query "repo.workspaceList" {
+        WorkspaceList = query "workspace.list" {
             mutating: false,
             params: WorkspaceListRequest,
             result: WorkspaceListResponse,
             refusals: [SessionNotFound],
         },
         /// Every project, sent on subscribe and again on each change.
-        RepoProjectList = subscription "repo.projectList" {
+        ProjectSubscribe = subscription "project.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: ProjectList,
             refusals: [],
         },
         /// Renames a project.
-        RepoProjectRename = mutation "repo.projectRename" {
+        ProjectRename = mutation "project.rename" {
             mutating: true,
             params: ProjectRenameRequest,
             result: ProjectEditResponse,
-            refusals: [],
+            refusals: [ProjectNotFound],
         },
         /// Moves a project into the archived group.
-        RepoProjectArchive = mutation "repo.projectArchive" {
+        ProjectArchive = mutation "project.archive" {
             mutating: true,
             params: ProjectStateChangeRequest,
             result: ProjectEditResponse,
-            refusals: [],
+            refusals: [ProjectNotFound],
         },
         /// Moves a project out of the archived group.
-        RepoProjectReactivate = mutation "repo.projectReactivate" {
+        ProjectReactivate = mutation "project.reactivate" {
             mutating: true,
             params: ProjectStateChangeRequest,
             result: ProjectEditResponse,
-            refusals: [],
+            refusals: [ProjectNotFound],
         },
         /// Replaces a project's setup.
-        RepoProjectSetupUpdate = mutation "repo.projectSetupUpdate" {
+        ProjectSetupUpdate = mutation "project.setup.update" {
             mutating: true,
             params: ProjectSetupUpdateRequest,
             result: ProjectEditResponse,
-            refusals: [],
+            refusals: [ProjectNotFound],
         },
         /// Replaces a project's environment rows.
-        RepoProjectEnvironmentUpdate = mutation "repo.projectEnvironmentUpdate" {
+        ProjectEnvironmentUpdate = mutation "project.environment.update" {
             mutating: true,
             params: ProjectEnvironmentUpdateRequest,
             result: ProjectEditResponse,
-            refusals: [DaemonEnvironmentNameRefused],
+            refusals: [ProjectNotFound, ProjectEnvironmentNameRefused],
         },
         /// Sets or clears a project's branch pattern.
-        RepoProjectBranchPatternUpdate = mutation "repo.projectBranchPatternUpdate" {
+        ProjectBranchPatternUpdate = mutation "project.branchPattern.update" {
             mutating: true,
             params: ProjectBranchPatternUpdateRequest,
             result: ProjectEditResponse,
-            refusals: [DaemonBranchPatternRefused],
+            refusals: [ProjectNotFound, ProjectBranchPatternRefused],
         },
         /// Starts a clone into a new or failed project.
-        RepoClone = mutation "repo.clone" {
+        ProjectCloneStart = mutation "project.clone.start" {
             mutating: true,
-            params: RepoCloneRequest,
-            result: RepoCloneResponse,
+            params: ProjectCloneStartRequest,
+            result: ProjectCloneStartResponse,
             refusals: [
-                RepoCloneRefused,
-                RepoCloneUnavailable,
-                RepoDistributionNeedsWsl2,
-                RepoDistributionNotFound,
+                ProjectNotFound,
+                ProjectCloneRefused,
+                ProjectCloneUnavailable,
+                RepoMountDistributionNeedsWsl2,
+                RepoMountDistributionNotFound,
             ],
         },
         /// Follows a clone's card.
-        RepoCloneSubscribe = subscription "repo.cloneSubscribe" {
+        ProjectCloneSubscribe = subscription "project.clone.subscribe" {
             mutating: false,
-            params: RepoCloneProjectRequest,
-            result: SubscribeAckResponse,
-            emission: RepoCloneStatus,
-            refusals: [RepoCloneUnavailable],
+            params: ProjectCloneRequest,
+            result: SubscribeAcknowledgmentResponse,
+            emission: ProjectCloneStatus,
+            refusals: [ProjectNotFound, ProjectCloneUnavailable],
         },
         /// Answers git's question.
-        RepoCloneAnswer = mutation "repo.cloneAnswer" {
+        ProjectCloneAnswer = mutation "project.clone.answer" {
             mutating: true,
-            params: RepoCloneAnswerRequest,
+            params: ProjectCloneAnswerRequest,
             result: EmptyPayload,
-            refusals: [RepoCloneUnavailable],
+            refusals: [ProjectNotFound, ProjectCloneUnavailable],
         },
         /// Cancels a clone.
-        RepoCloneCancel = mutation "repo.cloneCancel" {
+        ProjectCloneCancel = mutation "project.clone.cancel" {
             mutating: true,
-            params: RepoCloneProjectRequest,
+            params: ProjectCloneRequest,
             result: EmptyPayload,
-            refusals: [RepoCloneUnavailable],
+            refusals: [ProjectNotFound, ProjectCloneUnavailable],
         },
         /// Where a clone goes, and why.
-        RepoCloneFolderRead = query "repo.cloneFolderRead" {
+        ProjectCloneFolderRead = query "project.clone.folder.read" {
             mutating: false,
             params: EmptyPayload,
-            result: RepoCloneFolderReadResponse,
-            refusals: [RepoCloneUnavailable],
+            result: ProjectCloneFolderReadResponse,
+            refusals: [ProjectCloneUnavailable],
         },
         /// Pulls a cloned project's large files.
-        RepoLargeFilesPull = mutation "repo.largeFilesPull" {
+        ProjectLargeFilePull = mutation "project.largeFile.pull" {
             mutating: true,
-            params: RepoCloneProjectRequest,
+            params: ProjectCloneRequest,
             result: EmptyPayload,
-            refusals: [RepoCloneUnavailable],
+            refusals: [ProjectNotFound, ProjectCloneUnavailable],
         },
         /// The branches both base pickers list.
-        RepoBranchList = query "repo.branchList" {
+        ProjectBranchList = query "project.branch.list" {
             mutating: false,
-            params: RepoBranchListRequest,
-            result: RepoBranchListResponse,
-            refusals: [RepoNotFound],
+            params: ProjectBranchListRequest,
+            result: ProjectBranchListResponse,
+            refusals: [RepoMountNotFound],
         },
         /// A file's lines, or a diff gap's.
-        RepoFileRead = query "repo.fileRead" {
+        ProjectFileRead = query "project.file.read" {
             mutating: false,
-            params: RepoFileReadRequest,
-            result: RepoFileReadResponse,
+            params: ProjectFileReadRequest,
+            result: ProjectFileReadResponse,
             refusals: [SessionNotFound],
         },
         /// Signals each change of a session's working folder.
-        RepoWorkingTreeSubscribe = subscription "repo.workingTreeSubscribe" {
+        SessionWorkingFolderSubscribe = subscription "session.workingFolder.subscribe" {
             mutating: false,
-            params: WorkingTreeSubscribeRequest,
-            result: SubscribeAckResponse,
+            params: SessionWorkingFolderSubscribeRequest,
+            result: SubscribeAcknowledgmentResponse,
             emission: WorkingTreeChange,
             refusals: [SessionNotFound],
         },
         /// Makes a workspace's root before a run starts.
-        RepoExecutionRootPrepare = mutation "repo.executionRootPrepare" {
+        WorkspaceExecutionRootPrepare = mutation "workspace.executionRoot.prepare" {
             mutating: true,
-            params: ExecutionRootPrepareRequest,
-            result: ExecutionRootPrepareResponse,
+            params: WorkspaceExecutionRootPrepareRequest,
+            result: WorkspaceExecutionRootPrepareResponse,
             refusals: [
                 WorkspaceNotFound,
                 WorkspaceBranchNameRequired,
-                WorkspaceStale,
+                WorkspaceRootUnavailable,
                 WorkspacePreparationFailed,
                 WorktreeBranchCollision,
                 WorktreeCreateFailed,
             ],
         },
         /// Removes a worktree.
-        RepoWorktreeRetire = mutation "repo.worktreeRetire" {
+        WorktreeRetire = mutation "worktree.retire" {
             mutating: true,
             params: WorktreeRetireRequest,
             result: WorktreeRetireResponse,
@@ -263,51 +265,51 @@ methods! {
             ],
         },
         /// A project's checkout and standing trees.
-        RepoWorktreeStatusRead = query "repo.worktreeStatusRead" {
+        WorktreeStatusRead = query "worktree.status.read" {
             mutating: false,
             params: WorktreeStatusReadRequest,
             result: WorktreeStatusReadResponse,
-            refusals: [SessionNotFound],
+            refusals: [ProjectNotFound, SessionNotFound],
         },
         /// Follows a tree's setup card.
-        RepoWorktreeSetupSubscribe = subscription "repo.worktreeSetupSubscribe" {
+        WorktreeSetupSubscribe = subscription "worktree.setup.subscribe" {
             mutating: false,
             params: WorktreeSetupRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: WorktreeSetupStatus,
             refusals: [WorktreeNotFound],
         },
         /// Runs a tree's failed setup step and the ones after it.
-        RepoWorktreeSetupRetry = mutation "repo.worktreeSetupRetry" {
+        WorktreeSetupRetry = mutation "worktree.setup.retry" {
             mutating: true,
             params: WorktreeSetupRequest,
             result: EmptyPayload,
             refusals: [WorktreeNotFound],
         },
         /// Follows the copies under way.
-        RepoWorktreeCopySubscribe = subscription "repo.worktreeCopySubscribe" {
+        WorktreeCopySubscribe = subscription "worktree.copy.subscribe" {
             mutating: false,
             params: WorktreeCopySubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: WorktreeCopyProgress,
-            refusals: [],
+            refusals: [ProjectNotFound],
         },
         /// The kept worktrees.
-        RepoRemovedWorktreeList = query "repo.removedWorktreeList" {
+        WorktreeRemovedList = query "worktree.removed.list" {
             mutating: false,
-            params: RemovedWorktreeListRequest,
-            result: RemovedWorktreeListResponse,
-            refusals: [],
+            params: WorktreeRemovedListRequest,
+            result: WorktreeRemovedListResponse,
+            refusals: [ProjectNotFound],
         },
         /// Puts a kept worktree back.
-        RepoWorktreeRestore = mutation "repo.worktreeRestore" {
+        WorktreeRestore = mutation "worktree.restore" {
             mutating: true,
             params: RemovedWorktreeRequest,
             result: WorktreeRestoreResponse,
             refusals: [WorktreeRemovedNotFound],
         },
         /// Deletes a kept worktree.
-        RepoRemovedWorktreeDelete = mutation "repo.removedWorktreeDelete" {
+        WorktreeRemovedDelete = mutation "worktree.removed.delete" {
             mutating: true,
             params: RemovedWorktreeRequest,
             result: EmptyPayload,
@@ -316,10 +318,12 @@ methods! {
     ];
 }
 
-/// The TypeScript module of every repo method.
+/// The TypeScript module of the repo mount, machine folder, workspace, project and worktree
+/// methods.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "repo/methods",
-    doc: "Every repo method: mounts, workspaces, projects, clones, git reads and worktrees.",
+    doc: "Every repo mount, machine folder, workspace, project, clone, git read and worktree \
+          method.",
     definitions: &[],
     constants: &[],
     method_tables: &[&REPO_METHOD_DESCRIPTORS],

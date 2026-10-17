@@ -1,6 +1,6 @@
 //! The daemon's open subscriptions: each one's connection and cancellation, the
 //! `$/subscription/cancel` call that tears one down from its own connection, and the frames the
-//! gateway writes for one once its acknowledgement is on the wire. A subscription owns its feed;
+//! gateway writes for one once its acknowledgment is on the wire. A subscription owns its feed;
 //! what the feed follows is released in its `Drop`, which runs on every end, after the entry leaves
 //! the table. The daemon's own end sends one `$/subscription/end` frame; a client's cancel and a
 //! closed connection send none.
@@ -14,13 +14,13 @@ use serde_json::json;
 use sidekicks_contracts::jsonrpc::framing::incoming::MAX_OPEN_LANES;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::jsonrpc::streaming::{
-    SubscriptionCancel, SubscriptionCancelParams, SubscriptionCancelResult, SubscriptionEndParams,
-    SubscriptionId,
+    SubscriptionCancel, SubscriptionCancelRequest, SubscriptionCancelResponse,
+    SubscriptionEndParams, SubscriptionId,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 use crate::ipc::jsonrpc_error_mapping::{CallFailure, json_rpc_error_of};
 use crate::ipc::registry::{
     EncodedFeed, EncodedValue, HandlerContext, MethodRegistryBuilder, RegistrationError,
@@ -79,9 +79,9 @@ impl Subscriptions {
     ) -> Result<(), RegistrationError> {
         let subscriptions = Arc::clone(self);
         registry.register::<SubscriptionCancel, _>(
-            move |params: SubscriptionCancelParams, context: HandlerContext| {
+            move |params: SubscriptionCancelRequest, context: HandlerContext| {
                 let canceled = subscriptions.cancel(&params.subscription_id, context.transport_id);
-                futures::future::ready(Ok(SubscriptionCancelResult { canceled })).boxed()
+                futures::future::ready(Ok(SubscriptionCancelResponse { canceled })).boxed()
             },
         )
     }
@@ -97,7 +97,7 @@ impl Subscriptions {
     }
 
     /// Opens the subscription a subscribe call to `method` answered, owned by `transport`, before
-    /// the gateway writes its acknowledgement. Refused `transport.subscription_limit_reached` with
+    /// the gateway writes its acknowledgment. Refused `connection.subscription.limitReached` with
     /// `{limit}` when the connection already holds `MAX_OPEN_LANES` open subscriptions; the feed is
     /// then dropped and nothing opens.
     pub(crate) fn open(
@@ -169,8 +169,7 @@ impl Subscriptions {
 fn subscription_limit_reached() -> DomainError {
     DomainError::new(
         "the connection holds as many subscriptions as it may open",
-        RefusalCode::TransportSubscriptionLimitReached,
-        DomainErrorJsonRpcCode::InternalError,
+        RefusalCode::ConnectionSubscriptionLimitReached,
     )
     .with_detail(json!({ "limit": MAX_OPEN_LANES }))
 }
@@ -183,7 +182,7 @@ pub(crate) enum SubscriptionFrame {
     End(SubscriptionEndParams),
 }
 
-/// One open subscription, which the gateway drives only once the acknowledgement's END chunk is
+/// One open subscription, which the gateway drives only once the acknowledgment's END chunk is
 /// written. Dropping it takes it out of the table, then drops its feed.
 pub(crate) struct Subscription {
     subscriptions: Arc<Subscriptions>,
@@ -264,7 +263,7 @@ mod tests {
     use serde_json::value::RawValue;
     use serde_json::{Value, json};
     use sidekicks_contracts::jsonrpc::streaming::{
-        SUBSCRIPTION_CANCEL_METHOD, SubscribeAckResponse,
+        SUBSCRIPTION_CANCEL_METHOD, SubscribeAcknowledgmentResponse,
     };
     use sidekicks_contracts::method::{
         Method, MethodDescriptor, ProcedureType, SubscriptionMethod,
@@ -318,13 +317,13 @@ mod tests {
 
     impl Method for NamedSubscribe {
         type Params = Named;
-        type Result = SubscribeAckResponse;
+        type Result = SubscribeAcknowledgmentResponse;
         const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
             method: METHOD,
             procedure_type: ProcedureType::Subscription,
             is_mutating: false,
             params: TypeName::of::<Named>(),
-            result: TypeName::of::<SubscribeAckResponse>(),
+            result: TypeName::of::<SubscribeAcknowledgmentResponse>(),
             emission: Some(TypeName::of::<Named>()),
             refusals: &[],
             received_check: received_check::<Named>,
@@ -378,8 +377,11 @@ mod tests {
             .register_subscription::<NamedSubscribe, _>(
                 |_named: Named, _context: HandlerContext, subscription_id: SubscriptionId| {
                     let feed: Box<dyn Feed<Emission = Named>> = Box::new(OverlongName);
-                    futures::future::ready(Ok((SubscribeAckResponse { subscription_id }, feed)))
-                        .boxed()
+                    futures::future::ready(Ok((
+                        SubscribeAcknowledgmentResponse { subscription_id },
+                        feed,
+                    )))
+                    .boxed()
                 },
             )
             .expect("the subscribe call registers");
@@ -403,7 +405,7 @@ mod tests {
         let Ok(Reply::Result(result)) = reply else {
             panic!("a cancel answers a result");
         };
-        serde_json::from_slice::<SubscriptionCancelResult>(&result.json)
+        serde_json::from_slice::<SubscriptionCancelResponse>(&result.json)
             .expect("the result reads as its type")
             .canceled
     }
@@ -481,7 +483,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_emission_breaking_its_rule_ends_the_subscription_refused_invalid_result() {
+    async fn an_emission_breaking_its_rule_ends_the_subscription_refused_result_invalid() {
         let gate = CreditGate::with_credit(1);
         let (subscriptions, registry) = served();
         let reply = registry
@@ -510,7 +512,7 @@ mod tests {
         assert_eq!(error.code.get(), -32603);
         assert_eq!(
             error.data.map(|data| data.refusal).as_deref(),
-            Some("invalid_result")
+            Some("request.resultInvalid")
         );
         assert!(subscription.next_frame(&gate).await.is_none());
     }
@@ -553,7 +555,10 @@ mod tests {
             )
             .err()
             .expect("the connection is at its limit");
-        assert_eq!(refusal.code, RefusalCode::TransportSubscriptionLimitReached);
+        assert_eq!(
+            refusal.code,
+            RefusalCode::ConnectionSubscriptionLimitReached
+        );
         assert_eq!(
             refusal.detail.map(Value::Object),
             Some(json!({ "limit": 10_000 }))

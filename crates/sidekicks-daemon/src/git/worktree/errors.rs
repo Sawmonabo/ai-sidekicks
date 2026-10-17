@@ -3,13 +3,12 @@
 //! its detail `data.fields`.
 //!
 //! A branch name the caller supplies that collides with a live checkout is refused, never adapted.
-//! A prepare that cannot make its root is `worktree.create_failed`; a mode the mount does not offer
-//! is `workspace.mode_unsupported`, so there is no `worktree.unsupported`. Only the two not-found
-//! refusals answer `-32602`, since each answers an id that did not resolve; the rest answer
-//! `-32603`. No path reaches a message: a closed reason supplies the words, and the other messages
-//! name only opaque ids, git ref names and commit ids. The one git line a message carries is git's
-//! refusal of a branch name, which names only branches. A failure underneath, which can name a
-//! path, stays on the refusal for the service log and never reaches the wire.
+//! A prepare that cannot make its root is `worktree.createFailed`; a mode the mount does not offer
+//! is `workspace.modeUnsupported`, so there is no `worktree.unsupported`. No path reaches a
+//! message: a closed reason supplies the words, and the other messages name only opaque ids, git
+//! ref names and commit ids. The one git line a message carries is git's refusal of a branch name,
+//! which names only branches. A failure underneath, which can name a path, stays on the refusal for
+//! the service log and never reaches the wire.
 
 use std::borrow::Cow;
 use std::error::Error;
@@ -17,7 +16,7 @@ use std::io;
 
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::gitflow::shared::GitRefName;
+use sidekicks_contracts::git::shared::GitRefName;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::mount::{RepoMountId, WorkspaceId};
 use sidekicks_contracts::session::id::SessionId;
@@ -27,15 +26,15 @@ use sidekicks_contracts::worktree::lifecycle::{
 };
 use strum::IntoStaticStr;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode, refusal_fields};
+use crate::ipc::domain_error::{DomainError, refusal_fields};
 use crate::session::run::setup_gates::RunSetupGateError;
 
 /// Why making a worktree failed; closed and free of paths, so it is safe on the wire, where its
-/// name is the detail's `reason`. The two `branch_name_*` reasons carry git's own line refusing
-/// the name, `carry_failed` how to recover the stashed work, and `carry_checkout_running` the run
-/// in the way.
+/// name is the detail's `reason`. `branchNameInvalid` and `branchNameTaken` carry git's own line
+/// refusing the name, `carryFailed` how to recover the stashed work, and `carryCheckoutRunning`
+/// the run in the way.
 #[derive(Clone, Debug, PartialEq, Eq, IntoStaticStr)]
-#[strum(serialize_all = "snake_case")]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum WorktreeCreateFailureReason {
     /// The base ref begins with `-`, which git would read as an option.
     BaseRefOptionLike,
@@ -80,20 +79,20 @@ pub(crate) enum WorktreeCreateFailureReason {
 /// [`DomainError`] the reply carries, keeping any failure underneath as its source.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorktreeRefusal {
-    /// The worktree id did not resolve (`worktree.not_found`).
+    /// The worktree id did not resolve (`worktree.notFound`).
     #[error("worktree {worktree_id} does not exist")]
     NotFound {
         /// The worktree asked for.
         worktree_id: WorktreeId,
     },
     /// No kept copy has the id, such as one a put-back or a deletion queued before it already
-    /// removed (`worktree.removed_not_found`).
+    /// removed (`worktree.removed.notFound`).
     #[error("kept worktree {removed_worktree_id} does not exist")]
     RemovedNotFound {
         /// The kept copy asked for.
         removed_worktree_id: RemovedWorktreeId,
     },
-    /// Making the worktree failed (`worktree.create_failed`); the workspace goes `stale`.
+    /// Making the worktree failed (`worktree.createFailed`); the workspace goes `rootLost`.
     #[error("{}", create_failed_message(.reason))]
     CreateFailed {
         /// Why.
@@ -103,7 +102,7 @@ pub(crate) enum WorktreeRefusal {
         source: Option<Box<dyn Error + Send + Sync>>,
     },
     /// A branch name the caller supplied collides with a live checkout the daemon made on the same
-    /// mount (`worktree.branch_collision`); only a creation told to refuse a taken name raises it.
+    /// mount (`worktree.branchCollision`); only a creation told to refuse a taken name raises it.
     #[error(
         "worktree creation refused: branch {} already has a live checkout on repo mount {}",
         .branch_name.as_str(),
@@ -117,14 +116,14 @@ pub(crate) enum WorktreeRefusal {
     },
     /// A removal refused because an agent runs in the tree, or because a plain removal would lose
     /// what the tree now holds, whose current risks the confirm redraws
-    /// (`worktree.retire_conflict`).
+    /// (`worktree.retireConflict`).
     #[error("{}", retire_conflict_message(.details))]
     RetireConflict {
         /// Why, with the session running there or the current risks.
         details: WorktreeRetireConflictDetails,
     },
     /// A discard refused because the system would not move the tree aside while a program outside
-    /// the app holds a file in it open; nothing was removed (`worktree.retire_folder_held`).
+    /// the app holds a file in it open; nothing was removed (`worktree.retireFolderHeld`).
     #[error(
         "worktree {} cannot be moved aside: a program outside the app holds a file",
         .worktree_id
@@ -138,7 +137,7 @@ pub(crate) enum WorktreeRefusal {
     },
     /// A discard whose move across volumes copied the tree whole to its kept place but could not
     /// remove the original completely; the kept copy is listed and the tree stays live
-    /// (`worktree.retire_incomplete`).
+    /// (`worktree.retireIncomplete`).
     #[error(
         "worktree {} was copied to kept copy {}, but its original folder could not be removed \
          completely",
@@ -153,7 +152,7 @@ pub(crate) enum WorktreeRefusal {
         source: Box<dyn Error + Send + Sync>,
     },
     /// Preparing the root failed at the run's setup gate, which ends the run `failed`
-    /// (`workspace.execution_root_unresolved`). The detail names the cause's code when it has one;
+    /// (`workspace.executionRoot.unresolved`). The detail names the cause's code when it has one;
     /// the cause's message never reaches the wire.
     #[error("{}", execution_root_unresolved_message(.workspace_id, .cause))]
     ExecutionRootUnresolved {
@@ -164,7 +163,7 @@ pub(crate) enum WorktreeRefusal {
         cause: RunSetupGateError,
     },
     /// A wire prepare omitted its branch name, which the daemon derives only when a run is set up
-    /// (`workspace.branch_name_required`); raised before any git call.
+    /// (`workspace.branchNameRequired`); raised before any git call.
     #[error(
         "execution root prepare refused for workspace {}: a wire prepare must carry a branch \
          name, because the daemon derives one only when a run is set up",
@@ -178,95 +177,80 @@ pub(crate) enum WorktreeRefusal {
 
 impl From<WorktreeRefusal> for DomainError {
     fn from(refusal: WorktreeRefusal) -> Self {
-        use DomainErrorJsonRpcCode::{InternalError, InvalidParams};
-
         let message = refusal.to_string();
-        // An id the call supplies that resolves to nothing is a bad parameter; every other refusal
-        // answers as an internal error.
-        let (code, json_rpc_code, detail, source): (_, _, _, Option<Box<dyn Error + Send + Sync>>) =
-            match refusal {
-                WorktreeRefusal::NotFound { worktree_id } => (
-                    RefusalCode::WorktreeNotFound,
-                    InvalidParams,
-                    refusal_fields(json!({ "worktreeId": worktree_id })),
-                    None,
-                ),
-                WorktreeRefusal::RemovedNotFound {
-                    removed_worktree_id,
-                } => (
-                    RefusalCode::WorktreeRemovedNotFound,
-                    InvalidParams,
-                    refusal_fields(json!({ "removedWorktreeId": removed_worktree_id })),
-                    None,
-                ),
-                WorktreeRefusal::CreateFailed { reason, source } => (
-                    RefusalCode::WorktreeCreateFailed,
-                    InternalError,
-                    create_failed_detail(&reason),
-                    source,
-                ),
-                WorktreeRefusal::BranchCollision {
-                    repo_mount_id,
-                    branch_name,
-                } => (
-                    RefusalCode::WorktreeBranchCollision,
-                    InternalError,
-                    refusal_fields(json!({
-                        "repoMountId": repo_mount_id,
-                        "branchName": branch_name.as_str(),
-                    })),
-                    None,
-                ),
-                WorktreeRefusal::RetireConflict { details } => (
-                    RefusalCode::WorktreeRetireConflict,
-                    InternalError,
-                    refusal_fields(details),
-                    None,
-                ),
-                WorktreeRefusal::RetireFolderHeld {
-                    worktree_id,
-                    source,
-                } => (
-                    RefusalCode::WorktreeRetireFolderHeld,
-                    InternalError,
-                    refusal_fields(json!({ "worktreeId": worktree_id })),
-                    Some(source.into()),
-                ),
-                WorktreeRefusal::RetireIncomplete { details, source } => (
-                    RefusalCode::WorktreeRetireIncomplete,
-                    InternalError,
-                    refusal_fields(details),
-                    Some(source),
-                ),
-                WorktreeRefusal::ExecutionRootUnresolved {
-                    workspace_id,
-                    cause,
-                } => {
-                    let detail = match cause_code_of(&cause) {
-                        Some(cause_code) => json!({
-                            "workspaceId": workspace_id,
-                            "causeCode": cause_code.as_str(),
-                        }),
-                        None => json!({ "workspaceId": workspace_id }),
-                    };
-                    (
-                        RefusalCode::WorkspaceExecutionRootUnresolved,
-                        InternalError,
-                        refusal_fields(detail),
-                        Some(cause.into()),
-                    )
-                }
-                WorktreeRefusal::BranchNameRequired { workspace_id } => (
-                    RefusalCode::WorkspaceBranchNameRequired,
-                    InternalError,
-                    refusal_fields(json!({ "workspaceId": workspace_id })),
-                    None,
-                ),
-            };
+        let (code, detail, source): (_, _, Option<Box<dyn Error + Send + Sync>>) = match refusal {
+            WorktreeRefusal::NotFound { worktree_id } => (
+                RefusalCode::WorktreeNotFound,
+                refusal_fields(json!({ "worktreeId": worktree_id })),
+                None,
+            ),
+            WorktreeRefusal::RemovedNotFound {
+                removed_worktree_id,
+            } => (
+                RefusalCode::WorktreeRemovedNotFound,
+                refusal_fields(json!({ "removedWorktreeId": removed_worktree_id })),
+                None,
+            ),
+            WorktreeRefusal::CreateFailed { reason, source } => (
+                RefusalCode::WorktreeCreateFailed,
+                create_failed_detail(&reason),
+                source,
+            ),
+            WorktreeRefusal::BranchCollision {
+                repo_mount_id,
+                branch_name,
+            } => (
+                RefusalCode::WorktreeBranchCollision,
+                refusal_fields(json!({
+                    "repoMountId": repo_mount_id,
+                    "branchName": branch_name.as_str(),
+                })),
+                None,
+            ),
+            WorktreeRefusal::RetireConflict { details } => (
+                RefusalCode::WorktreeRetireConflict,
+                refusal_fields(details),
+                None,
+            ),
+            WorktreeRefusal::RetireFolderHeld {
+                worktree_id,
+                source,
+            } => (
+                RefusalCode::WorktreeRetireFolderHeld,
+                refusal_fields(json!({ "worktreeId": worktree_id })),
+                Some(source.into()),
+            ),
+            WorktreeRefusal::RetireIncomplete { details, source } => (
+                RefusalCode::WorktreeRetireIncomplete,
+                refusal_fields(details),
+                Some(source),
+            ),
+            WorktreeRefusal::ExecutionRootUnresolved {
+                workspace_id,
+                cause,
+            } => {
+                let detail = match cause_code_of(&cause) {
+                    Some(cause_code) => json!({
+                        "workspaceId": workspace_id,
+                        "causeCode": cause_code.as_str(),
+                    }),
+                    None => json!({ "workspaceId": workspace_id }),
+                };
+                (
+                    RefusalCode::WorkspaceExecutionRootUnresolved,
+                    refusal_fields(detail),
+                    Some(cause.into()),
+                )
+            }
+            WorktreeRefusal::BranchNameRequired { workspace_id } => (
+                RefusalCode::WorkspaceBranchNameRequired,
+                refusal_fields(json!({ "workspaceId": workspace_id })),
+                None,
+            ),
+        };
         DomainError {
             message,
             code,
-            json_rpc_code,
             detail: Some(detail),
             source,
         }

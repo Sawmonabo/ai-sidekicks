@@ -77,7 +77,7 @@ macro_rules! preview_mark {
         #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
         #[serde(
             tag = "kind",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -137,7 +137,7 @@ preview_mark! {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewMarksSendRequest {
+pub struct PreviewMarkSendRequest {
     /// The session.
     pub session_id: SessionId,
     /// The page.
@@ -158,7 +158,7 @@ pub struct PreviewMarksSendRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewMarksSendResponse {
+pub struct PreviewMarkSendResponse {
     /// The staged attachment.
     pub staged: SessionAttachmentSummary,
 }

@@ -202,8 +202,8 @@ impl ClaudeWireFrameKind {
     fn normalization(self) -> ClaudeFrameNormalization {
         use ClaudeWireChannel::{ControlRequest, ControlResponse, Stream};
         match self {
-            // A forward marker only: `run.*` transitions stay daemon-emitted, never derived from
-            // init.
+            // A forward marker only: `agent.run.*` transitions stay daemon-emitted, never derived
+            // from init.
             Self::SystemInit => self.normalized(Stream, NormalizedEventKind::Init),
             // `system/api_error` maps onto the retry kind; the typed-error members are carried
             // verbatim by the payload layer, since a string census cannot prove the set closed.
@@ -221,7 +221,7 @@ impl ClaudeWireFrameKind {
             // this row and reaches the diagnostic default branch.
             Self::SystemWorkerShuttingDown => ClaudeFrameNormalization::Normalized(self.emission(
                 Stream,
-                SessionEventType::RunWorkerShutdown,
+                SessionEventType::AgentRunWorkerShuttingDown,
                 None,
             )),
             Self::SystemHookStarted => self.not_evented(
@@ -246,7 +246,7 @@ impl ClaudeWireFrameKind {
             Self::SystemFilesPersisted => self.not_evented(
                 Stream,
                 "file-write summary; the adopted `diff` / `command_output` kinds plus \
-                 `artifact_publication` already carry the file-change capability",
+                 `artifactPublication` already carry the file-change capability",
             ),
             Self::SystemToolUseSummary => self.not_evented(
                 Stream,
@@ -291,10 +291,11 @@ impl ClaudeWireFrameKind {
                 "a host-rendered dialog, sent only for a kind the host declared at `initialize`; \
                  the CLI fails closed on any other. The daemon's two kinds are \
                  `refusal_fallback_prompt` and `fable_overage_consent_prompt`, recorded as \
-                 `run.refusal_choice_requested` and `run.usage_credits_choice_requested`, and \
-                 neither arrives until the driver declares them. `auto_mode_server_fallback` stays \
-                 undeclared, its words reaching the working line as a provider warning, and \
-                 `auto_mode_outside_reads` never reaches a headless host",
+                 `agent.run.refusalChoice.requested` and \
+                 `agent.run.usageCreditsChoice.requested`, and neither arrives until the driver \
+                 declares them. `auto_mode_server_fallback` stays undeclared, its words reaching \
+                 the working line as a provider warning, and `auto_mode_outside_reads` never \
+                 reaches a headless host",
             ),
             Self::ControlRequestHookCallback => self.not_evented(
                 ControlRequest,
@@ -347,7 +348,7 @@ impl ClaudeWireFrameKind {
             Self::ControlRequestGetSessionCost => self.not_evented(
                 ControlRequest,
                 "daemon-originated read; cost reaches the transcript through the driver's \
-                 `usage.cost_update` emission, never through the request that polled for it",
+                 `usage.cost.updated` emission, never through the request that polled for it",
             ),
             Self::ControlRequestListModels => self.not_evented(
                 ControlRequest,
@@ -525,7 +526,7 @@ pub(crate) struct ClaudeSubagentLifecycleSignal {
 pub(crate) struct ClaudeSubagentLifecycleNormalization {
     /// The event's category, its type's own.
     pub(crate) category: EventCategory,
-    /// `subagent.started` or `subagent.completed`.
+    /// `agent.subagent.started` or `agent.subagent.completed`.
     pub(crate) event_type: SessionEventType,
     /// The helper's id.
     pub(crate) subagent_id: String,
@@ -537,10 +538,10 @@ pub(crate) struct ClaudeSubagentLifecycleNormalization {
     pub(crate) announcement: Option<ChildThreadAnnouncement>,
 }
 
-/// Normalizes one helper lifecycle signal into `subagent.started` or `subagent.completed` and, for
-/// a start, the router announcement. Claude Code has no thread id member, so the helper's id is
-/// the child thread's id; `is_registered_helper` answers whether the router still holds a helper,
-/// since a parent that ended or is untracked reads as no parent.
+/// Normalizes one helper lifecycle signal into `agent.subagent.started` or
+/// `agent.subagent.completed` and, for a start, the router announcement. Claude Code has no thread
+/// id member, so the helper's id is the child thread's id; `is_registered_helper` answers whether
+/// the router still holds a helper, since a parent that ended or is untracked reads as no parent.
 pub(crate) fn normalize_claude_subagent_lifecycle(
     lifecycle_signal: ClaudeSubagentLifecycleSignal,
     session_thread_id: &str,
@@ -560,7 +561,7 @@ pub(crate) fn normalize_claude_subagent_lifecycle(
                     .unwrap_or_else(|| session_thread_id.to_owned())
             });
             (
-                SessionEventType::SubagentStarted,
+                SessionEventType::AgentSubagentStarted,
                 Some(ChildThreadAnnouncement {
                     child_thread_id: subagent_id.clone(),
                     declared_parent_thread_id,
@@ -568,7 +569,7 @@ pub(crate) fn normalize_claude_subagent_lifecycle(
                 }),
             )
         }
-        ClaudeSubagentSignal::SubagentStop => (SessionEventType::SubagentCompleted, None),
+        ClaudeSubagentSignal::SubagentStop => (SessionEventType::AgentSubagentCompleted, None),
     };
     ClaudeSubagentLifecycleNormalization {
         category: event_type.category(),
@@ -692,14 +693,17 @@ mod tests {
         assert_eq!(record.kind, DriverDiagnosticKind::UnmappedWireKind);
         assert_eq!(record.raw_wire_type.as_deref(), Some("system/brand_new"));
         assert_eq!(
-            recorded.field_on("driver.normalize.unmapped_wire_kind", "raw_wire_type"),
+            recorded.field_on("driver.normalize.unmappedWireKind", "raw_wire_type"),
             ["system/brand_new"]
         );
     }
 
     #[rstest]
-    #[case::success("result/success", SessionEventType::RunCompleted)]
-    #[case::error_during_execution("result/error_during_execution", SessionEventType::RunFailed)]
+    #[case::success("result/success", SessionEventType::AgentRunCompleted)]
+    #[case::error_during_execution(
+        "result/error_during_execution",
+        SessionEventType::AgentRunFailed
+    )]
     fn a_result_frame_emits_its_run_ending(
         #[case] frame_kind: &str,
         #[case] event_type: SessionEventType,

@@ -228,8 +228,8 @@ mod tests {
                  '{AT}', '{AT}')"
             ),
             format!(
-                "INSERT INTO repo_mounts (id, node_id, local_path, canonical_root, project_id, \
-                 attached_at, updated_at) VALUES ('mount', 'node', '/repos/app', '/repos/app', \
+                "INSERT INTO repo_mounts (id, machine_id, local_path, canonical_root, project_id, \
+                 attached_at, updated_at) VALUES ('mount', 'machine', '/repos/app', '/repos/app', \
                  'project', '{AT}', '{AT}')"
             ),
             format!(

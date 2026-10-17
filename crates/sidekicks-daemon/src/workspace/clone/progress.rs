@@ -5,7 +5,9 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use regex::Regex;
-use sidekicks_contracts::repo::clone::{CloneLine, REPO_CLONE_LINE_MAX_LEN, RepoCloneProgress};
+use sidekicks_contracts::repo::clone::{
+    CloneLine, PROJECT_CLONE_LINE_MAX_LEN, ProjectCloneProgress,
+};
 use sidekicks_contracts::wire::integer::BoundedInt;
 use sidekicks_contracts::wire::text::{ECMASCRIPT_WHITESPACE_CLASS, is_ecmascript_whitespace};
 use tokio::sync::watch;
@@ -27,19 +29,19 @@ static PROGRESS_LINE: LazyLock<Regex> = LazyLock::new(|| {
 
 // The longest unfinished line kept, in code points, while git has not ended it; past this its
 // start is cut, so a stream with no line break never grows the daemon's memory.
-const PENDING_TEXT_MAX_LEN: usize = 4 * REPO_CLONE_LINE_MAX_LEN;
+const PENDING_TEXT_MAX_LEN: usize = 4 * PROJECT_CLONE_LINE_MAX_LEN;
 
 /// Reads git's stderr for the clone card: the latest progress, handed to `on_progress` line by
 /// line, and the line a failure is told with. Git redraws a progress line with a carriage return,
 /// so a line ends at either break; only the newest lines are held.
-pub(crate) struct GitProgressReader<OnProgress: FnMut(RepoCloneProgress)> {
+pub(crate) struct GitProgressReader<OnProgress: FnMut(ProjectCloneProgress)> {
     on_progress: OnProgress,
     pending_text: String,
     last_error_line: Option<CloneLine>,
     last_line: Option<CloneLine>,
 }
 
-impl<OnProgress: FnMut(RepoCloneProgress)> GitProgressReader<OnProgress> {
+impl<OnProgress: FnMut(ProjectCloneProgress)> GitProgressReader<OnProgress> {
     /// A reader that hands each progress line git writes to `on_progress`.
     pub(crate) fn new(on_progress: OnProgress) -> Self {
         Self {
@@ -77,9 +79,9 @@ impl<OnProgress: FnMut(RepoCloneProgress)> GitProgressReader<OnProgress> {
     fn read_line(&mut self, raw_line: &str) {
         let trimmed = raw_line.trim_matches(is_ecmascript_whitespace);
         // A line blank once trimmed, or once its NULs are dropped, is no line of git's.
-        let Ok(line) =
-            CloneLine::new(cut_to_code_points(trimmed, REPO_CLONE_LINE_MAX_LEN).replace('\0', ""))
-        else {
+        let Ok(line) = CloneLine::new(
+            cut_to_code_points(trimmed, PROJECT_CLONE_LINE_MAX_LEN).replace('\0', ""),
+        ) else {
             return;
         };
         if line.as_str().starts_with("fatal: ") || line.as_str().starts_with("error: ") {
@@ -95,7 +97,7 @@ impl<OnProgress: FnMut(RepoCloneProgress)> GitProgressReader<OnProgress> {
 }
 
 // The phase and percent a progress line carries; a line whose phase is blank carries none.
-fn progress_of(line: &str) -> Option<RepoCloneProgress> {
+fn progress_of(line: &str) -> Option<ProjectCloneProgress> {
     let parts = PROGRESS_LINE.captures(line)?;
     let phase = parts
         .get(1)?
@@ -106,7 +108,7 @@ fn progress_of(line: &str) -> Option<RepoCloneProgress> {
         .as_str()
         .parse()
         .expect("one to three digits read as a number");
-    Some(RepoCloneProgress {
+    Some(ProjectCloneProgress {
         phase: CloneLine::new(phase.to_owned()).ok()?,
         percent: Some(
             BoundedInt::new(percent.min(100)).expect("a percent capped at 100 lies in 0..=100"),
@@ -163,7 +165,7 @@ mod tests {
     use std::sync::{Arc, Mutex, PoisonError};
 
     use rstest::rstest;
-    use sidekicks_contracts::repo::clone::RepoCloneProgress;
+    use sidekicks_contracts::repo::clone::ProjectCloneProgress;
     use sidekicks_contracts::wire::integer::BoundedInt;
     use sidekicks_contracts::wire::text::FreeFormText;
     use tokio::time::{Duration, Instant};
@@ -183,7 +185,7 @@ mod tests {
         };
         // Git's progress through a reader, a line every 5 ms for two seconds.
         let burst_began = Instant::now();
-        let mut reader = GitProgressReader::new(|progress: RepoCloneProgress| {
+        let mut reader = GitProgressReader::new(|progress: ProjectCloneProgress| {
             gate.offer(progress.percent.map_or(-1, BoundedInt::get));
         });
         for tick in 0..400 {
@@ -216,7 +218,7 @@ mod tests {
         #[case] expected: &[(&str, i64)],
     ) {
         let mut progress = Vec::new();
-        let mut reader = GitProgressReader::new(|update: RepoCloneProgress| {
+        let mut reader = GitProgressReader::new(|update: ProjectCloneProgress| {
             progress.push((
                 update.phase.into_string(),
                 update.percent.map(BoundedInt::get),
@@ -236,7 +238,7 @@ mod tests {
     #[case::last_line("Cloning into 'app'...\nsomething else", Some("something else"))]
     #[case::nothing(" \r\n", None)]
     fn tells_a_failure_with_git_s_own_line(#[case] stderr: &str, #[case] line: Option<&str>) {
-        let mut reader = GitProgressReader::new(|_: RepoCloneProgress| {});
+        let mut reader = GitProgressReader::new(|_: ProjectCloneProgress| {});
         reader.read(stderr);
         assert_eq!(
             reader.failure_line().as_ref().map(FreeFormText::as_str),
@@ -247,7 +249,7 @@ mod tests {
     #[test]
     fn keeps_only_the_last_code_points_of_a_line_git_never_ends() {
         let tail = format!("b{}", "é".repeat(4 * 1024 - 1));
-        let mut reader = GitProgressReader::new(|_: RepoCloneProgress| {});
+        let mut reader = GitProgressReader::new(|_: ProjectCloneProgress| {});
         reader.read(&"a".repeat(5_000));
         reader.read(&tail);
         let line = reader.failure_line().expect("the unfinished line is read");

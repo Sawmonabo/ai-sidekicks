@@ -1,4 +1,4 @@
-//! The one `session.not_found` refusal a session's create, conversion, changes and reads raise for
+//! The one `session.notFound` refusal a session's create, conversion, changes and reads raise for
 //! an id this daemon holds no session under.
 
 use serde_json::json;

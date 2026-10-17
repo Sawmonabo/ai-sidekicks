@@ -26,7 +26,7 @@ use crate::wire::integer::SafeInt;
 use crate::wire::text::{ComposedText, FreeFormText};
 use crate::wire::{Never, literal};
 
-/// The `session.side_question_answered` payload: the person's question and the provider's answer,
+/// The `session.sideQuestion.answered` payload: the person's question and the provider's answer,
 /// each as written. The aside never enters the conversation.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -41,11 +41,11 @@ pub struct SessionSideQuestionAnsweredPayload {
     pub answer: FreeFormText<{ usize::MAX }>,
 }
 
-/// The `run.step_limit_reached` payload: a turn reached the step bound and ended there, and the run
-/// then ends as interrupted. `count` is the bound reached, drawn beside `Continue`.
+/// The `agent.run.stepLimit.reached` payload: a turn reached the step bound and ended there, and
+/// the run then ends as interrupted. `count` is the bound reached, drawn beside `Continue`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunStepLimitReachedPayload {
+pub struct AgentRunStepLimitReachedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -54,8 +54,8 @@ pub struct RunStepLimitReachedPayload {
     pub count: SafeInt<1>,
 }
 
-/// The `session.spend_limit_reached` payload: the session's spend passed its `Spend limit`, so
-/// every running turn in it stopped. `spend_limit_usd_micros` is the limit, drawn beside `Raise
+/// The `session.spendLimit.reached` payload: the session's spend passed its `Spend limit`, so
+/// every running turn in it stopped. `spendLimitUsdMicros` is the limit, drawn beside `Raise
 /// limit`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -66,11 +66,11 @@ pub struct SessionSpendLimitReachedPayload {
     pub spend_limit_usd_micros: UsdMicros,
 }
 
-/// The `run.token_limit_reached` payload: the run passed its `Tokens per run` and ended, and the
-/// next message starts a new run. `token_limit` is the limit, drawn beside `Raise limit`.
+/// The `agent.run.tokenLimit.reached` payload: the run passed its `Tokens per run` and ended, and
+/// the next message starts a new run. `tokenLimit` is the limit, drawn beside `Raise limit`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunTokenLimitReachedPayload {
+pub struct AgentRunTokenLimitReachedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -104,8 +104,8 @@ pub struct RunSafetyBufferingUpdatedPayload {
 }
 
 literal! {
-    /// The `settings_ignored` notice kind.
-    pub enum SettingsIgnoredKind = "settings_ignored";
+    /// The `settingsIgnored` notice kind.
+    pub enum SettingsIgnoredKind = "settingsIgnored";
 }
 
 /// A provider started without part of its own settings, by a report naming a file and a line in
@@ -116,7 +116,7 @@ literal! {
 pub struct SettingsIgnoredAtLineNotice {
     /// The session.
     pub session_id: SessionId,
-    /// Always `settings_ignored`.
+    /// Always `settingsIgnored`.
     pub kind: SettingsIgnoredKind,
     /// The provider whose settings were ignored.
     pub provider: ProviderId,
@@ -142,7 +142,7 @@ pub struct SettingsIgnoredAtLineNotice {
 pub struct SettingsIgnoredAtKeyNotice {
     /// The session.
     pub session_id: SessionId,
-    /// Always `settings_ignored`.
+    /// Always `settingsIgnored`.
     pub kind: SettingsIgnoredKind,
     /// The provider whose settings were ignored.
     pub provider: ProviderId,
@@ -174,7 +174,7 @@ pub struct SettingsIgnoredAtKeyNotice {
 
 /// Which kind of notice a provider warning came from: a warning or a deprecation notice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum ProviderWarningSource {
     /// A warning.
     Warning,
@@ -182,12 +182,12 @@ pub enum ProviderWarningSource {
     Deprecation,
 }
 
-/// Every `session.notice` kind but `settings_ignored`, each drawn as one plain sentence. A crash
-/// loop names exactly one of the exit code and the signal its process ended on.
+/// Every `session.notice.posted` kind but `settingsIgnored`, each drawn as one plain sentence. A
+/// crash loop names exactly one of the exit code and the signal its process ended on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -395,12 +395,13 @@ impl SessionNotice {
     }
 }
 
-/// The `session.notice` payload. Its kinds are a closed set, each drawn as one plain sentence;
-/// `settings_ignored` takes one shape per kind of report: a file and a line, or a file and a key.
+/// The `session.notice.posted` payload. Its kinds are a closed set, each drawn as one plain
+/// sentence; `settingsIgnored` takes one shape per kind of report: a file and a line, or a file and
+/// a key.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 #[garde(allow_unvalidated)]
-pub enum SessionNoticePayload {
+pub enum SessionNoticePostedPayload {
     /// A provider ignored part of its settings, by a report naming a file and a line.
     SettingsIgnoredAtLine(SettingsIgnoredAtLineNotice),
     /// A provider ignored part of its settings, by a report naming a file and a key.
@@ -411,7 +412,7 @@ pub enum SessionNoticePayload {
 
 /// Which of a provider's reviewer signals a flag carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ModerationReviewSignal {
     /// A warning.
     ReviewWarning,
@@ -419,12 +420,12 @@ pub enum ModerationReviewSignal {
     ReviewRequired,
 }
 
-/// The `moderation.review_flagged` payload: a warning or a required review from the provider's own
-/// reviewer, drawn as one row in the provider's words. `event_id` names the item the flag is about;
+/// The `approval.reviewer.flagged` payload: a warning or a required review from the provider's own
+/// reviewer, drawn as one row in the provider's words. `eventId` names the item the flag is about;
 /// `text` is the words the row shows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ModerationReviewFlaggedPayload {
+pub struct ApprovalReviewerFlaggedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -447,14 +448,14 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           reviewer, and the live frame of a provider's safety hold on a turn.",
     definitions: &[
         Definition::read::<SessionSideQuestionAnsweredPayload>().checked(),
-        Definition::read::<RunStepLimitReachedPayload>().checked(),
+        Definition::read::<AgentRunStepLimitReachedPayload>().checked(),
         Definition::read::<SessionSpendLimitReachedPayload>().checked(),
-        Definition::read::<RunTokenLimitReachedPayload>().checked(),
+        Definition::read::<AgentRunTokenLimitReachedPayload>().checked(),
         Definition::read::<RunSafetyBufferingUpdatedPayload>().checked(),
         Definition::read::<ProviderWarningSource>(),
-        Definition::read::<SessionNoticePayload>().checked(),
+        Definition::read::<SessionNoticePostedPayload>().checked(),
         Definition::read::<ModerationReviewSignal>(),
-        Definition::read::<ModerationReviewFlaggedPayload>().checked(),
+        Definition::read::<ApprovalReviewerFlaggedPayload>().checked(),
     ],
     constants: &[],
     method_tables: &[],

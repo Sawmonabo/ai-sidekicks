@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::jsonrpc::refusal::RefusalCode;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -106,29 +106,29 @@ methods! {
     pub const PREVIEW_PORT_METHOD_DESCRIPTORS = [
         /// Streams the machine's shared ports; the list is the machine's, so the request names
         /// nothing.
-        PreviewPortShareList = subscription "preview.portShareList" {
+        PreviewPortShareSubscribe = subscription "preview.portShare.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: PreviewPortShareListFrame,
             refusals: [],
         },
         /// Shares a port.
-        PreviewPortShareAdd = mutation "preview.portShareAdd" {
+        PreviewPortShareAdd = mutation "preview.portShare.add" {
             mutating: true,
             params: PreviewPortRequest,
             result: PreviewPortShareAddResponse,
-            refusals: [PreviewPortAlreadyShared],
+            refusals: [PreviewPortShareAlreadyExists],
         },
         /// Stops sharing a port.
-        PreviewPortShareRemove = mutation "preview.portShareRemove" {
+        PreviewPortShareRemove = mutation "preview.portShare.remove" {
             mutating: true,
             params: PreviewPortRequest,
             result: PreviewPortShareRemoveResponse,
             refusals: [],
         },
         /// Issues a shared port's web address with its ticket.
-        PreviewPortTicketIssue = mutation "preview.portTicketIssue" {
+        PreviewPortTicketIssue = mutation "preview.portTicket.issue" {
             mutating: true,
             params: PreviewPortRequest,
             result: PreviewPortTicketIssueResponse,
@@ -139,7 +139,7 @@ methods! {
 
 ts_constants! {
     /// A port added to the shared list that is on it already; nothing changes.
-    PREVIEW_PORT_ALREADY_SHARED_CODE = RefusalCode::PreviewPortAlreadyShared;
+    PREVIEW_PORT_SHARE_ALREADY_EXISTS_CODE = RefusalCode::PreviewPortShareAlreadyExists;
     /// A forward or a web ticket asked for a port that is not on the shared list.
     PREVIEW_PORT_NOT_SHARED_CODE = RefusalCode::PreviewPortNotShared;
 }

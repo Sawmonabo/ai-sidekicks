@@ -11,14 +11,15 @@ use crate::wire::text::FreeFormText;
 
 literal! {
     /// The code of a definition that cannot resolve to a runnable agent, wherever its refusal is
-    /// carried: always `agent.resolution_refused`.
-    pub enum AgentResolutionRefusedCode = const RefusalCode::AgentResolutionRefused.as_str();
+    /// carried: always `agent.definition.resolutionRefused`.
+    pub enum AgentDefinitionResolutionRefusedCode =
+        const RefusalCode::AgentDefinitionResolutionRefused.as_str();
 }
 
 /// The operating system's own cause of a failed export write, as it reported it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AgentExportWriteFailedDetails {
+pub struct AgentDefinitionExportWriteFailedDetails {
     /// The cause.
     pub cause: FreeFormText<AGENT_REASON_MAX_LEN>,
 }
@@ -31,7 +32,7 @@ pub(crate) type NullableProviderToken =
 /// attributes: a definition's id where one always runs, nullable where the agent may run none.
 /// Each reason names what was asked for beside what is available, since neither alone tells a
 /// person what to edit.
-macro_rules! agent_resolution_refused_details {
+macro_rules! agent_definition_resolution_refused_details {
     (
         $(#[doc = $doc:literal])+
         $name:ident, $(#[$id_meta:meta])* $definition_id:ty
@@ -49,7 +50,7 @@ macro_rules! agent_resolution_refused_details {
         )]
         #[serde(
             tag = "reason",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -112,19 +113,19 @@ macro_rules! agent_resolution_refused_details {
     };
 }
 
-pub(crate) use agent_resolution_refused_details;
+pub(crate) use agent_definition_resolution_refused_details;
 
-agent_resolution_refused_details! {
+agent_definition_resolution_refused_details! {
     /// Why a definition that exists cannot produce a runnable agent now. The remedy is the same
     /// in every case, edit the definition or repair the account, so one code carries a reason.
-    AgentResolutionRefusedDetails, AgentDefinitionId
+    AgentDefinitionResolutionRefusedDetails, AgentDefinitionId
 }
 
 /// Why an update was refused: the definition is a plugin's agent, which is read-only, or a
 /// reattach named a record that is not orphaned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentUpdateRefusedReason {
+#[serde(rename_all = "camelCase")]
+pub enum AgentDefinitionUpdateRefusedReason {
     /// A plugin's agent.
     PluginReadOnly,
     /// The record is not orphaned.
@@ -134,9 +135,9 @@ pub enum AgentUpdateRefusedReason {
 /// The update refusal's details: the definition and why.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AgentUpdateRefusedDetails {
+pub struct AgentDefinitionUpdateRefusedDetails {
     /// The definition.
     pub definition_id: AgentDefinitionId,
     /// Why.
-    pub reason: AgentUpdateRefusedReason,
+    pub reason: AgentDefinitionUpdateRefusedReason,
 }

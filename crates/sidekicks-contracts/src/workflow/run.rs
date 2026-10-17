@@ -9,7 +9,7 @@ pub mod failures;
 pub mod gate_resolution;
 pub mod id;
 pub mod list;
-pub mod pause;
+pub mod new_run_hold;
 pub mod records;
 pub mod retention;
 pub mod snapshot;

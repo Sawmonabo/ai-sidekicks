@@ -1,5 +1,5 @@
 //! The transcript row every transcript read returns, discriminated on the closed `kind` (`run`,
-//! `rollback_boundary`, `general`). `type` is free-form so a row projected from a newer producer's
+//! `rollbackBoundary`, `general`). `type` is free-form so a row projected from a newer producer's
 //! event still parses; consumers narrow on `kind`, never on it. [`TranscriptRunStamp`] is the run
 //! arm's attribution alone, for an event delivered without its row.
 
@@ -14,7 +14,7 @@ use crate::event::envelope::{
 use crate::event::registry::SessionEventType;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
-use crate::run::control::RunRolledBackEvent;
+use crate::run::control::AgentRunRolledBackEvent;
 use crate::run::id::RunId;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
@@ -35,9 +35,10 @@ use crate::wire::record::{prototype_free, prototype_free_names};
 use crate::wire::text::FreeFormText;
 
 ts_constants! {
-    /// The event type the `rollback_boundary` arm pins.
-    pub const TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE: &str = SessionEventType::RunRolledBack.as_str();
-    /// The category every `run_lifecycle` event belongs to, and the one the boundary arm pins.
+    /// The event type the `rollbackBoundary` arm pins.
+    pub const TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE: &str =
+        SessionEventType::AgentRunRolledBack.as_str();
+    /// The category every `runLifecycle` event belongs to, and the one the boundary arm pins.
     /// Every type in it is run-scoped, which is why the `general` arm refuses the category.
     pub const TRANSCRIPT_RUN_LIFECYCLE_CATEGORY: EventCategory = EventCategory::RunLifecycle;
     /// The payload keys that name a run: `runId` everywhere, and `targetRunId` on interventions.
@@ -50,36 +51,36 @@ ts_constants! {
     RUN_START_POSITION = RUN_START_POSITION;
 }
 
-/// The `interactive_request` types whose payload does not always name a run: queue events, a
+/// The `interactiveRequest` types whose payload does not always name a run: queue events, a
 /// person's message (accepted before any run exists) and a question a workflow step asks. The
 /// rest of the category is run-scoped, so a newly added type defaults to run-scoped.
 const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: [SessionEventType; 7] = [
-    SessionEventType::QueueItemCreated,
-    SessionEventType::QueueItemAdmitted,
-    SessionEventType::QueueItemSuperseded,
-    SessionEventType::QueueItemCanceled,
-    SessionEventType::QueueItemNotDelivered,
-    SessionEventType::UserMessage,
+    SessionEventType::AgentQueueItemCreated,
+    SessionEventType::AgentQueueItemAdmitted,
+    SessionEventType::AgentQueueItemSuperseded,
+    SessionEventType::AgentQueueItemCanceled,
+    SessionEventType::AgentQueueItemNotDelivered,
+    SessionEventType::UserMessageSent,
     SessionEventType::QuestionAsked,
 ];
 
-/// The `usage_telemetry` types whose payload requires `runId`, listed positively because the
+/// The `usageTelemetry` types whose payload requires `runId`, listed positively because the
 /// category's shared shape leaves it optional: a session-scoped budget warning is a real row.
 const USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN: [SessionEventType; 2] = [
-    SessionEventType::UsageContextCompacted,
-    SessionEventType::UsageModelRerouted,
+    SessionEventType::AgentRunContextCompacted,
+    SessionEventType::AgentTurnRerouted,
 ];
 
-/// The `approval_flow` types whose payload requires `runId`: an ask, its answer and its end belong
-/// to the run that raised it. `approval.rule_revoked` is decided per row by its payload.
+/// The `approvalFlow` types whose payload requires `runId`: an ask, its answer and its end belong
+/// to the run that raised it. `approval.rule.revoked` is decided per row by its payload.
 const APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN: [SessionEventType; 8] = [
     SessionEventType::ApprovalRequested,
     SessionEventType::ApprovalApproved,
     SessionEventType::ApprovalRejected,
     SessionEventType::ApprovalCanceled,
-    SessionEventType::ApprovalRemembered,
+    SessionEventType::ApprovalRuleRemembered,
     SessionEventType::ApprovalReviewerDenied,
-    SessionEventType::ModerationReviewFlagged,
+    SessionEventType::ApprovalReviewerFlagged,
     SessionEventType::PlanProposed,
 ];
 
@@ -132,7 +133,7 @@ pub struct SupersededMarker {
 }
 
 /// One file whose patch a tool call's row left out, and the patch's size in bytes;
-/// `transcript.patchRead` fetches every left-out patch of the call in one read.
+/// `transcript.patch.list` fetches every left-out patch of the call in one read.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TranscriptOmittedPatch {
@@ -151,12 +152,12 @@ pub struct TranscriptOmittedPatch {
 }
 
 literal! {
-    /// The `rollback_boundary` arm's category: `run_lifecycle`, the one `run.rolled_back` belongs
-    /// to.
+    /// The `rollbackBoundary` arm's category: `runLifecycle`, the one `agent.run.rolledBack`
+    /// belongs to.
     pub enum RunLifecycleCategory = const EventCategory::RunLifecycle.as_str();
 
-    /// The `rollback_boundary` arm's event type: `run.rolled_back`.
-    pub enum RollbackBoundaryType = const SessionEventType::RunRolledBack.as_str();
+    /// The `rollbackBoundary` arm's event type: `agent.run.rolledBack`.
+    pub enum RollbackBoundaryType = const SessionEventType::AgentRunRolledBack.as_str();
 }
 
 /// Refuses a marker that does not supersede its row: the row's position must exceed the marker's
@@ -247,8 +248,8 @@ transcript_row_arm! {
     #[schemars(inline)]
     #[garde(allow_unvalidated)]
     pub struct TranscriptEntry {
-        /// The event's category; never `run_lifecycle`, whose every event is run-scoped.
-        #[schemars(extend("not" = { "const": "run_lifecycle" }))]
+        /// The event's category; never `runLifecycle`, whose every event is run-scoped.
+        #[schemars(extend("not" = { "const": "runLifecycle" }))]
         pub category: EventCategory,
         /// The event's type, free-form by contract: narrow on `kind`, never on this.
         #[serde(rename = "type")]
@@ -272,7 +273,7 @@ impl TranscriptEntry {
     fn refuse_run_scoped_row(&self, event_type: &str) -> garde::Result {
         if self.category == EventCategory::RunLifecycle {
             return Err(garde::Error::new(
-                "every run_lifecycle event is run-scoped, so it belongs to the run arm",
+                "every runLifecycle event is run-scoped, so it belongs to the run arm",
             ));
         }
         if SessionEventType::from_wire_name(event_type)
@@ -304,7 +305,7 @@ transcript_row_arm! {
     pub struct RunScopedTranscriptEntry {
         /// The event's category.
         pub category: EventCategory,
-        /// The event's type; never `run.rolled_back`, which only the boundary arm carries.
+        /// The event's type; never `agent.run.rolledBack`, which only the boundary arm carries.
         #[serde(rename = "type")]
         #[schemars(extend("not" = { "const": TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE }))]
         #[garde(custom(|event_type: &FreeFormText<EVENT_FIELD_MAX_LEN>, (): &()| {
@@ -348,7 +349,7 @@ transcript_row_arm! {
 fn refuse_boundary_type(event_type: &str) -> garde::Result {
     if event_type == TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE {
         Err(garde::Error::new(
-            "the run.rolled_back event type is carried only by the rollback_boundary arm",
+            "the agent.run.rolledBack event type is carried only by the rollbackBoundary arm",
         ))
     } else {
         Ok(())
@@ -385,14 +386,14 @@ impl RunScopedTranscriptEntry {
 }
 
 transcript_row_arm! {
-    /// `kind: "rollback_boundary"`, the `run.rolled_back` row, whose typed payload agrees with the
-    /// row's `runId`, `sessionId` and `position`.
+    /// `kind: "rollbackBoundary"`, the `agent.run.rolledBack` row, whose typed payload agrees with
+    /// the row's `runId`, `sessionId` and `position`.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[schemars(inline)]
     #[garde(allow_unvalidated)]
     pub struct TranscriptRollbackBoundary {
-        /// Pinned with `type`: `run.rolled_back` belongs to this category only.
+        /// Pinned with `type`: `agent.run.rolledBack` belongs to this category only.
         pub category: RunLifecycleCategory,
         /// The rollback event's type.
         #[serde(rename = "type")]
@@ -416,7 +417,7 @@ transcript_row_arm! {
         #[schemars(with = "SupersededMarker")]
         pub superseded: Option<SupersededMarker>,
         /// The rollback, which names the row's run, session and position.
-        #[garde(custom(|payload: &RunRolledBackEvent, (): &()| {
+        #[garde(custom(|payload: &AgentRunRolledBackEvent, (): &()| {
             self.require_payload_to_agree(payload)
         }))]
         #[schemars(extend("type" = "object", "properties" = {
@@ -424,13 +425,13 @@ transcript_row_arm! {
             "sessionId": { "const": { "$data": "2/sessionId" } },
             "targetPosition": { "const": { "$data": "2/position" } }
         }))]
-        pub payload: RunRolledBackEvent,
+        pub payload: AgentRunRolledBackEvent,
     }
 }
 
 impl TranscriptRollbackBoundary {
     /// Refuses a payload that names another run, session or rewind floor than the row.
-    fn require_payload_to_agree(&self, payload: &RunRolledBackEvent) -> garde::Result {
+    fn require_payload_to_agree(&self, payload: &AgentRunRolledBackEvent) -> garde::Result {
         if payload.run_id != self.run_id {
             return Err(garde::Error::new("runId must equal payload.runId"));
         }
@@ -450,9 +451,9 @@ impl TranscriptRollbackBoundary {
 /// chosen by `kind`, so a failure is reported against that arm and never retried against a
 /// sibling.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum TranscriptReadRow {
-    /// The `run.rolled_back` row.
+    /// The `agent.run.rolledBack` row.
     RollbackBoundary(#[garde(dive)] TranscriptRollbackBoundary),
     /// A run's row.
     Run(#[garde(dive)] RunScopedTranscriptEntry),

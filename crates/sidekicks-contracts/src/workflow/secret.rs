@@ -1,9 +1,9 @@
 //! Workflow secrets: the records a step's Credential chooser lists and manages, the
-//! `secret://<scope>/<name>` reference a node's sensitive parameter stores, the `workflow.secret*`
+//! `secret://<scope>/<name>` reference a node's sensitive parameter stores, the `workflow.secret.*`
 //! methods and the refusals a secret answers with.
 //!
 //! A secret's value is sealed in the operating system's keychain by the daemon. The value crosses
-//! the wire once, inward, as `secretValue` on a create or a replace; it is on no reply, event, log
+//! the wire once, inward, as `secretValue` on a create or an update; it is on no reply, event, log
 //! or error, and a document, a step record or a log holds only the reference. A reference resolves
 //! only in the step that runs, and only in a parameter its kind marks sensitive.
 
@@ -27,7 +27,7 @@ use crate::wire::text::{FreeFormText, pattern_text};
 
 ts_constants! {
     /// Wire members a request-logging transport redacts before writing a record: the value of a
-    /// secret's create or replace.
+    /// secret's create or update.
     pub const WORKFLOW_SECRET_REDACTED_WIRE_MEMBERS: [&str; 1] = ["secretValue"];
 }
 
@@ -65,8 +65,8 @@ pattern_text! {
     IntoStaticStr,
     VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum WorkflowSecretScope {
     /// The runs that work in one project.
     Project,
@@ -166,7 +166,7 @@ impl JsonSchema for WorkflowSecretReference {
     }
 }
 
-/// A secret's value, write-only: it arrives on a create or a replace, is sealed in the keychain,
+/// A secret's value, write-only: it arrives on a create or an update, is sealed in the keychain,
 /// and is on no reply, event, log or error. Its `Debug` form leaves it out.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -232,7 +232,7 @@ workflow_secret_place! {
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(
         tag = "scope",
-        rename_all = "snake_case",
+        rename_all = "camelCase",
         rename_all_fields = "camelCase",
         deny_unknown_fields
     )]
@@ -246,13 +246,14 @@ workflow_secret_place! {
 }
 
 workflow_secret_place! {
-    /// The `workflow.secretCreate` input: the daemon seals `secretValue` in the keychain before it
+    /// The `workflow.secret.create` input: the daemon seals `secretValue` in the keychain before it
     /// writes the record, so a keychain that cannot take it leaves no record. A `name` that breaks
-    /// the rule or that the place already holds is refused with `workflow.secret_name_invalid`.
+    /// the rule is refused with `workflow.secret.nameInvalid`, one the place already holds with
+    /// `workflow.secret.nameTaken`.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(
         tag = "scope",
-        rename_all = "snake_case",
+        rename_all = "camelCase",
         rename_all_fields = "camelCase",
         deny_unknown_fields
     )]
@@ -266,21 +267,21 @@ workflow_secret_place! {
     }
 }
 
-/// The `workflow.secretReplace` input: a new value for one secret, sealed before the record's
+/// The `workflow.secret.update` input: a new value for one secret, sealed before the record's
 /// change is written.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowSecretReplaceRequest {
+pub struct WorkflowSecretUpdateRequest {
     /// The secret.
     pub secret_id: WorkflowSecretId,
     /// The new value.
     pub secret_value: WorkflowSecretValue,
 }
 
-/// The `workflow.secretDelete` input: the daemon records the removal, then removes the keychain
+/// The `workflow.secret.delete` input: the daemon records the removal, then removes the keychain
 /// entry and the record, so a crash between the two finishes it. A version that still names the
-/// secret fails its step with `workflow.secret_not_found`.
+/// secret fails its step with `workflow.secret.notFound`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -289,7 +290,7 @@ pub struct WorkflowSecretDeleteRequest {
     pub secret_id: WorkflowSecretId,
 }
 
-/// The secret a replace or a delete acted on.
+/// The secret an update or a delete acted on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -298,7 +299,7 @@ pub struct WorkflowSecretActResponse {
     pub secret_id: WorkflowSecretId,
 }
 
-/// The `workflow.secretList` result: every secret by name, shared and each project's, one row
+/// The `workflow.secret.list` result: every secret by name, shared and each project's, one row
 /// each, and no member carries a value. The request names nothing: a workflow belongs to no
 /// project, so the chooser lists them all.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -311,15 +312,13 @@ pub struct WorkflowSecretListResponse {
 
 /// Why a secret's name was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowSecretNameInvalidReason {
     /// The name breaks the name rule.
     Pattern,
-    /// The place already holds the name.
-    Taken,
 }
 
-/// The details of `workflow.secret_name_invalid`.
+/// The details of `workflow.secret.nameInvalid`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowSecretNameInvalidDetails {
@@ -343,11 +342,11 @@ pub struct WorkflowSecretReferenceNotFound {
     pub secret_id: Option<Never>,
 }
 
-/// A replace or a delete naming a secret no record holds.
+/// An update or a delete naming a secret no record holds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowSecretRecordNotFound {
-    /// Never present: a replace or a delete names its secret by id.
+    /// Never present: an update or a delete names its secret by id.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -359,19 +358,19 @@ pub struct WorkflowSecretRecordNotFound {
     pub secret_id: WorkflowSecretId,
 }
 
-/// The details of `workflow.secret_not_found`: the reference a failed step stored, or the id a
-/// replace or a delete named, one or the other.
+/// The details of `workflow.secret.notFound`: the reference a failed step stored, or the id an
+/// update or a delete named, one or the other.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum WorkflowSecretNotFoundDetails {
     /// A step's reference.
     Reference(WorkflowSecretReferenceNotFound),
-    /// A replace's or a delete's id.
+    /// An update's or a delete's id.
     Record(WorkflowSecretRecordNotFound),
 }
 
-/// The details of `workflow.secret_store_unavailable`: why the keychain could not be used. A create
-/// or replace is refused, and a step fails and offers `Retry from this step`, never waiting on the
+/// The details of `workflow.secret.storeUnavailable`: why the keychain could not be used. A create
+/// or update is refused, and a step fails and offers `Retry from this step`, never waiting on the
 /// keychain or keeping the value anywhere else.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -384,28 +383,33 @@ methods! {
     /// The workflow secrets' method table.
     pub const WORKFLOW_SECRET_METHOD_DESCRIPTORS = [
         /// Seals a new secret's value and records it under a place and a name.
-        WorkflowSecretCreate = mutation "workflow.secretCreate" {
+        WorkflowSecretCreate = mutation "workflow.secret.create" {
             mutating: true,
             params: WorkflowSecretCreateRequest,
             result: WorkflowSecretSummary,
-            refusals: [WorkflowSecretNameInvalid, WorkflowSecretStoreUnavailable],
+            refusals: [
+                ProjectNotFound,
+                WorkflowSecretNameInvalid,
+                WorkflowSecretNameTaken,
+                WorkflowSecretStoreUnavailable,
+            ],
         },
         /// Replaces a secret's value.
-        WorkflowSecretReplace = mutation "workflow.secretReplace" {
+        WorkflowSecretUpdate = mutation "workflow.secret.update" {
             mutating: true,
-            params: WorkflowSecretReplaceRequest,
+            params: WorkflowSecretUpdateRequest,
             result: WorkflowSecretActResponse,
             refusals: [WorkflowSecretNotFound, WorkflowSecretStoreUnavailable],
         },
         /// Deletes a secret's record and its stored value.
-        WorkflowSecretDelete = mutation "workflow.secretDelete" {
+        WorkflowSecretDelete = mutation "workflow.secret.delete" {
             mutating: true,
             params: WorkflowSecretDeleteRequest,
             result: WorkflowSecretActResponse,
             refusals: [WorkflowSecretNotFound],
         },
         /// Lists every secret by name, never a value.
-        WorkflowSecretList = query "workflow.secretList" {
+        WorkflowSecretList = query "workflow.secret.list" {
             mutating: false,
             params: EmptyPayload,
             result: WorkflowSecretListResponse,
@@ -419,7 +423,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/secret",
     doc: "Workflow secrets: the records a step's Credential chooser lists and manages, the \
           `secret://<scope>/<name>` reference a node's sensitive parameter stores, the \
-          `workflow.secret*` methods and the refusals a secret answers with.",
+          `workflow.secret.*` methods and the refusals a secret answers with.",
     definitions: &[
         Definition::read::<WorkflowSecretId>().checked(),
         Definition::read::<WorkflowSecretName>(),
@@ -427,7 +431,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowSecretReference>(),
         Definition::read::<WorkflowSecretSummary>().checked(),
         Definition::read::<WorkflowSecretCreateRequest>().checked(),
-        Definition::read::<WorkflowSecretReplaceRequest>().checked(),
+        Definition::read::<WorkflowSecretUpdateRequest>().checked(),
         Definition::read::<WorkflowSecretDeleteRequest>().checked(),
         Definition::read::<WorkflowSecretActResponse>().checked(),
         Definition::read::<WorkflowSecretListResponse>().checked(),
@@ -450,9 +454,9 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{
-        WorkflowSecretCreateRequest, WorkflowSecretReference, WorkflowSecretReplaceRequest,
+        WorkflowSecretCreateRequest, WorkflowSecretReference, WorkflowSecretUpdateRequest,
     };
-    use crate::repo::clone::RepoCloneAnswerRequest;
+    use crate::repo::clone::ProjectCloneAnswerRequest;
     use crate::workflow::definition::builder::WorkflowWebhookTokenRotateResponse;
 
     /// The secret every leak case carries.
@@ -499,7 +503,7 @@ mod tests {
         "name": "github-read",
         "secretValue": SECRET,
     })))]
-    #[case::replace(&debug_of::<WorkflowSecretReplaceRequest>(json!({
+    #[case::update(&debug_of::<WorkflowSecretUpdateRequest>(json!({
         "secretId": RECORD_ID,
         "secretValue": SECRET,
     })))]
@@ -508,7 +512,7 @@ mod tests {
         "token": SECRET,
         "createdAt": "2026-10-13T12:00:00.000Z",
     })))]
-    #[case::clone_answer(&debug_of::<RepoCloneAnswerRequest>(json!({
+    #[case::clone_answer(&debug_of::<ProjectCloneAnswerRequest>(json!({
         "projectId": RECORD_ID,
         "questionId": RECORD_ID,
         "answer": SECRET,

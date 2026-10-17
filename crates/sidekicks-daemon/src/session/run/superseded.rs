@@ -1,12 +1,12 @@
 //! Which turns of a run an undo superseded, read from the log. Undone turns stay in the log, and
-//! every accepted `run.rolled_back` of the run adds its cut (`add_superseding_cut`).
+//! every accepted `agent.run.rolledBack` of the run adds its cut (`add_superseding_cut`).
 
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, named_params};
 use serde::Deserialize as _;
 use serde_json::{Map, Value};
-use sidekicks_contracts::run::control::RunRolledBackEvent;
+use sidekicks_contracts::run::control::AgentRunRolledBackEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::row::TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE;
@@ -15,8 +15,8 @@ use sidekicks_contracts::transcript::turn_attribution::{SupersededTurns, add_sup
 use crate::database::stored_column::json_object_column;
 use crate::events::session::read::{readable_event_sql, session_read_bound};
 
-/// A stored `run.rolled_back` payload that does not match its contract. The log is the daemon's
-/// own, so a mismatch is a broken write, and skipping it would move every cut.
+/// A stored `agent.run.rolledBack` payload that does not match its contract. The log is the
+/// daemon's own, so a mismatch is a broken write, and skipping it would move every cut.
 #[derive(Debug, thiserror::Error)]
 #[error(
     "the {TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE} event at sequence {sequence} of session {} does not \
@@ -44,14 +44,14 @@ pub(crate) enum SupersededTurnsReadError {
     Rollback(#[from] StoredRollbackMismatchError),
 }
 
-/// Reads one stored `run.rolled_back` payload into its contract. Fails with
+/// Reads one stored `agent.run.rolledBack` payload into its contract. Fails with
 /// [`StoredRollbackMismatchError`] when it does not match.
 pub(crate) fn parse_stored_rollback(
     payload: &Map<String, Value>,
     session_id: &SessionId,
     sequence: i64,
-) -> Result<RunRolledBackEvent, StoredRollbackMismatchError> {
-    RunRolledBackEvent::deserialize(payload).map_err(|cause| StoredRollbackMismatchError {
+) -> Result<AgentRunRolledBackEvent, StoredRollbackMismatchError> {
+    AgentRunRolledBackEvent::deserialize(payload).map_err(|cause| StoredRollbackMismatchError {
         session_id: *session_id,
         sequence,
         cause,

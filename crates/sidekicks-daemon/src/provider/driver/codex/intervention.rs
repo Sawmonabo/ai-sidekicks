@@ -13,7 +13,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::driver::intervention::{
-    DriverInterventionResult, InterruptRunParams, InterventionResultStatus,
+    ApplyInterventionResponse, InterruptRunRequest, InterventionResultStatus,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
@@ -40,7 +40,7 @@ pub(crate) struct CodexSteerRunRequest {
 
 /// What `turn/steer` acknowledged; both turn ids travel so a different turn can be told apart.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CodexSteerAcknowledgement {
+pub(crate) struct CodexSteerAcknowledgment {
     /// The turn the runtime put on the wire as `expectedTurnId`.
     pub(crate) targeted_turn_id: String,
     /// The turn the provider's answer named, or `None` when it named none.
@@ -54,10 +54,10 @@ pub(crate) trait CodexInterventionRuntime: Send + Sync {
     fn steer_run(
         &self,
         request: CodexSteerRunRequest,
-    ) -> BoxFuture<'_, Result<CodexSteerAcknowledgement, DriverError>>;
+    ) -> BoxFuture<'_, Result<CodexSteerAcknowledgment, DriverError>>;
 
     /// Interrupts one run's turn.
-    fn interrupt_run(&self, params: InterruptRunParams) -> BoxFuture<'_, Result<(), DriverError>>;
+    fn interrupt_run(&self, params: InterruptRunRequest) -> BoxFuture<'_, Result<(), DriverError>>;
 }
 
 /// Routes normalized interventions onto Codex's native operations.
@@ -77,7 +77,7 @@ impl CodexInterventionDispatcher {
     pub(crate) async fn apply_intervention(
         &self,
         params: ApplyInterventionParams,
-    ) -> Result<DriverInterventionResult, DriverError> {
+    ) -> Result<ApplyInterventionResponse, DriverError> {
         let status = match params {
             ApplyInterventionParams::Steer {
                 target_run_id,
@@ -85,7 +85,7 @@ impl CodexInterventionDispatcher {
                 payload,
                 expected_run_version: _,
             } => {
-                let acknowledgement = self
+                let acknowledgment = self
                     .runtime
                     .steer_run(CodexSteerRunRequest {
                         run_id: target_run_id,
@@ -97,8 +97,8 @@ impl CodexInterventionDispatcher {
                     })
                     .await?;
                 // Another turn or none degrades: neither shows the targeted turn was steered.
-                if acknowledgement.acknowledged_turn_id.as_ref()
-                    == Some(&acknowledgement.targeted_turn_id)
+                if acknowledgment.acknowledged_turn_id.as_ref()
+                    == Some(&acknowledgment.targeted_turn_id)
                 {
                     InterventionResultStatus::Applied
                 } else {
@@ -107,7 +107,7 @@ impl CodexInterventionDispatcher {
             }
             ApplyInterventionParams::Interrupt(request) => {
                 self.runtime
-                    .interrupt_run(InterruptRunParams {
+                    .interrupt_run(InterruptRunRequest {
                         run_id: request.target_run_id,
                         reason: request.payload.reason,
                     })
@@ -115,7 +115,7 @@ impl CodexInterventionDispatcher {
                 InterventionResultStatus::Applied
             }
         };
-        Ok(DriverInterventionResult {
+        Ok(ApplyInterventionResponse {
             status,
             fallback_action: None,
             delivered_run_id: None,
@@ -130,14 +130,14 @@ mod tests {
     use futures::future::BoxFuture;
     use rstest::rstest;
     use sidekicks_contracts::provider::driver::intervention::{
-        InterruptRunParams, InterventionResultStatus,
+        InterruptRunRequest, InterventionResultStatus,
     };
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
     use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::{
-        CodexInterventionDispatcher, CodexInterventionRuntime, CodexSteerAcknowledgement,
+        CodexInterventionDispatcher, CodexInterventionRuntime, CodexSteerAcknowledgment,
         CodexSteerRunRequest,
     };
     use crate::provider::driver::contract::DriverError;
@@ -152,10 +152,10 @@ mod tests {
         fn steer_run(
             &self,
             _request: CodexSteerRunRequest,
-        ) -> BoxFuture<'_, Result<CodexSteerAcknowledgement, DriverError>> {
+        ) -> BoxFuture<'_, Result<CodexSteerAcknowledgment, DriverError>> {
             let acknowledged_turn_id = self.acknowledged_turn_id.map(str::to_owned);
             Box::pin(async move {
-                Ok(CodexSteerAcknowledgement {
+                Ok(CodexSteerAcknowledgment {
                     targeted_turn_id: "turn-1".to_owned(),
                     acknowledged_turn_id,
                 })
@@ -164,7 +164,7 @@ mod tests {
 
         fn interrupt_run(
             &self,
-            _params: InterruptRunParams,
+            _params: InterruptRunRequest,
         ) -> BoxFuture<'_, Result<(), DriverError>> {
             Box::pin(async { Ok(()) })
         }

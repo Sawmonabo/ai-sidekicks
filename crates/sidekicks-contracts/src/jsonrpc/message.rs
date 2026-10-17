@@ -10,13 +10,13 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::value::RawValue;
 
 use crate::jsonrpc::byte_length::json_utf8_byte_length;
-use crate::jsonrpc::error_code::JsonRpcErrorCode;
-use crate::jsonrpc::negotiation::DAEMON_HELLO_METHOD;
-use crate::jsonrpc::refusal::RefusalCode;
+use crate::jsonrpc::negotiation::CONNECTION_INITIALIZE_METHOD;
+use crate::jsonrpc::refusal::{RefusalCategory, RefusalCode};
 use crate::schema::doc_description;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire;
 use crate::wire::integer::SafeSignedInt;
+use crate::wire::name::is_protocol_method_name;
 use crate::wire::record::JsonRecord;
 
 ts_constants! {
@@ -27,16 +27,21 @@ ts_constants! {
     pub const JSON_RPC_ID_MAX_BYTES: usize = 256;
     /// The refusal a client reports when the daemon cannot be reached: nothing listens on its
     /// socket, or the link to it is down; `fields.reason` says why.
-    TRANSPORT_UNAVAILABLE_CODE = RefusalCode::TransportUnavailable;
+    CONNECTION_UNAVAILABLE_CODE = RefusalCode::ConnectionUnavailable;
 }
 
 /// The notification that asks the daemon to stop a call it has not answered; the call still gets
 /// exactly one response, `-32800` with `request.canceled` when it stopped before committing.
 pub const CANCEL_REQUEST_METHOD: &str = "$/cancelRequest";
 
-/// The methods that carry no `protocolVersion` on the message: only `daemon.hello`, which carries
-/// its versions in its params, since none is negotiated before it.
-pub const ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS: &[&str] = &[DAEMON_HELLO_METHOD];
+const _: () = assert!(
+    is_protocol_method_name(CANCEL_REQUEST_METHOD),
+    "the cancel method is not a protocol method name",
+);
+
+/// The methods that carry no `protocolVersion` on the message: only `connection.initialize`, which
+/// carries its versions in its params, since none is negotiated before it.
+pub const ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS: &[&str] = &[CONNECTION_INITIALIZE_METHOD];
 
 /// A request's `id`: a string, a number or `null`, echoed back by its response.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -96,14 +101,16 @@ impl<'de> Deserialize<'de> for JsonRpcId {
     }
 }
 
-/// The `data` of an error: the refusal's code and its structured detail, which producers keep
-/// free of stack traces, absolute paths and secrets.
+/// The `data` of an error: the refusal's code, its category and its structured detail, which
+/// producers keep free of stack traces, absolute paths and secrets.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct JsonRpcErrorData {
     /// The refusal's code; clients branch on it, never on the message.
     #[serde(rename = "type")]
     pub refusal: String,
+    /// The refusal's category, which a client acts on for a code it does not know.
+    pub category: RefusalCategory,
     /// The refusal's detail.
     #[serde(
         default,
@@ -136,11 +143,14 @@ impl JsonRpcError {
     /// The answer to a call the client canceled before the daemon committed it.
     pub fn request_canceled() -> Self {
         Self {
-            code: SafeSignedInt::new(i64::from(JsonRpcErrorCode::RequestCanceled.code()))
-                .expect("a JSON-RPC error code is a safe integer"),
+            code: SafeSignedInt::new(i64::from(
+                RefusalCode::RequestCanceled.json_rpc_code().code(),
+            ))
+            .expect("a JSON-RPC error code is a safe integer"),
             message: "The call was canceled.".to_owned(),
             data: Some(JsonRpcErrorData {
                 refusal: RefusalCode::RequestCanceled.as_str().to_owned(),
+                category: RefusalCode::RequestCanceled.category(),
                 fields: None,
             }),
         }
@@ -158,7 +168,7 @@ pub enum JsonRpcMessage {
         method: String,
         /// The params, read later by the method's contract.
         params: Option<Box<RawValue>>,
-        /// The protocol version the client negotiated, absent only on `daemon.hello`.
+        /// The protocol version the client negotiated, absent only on `connection.initialize`.
         protocol_version: Option<String>,
     },
     /// A call that gets no response.
@@ -353,7 +363,7 @@ macro_rules! message_kind_schemas {
 
 message_kind_schemas! {
     /// A JSON-RPC 2.0 request: a call that gets exactly one response. `protocolVersion` is absent
-    /// only on `daemon.hello`.
+    /// only on `connection.initialize`.
     JsonRpcRequestSchema = "JsonRpcRequest" |generator| {
         "type": "object",
         "properties": {
@@ -433,10 +443,10 @@ impl JsonSchema for JsonRpcMessage {
     }
 }
 
-/// Why a socket cannot reach the daemon, the `fields.reason` of `transport.unavailable`.
+/// Why a socket cannot reach the daemon, the `fields.reason` of `connection.unavailable`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum TransportUnavailableReason {
+#[serde(rename_all = "camelCase")]
+pub enum ConnectionUnavailableReason {
     /// Nobody answers on the socket (`ENOENT` or `ECONNREFUSED`).
     NotListening,
     /// The client may not open the socket (`EACCES` or `EPERM`).
@@ -461,7 +471,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<JsonRpcResponseEnvelopeSchema>(),
         Definition::read::<JsonRpcMessage>(),
         Definition::read::<JsonRpcServerMessageSchema>().checked(),
-        Definition::read::<TransportUnavailableReason>(),
+        Definition::read::<ConnectionUnavailableReason>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

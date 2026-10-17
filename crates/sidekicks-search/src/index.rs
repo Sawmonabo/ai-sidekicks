@@ -45,11 +45,11 @@ pub enum SearchIndexError {
 }
 
 /// What an index row holds; the daemon's index key scheme gives each its own slot, in this order,
-/// and stores each by its lowercase name.
+/// and stores each by its camelCase name.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, strum::VariantArray, strum::IntoStaticStr, strum::EnumString,
 )]
-#[strum(serialize_all = "lowercase")]
+#[strum(serialize_all = "camelCase")]
 pub enum IndexRowKind {
     /// A settled message or tool call of a session's log.
     Event,

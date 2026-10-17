@@ -24,7 +24,7 @@ use crate::database::statement::{
 pub(crate) struct LeftConversation {
     /// The session that left it.
     pub(crate) session_id: SessionId,
-    /// The account whose home holds it; `None` on the node's default home.
+    /// The account whose home holds it; `None` on the machine's default home.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// The provider's own id for the conversation.
     pub(crate) conversation_id: String,
@@ -125,8 +125,8 @@ struct StoredProviderIdInvalidError;
 #[error("the stored provider account id is not a valid account id")]
 struct StoredAccountIdInvalidError;
 
-// The stored account id, `None` on the node's default home; a value that is no valid id fails the
-// read rather than pass as the default home.
+// The stored account id, `None` on the machine's default home; a value that is no valid id fails
+// the read rather than pass as the default home.
 fn read_provider_account_id(stored: Option<String>) -> rusqlite::Result<Option<ProviderAccountId>> {
     stored
         .map(|text| {

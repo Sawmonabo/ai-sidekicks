@@ -2,32 +2,34 @@
 //! `preview.*` methods are the page host's link (`page_host`) and the shared ports (`port`).
 
 use crate::jsonrpc::refusal::RefusalCode;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::preview::dev_server::{
-    PreviewDevServer, PreviewDevServerListFrame, PreviewDevServerListRequest,
+    PreviewDevServer, PreviewDevServerListFrame, PreviewDevServerSubscribeRequest,
 };
 use crate::preview::marks::{
-    PreviewElementRef, PreviewMark, PreviewMarkElement, PreviewMarksSendRequest,
-    PreviewMarksSendResponse, PreviewPoint, PreviewRect,
+    PreviewElementRef, PreviewMark, PreviewMarkElement, PreviewMarkSendRequest,
+    PreviewMarkSendResponse, PreviewPoint, PreviewRect,
 };
 use crate::preview::page::{
     PreviewAddressRefusedDetails, PreviewAddressRefusedReason, PreviewFavicon,
-    PreviewNavigateRequest, PreviewNavigateResponse, PreviewNavigationTarget, PreviewPage,
-    PreviewPageActivateResponse, PreviewPageCloseResponse, PreviewPageId, PreviewPageListFrame,
-    PreviewPageListRequest, PreviewPageLoadState, PreviewPageOpenRequest, PreviewPageOpenResponse,
-    PreviewPageReorderRequest, PreviewPageReorderResponse, PreviewPageRequest, PreviewPageTarget,
-    PreviewUnparsedAddress, PreviewZoomFactor, PreviewZoomRequest, PreviewZoomResponse,
+    PreviewNavigationTarget, PreviewPage, PreviewPageActivateResponse, PreviewPageCloseResponse,
+    PreviewPageId, PreviewPageListFrame, PreviewPageLoadState, PreviewPageNavigateRequest,
+    PreviewPageNavigateResponse, PreviewPageOpenRequest, PreviewPageOpenResponse,
+    PreviewPageReorderRequest, PreviewPageReorderResponse, PreviewPageRequest,
+    PreviewPageSubscribeRequest, PreviewPageTarget, PreviewPageZoomUpdateRequest,
+    PreviewPageZoomUpdateResponse, PreviewUnparsedAddress, PreviewZoomFactor,
 };
 use crate::preview::screencast::{
     PreviewChosenFile, PreviewDeviceInput, PreviewFileChooserMode, PreviewInputMessageId,
     PreviewKeyAction, PreviewMenuEdit, PreviewMenuEditResponse, PreviewMouseAction,
-    PreviewMouseButton, PreviewScreencastAckRequest, PreviewScreencastAckToken,
+    PreviewMouseButton, PreviewScreencastAcknowledgeRequest, PreviewScreencastAcknowledgmentToken,
     PreviewScreencastEditRequest, PreviewScreencastElement, PreviewScreencastFileChooseRequest,
     PreviewScreencastFileChooseResponse, PreviewScreencastFrameMetadata,
-    PreviewScreencastInputRequest, PreviewScreencastInputResponse, PreviewScreencastSaveAckRequest,
-    PreviewScreencastSubscribeRequest, PreviewTouchAction, PreviewTouchPoint,
+    PreviewScreencastInputSendRequest, PreviewScreencastInputSendResponse,
+    PreviewScreencastSaveAcknowledgeRequest, PreviewScreencastSubscribeRequest, PreviewTouchAction,
+    PreviewTouchPoint,
 };
 use crate::preview::staging::PreviewSaveId;
 use crate::preview::{marks, page, screencast, staging};
@@ -37,110 +39,110 @@ methods! {
     /// The `preview.*` page, dev-server, marks and live-picture methods the daemon answers.
     pub const PREVIEW_METHOD_DESCRIPTORS = [
         /// Streams a session's pages.
-        PreviewPageList = subscription "preview.pageList" {
+        PreviewPageSubscribe = subscription "preview.page.subscribe" {
             mutating: false,
-            params: PreviewPageListRequest,
-            result: SubscribeAckResponse,
+            params: PreviewPageSubscribeRequest,
+            result: SubscribeAcknowledgmentResponse,
             emission: PreviewPageListFrame,
             refusals: [SessionNotFound],
         },
         /// Opens a page.
-        PreviewPageOpen = mutation "preview.pageOpen" {
+        PreviewPageOpen = mutation "preview.page.open" {
             mutating: true,
             params: PreviewPageOpenRequest,
             result: PreviewPageOpenResponse,
             refusals: [SessionNotFound, PreviewAddressRefused],
         },
         /// Closes a page.
-        PreviewPageClose = mutation "preview.pageClose" {
+        PreviewPageClose = mutation "preview.page.close" {
             mutating: true,
             params: PreviewPageRequest,
             result: PreviewPageCloseResponse,
             refusals: [SessionNotFound],
         },
         /// Makes a page the one the pane shows.
-        PreviewPageActivate = mutation "preview.pageActivate" {
+        PreviewPageActivate = mutation "preview.page.activate" {
             mutating: true,
             params: PreviewPageRequest,
             result: PreviewPageActivateResponse,
             refusals: [SessionNotFound],
         },
         /// Moves a page within its session's order.
-        PreviewPageReorder = mutation "preview.pageReorder" {
+        PreviewPageReorder = mutation "preview.page.reorder" {
             mutating: true,
             params: PreviewPageReorderRequest,
             result: PreviewPageReorderResponse,
             refusals: [SessionNotFound],
         },
         /// Navigates a page.
-        PreviewNavigate = mutation "preview.navigate" {
+        PreviewPageNavigate = mutation "preview.page.navigate" {
             mutating: true,
-            params: PreviewNavigateRequest,
-            result: PreviewNavigateResponse,
+            params: PreviewPageNavigateRequest,
+            result: PreviewPageNavigateResponse,
             refusals: [SessionNotFound, PreviewAddressRefused],
         },
         /// Sets a page's zoom.
-        PreviewZoom = mutation "preview.zoom" {
+        PreviewPageZoomUpdate = mutation "preview.page.zoom.update" {
             mutating: true,
-            params: PreviewZoomRequest,
-            result: PreviewZoomResponse,
+            params: PreviewPageZoomUpdateRequest,
+            result: PreviewPageZoomUpdateResponse,
             refusals: [SessionNotFound],
         },
         /// Streams the dev servers discovered in a session's project.
-        PreviewDevServerList = subscription "preview.devServerList" {
+        PreviewDevServerSubscribe = subscription "preview.devServer.subscribe" {
             mutating: false,
-            params: PreviewDevServerListRequest,
-            result: SubscribeAckResponse,
+            params: PreviewDevServerSubscribeRequest,
+            result: SubscribeAcknowledgmentResponse,
             emission: PreviewDevServerListFrame,
             refusals: [SessionNotFound],
         },
         /// Sends the marks on a page to the session's provider.
-        PreviewMarksSend = mutation "preview.marksSend" {
+        PreviewMarkSend = mutation "preview.mark.send" {
             mutating: true,
-            params: PreviewMarksSendRequest,
-            result: PreviewMarksSendResponse,
+            params: PreviewMarkSendRequest,
+            result: PreviewMarkSendResponse,
             refusals: [SessionNotFound],
         },
         /// Streams a page's live picture to another device.
-        PreviewScreencastSubscribe = subscription "preview.screencastSubscribe" {
+        PreviewScreencastSubscribe = subscription "preview.screencast.subscribe" {
             mutating: false,
             params: PreviewScreencastSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: PreviewScreencastElement,
             refusals: [SessionNotFound],
         },
         /// Acknowledges one frame of the live picture.
-        PreviewScreencastAck = mutation "preview.screencastAck" {
+        PreviewScreencastAcknowledge = mutation "preview.screencast.acknowledge" {
             mutating: true,
-            params: PreviewScreencastAckRequest,
+            params: PreviewScreencastAcknowledgeRequest,
             result: EmptyPayload,
             refusals: [SessionNotFound],
         },
         /// Sends one input from another device to a page.
-        PreviewScreencastInput = mutation "preview.screencastInput" {
+        PreviewScreencastInputSend = mutation "preview.screencast.input.send" {
             mutating: true,
-            params: PreviewScreencastInputRequest,
-            result: PreviewScreencastInputResponse,
+            params: PreviewScreencastInputSendRequest,
+            result: PreviewScreencastInputSendResponse,
             refusals: [SessionNotFound],
         },
         /// Applies an act from the menu a device's input raised.
-        PreviewScreencastEdit = mutation "preview.screencastEdit" {
+        PreviewScreencastEdit = mutation "preview.screencast.edit" {
             mutating: true,
             params: PreviewScreencastEditRequest,
             result: PreviewMenuEditResponse,
             refusals: [SessionNotFound, PreviewEditRefused],
         },
         /// Answers a file chooser or a picker a device's input opened.
-        PreviewScreencastFileChoose = mutation "preview.screencastFileChoose" {
+        PreviewScreencastFileChoose = mutation "preview.screencast.file.choose" {
             mutating: true,
             params: PreviewScreencastFileChooseRequest,
             result: PreviewScreencastFileChooseResponse,
             refusals: [SessionNotFound, PreviewFilePathRefused],
         },
         /// Acknowledges a save the device has written or thrown away.
-        PreviewScreencastSaveAck = mutation "preview.screencastSaveAck" {
+        PreviewScreencastSaveAcknowledge = mutation "preview.screencast.save.acknowledge" {
             mutating: true,
-            params: PreviewScreencastSaveAckRequest,
+            params: PreviewScreencastSaveAcknowledgeRequest,
             result: EmptyPayload,
             refusals: [SessionNotFound],
         },
@@ -190,7 +192,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PreviewFavicon>(),
         Definition::read::<PreviewPageLoadState>(),
         Definition::read::<PreviewPage>().checked(),
-        Definition::read::<PreviewPageListRequest>().checked(),
+        Definition::read::<PreviewPageSubscribeRequest>().checked(),
         Definition::read::<PreviewPageListFrame>().checked(),
         Definition::read::<PreviewPageTarget>(),
         Definition::read::<PreviewPageOpenRequest>().checked(),
@@ -201,11 +203,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PreviewPageReorderRequest>().checked(),
         Definition::read::<PreviewPageReorderResponse>().checked(),
         Definition::read::<PreviewNavigationTarget>(),
-        Definition::read::<PreviewNavigateRequest>().checked(),
-        Definition::read::<PreviewNavigateResponse>().checked(),
-        Definition::read::<PreviewZoomRequest>().checked(),
-        Definition::read::<PreviewZoomResponse>().checked(),
-        Definition::read::<PreviewDevServerListRequest>().checked(),
+        Definition::read::<PreviewPageNavigateRequest>().checked(),
+        Definition::read::<PreviewPageNavigateResponse>().checked(),
+        Definition::read::<PreviewPageZoomUpdateRequest>().checked(),
+        Definition::read::<PreviewPageZoomUpdateResponse>().checked(),
+        Definition::read::<PreviewDevServerSubscribeRequest>().checked(),
         Definition::read::<PreviewDevServer>(),
         Definition::read::<PreviewDevServerListFrame>().checked(),
         Definition::read::<PreviewPoint>(),
@@ -213,31 +215,31 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PreviewElementRef>(),
         Definition::read::<PreviewMarkElement>(),
         Definition::read::<PreviewMark>(),
-        Definition::read::<PreviewMarksSendRequest>().checked(),
-        Definition::read::<PreviewMarksSendResponse>().checked(),
+        Definition::read::<PreviewMarkSendRequest>().checked(),
+        Definition::read::<PreviewMarkSendResponse>().checked(),
         Definition::read::<PreviewScreencastSubscribeRequest>().checked(),
         Definition::read::<PreviewScreencastFrameMetadata>(),
-        Definition::read::<PreviewScreencastAckToken>(),
+        Definition::read::<PreviewScreencastAcknowledgmentToken>(),
         Definition::read::<PreviewInputMessageId>().checked(),
         Definition::read::<PreviewSaveId>().checked(),
         Definition::read::<PreviewFileChooserMode>(),
         Definition::read::<PreviewScreencastElement>().checked(),
-        Definition::read::<PreviewScreencastAckRequest>().checked(),
+        Definition::read::<PreviewScreencastAcknowledgeRequest>().checked(),
         Definition::read::<PreviewMouseAction>(),
         Definition::read::<PreviewMouseButton>(),
         Definition::read::<PreviewTouchAction>(),
         Definition::read::<PreviewTouchPoint>(),
         Definition::read::<PreviewKeyAction>(),
         Definition::read::<PreviewDeviceInput>(),
-        Definition::read::<PreviewScreencastInputRequest>().checked(),
-        Definition::read::<PreviewScreencastInputResponse>().checked(),
+        Definition::read::<PreviewScreencastInputSendRequest>().checked(),
+        Definition::read::<PreviewScreencastInputSendResponse>().checked(),
         Definition::read::<PreviewMenuEdit>(),
         Definition::read::<PreviewScreencastEditRequest>().checked(),
         Definition::read::<PreviewMenuEditResponse>().checked(),
         Definition::read::<PreviewChosenFile>(),
         Definition::read::<PreviewScreencastFileChooseRequest>().checked(),
         Definition::read::<PreviewScreencastFileChooseResponse>().checked(),
-        Definition::read::<PreviewScreencastSaveAckRequest>().checked(),
+        Definition::read::<PreviewScreencastSaveAcknowledgeRequest>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&PREVIEW_METHOD_DESCRIPTORS],

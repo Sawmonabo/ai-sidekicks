@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::ERROR_MESSAGE_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -31,16 +31,16 @@ branded_uuid_id! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct DataExportRequest {
+pub struct DaemonDataExportStartRequest {
     /// The new folder's path.
     pub destination: FilesystemPath,
 }
 
-/// The export job the request started; its progress streams on `daemon.dataExportSubscribe`.
+/// The export job the request started; its progress streams on `daemon.dataExport.subscribe`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct DataExportResponse {
+pub struct DaemonDataExportStartResponse {
     /// The job.
     pub job_id: DataExportJobId,
 }
@@ -49,7 +49,7 @@ pub struct DataExportResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct DataExportSubscribeRequest {
+pub struct DaemonDataExportSubscribeRequest {
     /// The job.
     pub job_id: DataExportJobId,
 }
@@ -59,7 +59,7 @@ pub struct DataExportSubscribeRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "state",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -104,26 +104,26 @@ impl DataExportProgress {
 }
 
 methods! {
-    /// The data methods. The export stream's acknowledgement is the subscription, and each
+    /// The data methods. The export stream's acknowledgment is the subscription, and each
     /// emission is the job's progress as it changes.
     pub const DAEMON_DATA_METHOD_DESCRIPTORS = [
         /// Starts an export.
-        DaemonDataExport = mutation "daemon.dataExport" {
+        DaemonDataExportStart = mutation "daemon.dataExport.start" {
             mutating: true,
-            params: DataExportRequest,
-            result: DataExportResponse,
+            params: DaemonDataExportStartRequest,
+            result: DaemonDataExportStartResponse,
             refusals: [],
         },
         /// Streams an export's progress.
-        DaemonDataExportSubscribe = subscription "daemon.dataExportSubscribe" {
+        DaemonDataExportSubscribe = subscription "daemon.dataExport.subscribe" {
             mutating: false,
-            params: DataExportSubscribeRequest,
-            result: SubscribeAckResponse,
+            params: DaemonDataExportSubscribeRequest,
+            result: SubscribeAcknowledgmentResponse,
             emission: DataExportProgress,
             refusals: [],
         },
         /// Erases everything the service keeps.
-        DaemonDataErase = mutation "daemon.dataErase" {
+        DaemonDataErase = mutation "daemon.data.erase" {
             mutating: true,
             params: EmptyPayload,
             result: EmptyPayload,
@@ -139,9 +139,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           export and erase.",
     definitions: &[
         Definition::read::<DataExportJobId>().checked(),
-        Definition::read::<DataExportRequest>().checked(),
-        Definition::read::<DataExportResponse>().checked(),
-        Definition::read::<DataExportSubscribeRequest>().checked(),
+        Definition::read::<DaemonDataExportStartRequest>().checked(),
+        Definition::read::<DaemonDataExportStartResponse>().checked(),
+        Definition::read::<DaemonDataExportSubscribeRequest>().checked(),
         Definition::read::<DataExportProgress>().checked(),
     ],
     constants: TS_CONSTANTS,

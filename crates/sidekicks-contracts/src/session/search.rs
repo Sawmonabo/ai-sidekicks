@@ -1,7 +1,7 @@
-//! The session search's limits. The `session.search` and `session.fileSearch` types are built from
+//! The session search's limits. The `session.search` and `session.file.search` types are built from
 //! them; the cursor refusal is `RefusalCode::SessionSearchCursorUnresolvable`.
 
-/// The longest query `session.search` and `session.fileSearch` accept, in code points.
+/// The longest query `session.search` and `session.file.search` accept, in code points.
 pub const SESSION_SEARCH_QUERY_MAX_LEN: usize = 256;
 
 /// The most hits one `session.search` page carries, across all its sessions.

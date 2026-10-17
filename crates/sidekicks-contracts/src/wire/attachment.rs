@@ -1,7 +1,7 @@
 //! Bytes on the wire travel beside a message's JSON as attachments: the JSON holds the placeholder
 //! `{"$bytes": <index>}` and the bytes ride after it. [`parse_received`] reads a message a server
-//! received, checked against its schema first, [`parse`] one a client reads, and [`write`] produces
-//! them; each attachment is referenced exactly once.
+//! received, checked against its schema first, [`parse`] one a client reads, and [`write()`]
+//! produces them; each attachment is referenced exactly once.
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -346,12 +346,12 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     use super::{AttachmentError, Bytes, ReceivedError, parse, parse_received, write};
-    use crate::artifacts::ingest::AttachmentIngestChunkRequest;
+    use crate::artifacts::ingest::ArtifactIngestWriteRequest;
     use crate::jsonrpc::issue::IssuePathSegment;
     use crate::session::goal::SessionGoalUpdatedPayload;
     use crate::session::links::SessionLinkRequest;
     use crate::tag::TagList;
-    use crate::workflow::secret::WorkflowSecretReplaceRequest;
+    use crate::workflow::secret::WorkflowSecretUpdateRequest;
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -660,7 +660,7 @@ mod tests {
             Err(ReceivedError::Rule { .. })
         ));
 
-        let chunk = parse_received::<AttachmentIngestChunkRequest>(
+        let chunk = parse_received::<ArtifactIngestWriteRequest>(
             br#"{"ingestId":"ingest","sequenceNumber":0,"chunk":{"$bytes":0}}"#,
             vec![ByteBuffer::from_static(b"abc")],
         )
@@ -683,7 +683,7 @@ mod tests {
     fn a_shape_refusal_never_carries_the_refused_value() {
         let message =
             br#"{"secretId":"0192f0a0-0000-7000-8000-000000000001","secretValue":48213377}"#;
-        let error = parse_received::<WorkflowSecretReplaceRequest>(message, Vec::new())
+        let error = parse_received::<WorkflowSecretUpdateRequest>(message, Vec::new())
             .expect_err("a number where the secret's text belongs is refused");
         assert!(matches!(error, ReceivedError::Shape { .. }), "{error:?}");
         let mut source: Option<&dyn std::error::Error> = Some(&error);

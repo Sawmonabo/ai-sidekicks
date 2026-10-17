@@ -3,8 +3,8 @@
 //! artifact a client holds whole is published in one call.
 
 use crate::artifacts::ingest::{
-    AttachmentIngestChunkRequest, AttachmentIngestChunkResponse, AttachmentIngestCompleteRequest,
-    AttachmentIngestCompleteResponse, AttachmentIngestInitRequest, AttachmentIngestInitResponse,
+    ArtifactIngestCompleteRequest, ArtifactIngestCompleteResponse, ArtifactIngestStartRequest,
+    ArtifactIngestStartResponse, ArtifactIngestWriteRequest, ArtifactIngestWriteResponse,
 };
 use crate::artifacts::operations::{
     ArtifactListRequest, ArtifactListResponse, ArtifactReadRequest, ArtifactReadResponse,
@@ -31,32 +31,32 @@ methods! {
             refusals: [ArtifactNotFound],
         },
         /// Opens an ingest stream for one file.
-        ArtifactIngestInit = mutation "artifact.ingestInit" {
+        ArtifactIngestStart = mutation "artifact.ingest.start" {
             mutating: true,
-            params: AttachmentIngestInitRequest,
-            result: AttachmentIngestInitResponse,
+            params: ArtifactIngestStartRequest,
+            result: ArtifactIngestStartResponse,
             refusals: [
                 SessionNotFound,
-                RunNotFound,
+                AgentRunNotFound,
                 ArtifactTooLarge,
                 ArtifactIngestCapacityExhausted,
             ],
         },
         /// Sends one chunk of an open stream.
-        ArtifactIngestChunk = mutation "artifact.ingestChunk" {
+        ArtifactIngestWrite = mutation "artifact.ingest.write" {
             mutating: true,
-            params: AttachmentIngestChunkRequest,
-            result: AttachmentIngestChunkResponse,
+            params: ArtifactIngestWriteRequest,
+            result: ArtifactIngestWriteResponse,
             refusals: [ArtifactIngestStreamInvalid, ArtifactTooLarge],
         },
         /// Completes a stream and commits its bytes as an artifact.
-        ArtifactIngestComplete = mutation "artifact.ingestComplete" {
+        ArtifactIngestComplete = mutation "artifact.ingest.complete" {
             mutating: true,
-            params: AttachmentIngestCompleteRequest,
-            result: AttachmentIngestCompleteResponse,
+            params: ArtifactIngestCompleteRequest,
+            result: ArtifactIngestCompleteResponse,
             refusals: [
                 SessionNotFound,
-                RunNotFound,
+                AgentRunNotFound,
                 ArtifactIngestStreamInvalid,
                 ArtifactTypeUnreadable,
                 ArtifactTypeCheckUnavailable,
@@ -69,7 +69,7 @@ methods! {
             result: ArtifactPublishResponse,
             refusals: [
                 SessionNotFound,
-                RunNotFound,
+                AgentRunNotFound,
                 ArtifactFilePublishRefused,
                 ArtifactIngestCapacityExhausted,
                 ArtifactTooLarge,

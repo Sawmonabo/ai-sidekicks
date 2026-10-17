@@ -55,7 +55,7 @@ pub(crate) struct SessionEventDraft {
 
 impl SessionEventDraft {
     /// The draft of the event `into_event` makes of `payload`, its session and actor read from the
-    /// payload, as `SessionEvent::ToolInvoked` makes a `tool.invoked`. Fails as
+    /// payload, as `SessionEvent::AgentToolCallInvoked` makes an `agent.toolCall.invoked`. Fails as
     /// [`SessionEventDraft::of_session`] does.
     pub(crate) fn new<Payload: AppendedPayload>(
         payload: Payload,

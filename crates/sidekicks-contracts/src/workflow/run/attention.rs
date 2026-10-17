@@ -15,7 +15,7 @@ use crate::workflow::run::step::record::WorkflowSpentAccount;
 /// What a run waiting on a person waits on: every wait cause but a spent provider account, which
 /// nobody can answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowPersonWaitCause {
     /// A person's approval.
     Approval,
@@ -44,7 +44,7 @@ impl From<WorkflowPersonWaitCause> for WorkflowWaitCause {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -85,7 +85,7 @@ pub enum WorkflowRunAttentionEntry {
     },
 }
 
-/// The `workflow.runAttentionList` result: every account line first, then the runs waiting on a
+/// The `workflow.run.attention.list` result: every account line first, then the runs waiting on a
 /// person, oldest first, the order `Next waiting` walks them in. `waitingOnPersonCount` counts
 /// those runs; an account wait is never in it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]

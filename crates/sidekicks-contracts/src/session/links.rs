@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::session::id::SessionId;
@@ -20,8 +20,8 @@ use crate::wire::text::FreeFormText;
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum SessionLinkKind {
     /// One session started the other.
     Started,
@@ -37,11 +37,11 @@ pub enum SessionLinkKind {
     Related,
 }
 
-/// `session.relatedList`'s input: the session whose related sessions to follow.
+/// `session.relatedSession.subscribe`'s input: the session whose related sessions to follow.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionRelatedListRequest {
+pub struct SessionRelatedSessionSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -78,9 +78,9 @@ pub struct SessionRelatedListEntry {
     pub removable: bool,
 }
 
-/// Each `session.relatedList` emission: the whole related list, highest relevance first, sent when
-/// the stream opens and again each time a link it depends on is re-scored. The list fits the
-/// shared page budget.
+/// Each `session.relatedSession.subscribe` emission: the whole related list, highest relevance
+/// first, sent when the stream opens and again each time a link it depends on is re-scored. The
+/// list fits the shared page budget.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -116,24 +116,24 @@ pub struct SessionLinkRequest {
 methods! {
     /// The session link methods' wire contract: name, procedure type and types.
     pub const SESSION_LINK_METHOD_DESCRIPTORS = [
-        /// Follows a session's related list; the acknowledgement carries only the subscription,
+        /// Follows a session's related list; the acknowledgment carries only the subscription,
         /// and the first emission is the list.
-        SessionRelatedList = subscription "session.relatedList" {
+        SessionRelatedSessionSubscribe = subscription "session.relatedSession.subscribe" {
             mutating: false,
-            params: SessionRelatedListRequest,
-            result: SubscribeAckResponse,
+            params: SessionRelatedSessionSubscribeRequest,
+            result: SubscribeAcknowledgmentResponse,
             emission: SessionRelatedListUpdate,
             refusals: [SessionNotFound],
         },
         /// Adds a `related` link.
-        SessionLinkAdd = mutation "session.linkAdd" {
+        SessionLinkAdd = mutation "session.link.add" {
             mutating: true,
             params: SessionLinkRequest,
             result: EmptyPayload,
             refusals: [SessionNotFound],
         },
         /// Removes a `related` link.
-        SessionLinkRemove = mutation "session.linkRemove" {
+        SessionLinkRemove = mutation "session.link.remove" {
             mutating: true,
             params: SessionLinkRequest,
             result: EmptyPayload,
@@ -148,7 +148,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The links between sessions as the person reads and changes them.",
     definitions: &[
         Definition::read::<SessionLinkKind>(),
-        Definition::read::<SessionRelatedListRequest>().checked(),
+        Definition::read::<SessionRelatedSessionSubscribeRequest>().checked(),
         Definition::read::<SessionRelatedListEntry>(),
         Definition::read::<SessionRelatedListUpdate>().checked(),
         Definition::read::<SessionLinkRequest>().checked(),

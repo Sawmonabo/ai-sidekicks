@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentDefinitionId;
 use crate::agent::definition::refusal::{
-    AgentResolutionRefusedCode, agent_resolution_refused_details,
+    AgentDefinitionResolutionRefusedCode, agent_definition_resolution_refused_details,
 };
 use crate::artifacts::id::ArtifactId;
 use crate::free_form_string::FILE_PATH_MAX_LEN;
@@ -58,11 +58,12 @@ pub enum WorkflowPairedItems {
 }
 
 pattern_text! {
-    /// A step failure's own code, in the `workflow.<condition>` form.
-    pub struct WorkflowStepErrorCode("^workflow\\.[a-z][a-z_]*$");
+    /// A step failure's own code, a wire name in the `workflow[.resource].condition` form, such as
+    /// `workflow.step.timedOut`.
+    pub struct WorkflowStepErrorCode("^workflow(\\.[a-z][a-zA-Z0-9]*){1,3}$");
 }
 
-agent_resolution_refused_details! {
+agent_definition_resolution_refused_details! {
     /// Why a step's agent could not resolve: the resolution refusal's own details, its
     /// `definitionId` `null` for a step running the General agent, which runs no definition.
     WorkflowStepAgentResolutionRefusedDetails,
@@ -126,8 +127,8 @@ step_error_arm! {
 }
 
 step_error_arm! {
-    /// A failure carrying the step failure's own `workflow.<condition>` code, and that code's
-    /// details where it has any.
+    /// A failure carrying the step failure's own `workflow[.resource].condition` code, and that
+    /// code's details where it has any.
     pub struct WorkflowStepCodedError {
         /// The failure's code.
         pub code: WorkflowStepErrorCode,
@@ -145,8 +146,8 @@ step_error_arm! {
 step_error_arm! {
     /// A step whose agent could not resolve, such as a park on an account removed first.
     pub struct WorkflowStepAgentResolutionError {
-        /// Always `agent.resolution_refused`.
-        pub code: AgentResolutionRefusedCode,
+        /// Always `agent.definition.resolutionRefused`.
+        pub code: AgentDefinitionResolutionRefusedCode,
         /// Why the agent could not resolve.
         #[garde(dive)]
         pub details: WorkflowStepAgentResolutionRefusedDetails,

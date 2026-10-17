@@ -44,7 +44,7 @@ pub enum MessagePart {
 }
 
 /// A fault that desynchronizes the stream, so the connection, or the channel, closes. Only
-/// [`FramingError::MessageTooLarge`] is answered first, as `transport.message_too_large`.
+/// [`FramingError::MessageTooLarge`] is answered first, as `connection.message.tooLarge`.
 #[derive(Debug, thiserror::Error)]
 pub enum FramingError {
     /// The socket failed under the codec.

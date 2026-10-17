@@ -5,11 +5,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentDefinitionId;
-use crate::agent::methods::AgentListEntry;
+use crate::agent::methods::AgentSubscribeEntry;
 use crate::event::envelope::{
     SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
-use crate::machine_settings::MACHINE_SETTINGS_NAME_MAX_LEN;
+use crate::machine::settings::MACHINE_SETTINGS_NAME_MAX_LEN;
 use crate::place::Place;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
@@ -33,8 +33,8 @@ pub struct SessionCreatedParent {
     pub anchor_cursor: EventCursor,
 }
 
-/// A session's birth, bringing in its lead as `main_agent`. `parent` is present exactly on a fork,
-/// `scratch_for_definition_id` names the saved definition a scratch session tries, and `place` is
+/// A session's birth, bringing in its lead as `mainAgent`. `parent` is present exactly on a fork,
+/// `scratchForDefinitionId` names the saved definition a scratch session tries, and `place` is
 /// where the session runs for its whole life.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -46,7 +46,7 @@ pub struct SessionCreatedPayload {
     pub shape: SessionShape,
     /// The session's lead.
     #[garde(dive)]
-    pub main_agent: AgentListEntry,
+    pub main_agent: AgentSubscribeEntry,
     /// The session forked from, on a fork.
     #[serde(
         default,
@@ -113,7 +113,7 @@ pub struct SessionLifecycleChangePayload {
 /// (`provider`), or the daemon's naming pass after the first exchange (`auto`), which writes only
 /// while the session is unnamed, so a name the person typed always wins.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionRenameOrigin {
     /// The person.
     User,
@@ -168,9 +168,9 @@ pub struct SessionMarkChangePayload {
     pub at: WireInstant,
 }
 
-/// The `session.advisor_changed` payload: the session's own advisor, changed by the provider's own
-/// advisor command in that session. `advisor_model` is the session's own setting, `null` when the
-/// advisor is off; `attached_advisor_model` is the advisor the provider says it attaches after the
+/// The `session.advisor.changed` payload: the session's own advisor, changed by the provider's own
+/// advisor command in that session. `advisorModel` is the session's own setting, `null` when the
+/// advisor is off; `attachedAdvisorModel` is the advisor the provider says it attaches after the
 /// change, `null` when none attaches, absent where the build does not report it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -195,7 +195,7 @@ pub struct SessionAdvisorChangedPayload {
     pub at: WireInstant,
 }
 
-/// The `session.output_style_changed` payload: the session's own output style, changed by the
+/// The `session.outputStyle.changed` payload: the session's own output style, changed by the
 /// provider's own output-style command in that session, with the time it happened.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -210,15 +210,15 @@ pub struct SessionOutputStyleChangedPayload {
     pub at: WireInstant,
 }
 
-/// The `session.provider_status` payload: a coarse status the provider reported for its session,
-/// normalized, with display text where it sent some. It records what the provider said and never
-/// moves the session's own state. It takes the epoch stamp: `source_epoch` and `source_position`
-/// come together, and only on a payload naming its run.
+/// The `session.providerStatus.reported` payload: a coarse status the provider reported for its
+/// session, normalized, with display text where it sent some. It records what the provider said and
+/// never moves the session's own state. It takes the epoch stamp: `sourceEpoch` and
+/// `sourcePosition` come together, and only on a payload naming its run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct SessionProviderStatusPayload {
+pub struct SessionProviderStatusReportedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run, where the status names one.
@@ -241,7 +241,7 @@ pub struct SessionProviderStatusPayload {
     )]
     #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
     pub detail: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
-    /// The execution epoch a late row is attributed to; comes with `source_position` and `run_id`.
+    /// The execution epoch a late row is attributed to; comes with `sourcePosition` and `runId`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -252,7 +252,7 @@ pub struct SessionProviderStatusPayload {
         check_epoch_stamp(*epoch, self.source_position, self.run_id.is_some())
     }))]
     pub source_epoch: Option<SourceEpoch>,
-    /// The turn position the row occupies within its epoch; comes with `source_epoch`.
+    /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -276,7 +276,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionMarkChangePayload>().checked(),
         Definition::read::<SessionAdvisorChangedPayload>().checked(),
         Definition::read::<SessionOutputStyleChangedPayload>().checked(),
-        Definition::read::<SessionProviderStatusPayload>().checked(),
+        Definition::read::<SessionProviderStatusReportedPayload>().checked(),
     ],
     constants: &[],
     method_tables: &[],

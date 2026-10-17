@@ -21,10 +21,12 @@ use crate::workflow::definition::item::WorkflowStepError;
 use crate::workflow::run::attention::WorkflowRunAttentionListResponse;
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::list::{WorkflowRunListRequest, WorkflowRunListResponse};
-use crate::workflow::run::pause::{WorkflowRunsPauseSetRequest, WorkflowRunsPauseState};
+use crate::workflow::run::new_run_hold::{
+    WorkflowNewRunHoldState, WorkflowNewRunHoldUpdateRequest,
+};
 use crate::workflow::run::retention::{
     WorkflowRunDeleteRequest, WorkflowRunDeleteResponse, WorkflowRunKeepSet,
-    WorkflowRunsDeletePreviewResponse, WorkflowRunsDeleteRequest, WorkflowRunsDeleteResponse,
+    WorkflowRunPurgePreviewResponse, WorkflowRunPurgeRequest, WorkflowRunPurgeResponse,
 };
 use crate::workflow::run::snapshot::WorkflowRunEpoch;
 use crate::workflow::run::step::record::{WorkflowCost, WorkflowStep};
@@ -82,12 +84,12 @@ pub struct WorkflowChainRoot {
 
 /// The chain's question as its first run's page carries it: open, or answered with the decision and
 /// the run count it was taken at, which its receipt reads (`Kept going at 100 runs`). It is
-/// answered through `workflow.gateResolve` naming no node: `approved` keeps the chain going,
+/// answered through `workflow.gate.resolve` naming no node: `approved` keeps the chain going,
 /// `rejected` stops every run of it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "state",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -123,7 +125,7 @@ pub struct WorkflowEdgeItemCount {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "state",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -410,7 +412,7 @@ workflow_run_shapes! {
 /// and, on a run that failed, was canceled or crashed, why. It carries its end exactly once it has
 /// ended.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(tag = "status", rename_all = "snake_case")]
+#[serde(tag = "status", rename_all = "camelCase")]
 pub enum WorkflowRun {
     /// Started, with no step run yet.
     New(#[garde(dive)] WorkflowGoingRun),
@@ -428,7 +430,7 @@ pub enum WorkflowRun {
     Crashed(#[garde(dive)] WorkflowStoppedRun),
 }
 
-/// The `workflow.runRead` input.
+/// The `workflow.run.read` input.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -437,12 +439,12 @@ pub struct WorkflowRunReadRequest {
     pub workflow_run_id: WorkflowRunId,
 }
 
-/// The `workflow.runRead` result: the run's record with its header facts and every step, from which
-/// the page draws its graph and its step panel. A waiting run carries the step that waits, only a
-/// finished run whose checkout was captured carries a review, and the chain's question sits only on
-/// the chain's first run.
+/// The `workflow.run.read` result: the run's record with its header facts and every step, from
+/// which the page draws its graph and its step panel. A waiting run carries the step that waits,
+/// only a finished run whose checkout was captured carries a review, and the chain's question sits
+/// only on the chain's first run.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(tag = "status", rename_all = "snake_case")]
+#[serde(tag = "status", rename_all = "camelCase")]
 #[garde(allow_unvalidated)]
 #[garde(custom(|run: &Self, (): &()| run.check_members()))]
 #[schemars(extend("allOf" = [
@@ -560,63 +562,68 @@ impl WorkflowRunReadResponse {
 }
 
 methods! {
-    /// The `workflow.*` methods that read, list and keep run records. `workflow.runAttentionList`
+    /// The `workflow.*` methods that read, list and keep run records. `workflow.run.attention.list`
     /// takes no members: the runs table's filters never narrow it.
     pub const WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS = [
         /// Reads one run with its steps.
-        WorkflowRunRead = query "workflow.runRead" {
+        WorkflowRunRead = query "workflow.run.read" {
             mutating: false,
             params: WorkflowRunReadRequest,
             result: WorkflowRunReadResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowRunNotFound],
         },
         /// Lists one page of runs under the runs table's filters, with the count of all they match.
-        WorkflowRunList = query "workflow.runList" {
+        WorkflowRunList = query "workflow.run.list" {
             mutating: false,
             params: WorkflowRunListRequest,
             result: WorkflowRunListResponse,
-            refusals: [SessionNotFound, WorkflowNotFound, WorkflowCursorUnresolvable],
+            refusals: [
+                SessionNotFound,
+                WorkflowDefinitionNotFound,
+                WorkflowVersionNotFound,
+                WorkflowCursorUnresolvable,
+            ],
         },
         /// Deletes one ended run with its steps and snapshots.
-        WorkflowRunDelete = mutation "workflow.runDelete" {
+        WorkflowRunDelete = mutation "workflow.run.delete" {
             mutating: true,
             params: WorkflowRunDeleteRequest,
             result: WorkflowRunDeleteResponse,
-            refusals: [WorkflowNotFound, WorkflowRunNotDeletable],
+            refusals: [WorkflowRunNotFound, WorkflowRunNotDeletable],
         },
         /// Counts what deleting the runs older than an instant would remove and leave.
-        WorkflowRunsDeletePreview = query "workflow.runsDeletePreview" {
+        WorkflowRunPurgePreview = query "workflow.run.purge.preview" {
             mutating: false,
-            params: WorkflowRunsDeleteRequest,
-            result: WorkflowRunsDeletePreviewResponse,
+            params: WorkflowRunPurgeRequest,
+            result: WorkflowRunPurgePreviewResponse,
             refusals: [],
         },
         /// Deletes the runs older than an instant, leaving kept and unfinished ones.
-        WorkflowRunsDelete = mutation "workflow.runsDelete" {
+        WorkflowRunPurge = mutation "workflow.run.purge" {
             mutating: true,
-            params: WorkflowRunsDeleteRequest,
-            result: WorkflowRunsDeleteResponse,
+            params: WorkflowRunPurgeRequest,
+            result: WorkflowRunPurgeResponse,
             refusals: [],
         },
         /// Marks a run Keep, or clears the mark.
-        WorkflowRunKeepSetCall = mutation "workflow.runKeepSet" {
+        WorkflowRunKeepUpdate = mutation "workflow.run.keep.update" {
             mutating: true,
             params: WorkflowRunKeepSet,
             result: WorkflowRunKeepSet,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowRunNotFound],
         },
         /// Lists the runs that need someone, above the runs table and outside its filters.
-        WorkflowRunAttentionList = query "workflow.runAttentionList" {
+        WorkflowRunAttentionList = query "workflow.run.attention.list" {
             mutating: false,
             params: EmptyPayload,
             result: WorkflowRunAttentionListResponse,
             refusals: [],
         },
         /// Puts the hold on starting new runs, or lifts it.
-        WorkflowRunsPauseSet = mutation "workflow.runsPauseSet" {
+        WorkflowNewRunHoldUpdate = mutation "workflow.newRunHold.update" {
             mutating: true,
-            params: WorkflowRunsPauseSetRequest,
-            result: WorkflowRunsPauseState,
+            params: WorkflowNewRunHoldUpdateRequest,
+            result: WorkflowNewRunHoldState,
             refusals: [],
         },
     ];

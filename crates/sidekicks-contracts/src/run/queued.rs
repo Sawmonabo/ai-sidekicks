@@ -1,4 +1,5 @@
-//! The `run.queued` payload: a run's creation, and the one durable record of how it came to be.
+//! The `agent.run.queued` payload: a run's creation, and the one durable record of how it came to
+//! be.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,7 @@ use crate::wire::{Never, True, literal};
 /// How a child run was reached: a provider's own subagent, a run another agent asked for through
 /// the bridge, or a workflow step. Internal to the agent index; the screen never shows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ChildRunProvenance {
     /// A provider's own subagent.
     ProviderSubagent,
@@ -29,13 +30,13 @@ pub enum ChildRunProvenance {
 }
 
 literal! {
-    /// The state a run is created in, which `run.queued` enters.
-    pub enum RunQueuedNewState = "queued";
+    /// The state a run is created in, which `agent.run.queued` enters.
+    pub enum AgentRunQueuedNewState = "queued";
 }
 
 agent_entry! {
     /// An agent minted from a saved definition with the run that creates it: the one shape
-    /// `agent.list` describes an agent in, with the configuration it was resolved from always
+    /// `agent.subscribe` describes an agent in, with the configuration it was resolved from always
     /// named.
     ResolvedAgent {
         /// The configuration it was resolved from, whose definition it names.
@@ -43,7 +44,7 @@ agent_entry! {
     }
 }
 
-/// Declares one arm of [`RunQueuedPayload`] with the members every arm repeats.
+/// Declares one arm of [`AgentRunQueuedPayload`] with the members every arm repeats.
 macro_rules! run_queued_payload {
     ($(#[doc = $doc:literal])+ $name:ident { $($agent:tt)* }) => {
         $(#[doc = $doc])+
@@ -59,7 +60,7 @@ macro_rules! run_queued_payload {
             /// The run's version at creation.
             pub run_version: SafeInt<0>,
             /// Always `queued`.
-            pub new_state: RunQueuedNewState,
+            pub new_state: AgentRunQueuedNewState,
             $($agent)*
             /// The run this one is a child of.
             #[serde(
@@ -153,7 +154,7 @@ run_queued_payload! {
 /// already in the session, or as the agent minted from a saved definition with this run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
-pub enum RunQueuedPayload {
+pub enum AgentRunQueuedPayload {
     /// For an agent already in the session.
     SessionAgent(#[garde(dive)] RunQueuedSessionAgentPayload),
     /// For an agent resolved from a definition.
@@ -163,12 +164,12 @@ pub enum RunQueuedPayload {
 /// The TypeScript module of a run's creation record.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/queued",
-    doc: "The `run.queued` payload: a run's creation, and the one durable record of how it came \
-          to be.",
+    doc: "The `agent.run.queued` payload: a run's creation, and the one durable record of how it \
+          came to be.",
     definitions: &[
         Definition::read::<ChildRunProvenance>(),
         Definition::read::<ResolvedAgent>(),
-        Definition::read::<RunQueuedPayload>().checked(),
+        Definition::read::<AgentRunQueuedPayload>().checked(),
     ],
     constants: &[],
     method_tables: &[],

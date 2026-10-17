@@ -76,10 +76,10 @@ pub enum McpServerFailedReason {
     CommandNotRunnable,
 }
 
-/// The interrupted-call classes a person can assign to a tool. `manual_reconcile_only` is the floor
+/// The interrupted-call classes a person can assign to a tool. `manualReconcileOnly` is the floor
 /// a tool reads with no assignment, so it is cleared to, never set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum McpAssignableIdempotencyClass {
     /// Safe to repeat.
     Idempotent,
@@ -89,11 +89,12 @@ pub enum McpAssignableIdempotencyClass {
 
 literal! {
     /// The interrupted-call class a server's own reading holds: the floor.
-    pub enum McpServerIdempotencyClass = "manual_reconcile_only";
+    pub enum McpServerIdempotencyClass = "manualReconcileOnly";
 }
 
-/// One tool's override as `mcp.setToolOverride` sets it, by facet: at least one facet is present,
-/// and an absent facet is left as it stands. What a tool reads in force is its [`McpToolReading`].
+/// One tool's override as `mcp.toolOverride.update` sets it, by facet: at least one facet is
+/// present, and an absent facet is left as it stands. What a tool reads in force is its
+/// [`McpToolReading`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -155,7 +156,7 @@ fn add_sets_a_facet_rule(schema: &mut Schema) {
     push_all_of(schema, json!({ "anyOf": facets }));
 }
 
-/// One facet of a tool override, as `mcp.clearToolOverride` names the one it clears.
+/// One facet of a tool override, as `mcp.toolOverride.clear` names the one it clears.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
@@ -189,7 +190,7 @@ pub const MCP_TOOL_OVERRIDE_FACETS: &[McpToolOverrideFacet] = McpToolOverrideFac
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "source",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -212,7 +213,7 @@ pub enum McpToolSetting<OverrideValue, ServerValue> {
 /// One tool a binding's server offers, each setting in force and where it came from. The daemon
 /// resolves each from the server's own declaration and the person's override, so a client draws
 /// them and works none out: an unset approval mode reads the provider's default in the normalized
-/// vocabulary, and an unset interrupted-call class reads `manual_reconcile_only`.
+/// vocabulary, and an unset interrupted-call class reads `manualReconcileOnly`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct McpToolReading {

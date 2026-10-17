@@ -1,6 +1,6 @@
 //! The `queue_items` rows: the statements that write them, each guarded so a change decided from a
 //! stale read is refused whole, and the reads of a queue in its order. A row is never deleted while
-//! its session is kept; a message's words ride its payload beside its `user.message` row.
+//! its session is kept; a message's words ride its payload beside its `user.message.sent` row.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -291,7 +291,7 @@ fn compose_current_lead_run_predicate(alias: &str) -> String {
       WHERE session_events.session_id = {alias}.session_id AND session_events.type = '{}'
         AND session_events.run_id = {alias}.run_id))",
         <&'static str>::from(RunState::Failed),
-        SessionEventType::RunRunning.as_str()
+        SessionEventType::AgentRunRunning.as_str()
     )
 }
 

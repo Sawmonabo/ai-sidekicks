@@ -36,11 +36,11 @@ ts_constants! {
 /// The daemon-minted id that pairs a switch's acknowledgment with its settlement.
 pub type SwitchId = FreeFormText<AGENT_SWITCH_ID_MAX_LEN>;
 
-/// How the conversation crossed the switch: `in_place`, the same provider carried it on; or
+/// How the conversation crossed the switch: `inPlace`, the same provider carried it on; or
 /// `brief`, a switch across providers that started from a hand-over brief with the old
 /// transcript beside it as a file, never presented as an ordinary success.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum AgentBindingContinuity {
     /// The same provider carried the conversation on.
     InPlace,
@@ -51,10 +51,10 @@ pub enum AgentBindingContinuity {
 /// Why an accepted switch could not be applied; a switch refused before it was accepted is an
 /// error on the request instead.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum AgentBindingSwitchFailureReason {
-    /// The target driver is gone.
-    DriverUnavailable,
+    /// The target provider is gone.
+    ProviderUnavailable,
     /// The target model is gone.
     ModelUnavailable,
     /// The target effort is gone.
@@ -69,10 +69,10 @@ pub enum AgentBindingSwitchFailureReason {
     TargetUnstartable,
 }
 
-/// Why the account a switch lands on cannot carry the run; only `reauth_required` offers a sign
+/// Why the account a switch lands on cannot carry the run; only `reauthRequired` offers a sign
 /// in again. Listed in full, so a new account health state cannot widen it silently.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum AgentBindingSwitchAccountState {
     /// The sign-in is gone.
     ReauthRequired,
@@ -87,7 +87,7 @@ pub enum AgentBindingSwitchAccountState {
 /// Where a pending switch applies, resolved by the daemon against the target driver: the next
 /// turn or the end of the run in flight; a switch moving several members takes the widest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum AgentBindingSwitchBoundary {
     /// The next turn.
     TurnBoundary,
@@ -190,14 +190,14 @@ pub struct AgentBindingSwitchTarget {
 
 literal! {
     /// An applied switch's continuity.
-    pub enum InPlaceContinuity = "in_place";
+    pub enum InPlaceContinuity = "inPlace";
 }
 literal! {
     /// A degraded switch's continuity.
     pub enum BriefContinuity = "brief";
 }
 
-/// Whether a loss list agrees with its continuity: `in_place` declares none, and `brief` at least
+/// Whether a loss list agrees with its continuity: `inPlace` declares none, and `brief` at least
 /// the summarized history and the private reasoning.
 pub fn declared_losses_match(
     continuity: AgentBindingContinuity,
@@ -224,8 +224,8 @@ pub fn declared_losses_match(
 fn brief_losses_schema() -> Value {
     json!({
         "allOf": [
-            { "type": "array", "contains": { "const": "conversation_history_summarized" } },
-            { "type": "array", "contains": { "const": "provider_private_reasoning" } },
+            { "type": "array", "contains": { "const": "conversationHistorySummarized" } },
+            { "type": "array", "contains": { "const": "providerPrivateReasoning" } },
         ],
     })
 }
@@ -237,7 +237,7 @@ pub(crate) fn add_declared_losses_rule(schema: &mut Schema) {
         json!({
             "if": {
                 "type": "object",
-                "properties": { "continuity": { "const": "in_place" } },
+                "properties": { "continuity": { "const": "inPlace" } },
                 "required": ["continuity"],
             },
             "then": {
@@ -263,7 +263,7 @@ fn add_brief_losses_rule(schema: &mut Schema) {
     );
 }
 
-/// Whether a failure carries an account state exactly when its reason is `account_unavailable`.
+/// Whether a failure carries an account state exactly when its reason is `accountUnavailable`.
 pub fn account_state_matches_reason(
     reason: AgentBindingSwitchFailureReason,
     account_state: Option<AgentBindingSwitchAccountState>,
@@ -272,14 +272,14 @@ pub fn account_state_matches_reason(
         Ok(())
     } else {
         Err(garde::Error::new(
-            "accountState is present exactly when the reason is account_unavailable",
+            "accountState is present exactly when the reason is accountUnavailable",
         ))
     }
 }
 
 /// The schema twin of [`account_state_matches_reason`].
 pub(crate) fn add_account_state_rule(schema: &mut Schema) {
-    add_present_exactly_when(schema, "reason", "account_unavailable", "accountState");
+    add_present_exactly_when(schema, "reason", "accountUnavailable", "accountState");
 }
 
 /// Declares [`AgentBindingSwitchPending`] and [`AgentBindingSwitchDisposition`] from one list of
@@ -299,7 +299,7 @@ macro_rules! switch_disposition {
 
         /// A switch the daemon accepted and has not applied: at most one per agent, a later one
         /// replacing it. The same record is the acknowledgment, the agent row's stored switch and
-        /// `agent.list`'s `pendingSwitch`, so `switching to …` survives a reload and reaches
+        /// `agent.subscribe`'s `pendingSwitch`, so `switching to …` survives a reload and reaches
         /// another device.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -310,7 +310,7 @@ macro_rules! switch_disposition {
             $($(#[$attribute])* pub $member: $type,)*
         }
 
-        /// What `agent.configUpdate` answers with, told apart by `status`. `pending` is the
+        /// What `agent.config.update` answers with, told apart by `status`. `pending` is the
         /// ordinary answer; the other three come only when the caller asked to interrupt and
         /// switch, settled on the held-open request as a result, not an error. `applied` is
         /// exactly a conversation that arrived whole and `degraded` exactly one that did not, so no
@@ -318,7 +318,7 @@ macro_rules! switch_disposition {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "status",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -359,7 +359,7 @@ switch_disposition! {
     Applied {
         /// The switch.
         switch_id: SwitchId,
-        /// Always `in_place`.
+        /// Always `inPlace`.
         continuity: InPlaceContinuity,
         /// Always empty: nothing of the conversation was dropped.
         declared_losses: BoundedVec<DeclaredLossKind, 0, 0>,
@@ -381,7 +381,7 @@ switch_disposition! {
         switch_id: SwitchId,
         /// Why it failed.
         reason: AgentBindingSwitchFailureReason,
-        /// Why the account cannot carry the run, exactly on `account_unavailable`.
+        /// Why the account cannot carry the run, exactly on `accountUnavailable`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -463,7 +463,7 @@ pub struct AgentProviderBindingChangeFailedPayload {
     pub switch_id: SwitchId,
     /// Why it failed.
     pub reason: AgentBindingSwitchFailureReason,
-    /// Why the account cannot carry the run, exactly on `account_unavailable`.
+    /// Why the account cannot carry the run, exactly on `accountUnavailable`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

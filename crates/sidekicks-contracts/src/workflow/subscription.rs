@@ -5,7 +5,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -45,7 +45,7 @@ pub struct WorkflowSubscribeRequest {
 /// What happened to a schedule. `armed` and `disarmed` are its state, which a later frame replaces;
 /// `fired` and `skipped` (a fire the overlap policy skipped, never a run) are events never folded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowScheduleChange {
     /// Armed.
     Armed,
@@ -57,7 +57,7 @@ pub enum WorkflowScheduleChange {
     Skipped,
 }
 
-/// One `workflow.subscribe` frame: the hold first, then state frames (`runsPause`, `run`, `step`,
+/// One `workflow.subscribe` frame: the hold first, then state frames (`newRunHold`, `run`, `step`,
 /// `definition`, a schedule `armed` or `disarmed`), each its key's newest value, so a slow reader
 /// may miss a state. A removal and a schedule `fired` or `skipped` are events, each sent and never
 /// folded into a later one; there is no cursor and no dropped mark.
@@ -71,9 +71,9 @@ pub enum WorkflowScheduleChange {
 #[garde(allow_unvalidated)]
 pub enum WorkflowSubscribeNotification {
     /// The hold on starting new runs, and how many starts wait behind it.
-    RunsPause {
+    NewRunHold {
         /// Whether the hold is on.
-        paused: bool,
+        held: bool,
         /// How many starts wait behind it.
         waiting_start_count: SafeInt<0>,
     },
@@ -138,9 +138,9 @@ methods! {
         WorkflowSubscribe = subscription "workflow.subscribe" {
             mutating: false,
             params: WorkflowSubscribeRequest,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: WorkflowSubscribeNotification,
-            refusals: [SessionNotFound, WorkflowNotFound],
+            refusals: [SessionNotFound, WorkflowDefinitionNotFound],
         },
     ];
 }

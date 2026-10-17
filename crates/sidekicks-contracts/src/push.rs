@@ -46,7 +46,7 @@ pattern_text! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PushSendRequest {
+pub struct DevicePushSendRequest {
     /// The device the notice is for.
     pub device_id: DeviceId,
     /// The notice, sealed to the device's push key.
@@ -64,9 +64,9 @@ methods! {
     /// The push procedure the control plane serves.
     pub const PUSH_METHOD_DESCRIPTORS = [
         /// Delivers one sealed notice to one of the person's devices.
-        PushSend = mutation "push.send" {
+        DevicePushSend = mutation "device.push.send" {
             mutating: true,
-            params: PushSendRequest,
+            params: DevicePushSendRequest,
             result: EmptyPayload,
             refusals: [],
         },
@@ -81,7 +81,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<PushUrgency>(),
         Definition::read::<PushCollapseId>(),
-        Definition::read::<PushSendRequest>(),
+        Definition::read::<DevicePushSendRequest>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&PUSH_METHOD_DESCRIPTORS],

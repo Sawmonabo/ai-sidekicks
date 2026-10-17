@@ -1,5 +1,6 @@
-//! The numeric codes of a JSON-RPC error: the five JSON-RPC 2.0 reserves and the canceled call's.
-//! A domain refusal rides in `error.data.type`; the number only frames the error.
+//! The numeric codes of a JSON-RPC error: the five JSON-RPC 2.0 reserves, the canceled call's and
+//! the one every domain refusal answers with. The refusal's code rides in `error.data.type`; the
+//! number only frames the error.
 
 use std::borrow::Cow;
 
@@ -26,6 +27,9 @@ pub enum JsonRpcErrorCode {
     /// The client canceled the call with `$/cancelRequest` before the daemon committed it; its
     /// `data.type` is `request.canceled`.
     RequestCanceled,
+    /// A domain refusal: the call was well formed and the daemon refused it, its code in
+    /// `data.type` and its category in `data.category`.
+    DomainRefusal,
 }
 
 impl JsonRpcErrorCode {
@@ -38,6 +42,7 @@ impl JsonRpcErrorCode {
             Self::InvalidParams => -32_602,
             Self::InternalError => -32_603,
             Self::RequestCanceled => -32_800,
+            Self::DomainRefusal => -31_000,
         }
     }
 
@@ -50,6 +55,7 @@ impl JsonRpcErrorCode {
             Self::InvalidParams => "InvalidParams",
             Self::InternalError => "InternalError",
             Self::RequestCanceled => "RequestCanceled",
+            Self::DomainRefusal => "DomainRefusal",
         }
     }
 

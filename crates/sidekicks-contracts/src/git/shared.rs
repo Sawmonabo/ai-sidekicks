@@ -1,4 +1,4 @@
-//! The scalars the git-flow modules share: a commit's short id, a ref name, an address on the
+//! The scalars the git modules share: a commit's short id, a ref name, an address on the
 //! hosting service, a change request's number and an id the hosting service minted.
 
 use schemars::JsonSchema;
@@ -36,10 +36,10 @@ named_scalar! {
     HostingAddress(WebAddress)
 }
 
-/// The TypeScript module of the scalars the git-flow modules share.
+/// The TypeScript module of the scalars the git modules share.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
-    path: "gitflow/shared",
-    doc: "The scalars the git-flow modules share.",
+    path: "git/shared",
+    doc: "The scalars the git modules share.",
     definitions: &[
         Definition::read::<GitShortObjectId>().checked(),
         Definition::read::<HostHandle>(),

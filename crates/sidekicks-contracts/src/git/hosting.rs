@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FilesystemPath;
-use crate::gitflow::shared::{ChangeRequestNumber, HostHandle, HostingAddress};
+use crate::git::shared::{ChangeRequestNumber, HostHandle, HostingAddress};
 use crate::repo::git_reads::GitObjectId;
 use crate::review_note::ReviewNoteId;
 use crate::session::id::SessionId;
@@ -28,7 +28,7 @@ ts_constants! {
 
 /// The hosting services served. A host is kept with the kind whose tool answered for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum GitHostKind {
     /// GitHub, through `gh`.
     Github,
@@ -38,7 +38,7 @@ pub enum GitHostKind {
 
 /// Where a change request stands on its host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ChangeRequestState {
     /// Open.
     Open,
@@ -51,7 +51,7 @@ pub enum ChangeRequestState {
 /// Whether the host can merge a change request. While the host is still working it out the member
 /// is absent: an unsettled answer is never a conflict and never an error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ChangeRequestMergeability {
     /// It can be merged.
     Mergeable,
@@ -62,7 +62,7 @@ pub enum ChangeRequestMergeability {
 /// The change request's own review decision. Absent means the host has recorded no decision, which
 /// is not a rejection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ChangeRequestReviewDecision {
     /// Approved.
     Approved,
@@ -75,7 +75,7 @@ pub enum ChangeRequestReviewDecision {
 /// One reviewer's latest verdict, kept apart from the request's decision: a reviewer can comment
 /// without deciding, and a request can need a review nobody has given.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ReviewerVerdict {
     /// Approved.
     Approved,
@@ -87,7 +87,7 @@ pub enum ReviewerVerdict {
 
 /// The verdict the person posts a review under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ReviewSubmitVerdict {
     /// A comment.
     Comment,
@@ -99,7 +99,7 @@ pub enum ReviewSubmitVerdict {
 
 /// One check's outcome on the host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ChangeRequestCheckStatus {
     /// Still running.
     Pending,
@@ -111,7 +111,7 @@ pub enum ChangeRequestCheckStatus {
 
 /// A review thread's state; an outdated thread's line no longer exists in the diff.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ReviewThreadState {
     /// Open.
     Open,
@@ -123,7 +123,7 @@ pub enum ReviewThreadState {
 
 /// Which side of a diff a line belongs to: before the change or after it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum DiffSide {
     /// Before the change.
     Old,
@@ -133,7 +133,7 @@ pub enum DiffSide {
 
 /// How much a change-request subscription carries: the header's facts, or Review's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ChangeRequestReadDepth {
     /// The header's facts.
     Summary,
@@ -141,26 +141,26 @@ pub enum ChangeRequestReadDepth {
     Full,
 }
 
-/// Why a host was refused `gitflow.host_invalid`; nothing is saved either way.
+/// Why a host was refused `git.host.invalid`; nothing is saved either way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum GitflowHostInvalidReason {
+#[serde(rename_all = "camelCase")]
+pub enum GitHostInvalidReason {
     /// The name does not parse.
     NotAHostName,
     /// Neither `gh` nor `glab`, installed and signed in, answers for it.
     NotAnswered,
 }
 
-/// The details of a `gitflow.host_invalid` refusal.
+/// The details of a `git.host.invalid` refusal.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GitflowHostInvalidDetails {
+pub struct GitHostInvalidDetails {
     /// Why.
-    pub reason: GitflowHostInvalidReason,
+    pub reason: GitHostInvalidReason,
 }
 
 /// A host as the person typed it, only bounded, so an empty or unparsable name reaches the daemon,
-/// which refuses it with `gitflow.host_invalid`.
+/// which refuses it with `git.host.invalid`.
 pub type GitHostNameInput = BoundedText<0, GIT_HOST_NAME_MAX_LEN>;
 
 /// A host the daemon parsed and saved.
@@ -180,48 +180,48 @@ pub struct GitHost {
     pub added_at: WireInstant,
 }
 
-/// The `gitflow.hostList` result.
+/// The `git.host.list` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GitflowHostListResponse {
+pub struct GitHostListResponse {
     /// The hosts.
     #[garde(dive)]
     pub hosts: Vec<GitHost>,
 }
 
-/// `gitflow.hostAdd`: one host name and no kind, because the daemon keeps the kind of whichever
+/// `git.host.add`: one host name and no kind, because the daemon keeps the kind of whichever
 /// installed tool answers for it. Adding a host already listed answers with that host.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowHostAddRequest {
+pub struct GitHostAddRequest {
     /// The host as typed.
     pub host: GitHostNameInput,
 }
 
-/// The `gitflow.hostAdd` result.
+/// The `git.host.add` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GitflowHostAddResponse {
+pub struct GitHostAddResponse {
     /// The host.
     #[garde(dive)]
     pub host: GitHost,
 }
 
-/// `gitflow.hostRemove`: the host to forget.
+/// `git.host.remove`: the host to forget.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowHostRemoveRequest {
+pub struct GitHostRemoveRequest {
     /// The host as typed.
     pub host: GitHostNameInput,
 }
 
-/// The `gitflow.hostRemove` result; `removed` is false when the host was not listed.
+/// The `git.host.remove` result; `removed` is false when the host was not listed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowHostRemoveResponse {
+pub struct GitHostRemoveResponse {
     /// Whether it was listed.
     pub removed: bool,
 }
@@ -230,7 +230,7 @@ pub struct GitflowHostRemoveResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowSessionRequest {
+pub struct GitSessionRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -283,11 +283,11 @@ change_request! {
     pub struct ChangeRequestSummary {}
 }
 
-/// `gitflow.changeRequestSubscribe`: the session's branch and the depth to read at.
+/// `git.changeRequest.subscribe`: the session's branch and the depth to read at.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowChangeRequestSubscribeRequest {
+pub struct GitChangeRequestSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
     /// The depth.
@@ -408,13 +408,13 @@ change_request! {
     }
 }
 
-/// One frame of `gitflow.changeRequestSubscribe`: the branch's change requests, newest first, at
+/// One frame of `git.changeRequest.subscribe`: the branch's change requests, newest first, at
 /// the depth asked for. `readAt` is the last successful read; a read that failed since keeps the
 /// last state and sets `lastReadFailedAt`, so the tab never blanks.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "depth",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -457,11 +457,11 @@ pub enum ChangeRequestFrame {
     },
 }
 
-/// `gitflow.reviewerList`; `query` narrows the candidates by what was typed.
+/// `git.reviewer.list`; `query` narrows the candidates by what was typed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowReviewerListRequest {
+pub struct GitReviewerListRequest {
     /// The session.
     pub session_id: SessionId,
     /// What was typed.
@@ -490,11 +490,11 @@ pub struct ReviewerCandidate {
     pub name: Option<NonEmptyText>,
 }
 
-/// The `gitflow.reviewerList` result.
+/// The `git.reviewer.list` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowReviewerListResponse {
+pub struct GitReviewerListResponse {
     /// The candidates.
     pub reviewers: Vec<ReviewerCandidate>,
 }
@@ -515,21 +515,21 @@ pub struct LabelCandidate {
     pub description: Option<NonEmptyText>,
 }
 
-/// The `gitflow.labelList` result.
+/// The `git.label.list` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowLabelListResponse {
+pub struct GitLabelListResponse {
     /// The candidates.
     pub labels: Vec<LabelCandidate>,
 }
 
-/// `gitflow.reviewSubmit`. The notes are the session's held notes, read from the daemon's own
+/// `git.review.submit`. The notes are the session's held notes, read from the daemon's own
 /// store, so no note text crosses the wire; `body` is the verdict's one free-standing summary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowReviewSubmitRequest {
+pub struct GitReviewSubmitRequest {
     /// The session.
     pub session_id: SessionId,
     /// The change request.
@@ -556,13 +556,13 @@ pub struct ReviewNoteFailure {
     pub reason: NonEmptyText,
 }
 
-/// The `gitflow.reviewSubmit` result. A review that fails part way says which notes posted and,
+/// The `git.review.submit` result. A review that fails part way says which notes posted and,
 /// for each that did not, the host's reason; notes behind a failure stay held, so a second press
 /// posts only what is still held.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowReviewSubmitResponse {
+pub struct GitReviewSubmitResponse {
     /// The review's address.
     #[serde(
         default,
@@ -577,12 +577,12 @@ pub struct GitflowReviewSubmitResponse {
     pub failures: Vec<ReviewNoteFailure>,
 }
 
-/// `gitflow.threadResolve`: one thread of one change request; resolving a resolved thread
+/// `git.reviewThread.resolve`: one thread of one change request; resolving a resolved thread
 /// succeeds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowThreadResolveRequest {
+pub struct GitReviewThreadResolveRequest {
     /// The session.
     pub session_id: SessionId,
     /// The change request.
@@ -596,22 +596,22 @@ literal! {
     pub enum ResolvedThreadState = "resolved";
 }
 
-/// The `gitflow.threadResolve` result.
+/// The `git.reviewThread.resolve` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowThreadResolveResponse {
+pub struct GitReviewThreadResolveResponse {
     /// The thread.
     pub thread_id: HostHandle,
     /// Its state.
     pub state: ResolvedThreadState,
 }
 
-/// `gitflow.threadReply`: a reply to one thread of one change request.
+/// `git.reviewThread.reply`: a reply to one thread of one change request.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowThreadReplyRequest {
+pub struct GitReviewThreadReplyRequest {
     /// The session.
     pub session_id: SessionId,
     /// The change request.
@@ -622,11 +622,11 @@ pub struct GitflowThreadReplyRequest {
     pub body: NonEmptyText,
 }
 
-/// The `gitflow.threadReply` result: the posted comment and its address.
+/// The `git.reviewThread.reply` result: the posted comment and its address.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowThreadReplyResponse {
+pub struct GitReviewThreadReplyResponse {
     /// The comment.
     pub comment_id: HostHandle,
     /// Its address.
@@ -639,11 +639,11 @@ pub struct GitflowThreadReplyResponse {
     pub url: Option<HostingAddress>,
 }
 
-/// `gitflow.checkLogRead`: one check of one change request.
+/// `git.checkLog.read`: one check of one change request.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowCheckLogReadRequest {
+pub struct GitCheckLogReadRequest {
     /// The session.
     pub session_id: SessionId,
     /// The change request.
@@ -652,13 +652,13 @@ pub struct GitflowCheckLogReadRequest {
     pub check_id: HostHandle,
 }
 
-/// The `gitflow.checkLogRead` result: the end of the check's log, because the useful part of a
+/// The `git.checkLog.read` result: the end of the check's log, because the useful part of a
 /// build log is the last of it. `truncated` says the start was left out and `totalBytes` how long
 /// the whole log is.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct GitflowCheckLogReadResponse {
+pub struct GitCheckLogReadResponse {
     /// The log's tail.
     pub text: String,
     /// Whether the start was left out.
@@ -677,7 +677,7 @@ pub struct GitflowCheckLogReadResponse {
 
 /// The TypeScript module of what the hosting service answers.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
-    path: "gitflow/hosting",
+    path: "git/hosting",
     doc: "What the hosting service answers: the self-hosted git hosts, the change requests on a \
           branch, the reviewer and label candidates, posting a review, answering a thread and \
           reading a failing check's log.",
@@ -692,37 +692,37 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ReviewThreadState>(),
         Definition::read::<DiffSide>(),
         Definition::read::<ChangeRequestReadDepth>(),
-        Definition::read::<GitflowHostInvalidReason>(),
-        Definition::read::<GitflowHostInvalidDetails>(),
+        Definition::read::<GitHostInvalidReason>(),
+        Definition::read::<GitHostInvalidDetails>(),
         Definition::read::<GitHost>(),
-        Definition::read::<GitflowHostListResponse>(),
-        Definition::read::<GitflowHostAddRequest>(),
-        Definition::read::<GitflowHostAddResponse>(),
-        Definition::read::<GitflowHostRemoveRequest>(),
-        Definition::read::<GitflowHostRemoveResponse>(),
-        Definition::read::<GitflowSessionRequest>(),
+        Definition::read::<GitHostListResponse>(),
+        Definition::read::<GitHostAddRequest>(),
+        Definition::read::<GitHostAddResponse>(),
+        Definition::read::<GitHostRemoveRequest>(),
+        Definition::read::<GitHostRemoveResponse>(),
+        Definition::read::<GitSessionRequest>(),
         Definition::read::<ChangeRequestSummary>().checked(),
-        Definition::read::<GitflowChangeRequestSubscribeRequest>(),
+        Definition::read::<GitChangeRequestSubscribeRequest>(),
         Definition::read::<ReviewThreadComment>(),
         Definition::read::<ReviewThread>(),
         Definition::read::<ChangeRequestReview>(),
         Definition::read::<ChangeRequestCheck>(),
         Definition::read::<ChangeRequestDetail>(),
         Definition::read::<ChangeRequestFrame>().checked(),
-        Definition::read::<GitflowReviewerListRequest>(),
+        Definition::read::<GitReviewerListRequest>(),
         Definition::read::<ReviewerCandidate>(),
-        Definition::read::<GitflowReviewerListResponse>(),
+        Definition::read::<GitReviewerListResponse>(),
         Definition::read::<LabelCandidate>(),
-        Definition::read::<GitflowLabelListResponse>(),
-        Definition::read::<GitflowReviewSubmitRequest>(),
+        Definition::read::<GitLabelListResponse>(),
+        Definition::read::<GitReviewSubmitRequest>(),
         Definition::read::<ReviewNoteFailure>(),
-        Definition::read::<GitflowReviewSubmitResponse>(),
-        Definition::read::<GitflowThreadResolveRequest>(),
-        Definition::read::<GitflowThreadResolveResponse>(),
-        Definition::read::<GitflowThreadReplyRequest>(),
-        Definition::read::<GitflowThreadReplyResponse>(),
-        Definition::read::<GitflowCheckLogReadRequest>(),
-        Definition::read::<GitflowCheckLogReadResponse>(),
+        Definition::read::<GitReviewSubmitResponse>(),
+        Definition::read::<GitReviewThreadResolveRequest>(),
+        Definition::read::<GitReviewThreadResolveResponse>(),
+        Definition::read::<GitReviewThreadReplyRequest>(),
+        Definition::read::<GitReviewThreadReplyResponse>(),
+        Definition::read::<GitCheckLogReadRequest>(),
+        Definition::read::<GitCheckLogReadResponse>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

@@ -61,7 +61,7 @@ pub struct DaemonRetentionReadResponse {
     pub purge: DaemonRetentionPurgePreview,
 }
 
-/// `daemon.retentionUpdate`: exactly one bound, as `{"<bound>": days}`. Setting a bound deletes
+/// `daemon.retention.update`: exactly one bound, as `{"<bound>": days}`. Setting a bound deletes
 /// nothing.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
@@ -75,7 +75,7 @@ pub enum DaemonRetentionUpdateRequest {
     KeepSessionsDays(SafeInt<1>),
 }
 
-/// `daemon.retentionPurge`: the cutoff the confirm was read against, so the purge removes exactly
+/// `daemon.retention.purge`: the cutoff the confirm was read against, so the purge removes exactly
 /// what the confirm named and a second press removes nothing more.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -101,21 +101,21 @@ methods! {
     /// The retention methods.
     pub const DAEMON_RETENTION_METHOD_DESCRIPTORS = [
         /// Reads the bounds and what the purge would remove.
-        DaemonRetentionRead = query "daemon.retentionRead" {
+        DaemonRetentionRead = query "daemon.retention.read" {
             mutating: false,
             params: EmptyPayload,
             result: DaemonRetentionReadResponse,
             refusals: [],
         },
         /// Sets one bound.
-        DaemonRetentionUpdate = mutation "daemon.retentionUpdate" {
+        DaemonRetentionUpdate = mutation "daemon.retention.update" {
             mutating: true,
             params: DaemonRetentionUpdateRequest,
             result: DaemonRetentionBounds,
             refusals: [],
         },
         /// Removes the sessions archived before the confirmed cutoff.
-        DaemonRetentionPurge = mutation "daemon.retentionPurge" {
+        DaemonRetentionPurge = mutation "daemon.retention.purge" {
             mutating: true,
             params: DaemonRetentionPurgeRequest,
             result: DaemonRetentionPurgeResponse,

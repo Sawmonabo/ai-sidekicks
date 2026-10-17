@@ -18,7 +18,7 @@ use crate::wire::text::FreeFormText;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct InterruptRunParams {
+pub struct InterruptRunRequest {
     /// The run to interrupt.
     pub run_id: RunId,
     /// The person's reason.
@@ -37,8 +37,8 @@ pub struct InterruptRunParams {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum InterventionType {
     /// Stops the turn.
     Interrupt,
@@ -74,7 +74,7 @@ pub struct InterruptPayload {
 
 /// The one intervention the orchestration asks a driver to apply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum InterruptInterventionType {
     /// An interrupt.
@@ -103,7 +103,7 @@ pub struct ApplyInterventionRequest {
 
 /// Whether an intervention landed as asked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum InterventionResultStatus {
     /// As asked.
@@ -118,7 +118,7 @@ pub enum InterventionResultStatus {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct DriverInterventionResult {
+pub struct ApplyInterventionResponse {
     /// Whether it landed as asked.
     pub status: InterventionResultStatus,
     /// The fallback a degraded result took.
@@ -145,12 +145,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "How a caller acts on a live run through its driver: the interrupt, the intervention \
           types and their payloads, and the driver's result, read as provider output.",
     definitions: &[
-        Definition::read::<InterruptRunParams>().checked(),
+        Definition::read::<InterruptRunRequest>().checked(),
         Definition::read::<InterventionType>().checked(),
         Definition::read::<InterruptPendingChoice>().checked(),
         Definition::read::<InterruptPayload>(),
         Definition::read::<ApplyInterventionRequest>().checked(),
-        Definition::read::<DriverInterventionResult>().checked(),
+        Definition::read::<ApplyInterventionResponse>().checked(),
     ],
     constants: &[],
     method_tables: &[],

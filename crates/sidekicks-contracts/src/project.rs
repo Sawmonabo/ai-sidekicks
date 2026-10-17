@@ -3,7 +3,7 @@
 //! environment rows and its own branch pattern. The row shape and the branch-pattern rule are the
 //! machine settings', so a project's override is checked exactly as `Every project` is.
 //!
-//! `repo.projectList` is a live list: each emission carries the whole list, so a late subscriber
+//! `project.subscribe` is a live list: each emission carries the whole list, so a late subscriber
 //! needs no resend.
 
 use schemars::JsonSchema;
@@ -12,7 +12,7 @@ use strum::{IntoStaticStr, VariantArray};
 
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
-use crate::machine_settings::{BranchNamePattern, BranchNamePatternChange, EnvironmentRow};
+use crate::machine::settings::{BranchNamePattern, BranchNamePatternChange, EnvironmentRow};
 use crate::place::Place;
 use crate::repo::mount::RepoMountId;
 use crate::session::id::SessionId;
@@ -53,8 +53,8 @@ pub type ProjectName = FreeFormText<PROJECT_NAME_MAX_LEN>;
     VariantArray,
     IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum ProjectState {
     /// Its clone has not attached yet.
     Cloning,
@@ -149,7 +149,7 @@ pub struct ProjectListEntry {
     pub is_distribution_removed: Option<True>,
 }
 
-/// One `repo.projectList` emission: every project, sent once on subscribe and again on each
+/// One `project.subscribe` emission: every project, sent once on subscribe and again on each
 /// change, so a project attached or cloned from another device appears at once.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -168,7 +168,7 @@ pub struct ProjectEditResponse {
     pub project: ProjectListEntry,
 }
 
-/// `repo.projectRename`: the project's display name; the folder on disk is untouched.
+/// `project.rename`: the project's display name; the folder on disk is untouched.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -179,7 +179,7 @@ pub struct ProjectRenameRequest {
     pub name: ProjectName,
 }
 
-/// `repo.projectArchive` and `repo.projectReactivate`: the project to move into or out of the
+/// `project.archive` and `project.reactivate`: the project to move into or out of the
 /// archived group. Its sessions are kept either way, and archiving an archived project, or
 /// reactivating an active one, changes nothing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -190,7 +190,7 @@ pub struct ProjectStateChangeRequest {
     pub project_id: ProjectId,
 }
 
-/// `repo.projectSetupUpdate`: the whole setup, replacing what the project had.
+/// `project.setup.update`: the whole setup, replacing what the project had.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -201,8 +201,8 @@ pub struct ProjectSetupUpdateRequest {
     pub setup: ProjectSetup,
 }
 
-/// `repo.projectEnvironmentUpdate`: the project's whole list of rows, replacing what it had. A row
-/// whose name the environment-name rule refuses is refused with `daemon.environment_name_refused`
+/// `project.environment.update`: the project's whole list of rows, replacing what it had. A row
+/// whose name the environment-name rule refuses is refused with `project.environment.nameRefused`
 /// naming the row, and nothing is written.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -214,7 +214,7 @@ pub struct ProjectEnvironmentUpdateRequest {
     pub environment_rows: Vec<EnvironmentRow>,
 }
 
-/// `repo.projectBranchPatternUpdate`: the project's own branch pattern, or `null` to return the
+/// `project.branchPattern.update`: the project's own branch pattern, or `null` to return the
 /// project to the machine's pattern. A pattern git refuses, or one that clashes with a branch in
 /// the repository, is refused and nothing is written.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]

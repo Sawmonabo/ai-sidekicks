@@ -21,7 +21,7 @@ ts_constants! {
 
 /// The stages of setting a tree up, in the order they run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorktreeSetupStage {
     /// Making the tree.
     MakeTree,
@@ -33,7 +33,7 @@ pub enum WorktreeSetupStage {
 
 /// Where one setup step stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorktreeSetupStepState {
     /// Not run yet.
     Pending,
@@ -45,10 +45,10 @@ pub enum WorktreeSetupStepState {
     Failed,
 }
 
-/// Where a tree's setup card stands; `not_run`, with no steps, is a tree with no card to show: its
+/// Where a tree's setup card stands; `notRun`, with no steps, is a tree with no card to show: its
 /// setup did not run since the daemon started, or it has none.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorktreeSetupState {
     /// Running.
     Running,
@@ -97,7 +97,7 @@ pub struct WorktreeSetupStep {
     pub output: Option<FreeFormText<WORKTREE_SETUP_OUTPUT_MAX_LEN>>,
 }
 
-/// One `repo.worktreeSetupSubscribe` emission: the whole card for one tree.
+/// One `worktree.setup.subscribe` emission: the whole card for one tree.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -110,7 +110,7 @@ pub struct WorktreeSetupStatus {
     pub steps: Vec<WorktreeSetupStep>,
 }
 
-/// `repo.worktreeSetupSubscribe` and `repo.worktreeSetupRetry`: the tree whose setup a card follows
+/// `worktree.setup.subscribe` and `worktree.setup.retry`: the tree whose setup a card follows
 /// or retries. A retry runs the failed step and the ones after it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

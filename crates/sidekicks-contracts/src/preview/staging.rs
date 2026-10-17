@@ -65,7 +65,7 @@ pub enum PreviewDownloadState {
 
 /// A download a relayed input owns, which main wrote to `<staging folder>/<fileId>` and reports
 /// once it is done in any state. The daemon resolves `fileId` inside its folder itself and refuses
-/// one main did not mint with `preview.file_path_refused`.
+/// one main did not mint with `preview.filePathRefused`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -109,7 +109,7 @@ pub struct PreviewPageDownloadReportResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewFilePartResponse {
+pub struct PreviewSaveReadResponse {
     /// The part's bytes.
     pub part: PreviewFilePart,
     /// Whether the file ends with this part.

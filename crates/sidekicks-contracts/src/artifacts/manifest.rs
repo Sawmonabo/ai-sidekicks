@@ -21,7 +21,7 @@ use crate::wire::text::NonEmptyText;
 /// The kind of an artifact: a file, a diff, a summary, a log, a design, or the output of one
 /// workflow phase.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ArtifactType {
     /// A file.
     File,
@@ -40,7 +40,7 @@ pub enum ArtifactType {
 /// Where a manifest is in its life: written but not yet published, published, or replaced by a
 /// later manifest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ArtifactState {
     /// Written, not yet published.
     Pending,

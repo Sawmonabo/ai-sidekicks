@@ -203,8 +203,8 @@ macro_rules! question_asked {
             pub session_id: SessionId,
             $($own)*
             /// False only on a question the agent does not wait for: its run keeps running, no card
-            /// of its own is raised, and the `user.message` naming it as `answersQuestionId` marks
-            /// it answered.
+            /// of its own is raised, and the `user.message.sent` naming it as `answersQuestionId`
+            /// marks it answered.
             pub is_agent_waiting: bool,
             /// Every question of the record in page order, so a rebuilt card pages through them
             /// with no further read.
@@ -261,7 +261,7 @@ pub enum QuestionAskedPayload {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -299,7 +299,7 @@ pub struct QuestionResolveRequest {
 
 /// A settled question's state: answered, or canceled with the turn that held it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum QuestionSettledState {
     /// Answered.
     Answered,

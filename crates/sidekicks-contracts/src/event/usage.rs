@@ -34,15 +34,15 @@ ts_constants! {
     pub const DEFAULT_RATE_LIMIT_ID: &str = "default";
 }
 
-/// The `usage.token_count` payload: one turn's own token figures, never a running total, so a
-/// run's or a session's total is the sum of its rows. A count is absent when the provider
-/// reported none, never zero. The account is the one the turn was charged to, read from the
-/// run's admission, never from the provider.
+/// The `usage.tokenCount.recorded` payload: one turn's own token figures, never a running total, so
+/// a run's or a session's total is the sum of its rows. A count is absent when the provider
+/// reported none, never zero. The account is the one the turn was charged to, read from the run's
+/// admission, never from the provider.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct UsageTokenCountPayload {
+pub struct UsageTokenCountRecordedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run, absent on a turn no session owns.
@@ -145,13 +145,13 @@ pub struct UsageTokenCountPayload {
     pub source_position: Option<SourcePosition>,
 }
 
-/// The `usage.cost_update` payload: one priced request, priced once when it completes and never
+/// The `usage.cost.updated` payload: one priced request, priced once when it completes and never
 /// again.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct UsageCostUpdatePayload {
+pub struct UsageCostUpdatedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run, absent on a turn no session owns.
@@ -204,14 +204,14 @@ pub struct UsageCostUpdatePayload {
     pub source_position: Option<SourcePosition>,
 }
 
-/// The `usage.context_window_update` payload: the context window's reading. The two counts
+/// The `usage.contextWindow.updated` payload: the context window's reading. The two counts
 /// travel together, absent only where the provider gave none (a bare signal that the window is
 /// exceeded), and are never estimated.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = window_dependent_required()))]
-pub struct UsageContextWindowUpdatePayload {
+pub struct UsageContextWindowUpdatedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run, absent on a turn no session owns.
@@ -312,13 +312,13 @@ fn window_dependent_required() -> Value {
     dependent_required
 }
 
-/// The `usage.rate_limit_update` payload: a snapshot of one of an account's quotas, keyed by the
-/// account and `limitId`. It names no session and no run; the envelope binds it to the node's
+/// The `usage.rateLimit.updated` payload: a snapshot of one of an account's quotas, keyed by the
+/// account and `limitId`. It names no session and no run; the envelope binds it to the machine's
 /// sentinel session. A display reading only, never an input to a security or admission decision.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct UsageRateLimitUpdatePayload {
+pub struct UsageRateLimitUpdatedPayload {
     /// The provider.
     pub provider: ProviderId,
     /// The account the quota belongs to.
@@ -353,7 +353,7 @@ pub struct UsageRateLimitUpdatePayload {
 /// Why a provider retried a request mid-run, in the vocabulary every provider's retry is read
 /// into; `unknown` holds a cause the provider names that the vocabulary lacks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ApiRetryErrorKind {
     /// The credentials were refused.
     AuthenticationFailed,
@@ -377,14 +377,14 @@ pub enum ApiRetryErrorKind {
     Unknown,
 }
 
-/// The `usage.api_retry` payload: the provider retried a request mid-run, so trouble with the
-/// account, its billing or its rate limits shows rather than passing in silence. It takes the epoch
-/// stamp.
+/// The `usage.apiRequest.retried` payload: the provider retried a request mid-run, so trouble with
+/// the account, its billing or its rate limits shows rather than passing in silence. It takes the
+/// epoch stamp.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct UsageApiRetryPayload {
+pub struct UsageApiRequestRetriedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run whose request was retried.
@@ -436,14 +436,14 @@ pub struct UsageApiRetryPayload {
     pub source_position: Option<SourcePosition>,
 }
 
-/// The `usage.context_compacted` payload: the provider shrank the run's own conversation context,
-/// and no stored event changed. `summary` is the summary the provider kept, in its own words and
-/// unchanged. It takes the epoch stamp.
+/// The `agent.run.context.compacted` payload: the provider shrank the run's own conversation
+/// context, and no stored event changed. `summary` is the summary the provider kept, in its own
+/// words and unchanged. It takes the epoch stamp.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct UsageContextCompactedPayload {
+pub struct AgentRunContextCompactedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run whose context was compacted.
@@ -498,7 +498,7 @@ pub struct UsageContextCompactedPayload {
 
 /// How long a provider's move onto another model holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ModelRerouteScope {
     /// This turn.
     Turn,
@@ -510,7 +510,7 @@ pub enum ModelRerouteScope {
 
 /// Why the provider moved a turn onto another model.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ModelRerouteCause {
     /// The provider's safety check.
     Safety,
@@ -522,14 +522,14 @@ pub enum ModelRerouteCause {
     OutOfCredits,
 }
 
-/// The `usage.model_rerouted` payload: the provider moved a turn onto another model and the turn
+/// The `agent.turn.rerouted` payload: the provider moved a turn onto another model and the turn
 /// went on. `sentence`, `explanation` and `safetyCategory` are the provider's own. It takes the
 /// epoch stamp.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct UsageModelReroutedPayload {
+pub struct AgentTurnReroutedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run whose turn moved.
@@ -602,16 +602,16 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           quota snapshot, a provider's retry, a compaction of a run's context, and the provider's \
           move of a turn onto another model.",
     definitions: &[
-        Definition::read::<UsageTokenCountPayload>().checked(),
-        Definition::read::<UsageCostUpdatePayload>().checked(),
-        Definition::read::<UsageContextWindowUpdatePayload>().checked(),
-        Definition::read::<UsageRateLimitUpdatePayload>().checked(),
+        Definition::read::<UsageTokenCountRecordedPayload>().checked(),
+        Definition::read::<UsageCostUpdatedPayload>().checked(),
+        Definition::read::<UsageContextWindowUpdatedPayload>().checked(),
+        Definition::read::<UsageRateLimitUpdatedPayload>().checked(),
         Definition::read::<ApiRetryErrorKind>(),
-        Definition::read::<UsageApiRetryPayload>().checked(),
-        Definition::read::<UsageContextCompactedPayload>().checked(),
+        Definition::read::<UsageApiRequestRetriedPayload>().checked(),
+        Definition::read::<AgentRunContextCompactedPayload>().checked(),
         Definition::read::<ModelRerouteScope>(),
         Definition::read::<ModelRerouteCause>(),
-        Definition::read::<UsageModelReroutedPayload>().checked(),
+        Definition::read::<AgentTurnReroutedPayload>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

@@ -13,7 +13,7 @@ use strum::VariantArray;
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub(crate) enum DriverCapabilityFlag {
     /// Resumes a provider session.
     Resume,

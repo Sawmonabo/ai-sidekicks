@@ -1,4 +1,4 @@
-//! The sign-in side of `providerAccount.*`: registering an account, which carries the one request
+//! The sign-in side of `provider.account.*`: registering an account, which carries the one request
 //! member that may hold a credential; rebuilding an account's credential home; and the brokered
 //! interactive sign-in with its cancel. The member a request-logging transport must redact sits
 //! here beside the input it concerns.
@@ -10,7 +10,7 @@ use strum::VariantArray;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::keychain::KeychainRefusalCause;
 use crate::provider::account::record::{
-    BillingMode, CredentialGeneration, DisplayLabel, PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN,
+    BillingMode, CredentialGeneration, DisplayLabel, PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN,
     ProviderAccount, ProviderAccountHealthState, ProviderAccountId,
 };
 use crate::provider::id::ProviderId;
@@ -22,23 +22,23 @@ use crate::wire::text::FreeFormText;
 
 ts_constants! {
     /// The longest provider verification address, carried verbatim.
-    pub const PROVIDER_LOGIN_VERIFICATION_URI_MAX_LEN: usize = 2048;
+    pub const PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN: usize = 2048;
     /// The longest device code the person types at the verification address.
-    pub const PROVIDER_LOGIN_USER_CODE_MAX_LEN: usize = 64;
+    pub const PROVIDER_SIGN_IN_USER_CODE_MAX_LEN: usize = 64;
     /// The longest pasted token: generous, since the vendor mints it, and bounded so no unbounded
     /// body rides in through the one member whose value is never logged.
     pub const PROVIDER_NON_INTERACTIVE_TOKEN_MAX_LEN: usize = 8192;
     /// A pasted token could not be sealed in this machine's keychain, so nothing was stored.
     PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE =
-        RefusalCode::ProvideraccountCredentialSealRefused;
+        RefusalCode::ProviderAccountCredentialSealRefused;
     /// The provider's status output, run on a pasted token, reported no signed-in mode, so
     /// nothing is registered, sealed or replaced.
-    PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE = RefusalCode::ProvideraccountTokenNotAccepted;
+    PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE = RefusalCode::ProviderAccountTokenNotAccepted;
     /// The name given to a token or API-key account repeats another of that provider's account
     /// names; a rename refuses on the same code.
-    PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE = RefusalCode::ProvideraccountDisplayLabelTaken;
+    PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE = RefusalCode::ProviderAccountDisplayLabelTaken;
     /// Every way a cancel ends, in declaration order.
-    PROVIDER_LOGIN_CANCEL_STATUSES = ProviderLoginCancelStatus::VARIANTS;
+    PROVIDER_SIGN_IN_CANCEL_STATUSES = ProviderSignInCancelStatus::VARIANTS;
     /// Wire members a request-logging transport redacts before writing a record, listed once so
     /// no transport derives the list again.
     pub const PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS: [&str; 1] = ["nonInteractiveToken"];
@@ -125,7 +125,7 @@ pub struct TokenRegistration {
 }
 
 /// Replaces the sealed token of a registered account, the remedy for a token account's lost
-/// login, which keeps its spend, quota and attention history; an id that names no account is
+/// sign-in, which keeps its spend, quota and attention history; an id that names no account is
 /// refused, never created.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -195,7 +195,7 @@ pub struct ProviderAccountCredentialSealRefusedDetails {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountResetCredentialHomeRequest {
+pub struct ProviderAccountCredentialHomeResetRequest {
     /// The account.
     pub account_id: ProviderAccountId,
 }
@@ -204,12 +204,12 @@ pub struct ProviderAccountResetCredentialHomeRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountResetCredentialHomeResponse {
+pub struct ProviderAccountCredentialHomeResetResponse {
     /// The account.
     pub account_id: ProviderAccountId,
     /// The generation after the rebuild, greater than the one before.
     pub credential_generation: CredentialGeneration,
-    /// `reauth_required` until the person signs in.
+    /// `reauthRequired` until the person signs in.
     pub health_state: ProviderAccountHealthState,
 }
 
@@ -217,7 +217,7 @@ pub struct ProviderAccountResetCredentialHomeResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountLoginRequest {
+pub struct ProviderAccountSignInRequest {
     /// The account.
     pub account_id: ProviderAccountId,
 }
@@ -226,20 +226,20 @@ pub struct ProviderAccountLoginRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountLoginResponse {
+pub struct ProviderAccountSignInResponse {
     /// Opaque, daemon-minted and single-use: the key for cancel and for completion.
-    pub attempt_id: FreeFormText<PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN>,
+    pub attempt_id: FreeFormText<PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN>,
     /// Where the person finishes the flow: the provider's own `https:` address, verbatim, since
     /// the person opens it.
-    pub verification_uri: HttpsAddress<PROVIDER_LOGIN_VERIFICATION_URI_MAX_LEN>,
+    pub verification_uri: HttpsAddress<PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN>,
     /// The device code the person types at the address, on a device-code flow.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<PROVIDER_LOGIN_USER_CODE_MAX_LEN>")]
-    pub user_code: Option<FreeFormText<PROVIDER_LOGIN_USER_CODE_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_SIGN_IN_USER_CODE_MAX_LEN>")]
+    pub user_code: Option<FreeFormText<PROVIDER_SIGN_IN_USER_CODE_MAX_LEN>>,
     /// Where the provider bounds the attempt; absent when it published no bound or the value
     /// failed the daemon's check.
     #[serde(
@@ -252,13 +252,13 @@ pub struct ProviderAccountLoginResponse {
     pub expires_at: Option<WireInstant>,
 }
 
-/// Cancels one sign-in attempt by the id its login reply returned.
+/// Cancels one sign-in attempt by the id its `provider.account.signIn` reply returned.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountLoginCancelRequest {
+pub struct ProviderAccountSignInAttemptCancelRequest {
     /// The attempt.
-    pub attempt_id: FreeFormText<PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN>,
+    pub attempt_id: FreeFormText<PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN>,
 }
 
 /// How a cancel ended. `notFound` covers an attempt that already ended or never existed; it is
@@ -267,7 +267,7 @@ pub struct ProviderAccountLoginCancelRequest {
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
 #[serde(rename_all = "camelCase")]
-pub enum ProviderLoginCancelStatus {
+pub enum ProviderSignInCancelStatus {
     /// The provider's sign-in was ended.
     Canceled,
     /// No such attempt was open.
@@ -280,27 +280,27 @@ pub enum ProviderLoginCancelStatus {
 )]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountLoginCancelResponse {
+pub struct ProviderAccountSignInAttemptCancelResponse {
     /// The outcome.
-    pub status: ProviderLoginCancelStatus,
+    pub status: ProviderSignInCancelStatus,
 }
 
 /// The TypeScript module of the account sign-in.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/account/sign-in",
-    doc: "The sign-in side of `providerAccount.*`: registering an account, rebuilding an \
+    doc: "The sign-in side of `provider.account.*`: registering an account, rebuilding an \
           account's credential home, and the brokered interactive sign-in with its cancel.",
     definitions: &[
         Definition::read::<ProviderAccountRegisterRequest>().checked(),
         Definition::read::<ProviderAccountRegisterResponse>().checked(),
         Definition::read::<ProviderAccountCredentialSealRefusedDetails>().checked(),
-        Definition::read::<ProviderAccountResetCredentialHomeRequest>().checked(),
-        Definition::read::<ProviderAccountResetCredentialHomeResponse>().checked(),
-        Definition::read::<ProviderAccountLoginRequest>().checked(),
-        Definition::read::<ProviderAccountLoginResponse>().checked(),
-        Definition::read::<ProviderAccountLoginCancelRequest>().checked(),
-        Definition::read::<ProviderLoginCancelStatus>(),
-        Definition::read::<ProviderAccountLoginCancelResponse>().checked(),
+        Definition::read::<ProviderAccountCredentialHomeResetRequest>().checked(),
+        Definition::read::<ProviderAccountCredentialHomeResetResponse>().checked(),
+        Definition::read::<ProviderAccountSignInRequest>().checked(),
+        Definition::read::<ProviderAccountSignInResponse>().checked(),
+        Definition::read::<ProviderAccountSignInAttemptCancelRequest>().checked(),
+        Definition::read::<ProviderSignInCancelStatus>(),
+        Definition::read::<ProviderAccountSignInAttemptCancelResponse>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

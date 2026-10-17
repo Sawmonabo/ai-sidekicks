@@ -9,19 +9,19 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 
 /// Why the run engine refused a call or a move; nothing was written for any of them.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RunRefusal {
-    /// A run id the daemon holds no run for (`run.not_found`).
+    /// A run id the daemon holds no run for (`agent.run.notFound`).
     #[error("Run does not exist or is not accessible")]
     NotFound {
         /// The run asked for.
         run_id: RunId,
     },
-    /// A `run.pause` or `run.resume` whose expected version is not the run's current one, older
-    /// or newer (`run.version_stale`); the run is as it was.
+    /// An `agent.run.pause` or `agent.run.resume` whose expected version is not the run's current
+    /// one, older or newer (`agent.run.versionStale`); the run is as it was.
     #[error("The run's version is not the one the call expected")]
     VersionStale {
         /// The run asked for.
@@ -31,7 +31,7 @@ pub(crate) enum RunRefusal {
         /// The run's current version, as the store holds it.
         run_version: i64,
     },
-    /// A move the run's current state does not allow (`run.invalid_transition`).
+    /// A move the run's current state does not allow (`agent.run.invalidTransition`).
     #[error(
         "A run in {} cannot move to {}",
         <&'static str>::from(*.from_state),
@@ -48,8 +48,8 @@ pub(crate) enum RunRefusal {
         #[source]
         source: Option<Box<dyn Error + Send + Sync>>,
     },
-    /// A terminal refused because the run had already ended, by the time it was read or inside
-    /// the write itself (`run.invalid_transition`); a late terminal from the provider meets this.
+    /// A terminal refused because the run had already ended, by the time it was read or inside the
+    /// write itself (`agent.run.invalidTransition`); a late terminal from the provider meets this.
     #[error(
         "A run in {} cannot move to {}",
         <&'static str>::from(*.from_state),
@@ -65,7 +65,7 @@ pub(crate) enum RunRefusal {
     },
     /// A turn the daemon or the provider would start on a session whose next turn is held for
     /// another run: the continue of its interrupted lead run with the messages waiting for it, or
-    /// a lead run that has not ended (`driver.unavailable`, `session_turn_in_flight`, as a driver
+    /// a lead run that has not ended (`provider.unavailable`, `sessionTurnInFlight`, as a driver
     /// refuses a turn the daemon starts while another holds the session).
     #[error("The session's next turn is held for another of its runs, so this turn waits")]
     SessionTurnHeld {
@@ -102,22 +102,15 @@ impl From<RunRefusal> for DomainError {
     fn from(refusal: RunRefusal) -> Self {
         let message = refusal.to_string();
         match refusal {
-            RunRefusal::NotFound { run_id } => DomainError::new(
-                message,
-                RefusalCode::RunNotFound,
-                DomainErrorJsonRpcCode::InvalidParams,
-            )
-            .with_detail(json!({ "runId": run_id })),
+            RunRefusal::NotFound { run_id } => {
+                DomainError::new(message, RefusalCode::AgentRunNotFound)
+                    .with_detail(json!({ "runId": run_id }))
+            }
             RunRefusal::VersionStale {
                 run_id,
                 expected_run_version,
                 run_version,
-            } => DomainError::new(
-                message,
-                RefusalCode::RunVersionStale,
-                DomainErrorJsonRpcCode::InvalidRequest,
-            )
-            .with_detail(json!({
+            } => DomainError::new(message, RefusalCode::AgentRunVersionStale).with_detail(json!({
                 "runId": run_id,
                 "expectedRunVersion": expected_run_version,
                 "runVersion": run_version,
@@ -139,20 +132,17 @@ impl From<RunRefusal> for DomainError {
                 from_state,
                 to_state,
             } => transition_refusal(message, &run_id, from_state, to_state),
-            RunRefusal::SessionTurnHeld { session_id } => DomainError::new(
-                message,
-                RefusalCode::DriverUnavailable,
-                DomainErrorJsonRpcCode::InternalError,
-            )
-            .with_detail(json!({
-                "sessionId": session_id,
-                "reason": "session_turn_in_flight",
-            })),
+            RunRefusal::SessionTurnHeld { session_id } => {
+                DomainError::new(message, RefusalCode::ProviderUnavailable).with_detail(json!({
+                    "sessionId": session_id,
+                    "reason": "sessionTurnInFlight",
+                }))
+            }
         }
     }
 }
 
-// `run.invalid_transition` with the run and both states as its detail, which both transition
+// `agent.run.invalidTransition` with the run and both states as its detail, which both transition
 // refusals send.
 fn transition_refusal(
     message: String,
@@ -160,12 +150,7 @@ fn transition_refusal(
     from_state: RunState,
     to_state: RunStateChangeState,
 ) -> DomainError {
-    DomainError::new(
-        message,
-        RefusalCode::RunInvalidTransition,
-        DomainErrorJsonRpcCode::InvalidRequest,
-    )
-    .with_detail(json!({
+    DomainError::new(message, RefusalCode::AgentRunInvalidTransition).with_detail(json!({
         "runId": run_id,
         "fromState": <&'static str>::from(from_state),
         "toState": <&'static str>::from(RunState::from(to_state)),

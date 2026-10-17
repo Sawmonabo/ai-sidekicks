@@ -67,7 +67,7 @@ pub(crate) struct RunStartPath {
     /// The output speed the run starts at, held until its provider reports the speed settled.
     pub(crate) output_speed: Option<ProviderToken>,
     /// The posture the run was requested at; the posture gate checks it, and its resolved form is
-    /// what the driver is handed and `run.running` is stamped with.
+    /// what the driver is handed and `agent.run.running` is stamped with.
     pub(crate) execution_posture: ExecutionPosture,
     /// Starts the run on its provider at the resolved posture, once every setup gate has passed.
     pub(crate) start_driver: Box<dyn Fn(ExecutionPosture) -> DriverStep + Send + Sync>,

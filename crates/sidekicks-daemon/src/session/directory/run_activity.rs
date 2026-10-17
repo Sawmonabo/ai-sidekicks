@@ -22,57 +22,57 @@ pub(crate) fn run_outcome_of(
     payload: &Map<String, Value>,
 ) -> Option<SessionActivity> {
     match event_type {
-        SessionEventType::RunCompleted => Some(SessionActivity::Done),
+        SessionEventType::AgentRunCompleted => Some(SessionActivity::Done),
         // A terminal the daemon's own close produced is never read as a crash.
-        SessionEventType::RunFailed => Some(
+        SessionEventType::AgentRunFailed => Some(
             if payload.get("intendedClose") == Some(&Value::Bool(true)) {
                 SessionActivity::Idle
             } else {
                 SessionActivity::Failed
             },
         ),
-        SessionEventType::RunInterrupted
-        | SessionEventType::RunStopped
-        | SessionEventType::RunPaused => Some(SessionActivity::Idle),
-        SessionEventType::RunQueued
-        | SessionEventType::RunStarting
-        | SessionEventType::RunRunning
-        | SessionEventType::RunWaitingForApproval
-        | SessionEventType::RunWaitingForInput
-        | SessionEventType::RunPausing
-        | SessionEventType::RunRolledBack
-        | SessionEventType::RunProviderInitialized
-        | SessionEventType::RunTurnStarted
-        | SessionEventType::RunWorkerShutdown
-        | SessionEventType::RunStepLimitReached
-        | SessionEventType::RunTokenLimitReached
-        | SessionEventType::RunRecoveryStepsAdded
-        | SessionEventType::RunRecoveryResolved
-        | SessionEventType::RunRefusalChoiceRequested
-        | SessionEventType::RunRefusalChoiceResolved
-        | SessionEventType::RunUsageCreditsChoiceRequested
-        | SessionEventType::RunUsageCreditsChoiceResolved
-        | SessionEventType::AssistantMessage
-        | SessionEventType::AssistantThinkingUpdate
-        | SessionEventType::ToolInvoked
-        | SessionEventType::ToolResult
-        | SessionEventType::ToolError
-        | SessionEventType::SubagentStarted
-        | SessionEventType::SubagentCompleted
-        | SessionEventType::CommandEnded
-        | SessionEventType::QueueItemCreated
-        | SessionEventType::QueueItemAdmitted
-        | SessionEventType::QueueItemSuperseded
-        | SessionEventType::QueueItemCanceled
-        | SessionEventType::QueueItemNotDelivered
-        | SessionEventType::InterventionRequested
-        | SessionEventType::InterventionAccepted
-        | SessionEventType::InterventionApplied
-        | SessionEventType::InterventionRejected
-        | SessionEventType::InterventionDegraded
-        | SessionEventType::InterventionExpired
-        | SessionEventType::InterventionFailed
-        | SessionEventType::UserMessage
+        SessionEventType::AgentRunInterrupted
+        | SessionEventType::AgentRunStopped
+        | SessionEventType::AgentRunPaused => Some(SessionActivity::Idle),
+        SessionEventType::AgentRunQueued
+        | SessionEventType::AgentRunStarting
+        | SessionEventType::AgentRunRunning
+        | SessionEventType::AgentRunWaitingForApproval
+        | SessionEventType::AgentRunWaitingForInput
+        | SessionEventType::AgentRunPausing
+        | SessionEventType::AgentRunRolledBack
+        | SessionEventType::AgentRunProviderInitialized
+        | SessionEventType::AgentTurnStarted
+        | SessionEventType::AgentRunWorkerShuttingDown
+        | SessionEventType::AgentRunStepLimitReached
+        | SessionEventType::AgentRunTokenLimitReached
+        | SessionEventType::AgentRunRecoveryStepsAdded
+        | SessionEventType::AgentRunRecoveryResolved
+        | SessionEventType::AgentRunRefusalChoiceRequested
+        | SessionEventType::AgentRunRefusalChoiceResolved
+        | SessionEventType::AgentRunUsageCreditsChoiceRequested
+        | SessionEventType::AgentRunUsageCreditsChoiceResolved
+        | SessionEventType::AgentMessageSent
+        | SessionEventType::AgentThinkingUpdated
+        | SessionEventType::AgentToolCallInvoked
+        | SessionEventType::AgentToolCallCompleted
+        | SessionEventType::AgentToolCallFailed
+        | SessionEventType::AgentSubagentStarted
+        | SessionEventType::AgentSubagentCompleted
+        | SessionEventType::AgentCommandEnded
+        | SessionEventType::AgentQueueItemCreated
+        | SessionEventType::AgentQueueItemAdmitted
+        | SessionEventType::AgentQueueItemSuperseded
+        | SessionEventType::AgentQueueItemCanceled
+        | SessionEventType::AgentQueueItemNotDelivered
+        | SessionEventType::AgentInterventionRequested
+        | SessionEventType::AgentInterventionAccepted
+        | SessionEventType::AgentInterventionApplied
+        | SessionEventType::AgentInterventionRejected
+        | SessionEventType::AgentInterventionDegraded
+        | SessionEventType::AgentInterventionExpired
+        | SessionEventType::AgentInterventionFailed
+        | SessionEventType::UserMessageSent
         | SessionEventType::QuestionAsked
         | SessionEventType::ArtifactPublished
         | SessionEventType::ArtifactSuperseded
@@ -84,8 +84,8 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::SessionClosed
         | SessionEventType::SessionGoalUpdated
         | SessionEventType::SessionGoalCleared
-        | SessionEventType::SessionProviderStatus
-        | SessionEventType::SessionNotice
+        | SessionEventType::SessionProviderStatusReported
+        | SessionEventType::SessionNoticePosted
         | SessionEventType::SessionRenamed
         | SessionEventType::SessionPinned
         | SessionEventType::SessionUnpinned
@@ -94,62 +94,62 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::SessionConverted
         | SessionEventType::SessionSideQuestionAnswered
         | SessionEventType::SessionSpendLimitReached
-        | SessionEventType::SessionRestoreFinished
+        | SessionEventType::SessionRestoreCompleted
         | SessionEventType::SessionAdvisorChanged
         | SessionEventType::SessionOutputStyleChanged
         | SessionEventType::AgentProviderBindingChanged
         | SessionEventType::AgentProviderBindingChangeFailed
         | SessionEventType::WorkspacePreparing
-        | SessionEventType::WorkspaceReady
-        | SessionEventType::WorkspaceStale
+        | SessionEventType::WorkspacePrepared
+        | SessionEventType::WorkspaceRootLost
         | SessionEventType::WorkspaceArchived
         | SessionEventType::WorktreeCreated
-        | SessionEventType::WorktreeReady
-        | SessionEventType::WorktreeDirty
+        | SessionEventType::WorktreeBound
+        | SessionEventType::WorktreeDirtied
         | SessionEventType::WorktreeMerged
         | SessionEventType::WorktreeRetired
         | SessionEventType::RepoMountHealthChanged
         | SessionEventType::SessionBranchChanged
-        | SessionEventType::SessionSweptToRepoRoot
-        | SessionEventType::PtyControlChanged
+        | SessionEventType::SessionSweptToCheckout
+        | SessionEventType::TerminalControlChanged
         | SessionEventType::CloudTaskUpdated
         | SessionEventType::ApprovalRequested
         | SessionEventType::ApprovalApproved
         | SessionEventType::ApprovalRejected
         | SessionEventType::ApprovalCanceled
-        | SessionEventType::ApprovalRemembered
+        | SessionEventType::ApprovalRuleRemembered
         | SessionEventType::ApprovalRuleRevoked
         | SessionEventType::ApprovalReviewerDenied
         | SessionEventType::ApprovalDenialOverridden
-        | SessionEventType::ModerationReviewFlagged
+        | SessionEventType::ApprovalReviewerFlagged
         | SessionEventType::PlanProposed
         | SessionEventType::PlanAccepted
         | SessionEventType::PlanHandedOff
-        | SessionEventType::UsageTokenCount
-        | SessionEventType::UsageCostUpdate
-        | SessionEventType::UsageContextWindowUpdate
-        | SessionEventType::UsageRateLimitUpdate
-        | SessionEventType::UsageApiRetry
-        | SessionEventType::UsageContextCompacted
-        | SessionEventType::UsageModelRerouted
-        | SessionEventType::RecoveryAttempted
-        | SessionEventType::RecoverySucceeded
-        | SessionEventType::RecoveryFailed
-        | SessionEventType::RecoveryDamagedEventsSkipped
+        | SessionEventType::UsageTokenCountRecorded
+        | SessionEventType::UsageCostUpdated
+        | SessionEventType::UsageContextWindowUpdated
+        | SessionEventType::UsageRateLimitUpdated
+        | SessionEventType::UsageApiRequestRetried
+        | SessionEventType::AgentRunContextCompacted
+        | SessionEventType::AgentTurnRerouted
+        | SessionEventType::DaemonRecoveryAttempted
+        | SessionEventType::DaemonRecoverySucceeded
+        | SessionEventType::DaemonRecoveryFailed
+        | SessionEventType::SessionDamagedEventsSkipped
         | SessionEventType::RelayPinRefused
-        | SessionEventType::EventCompacted
-        | SessionEventType::BackupCompleted
-        | SessionEventType::BackupFailed
-        | SessionEventType::BackupRestored
-        | SessionEventType::OrchestrationRejected
-        | SessionEventType::McpServerOauthCompleted
-        | SessionEventType::WorkflowCreated
-        | SessionEventType::WorkflowStarted
-        | SessionEventType::WorkflowGated
-        | SessionEventType::WorkflowFailed
-        | SessionEventType::WorkflowCompleted
-        | SessionEventType::WorkflowResumed
-        | SessionEventType::WorkflowCanceled
+        | SessionEventType::SessionEventCompacted
+        | SessionEventType::DaemonBackupCompleted
+        | SessionEventType::DaemonBackupFailed
+        | SessionEventType::DaemonBackupRestored
+        | SessionEventType::AgentRunRejected
+        | SessionEventType::McpServerSignInCompleted
+        | SessionEventType::WorkflowVersionCreated
+        | SessionEventType::WorkflowRunStarted
+        | SessionEventType::WorkflowGateReached
+        | SessionEventType::WorkflowRunFailed
+        | SessionEventType::WorkflowRunCompleted
+        | SessionEventType::WorkflowRunResumed
+        | SessionEventType::WorkflowRunCanceled
         | SessionEventType::WorkflowRunWaiting
         | SessionEventType::WorkflowRunDeleted
         | SessionEventType::WorkflowScheduleArmed
@@ -168,11 +168,11 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::WorkflowPhaseResumed
         | SessionEventType::WorkflowPhaseCompleted
         | SessionEventType::WorkflowStepStarted
-        | SessionEventType::WorkflowStepFinished
+        | SessionEventType::WorkflowStepCompleted
         | SessionEventType::WorkflowStepFailed
         | SessionEventType::WorkflowStepCanceled
         | SessionEventType::WorkflowStepSkipped
-        | SessionEventType::WorkflowParallelJoinCancellation
+        | SessionEventType::WorkflowParallelJoinBranchesCanceled
         | SessionEventType::WorkflowGateResolved => None,
     }
 }

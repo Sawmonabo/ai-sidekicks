@@ -1,8 +1,8 @@
 //! The session directory as a client reads and moves it: the live sessions list and its entries,
 //! creating a session (where it works and who leads it), converting a chat to a project, forking a
 //! session, moving its working folder, the terminal pane's overview, and the method table for these
-//! verbs and for `session.subscribe`, whose frames carry each event as its envelope, so a type the
-//! wire has no payload variant for still parses.
+//! verbs and for `session.event.subscribe`, whose frames carry each event as its envelope, so a
+//! type the wire has no payload variant for still parses.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use strum::IntoStaticStr;
 use crate::agent::definition::binding::{AgentProviderBinding, provider_binding};
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
-use crate::jsonrpc::streaming::{SubscribeAckResponse, SubscriptionId};
+use crate::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::Place;
@@ -24,7 +24,7 @@ use crate::session::event_cursor::EventCursor;
 use crate::session::groups::SessionGroupId;
 use crate::session::id::SessionId;
 use crate::session::methods::{
-    SessionShape, SessionState, SessionStreamFrame, SessionSubscribeRequest,
+    SessionEventSubscribeRequest, SessionShape, SessionState, SessionStreamFrame,
 };
 use crate::session::name::SESSION_NAME_MAX_LEN;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -42,8 +42,8 @@ use crate::worktree::lifecycle::WorktreeId;
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum SessionActivity {
     /// Working.
     Running,
@@ -219,7 +219,7 @@ session_list_entry_arm! {
 /// One row of the sessions list, everything the row draws from one feed so the list opens no
 /// stream per session, split on `shape`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(tag = "shape", rename_all = "snake_case")]
+#[serde(tag = "shape", rename_all = "camelCase")]
 pub enum SessionListEntry {
     /// A project session.
     Project(#[garde(dive)] SessionListProjectEntry),
@@ -227,14 +227,14 @@ pub enum SessionListEntry {
     Chat(#[garde(dive)] SessionListChatEntry),
 }
 
-/// `session.list`'s acknowledgement: the subscription, the first page of every session as it
+/// `session.subscribe`'s acknowledgment: the subscription, the first page of every session as it
 /// stands, and `chatCount`, the chats in the live list as the daemon counts them, so no reader
 /// counts. While `isComplete` is false the rest of the list follows as `page` changes, before any
 /// other change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionListAck {
+pub struct SessionSubscribeResponse {
     /// The subscription.
     pub subscription_id: SubscriptionId,
     /// The first page of sessions.
@@ -247,12 +247,12 @@ pub struct SessionListAck {
     pub is_complete: bool,
 }
 
-/// One change to the list after the acknowledgement, each carrying `chatCount` as it stands after
+/// One change to the list after the acknowledgment, each carrying `chatCount` as it stands after
 /// the change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -302,7 +302,7 @@ pub struct SessionChatBinding {
 }
 
 /// A project session binds to the project's mount in the same step, working in a worktree of its
-/// own (`provisioned-worktree`) or in the project's checkout (`bound-root`).
+/// own (`provisionedWorktree`) or in the project's checkout (`boundRoot`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionProjectBinding {
@@ -438,7 +438,7 @@ pub struct SessionForkRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "shape",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -464,7 +464,7 @@ pub enum SessionForkResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionSetWorkingFolderRequest {
+pub struct SessionWorkingFolderUpdateRequest {
     /// The session.
     pub session_id: SessionId,
     /// The folder.
@@ -473,7 +473,7 @@ pub struct SessionSetWorkingFolderRequest {
 
 /// When a working-folder move takes effect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionWorkingFolderDisposition {
     /// The session moved now, or the request cleared a pending move.
     Applied,
@@ -481,11 +481,11 @@ pub enum SessionWorkingFolderDisposition {
     Pending,
 }
 
-/// The `session.setWorkingFolder` result.
+/// The `session.workingFolder.update` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionSetWorkingFolderResponse {
+pub struct SessionWorkingFolderUpdateResponse {
     /// The session.
     pub session_id: SessionId,
     /// When the move takes effect.
@@ -542,7 +542,7 @@ pub struct SessionOverviewSession {
 
 /// Whether Remote Control is on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RemoteControlState {
     /// On.
     On,
@@ -560,8 +560,8 @@ pub struct SessionOverviewRemoteControl {
 }
 
 /// What the terminal pane draws: every session with its agents and Remote Control's state, read
-/// from the projections behind `session.list` and `agent.list`. The next read sends `revision`
-/// back as `afterRevision`.
+/// from the projections behind `session.subscribe` and `agent.subscribe`. The next read sends
+/// `revision` back as `afterRevision`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -583,27 +583,28 @@ methods! {
             params: SessionCreateRequest,
             result: SessionCreateResponse,
             refusals: [
-                RepoNotFound,
+                ProjectNotFound,
                 SessionGroupRefused,
-                ProvideraccountNoDefault,
-                ProvideraccountNotRegistered,
+                ProviderAccountCurrentNotSet,
+                ProviderAccountNotRegistered,
+                AgentProviderAxisInvalid,
             ],
         },
         /// Follows the sessions list.
-        SessionList = subscription "session.list" {
+        SessionSubscribe = subscription "session.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SessionListAck,
+            result: SessionSubscribeResponse,
             emission: SessionListChange,
             refusals: [],
         },
         /// Follows one session's events.
-        SessionSubscribe = subscription "session.subscribe" {
+        SessionEventSubscribe = subscription "session.event.subscribe" {
             mutating: false,
-            params: SessionSubscribeRequest,
-            result: SubscribeAckResponse,
+            params: SessionEventSubscribeRequest,
+            result: SubscribeAcknowledgmentResponse,
             emission: SessionStreamFrame,
-            refusals: [SessionNotFound, EventCursorUnresolvable],
+            refusals: [SessionNotFound, SessionEventCursorUnresolvable],
         },
         /// Converts a chat to a project.
         SessionConvert = mutation "session.convert" {
@@ -614,10 +615,10 @@ methods! {
                 SessionNotFound,
                 SessionAlreadyClosed,
                 SessionChangeRefused,
-                SessionConvertRefused,
-                SessionConvertIncomplete,
-                RepoRootResolutionFailed,
-                RepoAlreadyAttached,
+                SessionConversionRefused,
+                SessionConversionIncomplete,
+                RepoMountRootResolutionFailed,
+                RepoMountAlreadyAttached,
             ],
         },
         /// Forks a session from a message.
@@ -628,21 +629,21 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// Moves a project session's working folder.
-        SessionSetWorkingFolder = mutation "session.setWorkingFolder" {
+        SessionWorkingFolderUpdate = mutation "session.workingFolder.update" {
             mutating: true,
-            params: SessionSetWorkingFolderRequest,
-            result: SessionSetWorkingFolderResponse,
+            params: SessionWorkingFolderUpdateRequest,
+            result: SessionWorkingFolderUpdateResponse,
             refusals: [
                 SessionNotFound,
                 RepoMountManaged,
-                SessionWorkingFolderUnavailable,
-                RepoRootResolutionFailed,
-                RepoOutsideTrustEnvelope,
-                WorkspaceStale,
+                SessionWorkingFolderMissing,
+                RepoMountRootResolutionFailed,
+                RepoMountOutsideTrustEnvelope,
+                WorkspaceRootUnavailable,
             ],
         },
         /// The terminal pane's held read.
-        SessionOverviewRead = query "session.overviewRead" {
+        SessionOverviewRead = query "session.overview.read" {
             mutating: false,
             params: SessionOverviewReadRequest,
             result: SessionOverviewReadResponse,
@@ -662,7 +663,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionExchange>(),
         Definition::read::<SessionListGroup>(),
         Definition::read::<SessionListEntry>(),
-        Definition::read::<SessionListAck>().checked(),
+        Definition::read::<SessionSubscribeResponse>().checked(),
         Definition::read::<SessionListChange>().checked(),
         Definition::read::<SessionChatBinding>(),
         Definition::read::<SessionProjectBinding>(),
@@ -672,9 +673,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionCreateResponse>().checked(),
         Definition::read::<SessionForkRequest>().checked(),
         Definition::read::<SessionForkResponse>().checked(),
-        Definition::read::<SessionSetWorkingFolderRequest>().checked(),
+        Definition::read::<SessionWorkingFolderUpdateRequest>().checked(),
         Definition::read::<SessionWorkingFolderDisposition>(),
-        Definition::read::<SessionSetWorkingFolderResponse>().checked(),
+        Definition::read::<SessionWorkingFolderUpdateResponse>().checked(),
         Definition::read::<SessionOverviewReadRequest>().checked(),
         Definition::read::<SessionOverviewAgent>(),
         Definition::read::<SessionOverviewSession>(),

@@ -21,7 +21,7 @@ use sidekicks_contracts::jsonrpc::message::{
     JsonRpcError, JsonRpcErrorData, JsonRpcId, JsonRpcMessage, MessageError,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::session::event_cursor::EventCursorUnresolvable;
+use sidekicks_contracts::session::event_cursor::SessionEventCursorUnresolvable;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::attachment::ReceivedError;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
@@ -31,7 +31,7 @@ use sidekicks_contracts::workflow::definition::document::{
 };
 use sidekicks_contracts::workflow::definition::refusals::WorkflowDefinitionFinding;
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode, refusal_fields};
+use crate::ipc::domain_error::{DomainError, refusal_fields};
 use crate::ipc::registry::{DispatchError, HandlerError};
 use crate::issue_path::resolve_issue_path;
 use crate::text_cut::cut_to_code_points;
@@ -135,25 +135,20 @@ pub(crate) fn json_rpc_error_of(failure: CallFailure) -> JsonRpcError {
     match failure {
         CallFailure::Dispatch(error) => map_dispatch_error(error),
         // serde's own message can quote the JSON, so each kind answers fixed words.
-        CallFailure::Message(MessageError::Json(error)) => {
-            let (code, message) = match error.classify() {
-                Category::Syntax | Category::Eof => {
-                    (JsonRpcErrorCode::ParseError, UNPARSABLE_MESSAGE)
-                }
-                Category::Data | Category::Io => (JsonRpcErrorCode::InvalidRequest, NOT_A_MESSAGE),
-            };
-            json_rpc_error(code, message, None)
-        }
-        CallFailure::Message(MessageError::NotAMessage) => {
-            json_rpc_error(JsonRpcErrorCode::InvalidRequest, NOT_A_MESSAGE, None)
-        }
+        CallFailure::Message(MessageError::Json(error)) => match error.classify() {
+            Category::Syntax | Category::Eof => {
+                json_rpc_error(JsonRpcErrorCode::ParseError, UNPARSABLE_MESSAGE, None)
+            }
+            Category::Data | Category::Io => envelope_invalid(),
+        },
+        CallFailure::Message(MessageError::NotAMessage) => envelope_invalid(),
         CallFailure::MessageTooLarge { limit, observed } => {
             let fields = refusal_fields(json!({ "limit": limit, "observed": observed }));
             json_rpc_error(
-                JsonRpcErrorCode::InvalidRequest,
+                RefusalCode::ConnectionMessageTooLarge.json_rpc_code(),
                 MESSAGE_TOO_LARGE,
                 Some(refusal_data(
-                    RefusalCode::TransportMessageTooLarge,
+                    RefusalCode::ConnectionMessageTooLarge,
                     Some(fields),
                 )),
             )
@@ -161,16 +156,25 @@ pub(crate) fn json_rpc_error_of(failure: CallFailure) -> JsonRpcError {
     }
 }
 
+/// The answer to JSON that is no JSON-RPC 2.0 message: `request.envelopeInvalid`, with no fields.
+fn envelope_invalid() -> JsonRpcError {
+    json_rpc_error(
+        RefusalCode::RequestEnvelopeInvalid.json_rpc_code(),
+        NOT_A_MESSAGE,
+        Some(refusal_data(RefusalCode::RequestEnvelopeInvalid, None)),
+    )
+}
+
 /// The error response of one dispatch failure.
 fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
     let message = error.to_string();
     match error {
         DispatchError::MethodNotFound => json_rpc_error(
-            JsonRpcErrorCode::MethodNotFound,
+            RefusalCode::RequestMethodNotFound.json_rpc_code(),
             &message,
-            Some(refusal_data(RefusalCode::MethodNotFound, None)),
+            Some(refusal_data(RefusalCode::RequestMethodNotFound, None)),
         ),
-        DispatchError::InvalidParams(refusal) => {
+        DispatchError::ParamsInvalid(refusal) => {
             let issues = match refusal {
                 ReceivedError::Check(check_error) => return internal_failure(&check_error),
                 ReceivedError::Json(_) => Vec::new(),
@@ -191,9 +195,12 @@ fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
                 ReceivedError::Rule { report, received } => rule_issues(&report, &received),
             };
             json_rpc_error(
-                JsonRpcErrorCode::InvalidParams,
+                RefusalCode::RequestParamsInvalid.json_rpc_code(),
                 &message,
-                Some(issue_refusal_data(RefusalCode::InvalidParams, issues)),
+                Some(issue_refusal_data(
+                    RefusalCode::RequestParamsInvalid,
+                    issues,
+                )),
             )
         }
         DispatchError::Refused(refusal) => {
@@ -203,25 +210,27 @@ fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
                     "A refusal carries a failure underneath"
                 );
             }
-            let code = JsonRpcErrorCode::from(refusal.json_rpc_code);
             json_rpc_error(
-                code,
+                refusal.code.json_rpc_code(),
                 &message,
                 Some(refusal_data(refusal.code, refusal.detail)),
             )
         }
         DispatchError::Canceled => JsonRpcError::request_canceled(),
         DispatchError::Internal(fault) => internal_failure(&*fault),
-        DispatchError::InvalidResult { report, value } => {
+        DispatchError::ResultInvalid { report, value } => {
             tracing::error!(
                 error = &report as &(dyn Error + 'static),
                 "The daemon's answer breaks its contract"
             );
             let issues = rule_issues(&report, &value);
             json_rpc_error(
-                JsonRpcErrorCode::InternalError,
+                RefusalCode::RequestResultInvalid.json_rpc_code(),
                 &message,
-                Some(issue_refusal_data(RefusalCode::InvalidResult, issues)),
+                Some(issue_refusal_data(
+                    RefusalCode::RequestResultInvalid,
+                    issues,
+                )),
             )
         }
     }
@@ -236,7 +245,7 @@ fn internal_failure(fault: &(dyn Error + 'static)) -> JsonRpcError {
 
 /// The first [`ISSUES_MAX`] broken rules of `report`, each at its path resolved against `checked`,
 /// the JSON the value was read from or written as, with garde's message; no path past them is
-/// resolved. A repeated workflow node id also carries its `node_id_duplicate` finding over the id
+/// resolved. A repeated workflow node id also carries its `nodeIdDuplicate` finding over the id
 /// at that path.
 fn rule_issues(report: &garde::Report, checked: &Value) -> Vec<Issue> {
     report
@@ -252,7 +261,7 @@ fn rule_issues(report: &garde::Report, checked: &Value) -> Vec<Issue> {
         .collect()
 }
 
-/// The `node_id_duplicate` finding over the node id `checked` holds at `path`; `None` where the
+/// The `nodeIdDuplicate` finding over the node id `checked` holds at `path`; `None` where the
 /// path stops short of the id.
 fn node_id_duplicate_finding(path: &[IssuePathSegment], checked: &Value) -> Option<JsonRecord> {
     let node_id = path
@@ -295,8 +304,8 @@ fn issue(path: Vec<IssuePathSegment>, message: &str, params: Option<JsonRecord>)
     }
 }
 
-/// The `data` of an `invalid_params` or `invalid_result` refusal: `{issues}`, built past the
-/// sanitizer since each issue already holds its caps, or no fields when the list is empty.
+/// The `data` of a `request.paramsInvalid` or `request.resultInvalid` refusal: `{issues}`, built
+/// past the sanitizer since each issue already holds its caps, or no fields when the list is empty.
 fn issue_refusal_data(code: RefusalCode, issues: Vec<Issue>) -> JsonRpcErrorData {
     let fields = (!issues.is_empty()).then(|| {
         let issues = serde_json::to_value(issues).expect("an issue is plain text and lists");
@@ -305,6 +314,7 @@ fn issue_refusal_data(code: RefusalCode, issues: Vec<Issue>) -> JsonRpcErrorData
     });
     JsonRpcErrorData {
         refusal: code.as_str().to_owned(),
+        category: code.category(),
         fields,
     }
 }
@@ -313,6 +323,7 @@ fn issue_refusal_data(code: RefusalCode, issues: Vec<Issue>) -> JsonRpcErrorData
 fn refusal_data(code: RefusalCode, fields: Option<Map<String, Value>>) -> JsonRpcErrorData {
     JsonRpcErrorData {
         refusal: code.as_str().to_owned(),
+        category: code.category(),
         fields: fields.map(|fields| {
             let members: BTreeMap<String, AnyValue> = sanitize_fields(fields)
                 .into_iter()
@@ -426,21 +437,20 @@ fn sanitize_elements(elements: Vec<Value>, depth: usize, budget: &mut usize) -> 
     kept
 }
 
-/// A cursor naming no log position is a bad parameter; the refusal sends no fields, so the
-/// client's cursor is never echoed.
-impl From<EventCursorUnresolvable> for DomainError {
-    fn from(error: EventCursorUnresolvable) -> Self {
+/// A cursor naming no log position is refused `session.event.cursorUnresolvable` with no fields,
+/// so the client's cursor is never echoed.
+impl From<SessionEventCursorUnresolvable> for DomainError {
+    fn from(error: SessionEventCursorUnresolvable) -> Self {
         Self::new(
             error.to_string(),
-            RefusalCode::EventCursorUnresolvable,
-            DomainErrorJsonRpcCode::InvalidParams,
+            RefusalCode::SessionEventCursorUnresolvable,
         )
     }
 }
 
 /// A handler refuses an unresolvable cursor with `?`.
-impl From<EventCursorUnresolvable> for HandlerError {
-    fn from(error: EventCursorUnresolvable) -> Self {
+impl From<SessionEventCursorUnresolvable> for HandlerError {
+    fn from(error: SessionEventCursorUnresolvable) -> Self {
         Self::Refused(error.into())
     }
 }
@@ -463,7 +473,7 @@ mod tests {
         CallFailure, FIELDS_MAX_ARRAY_LEN, FIELDS_MAX_DEPTH, FIELDS_MAX_KEYS, FIELDS_MAX_NODES,
         FIELDS_VALUE_MAX_LEN, map_json_rpc_error,
     };
-    use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+    use crate::ipc::domain_error::DomainError;
     use crate::ipc::registry::DispatchError;
 
     /// The received value the refusals below must never quote.
@@ -488,11 +498,7 @@ mod tests {
     }
 
     fn refused(message: &str, detail: Option<Map<String, Value>>) -> Value {
-        let refusal = DomainError::new(
-            message,
-            RefusalCode::SystemInternalError,
-            DomainErrorJsonRpcCode::InternalError,
-        );
+        let refusal = DomainError::new(message, RefusalCode::SystemInternalError);
         let refusal = match detail {
             Some(detail) => refusal.with_detail(detail),
             None => refusal,
@@ -500,14 +506,32 @@ mod tests {
         answer(CallFailure::Dispatch(DispatchError::Refused(refusal)))
     }
 
+    // A domain refusal answers the one domain number, naming its code and category.
+    #[test]
+    fn a_domain_refusal_answers_minus_31000_with_its_code_and_category() {
+        let refusal = DomainError::session_not_found(
+            "session does not exist",
+            json!({ "sessionId": "a-session" }),
+        );
+        let response = answer(CallFailure::Dispatch(DispatchError::Refused(refusal)));
+        assert_eq!(response["error"]["code"], -31_000);
+        assert_eq!(response["error"]["data"]["type"], "session.notFound");
+        assert_eq!(response["error"]["data"]["category"], "notFound");
+        assert_eq!(
+            response["error"]["data"]["fields"]["sessionId"],
+            "a-session"
+        );
+    }
+
     // serde's refusal of the sequence reads "7340251 is outside 0..=9".
     #[test]
     fn a_refused_value_is_never_quoted() {
         let refusal = parse_received::<Lookup>(br#"{"runSequence": 7340251}"#, Vec::new())
             .expect_err("the params are refused");
-        let response = answer(CallFailure::Dispatch(DispatchError::InvalidParams(refusal)));
+        let response = answer(CallFailure::Dispatch(DispatchError::ParamsInvalid(refusal)));
         assert_eq!(response["error"]["code"], -32_602);
-        assert_eq!(response["error"]["data"]["type"], "invalid_params");
+        assert_eq!(response["error"]["data"]["type"], "request.paramsInvalid");
+        assert_eq!(response["error"]["data"]["category"], "invalidArgument");
         let issues = response["error"]["data"]["fields"]["issues"]
             .as_array()
             .expect("the refusal lists its issues");
@@ -548,7 +572,7 @@ mod tests {
                 keyword: "type".to_owned(),
             }],
         };
-        let response = answer(CallFailure::Dispatch(DispatchError::InvalidParams(refusal)));
+        let response = answer(CallFailure::Dispatch(DispatchError::ParamsInvalid(refusal)));
         let issues = &response["error"]["data"]["fields"]["issues"];
         assert_eq!(issues[0]["path"], json!(sent), "{response}");
         let text = response.to_string();

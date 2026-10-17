@@ -23,9 +23,9 @@ use crate::session::search::index::columns::{index_key_sql, index_row_kind_of, s
 // stored once settled. A thinking update is narration a later event supersedes, so it is never
 // indexed.
 const INDEXED_EVENT_TYPES: [SessionEventType; 3] = [
-    SessionEventType::UserMessage,
-    SessionEventType::AssistantMessage,
-    SessionEventType::ToolInvoked,
+    SessionEventType::UserMessageSent,
+    SessionEventType::AgentMessageSent,
+    SessionEventType::AgentToolCallInvoked,
 ];
 
 /// The log rows the index holds, as a SQL list: a person's message, an assistant's message and a
@@ -97,9 +97,9 @@ pub(crate) struct LogRowPosition {
 // none for a payload that is not JSON, which `json_extract` would refuse with an error.
 const EVENT_TEXT_SQL: &str = "CASE
            WHEN NOT json_valid(event.payload) THEN NULL
-           WHEN event.type = 'user.message' THEN json_extract(event.payload, '$.message')
-           WHEN event.type = 'assistant.message' THEN CAST(event.content_payload AS TEXT)
-           WHEN event.type = 'tool.invoked' THEN json_extract(event.payload, '$.toolName')
+           WHEN event.type = 'user.message.sent' THEN json_extract(event.payload, '$.message')
+           WHEN event.type = 'agent.message.sent' THEN CAST(event.content_payload AS TEXT)
+           WHEN event.type = 'agent.toolCall.invoked' THEN json_extract(event.payload, '$.toolName')
              || coalesce(' ' || CAST(event.content_payload AS TEXT), '')
          END";
 

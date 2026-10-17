@@ -19,10 +19,10 @@ use crate::transcript::row::{SupersededMarker, TranscriptRunStamp};
 use crate::wire::integer::SafeInt;
 
 /// The event type of a turn boundary, which moves its run to its next turn.
-pub const TURN_STARTED_EVENT_TYPE: &str = SessionEventType::RunTurnStarted.as_str();
+pub const TURN_STARTED_EVENT_TYPE: &str = SessionEventType::AgentTurnStarted.as_str();
 
 /// The event type that opens a tool call; the call's later rows take the turn it opened in.
-pub const TOOL_CALL_OPENING_EVENT_TYPE: &str = SessionEventType::ToolInvoked.as_str();
+pub const TOOL_CALL_OPENING_EVENT_TYPE: &str = SessionEventType::AgentToolCallInvoked.as_str();
 
 /// An execution epoch and a turn position within it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

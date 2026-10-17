@@ -1,6 +1,6 @@
-//! The provider account record and how it is read: the account as sent on the wire, each
-//! provider's readiness and its remedy, the per-limit quota reading, `providerAccount.list` and the
-//! `providerAccount.subscribe` live tail. The auth mode is closed, since the daemon produces every
+//! The provider account record and how it is read: the account as sent on the wire, each provider's
+//! readiness and its remedy, the per-limit quota reading, `provider.account.list` and the
+//! `provider.account.subscribe` live tail. The auth mode is closed, since the daemon produces every
 //! value on the wire; the tolerance sits where a provider's own status output is read.
 
 use std::borrow::Cow;
@@ -33,9 +33,9 @@ ts_constants! {
     /// The longest provider-reported organization name.
     pub const PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN: usize = 256;
     /// The longest daemon-minted id of one sign-in attempt.
-    pub const PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN: usize = 256;
+    pub const PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN: usize = 256;
     /// The longest sign-in failure text shown to the person.
-    pub const PROVIDER_LOGIN_FAILURE_REASON_MAX_LEN: usize = 512;
+    pub const PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN: usize = 512;
     /// The longest provider limit id.
     pub const PROVIDER_QUOTA_LIMIT_ID_MAX_LEN: usize = 128;
     /// The longest provider label for a quota window.
@@ -60,7 +60,7 @@ ts_constants! {
     /// The limit id a quota reading takes when it names none.
     pub const PROVIDER_QUOTA_DEFAULT_LIMIT_ID: &str = "default";
     /// Every way a brokered sign-in ends, in declaration order.
-    PROVIDER_LOGIN_OUTCOMES = ProviderLoginOutcome::VARIANTS;
+    PROVIDER_SIGN_IN_OUTCOMES = ProviderSignInOutcome::VARIANTS;
     /// Every readiness state, in declaration order.
     PROVIDER_READINESS_STATES = readiness::ProviderReadinessState::VARIANTS;
 }
@@ -68,7 +68,7 @@ ts_constants! {
 /// How an account is charged. `unknown` means not known, never `metered`: it labels cost and
 /// never derives it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum BillingMode {
     /// A subscription.
     Subscription,
@@ -83,7 +83,7 @@ pub enum BillingMode {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ProviderAccountHealthState {
     /// Signed in.
     Authenticated,
@@ -100,7 +100,7 @@ pub enum ProviderAccountHealthState {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ProviderAuthMode {
     /// A subscription sign-in.
     OauthSubscription,
@@ -118,15 +118,20 @@ pub enum ProviderAuthMode {
 
 /// Maps the mode a provider's own status output reports onto [`ProviderAuthMode`]; never fails,
 /// so a new provider mode costs precision, not the reading. `None` when nothing or only blank text
-/// was reported, which differs from `unknown`, a mode reported but not recognized.
+/// was reported, which differs from `unknown`, a mode reported but not recognized. The provider's
+/// words are its own (`authMethod: oauth_token`), matched exactly and never through the wire form.
 pub fn normalize_observed_provider_auth_mode(reported: Option<&Value>) -> Option<ProviderAuthMode> {
     match reported {
         None | Some(Value::Null) => None,
         Some(Value::String(mode)) => {
             let trimmed = mode.trim_matches(is_ecmascript_whitespace);
-            (!trimmed.is_empty()).then(|| {
-                serde_json::from_value(Value::String(trimmed.to_owned()))
-                    .unwrap_or(ProviderAuthMode::Unknown)
+            (!trimmed.is_empty()).then_some(match trimmed {
+                "oauth_subscription" => ProviderAuthMode::OauthSubscription,
+                "oauth_token" => ProviderAuthMode::OauthToken,
+                "api_key" => ProviderAuthMode::ApiKey,
+                "external" => ProviderAuthMode::External,
+                "none" => ProviderAuthMode::None,
+                _ => ProviderAuthMode::Unknown,
             })
         }
         Some(_) => Some(ProviderAuthMode::Unknown),
@@ -138,7 +143,7 @@ pub fn normalize_observed_provider_auth_mode(reported: Option<&Value>) -> Option
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ProviderAccountUsageWindowSource {
     /// The account's own limits read.
     Probe,
@@ -250,7 +255,7 @@ pub enum ProviderAccountMemoryImportOutcome {
 
 /// The health states that are the outcome of an observation, and so carry its time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum ObservedHealthState {
     /// Signed in.
@@ -263,7 +268,7 @@ pub enum ObservedHealthState {
 
 /// The health state that may lack an observation time: never probed, or probed and undecided.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum UndecidedHealthState {
     /// Not decided.
@@ -350,7 +355,7 @@ macro_rules! provider_account_arm {
             #[serde(deserialize_with = "crate::wire::nullable")]
             #[schemars(with = "crate::wire::NullableSchema<WireInstant>")]
             #[garde(dive)]
-            pub logged_in_at: Option<WireInstant>,
+            pub signed_in_at: Option<WireInstant>,
             /// When the credential was last seen refreshed, or `null` for none seen.
             #[serde(deserialize_with = "crate::wire::nullable")]
             #[schemars(with = "crate::wire::NullableSchema<WireInstant>")]
@@ -361,7 +366,7 @@ macro_rules! provider_account_arm {
             #[serde(deserialize_with = "crate::wire::nullable")]
             #[schemars(with = "crate::wire::NullableSchema<WireInstant>")]
             #[garde(dive)]
-            pub expected_relogin_at_estimate: Option<WireInstant>,
+            pub sign_in_needed_at_estimate: Option<WireInstant>,
             /// `false` when the person silenced the background observer for this account.
             pub probe_enabled: bool,
             /// Start each usage window as soon as it opens; it does nothing while the observer is
@@ -507,7 +512,7 @@ pub struct ProviderAccountUsageWindow {
     pub source: ProviderAccountUsageWindowSource,
 }
 
-/// The request of `providerAccount.list`.
+/// The request of `provider.account.list`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -531,7 +536,7 @@ pub struct ProviderAccountListRequest {
     pub account_id: Option<ProviderAccountId>,
 }
 
-/// The reply of `providerAccount.list`: the accounts, the stored quota readings (sent on the read
+/// The reply of `provider.account.list`: the accounts, the stored quota readings (sent on the read
 /// because the subscription is a live tail), and exactly one readiness entry per provider read.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -551,8 +556,8 @@ pub struct ProviderAccountListResponse {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderLoginOutcome {
+#[serde(rename_all = "camelCase")]
+pub enum ProviderSignInOutcome {
     /// The provider's flow finished; the account's health is observed next.
     Succeeded,
     /// The flow failed.
@@ -561,13 +566,13 @@ pub enum ProviderLoginOutcome {
     Canceled,
 }
 
-/// A change to the node's account registry, which `providerAccount.subscribe` sends as a full
+/// A change to the machine's account registry, which `provider.account.subscribe` sends as a full
 /// state update, so seeing one twice is harmless. A usage window's reading belongs to the account
 /// the notification routes to.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -586,22 +591,22 @@ pub enum ProviderAccountNotification {
         account_id: ProviderAccountId,
     },
     /// A brokered sign-in ended. `succeeded` means only that the provider's flow finished; the
-    /// account's health follows as `account_changed`.
-    LoginCompleted {
+    /// account's health follows as `accountChanged`.
+    SignInCompleted {
         /// The attempt.
-        attempt_id: FreeFormText<PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN>,
+        attempt_id: FreeFormText<PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN>,
         /// The account.
         account_id: ProviderAccountId,
         /// How it ended.
-        outcome: ProviderLoginOutcome,
+        outcome: ProviderSignInOutcome,
         /// Text for the person, with no credential, provider error body or home path.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<PROVIDER_LOGIN_FAILURE_REASON_MAX_LEN>")]
-        failure_reason: Option<FreeFormText<PROVIDER_LOGIN_FAILURE_REASON_MAX_LEN>>,
+        #[schemars(with = "FreeFormText<PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN>")]
+        failure_reason: Option<FreeFormText<PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN>>,
     },
     /// A new quota reading.
     #[schemars(extend("allOf" = [{ "type": "object", "properties": { "window": {
@@ -637,7 +642,7 @@ fn window_names_routed_account(
         ProviderAccountNotification::UsageWindowUpdated { .. }
         | ProviderAccountNotification::AccountChanged { .. }
         | ProviderAccountNotification::AccountRemoved { .. }
-        | ProviderAccountNotification::LoginCompleted { .. } => Ok(()),
+        | ProviderAccountNotification::SignInCompleted { .. } => Ok(()),
     }
 }
 
@@ -645,8 +650,8 @@ fn window_names_routed_account(
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/account/record",
     doc: "The provider account record and how it is read: the account as sent on the wire, each \
-          provider's readiness and its remedy, the per-limit quota reading, `providerAccount.list` \
-          and the `providerAccount.subscribe` live tail.",
+          provider's readiness and its remedy, the per-limit quota reading, \
+          `provider.account.list` and the `provider.account.subscribe` live tail.",
     definitions: &[
         Definition::read::<BillingMode>().checked(),
         Definition::read::<ProviderAccountHealthState>().checked(),
@@ -663,12 +668,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<readiness::ProviderPasteTokenRemedy>(),
         Definition::read::<readiness::ProviderLookAgainRemedy>(),
         Definition::read::<readiness::ProviderRemedy>().checked(),
-        Definition::read::<readiness::ProviderLoginExpiredRemedy>(),
+        Definition::read::<readiness::ProviderSignInExpiredRemedy>(),
         Definition::read::<readiness::ProviderReadiness>().checked(),
         Definition::read::<ProviderAccountUsageWindow>().checked(),
         Definition::read::<ProviderAccountListRequest>().checked(),
         Definition::read::<ProviderAccountListResponse>().checked(),
-        Definition::read::<ProviderLoginOutcome>(),
+        Definition::read::<ProviderSignInOutcome>(),
         Definition::read::<ProviderAccountNotification>().checked(),
     ],
     constants: TS_CONSTANTS,

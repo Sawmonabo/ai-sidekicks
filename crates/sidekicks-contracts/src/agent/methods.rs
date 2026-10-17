@@ -1,5 +1,5 @@
 //! A session's live agents as a client reads and moves them: the live agent list, the switch of a
-//! running agent's binding, and the `agent.*` method table, which also carries the definition
+//! running agent's binding, and the live agents' method table, which also carries the definition
 //! verbs. An agent is in its session or it is not: it has no lifecycle state.
 
 use schemars::{JsonSchema, Schema};
@@ -17,7 +17,7 @@ use crate::agent::definition::{AgentId, AgentResolvedConfiguration};
 use crate::agent::provider_binding::{
     AgentBindingSwitchDisposition, add_model_move_window_rule, model_move_names_window,
 };
-use crate::jsonrpc::streaming::{SubscribeAckResponse, SubscriptionId};
+use crate::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::declaration::ProviderOptionSettings;
@@ -28,11 +28,11 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 
-/// The session whose agents `agent.list` streams.
+/// The session whose agents `agent.subscribe` streams.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AgentListRequest {
+pub struct AgentSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -104,7 +104,7 @@ pub(crate) use agent_entry;
 
 agent_entry! {
     /// One agent in the session.
-    AgentListEntry {
+    AgentSubscribeEntry {
         /// Present exactly when the agent started from a saved definition, which names it on
         /// screen.
         #[serde(
@@ -117,18 +117,18 @@ agent_entry! {
     }
 }
 
-/// `agent.list`'s acknowledgment: the subscription and the session's agents as they stand. Every
-/// later emission is one [`AgentListEntry`] as it changes, so a switch in flight and its
+/// `agent.subscribe`'s acknowledgment: the subscription and the session's agents as they stand.
+/// Every later emission is one [`AgentSubscribeEntry`] as it changes, so a switch in flight and its
 /// settlement reach every window and device.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AgentListAck {
+pub struct AgentSubscribeResponse {
     /// The subscription.
     pub subscription_id: SubscriptionId,
     /// The session's agents.
     #[garde(dive)]
-    pub agents: Vec<AgentListEntry>,
+    pub agents: Vec<AgentSubscribeEntry>,
 }
 
 /// Moves a running agent's model, window, effort, speed, session options or provider: an omitted
@@ -177,7 +177,7 @@ pub struct AgentConfigUpdateRequest {
     pub output_speed: Option<ProviderToken>,
     /// Values of the session options the target driver declares; an option left out keeps its
     /// value. The daemon checks each against the driver's declaration: an option the driver does
-    /// not declare, or a value outside its declaration, is refused `agent.provider_axis_invalid`.
+    /// not declare, or a value outside its declaration, is refused `agent.providerAxisInvalid`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -256,69 +256,78 @@ pub struct AgentConfigUpdateResponse {
 }
 
 methods! {
-    /// Every `agent.*` method. `agent.definitionSubscribe` resends the whole
-    /// `agent.definitionList` reply on each change to the registry.
+    /// The live agents' methods and the definition verbs. `agent.definition.subscribe` resends
+    /// the whole `agent.definition.list` reply on each change to the registry.
     pub const AGENT_METHOD_DESCRIPTORS = [
         /// Streams the session's agents.
-        AgentList = subscription "agent.list" {
+        AgentSubscribe = subscription "agent.subscribe" {
             mutating: false,
-            params: AgentListRequest,
-            result: AgentListAck,
-            emission: AgentListEntry,
+            params: AgentSubscribeRequest,
+            result: AgentSubscribeResponse,
+            emission: AgentSubscribeEntry,
             refusals: [SessionNotFound],
         },
         /// Moves a running agent's binding.
-        AgentConfigUpdate = mutation "agent.configUpdate" {
+        AgentConfigUpdate = mutation "agent.config.update" {
             mutating: true,
             params: AgentConfigUpdateRequest,
             result: AgentConfigUpdateResponse,
-            refusals: [AgentNotFound, AgentProviderAxisInvalid, DriverCapabilityUnsupported],
+            refusals: [
+                AgentNotFound,
+                AgentProviderAxisInvalid,
+                ProviderNotFound,
+                ProviderCapabilityUnsupported,
+            ],
         },
         /// Reads the definition registry.
-        AgentDefinitionList = query "agent.definitionList" {
+        AgentDefinitionList = query "agent.definition.list" {
             mutating: false,
             params: EmptyPayload,
             result: AgentDefinitionListResponse,
             refusals: [AgentDefinitionUnreadable],
         },
         /// Streams the definition registry.
-        AgentDefinitionSubscribe = subscription "agent.definitionSubscribe" {
+        AgentDefinitionSubscribe = subscription "agent.definition.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: AgentDefinitionListResponse,
             refusals: [AgentDefinitionUnreadable],
         },
         /// Creates a definition.
-        AgentDefinitionCreate = mutation "agent.definitionCreate" {
+        AgentDefinitionCreate = mutation "agent.definition.create" {
             mutating: true,
             params: AgentDefinitionCreateRequest,
             result: AgentDefinitionCreateResponse,
-            refusals: [AgentDefinitionNameConflict],
+            refusals: [AgentDefinitionNameConflict, ProjectNotFound],
         },
         /// Patches a definition.
-        AgentDefinitionUpdate = mutation "agent.definitionUpdate" {
+        AgentDefinitionUpdate = mutation "agent.definition.update" {
             mutating: true,
             params: AgentDefinitionUpdateRequest,
             result: AgentDefinitionUpdateResponse,
-            refusals: [AgentDefinitionNotFound, AgentDefinitionNameConflict, AgentUpdateRefused],
+            refusals: [
+                AgentDefinitionNotFound,
+                AgentDefinitionNameConflict,
+                AgentDefinitionUpdateRefused,
+            ],
         },
         /// Deletes a definition.
-        AgentDefinitionDelete = mutation "agent.definitionDelete" {
+        AgentDefinitionDelete = mutation "agent.definition.delete" {
             mutating: true,
             params: AgentDefinitionDeleteRequest,
             result: AgentDefinitionDeleteResponse,
             refusals: [AgentDefinitionNotFound],
         },
         /// Writes definitions into a folder.
-        AgentDefinitionExport = mutation "agent.definitionExport" {
+        AgentDefinitionExport = mutation "agent.definition.export" {
             mutating: true,
             params: AgentDefinitionExportRequest,
             result: AgentDefinitionExportResponse,
-            refusals: [AgentDefinitionNotFound, AgentExportWriteFailed],
+            refusals: [AgentDefinitionNotFound, AgentDefinitionExportWriteFailed],
         },
         /// Creates the definitions a folder holds.
-        AgentDefinitionImport = mutation "agent.definitionImport" {
+        AgentDefinitionImport = mutation "agent.definition.import" {
             mutating: true,
             params: AgentDefinitionImportRequest,
             result: AgentDefinitionImportResponse,
@@ -330,12 +339,12 @@ methods! {
 /// The TypeScript module of the live agents.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "agent/methods",
-    doc: "A session's live agents as a client reads and moves them, and the `agent.*` method \
+    doc: "A session's live agents as a client reads and moves them, and the live agents' method \
           table, which also carries the definition verbs.",
     definitions: &[
-        Definition::read::<AgentListRequest>(),
-        Definition::read::<AgentListEntry>().checked(),
-        Definition::read::<AgentListAck>(),
+        Definition::read::<AgentSubscribeRequest>(),
+        Definition::read::<AgentSubscribeEntry>().checked(),
+        Definition::read::<AgentSubscribeResponse>(),
         Definition::read::<AgentConfigUpdateRequest>(),
         Definition::read::<AgentConfigUpdateResponse>(),
     ],

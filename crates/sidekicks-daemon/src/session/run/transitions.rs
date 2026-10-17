@@ -5,15 +5,15 @@ use std::sync::LazyLock;
 
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::state::{RUN_TERMINAL_STATES, RunState};
+use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 use strum::VariantArray as _;
 
 use crate::database::sql_list::sql_list_of;
 
-/// The event types that enter a terminal state, one per state: `run.completed` and the rest.
-pub(crate) static RUN_TERMINAL_EVENT_TYPES: LazyLock<[String; RUN_TERMINAL_STATES.len()]> =
-    LazyLock::new(|| {
-        RUN_TERMINAL_STATES.map(|state| format!("run.{}", <&'static str>::from(state)))
-    });
+/// Whether `event_type` enters a terminal state.
+pub(crate) fn is_run_terminal_event_type(event_type: &str) -> bool {
+    RunStateEventType::from_wire_name(event_type).is_some_and(|known| known.state().is_terminal())
+}
 
 /// The terminal states as a SQL list of quoted words, for a `state IN (…)` condition.
 pub(crate) static RUN_TERMINAL_STATES_SQL: LazyLock<String> =

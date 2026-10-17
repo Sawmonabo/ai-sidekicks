@@ -2,19 +2,19 @@
 //! and the desktop's control-plane calls through the background service. The keys and statement
 //! chain they carry belong to `trust_statement`.
 //!
-//! Two boundaries meet here, each with its own table. The control plane serves `device.list`,
-//! linking, rename, revoke, forget, `device.statementList` and `device.pushAddressSet`; a machine's
-//! service serves `device.statementApply`, `device.trustedList`, `device.notificationSettingsSet`
-//! and `controlPlane.call`.
+//! Two boundaries meet here, each with its own table. The control plane serves `device.subscribe`,
+//! linking, rename, revoke, forget, `device.statement.list` and `device.pushAddress.update`; a
+//! machine's service serves `device.statement.apply`, `device.trusted.list`,
+//! `device.notificationSettings.update` and `controlPlane.call`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
-use crate::machine_settings::NotificationKindSwitches;
+use crate::machine::id::MachineId;
+use crate::machine::settings::NotificationKindSwitches;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
-use crate::runtime_node::id::NodeId;
 use crate::trust_statement::{
     ChannelPublicKey, DeviceId, DeviceLinkedStatement, DeviceRenamedStatement,
     DeviceRevokedStatement, IdentityPublicKey, MachineIdentityKey, PasskeyId, PlatformDescription,
@@ -47,15 +47,15 @@ pub type AppVersion = FreeFormText<APP_VERSION_MAX_LEN>;
 /// A single-use pairing's id.
 pub type PairingId = FreeFormText<PAIRING_ID_MAX_LEN>;
 
-// device.list: the machines, devices and passkeys, live
+// device.subscribe: the machines, devices and passkeys, live
 
-/// A machine card's facts. `This machine` is the reader's own comparison of `nodeId`.
+/// A machine card's facts. `This machine` is the reader's own comparison of `machineId`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct MachineEntry {
     /// The machine.
-    pub node_id: NodeId,
+    pub machine_id: MachineId,
     /// Its name.
     pub name: TrustName,
     /// Its platform.
@@ -102,7 +102,7 @@ pub struct DeviceEntry {
     #[garde(dive)]
     pub revoked_at: Option<WireInstant>,
     /// The machines that have not yet fetched its revoke; each drops it when it next connects.
-    pub revoke_pending_on_node_ids: Vec<NodeId>,
+    pub revoke_pending_on_machine_ids: Vec<MachineId>,
     /// Its key kept displacing its own connection, so it is in two places at once.
     pub seen_in_two_places: bool,
 }
@@ -172,8 +172,8 @@ pub enum DeviceListRowEvent {
         device_id: DeviceId,
     },
     /// A machine's registration was refreshed.
-    #[serde(rename = "runtimenode.registered")]
-    RuntimeNodeRegistered {
+    #[serde(rename = "machine.registered")]
+    MachineRegistered {
         /// The machine.
         #[garde(dive)]
         machine: MachineEntry,
@@ -233,7 +233,7 @@ pub struct DeviceLinkRedeemRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TrustedMachineKey {
     /// The machine.
-    pub node_id: NodeId,
+    pub machine_id: MachineId,
     /// Its identity key.
     pub identity_key: MachineIdentityKey,
 }
@@ -256,7 +256,7 @@ pub struct DeviceLinkRedeemResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct DeviceLinkRequest {
+pub struct DeviceLinkConfirmRequest {
     /// The pairing.
     pub pairing_id: PairingId,
     /// The statement.
@@ -392,7 +392,7 @@ pub enum PushPlatform {
     deny_unknown_fields
 )]
 #[garde(allow_unvalidated)]
-pub enum DevicePushAddressSetRequest {
+pub enum DevicePushAddressUpdateRequest {
     /// An APNs token.
     Apns {
         /// The token.
@@ -421,7 +421,7 @@ pub struct WebPushKeys {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct DeviceNotificationSettingsSetRequest {
+pub struct DeviceNotificationSettingsUpdateRequest {
     /// `Notify me outside the app`.
     pub notify_outside_the_app: bool,
     /// `Show a count on the app icon`.
@@ -444,7 +444,7 @@ methods! {
     /// The device procedures the control plane serves.
     pub const DEVICE_CONTROL_PLANE_METHOD_DESCRIPTORS = [
         /// The machines, devices and passkeys, live.
-        DeviceList = subscription "device.list" {
+        DeviceSubscribe = subscription "device.subscribe" {
             mutating: false,
             params: EmptyPayload,
             result: DeviceListSnapshot,
@@ -452,28 +452,28 @@ methods! {
             refusals: [],
         },
         /// Opens a single-use pairing.
-        DeviceLinkStart = mutation "device.linkStart" {
+        DeviceLinkStart = mutation "device.link.start" {
             mutating: true,
             params: EmptyPayload,
             result: DeviceLinkStartResponse,
             refusals: [],
         },
         /// The new device's half of the link.
-        DeviceLinkRedeem = mutation "device.linkRedeem" {
+        DeviceLinkRedeem = mutation "device.link.redeem" {
             mutating: true,
             params: DeviceLinkRedeemRequest,
             result: DeviceLinkRedeemResponse,
             refusals: [],
         },
         /// `It matches`.
-        DeviceLink = mutation "device.link" {
+        DeviceLinkConfirm = mutation "device.link.confirm" {
             mutating: true,
-            params: DeviceLinkRequest,
+            params: DeviceLinkConfirmRequest,
             result: EmptyPayload,
             refusals: [],
         },
         /// Ends a pairing with nothing linked.
-        DeviceLinkCancel = mutation "device.linkCancel" {
+        DeviceLinkCancel = mutation "device.link.cancel" {
             mutating: true,
             params: DeviceLinkCancelRequest,
             result: EmptyPayload,
@@ -501,16 +501,16 @@ methods! {
             refusals: [],
         },
         /// The chain after a statement.
-        DeviceStatementList = query "device.statementList" {
+        DeviceStatementList = query "device.statement.list" {
             mutating: false,
             params: DeviceStatementListRequest,
             result: DeviceStatementListResponse,
             refusals: [],
         },
         /// Sets the calling device's push address.
-        DevicePushAddressSet = mutation "device.pushAddressSet" {
+        DevicePushAddressUpdate = mutation "device.pushAddress.update" {
             mutating: true,
-            params: DevicePushAddressSetRequest,
+            params: DevicePushAddressUpdateRequest,
             result: EmptyPayload,
             refusals: [],
         },
@@ -521,23 +521,23 @@ methods! {
     /// The device methods a machine's service answers over the channel.
     pub const DEVICE_METHOD_DESCRIPTORS = [
         /// Statements a device has seen, verified before they are kept.
-        DeviceStatementApply = mutation "device.statementApply" {
+        DeviceStatementApply = mutation "device.statement.apply" {
             mutating: true,
             params: DeviceStatementApplyRequest,
             result: EmptyPayload,
             refusals: [],
         },
         /// This machine's verified view of the trusted devices.
-        DeviceTrustedList = query "device.trustedList" {
+        DeviceTrustedList = query "device.trusted.list" {
             mutating: false,
             params: EmptyPayload,
             result: DeviceTrustedListResponse,
             refusals: [],
         },
         /// A device's own switches and push keys.
-        DeviceNotificationSettingsSet = mutation "device.notificationSettingsSet" {
+        DeviceNotificationSettingsUpdate = mutation "device.notificationSettings.update" {
             mutating: true,
-            params: DeviceNotificationSettingsSetRequest,
+            params: DeviceNotificationSettingsUpdateRequest,
             result: EmptyPayload,
             refusals: [],
         },
@@ -553,20 +553,20 @@ methods! {
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
 pub enum ControlPlaneCallProcedure {
-    /// `device.list`.
-    #[serde(rename = "device.list")]
-    DeviceList,
-    /// `device.linkStart`.
-    #[serde(rename = "device.linkStart")]
+    /// `device.subscribe`.
+    #[serde(rename = "device.subscribe")]
+    DeviceSubscribe,
+    /// `device.link.start`.
+    #[serde(rename = "device.link.start")]
     DeviceLinkStart,
-    /// `device.linkRedeem`.
-    #[serde(rename = "device.linkRedeem")]
+    /// `device.link.redeem`.
+    #[serde(rename = "device.link.redeem")]
     DeviceLinkRedeem,
-    /// `device.link`.
-    #[serde(rename = "device.link")]
-    DeviceLink,
-    /// `device.linkCancel`.
-    #[serde(rename = "device.linkCancel")]
+    /// `device.link.confirm`.
+    #[serde(rename = "device.link.confirm")]
+    DeviceLinkConfirm,
+    /// `device.link.cancel`.
+    #[serde(rename = "device.link.cancel")]
     DeviceLinkCancel,
     /// `device.rename`.
     #[serde(rename = "device.rename")]
@@ -577,18 +577,18 @@ pub enum ControlPlaneCallProcedure {
     /// `device.forget`.
     #[serde(rename = "device.forget")]
     DeviceForget,
-    /// `device.statementList`.
-    #[serde(rename = "device.statementList")]
+    /// `device.statement.list`.
+    #[serde(rename = "device.statement.list")]
     DeviceStatementList,
-    /// `device.pushAddressSet`.
-    #[serde(rename = "device.pushAddressSet")]
-    DevicePushAddressSet,
-    /// `runtimenode.rename`.
-    #[serde(rename = "runtimenode.rename")]
-    RuntimeNodeRename,
-    /// `runtimenode.remove`.
-    #[serde(rename = "runtimenode.remove")]
-    RuntimeNodeRemove,
+    /// `device.pushAddress.update`.
+    #[serde(rename = "device.pushAddress.update")]
+    DevicePushAddressUpdate,
+    /// `machine.rename`.
+    #[serde(rename = "machine.rename")]
+    MachineRename,
+    /// `machine.remove`.
+    #[serde(rename = "machine.remove")]
+    MachineRemove,
 }
 
 /// One forwarded call. `input` is the procedure's own request, which the control plane's
@@ -637,7 +637,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DeviceLinkStartResponse>(),
         Definition::read::<TrustedMachineKey>(),
         Definition::read::<DeviceLinkRedeemResponse>(),
-        Definition::read::<DeviceLinkRequest>(),
+        Definition::read::<DeviceLinkConfirmRequest>(),
         Definition::read::<DeviceLinkCancelRequest>(),
         Definition::read::<DeviceRenameRequest>(),
         Definition::read::<DeviceRevokeRequest>(),
@@ -653,8 +653,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ControlPlaneCallProcedure>(),
         Definition::read::<ControlPlaneCallRequest>().checked(),
         Definition::read::<DeviceLinkRedeemRequest>().checked(),
-        Definition::read::<DeviceNotificationSettingsSetRequest>().checked(),
-        Definition::read::<DevicePushAddressSetRequest>().checked(),
+        Definition::read::<DeviceNotificationSettingsUpdateRequest>().checked(),
+        Definition::read::<DevicePushAddressUpdateRequest>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[

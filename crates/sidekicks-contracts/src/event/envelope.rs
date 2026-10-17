@@ -27,7 +27,7 @@ use crate::wire::{NullableSchema, True, named_scalar};
 /// The category a session event belongs to; every event type maps to exactly one, so a mismatched
 /// pair fails the strict parse. Adding a category is a minor version bump.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum EventCategory {
     /// A run's life: queued, started, paused, rolled back, ended.
     RunLifecycle,
@@ -75,23 +75,23 @@ impl EventCategory {
     /// The category's wire text, as its serde form writes it.
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::RunLifecycle => "run_lifecycle",
-            Self::AssistantOutput => "assistant_output",
-            Self::ToolActivity => "tool_activity",
-            Self::InteractiveRequest => "interactive_request",
-            Self::ArtifactPublication => "artifact_publication",
-            Self::SessionLifecycle => "session_lifecycle",
-            Self::ApprovalFlow => "approval_flow",
-            Self::UsageTelemetry => "usage_telemetry",
-            Self::RecoveryEvents => "recovery_events",
-            Self::SecurityEvents => "security_events",
-            Self::EventMaintenance => "event_maintenance",
-            Self::OrchestrationAdmission => "orchestration_admission",
-            Self::McpGovernance => "mcp_governance",
-            Self::WorkflowLifecycle => "workflow_lifecycle",
-            Self::WorkflowPhaseLifecycle => "workflow_phase_lifecycle",
-            Self::WorkflowParallelCoordination => "workflow_parallel_coordination",
-            Self::WorkflowGateResolution => "workflow_gate_resolution",
+            Self::RunLifecycle => "runLifecycle",
+            Self::AssistantOutput => "assistantOutput",
+            Self::ToolActivity => "toolActivity",
+            Self::InteractiveRequest => "interactiveRequest",
+            Self::ArtifactPublication => "artifactPublication",
+            Self::SessionLifecycle => "sessionLifecycle",
+            Self::ApprovalFlow => "approvalFlow",
+            Self::UsageTelemetry => "usageTelemetry",
+            Self::RecoveryEvents => "recoveryEvents",
+            Self::SecurityEvents => "securityEvents",
+            Self::EventMaintenance => "eventMaintenance",
+            Self::OrchestrationAdmission => "orchestrationAdmission",
+            Self::McpGovernance => "mcpGovernance",
+            Self::WorkflowLifecycle => "workflowLifecycle",
+            Self::WorkflowPhaseLifecycle => "workflowPhaseLifecycle",
+            Self::WorkflowParallelCoordination => "workflowParallelCoordination",
+            Self::WorkflowGateResolution => "workflowGateResolution",
         }
     }
 }
@@ -419,7 +419,7 @@ pub struct EventEnvelope {
 
 named_scalar! {
     /// The execution epoch a late-appended row is attributed to: `0` before any rollback, advanced
-    /// by each accepted `run.rolled_back`.
+    /// by each accepted `agent.run.rolledBack`.
     SourceEpoch(SafeInt<0>), Copy
 }
 
@@ -464,7 +464,7 @@ pub fn epoch_stamp_dependent_required() -> Value {
 
 /// Why a stored event's body is not available.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum HydratedContentUnavailableReason {
     /// The row never carried one.
     Absent,
@@ -474,7 +474,7 @@ pub enum HydratedContentUnavailableReason {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "status",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]

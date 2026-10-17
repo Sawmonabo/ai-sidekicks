@@ -1,7 +1,7 @@
-//! A run's execution posture from its request to its `run.running` stamp, the posture each level
-//! runs at, and the one curated credential deny list every provider process is handed. The posture
-//! is checked and its writable roots resolved before the provider starts the run; a posture that
-//! fails a check refuses the run and is never rewritten into one that passes.
+//! A run's execution posture from its request to its `agent.run.running` stamp, the posture each
+//! level runs at, and the one curated credential deny list every provider process is handed. The
+//! posture is checked and its writable roots resolved before the provider starts the run; a posture
+//! that fails a check refuses the run and is never rewritten into one that passes.
 
 use std::collections::HashMap;
 use std::io;
@@ -138,7 +138,7 @@ pub(crate) enum CredentialPolicyResolveError {
 }
 
 /// Checks and resolves every run's posture as a run setup gate, keeps the resolved posture for the
-/// run's `run.running` stamp until the run ends, and resolves the curated credential list.
+/// run's `agent.run.running` stamp until the run ends, and resolves the curated credential list.
 pub(crate) struct ExecutionPostureService {
     // The curated list's entries, each path expanded against the home folder.
     deny_entries: [CredentialDenyPath; 3],
@@ -187,8 +187,8 @@ impl ExecutionPostureService {
         })
     }
 
-    /// The complete resolved posture of a run past its gate and not yet ended, `None` for any
-    /// other run; the run engine hands it to the driver and stamps it on `run.running`, and a start
+    /// The complete resolved posture of a run past its gate and not yet ended, `None` for any other
+    /// run; the run engine hands it to the driver and stamps it on `agent.run.running`, and a start
     /// that finds `None` ends its run `failed`.
     pub(crate) fn resolved_posture_for(&self, run_id: &RunId) -> Option<ExecutionPosture> {
         self.resolved_postures().get(run_id).cloned()

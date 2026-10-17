@@ -19,7 +19,7 @@ branded_uuid_id! {
 
 ts_constants! {
     /// The refusal for an event cursor that names no position in its session's log.
-    EVENT_CURSOR_UNRESOLVABLE_CODE = RefusalCode::EventCursorUnresolvable;
+    SESSION_EVENT_CURSOR_UNRESOLVABLE_CODE = RefusalCode::SessionEventCursorUnresolvable;
     /// The log position before a session's first event, where a read of the whole log starts.
     START_OF_LOG_POSITION = START_OF_LOG_POSITION;
 }

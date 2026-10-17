@@ -8,7 +8,7 @@
 use rusqlite::{Connection, OptionalExtension};
 use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_one_frame};
 use sidekicks_contracts::session::event_cursor::{
-    EventCursorPositionOutOfRange, EventCursorUnresolvable, decode_event_cursor,
+    EventCursorPositionOutOfRange, SessionEventCursorUnresolvable, decode_event_cursor,
     encode_event_cursor,
 };
 use sidekicks_contracts::session::id::SessionId;
@@ -55,7 +55,7 @@ pub(crate) enum TranscriptSearchError {
     Refused(#[from] DomainError),
     /// The before cursor names no position in the session's log.
     #[error(transparent)]
-    CursorUnresolvable(#[from] EventCursorUnresolvable),
+    CursorUnresolvable(#[from] SessionEventCursorUnresolvable),
     /// A database read failed, or a stored value did not read as its type.
     #[error("the transcript search's database read failed")]
     Database(#[from] rusqlite::Error),
@@ -74,9 +74,9 @@ pub(crate) enum TranscriptSearchError {
 /// `deps` in one read transaction. A session whose history is damaged from
 /// `damaged_from_sequence` on is searched before that point alone, its hits and its match count
 /// both, as its reads stop there; `applied_floor_position` is where the rowid floor log stood when
-/// the index last matched the database, read before the call. Fails with `session.not_found` for a
-/// session the daemon does not hold, with [`EventCursorUnresolvable`] for a cursor that names no
-/// position, and as a database or index read fails.
+/// the index last matched the database, read before the call. Fails with `session.notFound` for a
+/// session the daemon does not hold, with [`SessionEventCursorUnresolvable`] for a cursor that
+/// names no position, and as a database or index read fails.
 pub(crate) fn search_transcript(
     deps: &SearchServiceDeps,
     request: &TranscriptSearchRequest,

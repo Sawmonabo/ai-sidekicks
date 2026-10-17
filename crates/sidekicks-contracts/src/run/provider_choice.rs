@@ -1,7 +1,7 @@
 //! The choices a provider asks the person to make while a run waits on the answer: the
 //! retry-or-edit choice when its safety check refuses a turn and names a fallback model, and the
 //! switch-or-credits choice when a turn's model needs usage credits. Each has a resolve request,
-//! which the `run.*` method table serves, and the payloads of the event that asks and the event
+//! which the run-control method table serves, and the payloads of the event that asks and the event
 //! that records how it settled.
 
 use schemars::JsonSchema;
@@ -19,10 +19,11 @@ use crate::wire::literal;
 use crate::wire::text::FreeFormText;
 
 /// The person's answer when the provider's safety check refuses a turn and names a fallback model:
-/// `retry_fallback` goes on on the fallback model, and `edit_prompt` ends the turn refused and
-/// returns the message to the composer.
+/// `retryFallback` goes on on the fallback model, and `editPrompt` ends the turn refused and
+/// returns the message to the composer. The driver translates each value to the provider's own
+/// answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RunRefusalChoice {
     /// Go on on the fallback model.
     RetryFallback,
@@ -30,24 +31,24 @@ pub enum RunRefusalChoice {
     EditPrompt,
 }
 
-/// Answers the retry-or-edit choice a refused run waits on (`run.refusalChoiceResolve`). The first
-/// answer settles it; a second or late one is refused with `run.invalid_transition`.
+/// Answers the retry-or-edit choice a refused run waits on (`agent.run.refusalChoice.resolve`). The
+/// first answer settles it; a second or late one is refused with `agent.run.invalidTransition`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RunRefusalChoiceResolveRequest {
+pub struct AgentRunRefusalChoiceResolveRequest {
     /// The run that waits.
     pub run_id: RunId,
     /// The answer.
     pub choice: RunRefusalChoice,
 }
 
-/// The payload of `run.refusal_choice_requested`: the refusing model, the fallback it names, the
-/// provider's own sentence and check category when it sends them, and the ids of the rows already
-/// streamed for the refused answer, which leave the flow when the choice is answered.
+/// The payload of `agent.run.refusalChoice.requested`: the refusing model, the fallback it names,
+/// the provider's own sentence and check category when it sends them, and the ids of the rows
+/// already streamed for the refused answer, which leave the flow when the choice is answered.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunRefusalChoiceRequestedPayload {
+pub struct AgentRunRefusalChoiceRequestedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run that waits.
@@ -98,11 +99,11 @@ pub enum RunRefusalChoiceSettlement {
     Canceled(RunRefusalChoiceCanceled),
 }
 
-/// The payload of `run.refusal_choice_resolved`: the answer that settled the choice, and the device
-/// that sent a person's answer.
+/// The payload of `agent.run.refusalChoice.resolved`: the answer that settled the choice, and the
+/// device that sent a person's answer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunRefusalChoiceResolvedPayload {
+pub struct AgentRunRefusalChoiceResolvedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -119,11 +120,11 @@ pub struct RunRefusalChoiceResolvedPayload {
     pub device_id: Option<DeviceId>,
 }
 
-/// The person's answer when a turn's model needs usage credits: `switch_default` moves the turn to
+/// The person's answer when a turn's model needs usage credits: `switchDefault` moves the turn to
 /// the fallback model, and `consent` goes on on usage credits, which the provider accepts only
-/// while credits are on.
+/// while credits are on. The driver translates each value to the provider's own answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RunUsageCreditsChoice {
     /// Move the turn to the fallback model.
     SwitchDefault,
@@ -131,24 +132,24 @@ pub enum RunUsageCreditsChoice {
     Consent,
 }
 
-/// Answers the switch-or-credits choice a run waits on (`run.usageCreditsChoiceResolve`).
-/// The first answer settles it; a second or late one is refused with `run.invalid_transition`.
+/// Answers the switch-or-credits choice a run waits on (`agent.run.usageCreditsChoice.resolve`).
+/// The first answer settles it; a second or late one is refused with `agent.run.invalidTransition`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RunUsageCreditsChoiceResolveRequest {
+pub struct AgentRunUsageCreditsChoiceResolveRequest {
     /// The run that waits.
     pub run_id: RunId,
     /// The answer.
     pub choice: RunUsageCreditsChoice,
 }
 
-/// The payload of `run.usage_credits_choice_requested`: the model that needs credits, whether
+/// The payload of `agent.run.usageCreditsChoice.requested`: the model that needs credits, whether
 /// credits are on, the balance and its currency when the provider reports them, and the model a
 /// switch moves to when the provider's model list names one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunUsageCreditsChoiceRequestedPayload {
+pub struct AgentRunUsageCreditsChoiceRequestedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run that waits.
@@ -187,7 +188,7 @@ pub struct RunUsageCreditsChoiceRequestedPayload {
 /// undo while it waits, which ends the turn on that model, and `unanswered` is the provider
 /// settling it when a message is sent while it waits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RunUsageCreditsChoiceUnanswered {
     /// An interrupt or an undo while it waited.
     Interrupted,
@@ -205,11 +206,11 @@ pub enum RunUsageCreditsChoiceSettlement {
     Unanswered(RunUsageCreditsChoiceUnanswered),
 }
 
-/// The payload of `run.usage_credits_choice_resolved`: how the choice settled, and the device that
-/// sent a person's answer.
+/// The payload of `agent.run.usageCreditsChoice.resolved`: how the choice settled, and the device
+/// that sent a person's answer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunUsageCreditsChoiceResolvedPayload {
+pub struct AgentRunUsageCreditsChoiceResolvedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -234,16 +235,16 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           needs usage credits.",
     definitions: &[
         Definition::read::<RunRefusalChoice>(),
-        Definition::read::<RunRefusalChoiceResolveRequest>().checked(),
-        Definition::read::<RunRefusalChoiceRequestedPayload>().checked(),
+        Definition::read::<AgentRunRefusalChoiceResolveRequest>().checked(),
+        Definition::read::<AgentRunRefusalChoiceRequestedPayload>().checked(),
         Definition::read::<RunRefusalChoiceSettlement>(),
-        Definition::read::<RunRefusalChoiceResolvedPayload>().checked(),
+        Definition::read::<AgentRunRefusalChoiceResolvedPayload>().checked(),
         Definition::read::<RunUsageCreditsChoice>(),
-        Definition::read::<RunUsageCreditsChoiceResolveRequest>().checked(),
-        Definition::read::<RunUsageCreditsChoiceRequestedPayload>().checked(),
+        Definition::read::<AgentRunUsageCreditsChoiceResolveRequest>().checked(),
+        Definition::read::<AgentRunUsageCreditsChoiceRequestedPayload>().checked(),
         Definition::read::<RunUsageCreditsChoiceUnanswered>(),
         Definition::read::<RunUsageCreditsChoiceSettlement>(),
-        Definition::read::<RunUsageCreditsChoiceResolvedPayload>().checked(),
+        Definition::read::<AgentRunUsageCreditsChoiceResolvedPayload>().checked(),
     ],
     constants: &[],
     method_tables: &[],

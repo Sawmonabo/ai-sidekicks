@@ -128,8 +128,8 @@
         "sessionId": "0192f3a4-5b6c-7d8e-9f01-234567890abc",
         "sequence": 9007199254740991,
         "occurredAt": "2026-03-04T05:06:07.008Z",
-        "category": "event_maintenance",
-        "type": "event.compacted",
+        "category": "eventMaintenance",
+        "type": "session.event.compacted",
         "actor": "user-7f3a",
         "payload": {
           "zebra": "sorts-last",
@@ -180,8 +180,8 @@
         "sessionId": "0192f3a4-5b6c-7d8e-9f01-234567890abc",
         "sequence": 9007199254740991,
         "occurredAt": "2026-03-04T05:06:07.008Z",
-        "category": "event_maintenance",
-        "type": "event.compacted",
+        "category": "eventMaintenance",
+        "type": "session.event.compacted",
         "actor": null,
         "payload": {
           "zebra": "sorts-last",
@@ -198,7 +198,7 @@
         "version": "1.0"
       },
       "expected": {
-        "canonical": "{\"actor\":null,\"category\":\"event_maintenance\",\"causationId\":\"causation-4b1d\",\"correlationId\":\"correlation-9c2e\",\"id\":\"01960b3c-e1d0-7a41-b2c9-5f8e37d6a204\",\"occurredAt\":\"2026-03-04T05:06:07.008Z\",\"payload\":{\"alpha\":\"sorts-first\",\"nested\":{\"B\":\"upper-b\",\"a\":\"lower-a\",\"\u00e9\":\"e-acute\"},\"ratio\":333333333.3333332,\"zebra\":\"sorts-last\"},\"sequence\":9007199254740991,\"sessionId\":\"0192f3a4-5b6c-7d8e-9f01-234567890abc\",\"type\":\"event.compacted\",\"version\":\"1.0\"}"
+        "canonical": "{\"actor\":null,\"category\":\"eventMaintenance\",\"causationId\":\"causation-4b1d\",\"correlationId\":\"correlation-9c2e\",\"id\":\"01960b3c-e1d0-7a41-b2c9-5f8e37d6a204\",\"occurredAt\":\"2026-03-04T05:06:07.008Z\",\"payload\":{\"alpha\":\"sorts-first\",\"nested\":{\"B\":\"upper-b\",\"a\":\"lower-a\",\"\u00e9\":\"e-acute\"},\"ratio\":333333333.3333332,\"zebra\":\"sorts-last\"},\"sequence\":9007199254740991,\"sessionId\":\"0192f3a4-5b6c-7d8e-9f01-234567890abc\",\"type\":\"session.event.compacted\",\"version\":\"1.0\"}"
       }
     },
     {
@@ -208,8 +208,8 @@
         "sessionId": "0192f3a4-5b6c-7d8e-9f01-234567890abc",
         "sequence": 9007199254740991,
         "occurredAt": "2026-03-04T05:06:07.008Z",
-        "category": "event_maintenance",
-        "type": "event.compacted",
+        "category": "eventMaintenance",
+        "type": "session.event.compacted",
         "payload": {
           "zebra": "sorts-last",
           "alpha": "sorts-first",
@@ -225,7 +225,7 @@
         "version": "1.0"
       },
       "expected": {
-        "canonical": "{\"category\":\"event_maintenance\",\"causationId\":\"causation-4b1d\",\"correlationId\":\"correlation-9c2e\",\"id\":\"01960b3c-e1d0-7a41-b2c9-5f8e37d6a204\",\"occurredAt\":\"2026-03-04T05:06:07.008Z\",\"payload\":{\"alpha\":\"sorts-first\",\"nested\":{\"B\":\"upper-b\",\"a\":\"lower-a\",\"\u00e9\":\"e-acute\"},\"ratio\":333333333.3333332,\"zebra\":\"sorts-last\"},\"sequence\":9007199254740991,\"sessionId\":\"0192f3a4-5b6c-7d8e-9f01-234567890abc\",\"type\":\"event.compacted\",\"version\":\"1.0\"}"
+        "canonical": "{\"category\":\"eventMaintenance\",\"causationId\":\"causation-4b1d\",\"correlationId\":\"correlation-9c2e\",\"id\":\"01960b3c-e1d0-7a41-b2c9-5f8e37d6a204\",\"occurredAt\":\"2026-03-04T05:06:07.008Z\",\"payload\":{\"alpha\":\"sorts-first\",\"nested\":{\"B\":\"upper-b\",\"a\":\"lower-a\",\"\u00e9\":\"e-acute\"},\"ratio\":333333333.3333332,\"zebra\":\"sorts-last\"},\"sequence\":9007199254740991,\"sessionId\":\"0192f3a4-5b6c-7d8e-9f01-234567890abc\",\"type\":\"session.event.compacted\",\"version\":\"1.0\"}"
       }
     }
   ],

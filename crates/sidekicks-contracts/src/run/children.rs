@@ -21,14 +21,14 @@ use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
 use crate::wire::{False, Never, True};
 
-/// Sends a message onto one child's own queue (`run.childSteer`), where it waits for the child's
-/// next step as a pending row the lead's queue verbs reach with `child_handle`. It names the helper
-/// by its session and handle, so it reaches a helper whose parent run has ended, and it answers as
-/// `run.queueCreate` does.
+/// Sends a message onto one child's own queue (`agent.childRun.steer`), where it waits for the
+/// child's next step as a pending row the lead's queue verbs reach with `childHandle`. It names
+/// the helper by its session and handle, so it reaches a helper whose parent run has ended, and it
+/// answers as `agent.queueItem.create` does.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ChildSteerRequest {
+pub struct AgentChildRunSteerRequest {
     /// The session the helper works in.
     pub session_id: SessionId,
     /// The child.
@@ -48,12 +48,12 @@ pub struct ChildSteerRequest {
     pub replaces_queue_item_id: Option<QueueItemId>,
 }
 
-/// Interrupts one child, and only that child (`run.childInterrupt`); its pending messages go as
-/// its next turn, with `deliver_first`, the row `Send now` was pressed on, ahead of the rest.
+/// Interrupts one child, and only that child (`agent.childRun.interrupt`); its pending messages go
+/// as its next turn, with `deliver_first`, the row `Send now` was pressed on, ahead of the rest.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ChildInterruptRequest {
+pub struct AgentChildRunInterruptRequest {
     /// The run the child belongs to.
     pub target_run_id: RunId,
     /// The child.
@@ -77,18 +77,19 @@ pub struct ChildInterruptRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ChildInterruptResponse {
+pub struct AgentChildRunInterruptResponse {
     /// The child.
     pub child_handle: ChildHandle,
     /// Where it stands.
     pub state: RunState,
 }
 
-/// Pauses one child (`paused: true`) or continues it (`paused: false`) (`run.childPauseSet`).
+/// Pauses one child (`paused: true`) or continues it (`paused: false`)
+/// (`agent.childRun.paused.update`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ChildPauseSetRequest {
+pub struct AgentChildRunPausedUpdateRequest {
     /// The run the child belongs to.
     pub target_run_id: RunId,
     /// The child.
@@ -105,7 +106,7 @@ pub struct ChildPauseSetRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
-pub struct ChildPauseSetPaused {
+pub struct AgentChildRunPausedUpdatePaused {
     /// The child.
     pub child_handle: ChildHandle,
     /// Always `true`.
@@ -125,7 +126,7 @@ pub struct ChildPauseSetPaused {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
-pub struct ChildPauseSetNotPaused {
+pub struct AgentChildRunPausedUpdateNotPaused {
     /// The child.
     pub child_handle: ChildHandle,
     /// Always `false`.
@@ -144,19 +145,19 @@ pub struct ChildPauseSetNotPaused {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 #[garde(allow_unvalidated)]
-pub enum ChildPauseSetResponse {
+pub enum AgentChildRunPausedUpdateResponse {
     /// Held paused.
-    Paused(ChildPauseSetPaused),
+    Paused(AgentChildRunPausedUpdatePaused),
     /// Not paused.
-    NotPaused(ChildPauseSetNotPaused),
+    NotPaused(AgentChildRunPausedUpdateNotPaused),
 }
 
-/// Stops every running child of a run at every depth (`run.childrenStop`): the daemon walks its
-/// own index, one stop per child, never relayed through the lead.
+/// Stops every running child of a run at every depth (`agent.childRun.stopAll`): the daemon walks
+/// its own index, one stop per child, never relayed through the lead.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ChildrenStopRequest {
+pub struct AgentChildRunStopAllRequest {
     /// The run whose children to stop.
     pub run_id: RunId,
 }
@@ -164,7 +165,7 @@ pub struct ChildrenStopRequest {
 /// The run state a stop leaves a child in: `stopped` where the provider's stop is final,
 /// `interrupted` where a send can continue it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ChildStoppedState {
     /// The provider's stop is final.
     Stopped,
@@ -177,7 +178,7 @@ pub enum ChildStoppedState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "outcome",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -239,7 +240,7 @@ pub enum ChildStopOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ChildrenStopResponse {
+pub struct AgentChildRunStopAllResponse {
     /// One row per child.
     pub children: Vec<ChildStopOutcome>,
 }
@@ -248,10 +249,8 @@ pub struct ChildrenStopResponse {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
-pub enum RunChildControlRefusedReason {
-    /// The daemon's index names no such child.
-    ChildUnknown,
+#[serde(rename_all = "camelCase")]
+pub enum AgentChildRunControlRefusedReason {
     /// The child has ended; an interrupt instead answers the state it finished in.
     ChildEnded,
     /// The provider refused the act.
@@ -259,20 +258,20 @@ pub enum RunChildControlRefusedReason {
 }
 
 ts_constants! {
-    /// The refusal of a child control: the daemon's index names no such child, the child has
-    /// ended, or the provider refused the act. A hold lost before a continue is a result, never
-    /// this refusal.
-    RUN_CHILD_CONTROL_REFUSED_CODE = RefusalCode::RunChildControlRefused;
+    /// The refusal of a child control: the child has ended or the provider refused the act. A
+    /// handle that names no child of the run is `agent.childRun.notFound`, and a hold lost before
+    /// a continue is a result, never this refusal.
+    AGENT_CHILD_RUN_CONTROL_REFUSED_CODE = RefusalCode::AgentChildRunControlRefused;
     /// Every reason a child control is refused.
-    RUN_CHILD_CONTROL_REFUSED_REASONS = RunChildControlRefusedReason::VARIANTS;
+    AGENT_CHILD_RUN_CONTROL_REFUSED_REASONS = AgentChildRunControlRefusedReason::VARIANTS;
 }
 
-/// The details a `run.child_control_refused` refusal carries.
+/// The details an `agent.childRun.controlRefused` refusal carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunChildControlRefusedDetails {
+pub struct AgentChildRunControlRefusedDetails {
     /// Why it was refused.
-    pub reason: RunChildControlRefusedReason,
+    pub reason: AgentChildRunControlRefusedReason,
 }
 
 /// The TypeScript module of a child's own controls.
@@ -281,17 +280,17 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "A child's own controls: steer, interrupt and pause one provider helper inside a run, \
           and stop every child of a run.",
     definitions: &[
-        Definition::read::<ChildSteerRequest>().checked(),
-        Definition::read::<ChildInterruptRequest>().checked(),
-        Definition::read::<ChildInterruptResponse>().checked(),
-        Definition::read::<ChildPauseSetRequest>().checked(),
-        Definition::read::<ChildPauseSetResponse>().checked(),
-        Definition::read::<ChildrenStopRequest>().checked(),
+        Definition::read::<AgentChildRunSteerRequest>().checked(),
+        Definition::read::<AgentChildRunInterruptRequest>().checked(),
+        Definition::read::<AgentChildRunInterruptResponse>().checked(),
+        Definition::read::<AgentChildRunPausedUpdateRequest>().checked(),
+        Definition::read::<AgentChildRunPausedUpdateResponse>().checked(),
+        Definition::read::<AgentChildRunStopAllRequest>().checked(),
         Definition::read::<ChildStoppedState>(),
         Definition::read::<ChildStopOutcome>(),
-        Definition::read::<ChildrenStopResponse>().checked(),
-        Definition::read::<RunChildControlRefusedReason>(),
-        Definition::read::<RunChildControlRefusedDetails>().checked(),
+        Definition::read::<AgentChildRunStopAllResponse>().checked(),
+        Definition::read::<AgentChildRunControlRefusedReason>(),
+        Definition::read::<AgentChildRunControlRefusedDetails>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

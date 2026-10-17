@@ -1,4 +1,4 @@
-//! The node catalog: every node kind the daemon runs, as `workflow.kindList` serializes it. One
+//! The node catalog: every node kind the daemon runs, as `workflow.kind.list` serializes it. One
 //! description per kind drives the palette row, the inspector's parameter form, the canvas handles
 //! and the daemon's check at save, and an agent reads the same list before it writes a workflow.
 //!
@@ -28,21 +28,21 @@ use crate::workflow::definition::document::WorkflowNodeKindId;
 pub const WORKFLOW_NODE_KIND_NAMES: &[(&str, &str)] = &[
     ("trigger.manual", "Run manually"),
     ("trigger.schedule", "On a schedule"),
-    ("trigger.file-watch", "On a file change"),
+    ("trigger.fileWatch", "On a file change"),
     ("trigger.webhook", "On a webhook"),
-    ("trigger.session-event", "On a session event"),
+    ("trigger.sessionEvent", "On a session event"),
     ("trigger.chat", "From chat"),
-    ("trigger.sub-workflow", "Called by a workflow"),
+    ("trigger.subWorkflow", "Called by a workflow"),
     ("trigger.error", "When a workflow fails"),
     ("agent.run", "Run a sidekick"),
-    ("agent.multi-agent", "Run a sidekick team"),
-    ("agent.ask-question", "Ask a question"),
+    ("agent.multiAgent", "Run a sidekick team"),
+    ("agent.askQuestion", "Ask a question"),
     ("human.approval", "Ask for approval"),
     ("human.form", "Ask for a form"),
-    ("human.wait-for-chat-reply", "Wait for a chat reply"),
+    ("human.waitForChatReply", "Wait for a chat reply"),
     ("files.read", "Read files"),
     ("files.write", "Write files"),
-    ("files.ingest-artifacts", "Ingest as artifacts"),
+    ("files.ingestArtifacts", "Ingest as artifacts"),
     ("files.parse", "Parse"),
     ("files.template", "Render a template"),
     ("browser.open", "Open a page"),
@@ -51,23 +51,23 @@ pub const WORKFLOW_NODE_KIND_NAMES: &[(&str, &str)] = &[
     ("browser.act", "Act on a page"),
     ("developer.shell", "Run a command"),
     ("developer.git", "Git"),
-    ("developer.run-tests", "Run tests"),
+    ("developer.runTests", "Run tests"),
     ("developer.http", "HTTP request"),
-    ("developer.mcp-tool", "MCP tool"),
-    ("developer.callback-tool", "App tool"),
-    ("developer.repo-diff", "Read a repo diff"),
+    ("developer.mcpTool", "MCP tool"),
+    ("developer.callbackTool", "App tool"),
+    ("developer.repoDiff", "Read a repo diff"),
     ("developer.code", "Code"),
     ("flow.if", "If"),
     ("flow.switch", "Switch"),
-    ("flow.loop-items", "Loop over items"),
+    ("flow.loopItems", "Loop over items"),
     ("flow.merge", "Merge"),
-    ("flow.set-vars", "Set variables"),
+    ("flow.setVars", "Set variables"),
     ("flow.wait", "Wait"),
-    ("flow.stop-error", "Stop with error"),
-    ("flow.execute-workflow", "Execute workflow"),
+    ("flow.stopError", "Stop with error"),
+    ("flow.executeWorkflow", "Execute workflow"),
     ("output.notify", "Notify"),
-    ("output.save-artifact", "Save as artifact"),
-    ("output.write-summary", "Write a summary"),
+    ("output.saveArtifact", "Save as artifact"),
+    ("output.writeSummary", "Write a summary"),
 ];
 
 ts_constants! {
@@ -80,7 +80,7 @@ ts_constants! {
 
 /// The categories the palette groups kinds under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowNodeKindCategory {
     /// What starts a run.
     Trigger,
@@ -126,7 +126,7 @@ macro_rules! handle_spec {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(
             tag = "type",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -231,7 +231,7 @@ handle_spec! {
 
 /// The type of one leaf parameter, which picks the field the inspector draws.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowParamType {
     /// One line of text.
     String,
@@ -387,7 +387,7 @@ pub enum WorkflowParamSpec {
 
 /// What running a kind can change: nothing, this machine, or something beyond it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowNodeSideEffects {
     /// Nothing.
     None,
@@ -464,7 +464,7 @@ pub struct WorkflowNodeKindSpec {
     pub capabilities: Option<WorkflowNodeCapabilities>,
 }
 
-/// The `workflow.kindList` result: every kind the daemon runs.
+/// The `workflow.kind.list` result: every kind the daemon runs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -478,7 +478,7 @@ methods! {
     /// The node catalog's method table.
     pub const WORKFLOW_KIND_METHOD_DESCRIPTORS = [
         /// Lists every node kind the daemon runs, with its handles and parameters.
-        WorkflowKindList = query "workflow.kindList" {
+        WorkflowKindList = query "workflow.kind.list" {
             mutating: false,
             params: EmptyPayload,
             result: WorkflowKindListResponse,
@@ -490,7 +490,8 @@ methods! {
 /// The TypeScript module of the node catalog.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/kind",
-    doc: "The node catalog: every node kind the daemon runs, as `workflow.kindList` serializes it.",
+    doc: "The node catalog: every node kind the daemon runs, as `workflow.kind.list` serializes \
+          it.",
     definitions: &[
         Definition::read::<WorkflowNodeKindCategory>(),
         Definition::read::<WorkflowInputHandleSpec>(),

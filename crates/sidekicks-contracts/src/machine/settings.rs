@@ -1,8 +1,8 @@
 //! The machine's settings file and the three service methods that read, write and stream it.
 //!
 //! The file is `<home>/.ai-sidekicks/machine-settings.json`. The background service is its only
-//! writer: every client hands a change to `daemon.machineSettingsUpdate` and reads it through
-//! `daemon.machineSettingsRead` and `daemon.machineSettingsSubscribe`. The desktop's main process
+//! writer: every client hands a change to `machine.settings.update` and reads it through
+//! `machine.settings.read` and `machine.settings.subscribe`. The desktop's main process
 //! alone may read the file directly, and only before the service first answers. One schema
 //! describes the file for every reader, so a missing key reads as its default wherever it is read.
 //!
@@ -23,7 +23,7 @@ use crate::agent::definition::binding::ProviderToken;
 use crate::daemon::data::DAEMON_DATA_FOLDER_NAME;
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::refusal::RefusalCode;
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::PlacedPath;
@@ -94,9 +94,9 @@ ts_constants! {
         SHELL_ORIGINAL_XDG_DATA_DIRS_ENVIRONMENT_NAME,
     ];
     /// The code the service answers with when a row's name is refused.
-    DAEMON_ENVIRONMENT_NAME_REFUSED_CODE = RefusalCode::DaemonEnvironmentNameRefused;
+    PROJECT_ENVIRONMENT_NAME_REFUSED_CODE = RefusalCode::ProjectEnvironmentNameRefused;
     /// The code the service answers with when a branch-name pattern is refused.
-    DAEMON_BRANCH_PATTERN_REFUSED_CODE = RefusalCode::DaemonBranchPatternRefused;
+    PROJECT_BRANCH_PATTERN_REFUSED_CODE = RefusalCode::ProjectBranchPatternRefused;
     /// The placeholder a branch-name pattern holds exactly once: the tail of the session's title.
     pub const BRANCH_NAME_TITLE_PLACEHOLDER: &str = "{title}";
     /// Every [`EmailDigestPeriod`], shortest first.
@@ -111,7 +111,7 @@ ts_constants! {
 
 /// Why a row's name is refused at save.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum EnvironmentNameRefusalReason {
     /// Not a letter or underscore followed by letters, digits and underscores.
     NotAName,
@@ -149,7 +149,7 @@ pub fn environment_name_refusal(name: &str) -> Option<EnvironmentNameRefusalReas
 /// The refused name and why, so the page marks the row it was typed into.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DaemonEnvironmentNameRefusedDetails {
+pub struct ProjectEnvironmentNameRefusedDetails {
     /// The name as typed.
     pub name: BoundedText<1, ENVIRONMENT_ROW_MAX_LEN>,
     /// Why it was refused.
@@ -161,11 +161,11 @@ pub struct DaemonEnvironmentNameRefusedDetails {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "reason",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-pub enum DaemonBranchPatternRefusedDetails {
+pub enum ProjectBranchPatternRefusedDetails {
     /// The pattern does not hold `{title}` exactly once.
     TitleNotOnce {},
     /// The filled-in name is not a branch name git accepts.
@@ -301,7 +301,7 @@ pub struct NotificationSettings {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum VoiceMode {
     /// Held while talking.
     Hold,
@@ -339,7 +339,7 @@ pub struct BackupSettings {
 }
 
 /// A branch-name pattern as a change carries it: bounded. Its placeholder rule and git's check are
-/// the service's, refused with `daemon.branch_pattern_refused` so the page can say which.
+/// the service's, refused with `project.branchPattern.refused` so the page can say which.
 pub type BranchNamePatternChange = FreeFormText<BRANCH_NAME_PATTERN_MAX_LEN>;
 
 /// [`BRANCH_NAME_TITLE_PLACEHOLDER`] held exactly once, in ECMAScript's syntax; Rust checks the
@@ -358,7 +358,7 @@ impl BranchNamePattern {
     /// the service makes after this one.
     pub fn new(
         pattern: BranchNamePatternChange,
-    ) -> Result<Self, DaemonBranchPatternRefusedDetails> {
+    ) -> Result<Self, ProjectBranchPatternRefusedDetails> {
         if pattern
             .as_str()
             .matches(BRANCH_NAME_TITLE_PLACEHOLDER)
@@ -367,7 +367,7 @@ impl BranchNamePattern {
         {
             Ok(Self(pattern))
         } else {
-            Err(DaemonBranchPatternRefusedDetails::TitleNotOnce {})
+            Err(ProjectBranchPatternRefusedDetails::TitleNotOnce {})
         }
     }
 
@@ -703,7 +703,7 @@ pub struct MachineSettingsReading {
     pub repair: Option<SettingsFileRepair>,
 }
 
-/// `daemon.machineSettingsUpdate`: the one change to write.
+/// `machine.settings.update`: the one change to write.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -725,24 +725,24 @@ methods! {
     /// The descriptor table of the three machine-settings methods.
     pub const MACHINE_SETTINGS_METHOD_DESCRIPTORS = [
         /// The file as it stands.
-        DaemonMachineSettingsRead = query "daemon.machineSettingsRead" {
+        MachineSettingsRead = query "machine.settings.read" {
             mutating: false,
             params: EmptyPayload,
             result: MachineSettingsReading,
             refusals: [],
         },
         /// Writes one change.
-        DaemonMachineSettingsUpdate = mutation "daemon.machineSettingsUpdate" {
+        MachineSettingsUpdate = mutation "machine.settings.update" {
             mutating: true,
             params: MachineSettingsUpdateRequest,
             result: MachineSettingsUpdateResponse,
-            refusals: [DaemonEnvironmentNameRefused, DaemonBranchPatternRefused],
+            refusals: [ProjectEnvironmentNameRefused, ProjectBranchPatternRefused],
         },
         /// The first emission is the file as it stands; each written change follows.
-        DaemonMachineSettingsSubscribe = subscription "daemon.machineSettingsSubscribe" {
+        MachineSettingsSubscribe = subscription "machine.settings.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SubscribeAckResponse,
+            result: SubscribeAcknowledgmentResponse,
             emission: MachineSettingsReading,
             refusals: [],
         },
@@ -751,13 +751,13 @@ methods! {
 
 /// The TypeScript module of the machine's settings.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
-    path: "machine-settings",
+    path: "machine/settings",
     doc: "The machine's settings file and the three service methods that read, write and stream \
           it, with the environment-name rule the service checks a row's name against.",
     definitions: &[
         Definition::read::<EnvironmentNameRefusalReason>(),
-        Definition::read::<DaemonEnvironmentNameRefusedDetails>(),
-        Definition::read::<DaemonBranchPatternRefusedDetails>(),
+        Definition::read::<ProjectEnvironmentNameRefusedDetails>(),
+        Definition::read::<ProjectBranchPatternRefusedDetails>(),
         Definition::read::<EnvironmentRow>().checked(),
         Definition::read::<NotificationKindSwitches>().checked(),
         Definition::read::<EmailDigestPeriod>(),
@@ -815,7 +815,7 @@ mod tests {
     }
 
     fn cases() -> MachineSettingsCases {
-        serde_json::from_str(include_str!("../tests/fixtures/machine-settings.json"))
+        serde_json::from_str(include_str!("../../tests/fixtures/machine-settings.json"))
             .expect("the case table parses")
     }
 

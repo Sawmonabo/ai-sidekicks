@@ -20,12 +20,12 @@ pub mod device;
 pub mod error;
 pub mod event;
 pub mod free_form_string;
-pub mod gitflow;
+pub mod git;
 pub mod highlight;
 mod internal;
 pub mod jsonrpc;
 pub mod keychain;
-pub mod machine_settings;
+pub mod machine;
 pub mod mcp;
 pub mod method;
 pub mod method_descriptor;
@@ -40,7 +40,6 @@ pub mod preview;
 pub mod process_identity;
 pub mod project;
 pub mod provider;
-pub mod pty;
 pub mod push;
 pub mod question;
 pub mod rate_limiter;
@@ -49,11 +48,11 @@ pub mod release_manifest;
 pub mod repo;
 pub mod review_note;
 pub mod run;
-pub mod runtime_node;
 pub mod schema;
 pub mod session;
 pub mod skill;
 pub mod tag;
+pub mod terminal;
 pub mod transcript;
 pub mod trust_statement;
 pub mod turn;
@@ -74,15 +73,15 @@ pub fn typescript_modules() -> impl Iterator<Item = &'static TypeScriptModule> {
         artifacts::TYPESCRIPT_MODULES,
         daemon::TYPESCRIPT_MODULES,
         event::TYPESCRIPT_MODULES,
-        gitflow::TYPESCRIPT_MODULES,
+        git::TYPESCRIPT_MODULES,
         internal::TYPESCRIPT_MODULES,
         jsonrpc::TYPESCRIPT_MODULES,
+        machine::TYPESCRIPT_MODULES,
         mcp::TYPESCRIPT_MODULES,
         preview::TYPESCRIPT_MODULES,
         provider::TYPESCRIPT_MODULES,
         repo::TYPESCRIPT_MODULES,
         run::TYPESCRIPT_MODULES,
-        runtime_node::TYPESCRIPT_MODULES,
         session::TYPESCRIPT_MODULES,
         transcript::TYPESCRIPT_MODULES,
         wire::TYPESCRIPT_MODULES,
@@ -113,7 +112,6 @@ const ROOT_TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &free_form_string::TYPESCRIPT_MODULE,
     &highlight::TYPESCRIPT_MODULE,
     &keychain::TYPESCRIPT_MODULE,
-    &machine_settings::TYPESCRIPT_MODULE,
     &method_descriptor::TYPESCRIPT_MODULE,
     &orchestration::TYPESCRIPT_MODULE,
     &place::TYPESCRIPT_MODULE,
@@ -123,7 +121,6 @@ const ROOT_TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &presence::TYPESCRIPT_MODULE,
     &process_identity::TYPESCRIPT_MODULE,
     &project::TYPESCRIPT_MODULE,
-    &pty::TYPESCRIPT_MODULE,
     &push::TYPESCRIPT_MODULE,
     &question::TYPESCRIPT_MODULE,
     &rate_limiter::TYPESCRIPT_MODULE,
@@ -132,6 +129,7 @@ const ROOT_TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &review_note::TYPESCRIPT_MODULE,
     &skill::TYPESCRIPT_MODULE,
     &tag::TYPESCRIPT_MODULE,
+    &terminal::TYPESCRIPT_MODULE,
     &trust_statement::TYPESCRIPT_MODULE,
     &turn::TYPESCRIPT_MODULE,
     &voice::TYPESCRIPT_MODULE,

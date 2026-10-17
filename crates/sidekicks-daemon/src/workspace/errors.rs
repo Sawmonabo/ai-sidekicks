@@ -7,21 +7,20 @@ use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceId};
 
-use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
+use crate::ipc::domain_error::DomainError;
 
 /// Why the workspace service refused a call; the execution-root service's `workspace.*` codes are
 /// not among them. Converts into the [`DomainError`] the reply carries.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkspaceRefusal {
-    /// The named workspace does not exist (`workspace.not_found`); the one refusal here that
-    /// answers `-32602`, as `repo.not_found` does.
+    /// The named workspace does not exist (`workspace.notFound`).
     #[error("workspace {workspace_id} does not exist")]
     NotFound {
         /// The workspace asked for.
         workspace_id: WorkspaceId,
     },
     /// A worktree was asked of a chat's managed workspace, which offers only its own root
-    /// (`workspace.mode_unsupported`).
+    /// (`workspace.modeUnsupported`).
     #[error(
         "execution mode {} is unavailable on this repo mount: a chat's managed workspace offers \
          only its own root",
@@ -31,13 +30,13 @@ pub(crate) enum WorkspaceRefusal {
         /// The refused mode.
         execution_mode: ExecutionMode,
     },
-    /// The execution root is gone, or its mount's folder is unreachable or holds another
-    /// repository now (`workspace.stale`). No path is named, since a refusal can reach a remote
+    /// The execution root is gone, or its mount's folder is unreachable or holds another repository
+    /// now (`workspace.rootUnavailable`). No path is named, since a refusal can reach a remote
     /// caller.
-    #[error("{}", stale_message(.workspace_id.as_ref()))]
-    Stale {
-        /// The stale workspace, or `None` for a bind refused before its workspace exists because
-        /// the mount's root is unreachable.
+    #[error("{}", root_unavailable_message(.workspace_id.as_ref()))]
+    RootUnavailable {
+        /// The workspace whose root is lost, or `None` for a bind refused before its workspace
+        /// exists because the mount's root is unreachable.
         workspace_id: Option<WorkspaceId>,
     },
 }
@@ -45,21 +44,17 @@ pub(crate) enum WorkspaceRefusal {
 impl From<WorkspaceRefusal> for DomainError {
     fn from(refusal: WorkspaceRefusal) -> Self {
         let message = refusal.to_string();
-        let (code, json_rpc_code, detail) = match refusal {
+        let (code, detail) = match refusal {
             WorkspaceRefusal::NotFound { workspace_id } => (
                 RefusalCode::WorkspaceNotFound,
-                // An id the call supplies that resolves to nothing is a bad parameter.
-                DomainErrorJsonRpcCode::InvalidParams,
                 json!({ "workspaceId": workspace_id }),
             ),
             WorkspaceRefusal::ModeUnsupported { execution_mode } => (
                 RefusalCode::WorkspaceModeUnsupported,
-                DomainErrorJsonRpcCode::InternalError,
                 json!({ "executionMode": <&'static str>::from(execution_mode) }),
             ),
-            WorkspaceRefusal::Stale { workspace_id } => (
-                RefusalCode::WorkspaceStale,
-                DomainErrorJsonRpcCode::InternalError,
+            WorkspaceRefusal::RootUnavailable { workspace_id } => (
+                RefusalCode::WorkspaceRootUnavailable,
                 // A refused bind names no workspace, so its detail is empty.
                 workspace_id.map_or_else(
                     || json!({}),
@@ -67,14 +62,17 @@ impl From<WorkspaceRefusal> for DomainError {
                 ),
             ),
         };
-        DomainError::new(message, code, json_rpc_code).with_detail(detail)
+        DomainError::new(message, code).with_detail(detail)
     }
 }
 
-fn stale_message(workspace_id: Option<&WorkspaceId>) -> String {
+fn root_unavailable_message(workspace_id: Option<&WorkspaceId>) -> String {
     match workspace_id {
         Some(workspace_id) => {
-            format!("workspace {workspace_id} is stale: new runs are blocked until it is repaired")
+            format!(
+                "workspace {workspace_id} lost its working root: new runs are blocked until it is \
+                 repaired"
+            )
         }
         None => "workspace binding refused: the repo mount's execution root is no longer reachable"
             .to_owned(),
@@ -89,9 +87,9 @@ pub(crate) enum WorkspaceServiceInvariantKind {
     /// refuse, a missing `fs_root` under a state that owes a probe, or a probe of another path. A
     /// probe of another path is a bug in the projection's caller; the rest is corrupt data.
     WorkspaceRowUnprojectable,
-    /// The on-read check derived a `stale` transition it could not make durable (a locked
+    /// The on-read check derived a `rootLost` transition it could not make durable (a locked
     /// database, a full disk, a size refusal); the row is fine and the write path is the defect.
-    StaleTransitionDurabilityFailure,
+    RootLostTransitionDurabilityFailure,
     /// A daemon caller asked for a transition the workspace lifecycle does not admit.
     IllegalStateTransition,
     /// A caller offered an execution root that is not one complete location; completing it would

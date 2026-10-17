@@ -2,7 +2,7 @@
 //! input. The provider decides how a command runs. Every list frame carries the whole running set,
 //! because a subscriber composing deltas could hold a command the provider has already dropped.
 //! Output arrives on the same subscription as it prints and is never stored; the stored
-//! `command.ended` event settles a row after a reload.
+//! `agent.command.ended` event settles a row after a reload.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::event::envelope::{
     SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
-use crate::jsonrpc::streaming::SubscribeAckResponse;
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::NullPayload;
 use crate::run::id::RunId;
@@ -81,11 +81,11 @@ pub struct RunningCommand {
     pub prompt: Option<CommandPrompt>,
 }
 
-/// `command.list`: the session whose running commands the subscription follows.
+/// `agent.command.subscribe`: the session whose running commands the subscription follows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct CommandListSubscribeRequest {
+pub struct AgentCommandSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -95,11 +95,11 @@ pub struct CommandListSubscribeRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-pub enum CommandListFrame {
+pub enum AgentCommandSubscribeFrame {
     /// The whole running set; a command appears at most once.
     Commands {
         /// The session.
@@ -123,12 +123,12 @@ pub enum CommandListFrame {
     },
 }
 
-/// `command.stop`: stops one running command. The agent receives one short message naming it,
+/// `agent.command.stop`: stops one running command. The agent receives one short message naming it,
 /// never a bare failure; `Stop all commands` sends this once per running command.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct CommandStopRequest {
+pub struct AgentCommandStopRequest {
     /// The session.
     pub session_id: SessionId,
     /// The command.
@@ -139,20 +139,20 @@ pub struct CommandStopRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct CommandStopResponse {
+pub struct AgentCommandStopResponse {
     /// The command.
     pub command_id: CommandId,
     /// Always true.
     pub stopped: True,
 }
 
-/// `command.background`: moves a command the agent is waiting on to the background, so the agent's
-/// turn continues and the command's output streams into its row. Sent only for a command whose
-/// entry reads `canMoveToBackground`; where no entry does, the control does not exist.
+/// `agent.command.background`: moves a command the agent is waiting on to the background, so the
+/// agent's turn continues and the command's output streams into its row. Sent only for a command
+/// whose entry reads `canMoveToBackground`; where no entry does, the control does not exist.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct CommandBackgroundRequest {
+pub struct AgentCommandBackgroundRequest {
     /// The session.
     pub session_id: SessionId,
     /// The command.
@@ -163,17 +163,17 @@ pub struct CommandBackgroundRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct CommandBackgroundResponse {
+pub struct AgentCommandBackgroundResponse {
     /// The command.
     pub command_id: CommandId,
     /// Always false.
     pub waiting_in_foreground: False,
 }
 
-/// `command.write`: typed input, `End input`, or both, for a command that takes input or has a
-/// prompt open, whether or not it is waiting. `text` goes to the command or answers its prompt, and
-/// `endOfInput` then ends its input as end of file does on a terminal, or answers an open prompt
-/// with nothing. A write carries text, the end of input, or both.
+/// `agent.command.write`: typed input, `End input`, or both, for a command that takes input or has
+/// a prompt open, whether or not it is waiting. `text` goes to the command or answers its prompt,
+/// and `endOfInput` then ends its input as end of file does on a terminal, or answers an open
+/// prompt with nothing. A write carries text, the end of input, or both.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -185,7 +185,7 @@ pub struct CommandBackgroundResponse {
     }
 }))]
 #[schemars(transform = add_write_carries_something_rule)]
-pub struct CommandWriteRequest {
+pub struct AgentCommandWriteRequest {
     /// The session.
     pub session_id: SessionId,
     /// The command.
@@ -225,7 +225,7 @@ fn add_write_carries_something_rule(schema: &mut schemars::Schema) {
 
 /// How a command ended: it finished, it failed, or the person stopped it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum CommandEnding {
     /// It finished.
     Finished,
@@ -235,14 +235,14 @@ pub enum CommandEnding {
     EndedByPerson,
 }
 
-/// The `command.ended` payload: one command's ending. `exitCode` is the process's own when it has
-/// one; `durationMs` is how long it ran, so the row reads its duration after a reload. It takes
+/// The `agent.command.ended` payload: one command's ending. `exitCode` is the process's own when it
+/// has one; `durationMs` is how long it ran, so the row reads its duration after a reload. It takes
 /// the epoch stamp.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct CommandEndedPayload {
+pub struct AgentCommandEndedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -286,36 +286,36 @@ pub struct CommandEndedPayload {
 pub type ExitCode = SafeSignedInt;
 
 methods! {
-    /// The `command.*` methods.
+    /// The `agent.command.*` methods.
     pub const COMMAND_METHOD_DESCRIPTORS = [
         /// Follows the session's running commands and their output.
-        CommandList = subscription "command.list" {
+        AgentCommandSubscribe = subscription "agent.command.subscribe" {
             mutating: false,
-            params: CommandListSubscribeRequest,
-            result: SubscribeAckResponse,
-            emission: CommandListFrame,
+            params: AgentCommandSubscribeRequest,
+            result: SubscribeAcknowledgmentResponse,
+            emission: AgentCommandSubscribeFrame,
             refusals: [SessionNotFound],
         },
         /// Stops one running command.
-        CommandStop = mutation "command.stop" {
+        AgentCommandStop = mutation "agent.command.stop" {
             mutating: true,
-            params: CommandStopRequest,
-            result: CommandStopResponse,
+            params: AgentCommandStopRequest,
+            result: AgentCommandStopResponse,
             refusals: [SessionNotFound],
         },
         /// Moves a command the agent waits on to the background.
-        CommandBackground = mutation "command.background" {
+        AgentCommandBackground = mutation "agent.command.background" {
             mutating: true,
-            params: CommandBackgroundRequest,
-            result: CommandBackgroundResponse,
-            refusals: [SessionNotFound, DriverCapabilityUnsupported, CommandNotInForeground],
+            params: AgentCommandBackgroundRequest,
+            result: AgentCommandBackgroundResponse,
+            refusals: [SessionNotFound, ProviderCapabilityUnsupported, AgentCommandNotInForeground],
         },
         /// Writes input to a command, ends its input, or both.
-        CommandWrite = mutation "command.write" {
+        AgentCommandWrite = mutation "agent.command.write" {
             mutating: true,
-            params: CommandWriteRequest,
+            params: AgentCommandWriteRequest,
             result: NullPayload,
-            refusals: [SessionNotFound, CommandTakesNoInput],
+            refusals: [SessionNotFound, AgentCommandTakesNoInput],
         },
     ];
 }
@@ -329,15 +329,15 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<CommandId>().checked(),
         Definition::read::<CommandPrompt>(),
         Definition::read::<RunningCommand>(),
-        Definition::read::<CommandListSubscribeRequest>(),
-        Definition::read::<CommandListFrame>().checked(),
-        Definition::read::<CommandStopRequest>(),
-        Definition::read::<CommandStopResponse>(),
-        Definition::read::<CommandBackgroundRequest>(),
-        Definition::read::<CommandBackgroundResponse>(),
-        Definition::read::<CommandWriteRequest>().checked(),
+        Definition::read::<AgentCommandSubscribeRequest>(),
+        Definition::read::<AgentCommandSubscribeFrame>().checked(),
+        Definition::read::<AgentCommandStopRequest>(),
+        Definition::read::<AgentCommandStopResponse>(),
+        Definition::read::<AgentCommandBackgroundRequest>(),
+        Definition::read::<AgentCommandBackgroundResponse>(),
+        Definition::read::<AgentCommandWriteRequest>().checked(),
         Definition::read::<CommandEnding>(),
-        Definition::read::<CommandEndedPayload>().checked(),
+        Definition::read::<AgentCommandEndedPayload>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&COMMAND_METHOD_DESCRIPTORS],

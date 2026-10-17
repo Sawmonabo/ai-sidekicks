@@ -38,19 +38,19 @@ pub struct CallbackToolEntry {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct CallbackToolListResponse {
+pub struct AgentCallbackToolListResponse {
     /// The tools.
     pub tools: Vec<CallbackToolEntry>,
 }
 
 methods! {
-    /// The `callbackTool.*` methods.
+    /// The `agent.callbackTool.*` methods.
     pub const CALLBACK_TOOL_METHOD_DESCRIPTORS = [
         /// Lists the daemon's callback tools for the allowlist picker.
-        CallbackToolList = query "callbackTool.list" {
+        AgentCallbackToolList = query "agent.callbackTool.list" {
             mutating: false,
             params: EmptyPayload,
-            result: CallbackToolListResponse,
+            result: AgentCallbackToolListResponse,
             refusals: [],
         },
     ];
@@ -62,7 +62,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The daemon's callback tools as the allowlist picker reads them.",
     definitions: &[
         Definition::read::<CallbackToolEntry>(),
-        Definition::read::<CallbackToolListResponse>(),
+        Definition::read::<AgentCallbackToolListResponse>(),
     ],
     constants: &[],
     method_tables: &[&CALLBACK_TOOL_METHOD_DESCRIPTORS],

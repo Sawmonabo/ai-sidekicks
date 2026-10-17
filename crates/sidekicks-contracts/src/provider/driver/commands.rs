@@ -40,7 +40,7 @@ macro_rules! provider_command_entry {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(
             tag = "kind",
-            rename_all = "lowercase",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -133,12 +133,12 @@ pub struct ProviderCommandBindingGroup {
     pub entries: Vec<ProviderCommandEntry>,
 }
 
-/// The reply of `driver.listProviderCommands`: one group per live binding, so each entry keeps
+/// The reply of `provider.command.list`: one group per live binding, so each entry keeps
 /// where it came from, and at least one, since an agent with no live binding is refused.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderCommandListResult {
+pub struct ProviderCommandListResponse {
     /// The groups.
     pub bindings: BoundedVec<ProviderCommandBindingGroup, 1, { usize::MAX }>,
 }
@@ -152,7 +152,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderCommandBinding>(),
         Definition::read::<ProviderCommandEntry>().checked(),
         Definition::read::<ProviderCommandBindingGroup>(),
-        Definition::read::<ProviderCommandListResult>().checked(),
+        Definition::read::<ProviderCommandListResponse>().checked(),
     ],
     constants: &[],
     method_tables: &[],

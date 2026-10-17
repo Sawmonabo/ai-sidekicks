@@ -1,7 +1,7 @@
 //! The message queue: every message the person sends waits here until the agent takes it at its
 //! next step. The lead has one queue and each child its own; every queue verb but the send takes
-//! `childHandle` to reach a child's queue, whose messages arrive through `run.childSteer`. Also the
-//! `queue_item.*` event payloads and the frame `run.subscribeQueue` sends.
+//! `childHandle` to reach a child's queue, whose messages arrive through `agent.childRun.steer`.
+//! Also the `agent.queueItem.*` event payloads and the frame `agent.queueItem.subscribe` sends.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -39,8 +39,8 @@ branded_uuid_id! {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum QueueItemState {
     /// Waiting for the agent's next step.
     Queued,
@@ -59,8 +59,8 @@ pub enum QueueItemState {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum QueueItemNotDeliveredReason {
     /// It waited past the delivery timeout.
     TimedOut,
@@ -83,11 +83,11 @@ pub struct QueuedSkillPick {
     pub folder_path: FilesystemPath,
 }
 
-/// Sends one message to the lead, whether a turn is running or not (`run.queueCreate`).
+/// Sends one message to the lead, whether a turn is running or not (`agent.queueItem.create`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct QueueItemCreateRequest {
+pub struct AgentQueueItemCreateRequest {
     /// The session.
     pub session_id: SessionId,
     /// Another session to deliver to instead; the message arrives there as its own row.
@@ -140,7 +140,7 @@ pub struct QueueItemCreateRequest {
     #[schemars(with = "QueueItemId")]
     pub replaces_queue_item_id: Option<QueueItemId>,
     /// The question this send answers, one the agent does not wait for; the daemon copies it onto
-    /// the `user.message` row it writes, which marks the question answered.
+    /// the `user.message.sent` row it writes, which marks the question answered.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -159,12 +159,12 @@ pub struct QueueItemCreateRequest {
     pub output_speed_for_turn: Option<ProviderToken>,
 }
 
-/// The `user.message` payload: the person's message as a transcript row, written when the daemon
-/// accepts the send. `origin` marks the words a voice call heard, and `answers_question_id` is the
-/// answered mark of the question a message answers.
+/// The `user.message.sent` payload: the person's message as a transcript row, written when the
+/// daemon accepts the send. `origin` marks the words a voice call heard, and `answers_question_id`
+/// is the answered mark of the question a message answers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct UserMessagePayload {
+pub struct UserMessageSentPayload {
     /// The session.
     pub session_id: SessionId,
     /// The queued message, where the send went through the queue.
@@ -214,19 +214,19 @@ pub struct UserMessagePayload {
 }
 
 literal! {
-    /// The state `queue_item.created` records.
+    /// The state `agent.queueItem.created` records.
     pub enum QueueItemQueuedState = "queued";
-    /// The state `queue_item.admitted` records.
-    pub enum QueueItemAdmittedState = "admitted";
-    /// The state `queue_item.superseded` records.
-    pub enum QueueItemSupersededState = "superseded";
-    /// The state `queue_item.canceled` records, and a removal answers.
-    pub enum QueueItemCanceledState = "canceled";
-    /// The state `queue_item.not_delivered` records.
-    pub enum QueueItemNotDeliveredState = "not_delivered";
+    /// The state `agent.queueItem.admitted` records.
+    pub enum AgentQueueItemAdmittedState = "admitted";
+    /// The state `agent.queueItem.superseded` records.
+    pub enum AgentQueueItemSupersededState = "superseded";
+    /// The state `agent.queueItem.canceled` records, and a removal answers.
+    pub enum AgentQueueItemCanceledState = "canceled";
+    /// The state `agent.queueItem.notDelivered` records.
+    pub enum AgentQueueItemNotDeliveredState = "notDelivered";
 }
 
-/// Declares the payload of one `queue_item.*` event: the item, the state it entered, and the
+/// Declares the payload of one `agent.queueItem.*` event: the item, the state it entered, and the
 /// members that state adds. Each refuses another state and the members of another event.
 macro_rules! queue_item_event_payload {
     ($($(#[doc = $doc:literal])+ $name:ident($state:ty) { $($members:tt)* })+) => {$(
@@ -246,31 +246,32 @@ macro_rules! queue_item_event_payload {
 }
 
 queue_item_event_payload! {
-    /// The `queue_item.created` payload: a message entered the queue. The words stay on
-    /// `user.message`.
-    QueueItemCreatedPayload(QueueItemQueuedState) {}
-    /// The `queue_item.admitted` payload: the run that took the message, which can differ from the
-    /// run its `user.message` was sent toward.
-    QueueItemAdmittedPayload(QueueItemAdmittedState) {
+    /// The `agent.queueItem.created` payload: a message entered the queue. The words stay on
+    /// `user.message.sent`.
+    AgentQueueItemCreatedPayload(QueueItemQueuedState) {}
+    /// The `agent.queueItem.admitted` payload: the run that took the message, which can differ from
+    /// the run its `user.message.sent` was sent toward.
+    AgentQueueItemAdmittedPayload(AgentQueueItemAdmittedState) {
         /// The run that took it.
         pub run_id: RunId,
     }
-    /// The `queue_item.superseded` payload: the item that replaced the message.
-    QueueItemSupersededPayload(QueueItemSupersededState) {
+    /// The `agent.queueItem.superseded` payload: the item that replaced the message.
+    AgentQueueItemSupersededPayload(AgentQueueItemSupersededState) {
         /// The item that replaced it.
         pub replaced_by_queue_item_id: QueueItemId,
     }
-    /// The `queue_item.canceled` payload: the message was removed.
-    QueueItemCanceledPayload(QueueItemCanceledState) {}
-    /// The `queue_item.not_delivered` payload: the message was taken and never delivered, and why.
-    QueueItemNotDeliveredPayload(QueueItemNotDeliveredState) {
+    /// The `agent.queueItem.canceled` payload: the message was removed.
+    AgentQueueItemCanceledPayload(AgentQueueItemCanceledState) {}
+    /// The `agent.queueItem.notDelivered` payload: the message was taken and never delivered, and
+    /// why.
+    AgentQueueItemNotDeliveredPayload(AgentQueueItemNotDeliveredState) {
         /// Why it was never delivered.
         pub not_delivered_reason: QueueItemNotDeliveredReason,
     }
 }
 
 /// Declares a queue item's view as a union on `state`: every arm repeats the given members, and
-/// only the `not_delivered` arm carries, and always carries, the daemon's reason.
+/// only the `notDelivered` arm carries, and always carries, the daemon's reason.
 macro_rules! queue_item_by_state {
     ($(#[doc = $doc:literal])+ $name:ident { $($members:tt)* }) => {
         $(#[doc = $doc])+
@@ -279,7 +280,7 @@ macro_rules! queue_item_by_state {
         )]
         #[serde(
             tag = "state",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -346,7 +347,7 @@ macro_rules! queue_item_by_state {
 queue_item_by_state! {
     /// The queued message, as a send or a child's steer answers, and, when a send again under the
     /// same key answers one whose delivery failed, the daemon's reason.
-    QueueItemCreateResponse {
+    AgentQueueItemCreateResponse {
         /// The item.
         queue_item_id: QueueItemId,
         /// When it was queued.
@@ -355,13 +356,13 @@ queue_item_by_state! {
     }
 }
 
-/// Reads a queue, the lead's or, with `child_handle`, a child's, in the daemon's order
-/// (`run.queueList`): the items in `state` when it is given, else every item waiting or not
+/// Reads a queue, the lead's or, with `childHandle`, a child's, in the daemon's order
+/// (`agent.queueItem.list`): the items in `state` when it is given, else every item waiting or not
 /// delivered.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct QueueItemListRequest {
+pub struct AgentQueueItemListRequest {
     /// The session.
     pub session_id: SessionId,
     /// The child whose queue to read; absent for the lead's.
@@ -422,15 +423,15 @@ queue_item_by_state! {
 /// A queue's items in the daemon's order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct QueueItemListResponse {
+pub struct AgentQueueItemListResponse {
     /// The items.
     #[garde(dive)]
     pub items: Vec<QueueItemSummary>,
 }
 
 /// One change on a queue's stream: the item as it now stands, and the cursor of the
-/// `queue_item.*` event that changed it, or, for a reorder, which no event records, the session's
-/// newest cursor when the change went out.
+/// `agent.queueItem.*` event that changed it, or, for a reorder, which no event records, the
+/// session's newest cursor when the change went out.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RunQueueStreamChange {
@@ -443,17 +444,18 @@ pub struct RunQueueStreamChange {
 }
 
 stream_frame! {
-    /// One notify of `run.subscribeQueue`: the queue's changes since the previous frame.
+    /// One notify of `agent.queueItem.subscribe`: the queue's changes since the previous frame.
     pub struct RunQueueStreamFrame(RunQueueStreamChange);
 }
 
-/// Opens a queue's stream, the lead's or, with `child_handle`, a child's (`run.subscribeQueue`).
-/// With `after_cursor`, the stream first sends each item that changed after that cursor and every
-/// item still waiting, as it now stands, then follows live; without it, it follows from now.
+/// Opens a queue's stream, the lead's or, with `childHandle`, a child's
+/// (`agent.queueItem.subscribe`). With `after_cursor`, the stream first sends each item that
+/// changed after that cursor and every item still waiting, as it now stands, then follows live;
+/// without it, it follows from now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RunQueueSubscribeRequest {
+pub struct AgentQueueItemSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
     /// The child whose queue to follow; absent for the lead's.
@@ -474,12 +476,12 @@ pub struct RunQueueSubscribeRequest {
     pub after_cursor: Option<EventCursor>,
 }
 
-/// Removes a waiting message, from the lead's queue or, with `child_handle`, a child's
-/// (`run.queueCancel`).
+/// Removes a waiting message, from the lead's queue or, with `childHandle`, a child's
+/// (`agent.queueItem.cancel`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct QueueItemCancelRequest {
+pub struct AgentQueueItemCancelRequest {
     /// The item.
     pub queue_item_id: QueueItemId,
     /// The child whose queue holds it; absent for the lead's.
@@ -496,19 +498,19 @@ pub struct QueueItemCancelRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct QueueItemCancelResponse {
+pub struct AgentQueueItemCancelResponse {
     /// The item.
     pub queue_item_id: QueueItemId,
     /// Always `canceled`.
-    pub state: QueueItemCanceledState,
+    pub state: AgentQueueItemCanceledState,
 }
 
-/// Puts a queue's waiting messages in a new order (`run.queueReorder`): the full order, naming
-/// each waiting item once. The daemon refuses a list that does not name exactly the items still
-/// waiting, and answers the queue in its new order.
+/// Puts a queue's waiting messages in a new order (`agent.queueItem.reorder`): the full order,
+/// naming each waiting item once. The daemon refuses a list that does not name exactly the items
+/// still waiting, and answers the queue in its new order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct QueueReorderRequest {
+pub struct AgentQueueItemReorderRequest {
     /// The session.
     #[garde(skip)]
     pub session_id: SessionId,
@@ -529,23 +531,24 @@ pub struct QueueReorderRequest {
 ts_constants! {
     /// The refusal of a send while the daemon cannot store the queue: nothing is queued, and the
     /// send can be made again once the store is back.
-    QUEUE_PERSISTENCE_UNAVAILABLE_CODE = RefusalCode::QueuePersistenceUnavailable;
+    AGENT_QUEUE_ITEM_PERSISTENCE_UNAVAILABLE_CODE =
+        RefusalCode::AgentQueueItemPersistenceUnavailable;
     /// The refusal of a send whose session's lead run started, ended or was continued between
     /// each read and the write that sends into it, every time the daemon tried: nothing is queued.
-    QUEUE_RUN_CHANGED_CODE = RefusalCode::QueueRunChanged;
+    AGENT_QUEUE_ITEM_RUN_CHANGED_CODE = RefusalCode::AgentQueueItemRunChanged;
     /// The refusal of a change naming a queue item the queue does not hold: an id it never stored,
     /// an item of another session, or one of another queue than the change names.
-    QUEUE_ITEM_NOT_FOUND_CODE = RefusalCode::QueueItemNotFound;
+    AGENT_QUEUE_ITEM_NOT_FOUND_CODE = RefusalCode::AgentQueueItemNotFound;
     /// The refusal of a change to a waiting message the agent has already taken or the provider
     /// did not give back, a retry in other words than its own, or a reorder whose list is not
     /// exactly the waiting items.
-    QUEUE_CHANGE_REFUSED_CODE = RefusalCode::QueueChangeRefused;
+    AGENT_QUEUE_ITEM_CHANGE_REFUSED_CODE = RefusalCode::AgentQueueItemChangeRefused;
 }
 
 /// Why a change to a waiting message was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum QueueChangeRefusedReason {
+#[serde(rename_all = "camelCase")]
+pub enum AgentQueueItemChangeRefusedReason {
     /// The agent has already taken the message.
     AlreadyTaken,
     /// The provider did not give the message back, which now reads not delivered.
@@ -554,12 +557,12 @@ pub enum QueueChangeRefusedReason {
     OrderMismatch,
 }
 
-/// The details a `queue.change_refused` refusal carries.
+/// The details an `agent.queueItem.changeRefused` refusal carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct QueueChangeRefusedDetails {
+pub struct AgentQueueItemChangeRefusedDetails {
     /// Why the change was refused.
-    pub reason: QueueChangeRefusedReason,
+    pub reason: AgentQueueItemChangeRefusedReason,
 }
 
 /// The details a `session.message.tooLarge` refusal carries: the provider's limit and the
@@ -577,32 +580,32 @@ pub struct SessionMessageTooLargeDetails {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/queue",
     doc: "The message queue: every message the person sends waits here until the agent takes it \
-          at its next step. Also the `queue_item.*` event payloads and the frame \
-          `run.subscribeQueue` sends.",
+          at its next step. Also the `agent.queueItem.*` event payloads and the \
+          frame `agent.queueItem.subscribe` sends.",
     definitions: &[
         Definition::read::<QueueItemId>().checked(),
         Definition::read::<QueueItemState>().checked(),
         Definition::read::<QueueItemNotDeliveredReason>(),
         Definition::read::<QueuedSkillPick>(),
-        Definition::read::<QueueItemCreateRequest>().checked(),
-        Definition::read::<UserMessagePayload>().checked(),
-        Definition::read::<QueueItemCreatedPayload>().checked(),
-        Definition::read::<QueueItemAdmittedPayload>().checked(),
-        Definition::read::<QueueItemSupersededPayload>().checked(),
-        Definition::read::<QueueItemCanceledPayload>().checked(),
-        Definition::read::<QueueItemNotDeliveredPayload>().checked(),
-        Definition::read::<QueueItemCreateResponse>().checked(),
-        Definition::read::<QueueItemListRequest>().checked(),
+        Definition::read::<AgentQueueItemCreateRequest>().checked(),
+        Definition::read::<UserMessageSentPayload>().checked(),
+        Definition::read::<AgentQueueItemCreatedPayload>().checked(),
+        Definition::read::<AgentQueueItemAdmittedPayload>().checked(),
+        Definition::read::<AgentQueueItemSupersededPayload>().checked(),
+        Definition::read::<AgentQueueItemCanceledPayload>().checked(),
+        Definition::read::<AgentQueueItemNotDeliveredPayload>().checked(),
+        Definition::read::<AgentQueueItemCreateResponse>().checked(),
+        Definition::read::<AgentQueueItemListRequest>().checked(),
         Definition::read::<QueueItemSummary>().checked(),
-        Definition::read::<QueueItemListResponse>().checked(),
+        Definition::read::<AgentQueueItemListResponse>().checked(),
         Definition::read::<RunQueueStreamChange>(),
         Definition::read::<RunQueueStreamFrame>().checked(),
-        Definition::read::<RunQueueSubscribeRequest>().checked(),
-        Definition::read::<QueueItemCancelRequest>().checked(),
-        Definition::read::<QueueItemCancelResponse>().checked(),
-        Definition::read::<QueueReorderRequest>().checked(),
-        Definition::read::<QueueChangeRefusedReason>(),
-        Definition::read::<QueueChangeRefusedDetails>(),
+        Definition::read::<AgentQueueItemSubscribeRequest>().checked(),
+        Definition::read::<AgentQueueItemCancelRequest>().checked(),
+        Definition::read::<AgentQueueItemCancelResponse>().checked(),
+        Definition::read::<AgentQueueItemReorderRequest>().checked(),
+        Definition::read::<AgentQueueItemChangeRefusedReason>(),
+        Definition::read::<AgentQueueItemChangeRefusedDetails>(),
         Definition::read::<SessionMessageTooLargeDetails>(),
     ],
     constants: TS_CONSTANTS,

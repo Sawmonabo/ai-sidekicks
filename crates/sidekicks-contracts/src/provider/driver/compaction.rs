@@ -8,7 +8,7 @@ use crate::wire::integer::SafeInt;
 
 /// Why a compaction was refused before anything was sent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum CompactionRefusal {
     /// The provider's own command list for this binding lacks the command.
@@ -17,7 +17,7 @@ pub enum CompactionRefusal {
 
 /// Why a compaction that was sent brought no boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum CompactionFailure {
     /// The binding ended before the provider's frame came.
@@ -35,12 +35,12 @@ pub enum CompactionFailure {
 )]
 #[serde(
     tag = "status",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
 #[garde(allow_unvalidated)]
-pub enum DriverCompactionResult {
+pub enum AgentRunContextCompactResponse {
     /// The provider compacted.
     Applied {
         /// Where the boundary sits; `null` where the provider's frame carried none.
@@ -64,7 +64,7 @@ pub enum DriverCompactionResult {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/driver/compaction",
     doc: "The result of a provider's compaction, composed by the daemon from the wait's own end.",
-    definitions: &[Definition::read::<DriverCompactionResult>().checked()],
+    definitions: &[Definition::read::<AgentRunContextCompactResponse>().checked()],
     constants: &[],
     method_tables: &[],
 };
