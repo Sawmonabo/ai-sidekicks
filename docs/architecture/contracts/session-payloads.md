@@ -50,6 +50,8 @@ interface SessionCreateResponse {
   sessionId: SessionId;
   shape: SessionShape;
   state: SessionState;
+  // Where it runs, written at its creation and never changed; absent on macOS and Linux.
+  place?: Place;
   // The binding the daemon resolved for the lead, the account among it: the same values the session's
   // `session.created` records.
   lead: AgentProviderBinding;
