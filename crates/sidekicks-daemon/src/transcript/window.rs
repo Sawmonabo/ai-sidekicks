@@ -265,12 +265,25 @@ where
             return Err(transcript_row_not_found(around_cursor).into());
         };
         let earlier = &earlier_candidates[earlier_candidates.len().saturating_sub(earlier_limit)..];
-        let later_candidates = self.read_after(reads, anchor_position, later_limit, None)?;
-        let later = &later_candidates[..later_limit.min(later_candidates.len())];
+        // The rows after it, exactly as many as the page holds: the page continues toward the
+        // start alone, so nothing is read to learn whether more follow.
+        let later = if later_limit == 0 {
+            Vec::new()
+        } else {
+            reads.read_after(
+                self.session_id,
+                anchor_position,
+                count_bound(later_limit),
+                SessionEventFilter {
+                    event_types: None,
+                    before_sequence: None,
+                },
+            )?
+        };
         let stretch: Vec<EventEnvelope> = earlier
             .iter()
             .chain(std::iter::once(anchor))
-            .chain(later)
+            .chain(&later)
             .cloned()
             .collect();
         let rows = self.project(&stretch)?;
