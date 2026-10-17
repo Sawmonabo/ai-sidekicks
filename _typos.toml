@@ -10,4 +10,5 @@ Writeable = "Writeable"
 ERROR_FILENAME_EXCED_RANGE = "ERROR_FILENAME_EXCED_RANGE"
 
 [files]
-extend-exclude = ["*.md"]
+# Third-party sources kept byte for byte from their releases.
+extend-exclude = ["*.md", "crates/*/vendor/**"]
