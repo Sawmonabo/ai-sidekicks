@@ -102,7 +102,7 @@ type VoiceCallFrame =
   | { kind: "started"; sessionId: SessionId }
   | { kind: "userTranscriptDelta"; sessionId: SessionId; delta: string }
   | { kind: "userTranscriptDone"; sessionId: SessionId; text: string }
-  | { kind: "assistantTranscriptDone"; sessionId: SessionId; text: string }
+  | { kind: "agentTranscriptDone"; sessionId: SessionId; text: string }
   | ({ kind: "ended"; sessionId: SessionId } & VoiceCallEndCause);
 // Why a call ended: the daemon stopped it, Codex closed it with its own reason or none, or Codex
 // reported an error in its own words.
