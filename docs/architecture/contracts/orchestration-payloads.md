@@ -200,7 +200,7 @@ interface AgentConfigUpdateRequest {
   // §Plan-023), which moves every unpinned running session on that provider. A caller supplying an
   // account member is refused, not served — a per-session account switch beside a provider-wide
   // current account would let the two disagree.
-  driverName?: string;
+  providerName?: string;
   effort?: string;
   // The output-speed axis ([Spec-014 §The mutation surface](../../specs/014-multi-agent-orchestration.md#the-mutation-surface)). Gated on the
   // target driver's `outputSpeed` capability flag, which Claude Code and Codex both declare;
@@ -225,7 +225,7 @@ interface AgentConfigUpdateRequest {
   options?: ProviderOptionSetting[];
   // Applies at the next boundary the TARGET AXIS permits, never at a fixed one: a turn boundary for
   // an axis the target driver takes as a per-turn override, a run boundary for a run-bound one
-  // (`driverName` always, and `outputSpeed` on Claude Code — re-derived by listing, not counted). A
+  // (`providerName` always, and `outputSpeed` on Claude Code — re-derived by listing, not counted). A
   // multi-axis update takes the WIDEST of its axes' boundaries, so no axis applies earlier than its
   // own rule allows. `true` dispatches the documented `interrupt` intervention
   // (`agent.run.intervene`) first and then switches — an entry point into a control the corpus
@@ -362,14 +362,14 @@ type AgentBindingSwitchAccountState =
 // so a client, a projector, and a restarted daemon all read the same record of the same intent.
 // An omitted key is a member not moving. The one reset is `largerWindow: null`, the move back to
 // the model's default window, which is a model choice of its own rather than a cleared member.
-// `driverName`, `modelId` and the account cannot be cleared at all (an agent always runs on one of
+// `providerName`, `modelId` and the account cannot be cleared at all (an agent always runs on one of
 // each), and clearing `effort` or `outputSpeed` is not an operation `agent.config.update` offers,
 // whose omitted members are uniformly "unchanged, never reset". `outputSpeed` is carried in this
 // record rather than only at the coordinator: on Claude Code it applies at a run boundary, so it is
 // a member likely to be pending across a restart, and a member a caller can request but the durable
 // slot cannot hold would be acknowledged and then silently dropped.
 interface AgentBindingSwitchTarget {
-  driverName?: string;
+  providerName?: string;
   modelId?: string;
   // A number moves to that larger window in tokens, `null` back to the model's default window; a
   // `modelId` move must carry it, a figure or `null`, so omitted always means unchanged.
@@ -645,7 +645,7 @@ interface SessionCostReceipt {
 
 // One provider the session spent on.
 interface SessionCostReceiptProvider {
-  driverName: ProviderId; // the provider, as on an agent's binding
+  providerName: ProviderId; // the provider, as on an agent's binding
   accounts: SessionCostReceiptAccountRow[]; // one row per account this provider spent on
   voice?: SessionCostReceiptVoiceRow; // the `Voice` row, present where the session made voice calls on this provider
   subtotalUsdMicros: number; // computed by the daemon: the account rows plus the voice row

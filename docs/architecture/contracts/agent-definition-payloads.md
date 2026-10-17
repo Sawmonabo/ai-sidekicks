@@ -40,13 +40,13 @@ type AgentAccentHue =
 // (orchestration-payloads.md §Plan-013) carry it from and to.
 // A binding names a provider a registered driver answers. Only the definition list serves a binding
 // whose file names a provider no registered driver answers, and it serves it as its own arm: no
-// `driverName`, and `unsupportedProviderName` holding the name as the file gave it, so a binding's
+// `providerName`, and `unsupportedProviderName` holding the name as the file gave it, so a binding's
 // provider is only ever one the app runs.
 interface AgentProviderBinding {
   // provider driver key, an open ProviderId checked against the registered drivers, matching the
   // agent surface's driver axis; on a live agent's binding it is checked where
   // agent.providerBinding.changed writes it
-  driverName: ProviderId;
+  providerName: ProviderId;
   modelId: string;
   providerAccountId: ProviderAccountId | null; // null = follow the provider's current account — the one marked `Default`, which `provider.account.current.update` moves — resolved AT THE MOMENT THE RUN STARTS and followed when the mark moves. Deliberately not a foreign key: a definition may name an account that is later removed, and that must surface as a typed resolution refusal the person can act on, not as a delete-time cascade that silently rewrites the definition
   effort: string | null; // null = the driver's default. Validated at RESOLUTION against the target model's driver-reported `effortLevels` — never against a hardcoded list, and never at save, because the vocabulary belongs to the model a run actually binds
@@ -640,7 +640,7 @@ interface AgentBridgeListResult {
   agents: Array<{
     handle: AgentBridgeHandle;
     agent: string; // the provider-carrying name the agent was run by
-    driverName: ProviderId; // the provider actually running this agent, which need not be the lead's
+    providerName: ProviderId; // the provider actually running this agent, which need not be the lead's
     state: AgentBridgeWaitResult["state"];
   }>;
 }

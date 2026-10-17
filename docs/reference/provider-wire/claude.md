@@ -294,7 +294,7 @@ Three consequences worth stating, since they follow from that and not from the w
 - **Re-recording is scoped to the session's own thread.** The observer is reached only where the frame carries no subagent identity, so a child's handshake never overwrites the parent binding's enumeration.
 - **A provider-session rotation invalidates rather than staleness-serves.** The held entry is keyed by the provider session id it was observed under, and a read whose current provider session does not match it returns nothing instead of the previous session's palette; the entry is dropped outright on teardown.
 
-Nothing in the payload identifies its own origin, which is why a normalized entry has to carry the `(driverName, providerAccountId)` it was read under rather than deriving it later.
+Nothing in the payload identifies its own origin, which is why a normalized entry has to carry the `(providerName, providerAccountId)` it was read under rather than deriving it later.
 
 #### Output speed — `fast_mode_state` is this provider's positive case
 
