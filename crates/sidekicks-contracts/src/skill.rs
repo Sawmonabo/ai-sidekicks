@@ -502,7 +502,7 @@ pub struct SkillScanResponse {
 pub struct SkillRecordReattachRequest {
     /// The skill.
     pub skill_id: SkillId,
-    /// The folder.
+    /// The folder, the path main's relay put in place of the chooser's token.
     pub folder_path: FilesystemPath,
 }
 

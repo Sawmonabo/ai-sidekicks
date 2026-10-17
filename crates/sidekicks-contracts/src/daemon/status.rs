@@ -15,7 +15,7 @@ use crate::release_manifest::ReleaseVersion;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::list::BoundedVec;
+use crate::wire::list::{BoundedVec, ListKey, UniqueList};
 use crate::wire::number::Percent;
 use crate::wire::text::{BoundedText, pattern_text};
 
@@ -146,6 +146,18 @@ pub struct DaemonWslDistribution {
     pub session_count: SafeInt<0>,
 }
 
+impl ListKey for DaemonWslDistribution {
+    type Key = DistroName;
+
+    fn list_key(&self) -> DistroName {
+        self.distro.clone()
+    }
+
+    fn validate_item(&self, parent: &mut dyn FnMut() -> garde::Path, report: &mut garde::Report) {
+        garde::Validate::validate_into(self, &(), parent, report);
+    }
+}
+
 /// Everything a status reader prints, in one reply.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -197,9 +209,9 @@ pub struct DaemonStatusReadResponse {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "BoundedVec<DaemonWslDistribution, 1, { usize::MAX }>")]
+    #[schemars(with = "UniqueList<DaemonWslDistribution, 1, { usize::MAX }>")]
     #[garde(dive)]
-    pub wsl: Option<BoundedVec<DaemonWslDistribution, 1, { usize::MAX }>>,
+    pub wsl: Option<UniqueList<DaemonWslDistribution, 1, { usize::MAX }>>,
     /// The file the service keeps its secrets in, readable by this account alone: present only on
     /// Linux where no Secret Service answers, and on a Mac while the secrets are in
     /// `secrets.json`, from the approved logged-out service's takeover until uninstall moves them

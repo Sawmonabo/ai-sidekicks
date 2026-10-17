@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
-use crate::place::{DistroName, Place, WslPlace};
+use crate::place::{Place, WslPlace};
 use crate::project::{ProjectId, ProjectName};
 use crate::repo::mount::{RepoMountHealth, RepoMountId, RepoMountState, VcsType, WorkspaceId};
 use crate::runtime_node::id::NodeId;
@@ -353,6 +353,14 @@ pub struct RepoMountReadResponse {
     pub local_path: FilesystemPath,
     /// The resolved root.
     pub canonical_root: FilesystemPath,
+    /// Where both paths are, in that place's own form; absent on macOS and Linux.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
     /// Its version-control system.
     pub vcs_type: VcsType,
     /// Its state.
@@ -459,15 +467,6 @@ pub struct RepoAlreadyAttachedDetails {
     pub conflicting_project_id: Option<ProjectId>,
 }
 
-/// The details of a `repo.distribution_needs_wsl2` or `repo.distribution_not_found` refusal: the
-/// WSL distribution the folder names, exactly as given.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RepoDistributionRefusalDetails {
-    /// The distribution.
-    pub distro: DistroName,
-}
-
 /// The `repo.mountReattach` result: the new mount. The old one turns `detached` and the folder is
 /// attached fresh under the same project record, keeping its sessions and their workspaces.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -530,7 +529,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RepoRootResolutionReason>(),
         Definition::read::<RepoRootResolutionFailedDetails>(),
         Definition::read::<RepoAlreadyAttachedDetails>(),
-        Definition::read::<RepoDistributionRefusalDetails>(),
         Definition::read::<RepoMountReattachResponse>(),
         Definition::read::<RepoReattachRefusedReason>(),
         Definition::read::<RepoReattachRefusedDetails>(),

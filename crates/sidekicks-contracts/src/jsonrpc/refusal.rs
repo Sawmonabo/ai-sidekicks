@@ -232,6 +232,15 @@ refusal_codes! {
     ProtocolVersionMismatch = "protocol.version_mismatch" ();
     /// Nothing runnable sits at the command path the person typed.
     ProviderCommandNotRunnable = "provider.command_not_runnable" (422);
+    /// A per-place provider call named a WSL distribution that runs on WSL 1, where no session
+    /// runs, naming it (`data.fields`: `distro`).
+    ProviderDistributionNeedsWsl2 = "provider.distribution_needs_wsl2" (409);
+    /// A per-place provider call named a WSL distribution that is not on this computer, naming it
+    /// (`data.fields`: `distro`).
+    ProviderDistributionNotFound = "provider.distribution_not_found" (422);
+    /// `provider.install` or `provider.installUpdate` named a place the provider ships no build
+    /// for.
+    ProviderNoBuildForSystem = "provider.no_build_for_system" (409);
     /// The provider's command is not installed, so a setting that needs it cannot be turned on:
     /// availability for new sessions, the shared terminal service, and the terminal plugin.
     ProviderNotInstalled = "provider.not_installed" (409);
@@ -338,11 +347,11 @@ refusal_codes! {
     /// Detach refused while an agent runs anywhere in the project, naming the running session
     /// (drawn `Busy: <session> is running in it.`).
     RepoDetachConflict = "repo.detach_conflict" (409);
-    /// `repo.attach` or `repo.folderList` refused because the folder's WSL distribution runs on
-    /// WSL 1, naming the distribution (`data.fields`: `distro`).
+    /// `repo.attach`, `repo.folderList` or `repo.clone` refused because the folder's WSL
+    /// distribution runs on WSL 1, naming the distribution (`data.fields`: `distro`).
     RepoDistributionNeedsWsl2 = "repo.distribution_needs_wsl2" (409);
-    /// `repo.attach` or `repo.folderList` refused because no WSL distribution of the folder's name
-    /// is on this computer, naming the name (`data.fields`: `distro`).
+    /// `repo.attach`, `repo.folderList` or `repo.clone` refused because no WSL distribution of the
+    /// folder's name is on this computer, naming the name (`data.fields`: `distro`).
     RepoDistributionNotFound = "repo.distribution_not_found" (422);
     /// The mount is a chat's managed workspace, which only that chat binds and only its purge
     /// removes: another session's bind, any detach and a `session.setWorkingFolder` of the chat are
@@ -392,9 +401,10 @@ refusal_codes! {
     SessionConvertIncomplete = "session.convert_incomplete" (500);
     /// `session.convert` named a session that is not a chat, a chat with no managed workspace to
     /// convert (`data.fields.reason: no_managed_workspace`), a `clientIdempotencyKey` another
-    /// session's conversion holds (`reason: idempotency_key_reused`), or a folder other than the
-    /// one a chat's stopped conversion copies into (`reason: conversion_unfinished`, with that
-    /// conversion's `repoMountId`).
+    /// session's conversion holds (`reason: idempotency_key_reused`), a folder other than the one a
+    /// chat's stopped conversion copies into (`reason: conversion_unfinished`, with that
+    /// conversion's `repoMountId`), or a folder outside the chat's place, which never changes
+    /// (`reason: folder_in_another_place`, with the chat's `place`).
     SessionConvertRefused = "session.convert_refused" (409);
     /// `session.groupCreate` or `session.groupRename` named a group another group of the session's
     /// project already holds, ignoring case.

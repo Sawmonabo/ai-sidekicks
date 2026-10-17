@@ -17,7 +17,9 @@ use crate::wire::{False, True};
 
 /// Converts a chat to a project. `path` is the folder the person typed; it travels as data and the
 /// daemon checks it, reusing the machine's mount for that folder or attaching one, and refusing a
-/// folder that is not a git repository.
+/// folder that is not a git repository. The path is read in the chat's own place: a Linux path in
+/// the chat's distribution, a drive path or its `/mnt/<drive>` form on Windows; a folder in another
+/// place is refused with `session.convert_refused`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

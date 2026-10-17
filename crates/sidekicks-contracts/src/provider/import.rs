@@ -9,6 +9,7 @@ use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::place::{PlacedPath, WslPlace};
 use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
@@ -76,6 +77,14 @@ pub struct ProviderImportStartResponse {
 pub struct ProviderImportFailure {
     /// The conversation's file.
     pub source: FilesystemPath,
+    /// The distribution the file is in, its path in Linux form; absent elsewhere.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WslPlace")]
+    pub place: Option<WslPlace>,
     /// Why it was not brought in.
     pub reason: ImportReason,
 }
@@ -100,8 +109,8 @@ pub enum ProviderImportOutcome {
         already_here: SafeInt<0>,
         /// Each conversation not brought in, with its reason.
         failures: ImportList<ProviderImportFailure>,
-        /// The files that could not be opened.
-        unreadable_files: ImportList<FilesystemPath>,
+        /// The files that could not be opened, each with the distribution it is in.
+        unreadable_files: ImportList<PlacedPath>,
         /// The projects the import attached.
         attached_projects: ImportList<FreeFormText<PROVIDER_IMPORT_PROJECT_NAME_MAX_LEN>>,
     },
@@ -109,8 +118,8 @@ pub enum ProviderImportOutcome {
     NothingNew {
         /// The conversations already here.
         already_here: SafeInt<0>,
-        /// The files that could not be opened.
-        unreadable_files: ImportList<FilesystemPath>,
+        /// The files that could not be opened, each with the distribution it is in.
+        unreadable_files: ImportList<PlacedPath>,
     },
     /// The person stopped it.
     Stopped {},

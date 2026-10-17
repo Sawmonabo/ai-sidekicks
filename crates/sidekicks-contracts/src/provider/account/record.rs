@@ -15,7 +15,7 @@ use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::list::BoundedVec;
+use crate::wire::list::UniqueList;
 use crate::wire::number::NonNegativeNumber;
 use crate::wire::text::{FreeFormText, branded_text, is_ecmascript_whitespace};
 
@@ -338,8 +338,9 @@ macro_rules! provider_account_arm {
                 skip_serializing_if = "Option::is_none",
                 deserialize_with = "crate::wire::present"
             )]
-            #[schemars(with = "BoundedVec<Place, 1, { usize::MAX }>")]
-            pub home_places: Option<BoundedVec<Place, 1, { usize::MAX }>>,
+            #[schemars(with = "UniqueList<Place, 1, { usize::MAX }>")]
+            #[garde(dive)]
+            pub home_places: Option<UniqueList<Place, 1, { usize::MAX }>>,
             $($health)*
             /// The mode an observation named, or `null` until one has.
             #[serde(deserialize_with = "crate::wire::nullable")]

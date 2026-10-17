@@ -14,6 +14,7 @@ use crate::mcp::server::inventory::{
     McpToolOverrideFacet,
 };
 use crate::mcp::server::{McpApplicationGrade, McpToolName, binding_addressed};
+use crate::place::WslPlace;
 use crate::session::id::SessionId;
 use crate::web_address::WebAddress;
 use crate::wire::id::ClientUuid;
@@ -95,6 +96,14 @@ binding_addressed! {
     on connector and managed {
         /// The project the switch applies in.
         project_root: FilesystemPath,
+        /// The distribution the project's root is in, in Linux form; absent elsewhere.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WslPlace")]
+        place: Option<WslPlace>,
     }
     elsewhere {
         /// Never present: the binding is switched where it applies.

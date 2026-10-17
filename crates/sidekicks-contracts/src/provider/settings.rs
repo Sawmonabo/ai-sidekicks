@@ -20,7 +20,7 @@ use crate::repo::mount::RepoMountId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt};
-use crate::wire::list::BoundedVec;
+use crate::wire::list::{BoundedVec, ListKey, UniqueList};
 use crate::wire::text::{FreeFormText, branded_text};
 
 ts_constants! {
@@ -131,6 +131,18 @@ pub struct ProviderPlaceReading {
     pub checked_at: Option<WireInstant>,
 }
 
+impl ListKey for ProviderPlaceReading {
+    type Key = Option<Place>;
+
+    fn list_key(&self) -> Option<Place> {
+        self.place.clone()
+    }
+
+    fn validate_item(&self, parent: &mut dyn FnMut() -> garde::Path, report: &mut garde::Report) {
+        garde::Validate::validate_into(self, &(), parent, report);
+    }
+}
+
 /// One place's on-or-off for a provider's per-place switch. A computer without a WSL 2
 /// distribution has one entry and names no place.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -146,6 +158,18 @@ pub struct ProviderPlaceSwitch {
     pub place: Option<Place>,
     /// Whether the switch is on there.
     pub enabled: bool,
+}
+
+impl ListKey for ProviderPlaceSwitch {
+    type Key = Option<Place>;
+
+    fn list_key(&self) -> Option<Place> {
+        self.place.clone()
+    }
+
+    // It carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
 }
 
 /// The compaction threshold in percent full: a whole percent on a step of five.
@@ -272,9 +296,9 @@ macro_rules! provider_settings {
     )+) => {
         /// One provider's section as `provider.list` reads it: one `Command` row per place, Windows
         /// first and then each distribution in WSL's list order on a Windows computer with a WSL 2
-        /// distribution, else a single row; `helpersAtOnce` is `null` for no limit and `0` for none; the compaction bound and
-        /// the output style are `null` until the provider has been read. Each provider's section
-        /// carries only its own settings.
+        /// distribution, else a single row; `helpersAtOnce` is `null` for no limit and `0` for
+        /// none; the compaction bound and the output style are `null` until the provider has been
+        /// read. Each provider's section carries only its own settings.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "provider",
@@ -288,7 +312,7 @@ macro_rules! provider_settings {
             $provider {
                 /// The command's reading in each place.
                 #[garde(dive)]
-                places: BoundedVec<ProviderPlaceReading, 1, { usize::MAX }>,
+                places: UniqueList<ProviderPlaceReading, 1, { usize::MAX }>,
                 /// Whether a new session may use the provider.
                 available_for_new_sessions: bool,
                 /// How many helpers run at once: `null` for no limit, `0` for none.
@@ -315,13 +339,15 @@ provider_settings! {
         #[garde(dive)]
         output_style: Option<ProviderOutputStyleSetting>,
         /// Whether the app's plugin is in the person's own Claude Code, in each place.
-        terminal_plugin_enabled: BoundedVec<ProviderPlaceSwitch, 1, { usize::MAX }>,
+        #[garde(dive)]
+        terminal_plugin_enabled: UniqueList<ProviderPlaceSwitch, 1, { usize::MAX }>,
     }
     /// Codex's section.
     Codex {
         /// Whether terminal-started Codex sessions are reachable, in each place; each place's
         /// shared service runs while on.
-        terminal_sessions_reachable: BoundedVec<ProviderPlaceSwitch, 1, { usize::MAX }>,
+        #[garde(dive)]
+        terminal_sessions_reachable: UniqueList<ProviderPlaceSwitch, 1, { usize::MAX }>,
     }
 }
 
@@ -339,9 +365,9 @@ pub struct ProviderSettingsResponse {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "BoundedVec<WslPlace, 1, { usize::MAX }>")]
-    #[garde(skip)]
-    pub stopped_distributions: Option<BoundedVec<WslPlace, 1, { usize::MAX }>>,
+    #[schemars(with = "UniqueList<WslPlace, 1, { usize::MAX }>")]
+    #[garde(dive)]
+    pub stopped_distributions: Option<UniqueList<WslPlace, 1, { usize::MAX }>>,
 }
 
 /// A request naming one provider.
@@ -363,7 +389,8 @@ pub struct ProviderRequest {
 pub struct ProviderPlaceRequest {
     /// The provider.
     pub provider: ProviderName,
-    /// The place; absent on a computer without a WSL 2 distribution.
+    /// The place: absent on a computer without a WSL 2 distribution and present on one
+    /// with; either sent wrong is `invalid_params`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -387,9 +414,9 @@ pub struct ProviderListResponse {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "BoundedVec<WslPlace, 1, { usize::MAX }>")]
-    #[garde(skip)]
-    pub stopped_distributions: Option<BoundedVec<WslPlace, 1, { usize::MAX }>>,
+    #[schemars(with = "UniqueList<WslPlace, 1, { usize::MAX }>")]
+    #[garde(dive)]
+    pub stopped_distributions: Option<UniqueList<WslPlace, 1, { usize::MAX }>>,
 }
 
 /// Declares [`ProviderUpdateRequest`]: per provider, one closed arm for each knob every provider
@@ -410,7 +437,8 @@ macro_rules! provider_update_request {
             $command_path {
                 /// The provider.
                 provider: $provider,
-                /// The place; absent on a computer without a WSL 2 distribution.
+                /// The place: absent on a computer without a WSL 2 distribution and present on one
+                /// with; either sent wrong is `invalid_params`.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
@@ -476,7 +504,8 @@ provider_update_request! {
         CodexTerminalSessionsReachable {
             /// The provider.
             provider: CodexProviderWord,
-            /// The place; absent on a computer without a WSL 2 distribution.
+            /// The place: absent on a computer without a WSL 2 distribution and present on one
+            /// with; either sent wrong is `invalid_params`.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
@@ -498,7 +527,8 @@ provider_update_request! {
 pub struct ProviderTerminalPluginUpdateRequest {
     /// Always `claude`: the plugin is Claude Code's alone.
     pub provider: ClaudeProviderWord,
-    /// The place; absent on a computer without a WSL 2 distribution.
+    /// The place: absent on a computer without a WSL 2 distribution and present on one
+    /// with; either sent wrong is `invalid_params`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -530,6 +560,15 @@ pub enum ProviderProtectedPath {
     Global {
         /// The path pattern.
         pattern: RuleText,
+        /// Where the rule's file is, the file's path in that place's form; absent on a computer
+        /// without a WSL 2 distribution.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Place")]
+        place: Option<Place>,
         /// The file the rule sits in.
         source_path: FilesystemPath,
     },
@@ -556,8 +595,8 @@ pub struct ProviderProtectedPathListResponse {
 }
 
 branded_text! {
-    /// The daemon-minted id of one standing rule, derived from where the rule sits and what it
-    /// says.
+    /// The daemon-minted id of one standing rule, derived from the rule's place, its file and its
+    /// text, so one file path in two places names two rules.
     pub struct ProviderStandingRuleId(1..=PROVIDER_STANDING_RULE_ID_MAX_LEN);
 }
 
@@ -668,21 +707,30 @@ methods! {
             mutating: true,
             params: ProviderUpdateRequest,
             result: ProviderSettingsResponse,
-            refusals: [ProviderNotInstalled, ProviderCommandNotRunnable],
+            refusals: [
+                ProviderNotInstalled,
+                ProviderCommandNotRunnable,
+                ProviderDistributionNotFound,
+                ProviderDistributionNeedsWsl2,
+            ],
         },
         /// Checks the provider's command again.
         ProviderProbe = mutation "provider.probe" {
             mutating: true,
             params: ProviderPlaceRequest,
             result: ProviderSettingsResponse,
-            refusals: [],
+            refusals: [ProviderDistributionNotFound, ProviderDistributionNeedsWsl2],
         },
         /// Puts the terminal plugin in or takes it out.
         ProviderTerminalPluginUpdate = mutation "provider.terminalPluginUpdate" {
             mutating: true,
             params: ProviderTerminalPluginUpdateRequest,
             result: ProviderSettingsResponse,
-            refusals: [ProviderNotInstalled],
+            refusals: [
+                ProviderNotInstalled,
+                ProviderDistributionNotFound,
+                ProviderDistributionNeedsWsl2,
+            ],
         },
         /// Lists the paths a provider refuses.
         ProviderProtectedPathList = query "provider.protectedPathList" {

@@ -171,7 +171,12 @@ methods! {
             mutating: true,
             params: RepoCloneRequest,
             result: RepoCloneResponse,
-            refusals: [RepoCloneRefused, RepoCloneUnavailable],
+            refusals: [
+                RepoCloneRefused,
+                RepoCloneUnavailable,
+                RepoDistributionNeedsWsl2,
+                RepoDistributionNotFound,
+            ],
         },
         /// Follows a clone's card.
         RepoCloneSubscribe = subscription "repo.cloneSubscribe" {

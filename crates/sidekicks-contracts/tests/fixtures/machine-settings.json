@@ -388,7 +388,7 @@
     {
       "file": {
         "editorId": null,
-        "cloneFolder": "/Users/person/code"
+        "cloneFolder": { "path": "/Users/person/code" }
       },
       "settings": {
         "updatesAutomatic": true,
@@ -437,7 +437,7 @@
           "folder": null
         },
         "branchNamePattern": "sidekicks/{session}/{title}",
-        "cloneFolder": "/Users/person/code",
+        "cloneFolder": { "path": "/Users/person/code" },
         "voice": {
           "mode": "hold",
           "callVoice": null

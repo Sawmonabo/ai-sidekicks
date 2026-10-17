@@ -20,8 +20,9 @@ ts_constants! {
     pub const PROVIDER_INSTALL_COMMAND_MAX_LEN: usize = 1024;
 }
 
-/// Where one provider's install has got to. The install runs the provider's own installer as the
-/// person, keyed by provider, and the stream's first message is that provider's last outcome.
+/// Where one provider's install in one place has got to. The install runs the provider's own
+/// installer as the person, keyed by provider and place, and the stream's first message is the
+/// last outcome in that place.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "state",
@@ -114,7 +115,11 @@ methods! {
             mutating: true,
             params: ProviderPlaceRequest,
             result: EmptyPayload,
-            refusals: [],
+            refusals: [
+                ProviderDistributionNotFound,
+                ProviderDistributionNeedsWsl2,
+                ProviderNoBuildForSystem,
+            ],
         },
         /// Streams a provider's install, its last outcome first.
         ProviderInstallSubscribe = subscription "provider.installSubscribe" {
@@ -122,21 +127,31 @@ methods! {
             params: ProviderPlaceRequest,
             result: SubscribeAckResponse,
             emission: ProviderInstallProgress,
-            refusals: [],
+            refusals: [
+                ProviderDistributionNotFound,
+                ProviderDistributionNeedsWsl2,
+            ],
         },
         /// Stops a provider's installer and everything it started.
         ProviderInstallStop = mutation "provider.installStop" {
             mutating: true,
             params: ProviderPlaceRequest,
             result: EmptyPayload,
-            refusals: [],
+            refusals: [
+                ProviderDistributionNotFound,
+                ProviderDistributionNeedsWsl2,
+            ],
         },
         /// Updates a provider's command in one place.
         ProviderInstallUpdate = mutation "provider.installUpdate" {
             mutating: true,
             params: ProviderPlaceRequest,
             result: EmptyPayload,
-            refusals: [],
+            refusals: [
+                ProviderDistributionNotFound,
+                ProviderDistributionNeedsWsl2,
+                ProviderNoBuildForSystem,
+            ],
         },
         /// Streams a provider's update in one place, its last outcome first.
         ProviderInstallUpdateSubscribe = subscription "provider.installUpdateSubscribe" {
@@ -144,7 +159,10 @@ methods! {
             params: ProviderPlaceRequest,
             result: SubscribeAckResponse,
             emission: ProviderInstallUpdateProgress,
-            refusals: [],
+            refusals: [
+                ProviderDistributionNotFound,
+                ProviderDistributionNeedsWsl2,
+            ],
         },
     ];
 }

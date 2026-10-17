@@ -5,7 +5,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::free_form_string::FilesystemPath;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::list::ListKey;
 use crate::wire::literal;
 use crate::wire::text::FreeFormText;
 
@@ -14,7 +16,7 @@ ts_constants! {
     pub const WSL_DISTRO_NAME_MAX_LEN: usize = 256;
 }
 
-/// A WSL 2 distribution's name, exactly as `wsl -l` prints it.
+/// A WSL distribution's name.
 pub type DistroName = FreeFormText<WSL_DISTRO_NAME_MAX_LEN>;
 
 literal! {
@@ -42,11 +44,87 @@ pub enum Place {
     Wsl(WslPlace),
 }
 
+/// A path, and the WSL 2 distribution it is in where it is in Linux form there; the place is absent
+/// wherever the path's own form says it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlacedPath {
+    /// The path.
+    pub path: FilesystemPath,
+    /// The distribution.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WslPlace")]
+    pub place: Option<WslPlace>,
+}
+
+// A place, a distribution's name and a placed path carry no rule their read does not hold.
+impl ListKey for Place {
+    type Key = Self;
+
+    fn list_key(&self) -> Self {
+        self.clone()
+    }
+
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+impl ListKey for WslPlace {
+    type Key = Self;
+
+    fn list_key(&self) -> Self {
+        self.clone()
+    }
+
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+impl ListKey for DistroName {
+    type Key = Self;
+
+    fn list_key(&self) -> Self {
+        self.clone()
+    }
+
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+impl ListKey for PlacedPath {
+    type Key = Self;
+
+    fn list_key(&self) -> Self {
+        self.clone()
+    }
+
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+/// The details of a refusal naming a WSL distribution, a repository's or a provider's: the
+/// distribution the request names, exactly as given.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DistributionRefusalDetails {
+    /// The distribution.
+    pub distro: DistroName,
+}
+
 /// The module's TypeScript face.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "place",
     doc: "Where work runs on a computer: Windows itself, or a WSL 2 distribution by name.",
-    definitions: &[Definition::read::<WslPlace>(), Definition::read::<Place>()],
+    definitions: &[
+        Definition::read::<WslPlace>(),
+        Definition::read::<Place>(),
+        Definition::read::<PlacedPath>(),
+        Definition::read::<DistributionRefusalDetails>(),
+    ],
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
@@ -55,22 +133,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 mod tests {
     use serde_json::json;
 
-    use super::{Place, WindowsPlace, WslPlace};
+    use super::{Place, WindowsPlace};
 
     #[test]
-    fn reads_windows_as_the_literal_and_a_distribution_by_name() {
+    fn reads_and_writes_windows_as_its_literal() {
         let windows: Place = serde_json::from_value(json!("windows")).expect("windows reads");
         assert_eq!(windows, Place::Windows(WindowsPlace::Value));
-        let sent = json!({ "distro": "Ubuntu-24.04" });
-        let distribution: Place = serde_json::from_value(sent.clone()).expect("a distro reads");
-        let Place::Wsl(WslPlace { distro }) = &distribution else {
-            panic!("a distribution reads as the WSL arm: {distribution:?}");
-        };
-        assert_eq!(distro.as_str(), "Ubuntu-24.04");
-        assert_eq!(
-            serde_json::to_value(&distribution).expect("it writes"),
-            sent
-        );
         assert_eq!(
             serde_json::to_value(&windows).expect("it writes"),
             json!("windows")

@@ -204,7 +204,8 @@ definition_write! {
         #[schemars(with = "AgentDefinitionBindingsDraft")]
         #[garde(dive)]
         pub bindings: Option<AgentDefinitionBindingsDraft>,
-        /// The provider's file an orphaned record is reattached to.
+        /// The provider's file an orphaned record is reattached to, the path main's relay put in
+        /// place of the chooser's token.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",

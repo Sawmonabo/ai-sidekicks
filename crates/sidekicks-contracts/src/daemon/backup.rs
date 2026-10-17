@@ -19,7 +19,7 @@ use crate::release_manifest::ReleaseVersion;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::list::BoundedVec;
+use crate::wire::list::{ListKey, UniqueList};
 use crate::wire::text::FreeFormText;
 
 /// The manifest's file name, beside each backup's database copy.
@@ -97,8 +97,9 @@ pub struct BackupManifest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "BoundedVec<DistroName, 1, { usize::MAX }>")]
-    pub distribution_parts: Option<BoundedVec<DistroName, 1, { usize::MAX }>>,
+    #[schemars(with = "UniqueList<DistroName, 1, { usize::MAX }>")]
+    #[garde(dive)]
+    pub distribution_parts: Option<UniqueList<DistroName, 1, { usize::MAX }>>,
 }
 
 /// One backup in the folder, as `Restore…` lists it.
@@ -197,10 +198,23 @@ pub struct BackupKeptDistributionPart {
     pub session_count: SafeInt<0>,
 }
 
+impl ListKey for BackupKeptDistributionPart {
+    type Key = DistroName;
+
+    fn list_key(&self) -> DistroName {
+        self.distro.clone()
+    }
+
+    // It carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
 /// `backup.restored`: the service started again from a backup, naming each distribution part it
 /// kept in the backup.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct BackupRestoredPayload {
     /// The backup.
     pub backup_id: BackupId,
@@ -210,8 +224,9 @@ pub struct BackupRestoredPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "BoundedVec<BackupKeptDistributionPart, 1, { usize::MAX }>")]
-    pub kept_distribution_parts: Option<BoundedVec<BackupKeptDistributionPart, 1, { usize::MAX }>>,
+    #[schemars(with = "UniqueList<BackupKeptDistributionPart, 1, { usize::MAX }>")]
+    #[garde(dive)]
+    pub kept_distribution_parts: Option<UniqueList<BackupKeptDistributionPart, 1, { usize::MAX }>>,
 }
 
 methods! {

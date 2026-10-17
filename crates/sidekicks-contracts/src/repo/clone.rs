@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
+use crate::place::WslPlace;
 use crate::project::ProjectId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::BoundedInt;
@@ -44,6 +45,15 @@ pub struct RepoCloneRequest {
     )]
     #[schemars(with = "FilesystemPath")]
     pub parent_folder: Option<FilesystemPath>,
+    /// The distribution the folder is in, given in Linux form; absent wherever the folder's own
+    /// form says.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WslPlace")]
+    pub place: Option<WslPlace>,
     /// The project whose clone runs again.
     #[serde(
         default,
@@ -246,6 +256,14 @@ pub enum RepoCloneFolderSource {
 pub struct RepoCloneFolderReadResponse {
     /// The folder.
     pub folder: FilesystemPath,
+    /// The distribution the folder is in, in Linux form; absent elsewhere.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WslPlace")]
+    pub place: Option<WslPlace>,
     /// Why.
     pub source: RepoCloneFolderSource,
 }
