@@ -484,9 +484,9 @@ Payload shape: `{sessionId, workflowRunId, stepRunId}`; the step types carry the
 | `workflow.phase_suspended` | A step started waiting. Payload carries the step's `waitCause` (`approval`, `form`, `reply`, `chain` or `account`), the durable `resumeAt` instant where the wait armed one, and, on an `account` wait, the spent account's `providerAccountId`. |
 | `workflow.phase_resumed` | A waiting step resumed. |
 | `workflow.phase_completed` | A phase finished and its gate may resolve. |
-| `workflow.step_started` | A step began executing, its input ref recorded with it. |
+| `workflow.step_started` | A step began executing, its input ref recorded with it and, on an agent step whose account cannot run its run's level, the level it runs at in its place. |
 | `workflow.step_finished` | A step finished, its output and log refs recorded with it, plus its cost where a provider was billed. |
-| `workflow.step_failed` | A step failed, the error and the failing item index recorded with it. |
+| `workflow.step_failed` | A step failed, the error and the failing item index recorded with it, and the words typed with the `Decline` that failed a command step. |
 | `workflow.step_canceled` | A step that was running or waiting when its run ended was canceled. |
 | `workflow.step_skipped` | A step was skipped — its input carried no items, or it was disabled. |
 
