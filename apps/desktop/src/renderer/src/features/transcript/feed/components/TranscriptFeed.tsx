@@ -13,6 +13,7 @@ import { useCallback, useMemo } from "react";
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+import { useUntilNextAct } from "#renderer/hooks/useUntilNextAct.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
@@ -51,6 +52,9 @@ import { densityFor } from "../fold-state.js";
 import { rowBesideRunWindowEdge, type RunWindowEdge } from "../../runs/call-window.js";
 import { type RunGroup } from "../../runs/groups.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
+
+/** The line a link draws when the message it names is nowhere in the session's history. */
+const MESSAGE_NOT_FOUND_WORDS = "Message not found";
 
 /** What the feed is a log of and the row body it draws each row through. */
 export interface TranscriptFeedProps {
@@ -101,6 +105,11 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     !windows.holdsRowJoiningView();
   const isDrawable = useTypefacesSettled(areRowsCommitted);
   // The line under the session header stands whenever either holds, and nothing repeats it.
+  // A link whose message the whole history does not hold says so in `Jump to latest`'s place
+  // instead of moving the page, until the next act.
+  const isMessageNotFoundStanding = useUntilNextAct(
+    windows.messageReadBack === "not-in-history" ? props.messageAnchorCursor : undefined,
+  );
   const isWindowDegraded = useSessionDegraded(props.sessionStore);
   const isDependentReadFailed = useDependentReadFailed(props.sessionStore);
   const fullBodyReads = useFullBodyReads(props.sessionStore, props.readTranscriptBody);
@@ -308,13 +317,11 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
                       isShown={isDrawable}
                       hasActiveTurn={transcriptWindow.liveRunIds.size > 0}
                       earlierHistoryControl={
-                        history === undefined ? undefined : (
-                          <LoadEarlier
-                            history={history}
-                            isLinkedMessageMissing={windows.messageReadBack === "not-in-history"}
-                          />
-                        )
+                        history === undefined ? undefined : <LoadEarlier history={history} />
                       }
+                      {...(isMessageNotFoundStanding
+                        ? { missingTargetWords: MESSAGE_NOT_FOUND_WORDS }
+                        : {})}
                     />
                   </DrawnWindowSourcesContext>
                 </PreparedBodiesContext>

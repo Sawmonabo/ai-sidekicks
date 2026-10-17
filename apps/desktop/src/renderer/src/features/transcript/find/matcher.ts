@@ -259,6 +259,31 @@ export function findInTranscript(
   };
 }
 
+/**
+ * Where the next or previous match sits from `selected`, wrapping in both directions.
+ *
+ * With nothing selected both directions enter the list: next lands on the first match, previous
+ * on the last. A selected hit whose row has left the list is stepped past by its place in the
+ * log, so the walk moves on to the next live hit in that direction rather than starting over.
+ * Returns `undefined` only when there is nothing to walk.
+ */
+export function stepFindMatch(
+  result: FindResult,
+  selected: FindMatch | undefined,
+  direction: FindStepDirection,
+): { readonly index: number; readonly match: FindMatch } | undefined {
+  const count = result.matches.length;
+  if (count === 0) {
+    return undefined;
+  }
+  const index =
+    selected === undefined
+      ? entryIndexFor(direction, count)
+      : steppedIndexFrom(result.matches, selected, direction);
+  const match = result.matches[index];
+  return match === undefined ? undefined : { index, match };
+}
+
 /** Whether the text a row draws holds `needle`, already lowercased. */
 function rowMatches(
   row: ProjectedTranscriptRow,
@@ -292,48 +317,38 @@ function drawnTextOf(
   }
 }
 
-/**
- * Where the walk sits before anything is selected. A sentinel, so "nothing selected" and
- * "first match selected" stay distinct.
- */
-const UNSELECTED_FIND_INDEX = -1;
-
-/**
- * Where the next or previous match sits, wrapping in both directions.
- *
- * From the unselected state both directions enter the list: next lands on the first match,
- * previous on the last. Returns `undefined` only when there is nothing to walk.
- */
-export function stepFindMatch(
-  result: FindResult,
-  currentIndex: number,
-  direction: FindStepDirection,
-): { readonly index: number; readonly match: FindMatch } | undefined {
-  const count = result.matches.length;
-  if (count === 0) {
-    return undefined;
-  }
-  const index =
-    currentIndex <= UNSELECTED_FIND_INDEX
-      ? entryIndexFor(direction, count)
-      : steppedIndexFrom(currentIndex, direction, count);
-  const match = result.matches[index];
-  return match === undefined ? undefined : { index, match };
-}
-
 /** Where a walk that has not started enters the list from. */
 function entryIndexFor(direction: FindStepDirection, count: number): number {
   return direction === "next" ? 0 : count - 1;
 }
 
-/** The next position along, wrapping in both directions. */
+/** The next position along from `selected`, wrapping in both directions. */
 function steppedIndexFrom(
-  currentIndex: number,
+  matches: readonly FindMatch[],
+  selected: FindMatch,
   direction: FindStepDirection,
-  count: number,
 ): number {
+  const count = matches.length;
+  const currentIndex = matches.findIndex((match) => match.rowId === selected.rowId);
+  if (currentIndex < 0) {
+    return liveIndexPast(matches, selected.sequence, direction);
+  }
   const step = direction === "next" ? 1 : -1;
   // `+ count` before the modulus: JavaScript's `%` keeps the sign of the dividend,
   // so stepping back from index 0 would land on -1 rather than on the last match.
   return (((currentIndex + step) % count) + count) % count;
+}
+
+/** The first live match past `sequence` in `direction`, wrapping when none lies that way. */
+function liveIndexPast(
+  matches: readonly FindMatch[],
+  sequence: number,
+  direction: FindStepDirection,
+): number {
+  if (direction === "next") {
+    const index = matches.findIndex((match) => match.sequence > sequence);
+    return index < 0 ? 0 : index;
+  }
+  const index = matches.findLastIndex((match) => match.sequence < sequence);
+  return index < 0 ? matches.length - 1 : index;
 }

@@ -1,5 +1,6 @@
 // The transcript viewport: the virtualized feed with the history line above its first row, the
-// reading anchor's pill, and the row box every row body is mounted in. It only turns
+// reading anchor's pill or the line a pointer to a missing row draws in its place, and the row box
+// every row body is mounted in. It only turns
 // `features/transcript/viewport/controller.ts`'s snapshot into elements; the caller owns the one
 // binding, so the find walk and the rows read the same virtualizer. Markup invariants: one scroll
 // container (a nested scroller would rival the chokepoint's `scrollTop`); the sizer and each
@@ -15,6 +16,7 @@ import { useLayoutEffect } from "react";
 import { EmptyTranscript } from "./EmptyTranscript.js";
 import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";
 import { JumpToLatest } from "./JumpToLatest.js";
+import { MissingTargetLine } from "./MissingTargetLine.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
 import { ViewportSelectionTrackerContext } from "../selection/context.js";
 import { DrawnBandContext } from "#renderer/components/TranscriptBodyViewport/context.js";
@@ -51,6 +53,11 @@ export interface TranscriptViewportProps {
    * first row where the caller has a read to give it. Absent, nothing renders at the head.
    */
   readonly earlierHistoryControl?: React.ReactNode;
+  /**
+   * The line a pointer to a row that is gone draws, such as `Message not found`, in the place
+   * `Jump to latest` takes; absent, that place holds the pill as the reading anchor shows it.
+   */
+  readonly missingTargetWords?: string;
 }
 
 /** The scrolling window over one transcript's rows, with its head and tail affordances. */
@@ -136,7 +143,11 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
              */}
             {snapshot.rows.length === 0 && props.firstReadSettled ? <EmptyTranscript /> : null}
           </div>
-          <JumpToLatest snapshot={snapshot} onJumpToTail={binding.jumpToTail} />
+          {props.missingTargetWords === undefined ? (
+            <JumpToLatest snapshot={snapshot} onJumpToTail={binding.jumpToTail} />
+          ) : (
+            <MissingTargetLine words={props.missingTargetWords} />
+          )}
         </div>
       </TranscriptBodyViewportProvider>
     </ViewportSelectionTrackerContext>

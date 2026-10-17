@@ -294,14 +294,14 @@ describe("the step panel", () => {
   });
 
   it("says in the daemon's words when it refuses the Keep mark", async () => {
-    const refusal = Object.assign(new Error("That run is not on this machine."), {
+    const refusal = Object.assign(new Error("That run is not on this computer."), {
       code: -32603,
       data: { type: "workflow.not_found" },
     });
     renderPanel(fixtureRun(WORKFLOW_RUN_IDS.failed), { keepRefusal: refusal });
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Keep" }));
-    expect(await screen.findByText("That run is not on this machine.")).toBeDefined();
+    expect(await screen.findByText("That run is not on this computer.")).toBeDefined();
   });
 
   it("opens the run's fix session again rather than making a second one", () => {

@@ -7,6 +7,6 @@ export const RUNTIME_CONTROLS: Readonly<
   state: { id: "state", label: "State" },
   foldersThisMachineCanReach: {
     id: "folders-this-machine-can-reach",
-    label: "Folders this machine can reach",
+    label: "Folders this computer can reach",
   },
 };

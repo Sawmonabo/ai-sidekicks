@@ -221,21 +221,41 @@ describe("find — stepping the walk", () => {
 
   it("walks forward and wraps at the end", () => {
     // Find wraps; "3 of 3" turning into "1 of 3" makes the wrap visible.
-    expect(stepFindMatch(result, 0, "next")?.index).toBe(1);
-    expect(stepFindMatch(result, 2, "next")?.index).toBe(0);
+    expect(stepFindMatch(result, result.matches[0], "next")?.index).toBe(1);
+    expect(stepFindMatch(result, result.matches[2], "next")?.index).toBe(0);
   });
 
   it("walks backward and wraps at the start rather than landing on -1", () => {
     // JavaScript's `%` keeps the sign of the dividend, which is exactly how a
     // backward step from the first match becomes an index nothing holds.
-    const stepped = stepFindMatch(result, 0, "previous");
+    const stepped = stepFindMatch(result, result.matches[0], "previous");
     expect(stepped?.index).toBe(2);
     expect(stepped?.match.rowId).toBe("r3");
   });
 
+  it("moves on to the next live hit in each direction from a hit whose row left", () => {
+    // The hit at sequence 2 left the session; a step from it neither restarts the walk nor stalls.
+    const left = { rowId: "r-left", sequence: 2 };
+    const live = findInTranscript(
+      [
+        userMessageRow({ id: "r1", sequence: 1, message: "hit one" }),
+        userMessageRow({ id: "r3", sequence: 3, message: "hit three" }),
+        userMessageRow({ id: "r4", sequence: 4, message: "hit four" }),
+      ],
+      "hit",
+      NO_SYSTEM_MESSAGES,
+    );
+    expect(stepFindMatch(live, left, "next")?.match.rowId).toBe("r3");
+    expect(stepFindMatch(live, left, "previous")?.match.rowId).toBe("r1");
+    expect(stepFindMatch(live, { rowId: "r-gone", sequence: 9 }, "next")?.match.rowId).toBe("r1");
+    expect(stepFindMatch(live, { rowId: "r-gone", sequence: 0 }, "previous")?.match.rowId).toBe(
+      "r4",
+    );
+  });
+
   it("there is nothing to walk with no matches", () => {
     const empty = findInTranscript(searchWindow(), "no row says this", rollbackLine());
-    expect(stepFindMatch(empty, 0, "next")).toBeUndefined();
+    expect(stepFindMatch(empty, undefined, "next")).toBeUndefined();
   });
 });
 
@@ -265,8 +285,8 @@ describe("find — the first step, before anything is selected", () => {
   it("enters the list at the first match going forward and the last going back", () => {
     for (const entry of entries) {
       const result = resultOver(entry.matchCount);
-      expect(stepFindMatch(result, -1, "next")?.match.rowId).toBe(entry.forwardRowId);
-      expect(stepFindMatch(result, -1, "previous")?.match.rowId).toBe(entry.backwardRowId);
+      expect(stepFindMatch(result, undefined, "next")?.match.rowId).toBe(entry.forwardRowId);
+      expect(stepFindMatch(result, undefined, "previous")?.match.rowId).toBe(entry.backwardRowId);
     }
   });
 
@@ -274,16 +294,16 @@ describe("find — the first step, before anything is selected", () => {
     // The index drives the counter's "1 of 7" and "7 of 7"; the right row under the wrong index
     // would still read wrong.
     const result = resultOver(7);
-    expect(stepFindMatch(result, -1, "next")?.index).toBe(0);
-    expect(stepFindMatch(result, -1, "previous")?.index).toBe(6);
+    expect(stepFindMatch(result, undefined, "next")?.index).toBe(0);
+    expect(stepFindMatch(result, undefined, "previous")?.index).toBe(6);
   });
 
   it("entering is not stepping — a selected walk still moves by one", () => {
     // Fails if the unselected arm were applied to every index: a backward step
     // from match 3 of 7 would then land on the last match rather than on match 2.
     const result = resultOver(7);
-    expect(stepFindMatch(result, 2, "previous")?.index).toBe(1);
-    expect(stepFindMatch(result, 2, "next")?.index).toBe(3);
+    expect(stepFindMatch(result, result.matches[2], "previous")?.index).toBe(1);
+    expect(stepFindMatch(result, result.matches[2], "next")?.index).toBe(3);
   });
 });
 

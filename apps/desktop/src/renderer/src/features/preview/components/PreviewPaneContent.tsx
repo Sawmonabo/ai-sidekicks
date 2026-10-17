@@ -40,6 +40,10 @@ const OPEN_EXTERNAL_FALLBACK: PreviewPaneRejectionFallback = {
   detail: "The system browser could not be reached from this window.",
 };
 
+// Why Back or Forward is grayed, read from the page's own history.
+const NO_EARLIER_PAGE = "No earlier page to go back to.";
+const NO_LATER_PAGE = "No later page to go forward to.";
+
 /** The page acts the pane's controls dispatch. */
 export interface PreviewChromeActs {
   readonly navigate: (url: string) => void;
@@ -157,12 +161,12 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
         <form onSubmit={submitDestination} className="meridian-preview-chrome">
           <AddressLineButton
             label="Back"
-            disabled={(reported?.backDepth ?? 0) === 0}
+            unavailableReason={(reported?.backDepth ?? 0) === 0 ? NO_EARLIER_PAGE : undefined}
             onActivate={acts.goBack}
           />
           <AddressLineButton
             label="Forward"
-            disabled={(reported?.forwardDepth ?? 0) === 0}
+            unavailableReason={(reported?.forwardDepth ?? 0) === 0 ? NO_LATER_PAGE : undefined}
             onActivate={acts.goForward}
           />
           {/* One button, two acts: the view's reported load state swaps reload for stop. */}

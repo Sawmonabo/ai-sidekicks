@@ -76,7 +76,7 @@ export function runHeaderLines(
       return { happened: [`${runName} was canceled.`], needs: NOTHING_FINISHED };
     case "crashed":
       return {
-        happened: [`${runName} stopped when the machine went down.`],
+        happened: [`${runName} stopped when the computer went down.`],
         needs: "Nothing — re-run it when you want it again.",
       };
   }

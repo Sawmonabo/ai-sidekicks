@@ -28,7 +28,7 @@ const ROOT_WORDS: Readonly<Record<string, string>> = {
   provideraccount: "Account",
   pty: "Shell",
   repo: "Project",
-  runtimenode: "Machine",
+  runtimenode: "Computer",
   transport: "Connection",
 };
 

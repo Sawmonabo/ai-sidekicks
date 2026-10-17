@@ -39,7 +39,7 @@ const REFUSAL_BANNER: WindowBanner = bannerRaisedFrom({
   ...refuse(
     "sessions",
     "agent.resolution_refused",
-    "The account this sidekick runs on is not on this machine, so no run can start here.",
+    "The account this sidekick runs on is not on this computer, so no run can start here.",
   ),
   reason: "account_unavailable",
 });
