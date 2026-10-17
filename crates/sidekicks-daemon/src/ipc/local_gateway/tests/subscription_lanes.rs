@@ -192,6 +192,66 @@ async fn a_small_message_goes_out_between_the_pieces_of_a_large_one() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_subscriptions_value_goes_out_between_the_pieces_of_lane_0s_replies() {
+    let harness = harness();
+    let mut connection = harness.connect(4096);
+    let (values, taken, feed) = channel_feed();
+    harness.script.prepare(feed);
+    connection.client.send(&subscribe(1)).await;
+    connection.client.answer().await;
+
+    // Three large replies keep lane 0 busy.
+    let big_calls: Vec<_> = (2..=4).map(|id| call(id, "test.big", &json!({}))).collect();
+    connection.client.send_all(&big_calls).await;
+    settle().await;
+    values.send(json!("v")).expect("the feed is held");
+    settle().await;
+
+    connection.client.seen.clear();
+    let mut handed_over_at = None;
+    let mut answered = 0;
+    let notification_lane = loop {
+        let read = within(connection.client.read_frame()).await;
+        match read {
+            Some(Event::Message { lane, json, .. }) if !lane.is_control() => {
+                assert_eq!(json["params"]["value"], json!("v"), "{json}");
+                break lane;
+            }
+            Some(Event::Message { .. }) => answered += 1,
+            Some(Event::Abort(_)) | None => {}
+        }
+        settle().await;
+        if handed_over_at.is_none() && taken.load(Ordering::SeqCst) == 1 {
+            handed_over_at = Some(connection.client.seen.len());
+        }
+    };
+    let seen = &connection.client.seen;
+    let handed_over_at = handed_over_at.expect("the value was handed over");
+    let value_end = seen
+        .iter()
+        .position(|frame| frame.lane == notification_lane && frame.is_end)
+        .expect("the value ended");
+    // The piece on the wire as it was handed over may be whole; at most one 16 KiB piece follows.
+    let control_pieces: Vec<usize> = seen[handed_over_at..value_end]
+        .iter()
+        .filter(|frame| frame.lane.is_control())
+        .filter_map(|frame| frame.bytes)
+        .collect();
+    assert!(control_pieces.len() <= 2, "{control_pieces:?}");
+    assert!(
+        control_pieces.iter().skip(1).all(|bytes| *bytes <= 16_384),
+        "{control_pieces:?}"
+    );
+    for _ in answered..3 {
+        let answer = connection.client.answer().await;
+        assert_eq!(
+            answer["result"]["text"].as_str().map(str::len),
+            Some(70_000)
+        );
+    }
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_client_granting_no_credit_or_reading_nothing_holds_one_piece_and_one_message_a_lane() {
     const VALUE_BYTES: usize = 40_000;
     let harness = harness();

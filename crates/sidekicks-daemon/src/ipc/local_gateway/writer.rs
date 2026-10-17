@@ -1,6 +1,7 @@
 //! A connection's writer: lane 0's messages, one lane per subscription, the credit the client
 //! grants on each, and the one task that cuts their messages into frames. CREDIT and ABORT frames
-//! go first, then lane 0's messages in the order they arrived, then the subscription lanes in turn.
+//! go first; then each round lane 0 sends one piece of its messages, in the order they arrived,
+//! and each waiting subscription lane one piece.
 //! The writer holds one cut piece and writes it before it cuts the next, so the socket's buffer
 //! holds the rest; each subscription lane holds at most the one message it is sending, because a
 //! feed's gate opens only once its lane is empty, has credit and the writer has room.
@@ -186,6 +187,8 @@ struct OutboxState {
     numbered: HashMap<LaneId, LaneKey>,
     /// The subscription lanes holding a message and credit, in turn order.
     sendable: VecDeque<LaneKey>,
+    /// The subscription pieces left in this round before lane 0's next turn.
+    round_left: usize,
     next_lane_key: u64,
     is_writing: bool,
     pieces_cut: u64,
@@ -226,10 +229,15 @@ impl OutboxState {
                 } else {
                     MAX_CHUNK_BYTES
                 };
-                if is_control_lane_ready {
+                // Lane 0 takes the first piece of each round, then each waiting lane one piece.
+                if is_control_lane_ready && self.round_left == 0 {
+                    self.round_left = self.sendable.len();
                     Some(self.cut_control_lane(piece_limit))
                 } else if let Some(key) = self.sendable.pop_front() {
+                    self.round_left = self.round_left.saturating_sub(1);
                     Some(self.cut_subscription_lane(key, piece_limit)?)
+                } else if is_control_lane_ready {
+                    Some(self.cut_control_lane(piece_limit))
                 } else {
                     None
                 }
