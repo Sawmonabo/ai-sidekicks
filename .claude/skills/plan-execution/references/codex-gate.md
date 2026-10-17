@@ -10,14 +10,14 @@
 | `ack_with_findings` | Codex reviewed this head and left findings. Read the threads. |
 | `ack_findings_no_threads` | Codex filed findings for this head in a comment body, with no review threads. There is nothing to resolve, so GitHub will not block the merge; read the comment and fix. |
 | `ack_without_verdict` | Codex spoke about this head without saying clean or not. Read what it said. |
-| `ack_unsettled` | The acknowledgement is too fresh to trust; later threads may still land. |
-| `ack_unattributable` | The only acknowledgement is bound to the head by its timestamp alone, and a Codex run for an older commit published after the push, so the acknowledgement may belong to that run. |
-| `ack_baseline_unavailable` | No first-sighting timestamp, so an old acknowledgement cannot be told from a new one. |
-| `ack_predates_baseline` | The only acknowledgement is older than the gate's first sighting of this head. |
+| `ack_unsettled` | The acknowledgment is too fresh to trust; later threads may still land. |
+| `ack_unattributable` | The only acknowledgment is bound to the head by its timestamp alone, and a Codex run for an older commit published after the push, so the acknowledgment may belong to that run. |
+| `ack_baseline_unavailable` | No first-sighting timestamp, so an old acknowledgment cannot be told from a new one. |
+| `ack_predates_baseline` | The only acknowledgment is older than the gate's first sighting of this head. |
 | `no_ack_yet` | Codex has not looked at this head. Wait, or ask it to. |
 | `head_moved` | The branch advanced while the gate was reading. Every other signal is stale; re-run. |
 | `draft_not_eligible` | The PR is a draft. |
-| `rate_limited` | Since the push, Codex posted that it has reached its usage limits for code reviews. Not an acknowledgement; stop polling. |
+| `rate_limited` | Since the push, Codex posted that it has reached its usage limits for code reviews. Not an acknowledgment; stop polling. |
 | `signal_truncated` | A thread or check page was cut off, so the reading is incomplete. |
 
 ## `merge_ok`
@@ -27,13 +27,13 @@
 - the verdict is `ack_clean`;
 - the PR is open;
 - the head the gate re-reads after its last probe is the head it started with;
-- a check suite dates the push, so the time an acknowledgement must post-date does not rest on the author's commit clock;
+- a check suite dates the push, so the time an acknowledgment must post-date does not rest on the author's commit clock;
 - CI is green, or, under `--advisory`, red while no check on the branch is marked required (see [`--advisory`](#--advisory));
 - no unresolved Codex thread, outdated or not;
 - neither the thread list nor the check list was cut off;
-- if the only acknowledgements are bound to the head by timestamp alone, no Codex run for an older commit published after the push;
-- if the only acknowledgements are bound to the head by timestamp alone, the gate has a usable first sighting of this head;
-- at least one acknowledgement survives, rather than every one being refused for predating the first sighting;
+- if the only acknowledgments are bound to the head by timestamp alone, no Codex run for an older commit published after the push;
+- if the only acknowledgments are bound to the head by timestamp alone, the gate has a usable first sighting of this head;
+- at least one acknowledgment survives, rather than every one being refused for predating the first sighting;
 - GitHub's merge state is `CLEAN`, `HAS_HOOKS` or `UNSTABLE`.
 
 ## How Codex acknowledges a head
@@ -48,11 +48,11 @@ Any one of these acknowledges the head. A sha-bound one names the commit itself,
 | A Codex comment saying "Didn't find any major issues" with no `Reviewed commit:` line | timestamp | Clean. A clean comment whose `Reviewed commit:` line names another commit is a verdict on that commit and acknowledges nothing here. |
 | A Codex findings summary (a `### 💡 Codex Review` heading or a `P1`-style badge) whose links name the head | sha | Findings, delivered in the comment body instead of as threads. |
 
-A Codex comment saying it has reached its usage limits for code reviews is not an acknowledgement: it ends the poll as `rate_limited`. A limit notice for security reviews does not, because that quota does not stop the code review.
+A Codex comment saying it has reached its usage limits for code reviews is not an acknowledgment: it ends the poll as `rate_limited`. A limit notice for security reviews does not, because that quota does not stop the code review.
 
 The ack anchor is the latest of three times: the head commit's timestamp, the earliest check suite GitHub created for the sha, and the gate's own first sighting of the sha as this PR's head, which it stores under `.cache/codex-gate/`. The usage-limits notice and the check for a run on an older commit use only the first two, because both ask about the push, not about when the gate first looked.
 
-A review or comment acknowledgement younger than two minutes, with no open threads yet, is held as `ack_unsettled`, because its threads may still be appearing. An acknowledgement with no usable timestamp is treated as one that just landed.
+A review or comment acknowledgment younger than two minutes, with no open threads yet, is held as `ack_unsettled`, because its threads may still be appearing. An acknowledgment with no usable timestamp is treated as one that just landed.
 
 ## Three facts about the data
 
