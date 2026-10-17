@@ -12,6 +12,7 @@ use axum::routing::post;
 use rstest::rstest;
 use serde::Deserialize;
 use serde_json::json;
+use sidekicks_contracts::jsonrpc::issue::UNREADABLE_VALUE_ISSUE_MESSAGE;
 use sidekicks_control_plane::server::router::{ControlPlaneRefusal, add_refusal_fallbacks};
 
 use crate::helpers::call;
@@ -123,7 +124,7 @@ async fn the_router_refuses_with_its_own_codes(
         // The issue names where the body breaks, never the value it holds.
         assert_eq!(
             refusal["issues"],
-            json!([{ "path": ["name"], "message": "This value does not read as its type." }])
+            json!([{ "path": ["name"], "message": UNREADABLE_VALUE_ISSUE_MESSAGE }])
         );
     }
     if status == StatusCode::PAYLOAD_TOO_LARGE {

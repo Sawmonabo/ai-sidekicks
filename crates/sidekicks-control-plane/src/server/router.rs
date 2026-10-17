@@ -10,7 +10,9 @@ use axum::http::header::RETRY_AFTER;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Map, Value, json};
-use sidekicks_contracts::jsonrpc::issue::{Issue, reader_issue_path};
+use sidekicks_contracts::jsonrpc::issue::{
+    Issue, UNREADABLE_VALUE_ISSUE_MESSAGE, reader_issue_path,
+};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::rate_limiter::RateLimitResponse;
 
@@ -19,10 +21,6 @@ use crate::server::log_internal_failure;
 
 /// What a caller reads for a failure inside the relay; the failure itself goes to the log.
 pub(crate) const INTERNAL_ERROR_MESSAGE: &str = "Unexpected internal error";
-
-/// What a caller reads for a value in a body that does not read as its type, which never quotes
-/// the value.
-const UNREADABLE_VALUE: &str = "This value does not read as its type.";
 
 /// The address a request came from as the host's edge reports it, before its canonical form: the
 /// `CF-Connecting-IP` header on Workers, the address Caddy saw on the Compose relay.
@@ -110,7 +108,7 @@ impl From<JsonRejection> for ControlPlaneRefusal {
         Self::ParamsInvalid {
             issues: vec![Issue {
                 path,
-                message: UNREADABLE_VALUE.to_owned(),
+                message: UNREADABLE_VALUE_ISSUE_MESSAGE.to_owned(),
                 params: None,
             }],
         }
