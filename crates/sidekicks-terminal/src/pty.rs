@@ -1,4 +1,4 @@
-//! A shell's PTY: how it opens, the environment it hands the `shell-start` mode, and the queue that
+//! A shell's PTY: how it opens, the environment it hands the `shell` mode, and the queue that
 //! carries writes to the terminal in order.
 
 use std::collections::hash_map::Entry;
@@ -41,12 +41,12 @@ pub struct SpawnRequest {
     pub rows: u16,
     /// The terminal's width in columns.
     pub columns: u16,
-    /// The daemon's `shell-start` mode with its arguments up to the shell's program, which starts
+    /// The daemon's `shell` mode with its arguments up to the shell's program, which starts
     /// the shell with exactly `environment`.
     pub shell_start: CommandLine,
 }
 
-/// Opens the shell's PTY and starts its program through the `shell-start` mode; blocking, so it
+/// Opens the shell's PTY and starts its program through the `shell` mode; blocking, so it
 /// runs on the daemon's spawner thread. Fails with `InvalidInput` for an environment entry with
 /// an empty name, an `=` in its name or a NUL, with `NotADirectory` when the working folder is not
 /// a folder, and with the system's error when the terminal cannot be opened or the program
@@ -76,7 +76,7 @@ pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<Pty> {
     tty::new(&options, window_size, 0)
 }
 
-/// Refuses an environment the `shell-start` mode could not hand on as given: an empty name, an `=`
+/// Refuses an environment the `shell` mode could not hand on as given: an empty name, an `=`
 /// in a name, or a NUL anywhere.
 fn check_environment(environment: &[(String, String)]) -> io::Result<()> {
     for (index, (name, value)) in environment.iter().enumerate() {
@@ -94,11 +94,11 @@ fn check_environment(environment: &[(String, String)]) -> io::Result<()> {
     Ok(())
 }
 
-/// The variable that tells the `shell-start` mode how many environment entries it was handed.
+/// The variable that tells the `shell` mode how many environment entries it was handed.
 const SHELL_ENVIRONMENT_COUNT: &str = "SIDEKICKS_SHELL_ENVIRONMENT_COUNT";
 
 /// The start of every variable that carries one entry of a shell's environment to the
-/// `shell-start` mode; the entry's index in the environment follows it.
+/// `shell` mode; the entry's index in the environment follows it.
 const SHELL_ENVIRONMENT_PREFIX: &str = "SIDEKICKS_SHELL_ENVIRONMENT_";
 
 /// The name of the variable that carries entry `index` of a shell's environment.
@@ -106,7 +106,7 @@ fn shell_environment_name(index: usize) -> String {
     format!("{SHELL_ENVIRONMENT_PREFIX}{index}")
 }
 
-/// The variables that carry `environment` to the `shell-start` mode: the count, then one
+/// The variables that carry `environment` to the `shell` mode: the count, then one
 /// `NAME=VALUE` each, in order, a later entry's value replacing an earlier one's of the same name
 /// in its place.
 fn encode_shell_environment(environment: &[(String, String)]) -> HashMap<String, String> {
@@ -130,7 +130,7 @@ fn encode_shell_environment(environment: &[(String, String)]) -> HashMap<String,
         .collect()
 }
 
-/// Why the environment the `shell-start` mode was handed could not be read.
+/// Why the environment the `shell` mode was handed could not be read.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ShellEnvironmentError {
     /// No variable says how many entries were handed over.
@@ -159,7 +159,7 @@ pub enum ShellEnvironmentError {
     },
 }
 
-/// Reads a shell's environment, in order, from the variables the daemon handed the `shell-start`
+/// Reads a shell's environment, in order, from the variables the daemon handed the `shell`
 /// mode, reading only the entries below the count it was handed, so any other variable, a stray
 /// inherited entry among them, is ignored. Fails when the count is missing or not a number, or an
 /// entry below it is missing, not Unicode or holds no `=`.
@@ -418,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn the_shell_start_mode_reads_back_exactly_the_environment_it_was_handed() {
+    fn the_shell_mode_reads_back_exactly_the_environment_it_was_handed() {
         let environment = [
             ("PATH", "/bin"),
             ("EQUATION", "a=b\nc"),

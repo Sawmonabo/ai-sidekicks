@@ -1,7 +1,7 @@
 // The release manifest: the JSON file a release publishes beside its artifacts,
 // and the version string a release carries.
 //
-// The command line's `sidekicks self-update`, which updates the background
+// The command line's `sidekicks daemon update`, which updates the background
 // service, parses the manifest with this schema, checks each download against its
 // SHA-256, and refuses a manifest whose `version` is not above the last one it
 // saw. That check needs the reader's own record of what it last saw, so it is the
@@ -57,7 +57,7 @@ export interface ReleaseManifest {
 /**
  * Parses a {@link ReleaseManifest}.
  *
- * @consumedBy the command line's `sidekicks self-update`, which checks each download against the
+ * @consumedBy the command line's `sidekicks daemon update`, which checks each download against the
  * manifest
  */
 export const ReleaseManifestSchema: z.ZodType<ReleaseManifest> = z

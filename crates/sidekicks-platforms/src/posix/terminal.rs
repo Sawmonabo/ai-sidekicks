@@ -477,7 +477,7 @@ fn posix_signal(signal: TerminalSignal) -> Signal {
     }
 }
 
-/// The `shell-start` stand-in tests open shells through: `/usr/bin/env`, which ends its options at
+/// The `shell` mode's stand-in tests open shells through: `/usr/bin/env`, which ends its options at
 /// `--` and runs the program after it with the environment it was given.
 #[cfg(any(test, feature = "test-support"))]
 pub fn pass_through_start() -> TestProgram {

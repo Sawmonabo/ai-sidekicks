@@ -48,7 +48,7 @@ Rebuild session and audit projections when session history appears incomplete, s
 ```bash
 sidekicks daemon status          # the service and its store
 sidekicks daemon restart         # startup rebuilds every projection
-sidekicks export-data <folder>   # every session's events, one per line
+sidekicks data export <folder>   # every session's events, one per line
 ```
 
 ## SLOs and Thresholds

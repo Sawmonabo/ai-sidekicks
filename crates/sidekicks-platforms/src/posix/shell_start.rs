@@ -1,4 +1,4 @@
-//! The macOS and Linux pieces of the `shell-start` mode: the default shell, the parent check that
+//! The macOS and Linux pieces of the `shell` mode: the default shell, the parent check that
 //! keeps a shell from outliving the daemon, and the exec on the program's resolved path.
 
 use std::convert::Infallible;
@@ -57,7 +57,7 @@ pub fn arm_parent_death(daemon_pid: u32) -> io::Result<()> {
     })
 }
 
-/// Prepares the `shell-start` mode's own process for its exec: arms it as [`arm_parent_death`]
+/// Prepares the `shell` mode's own process for its exec: arms it as [`arm_parent_death`]
 /// does, then sets `SIGPIPE` back to its default, since an ignored signal survives `execve`. Fails
 /// with [`ShellStartError::DaemonGone`] when the daemon is no longer the parent, and with the
 /// variant naming the call the system refused.

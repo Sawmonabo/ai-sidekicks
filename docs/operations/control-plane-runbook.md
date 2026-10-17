@@ -10,14 +10,14 @@ Recover the person's own control plane and relay, on their Cloudflare account or
 - A machine card reads `Not reachable · last seen <when>` while that machine's service is running
 - A device card reads `Seen in two places at once. Revoke it if you did not expect this.`
 - `sidekicks daemon status` prints `refused: the relay's key does not match the one pinned when it was linked`
-- Signing a machine in fails, from `Sign in` on Settings › Devices or from `sidekicks sign-in`
+- Signing a machine in fails, from `Sign in` on Settings › Devices or from `sidekicks account login`
 - Scope and blast radius: every device's reach to every machine through that relay. Sessions keep running on their machines, and the desktop app on each machine keeps driving its own sessions over the machine's local connection.
 
 ## Detection
 
 - On the machine, run `sidekicks daemon status`. While a relay is configured it prints the relay block: each linked device by name, connected or not, the age of the last frame out and the last frame in, the reconnect count and the rejected-frame count, each counted since the service started. With no relay configured the block is absent.
 - Every device not connected, with an old last frame in, means the machine's own relay connection is down. One device that keeps reconnecting means its key is in two places.
-- `sidekicks devices` prints the account's machines and devices, as the Devices page's cards show them.
+- `sidekicks device list` prints the account's machines and devices, as the Devices page's cards show them.
 - Read the relay's own logs: the Worker's logs in the person's Cloudflare account, or `docker compose logs` on the Compose server.
 
 ## Preconditions
@@ -30,8 +30,8 @@ Recover the person's own control plane and relay, on their Cloudflare account or
 
 1. Run `sidekicks daemon status` on the machine and read the relay block against Detection.
 2. If the machine's own relay connection is down, check the machine's network, then the relay: the Worker's deployment in the Cloudflare account, or the containers on the Compose server.
-3. If signing in fails, read its failure reason ([Hosted Account Payload Contracts §Account Sign-In Method Registry](../architecture/contracts/hosted-account-payloads.md#account-sign-in-method-registry)) and act on it, then sign in again; the service never stops for a sign-in. `relayUnreachable` or `refused`: fix the relay first. `credentialStoreUnavailable`: unlock the operating system's credential store. `machineKeyChanged`: remove the machine on Devices from another device, then sign it in again. An expired sign-in page only needs a new attempt. A machine with no relay address set takes one in the `Relay address` field beside `Sign in`. `sidekicks sign-in` starts the service when it is stopped and signs in through it; where no browser can reach the machine, it takes a code pasted from the sign-in page.
-4. If a device card reads `Seen in two places at once`, its key is in two places. If that is not expected, revoke the device (`Revoke` on its card, or `sidekicks devices revoke <device>`) and link the real device again as a new one.
+3. If signing in fails, read its failure reason ([Hosted Account Payload Contracts §Account Sign-In Method Registry](../architecture/contracts/hosted-account-payloads.md#account-sign-in-method-registry)) and act on it, then sign in again; the service never stops for a sign-in. `relayUnreachable` or `refused`: fix the relay first. `credentialStoreUnavailable`: unlock the operating system's credential store. `machineKeyChanged`: remove the machine on Devices from another device, then sign it in again. An expired sign-in page only needs a new attempt. A machine with no relay address set takes one in the `Relay address` field beside `Sign in`. `sidekicks account login` starts the service when it is stopped and signs in through it; where no browser can reach the machine, it takes a code pasted from the sign-in page.
+4. If a device card reads `Seen in two places at once`, its key is in two places. If that is not expected, revoke the device (`Revoke` on its card, or `sidekicks device revoke <device>`) and link the real device again as a new one.
 5. If a device refuses a machine with `<machine> is using a new key, so it was not connected.`, the machine was reinstalled: remove it on Devices and link it again. Linked again, it mints a new identity key under its same machine id, and its new `runtimenode.added` moves every device's pin for that id; its store, sessions and id stay.
 6. If `sidekicks daemon status` prints `refused: the relay's key does not match the one pinned when it was linked`, and the relay was redeployed on purpose with a new key, run `sidekicks relay repin --force` with the new key's hash. Only a relay without a publicly trusted certificate is pinned; a pinned relay's key that changed without a deliberate redeploy is treated as an attack and left refused.
 7. Link one device and open one known session from it before declaring recovery complete.
@@ -50,9 +50,9 @@ Recover the person's own control plane and relay, on their Cloudflare account or
 
 ```bash
 sidekicks daemon status          # the relay block, and a refused relay pin
-sidekicks devices                # the machines and the linked devices
-sidekicks devices revoke <device>
-sidekicks sign-in                # starts the service if it is stopped, and signs in through it
+sidekicks device list            # the machines and the linked devices
+sidekicks device revoke <device>
+sidekicks account login          # starts the service if it is stopped, and signs in through it
 sidekicks relay repin --force    # a relay without a publicly trusted certificate, redeployed on purpose
 ```
 

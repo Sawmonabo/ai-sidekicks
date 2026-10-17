@@ -308,15 +308,15 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `account.delete` | `sidekicks delete-account`: every refresh-token family revoked, then the hosted account's rows deleted in one transaction | [Spec-020](../../specs/020-data-retention-export-and-deletion.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 5 T5.5 |
+| `account.delete` | `sidekicks account delete`: every refresh-token family revoked, then the hosted account's rows deleted in one transaction | [Spec-020](../../specs/020-data-retention-export-and-deletion.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 5 T5.5 |
 | `account.export` | The hosted account's own records, for `Export all data`'s `hosted-account.json` | [Spec-020](../../specs/020-data-retention-export-and-deletion.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 5 T5.5 |
 | `account.nameUpdate` | Change the caller's own display name; the request names no user | [Spec-016](../../specs/016-hosted-account-and-identity.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 4 T4.4 |
 | `account.read` | The hosted account's id and display name, with no device presence | [Spec-016](../../specs/016-hosted-account-and-identity.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 4 T4.4 |
-| `account.signIn {way, relayAddress?}` | The Devices page's `Sign in` and `sidekicks sign-in`: the service starts its own sign-in and returns the address the browser opens | [Spec-016](../../specs/016-hosted-account-and-identity.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 5 T5.4 |
-| `account.signInCancel {attemptId}` | `Cancel` on the Devices page's waiting block, and Ctrl-C in `sidekicks sign-in` | [Spec-016](../../specs/016-hosted-account-and-identity.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 5 T5.4 |
-| `account.signInCodeSubmit {attemptId, code}` | `sidekicks sign-in` where no browser can reach the machine: the code the relay's page shows, pasted | [Spec-016](../../specs/016-hosted-account-and-identity.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 5 T5.4 |
-| `account.signInSubscribe` | The sign-in's state, live: the Devices page's sign-in block and `sidekicks sign-in`'s progress | [Spec-016](../../specs/016-hosted-account-and-identity.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 5 T5.4 |
-| `account.signOut` | `sidekicks sign-out`: the DPoP key deleted first, then the refresh-token family revoked once the relay can be reached | [Spec-016](../../specs/016-hosted-account-and-identity.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 5 T5.4 |
+| `account.signIn {way, relayAddress?}` | The Devices page's `Sign in` and `sidekicks account login`: the service starts its own sign-in and returns the address the browser opens | [Spec-016](../../specs/016-hosted-account-and-identity.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 5 T5.4 |
+| `account.signInCancel {attemptId}` | `Cancel` on the Devices page's waiting block, and Ctrl-C in `sidekicks account login` | [Spec-016](../../specs/016-hosted-account-and-identity.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 5 T5.4 |
+| `account.signInCodeSubmit {attemptId, code}` | `sidekicks account login` where no browser can reach the machine: the code the relay's page shows, pasted | [Spec-016](../../specs/016-hosted-account-and-identity.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 5 T5.4 |
+| `account.signInSubscribe` | The sign-in's state, live: the Devices page's sign-in block and `sidekicks account login`'s progress | [Spec-016](../../specs/016-hosted-account-and-identity.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 5 T5.4 |
+| `account.signOut` | `sidekicks account logout`: the DPoP key deleted first, then the refresh-token family revoked once the relay can be reached | [Spec-016](../../specs/016-hosted-account-and-identity.md) | [Plan-015](../../plans/015-hosted-account-and-identity.md) Phase 5 T5.4 |
 
 ### `agent.*`
 

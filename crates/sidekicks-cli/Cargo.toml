@@ -9,7 +9,7 @@ publish.workspace = true
 
 [package.metadata.cargo-shear]
 ignored = [
-  # The QR code `sidekicks devices link` draws in the terminal.
+  # The QR code `sidekicks device link` draws in the terminal.
   "fast_qr",
   # The hidden prompt for a provider account's token, held in memory until the one place that
   # passes it on.

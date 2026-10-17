@@ -233,7 +233,7 @@ A skeptical staff engineer would argue:
 | --- | --- | --- | --- |
 | A plan builds without integration friction across all primitives | Every acceptance criterion of the plan passes with the ADR-021 toolchain unchanged | Each task's acceptance in the plan | When each plan's last phase lands |
 | Hot-build under target (single-package or single-crate change) | < 30 seconds from save to test result | Local `turbo watch` + Vitest watch, or `cargo nextest run` on the changed crate | At each toolchain version change |
-| `sidekicks-daemon` builds on every V1 platform | On macOS x64/arm64, Linux x64/arm64 (glibc and musl) and Windows x64/arm64, `sidekicks-daemon` builds with `--locked`, the bundled SQLite and its `.recover` shell included, and repairs the damaged-database fixture through its `sqlite-shell` mode | CI native-leg matrix | Each CI run |
+| `sidekicks-daemon` builds on every V1 platform | On macOS x64/arm64, Linux x64/arm64 (glibc and musl) and Windows x64/arm64, `sidekicks-daemon` builds with `--locked`, the bundled SQLite and its `.recover` shell included, and repairs the damaged-database fixture through its `database shell` mode | CI native-leg matrix | Each CI run |
 
 ---
 

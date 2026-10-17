@@ -118,7 +118,7 @@ type LiveTerminals = Arc<Mutex<HashMap<TerminalHandle, Arc<TerminalEntry>>>>;
 pub struct Terminals {
     /// The thread every shell, `taskkill.exe` and console helper starts on.
     spawner: Spawner,
-    /// The daemon's console-helper mode, which ends a terminal on Windows.
+    /// The daemon's `console` mode, which ends a terminal on Windows.
     console_helper: Arc<CommandLine>,
     /// The live terminals, by handle.
     live: LiveTerminals,
@@ -130,7 +130,7 @@ pub struct Terminals {
 
 impl Terminals {
     /// Terminals whose shells, `taskkill.exe` and console helper start on `spawner`'s thread,
-    /// ended on Windows through `console_helper` (the daemon's console-helper mode, to which each
+    /// ended on Windows through `console_helper` (the daemon's `console` mode, to which each
     /// call adds the program's process id).
     pub fn new(spawner: Spawner, console_helper: CommandLine) -> Self {
         Self {
@@ -409,7 +409,7 @@ struct TerminalEntry {
     escalation: Escalation,
     /// The thread its ending programs start on.
     spawner: Spawner,
-    /// The daemon's console-helper mode, which ends it on Windows.
+    /// The daemon's `console` mode, which ends it on Windows.
     console_helper: Arc<CommandLine>,
     /// Set once an outright end of its tree began, so the drain counts its exit as forced.
     is_escalated: AtomicBool,
