@@ -101,9 +101,9 @@ type ExecutionPosture = {
 
 // Daemon-curated callback tool exposed into a session (authorization semantics
 // Spec-010). Mirrors the function-form provider tool shape (name + description +
-// JSON-Schema input) — served on the daemon's shared `sidekicks` MCP tool server through one `url`
-// entry per session (Claude Code through `--mcp-config`, Codex as a `url` entry in the
-// conversation's `mcp_servers` at `thread/start`), never Codex `dynamicTools`; Claude Code surfaces
+// JSON-Schema input) — served on the daemon's shared `sidekicks` MCP tool server through one entry per
+// session (Claude Code an in-process server named in `initialize`'s `sdkMcpServers`, Codex a
+// `url` entry in the conversation's `mcp_servers` at `thread/start`), never Codex `dynamicTools`; Claude Code surfaces
 // the tools as `mcp__sidekicks__<tool>` and Codex as `mcp__sidekicks.<tool>`. Every invocation flows through the daemon's approval pipeline and
 // lands as an ordinary `tool_activity` row (Spec-005). Daemon-constructed and daemon-trusted —
 // never provider output.

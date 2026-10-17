@@ -8,7 +8,7 @@
 | **Date** | `2026-04-17` |
 | **Author(s)** | `Claude (AI-assisted)` |
 | **Depends On** | [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md), [Spec-006: Local IPC And Daemon Control](./006-local-ipc-and-daemon-control.md), [Spec-021: Desktop App And Renderer](./021-desktop-app-and-renderer.md), [Spec-025: Provider Accounts And Credential Homes](./025-provider-accounts-and-credential-homes.md), [Spec-027: Remote Control](./027-remote-control.md) |
-| **Implementation Plan** | Built by the plans that own its pieces: [Plan-005](../plans/005-local-ipc-and-daemon-control.md) (the background service's start and its place on WSL 2, `sidekicks relay repin`), [Plan-020](../plans/020-desktop-app-and-renderer.md) (the first-launch cover, the sessions list's empty state, `Keep crash reports`), [Plan-023](../plans/023-provider-accounts-and-credential-homes.md) (Settings › Providers), [Plan-015](../plans/015-hosted-account-and-identity.md) (the hosted account's sign-in) and [Plan-025](../plans/025-remote-control.md) Phase 3 (the relay key pin) |
+| **Implementation Plan** | Built by the plans that own its pieces: [Plan-005](../plans/005-local-ipc-and-daemon-control.md) (the background service's start, sessions in WSL 2 distributions, `sidekicks relay repin`), [Plan-020](../plans/020-desktop-app-and-renderer.md) (the first-launch cover, the sessions list's empty state, `Keep crash reports`), [Plan-023](../plans/023-provider-accounts-and-credential-homes.md) (Settings › Providers), [Plan-015](../plans/015-hosted-account-and-identity.md) (the hosted account's sign-in) and [Plan-025](../plans/025-remote-control.md) Phase 3 (the relay key pin) |
 
 ## Purpose
 
@@ -20,7 +20,7 @@ It also defines the one trust decision first contact with a relay can involve: w
 
 In scope:
 
-- The desktop app's first launch: the cover while the background service starts, where the service runs on a computer with more than one place for it, and the sessions list's empty state.
+- The desktop app's first launch: the cover while the background service starts, a Windows computer's first launch with WSL installed, and the sessions list's empty state.
 - The first use of the command line.
 - Where each setup act lives, as a pointer to the spec that owns its mechanism.
 - The relay's TLS key pin: which relays are pinned, the refusal when a pinned key changes, and its recovery.
@@ -59,7 +59,7 @@ Out of scope (see Non-Goals):
 ### First launch
 
 - **Nothing is asked.** Opening the desktop app draws one quiet cover over the window until the background service answers, then fades it and never draws it again while the app runs. The cover carries the working indicator and one line: `Starting the background service…` when the app started the service itself, `Connecting to the background service…` when it found one already running. Nothing behind it is drawn half-painted.
-- **The service's place is chosen without a question.** On a Windows computer with at least one WSL 2 distribution, the service starts where both Claude Code and Codex are found, else where one of them is, else on Windows. Where the place it lands on has neither provider, the row a session that cannot start already draws reads `Choose where Claude Code and Codex are installed` and opens the `Where Claude Code and Codex are installed` row on Settings › Providers.
+- **No WSL work at first launch.** On every Windows computer the background service is the native Windows program and starts under the one cover, with no question asked. No WSL 2 distribution is listed, booted or installed into until a session or Settings › Providers needs one; a session runs where its project folder is, and one whose provider is missing there lands the row `Claude Code is not installed in Ubuntu.` with `Install in Ubuntu`, which opens that provider's `Ubuntu (WSL)` row on Settings › Providers, or, for a Windows folder, `Claude Code is not installed on Windows.` with `Install on Windows`, which opens its `Windows` row ([Spec-006 §The service on a Windows computer](./006-local-ipc-and-daemon-control.md#the-service-on-a-windows-computer)).
 - **The sessions list says it is empty in its own words.** With no sessions at all it reads `No sessions yet. Press New session to start with a chat or a project.` and names nothing else.
 - **No first-run furniture, anywhere.** There is no welcome wizard, tour, checklist or dismissible tip on any surface. A surface with nothing in it says so in its own words and offers exactly one next act, named against what the session is bound to.
 - **No identity step.** No sign-in stands in front of the first session. Two sign-ins are on screens: a provider account's, on Settings › Providers, and the hosted account's `Sign in` on Settings › Devices on a machine not signed in.
@@ -89,7 +89,7 @@ Out of scope (see Non-Goals):
 
 - **A pinned relay presents a different key.** The connection is refused and recorded as above; the refusal never falls back to connecting, and it names its one recovery.
 - **The pasted hash does not match the key the relay presents.** `sidekicks relay repin --force` refuses, changes nothing, and the pin stays as it was.
-- **The first place chosen for the service has neither provider.** Sessions cannot start, and the one next act is the row that opens `Where Claude Code and Codex are installed` on Settings › Providers.
+- **A session's provider is not installed where its project folder is.** The session cannot start, and the one next act is its row, `Claude Code is not installed in Ubuntu.` with `Install in Ubuntu`, which opens that provider's `Ubuntu (WSL)` row on Settings › Providers, or, for a Windows folder, `Claude Code is not installed on Windows.` with `Install on Windows`, which opens its `Windows` row.
 
 ## Interfaces And Contracts
 

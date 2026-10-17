@@ -144,14 +144,20 @@ The 256 MB local daemon budget above is an operating target for one user's sessi
 
 ### Budgets On A Windows Computer
 
-Workload: the service idle for 10 minutes, one app window open, no session.
+**Workload 1:** the service idle for 10 minutes, one app window open, no session, and no work in a WSL 2 distribution.
 
-- **The daemon:** the 256 MB operating target above, the same inside a WSL 2 distribution.
-- **The service's Windows half,** on a computer whose service runs in WSL 2: 15 MB private working set or less at idle. Proposed; the baseline is measured on a Windows machine before the WSL phase lands.
-- **The channel's buffers:** bounded by the channel's `h2` settings on each end, every writer sending through the stream's granted capacity, `max_send_buffer_size` left at `h2`'s default, with a 1 MiB stream window and a 16 MiB connection window, which are never a resident figure at idle.
-- **The attached `wsl.exe`, and the channel's latency and throughput against a native pipe:** measured on a Windows machine before the WSL phase lands.
-- **The WSL virtual machine:** kept running for the service's whole life. Its memory cap defaults to half of RAM, with `autoMemoryReclaim` at `dropCache`, and the person's `.wslconfig` is never edited. Its idle cost with only the service running is measured on a Windows machine and stated here; it is not part of the Runtime figure, which counts the service's own processes (the daemon's process tree inside the distribution, plus the Windows half and its `wsl.exe` on Windows), because the VM's working set holds other distributions and the person's own WSL work.
-- **A folder on the other side's disk** (`/mnt/c` from Linux, `\\wsl.localhost` from Windows) is slower, because every file operation crosses 9P; its cost is measured before the WSL phase lands.
+- **The daemon:** the 256 MB operating target above.
+- **WSL:** no WSL server, no `wsl.exe`, and the WSL virtual machine stopped. Where work that runs at all times lives in a distribution (the five-minute account reads of a provider installed only there, or the terminal Codex service switched on there), that computer's idle is Workload 2 without the session.
+
+**Workload 2:** one session in a WSL 2 distribution idle between turns, one terminal open.
+
+- **The WSL server:** 25 MB resident or less at idle. Proposed; it opens no store, index or scheduler, but it is the whole daemon program holding a PTY host, inotify and three local endpoints, and its baseline is measured on a Windows machine before the WSL phase lands.
+- **The attached `wsl.exe`:** measured on a Windows machine before the WSL phase lands.
+- **The channel's buffers:** bounded by the channel's `h2` settings on each end, every writer sending through the stream's granted capacity, with a 1 MiB stream window and a 16 MiB connection window, a ceiling on each end and never a resident figure at idle.
+- **The WSL virtual machine:** runs only while a distribution has work, and stops about 60 seconds after its last distribution stops, which happens about 15 seconds after the WSL server's idle exit 10 minutes after its last work. Its working set with only this work, read before and two minutes after WSL reclaims idle cache toward about 128 MB, is measured on a Windows machine and stated here. The person's `.wslconfig` is never edited. It is not part of the Runtime figure, which counts the service's own processes — the daemon's process tree on Windows plus, for each running WSL server, its `wsl.exe` and its process tree read inside the distribution — because the virtual machine's working set holds other distributions and the person's own WSL work, and it is never drawn on screen.
+- **A Codex account with sessions in the distribution** runs its own Codex service there: about 40 MB with one client, plus 17 MB per conversation.
+
+**Workload 3:** one session in a distribution mid-turn streaming, a 50 MB diff read, and a Preview page with hot reload. A small call adds at most 1 ms at the median over the same call to a Windows session (proposed); a 50 MB read through the channel is at least as fast as reading the same file from Windows over `\\wsl.localhost`; a terminal flood keeps the channel open. No session works on another place's disk, so nothing reads across the Windows–WSL file bridge for a session's work.
 
 ## Container and Packaging
 
@@ -159,11 +165,11 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 **Relay:** Docker container, same base image.
 
-**Local daemon:** `sidekicks-daemon`, a signed native binary, beside the `sidekicks` command line. The Linux runtime is `sidekicks-daemon` and `sidekicks` for glibc and musl on x64 and arm64, each archive with its SHA-256, so an Alpine machine or distribution runs it; the musl `sidekicks-daemon` is the dynamic build with `libgcc_s.so.1` and `libpdfium.so` beside it, and the musl `sidekicks` is one static program, since it loads no PDFium. Each Windows installer carries the Linux runtime archives for its architecture, glibc and musl, with their SHA-256, so a WSL 2 distribution runs the bytes a Linux user downloads and its first start works offline. Distributed through GitHub Releases, as a direct download and inside the desktop app's installers, never on npm ([§CI/CD and Release](#cicd-and-release)).
+**Local daemon:** `sidekicks-daemon`, a signed native binary, beside the `sidekicks` command line. The Linux runtime is `sidekicks-daemon` and `sidekicks` for glibc and musl on x64 and arm64, each archive with its SHA-256, so an Alpine machine or distribution runs it; the musl `sidekicks-daemon` is the dynamic build with `libgcc_s.so.1` and `libpdfium.so` beside it, and the musl `sidekicks` is one static program, since it loads no PDFium. Each Windows installer carries the Linux runtime archives for its architecture, glibc and musl, with their SHA-256, so a WSL 2 distribution's WSL server runs the bytes a Linux user downloads and the first session there works offline. Distributed through GitHub Releases, as a direct download and inside the desktop app's installers, never on npm ([§CI/CD and Release](#cicd-and-release)).
 
 **Desktop app:** Electron app bundling the daemon. The daemon is the person's own background service on every platform, spawned detached or run by the operating system's service manager, never a child of the desktop app. A quit flushes and leaves the service, every run and every shell running; only Runtime's `Stop` and `Restart` end work ([Spec-006](../specs/006-local-ipc-and-daemon-control.md)).
 
-**Background service on a Windows computer:** the service runs on the side where Claude Code and Codex are installed, Windows or one WSL 2 distribution, one service per computer. In a distribution it is the daemon plus the service's Windows half, a small native Windows program built by `sidekicks-platforms` and started at logon by a per-user task; the Windows half keeps one attached `wsl.exe` running the daemon for the service's whole life, inside a Job that lets Windows programs started through interop outlive it. Windows clients reach the daemon through one per-user named pipe, the same on both kinds of Windows computer, carried to a daemon in a distribution as streams of one HTTP/2 channel over that `wsl.exe`'s standard input and output. Key custody stays on Windows for both sides. On native Windows the daemon serves the pipe and does custody, keep-awake, the wake timer and banner withdrawal in its own process through the same `sidekicks-platforms` code the Windows half runs, so every Windows-only job has one implementation ([ADR-039](../decisions/039-the-service-on-wsl-2.md), [Spec-006 §The service on a Windows computer](../specs/006-local-ipc-and-daemon-control.md#the-service-on-a-windows-computer)).
+**Background service on a Windows computer:** the service is the native daemon on every Windows computer, with or without WSL, one service per computer, started at logon by a per-user task with Task Scheduler as its parent. Windows clients reach it through one per-user named pipe, and it does key custody, keep-awake, the wake timer and banners in its own process through `sidekicks-platforms`. A session whose project folder is inside a WSL 2 distribution runs there through the WSL server, the `wsl-server` mode of the Linux `sidekicks-daemon` program, which the daemon starts in that distribution while it has work with one attached `wsl.exe`, inside a Job that lets Windows programs started through interop outlive it, and reaches over one HTTP/2 channel on that `wsl.exe`'s standard input and output; the WSL server exits 10 minutes after its distribution's last work ends ([ADR-039](../decisions/039-sessions-in-wsl-2-distributions.md), [Spec-006 §The service on a Windows computer](../specs/006-local-ipc-and-daemon-control.md#the-service-on-a-windows-computer)).
 
 **CLI:** `sidekicks`, a signed native binary shipped beside the daemon, connecting to the local daemon.
 
@@ -197,4 +203,4 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 - [Default Transports And Relay Boundaries](../decisions/008-default-transports-and-relay-boundaries.md)
 - [V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md)
 - [Machine Identity Key Custody](../decisions/020-cli-identity-key-storage-custody.md)
-- [The Service On WSL 2](../decisions/039-the-service-on-wsl-2.md)
+- [Sessions In WSL 2 Distributions](../decisions/039-sessions-in-wsl-2-distributions.md)

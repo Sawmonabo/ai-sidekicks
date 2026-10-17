@@ -344,7 +344,7 @@ interface CreateSessionParams {
   // Requesting it is NOT the same as getting it — what the provider actually declared is observed
   // later as binding-held `ProviderOutputSpeedState`.
   outputSpeed?: string;
-  callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session, served on the daemon's shared `sidekicks` MCP tool server through one `url` entry per session (Claude Code through `--mcp-config`, Codex as a `url` entry in the conversation's `mcp_servers` at `thread/start`), never Codex `dynamicTools`; gated on the callback_tools flag
+  callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session, served on the daemon's shared `sidekicks` MCP tool server through one entry per session (Claude Code an in-process server named in `initialize`'s `sdkMcpServers`, Codex a `url` entry in the conversation's `mcp_servers` at `thread/start`), never Codex `dynamicTools`; gated on the callback_tools flag
   subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-014 semantics); gated on the subagents flag
   outputSchema?: Record<string, unknown>; // normalized JSON Schema constraining schema-constrained final output (Spec-004 §Per-Driver Capability Matrix structured_output); gated on the structured_output flag. The Claude leg binds it per session at spawn (--json-schema); the Codex leg realizes it per turn via StartRunParams.outputSchema (turn/start.outputSchema). Named consumers: Plan-013 orchestration reads
   // Provider-account identity at spawn (Plan-003 T3.45). OPAQUE TO THE DRIVER — never parsed, never used to locate credential material: the
@@ -771,19 +771,50 @@ type SessionNoticeProviderRestarted = {
 };
 
 // session.notice of kind `provider_missing`: the session's provider is not installed where the
-// background service runs, so no provider process started (Spec-001 §Fallback Behavior). One flow
-// row naming the provider, opening Settings › Providers on its section; `placeHasNeitherProvider`
-// is true on a Windows computer where the place the service runs in has no provider installed, and
-// the row then reads `Choose where Claude Code and Codex are installed` and opens the place row. A
-// stored session whose provider has no registered driver lands the same row with no section to
-// open, its row reading
+// session runs, so no provider process started (Spec-001 §Fallback Behavior). One flow row naming
+// the provider, opening Settings › Providers on its section. `place` is present on a Windows
+// computer with a WSL 2 distribution and names where the session runs; the row then reads
+// `Claude Code is not installed in Ubuntu.` with `Install in Ubuntu`, which opens that provider's
+// `Ubuntu (WSL)` row, or, for a Windows folder, `Claude Code is not installed on Windows.` with
+// `Install on Windows`, which opens that provider's `Windows` row. A stored session whose provider has no registered driver lands the same row
+// with no section to open, its row reading
 // `<Provider> isn't available in this version of the app. The transcript stays readable.`,
 // and its stored transcript still reads.
 interface SessionNoticeProviderMissing {
   sessionId: SessionId;
   kind: "provider_missing";
   provider: ProviderId;
-  placeHasNeitherProvider: boolean;
+  place?: Place;
+}
+
+// session.notice of kind `distribution_removed`: the WSL 2 distribution the session runs in is no
+// longer on this computer (`wsl --unregister`, a reset, or WSL uninstalled). One flow row,
+// `Ubuntu is no longer on this computer, so this session cannot run.`; the store and the
+// transcript are untouched.
+interface SessionNoticeDistributionRemoved {
+  sessionId: SessionId;
+  kind: "distribution_removed";
+  distro: string; // as `wsl -l` prints it
+}
+
+// session.notice of kind `wsl_not_answering`: two `wsl.exe` runs missed their deadlines with no
+// success between them, so the daemon starts no more until the next wake or the hour. One flow row
+// on every session in any distribution, `WSL is not answering. Restarting Windows brings it back.`;
+// Windows sessions get none.
+interface SessionNoticeWslNotAnswering {
+  sessionId: SessionId;
+  kind: "wsl_not_answering";
+}
+
+// session.notice of kind `distribution_restart_failed`: the WSL server for the session's
+// distribution failed its fifth restart. One flow row,
+// `Ubuntu stopped and could not start again. Restarting Windows usually brings it back.`, with
+// `error` under it word for word where the last start gave one.
+interface SessionNoticeDistributionRestartFailed {
+  sessionId: SessionId;
+  kind: "distribution_restart_failed";
+  distro: string; // as `wsl -l` prints it
+  error?: string; // what the last start gave, word for word; absent where it printed nothing before its deadline
 }
 
 // session.notice of kind `fast_output_unavailable`: the provider says fast output is not on for a

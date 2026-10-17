@@ -139,9 +139,9 @@ interface DaemonStatusReadResult {
   // The service's own facts for Settings › Runtime and `sidekicks daemon status`. Processor and
   // memory are read only when this is called — the page opening, `Check again` — never on a timer,
   // each stamped with the time it was read, so every reply carries both. They count the service's
-  // own processes and nothing else: the daemon and every process it started (on a Windows computer
-  // whose service runs in WSL, read inside the distribution, plus the service's Windows half and its
-  // `wsl.exe`; the WSL virtual machine is not counted).
+  // own processes and nothing else: the daemon and every process it started, and on Windows, for
+  // each running WSL server, its `wsl.exe` and its process tree read inside the distribution; the
+  // WSL virtual machine is not counted.
   version: string;
   startedAt: string; // ISO 8601
   uptimeMs: number; // how long the service has run, as of this reply
@@ -162,6 +162,16 @@ interface DaemonStatusReadResult {
   // set up to run while you are logged out.` Absent on every other machine.
   secretsFile?: string;
   recovery: DaemonRecoveryStatus; // healthy, rebuilding, degraded or blocked, per session (persistence-payloads.md §Plan-012, T12.4)
+  // The WSL block, present ONLY on a Windows computer with a WSL server running or a session in a
+  // WSL 2 distribution, one entry per such distribution; `sidekicks daemon status` prints one line
+  // each: `Ubuntu: running · 3 sessions`, `Debian: stopped · 1 session`,
+  // `Arch: not answering since 2:14 PM`.
+  wsl?: Array<{
+    distro: string; // as `wsl -l` prints it
+    // Where it stands, a union tagged by `state`; `since` is when WSL stopped answering (ISO 8601).
+    status: { state: "running" } | { state: "stopped" } | { state: "notAnswering"; since: string };
+    sessionCount: number;
+  }>;
   // The relay block, present ONLY while a relay is configured — absent otherwise, never an empty block
   // and never a disabled one, in the text output and the machine-readable output alike. Its fields are
   // Remote Control's own relay wire; nothing here is a second reading of it.

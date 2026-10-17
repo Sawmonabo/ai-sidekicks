@@ -39,6 +39,10 @@ interface ProviderAccount {
   // account names, and renamed through `providerAccount.update`. No other account carries a typed name.
   displayLabel?: string;
   isDefault: boolean; // exactly one per provider, enforced by a partial unique index (I-023-5); the provider's CURRENT account, which `providerAccount.setCurrent` moves
+  // The places where the account has a home, one per place a session on it has run in; present on a
+  // Windows computer with a WSL 2 distribution and absent elsewhere. `Remove`'s confirm reads it.
+  // `Place` is `@ai-sidekicks/contracts/place`'s `"windows" | { distro: string }`.
+  homePlaces?: Place[];
   healthState: ProviderAccountHealthState;
   // The OTHER HALF of the stored observation pair (`provider_accounts.health_observed_at`, whose
   // table-level CHECK holds the two set and cleared together). Required-shape and nullable on the
@@ -709,13 +713,14 @@ interface ProviderStandingRuleListRequest {
 }
 interface ProviderStandingRuleListResponse {
   rules: Array<{
-    ruleId: string; // daemon-minted, stable while the rule's file and text are unchanged
+    ruleId: string; // daemon-minted from the rule's place, its file and its text, so one file path in two places names two rules
     provider: ProviderId;
     text: string; // the rule as the provider's file spells it
     effect: "allow" | "deny";
     scope:
       | { kind: "accountHome"; accountId: ProviderAccountId }
       | { kind: "project"; projectId: ProjectId };
+    place?: Place; // where the file is, its path in that place's form; absent on a computer without a WSL 2 distribution
     sourcePath: string; // the file it came from; display-only data, never a capability
   }>;
 }
