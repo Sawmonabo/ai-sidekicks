@@ -771,19 +771,49 @@ type SessionNoticeProviderRestarted = {
 };
 
 // session.notice of kind `provider_missing`: the session's provider is not installed where the
-// background service runs, so no provider process started (Spec-001 §Fallback Behavior). One flow
-// row naming the provider, opening Settings › Providers on its section; `placeHasNeitherProvider`
-// is true on a Windows computer where the place the service runs in has no provider installed, and
-// the row then reads `Choose where Claude Code and Codex are installed` and opens the place row. A
-// stored session whose provider has no registered driver lands the same row with no section to
-// open, its row reading
+// session runs, so no provider process started (Spec-001 §Fallback Behavior). One flow row naming
+// the provider, opening Settings › Providers on its section. `place` is present on a Windows
+// computer with a WSL 2 distribution and names where the session runs; the row then reads
+// `Claude Code is not installed in Ubuntu.` with `Install in Ubuntu`, which opens that provider's
+// `Ubuntu (WSL)` row. A stored session whose provider has no registered driver lands the same row
+// with no section to open, its row reading
 // `<Provider> isn't available in this version of the app. The transcript stays readable.`,
 // and its stored transcript still reads.
 interface SessionNoticeProviderMissing {
   sessionId: SessionId;
   kind: "provider_missing";
   provider: ProviderId;
-  placeHasNeitherProvider: boolean;
+  place?: Place;
+}
+
+// session.notice of kind `distribution_removed`: the WSL 2 distribution the session runs in is no
+// longer on this computer (`wsl --unregister`, a reset, or WSL uninstalled). One flow row,
+// `Ubuntu is no longer on this computer, so this session cannot run.`; the store and the
+// transcript are untouched.
+interface SessionNoticeDistributionRemoved {
+  sessionId: SessionId;
+  kind: "distribution_removed";
+  distro: string; // as `wsl -l` prints it
+}
+
+// session.notice of kind `wsl_not_answering`: two `wsl.exe` runs missed their deadlines with no
+// success between them, so the daemon starts no more until the next wake or the hour. One flow row
+// on every session in any distribution, `WSL is not answering. Restarting Windows brings it back.`;
+// Windows sessions get none.
+interface SessionNoticeWslNotAnswering {
+  sessionId: SessionId;
+  kind: "wsl_not_answering";
+}
+
+// session.notice of kind `distribution_restart_failed`: the WSL server for the session's
+// distribution failed its fifth restart. One flow row,
+// `Ubuntu stopped and could not start again. Restarting Windows usually brings it back.`, with
+// `error` under it word for word.
+interface SessionNoticeDistributionRestartFailed {
+  sessionId: SessionId;
+  kind: "distribution_restart_failed";
+  distro: string; // as `wsl -l` prints it
+  error: string; // what the start gave, word for word
 }
 
 // session.notice of kind `fast_output_unavailable`: the provider says fast output is not on for a

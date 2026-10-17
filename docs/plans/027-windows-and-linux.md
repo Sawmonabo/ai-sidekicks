@@ -4,7 +4,7 @@
 | --- | --- |
 | **Status** | `draft` |
 | **Spec** | None of its own: each task implements the spec of the plan it links. |
-| **Decisions** | [ADR-018](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md) (the Windows tier and the PTY in the daemon), [ADR-039](../decisions/039-the-service-on-wsl-2.md) (the line with the service on WSL 2) |
+| **Decisions** | [ADR-018](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md) (the Windows tier and the PTY in the daemon), [ADR-039](../decisions/039-sessions-in-wsl-2-distributions.md) (the line with sessions in WSL 2 distributions) |
 
 ## Goal
 
@@ -13,7 +13,7 @@ When this plan is done, every interface that the earlier phases build and check 
 ## Non-goals
 
 - **The terminal.** [Plan-021](./021-terminal.md) owns it: `sidekicks-terminal` inside the daemon on every operating system, ConPTY on Windows, with its Windows tasks and the Windows build and signing of the daemon's program for x64 and arm64. They are built beside this plan, and this plan holds no task for them.
-- **The service on WSL 2 and the Windows half.** [Plan-005](./005-local-ipc-and-daemon-control.md) Phase R4 owns the daemon's WSL arm, everything `sidekicks-windows-half.exe`, a binary `crates/sidekicks-platforms` builds, does on a WSL computer (the daemon's pipe, the credential store's Windows arm, banners and their withdrawal, keep-awake, the wake timer, the logon task, the port carry), and the same `sidekicks-platforms` code the daemon runs in its own process on native Windows for its pipe, credential store, keep-awake, wake timer and banner withdrawal. This plan holds the rest of the Windows code.
+- **The service on Windows and sessions in WSL 2 distributions.** [Plan-005](./005-local-ipc-and-daemon-control.md) Phase R4 owns the service on Windows — the logon task, the mutex, the daemon's pipe, the credential store's Windows arm, banners and their withdrawal, keep-awake and the wake timer, each in the daemon's own process through `sidekicks-platforms` — and the WSL server, the mode of the Linux `sidekicks-daemon` program that runs a distribution's work, with the daemon's channel to it, the per-place provider readings, the private mount and the port carry. This plan holds the rest of the Windows code.
 - **Packaging, signing and the update path.** They are the release's, after this plan.
 
 ## Target areas
