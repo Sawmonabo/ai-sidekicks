@@ -59,6 +59,10 @@ pub struct McpServerLegStatus {
 
 impl McpServerLegStatus {
     /// Whether a failure reason sits only on a failed leg.
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "garde passes a check's context by reference"
+    )]
     fn keeps_failure_reason_on_failed(&self, (): &()) -> garde::Result {
         is_failure_reason_on_failed(self.status, self.failed_reason.as_ref())
     }
@@ -223,7 +227,7 @@ pub struct McpToolReading {
     pub idempotency_class: McpToolSetting<McpAssignableIdempotencyClass, McpServerIdempotencyClass>,
 }
 
-/// Whether a failure reason sits only on a failed server.
+/// Whether a failure reason sits only on a failed leg.
 fn is_failure_reason_on_failed(
     status: McpServerStatus,
     failed_reason: Option<&McpServerFailedReason>,

@@ -9,15 +9,18 @@ use crate::free_form_string::FilesystemPath;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::list::ListKey;
 use crate::wire::literal;
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{NON_BLANK_NUL_FREE_PATTERN, pattern_text};
 
 ts_constants! {
     /// The longest WSL distribution name accepted.
     pub const WSL_DISTRO_NAME_MAX_LEN: usize = 256;
 }
 
-/// A WSL distribution's name.
-pub type DistroName = FreeFormText<WSL_DISTRO_NAME_MAX_LEN>;
+pattern_text! {
+    /// A WSL distribution's name: not blank, no NUL, and at most `WSL_DISTRO_NAME_MAX_LEN` code
+    /// points.
+    pub struct DistroName(NON_BLANK_NUL_FREE_PATTERN, max = WSL_DISTRO_NAME_MAX_LEN) branded;
+}
 
 literal! {
     /// Windows itself.
@@ -120,6 +123,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "place",
     doc: "Where work runs on a computer: Windows itself, or a WSL 2 distribution by name.",
     definitions: &[
+        Definition::read::<DistroName>(),
         Definition::read::<WslPlace>(),
         Definition::read::<Place>(),
         Definition::read::<PlacedPath>(),

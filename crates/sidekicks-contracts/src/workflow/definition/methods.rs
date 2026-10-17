@@ -510,7 +510,7 @@ pub struct WorkflowDefinitionExportRequest {
     )]
     #[schemars(with = "bool")]
     pub include_layout: Option<bool>,
-    /// The file to write.
+    /// The file to write, the path main's relay put in place of the save chooser's token.
     pub file_path: FilesystemPath,
 }
 

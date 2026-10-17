@@ -19,7 +19,7 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::list::BoundedVec;
+use crate::wire::list::{BoundedVec, ListKey, UniqueList};
 use crate::wire::text::FreeFormText;
 use crate::wire::{Never, NullableSchema, True, nullable};
 use crate::worktree::lifecycle::WorktreeId;
@@ -197,7 +197,7 @@ pub enum RepoFolderPathSegment {
 
 /// One entry of a Windows computer's top level: a drive, or a WSL 2 distribution, which opens on
 /// its home folder through `repo.folderList` with its place.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -215,6 +215,19 @@ pub enum RepoFolderTopEntry {
         /// Its place.
         place: WslPlace,
     },
+}
+
+// A drive or distribution entry is keyed by its one member, the drive's path or the distribution,
+// and carries no rule its read does not hold.
+impl ListKey for RepoFolderTopEntry {
+    type Key = Self;
+
+    fn list_key(&self) -> Self {
+        self.clone()
+    }
+
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
 }
 
 /// One folder as `repo.folderList` lists it: where the folder in view is, the folder as that place
@@ -251,15 +264,18 @@ pub struct RepoFolderListFolderResponse {
     pub more: bool,
 }
 
-/// The top level of a Windows computer: its drives, then one entry per WSL 2 distribution.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// The top level of a Windows computer: its drives, then one entry per WSL 2 distribution, none
+/// twice.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
+#[garde(allow_unvalidated)]
 pub struct RepoFolderListTopResponse {
     /// Always `true`.
     pub top: True,
     /// The drives, then the distributions.
-    pub entries: Vec<RepoFolderTopEntry>,
+    #[garde(dive)]
+    pub entries: UniqueList<RepoFolderTopEntry, 0, { usize::MAX }>,
 }
 
 /// The `repo.folderList` result: one folder, or the top level of a Windows computer.
@@ -270,7 +286,7 @@ pub enum RepoFolderListResponse {
     /// One folder.
     Folder(RepoFolderListFolderResponse),
     /// The top level.
-    Top(RepoFolderListTopResponse),
+    Top(#[garde(dive)] RepoFolderListTopResponse),
 }
 
 /// `repo.attach`: a path on the machine the service runs on, the folder the platform's chooser
