@@ -1,7 +1,8 @@
 //! What macOS alone supplies: the machine's computer name, no Windows drive mounts, reads through a
-//! memory map, a process's parent, the bound on a program's argument, the process's footprint, the
-//! machine's wakes from sleep and a wall-clock timer.
+//! memory map, a local connection's caller pinned, the bound on a program's argument, the
+//! process's footprint, the machine's wakes from sleep and a wall-clock timer.
 
+pub(crate) mod caller_process;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 
@@ -77,45 +78,6 @@ pub fn windows_drive_mounts() -> io::Result<Vec<PathBuf>> {
 /// an offset: yes, since macOS's footprint (the memory it charges a process) leaves out a mapped
 /// file's clean pages, so a mapped file measures smaller.
 pub const SHOULD_MEMORY_MAP_READS: bool = true;
-
-/// The id of the parent of process `process_id`, from its short BSD record; `None` when no process
-/// has the id. Fails with the system's error on any other refusal, and with `Other` when the record
-/// comes back short.
-pub fn read_parent_process_id(process_id: u32) -> io::Result<Option<u32>> {
-    // No process id passes `i32::MAX`, the largest the call takes.
-    let Ok(pid) = libc::c_int::try_from(process_id) else {
-        return Ok(None);
-    };
-    // SAFETY: `proc_bsdshortinfo` is a C struct of integers, for which all zero bytes are valid.
-    let mut record: libc::proc_bsdshortinfo = unsafe { std::mem::zeroed() };
-    let record_length = libc::c_int::try_from(size_of::<libc::proc_bsdshortinfo>())
-        .expect("the record's size fits in a c_int");
-    // SAFETY: the buffer is a live `proc_bsdshortinfo`, the record `PROC_PIDT_SHORTBSDINFO` asks
-    // the call to fill, of the length given, and nothing else reads it until the call returns.
-    let written = unsafe {
-        libc::proc_pidinfo(
-            pid,
-            libc::PROC_PIDT_SHORTBSDINFO,
-            0,
-            (&raw mut record).cast(),
-            record_length,
-        )
-    };
-    if written == record_length {
-        return Ok(Some(record.pbsi_ppid));
-    }
-    if written > 0 {
-        return Err(io::Error::other(format!(
-            "proc_pidinfo wrote {written} of the {record_length} bytes of process {process_id}'s \
-             record"
-        )));
-    }
-    let error = io::Error::last_os_error();
-    if error.raw_os_error() == Some(libc::ESRCH) {
-        return Ok(None);
-    }
-    Err(error)
-}
 
 /// A bound in bytes that no single argument a program can start with reaches:
 /// `sysconf(_SC_ARG_MAX)`, which counts the arguments and the environment together, never

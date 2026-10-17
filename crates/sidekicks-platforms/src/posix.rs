@@ -2,7 +2,6 @@
 //! module.
 
 pub(crate) mod askpass;
-pub(crate) mod caller_process;
 pub(crate) mod disk;
 pub(crate) mod entry_identity;
 pub(crate) mod error_codes;
