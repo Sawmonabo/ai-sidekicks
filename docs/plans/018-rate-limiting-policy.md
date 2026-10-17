@@ -35,7 +35,7 @@ Ship Spec-019's count on the person's own relay — the Workers relay in their o
 - **Billing metering.** Nothing is billed: the relay serves its one owner.
 - **Admin credentials for more than one person, and a service principal.** The relay has one owner, and this plan adds no admin surface.
 - **Custom rate-limit algorithms beyond sliding window.** Fixed-window and token-bucket are not implemented; [Spec-019 §Implementation Notes](../specs/019-rate-limiting-policy.md#implementation-notes) prefers sliding windows.
-- **Bans and automatic escalation.** A limit refuses only for its own window: no identity is blocked beyond it, and nothing is banned. A stolen device's token is answered by revoking that device through Remote Control's own control ([Spec-027](../specs/027-remote-control.md)); the relay holds one live connection per device key and flags a key that keeps displacing itself.
+- **Bans and automatic escalation.** A limit refuses only for its own window: no identity is blocked beyond it, and nothing is banned. A stolen device's token is answered by revoking that device through Remote Control's own control ([Spec-027](../specs/027-remote-control.md)); the relay holds, for each machine, one live connection per device key and flags a key that keeps displacing itself there.
 
 ## Preconditions
 

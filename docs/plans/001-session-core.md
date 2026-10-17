@@ -283,7 +283,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 - The control plane's one schema holds `users` (minimal anchor: `id`, `created_at`), per § Data And Storage Changes.
 - **Table-order invariant.** `CREATE TABLE users` MUST precede every table that references it in the one schema per [Hosted Account Schema §Users Identity Anchor](../architecture/schemas/hosted-account-schema.md#users-identity-anchor-plan-001) — `runtime_nodes.user_id`, `devices.user_id` and every later FK-bearing table resolve against the anchor.
-- Storage: on the Workers relay the SQLite storage of the account's Durable Object, on the Compose relay a SQLite file, per [deployment-topology §Account Storage](../architecture/deployment-topology.md#account-storage).
+- Storage: on the Workers relay the account object's SQLite storage, on the Compose relay a SQLite file, per [deployment-topology §Account Storage](../architecture/deployment-topology.md#account-storage).
 
 #### Tasks
 
