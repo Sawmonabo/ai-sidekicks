@@ -29,7 +29,7 @@ pub(crate) enum NormalizedEventKind {
     ToolComplete,
     /// A turn's start.
     TurnStart,
-    /// A turn's or a task's completion.
+    /// A turn's completion.
     TurnComplete,
     /// A provider's permission ask that reaches a person.
     ApprovalRequest,
@@ -129,7 +129,8 @@ impl NormalizedEventKind {
             | Self::Diff
             | Self::CommandOutput => Adopt(SessionEventType::AgentToolCallCompleted),
             Self::TurnStart => Adopt(SessionEventType::AgentTurnStarted),
-            Self::TurnComplete => Adopt(SessionEventType::AgentRunCompleted),
+            // The turn's own end; whether it ends the run is the run engine's to write beside it.
+            Self::TurnComplete => Adopt(SessionEventType::AgentTurnCompleted),
             // Recorded once as the approval it opens; an ask the daemon answers itself appends
             // nothing, since the tool row is the record.
             Self::ApprovalRequest => Adopt(SessionEventType::ApprovalRequested),
