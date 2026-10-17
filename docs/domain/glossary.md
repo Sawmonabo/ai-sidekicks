@@ -41,7 +41,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `local-only` | An operating constraint meaning the relevant session continuity or execution path remains usable on the user's own machine without requiring current control-plane reachability. `local-only` is not a separate domain object or an alternate session model. |
 | `Transcript` | The session's own record of its conversation, written by the daemon and drawn on screen in order: messages, tool calls, approvals and replies. There is no replay surface over it: scrollback is scrollback, and a person scrolls it. |
 | `Conversation file` | The provider's own on-disk record of a session's conversation, kept under the credential home it runs in (Claude Code writes `projects/<project folder>/<session id>.jsonl`). An account switch leaves it where it is: the session moves to the new account in place, from its next request, and nothing is copied, resumed or re-sent as text. |
-| `Memory files` | The instruction files a provider reads from its home and the project at a session's start: `CLAUDE.md` and the memory folder on Claude Code, `AGENTS.md` on Codex. `providerAccount.memoryImport` copies the person's ambient store of them into a named account's home once. |
+| `Memory files` | The instruction files a provider reads from its home and the project at a session's start: `CLAUDE.md` and the memory folder on Claude Code, `AGENTS.md` on Codex. `provider.account.memory.import` copies the person's ambient store of them into a named account's home once. |
 
 ## What This Is
 

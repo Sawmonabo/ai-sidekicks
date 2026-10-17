@@ -106,7 +106,7 @@ CREATE TABLE revoked_jtis (
   family_id        TEXT NOT NULL,                 -- a UUID; the refresh-token rotation family
   revoked_at       INTEGER NOT NULL DEFAULT (unixepoch()),
   reason           TEXT NOT NULL
-                   CHECK(reason IN ('sign_out', 'refresh_reuse', 'device_revoked', 'account_deleted')),
+                   CHECK(reason IN ('signOut', 'refreshReuse', 'deviceRevoked', 'accountDeleted')),
   expires_at       INTEGER NOT NULL               -- aligns with the revoked token's natural expiry
 ) STRICT;
 
@@ -120,7 +120,7 @@ CREATE TABLE revoked_token_families (
   user_id          TEXT NOT NULL REFERENCES users(id),  -- the family's account: a refresh token has no lifetime of its own, so the row stays for the account's life and is deleted with the account
   revoked_at       INTEGER NOT NULL DEFAULT (unixepoch()),
   reason           TEXT NOT NULL
-                   CHECK(reason IN ('sign_out', 'refresh_reuse', 'device_revoked', 'account_deleted'))
+                   CHECK(reason IN ('signOut', 'refreshReuse', 'deviceRevoked', 'accountDeleted'))
 ) STRICT;
 
 CREATE INDEX idx_revoked_families_user ON revoked_token_families(user_id);
@@ -184,7 +184,7 @@ CREATE INDEX idx_authorization_requests_expires ON authorization_requests(expire
 
 ## Devices, Machines And The Statement Chain (Plan-025)
 
-Who may drive the person's sessions is decided by an append-only chain of signed statements, which the control plane keeps and every machine verifies itself ([Spec-027 §Required Behavior](../../specs/027-remote-control.md#required-behavior)). The control plane holds each device's and each machine's public key and the chain; it never holds a private key or a linking secret, and it trusts nothing on its own: every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked` and `passkey.added` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed` or `passkey.removed` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again. Every public key carries its algorithm, because a phone's hardware key is P-256 and a machine's key is Ed25519.
+Who may drive the person's sessions is decided by an append-only chain of signed statements, which the control plane keeps and every machine verifies itself ([Spec-027 §Required Behavior](../../specs/027-remote-control.md#required-behavior)). The control plane holds each device's and each machine's public key and the chain; it never holds a private key or a linking secret, and it trusts nothing on its own: every machine verifies the chain itself and trusts a key only when a path of `machine.added`, `device.linked` and `account.passkey.added` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `machine.removed` or `account.passkey.removed` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again. Every public key carries its algorithm, because a phone's hardware key is P-256 and a machine's key is Ed25519.
 
 ```sql
 -- Owner: Plan-025 (Phase 2; kept until the device is forgotten)
@@ -210,7 +210,7 @@ CREATE INDEX idx_devices_user ON devices(user_id);
 CREATE TABLE runtime_nodes (
   node_id            TEXT PRIMARY KEY,            -- the machine's id
   user_id            TEXT NOT NULL REFERENCES users(id),
-  public_key         BLOB NOT NULL,               -- the service's identity key, PUBLIC half only; replaced only by a new runtimenode.added when a removed machine is linked again
+  public_key         BLOB NOT NULL,               -- the service's identity key, PUBLIC half only; replaced only by a new machine.added when a removed machine is linked again
   key_algorithm      TEXT NOT NULL CHECK(key_algorithm = 'ed25519'), -- a machine's key is the service's Ed25519 key
   name               TEXT NOT NULL,               -- the machine's friendly name
   platform           TEXT NOT NULL,               -- the operating system the service runs on, as registered
@@ -228,8 +228,8 @@ CREATE TABLE trust_statements (
   previous_hash    TEXT,                          -- the statement before it; NULL only for the account's first
   kind             TEXT NOT NULL
                    CHECK(kind IN ('device.linked', 'device.renamed', 'device.revoked',
-                                  'passkey.added', 'passkey.removed',
-                                  'runtimenode.added', 'runtimenode.renamed', 'runtimenode.removed')),
+                                  'account.passkey.added', 'account.passkey.removed',
+                                  'machine.added', 'machine.renamed', 'machine.removed')),
   statement        BLOB NOT NULL,                 -- the signed statement as its signer wrote it: a machine key, a device key or a passkey
   received_at      INTEGER NOT NULL DEFAULT (unixepoch()),
   UNIQUE(user_id, previous_hash)                  -- one chain per account: no statement has two successors

@@ -34,10 +34,10 @@ CREATE TABLE workflow_definitions (
   permission_level     TEXT NOT NULL DEFAULT 'yolo'
                        CHECK(permission_level IN ('readonly','ask','reviewed','sandboxed','yolo')),
   -- The workflow's background-browser pick, set from the builder's browser pill and starting at
-  -- 'settings_default': every later run of the workflow uses it, a live run keeping the browser it
+  -- 'settingsDefault': every later run of the workflow uses it, a live run keeping the browser it
   -- started with. OUTSIDE the content_hash preimage, so a change mints no version.
-  background_browser   TEXT NOT NULL DEFAULT 'settings_default'
-                       CHECK(background_browser IN ('settings_default','sandboxed','not_sandboxed')),
+  background_browser   TEXT NOT NULL DEFAULT 'settingsDefault'
+                       CHECK(background_browser IN ('settingsDefault','sandboxed','notSandboxed')),
   -- The node's pinned test data: an item array per node id. OUTSIDE the content_hash preimage and on
   -- the definition only, so a pin mints no version; NULL = nothing pinned.
   pin_data_json        TEXT
@@ -49,7 +49,7 @@ CREATE TABLE workflow_definitions (
   -- address is first called.
   webhook_last_fire_at       TEXT,
   webhook_last_fire_outcome  TEXT
-                             CHECK(webhook_last_fire_outcome IS NULL OR webhook_last_fire_outcome IN ('started','skipped','waiting','token_mismatch')),
+                             CHECK(webhook_last_fire_outcome IS NULL OR webhook_last_fire_outcome IN ('started','skipped','waiting','tokenMismatch')),
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- the device the save came from
   updated_at           TEXT NOT NULL,                  -- the last change to the row: a save, a rename, a layout, tags, level or pin write, or the soft delete; the Workflows tab's row reads it
@@ -60,7 +60,7 @@ CREATE TABLE workflow_definitions (
 -- One library, so a name names one workflow: unique among the workflows not deleted ignoring case,
 -- on the stored fold key, the same rule agent definition names follow, and a deleted workflow's name
 -- can be used again. A save, an import or a create whose name another workflow holds in any letter
--- case is refused with workflow.definition_refused (finding name_taken).
+-- case is refused with workflow.definition.refused (finding nameTaken).
 CREATE UNIQUE INDEX idx_workflow_definitions_name_folded ON workflow_definitions(name_folded) WHERE deleted_at IS NULL;
 CREATE INDEX idx_workflow_definitions_content_hash ON workflow_definitions(content_hash);
 
@@ -118,7 +118,7 @@ CREATE TABLE workflow_runs (
                             CHECK(json_valid(trigger_json)),
   started_by                TEXT NOT NULL              -- JSON: who or what started it: the user, a schedule, chat, an agent, a webhook, a file event or a parent workflow
                             CHECK(json_valid(started_by)),
-  started_at                TEXT NOT NULL,             -- RFC 3339 UTC: when the run was started by the request, fire or call that asked for it, the instant of its `workflow.started`; the run reads `new` from then until the engine admits it
+  started_at                TEXT NOT NULL,             -- RFC 3339 UTC: when the run was started by the request, fire or call that asked for it, the instant of its `workflow.run.started`; the run reads `new` from then until the engine admits it
   finished_at               TEXT,
   -- Result
   error_json                TEXT                        -- JSON: the run's typed error, the contracts' WorkflowStepError; NULL unless status in ('failed','canceled','crashed')
@@ -132,7 +132,7 @@ CREATE TABLE workflow_runs (
   chain_run_count           INTEGER,                   -- first run only: runs the chain has started, the first included, incremented in the transaction that creates each run
   chain_kept_going          INTEGER                    -- first run only: 1 once the person answered `Keep going`
                             CHECK(chain_kept_going IS NULL OR chain_kept_going IN (0,1)),
-  kept                      INTEGER NOT NULL DEFAULT 0 -- the run's Keep mark: deleting old runs (workflow.runsDelete) leaves a kept run
+  kept                      INTEGER NOT NULL DEFAULT 0 -- the run's Keep mark: deleting old runs (workflow.run.purge) leaves a kept run
                             CHECK(kept IN (0,1)),
   CHECK((chain_root_run_id = id) = (chain_run_count IS NOT NULL)),
   CHECK((chain_run_count IS NULL) = (chain_kept_going IS NULL))
@@ -163,7 +163,7 @@ CREATE TABLE workflow_gate_resolutions (
                              )),
   approval_category          TEXT                       -- mirrors Plan-009 approval_requests.category when applicable
                              CHECK(approval_category IS NULL OR approval_category IN (
-                               'tool_execution','file_write','network_access','destructive_git','gate'
+                               'toolExecution','fileWrite','networkAccess','destructiveGit','gate'
                              )),
   approval_request_id        TEXT NOT NULL REFERENCES approval_requests(id), -- the Plan-009 approval request this gate answered
   -- Resolution
@@ -180,14 +180,14 @@ CREATE INDEX idx_gate_resolutions_node ON workflow_gate_resolutions(workflow_run
   WHERE node_id IS NOT NULL;
 CREATE INDEX idx_gate_resolutions_approval ON workflow_gate_resolutions(approval_request_id);
 
--- Rows are never updated; they are removed only with their run. Each row's id is the gateResolutionId that the session's workflow.gate_resolved event carries.
+-- Rows are never updated; they are removed only with their run. Each row's id is the gateResolutionId that the session's workflow.gate.resolved event carries.
 
 -- ========================================================================
 -- 5. human_phase_form_state — daemon-held draft of a form step
 -- ========================================================================
 -- Owner: Plan-014
 -- Carries a form step's drafts (Spec-015 §Human form drafts (SA-26)), keyed by run and node.
--- Written through `workflow.humanFormDraftSave`; each autosave bumps the row's own
+-- Written through `workflow.humanForm.draft.update`; each autosave bumps the row's own
 -- draft version. A client never keeps a form draft in window storage.
 CREATE TABLE human_phase_form_state (
   id                      TEXT PRIMARY KEY,           -- UUID v7
@@ -227,7 +227,7 @@ CREATE TABLE workflow_steps (
   wait_cause        TEXT                         -- what a waiting step waits on: a person ('approval', 'form', 'reply'), its chain's question ('chain'), or a spent provider account ('account')
                     CHECK(wait_cause IS NULL OR wait_cause IN ('approval', 'form', 'reply', 'chain', 'account')),
   resume_at         TEXT,                        -- the instant a step parked on a spent account resumes itself, where one is armed; NULL where none is, which reads as awaiting resume
-  wait_account_id   TEXT,                        -- a step waiting on 'account': the spent provider account, which workflow.runAttentionList groups by, so every run waiting on one account presents as one entry
+  wait_account_id   TEXT,                        -- a step waiting on 'account': the spent provider account, which workflow.run.attention.list groups by, so every run waiting on one account presents as one entry
   wait_deadline_at  TEXT,                        -- the instant a step waiting on a person gives up, set only where its Timeout is
   wait_started_at   TEXT,                        -- when the step started waiting, set exactly while status = 'waiting'; the attention list's waiting-since and its oldest-first order read it
   started_at        TEXT NOT NULL,
@@ -248,9 +248,9 @@ CREATE TABLE workflow_steps (
                     CHECK(error_json IS NULL OR json_valid(error_json)),
   advisories_json   TEXT                           -- JSON array of non-fatal hints — an unwired branch that dropped items, a deprecated param, a truncated output. Never errors, and NULL where the step attached none
                     CHECK(advisories_json IS NULL OR (json_valid(advisories_json) AND json_type(advisories_json) = 'array')),
-  permission_level  TEXT                           -- an agent step whose account cannot run its run's level: the level it ran at in its place, from its workflow.step_started; NULL on every other step
+  permission_level  TEXT                           -- an agent step whose account cannot run its run's level: the level it ran at in its place, from its workflow.step.started; NULL on every other step
                     CHECK(permission_level IS NULL OR permission_level IN ('readonly','ask','reviewed','sandboxed','yolo')),
-  decline_reason    TEXT,                          -- the words typed with the Decline on a command step's own approval card that failed it, from its workflow.step_failed; NULL on every other step and on a bare decline
+  decline_reason    TEXT,                          -- the words typed with the Decline on a command step's own approval card that failed it, from its workflow.step.failed; NULL on every other step and on a bare decline
   PRIMARY KEY (workflow_run_id, node_id, attempt, execution_index),  -- the whole WorkflowStepKey the contracts address a step by; with node_id after the run id it also serves a lookup by run and node
   UNIQUE(workflow_run_id, execution_index),      -- the execution index is a total order per run
   CHECK((cost_usd_micros IS NULL) = (cost_account_id IS NULL)),  -- a figure always names the account that paid it
@@ -317,7 +317,7 @@ CREATE TABLE workflow_webhook_tokens (
 -- `Keep for later runs` step keeps: one entry per (workflow, name), with the value, the run that kept it and
 -- when. A value over 64 KiB is kept as a file and read back the same way, by the rule a step's payload over
 -- the inline bound follows. Kept values belong to the workflow, not to a version: saving, restoring or
--- duplicating a version leaves them, a duplicate starts with none, and `workflow.keptVarsClear` or deleting
+-- duplicating a version leaves them, a duplicate starts with none, and `workflow.keptValue.clear` or deleting
 -- the workflow removes them.
 CREATE TABLE workflow_node_state (
   definition_id     TEXT NOT NULL REFERENCES workflow_definitions(id),
@@ -338,8 +338,8 @@ CREATE TABLE workflow_node_state (
 -- A secret's record, never its value: the daemon keeps the value as its own item in the operating system's credential store,
 -- or in the daemon's secrets.json items file where that store cannot be used (ADR-036), and no read, reply, event, log or error carries it. A step parameter stores only
 -- secret://<scope>/<name>, resolved when the step runs and only in a field its kind marks sensitive.
--- Managed through workflow.secretCreate, workflow.secretReplace, workflow.secretDelete and
--- workflow.secretList, from the step's Credential field; nothing on Settings holds them.
+-- Managed through workflow.secret.create, workflow.secret.update, workflow.secret.delete and
+-- workflow.secret.list, from the step's Credential field; nothing on Settings holds them.
 CREATE TABLE workflow_secrets (
   id                TEXT PRIMARY KEY,            -- the secretId
   scope             TEXT NOT NULL
@@ -358,7 +358,7 @@ CREATE TABLE workflow_secrets (
 -- 11. workflow_drafts — the builder's unsaved draft (durable state, no timer)
 -- ========================================================================
 -- Owner: Plan-014
--- Written through workflow.draftUpdate and read back by workflow.draftRead, so a draft survives a
+-- Written through workflow.draft.update and read back by workflow.draft.read, so a draft survives a
 -- reload. One row per saved workflow and one for a new workflow, keyed '' (the convention
 -- workflow_node_state.node_id uses); no foreign key, because '' names no definition.
 CREATE TABLE workflow_drafts (

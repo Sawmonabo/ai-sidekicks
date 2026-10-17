@@ -58,7 +58,7 @@ A session is the durable container that holds:
 | `active` | The session is usable for communication and execution. |
 | `archived` | The session is retained for history but no longer accepts normal active work. |
 | `closed` | The session has been intentionally terminated and is not resumable without explicit restoration. |
-| `purge_requested` | The person has pressed `Delete old data` and the session is among those it removes. The session row is locked against further modification while the files only this session names are deleted. The purge then deletes the row, with SQLite's `secure_delete` on, so the freed pages hold nothing readable, checkpoints the write-ahead log with `TRUNCATE` once the delete commits, and unlinks the artifact payloads no surviving manifest names after that commit; no state follows, because no row survives to hold one. A failure before that deletion leaves the row `purge_requested`, to be retried. Purge is irreversible. |
+| `purgeRequested` | The person has pressed `Delete old data` and the session is among those it removes. The session row is locked against further modification while the files only this session names are deleted. The purge then deletes the row, with SQLite's `secure_delete` on, so the freed pages hold nothing readable, checkpoints the write-ahead log with `TRUNCATE` once the delete commits, and unlinks the artifact payloads no surviving manifest names after that commit; no state follows, because no row survives to hold one. A failure before that deletion leaves the row `purgeRequested`, to be retried. Purge is irreversible. |
 
 Allowed transitions:
 
@@ -68,8 +68,8 @@ Allowed transitions:
 - `active -> closed`
 - `archived -> active`
 - `archived -> closed`
-- `closed -> purge_requested`
-- `archived -> purge_requested`
+- `closed -> purgeRequested`
+- `archived -> purgeRequested`
 
 ## Session Identity And Local-Only Continuity
 

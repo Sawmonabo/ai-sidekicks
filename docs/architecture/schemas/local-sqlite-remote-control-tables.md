@@ -28,7 +28,7 @@ CREATE TABLE node_trust_state (
 
 ## The Account's Devices
 
-Each machine keeps its own verified view of the account's devices, which the channel's handshake reads, and the ports it shares with them ([Spec-027](../../specs/027-remote-control.md)). Settings › Devices lists both. The account's trust is an append-only chain of signed statements, each naming the hash of the one before it. Every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked` and `passkey.added` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed` or `passkey.removed` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again.
+Each machine keeps its own verified view of the account's devices, which the channel's handshake reads, and the ports it shares with them ([Spec-027](../../specs/027-remote-control.md)). Settings › Devices lists both. The account's trust is an append-only chain of signed statements, each naming the hash of the one before it. Every machine verifies the chain itself and trusts a key only when a path of `machine.added`, `device.linked` and `account.passkey.added` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `machine.removed` or `account.passkey.removed` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again.
 
 ```sql
 -- Owner: Plan-025
@@ -39,8 +39,8 @@ CREATE TABLE trust_statements (
   previous_hash     TEXT,                         -- the hash of the statement before it; NULL for the chain's first
   kind              TEXT NOT NULL
                     CHECK(kind IN ('device.linked', 'device.renamed', 'device.revoked',
-                                   'passkey.added', 'passkey.removed',
-                                   'runtimenode.added', 'runtimenode.renamed', 'runtimenode.removed')),
+                                   'account.passkey.added', 'account.passkey.removed',
+                                   'machine.added', 'machine.renamed', 'machine.removed')),
   statement         BLOB NOT NULL                 -- the signed statement as verified, signed by a machine key, a device key or a passkey
 ) STRICT;
 
@@ -56,7 +56,7 @@ CREATE TABLE trusted_devices (
   platform                TEXT NOT NULL,
   trusted_by_statement    TEXT NOT NULL REFERENCES trust_statements(statement_hash),  -- the statement that trusts it
   revoked_at              TEXT,                   -- NULL while trusted
-  notification_settings   TEXT,                   -- JSON: the device's switches {notifyOutsideTheApp, countOnAppIcon, kinds}, handed over by device.notificationSettingsSet; the device holds the source of truth
+  notification_settings   TEXT,                   -- JSON: the device's switches {notifyOutsideTheApp, countOnAppIcon, kinds}, handed over by device.notificationSettings.update; the device holds the source of truth
   push_key                BLOB,                   -- the key a push notice to this device is sealed to
   web_push_keys           TEXT,                   -- JSON: the web client's subscription keys {p256dh, auth}; NULL on every other device
   CHECK(revoked_at IS NULL OR (notification_settings IS NULL AND push_key IS NULL AND web_push_keys IS NULL))  -- the switches and push keys are kept until the device is revoked

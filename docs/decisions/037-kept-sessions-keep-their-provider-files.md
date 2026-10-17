@@ -48,7 +48,7 @@ The rule that nothing deletes a session automatically, set against a probe showi
 
 1. **Every Claude Code process the daemon starts carries `"cleanupPeriodDays": 36500` in its `--settings` JSON**, in the same JSON as the daemon's other flag settings. The flag outranks a repository's project and local files, so no repository can shorten retention for the home. 36,500 days reaches back before 1970, so no file's age can pass it.
 2. **Each account home's `settings.json` holds the same value**, for a process started in that home without the flag, such as a sign-in.
-3. **A managed value below it raises `settings_ignored`.** A managed policy outranks the flag. After each spawn the daemon reads `effective.cleanupPeriodDays` from `get_settings`, and when it is lower the session shows the `session.notice` kind `settings_ignored`.
+3. **A managed value below it raises `settingsIgnored`.** A managed policy outranks the flag. After each spawn the daemon reads `effective.cleanupPeriodDays` from `get_settings`, and when it is lower the session shows the `session.notice.posted` kind `settingsIgnored`.
 4. **`Delete old data` removes each purged session's provider files from every account home it ran in.** On Claude Code that is the conversation file with its subagent and tool-result files, its file history, session environment, todo and task lists, plan file and debug log; on Codex it is `thread/delete`. A session typed in a terminal keeps its conversation in the person's own Codex folder, which the purge never touches.
 5. **The provider's other files go past `Keep diagnostic logs for`.** With the sweep held off, what the provider writes into an account home and never reads back for a session — its logs, telemetry, traces, shell snapshots and paste cache — is diagnostic data and follows the service's own diagnostic bound. The list is Claude Code's own cleanup list, as measured, minus what belongs to a session.
 
@@ -116,7 +116,7 @@ The product already promises the person that nothing goes until they say so, and
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| A managed policy sets a lower value | Low for one person | High: conversations deleted while shown as resumable | `get_settings` read after each spawn | The `settings_ignored` notice in the session |
+| A managed policy sets a lower value | Low for one person | High: conversations deleted while shown as resumable | `get_settings` read after each spawn | The `settingsIgnored` notice in the session |
 | A process starts in an account home without the flag | Medium (sign-in) | High without the home file | Review of every spawn path | The same value in the home's `settings.json` |
 | A new Claude Code build adds a kind of per-session file | Medium | Files outlive their purged session | A session file left in an account home after its purge, investigated when seen | Session files join the purge list; the rest follow the diagnostic bound |
 | The purge misses a home a session ran in | Low | A conversation file outlives its session | The integration run across an account switch (Success Criteria) | The purge walks every account home the session ran in |
@@ -156,7 +156,7 @@ The product already promises the person that nothing goes until they say so, and
 | --- | --- | --- | --- |
 | A conversation file older than Claude Code's default cleanup period survives a new process's start in a managed account home | Kept | Planted-file probe with the daemon's spawn settings | When the provider unit lands |
 | The same, under a repository whose `.claude/settings.json` sets `cleanupPeriodDays` to 1 | Kept | Same probe with the repository file | When the provider unit lands |
-| A managed value below 36500 | `settings_ignored` shown | Probe with a managed settings file | When the provider unit lands |
+| A managed value below 36500 | `settingsIgnored` shown | Probe with a managed settings file | When the provider unit lands |
 | After `Delete old data`, the purged session's provider files in every account home it ran in | None left; a terminal session's Codex conversation untouched | Integration run across an account switch | When the purge lands |
 
 ---

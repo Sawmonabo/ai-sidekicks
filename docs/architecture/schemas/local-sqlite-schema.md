@@ -39,11 +39,11 @@ CREATE TABLE session_events (
   sequence               INTEGER NOT NULL,           -- monotonic per session
   occurred_at            TEXT NOT NULL,              -- RFC 3339 UTC with ms precision (wall-clock; display + audit)
   monotonic_ns           INTEGER NOT NULL,           -- nanoseconds since the daemon's start on std::time::Instant at emit; within-daemon ordering only (see Spec-013 §Clock Handling)
-  category               TEXT NOT NULL,              -- e.g. 'run_lifecycle', 'assistant_output', 'tool_activity'
+  category               TEXT NOT NULL,              -- e.g. 'runLifecycle', 'assistantOutput', 'toolActivity'
   type                   TEXT NOT NULL,              -- specific event type within category
   actor                  TEXT,                       -- the payload's own actor: the device a connection sent the event from, the agent_id, or 'daemon' on an intervention the daemon made itself; NULL when the payload names none
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON event payload
-  content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-005 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, tool-call arguments / result / error bodies, and the provider's own denial an `approval.reviewer_denied` row keeps for `Allow once` (Claude Code's action as its `PermissionDenied` hook received it, Codex's review as Codex sent it). Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with zstd at level 3, and the encoding is recorded in the payload as `contentEncoding: "zstd"`; a smaller body is stored as its UTF-8 bytes. NULL on every row whose event type carries no prose, event_maintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
+  content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-005 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, tool-call arguments / result / error bodies, and the provider's own denial an `approval.reviewer.denied` row keeps for `Allow once` (Claude Code's action as its `PermissionDenied` hook received it, Codex's review as Codex sent it). Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with zstd at level 3, and the encoding is recorded in the payload as `contentEncoding: "zstd"`; a smaller body is stored as its UTF-8 bytes. NULL on every row whose event type carries no prose, event_maintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
   correlation_id         TEXT,                       -- links related events
   causation_id           TEXT,                       -- parent event that caused this one
   version                TEXT NOT NULL DEFAULT '1.0'
@@ -57,43 +57,43 @@ CREATE TABLE session_events (
 ) STRICT;
 
 CREATE INDEX idx_session_events_type ON session_events(session_id, type);
-CREATE INDEX idx_session_events_skipped ON session_events(session_id) WHERE type = 'recovery.damaged_events_skipped';
+CREATE INDEX idx_session_events_skipped ON session_events(session_id) WHERE type = 'session.damagedEvents.skipped';
 -- One run's events of one type in log order, for the reads that seed a run's turns and that find a live run's agent and newest touch.
 CREATE INDEX idx_session_events_run ON session_events(session_id, type, run_id, sequence) WHERE run_id IS NOT NULL;
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id) WHERE correlation_id IS NOT NULL;
-CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(run_id, run_version) WHERE category = 'run_lifecycle' AND type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped');
+CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(run_id, run_version) WHERE category = 'runLifecycle' AND type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped');
 -- Every started turn gets exactly one end (Spec-005 §Run Lifecycle).
-CREATE UNIQUE INDEX idx_session_events_turn_end_once ON session_events(run_id, turn_number) WHERE category = 'run_lifecycle' AND type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed');
+CREATE UNIQUE INDEX idx_session_events_turn_end_once ON session_events(run_id, turn_number) WHERE category = 'runLifecycle' AND type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed');
 
 -- Projection-level terminal-key CHECK (Spec-005 at-most-once terminal emission; assigned to the Plan-004
 -- schema work). A CHECK sees only the row being written, never the row an UPDATE replaces, so the guard is a
 -- trigger trio: abort any terminal run_lifecycle write whose run_id or run_version is NULL. The BEFORE UPDATE leg keys off OLD (the row WAS terminal) and additionally aborts a value-changing key rewrite (NEW key IS NOT OLD, null-safe) or a category/type de-scope — either frees the index entry for a duplicate terminal. The promote leg rejects re-typing any non-terminal row INTO the guarded set (terminal rows are INSERT-only): an OLD-keyed guard alone would let a null-keyed promotion slip both legs and the NULL-distinct UNIQUE index.
 CREATE TRIGGER trg_run_terminal_key_insert BEFORE INSERT ON session_events
-WHEN NEW.category = 'run_lifecycle'
-  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
+WHEN NEW.category = 'runLifecycle'
+  AND NEW.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped')
   AND (NEW.run_id IS NULL OR NEW.run_version IS NULL)
 BEGIN
   SELECT RAISE(ABORT, 'terminal run_lifecycle requires a non-null run_id and run_version');
 END;
 CREATE TRIGGER trg_run_terminal_key_update BEFORE UPDATE OF run_id, run_version, category, type ON session_events
-WHEN OLD.category = 'run_lifecycle'
-  AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
+WHEN OLD.category = 'runLifecycle'
+  AND OLD.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped')
   AND (NEW.run_id IS NULL OR NEW.run_version IS NULL OR NEW.run_id IS NOT OLD.run_id OR NEW.run_version IS NOT OLD.run_version OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
 BEGIN
   SELECT RAISE(ABORT, 'terminal run_lifecycle row must preserve run_id + run_version + category + type');
 END;
 CREATE TRIGGER trg_run_terminal_key_promote BEFORE UPDATE OF category, type ON session_events
-WHEN NOT (OLD.category = 'run_lifecycle' AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped'))
-  AND NEW.category = 'run_lifecycle'
-  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
+WHEN NOT (OLD.category = 'runLifecycle' AND OLD.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped'))
+  AND NEW.category = 'runLifecycle'
+  AND NEW.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped')
 BEGIN
   SELECT RAISE(ABORT, 'session_events rows cannot be promoted to terminal run_lifecycle by UPDATE — terminal rows are INSERT-only');
 END;
 ```
 
-**Terminal-exactly-once backstop.** The `idx_session_events_run_terminal_once` partial unique index is the schema-level terminal-exactly-once backstop (Plan-004): a duplicate terminal `run_lifecycle` row for the same `(run_id, run_version)` epoch fails loud with a `UNIQUE` violation; rows with a NULL `run_id` or `run_version` bypass it (SQLite NULL-distinctness), so the Plan-002 terminal emitter enforces the non-null-key precondition this index backstops. The run keys are real columns the append writes from the typed event, so the index, the triggers and the run reads (`idx_session_events_run`) read columns and no write parses its payload for them, and `STRICT` typing holds `run_id` to text and `run_version` to an integer, per the `RunId` string / any-run-progression-counter payload contract in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle). The engine semantics this backstop relies on are load-bearing, and each is cited to the official SQLite documentation: [partial indexes](https://sqlite.org/partialindex.html) (the `WHERE category = 'run_lifecycle' AND type IN (…)` filter), [UNIQUE-index enforcement](https://sqlite.org/lang_createindex.html#unique_indexes), [NULL-distinctness](https://sqlite.org/nulls.html) (two NULLs are distinct for UNIQUE purposes, so NULL-key rows bypass the constraint) and [STRICT tables](https://www.sqlite.org/stricttables.html). Beside it the schema carries the `trg_run_terminal_key_insert` / `trg_run_terminal_key_update` / `trg_run_terminal_key_promote` trigger trio — the projection-level CHECK-equivalent Spec-005's at-most-once-terminal-emission rule assigns to this schema work — which aborts terminal `run_lifecycle` writes whose `run_id` or `run_version` is NULL. The INSERT leg closes the NULL-distinctness bypass the UNIQUE index cannot catch; the UPDATE leg (`BEFORE UPDATE OF run_id, run_version, category, type`, keyed off `OLD` so a row that WAS terminal cannot escape by mutation) additionally aborts a **value-changing key rewrite** (`NEW` key `IS NOT` `OLD`, null-safe — an UPDATE rewriting `(R,7)` to another non-null pair would otherwise free the index entry for a duplicate terminal) and a **`category`/`type` de-scope** (flipping a terminal row out of the guarded set is the same escape). The promote leg closes the inverse escape: an UPDATE re-typing a non-terminal row INTO the guarded set is rejected outright — terminal rows are INSERT-only — so a null-keyed promotion cannot slip past the OLD-keyed update leg and the NULL-distinct UNIQUE index (Plan-004 schema work).
+**Terminal-exactly-once backstop.** The `idx_session_events_run_terminal_once` partial unique index is the schema-level terminal-exactly-once backstop (Plan-004): a duplicate terminal `runLifecycle` row for the same `(run_id, run_version)` epoch fails loud with a `UNIQUE` violation; rows with a NULL `run_id` or `run_version` bypass it (SQLite NULL-distinctness), so the Plan-002 terminal emitter enforces the non-null-key precondition this index backstops. The run keys are real columns the append writes from the typed event, so the index, the triggers and the run reads (`idx_session_events_run`) read columns and no write parses its payload for them, and `STRICT` typing holds `run_id` to text and `run_version` to an integer, per the `RunId` string / any-run-progression-counter payload contract in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-runlifecycle). The engine semantics this backstop relies on are load-bearing, and each is cited to the official SQLite documentation: [partial indexes](https://sqlite.org/partialindex.html) (the `WHERE category = 'runLifecycle' AND type IN (…)` filter), [UNIQUE-index enforcement](https://sqlite.org/lang_createindex.html#unique_indexes), [NULL-distinctness](https://sqlite.org/nulls.html) (two NULLs are distinct for UNIQUE purposes, so NULL-key rows bypass the constraint) and [STRICT tables](https://www.sqlite.org/stricttables.html). Beside it the schema carries the `trg_run_terminal_key_insert` / `trg_run_terminal_key_update` / `trg_run_terminal_key_promote` trigger trio — the projection-level CHECK-equivalent Spec-005's at-most-once-terminal-emission rule assigns to this schema work — which aborts terminal `runLifecycle` writes whose `run_id` or `run_version` is NULL. The INSERT leg closes the NULL-distinctness bypass the UNIQUE index cannot catch; the UPDATE leg (`BEFORE UPDATE OF run_id, run_version, category, type`, keyed off `OLD` so a row that WAS terminal cannot escape by mutation) additionally aborts a **value-changing key rewrite** (`NEW` key `IS NOT` `OLD`, null-safe — an UPDATE rewriting `(R,7)` to another non-null pair would otherwise free the index entry for a duplicate terminal) and a **`category`/`type` de-scope** (flipping a terminal row out of the guarded set is the same escape). The promote leg closes the inverse escape: an UPDATE re-typing a non-terminal row INTO the guarded set is rejected outright — terminal rows are INSERT-only — so a null-keyed promotion cannot slip past the OLD-keyed update leg and the NULL-distinct UNIQUE index (Plan-004 schema work).
 
-**Turn-end once backstop.** `idx_session_events_turn_end_once` holds a turn to one end: a second `agent.turn.completed`, `agent.turn.interrupted` or `agent.turn.failed` row for the same `(run_id, turn_number)` fails loud with a `UNIQUE` violation. The run engine's emission gate, keyed by run and turn number, drops a duplicate report before it reaches the write, and this index is the backstop behind it. A turn end is the one row a run's log can take after the run's terminal row, a provider report that arrived late written once as that turn's end, so the terminal index does not cover it ([Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle)).
+**Turn-end once backstop.** `idx_session_events_turn_end_once` holds a turn to one end: a second `agent.turn.completed`, `agent.turn.interrupted` or `agent.turn.failed` row for the same `(run_id, turn_number)` fails loud with a `UNIQUE` violation. The run engine's emission gate, keyed by run and turn number, drops a duplicate report before it reaches the write, and this index is the backstop behind it. A turn end is the one row a run's log can take after the run's terminal row, a provider report that arrived late written once as that turn's end, so the terminal index does not cover it ([Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-runlifecycle)).
 
 **Content payload (machine-authored prose).** `content_payload` is the durable home for the prose the _machine_ side of a session produces — the assistant message body, the reasoning-update body, and tool-call arguments / result / error bodies. It exists because [ADR-027](../../decisions/027-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It holds machine-authored session work product ([Spec-020 §PII Data Map](../../specs/020-data-retention-export-and-deletion.md#pii-data-map)), stored plain like every other column. A body of 1 KiB or more is compressed with zstd at level 3 before it is written, and the encoding is recorded in the payload as `contentEncoding`, so every reader decodes it through the daemon's one codec (`crates/sidekicks-daemon/src/events/content/codec.rs`); a smaller body is stored as its UTF-8 bytes.
 
@@ -101,7 +101,7 @@ END;
 
 **Purge.** Deleting a session deletes its rows outright, `content_payload` with them, with `secure_delete` on (§Pragmas), so the freed pages hold nothing readable.
 
-**Relay disposition — the column stays on its machine.** `content_payload` is **never relayed**: the bytes stay on the machine that wrote them, and a linked device reads a body only through the daemon's read, paired with the event and never merged into `payload` ([Spec-005 §Assistant Output](../../specs/005-session-event-taxonomy-and-audit-log.md#assistant-output-assistant_output)).
+**Relay disposition — the column stays on its machine.** `content_payload` is **never relayed**: the bytes stay on the machine that wrote them, and a linked device reads a body only through the daemon's read, paired with the event and never merged into `payload` ([Spec-005 §Assistant Output](../../specs/005-session-event-taxonomy-and-audit-log.md#assistant-output-assistantoutput)).
 
 **A second machine holding a body is unreachable in V1.** A session executes on exactly one bound machine ([Spec-027 §Required Behavior](../../specs/027-remote-control.md#required-behavior)), and every row in that session's log is authored by that machine. No other daemon holds a row of this session, so there is no projection anywhere that would show a body it does not hold.
 
@@ -125,14 +125,14 @@ CREATE INDEX idx_session_snapshots_session ON session_snapshots(session_id, as_o
 
 ## Session Directory (Plan-001)
 
-The daemon keeps one row per session it hosts in `sessions`, the directory that `session.list` and `session.read` answer from. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) owns the row; some of its columns are fixed here because other services read them:
+The daemon keeps one row per session it hosts in `sessions`, the directory that `session.subscribe` and `session.read` answer from. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) owns the row; some of its columns are fixed here because other services read them:
 
-- `shape TEXT NOT NULL CHECK (shape IN ('chat', 'project'))` — whether the session is a chat, bound to its own managed workspace, or a session in an attached project. It is set when the session is created and changes only when a chat is converted to a project. The sessions list groups by it, and it reaches clients as `shape` on `session.read` and `session.list`.
+- `shape TEXT NOT NULL CHECK (shape IN ('chat', 'project'))` — whether the session is a chat, bound to its own managed workspace, or a session in an attached project. It is set when the session is created and changes only when a chat is converted to a project. The sessions list groups by it, and it reaches clients as `shape` on `session.read` and `session.subscribe`.
 - `place TEXT` — where the session runs, the place's wire JSON (`"windows"` or `{"distro":"Ubuntu"}`) on a Windows computer, NULL on macOS and Linux, as `projects.place` and `repo_mounts.place` are stored ([Workspace and Git Tables](local-sqlite-workspace-and-git-tables.md)). Written from `session.created` and never changed, so a rebuild restores it from that event; it reaches clients as `place` on `session.read`, on `session.create`'s answer and on `session.created`.
-- `muted_at TEXT` — RFC 3339 UTC; NULL while the session is not muted. `session.muted` sets it and `session.unmuted` clears it, and a rebuild restores it from those events; it reaches clients as `muted` on `session.read` and `session.list`. While it is set, the session's `Finished` and `Failed` moments reach no channel and no device; `Waiting on you` and a workflow's Notify step are never silenced by it. The attention service reads it when it writes an entry.
+- `muted_at TEXT` — RFC 3339 UTC; NULL while the session is not muted. `session.muted` sets it and `session.unmuted` clears it, and a rebuild restores it from those events; it reaches clients as `muted` on `session.read` and `session.subscribe`. While it is set, the session's `Finished` and `Failed` moments reach no channel and no device; `Waiting on you` and a workflow's Notify step are never silenced by it. The attention service reads it when it writes an entry.
 - `group_id TEXT REFERENCES session_groups(id)` — the one group of its project the session sits in; NULL for a session in no group and for every chat. Indexed (`idx_sessions_group`), because the sessions list and search read a group's sessions by it. An archived session keeps it.
-- `pending_working_folder TEXT` — the folder a `session.setWorkingFolder` move goes to, applied at the active run's next boundary; NULL while no move waits. Written by the session service with no event of its own, so a rebuild, which rewrites only the row's event-derived columns, keeps it; it reaches clients as `pendingWorkingFolder` on `session.read`, and a purge keeps every worktree a pending move names.
-- `permission_level TEXT NOT NULL DEFAULT 'yolo' CHECK (permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'))` — the session's permission level, which the run queue's admission reads: every process the session opens or resumes starts at it. `session.create` writes the level the provider's own settings give for the session's project ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)); the column's `yolo` is that read's answer when they set none. `session.permissionLevelUpdate` writes it once an open session's provider has taken the level, under the lock the session's opening takes, so the process never runs at another level than the stored one. Written with no event of its own, so a rebuild keeps it.
+- `pending_working_folder TEXT` — the folder a `session.workingFolder.update` move goes to, applied at the active run's next boundary; NULL while no move waits. Written by the session service with no event of its own, so a rebuild, which rewrites only the row's event-derived columns, keeps it; it reaches clients as `pendingWorkingFolder` on `session.read`, and a purge keeps every worktree a pending move names.
+- `permission_level TEXT NOT NULL DEFAULT 'yolo' CHECK (permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'))` — the session's permission level, which the run queue's admission reads: every process the session opens or resumes starts at it. `session.create` writes the level the provider's own settings give for the session's project ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)); the column's `yolo` is that read's answer when they set none. `session.permissionLevel.update` writes it once an open session's provider has taken the level, under the lock the session's opening takes, so the process never runs at another level than the stored one. Written with no event of its own, so a rebuild keeps it.
 
 A session's groups, links and tags are the three layers of [Spec-001 §Groups, Links And Tags](../../specs/001-session-core.md#groups-links-and-tags): one place in the list, any number of relationships, any number of categories. All three are row-canonical daemon state written by the session service and the session tools, not rebuilt from the event log, and removed with their session.
 
@@ -159,7 +159,7 @@ CREATE TABLE session_links (
   source_session_id  TEXT NOT NULL,
   target_session_id  TEXT NOT NULL,
   kind               TEXT NOT NULL
-                     CHECK (kind IN ('started', 'copied_from', 'messaged', 'asked', 'mentioned', 'related')),
+                     CHECK (kind IN ('started', 'copiedFrom', 'messaged', 'asked', 'mentioned', 'related')),
   use_count          INTEGER NOT NULL DEFAULT 1 CHECK (use_count >= 1),  -- messaged counts the messages traded
   first_at           TEXT NOT NULL,
   last_at            TEXT NOT NULL,          -- the 30-day halving of a link's weight is measured from here
@@ -226,13 +226,13 @@ CREATE TABLE session_convert_requests (
 
 -- Each workspace file a conversion has dealt with, recorded as its copy lands: copied, or not
 -- copied with the reason. A resumed conversion skips every path here and counts from these rows;
--- the files not copied are read a page at a time by session.convertSkippedFileList.
+-- the files not copied are read a page at a time by session.conversion.skippedFile.list.
 CREATE TABLE session_convert_files (
   session_id  TEXT NOT NULL,
   path        TEXT NOT NULL,
   outcome     TEXT NOT NULL
-    CHECK (outcome IN ('copied', 'repository_has_file', 'repository_path_not_a_folder', 'link',
-      'special_file')),
+    CHECK (outcome IN ('copied', 'repositoryHasFile', 'repositoryPathNotAFolder', 'link',
+      'specialFile')),
   PRIMARY KEY (session_id, path)
 ) STRICT, WITHOUT ROWID;
 ```
@@ -245,7 +245,7 @@ A conversion records each file as its copy lands without waiting for that record
 
 ## Session Console State (Plan-001)
 
-The daemon's own session-scoped store for what a session holds outside its event log. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) declares the composer draft, its staged attachments and the review notes left on a file's lines durable here, so that a half-written message, its files and an unsent review reach the person's other devices; the draft's and the staged files' columns are defined with the verbs that write them: `session.draftUpdate` and `session.attachmentAdd` / `session.attachmentRemove` ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)). The first block below holds the columns the spawn path reads: the session's own step bound and a Claude Code session's own advisor. The second holds the review notes, which `session.reviewNoteAdd` / `session.reviewNoteUpdate` / `session.reviewNoteRemove` write ([Gitflow Payload Contracts](../contracts/gitflow-payloads.md)).
+The daemon's own session-scoped store for what a session holds outside its event log. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) declares the composer draft, its staged attachments and the review notes left on a file's lines durable here, so that a half-written message, its files and an unsent review reach the person's other devices; the draft's and the staged files' columns are defined with the verbs that write them: `session.draft.update` and `session.attachment.add` / `session.attachment.remove` ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)). The first block below holds the columns the spawn path reads: the session's own step bound and a Claude Code session's own advisor. The second holds the review notes, which `session.reviewNote.add` / `session.reviewNote.update` / `session.reviewNote.delete` write ([Gitflow Payload Contracts](../contracts/gitflow-payloads.md)).
 
 It is **configuration, not session history**: it is not events-canonical and is not rebuilt from the event log. A session's step bound is a preference the person set, so a log that can rebuild what a turn did has nothing to say about it.
 
@@ -255,9 +255,9 @@ CREATE TABLE session_console_state (
   session_id          TEXT NOT NULL PRIMARY KEY,  -- one row per session: written at `session.create` for a Claude Code session (its advisor), and for any other session on the first press that needs it
   max_steps_per_turn  INTEGER
                       CHECK (max_steps_per_turn IS NULL OR max_steps_per_turn >= 1),  -- this session's OWN bound on how many steps one turn may take. NULL = no session override, so the machine's own Runtime value applies, and where that is unset each provider does what it does on its own ([Spec-003 §The Step Bound On A Turn](../../specs/003-queue-steer-pause-resume.md#the-step-bound-on-a-turn)). The floor is 1 because a bound of zero would forbid the turn it bounds; the ceiling is the person's, since Claude Code and Codex publish none. The MACHINE-wide value is not here: it belongs to the Runtime settings page, so one number has one home on each side of the override
-  advisor_model       TEXT,  -- a Claude Code session's own advisor: the model, or NULL when it is off. Copied at `session.create` from the app's pick on Claude Code's declared `Advisor` row, kept in the machine settings file's `providerSettings`, where one is set, else from the `advisorModel` Claude Code's own settings resolve for the session's project, and NULL where none sets one; changed only by `/advisor` in this session, each change appending `session.advisor_changed`; a later change to the default never reaches it
+  advisor_model       TEXT,  -- a Claude Code session's own advisor: the model, or NULL when it is off. Copied at `session.create` from the app's pick on Claude Code's declared `Advisor` row, kept in the machine settings file's `providerSettings`, where one is set, else from the `advisorModel` Claude Code's own settings resolve for the session's project, and NULL where none sets one; changed only by `/advisor` in this session, each change appending `session.advisor.changed`; a later change to the default never reaches it
   session_mode        TEXT NOT NULL DEFAULT 'build'
-                      CHECK (session_mode IN ('build', 'plan')),  -- the composer's Build or Plan mode, written `plan` at `session.create` where Claude Code's own `permissions.defaultMode` resolves to `plan`, and otherwise once the provider has taken a `session.modeUpdate`; a restart's resume opens in it
+                      CHECK (session_mode IN ('build', 'plan')),  -- the composer's Build or Plan mode, written `plan` at `session.create` where Claude Code's own `permissions.defaultMode` resolves to `plan`, and otherwise once the provider has taken a `session.mode.update`; a restart's resume opens in it
   updated_at          TEXT NOT NULL
 ) STRICT;
 ```
@@ -270,7 +270,7 @@ CREATE TABLE session_review_notes (
   session_id            TEXT NOT NULL,
   note_id               TEXT NOT NULL,
   scope                 TEXT NOT NULL
-                        CHECK (scope IN ('changes', 'branch', 'change_request')),
+                        CHECK (scope IN ('changes', 'branch', 'changeRequest')),
   base                  TEXT NOT NULL,
   head_commit_id        TEXT,
   working_tree_blob_id  TEXT,
@@ -295,7 +295,7 @@ A note is held here until it is composed into the draft as a steer, posted with 
 
 ## Runs (Plan-002)
 
-The run's state is event-sourced: each `run.*` state change, and each applied or degraded intervention, writes this row in the same write as its event, so the row always equals a rebuild from the log. It is the read `getRun` answers from, and the row a state change's guarded swap moves.
+The run's state is event-sourced: each `agent.run.*` state change, and each applied or degraded intervention, writes this row in the same write as its event, so the row always equals a rebuild from the log. It is the read `getRun` answers from, and the row a state change's guarded swap moves.
 
 ```sql
 -- Owner: Plan-002
@@ -305,9 +305,9 @@ CREATE TABLE runs (
   parent_run_id  TEXT,                          -- NULL on a lead run
   reached_by     TEXT                           -- how a child run was reached; NULL on a lead run
                  CHECK(reached_by IS NULL
-                   OR reached_by IN ('provider_subagent', 'bridge_run', 'workflow_step')),
+                   OR reached_by IN ('providerSubagent', 'bridgeRun', 'workflowStep')),
   state          TEXT NOT NULL
-    CHECK(state IN ('queued', 'starting', 'running', 'waiting_for_approval', 'waiting_for_input',
+    CHECK(state IN ('queued', 'starting', 'running', 'waitingForApproval', 'waitingForInput',
                     'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),
   run_version    INTEGER NOT NULL CHECK(run_version >= 0)  -- counts every progression (Plan-002 D-002-1)
 ) STRICT;
@@ -326,9 +326,9 @@ CREATE TABLE queue_items (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL,
   state           TEXT NOT NULL DEFAULT 'queued'
-                  CHECK(state IN ('queued', 'admitted', 'superseded', 'canceled', 'not_delivered')),
-  not_delivered_reason TEXT                    -- why a not_delivered item was not delivered: it waited past the
-                  CHECK(not_delivered_reason IN ('timed_out', 'failed')),  -- daemon's own delivery timeout, or its delivery failed outright
+                  CHECK(state IN ('queued', 'admitted', 'superseded', 'canceled', 'notDelivered')),
+  not_delivered_reason TEXT                    -- why a notDelivered item was not delivered: it waited past the
+                  CHECK(not_delivered_reason IN ('timedOut', 'failed')),  -- daemon's own delivery timeout, or its delivery failed outright
   payload         TEXT NOT NULL DEFAULT '{}', -- JSON: context, metadata, identifiers, and the item's
                                               -- body, a person's send or an orchestration-authored
                                               -- prompt (a workflow step's input, an orchestrated
@@ -345,13 +345,13 @@ CREATE TABLE queue_items (
   child_handle    TEXT,                       -- the child whose queue holds the item, the handle the queue
                                               -- verbs name it by; NULL on the lead's queue
   position        INTEGER NOT NULL CHECK(position >= 0),  -- the item's place in its queue's order, lowest
-                                              -- first: send order until run.queueReorder replaces it, and an
+                                              -- first: send order until agent.queueItem.reorder replaces it, and an
                                               -- edit takes the place of the item it supersedes
   client_idempotency_key TEXT,                -- the send's own key, so a retried send returns the saved item;
                                               -- NULL on an orchestration-authored item
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
-  CHECK((state = 'not_delivered') = (not_delivered_reason IS NOT NULL)),  -- a not_delivered item always says why
+  CHECK((state = 'notDelivered') = (not_delivered_reason IS NOT NULL)),  -- a notDelivered item always says why
   UNIQUE(session_id, client_idempotency_key)  -- SQLite treats each NULL as distinct, so only sends dedupe
 ) STRICT;
 
@@ -363,19 +363,19 @@ CREATE TABLE interventions (
   id                     TEXT PRIMARY KEY,
   target_run_id          TEXT NOT NULL,
   type                   TEXT NOT NULL
-                         CHECK(type IN ('interrupt', 'faster_model_retry')),
+                         CHECK(type IN ('interrupt', 'fasterModelRetry')),
   state                  TEXT NOT NULL DEFAULT 'requested'
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired', 'failed')),
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON: the request's own fields, as plain text — an interrupt's `pending`, `deliverFirst` and optional `reason`, a faster-model retry's `expectedTurnId` and `model`. A message the person sends mid-turn is a queue send, so its words sit on `queue_items.payload`, never here (Spec-003 §Required Behavior)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-003 §Interfaces And Contracts / Plan-002 D-002-2)
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (a client's, or the daemon's own for its own stop); return-or-conflict intervention dedupe (Spec-004 §Required Behavior)
   device_id              TEXT,                       -- the device the intervention came from (the machine's own screen or a linked device's channel), found from the connection at acceptance; NULL means the daemon's own stop (Queue And Intervention Model)
-  rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — durable across a retry: the reply carries no result, so a retry that returns the saved reply reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
+  rejection_reason       TEXT,                       -- machine-readable rejected cause (provider.capability.unsupported foremost) — durable across a retry: the reply carries no result, so a retry that returns the saved reply reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
   fallback_action        TEXT,                       -- the fallback a degraded intervention took; NULL in every other state
   failure_reason         TEXT,                       -- what a failed dispatch threw (a daemon error's code, else its message), so a retry's saved reply carries the same failureReason; NULL in every other state
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
-  UNIQUE(target_run_id, client_idempotency_key),     -- identical retry returns the saved result; key reuse with a differing payload rejects as intervention.idempotency_conflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
+  UNIQUE(target_run_id, client_idempotency_key),     -- identical retry returns the saved result; key reuse with a differing payload rejects as agent.intervention.idempotencyConflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
 ) STRICT;
 
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
@@ -515,7 +515,7 @@ CREATE TABLE driver_tools (
   tool_name          TEXT NOT NULL,
   idempotency_class  TEXT NOT NULL
                      CHECK(idempotency_class IN (
-                       'idempotent', 'compensable', 'manual_reconcile_only'
+                       'idempotent', 'compensable', 'manualReconcileOnly'
                      )),
   description        TEXT,
   refreshed_at       TEXT NOT NULL,
@@ -551,13 +551,13 @@ CREATE TABLE driver_contract_meta (
 
 The build-metadata rejection above is grounded in the SemVer specification itself: per [Semantic Versioning 2.0.0 §10](https://semver.org/#spec-item-10), "Build metadata MUST be ignored when determining version precedence. Thus two versions that differ only in the build metadata, have the same precedence." Because `1.2.3+build.5` and `1.2.3+build.6` denote the SAME contract version under that precedence rule, persisting them as byte-distinct `contract_version` strings would let a non-change masquerade as a change. The shared write-path garde check (`assertValidContractVersion`, invoked from both the T2.2 `runtime_bindings` and T2.4 `driver_contract_meta` write paths) therefore REJECTS — rather than strips/normalizes — any value carrying build metadata, keeping the stored value byte-identical to what was validated and both `contract_version` columns canonical-identifying.
 
-**Cloud tasks.** `cloud_tasks` holds one row per task a session sent to its provider's own cloud (`cloud.taskStart`), read by `cloud.taskList` and `cloud.taskRead`. Each row belongs to its session and records the task's state exactly as the provider last reported it, never a state the daemon inferred: on Codex `pending`, `ready`, `applied` or `error`, and on Claude Code `submitted` for the task's whole life, because Claude Code's command line reports no later state. Each row also keeps the task's environment label, from which [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.31 reads the project's last Codex environment back. [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) owns the row's columns.
+**Cloud tasks.** `cloud_tasks` holds one row per task a session sent to its provider's own cloud (`cloud.task.start`), read by `cloud.task.subscribe` and `cloud.task.read`. Each row belongs to its session and records the task's state exactly as the provider last reported it, never a state the daemon inferred: on Codex `pending`, `ready`, `applied` or `error`, and on Claude Code `submitted` for the task's whole life, because Claude Code's command line reports no later state. Each row also keeps the task's environment label, from which [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.31 reads the project's last Codex environment back. [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) owns the row's columns.
 
 ---
 
 ## Daemon Configuration (Plan-005)
 
-The service's machine-wide configuration and its two retention bounds, read by the daemon's own modules and changed over the wire only through `daemon.configRead`, `daemon.configUpdate`, `daemon.retentionRead` and `daemon.retentionUpdate` ([Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-9 and T-005r-1-10). A `NULL` is the setting's own unbounded state: `No limit`, `Never ask`, `Unlimited` or no cap. The row is written whole when the store is created: the listener port starts at the daemon's one default constant ([Workflow Graph Model §Entry node and the V1 trigger surface (SA-34)](../../domain/workflow-graph-model.md#entry-node-and-the-v1-trigger-surface-sa-34)), and every other column at its default or `NULL`.
+The service's machine-wide configuration and its two retention bounds, read by the daemon's own modules and changed over the wire only through `daemon.config.read`, `daemon.config.update`, `daemon.retention.read` and `daemon.retention.update` ([Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-9 and T-005r-1-10). A `NULL` is the setting's own unbounded state: `No limit`, `Never ask`, `Unlimited` or no cap. The row is written whole when the store is created: the listener port starts at the daemon's one default constant ([Workflow Graph Model §Entry node and the V1 trigger surface (SA-34)](../../domain/workflow-graph-model.md#entry-node-and-the-v1-trigger-surface-sa-34)), and every other column at its default or `NULL`.
 
 ```sql
 -- Owner: Plan-005
@@ -596,7 +596,7 @@ CREATE TABLE artifact_manifests (
   created_by         TEXT,
   artifact_type      TEXT NOT NULL
                      CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design',
-                                             'workflow_output')),
+                                             'workflowOutput')),
   content_hash       TEXT NOT NULL,                -- the payload's SHA-256, 'sha256:<hex>'
   size_bytes         INTEGER NOT NULL,             -- the payload's length, measured by the daemon
   metadata           TEXT NOT NULL DEFAULT '{}',   -- JSON: the file name and the media type
@@ -639,7 +639,7 @@ CREATE INDEX idx_artifact_payload_refs_storage_path ON artifact_payload_refs(sto
 
 ## Approval Tables (Plan-009)
 
-The canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `gate`. A plan, a question and a tool server's own MCP elicitation are not approvals: a plan is one `plan.proposed` record answered by `plan.resolve`, and a question or elicitation is one `question.asked` record answered by `question.resolve`, outside the approval pipeline. Codex's own approval of a tool-server call, an elicitation marked `_meta.codex_approval_kind: "mcp_tool_call"`, is a `tool_execution` approval.
+The canonical approval categories: `toolExecution`, `fileWrite`, `networkAccess`, `destructiveGit`, `gate`. A plan, a question and a tool server's own MCP elicitation are not approvals: a plan is one `plan.proposed` record answered by `plan.resolve`, and a question or elicitation is one `question.asked` record answered by `question.resolve`, outside the approval pipeline. Codex's own approval of a tool-server call, an elicitation marked `_meta.codex_approval_kind: "mcp_tool_call"`, is a `toolExecution` approval.
 
 ```sql
 -- Owner: Plan-009 (D-009-2)
@@ -651,7 +651,7 @@ CREATE TABLE approval_requests (
   requested_by          TEXT NOT NULL,        -- requester actor (the agent's actor id, or the device a person's request came from; Spec-010 §Required Behavior)
   category              TEXT NOT NULL
                         CHECK(category IN (
-                          'tool_execution', 'file_write', 'network_access', 'destructive_git',
+                          'toolExecution', 'fileWrite', 'networkAccess', 'destructiveGit',
                           'gate'                                                  -- mirrors Spec-010 canonical enum
                         )),
   scope                 TEXT NOT NULL,        -- requested scope descriptor
@@ -722,17 +722,17 @@ CREATE INDEX idx_approval_correction_uses_session ON approval_correction_uses(se
 
 -- Owner: Plan-009
 CREATE TABLE reviewer_denials (
-  denial_id        TEXT PRIMARY KEY,          -- the denialId its approval.reviewer_denied names
+  denial_id        TEXT PRIMARY KEY,          -- the denialId its approval.reviewer.denied names
   session_id       TEXT NOT NULL,
   provider_denial  TEXT NOT NULL              -- JSON: the provider's own record of the block, whole, written in the
-                                              -- block's approval.reviewer_denied write; `Allow once` hands it back from here
+                                              -- block's approval.reviewer.denied write; `Allow once` hands it back from here
 ) STRICT;
 
 CREATE INDEX idx_reviewer_denials_session ON reviewer_denials(session_id);
 
 -- Owner: Plan-009
--- The plan record, rebuilt from plan.proposed, plan.accepted, plan.handed_off, plan.kept and
--- plan.hold_ended. The plan's artifact is never changed; its state word is read here.
+-- The plan record, rebuilt from plan.proposed, plan.accepted, plan.handedOff, plan.kept and
+-- plan.hold.ended. The plan's artifact is never changed; its state word is read here.
 CREATE TABLE plans (
   id                TEXT PRIMARY KEY,  -- PlanId
   session_id        TEXT NOT NULL,     -- the planning session
@@ -741,25 +741,25 @@ CREATE TABLE plans (
   title             TEXT NOT NULL,     -- the plan's first heading
   holds_request     INTEGER NOT NULL CHECK(holds_request IN (0, 1)), -- a held provider request waits on the verdict
   state             TEXT NOT NULL DEFAULT 'waiting'
-                    CHECK(state IN ('waiting', 'accepted', 'handed_off', 'open')),
-  fresh_session_id  TEXT,              -- set exactly when state = 'handed_off'
-  resolved_by       TEXT,              -- the device whose verdict landed; NULL while pending and after plan.hold_ended
+                    CHECK(state IN ('waiting', 'accepted', 'handedOff', 'open')),
+  fresh_session_id  TEXT,              -- set exactly when state = 'handedOff'
+  resolved_by       TEXT,              -- the device whose verdict landed; NULL while pending and after plan.hold.ended
   resolved_at       TEXT,
   created_at        TEXT NOT NULL,
-  CHECK((state = 'handed_off') = (fresh_session_id IS NOT NULL))
+  CHECK((state = 'handedOff') = (fresh_session_id IS NOT NULL))
 ) STRICT;
 
 CREATE INDEX idx_plans_session ON plans(session_id);
 CREATE INDEX idx_plans_fresh_session ON plans(fresh_session_id) WHERE fresh_session_id IS NOT NULL;
 ```
 
-The daemon keeps no table of approval rules: the providers keep them ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)), and a session's own answers are its `approval_resolutions` rows and its `approval.remembered` and `approval.rule_revoked` events, which the inspector's `Rules` reads beside the providers' own rules.
+The daemon keeps no table of approval rules: the providers keep them ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)), and a session's own answers are its `approval_resolutions` rows and its `approval.rule.remembered` and `approval.rule.revoked` events, which the inspector's `Rules` reads beside the providers' own rules.
 
 ---
 
 ## Credential Policy Reference (Plan-009)
 
-A run's `executionPosture.credentialPolicyRef` is a plain reference naming the credential deny list the daemon handed the provider for that run ([Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior) posture semantics). It rides the `run.running` posture in `session_events` and needs no table of its own: deleting a session deletes it with the session's rows.
+A run's `executionPosture.credentialPolicyRef` is a plain reference naming the credential deny list the daemon handed the provider for that run ([Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior) posture semantics). It rides the `agent.run.running` posture in `session_events` and needs no table of its own: deleting a session deletes it with the session's rows.
 
 ---
 
@@ -833,7 +833,7 @@ CREATE UNIQUE INDEX idx_skill_records_folder ON skill_records(folder_path) WHERE
 The attention service's entries carry the state its two deliveries beyond the app need to survive a service restart ([Spec-017 §Cross-Device Delivery](../../specs/017-notifications-and-attention-model.md#cross-device-delivery)). No table here holds a mail password, a web address or its signing secret: each is kept as its own item in the operating system's credential store and never written to a column, a reply, an event, a log or an error ([ADR-036](../../decisions/036-workflow-secrets-in-the-os-keychain.md)).
 
 - **Each attention entry** carries a nullable `digested_at`, the instant the entry went out in an email digest, so no entry is listed twice and the digest's one timer is restored from it at start; and a nullable `web_address_state` (`pending`, `delivered` or `undelivered`) with its attempt count, so a retry to the web address survives a restart. Both live as long as the entry.
-- **Each delivery channel** — the web address and the email digest — keeps one outcome row: when the last attempt ran, its result (`delivered`, `refused`, `unreachable`, `timedOut`, `signInRefused`, `notEncrypted` or `notAnAddress`), the HTTP status where there was one, and how many moments are undelivered. The row is overwritten on each attempt and removed with the channel's secret; `attention.deliveryRead` returns it.
+- **Each delivery channel** — the web address and the email digest — keeps one outcome row: when the last attempt ran, its result (`delivered`, `refused`, `unreachable`, `timedOut`, `signInRefused`, `notEncrypted` or `notAnAddress`), the HTTP status where there was one, and how many moments are undelivered. The row is overwritten on each attempt and removed with the channel's secret; `attention.delivery.list` returns it.
 - **The session row's `muted_at`** (§Session Directory) keeps a muted session's `Finished` and `Failed` moments out of both channels.
 - **Each push to another device** keeps a `push_deliveries` row, its device one of `trusted_devices` ([Remote Control Tables §The Account's Devices](local-sqlite-remote-control-tables.md#the-accounts-devices)).
 
@@ -854,7 +854,7 @@ CREATE TABLE push_deliveries (
 
 ## Session Search Index
 
-The search across every session and a session's own find are answered from the daemon's own full-text index on Tantivy over session titles, message text, tool calls, group names and tags. The index lives outside this database and is built from it: every write that changes searchable text adds a row to an outbox table here in the same transaction, the daemon applies the outbox to the index in batches and deletes the rows each durable index commit holds, and a crash replays what the index has not committed ([ADR-041](../../decisions/041-session-search-on-tantivy.md)). It reaches every session the list holds, archived ones included, with no cap. Only settled messages are indexed, never streamed chunks; prefix fields of one to four characters serve search as the person types; and the index merges its segments on its own thread whenever the merge policy proposes a merge, after each commit and each finished merge, no merge writing more than 250,000 live rows, rewriting each segment that held a purged session's or a deleted group's rows. A `tag:<tag>` term matches the tag and every tag nested under it: the index holds each tag row under its tag's fold cut at every `/` (`billing/stripe` under `billing` and `billing/stripe`), with its session's last activity. A search with words answers in BM25 order (k1 1.2, b 0.75, a word in half or more of the rows weighted 1e-6). A tag narrows the sessions searched to those it matches and adds nothing to a score; a tag with no words lists its sessions most recently active first. Where the agents' `session_search` names a related session, the BM25 rank and the relation rank are merged by Reciprocal Rank Fusion, each list contributing 1/(60 + its rank); the person's box names no session, so `session_related` takes no part, and the person's `Search all sessions` box gets its hits grouped by session, while the agents' `session_search` gets them grouped by project, then group, then session, each branch ordered by its best score. The outbox is `session_search_outbox`, written by triggers on `session_events` (a settled message or tool call as it is appended), `sessions` (a title, a move between groups, a purge, and a move of its last activity, which re-reads the session's tag rows), `session_groups` (a name, a deletion) and `session_tags`. It copies no text: the search thread reads each row's text as this database holds it when a batch is read, at most 50,000 outbox rows or 16 MiB of text, ending a batch at a deleted session or group, and a row gone by then leaves the index. An index row's key is its source row's rowid times four plus its kind's slot (`event` 0, `title` 1, `group` 2, `tag` 3), and its owner is a session's rowid in `sessions` or, for a group name, the group's rowid in `session_groups`; nothing vacuums this database, so those rowids never move. A missing or unreadable index, or one whose last applied outbox id is past any id this outbox has given (an index built from another database), is rebuilt from this database while the daemon serves, in a child process the search thread starts and waits on, so a build that crashes fails only the build and never ends the service; the build reads each source table through its highest rowid at the build's start, a later row reaching the index through the outbox, each batch holding every kind's rows through the same share of its table, then merges its segments, and the search thread then opens it. A search's later pages read the index as its first page did; because a source table gives a deleted row's rowid to the next row it inserts, `session_search_rowid_floors` logs every delete that lowers an indexed table's highest rowid, with the new highest, and a later page credits a held row only while its source rowid is no higher than every highest rowid logged since that view, so a row at a rowid a later row took is passed over like a purged one. The source tables insert without naming a rowid and never `REPLACE`, whose deletes fire no trigger. A held search is let go after 5 minutes unpaged or 30 minutes in all, and past 16 held the least recently paged goes first; a cursor of a search let go is refused `session.search_cursor_unresolvable`.
+The search across every session and a session's own find are answered from the daemon's own full-text index on Tantivy over session titles, message text, tool calls, group names and tags. The index lives outside this database and is built from it: every write that changes searchable text adds a row to an outbox table here in the same transaction, the daemon applies the outbox to the index in batches and deletes the rows each durable index commit holds, and a crash replays what the index has not committed ([ADR-041](../../decisions/041-session-search-on-tantivy.md)). It reaches every session the list holds, archived ones included, with no cap. Only settled messages are indexed, never streamed chunks; prefix fields of one to four characters serve search as the person types; and the index merges its segments on its own thread whenever the merge policy proposes a merge, after each commit and each finished merge, no merge writing more than 250,000 live rows, rewriting each segment that held a purged session's or a deleted group's rows. A `tag:<tag>` term matches the tag and every tag nested under it: the index holds each tag row under its tag's fold cut at every `/` (`billing/stripe` under `billing` and `billing/stripe`), with its session's last activity. A search with words answers in BM25 order (k1 1.2, b 0.75, a word in half or more of the rows weighted 1e-6). A tag narrows the sessions searched to those it matches and adds nothing to a score; a tag with no words lists its sessions most recently active first. Where the agents' `session_search` names a related session, the BM25 rank and the relation rank are merged by Reciprocal Rank Fusion, each list contributing 1/(60 + its rank); the person's box names no session, so `session_related` takes no part, and the person's `Search all sessions` box gets its hits grouped by session, while the agents' `session_search` gets them grouped by project, then group, then session, each branch ordered by its best score. The outbox is `session_search_outbox`, written by triggers on `session_events` (a settled message or tool call as it is appended), `sessions` (a title, a move between groups, a purge, and a move of its last activity, which re-reads the session's tag rows), `session_groups` (a name, a deletion) and `session_tags`. It copies no text: the search thread reads each row's text as this database holds it when a batch is read, at most 50,000 outbox rows or 16 MiB of text, ending a batch at a deleted session or group, and a row gone by then leaves the index. An index row's key is its source row's rowid times four plus its kind's slot (`event` 0, `title` 1, `group` 2, `tag` 3), and its owner is a session's rowid in `sessions` or, for a group name, the group's rowid in `session_groups`; nothing vacuums this database, so those rowids never move. A missing or unreadable index, or one whose last applied outbox id is past any id this outbox has given (an index built from another database), is rebuilt from this database while the daemon serves, in a child process the search thread starts and waits on, so a build that crashes fails only the build and never ends the service; the build reads each source table through its highest rowid at the build's start, a later row reaching the index through the outbox, each batch holding every kind's rows through the same share of its table, then merges its segments, and the search thread then opens it. A search's later pages read the index as its first page did; because a source table gives a deleted row's rowid to the next row it inserts, `session_search_rowid_floors` logs every delete that lowers an indexed table's highest rowid, with the new highest, and a later page credits a held row only while its source rowid is no higher than every highest rowid logged since that view, so a row at a rowid a later row took is passed over like a purged one. The source tables insert without naming a rowid and never `REPLACE`, whose deletes fire no trigger. A held search is let go after 5 minutes unpaged or 30 minutes in all, and past 16 held the least recently paged goes first; a cursor of a search let go is refused `session.search.cursorUnresolvable`.
 
 ```sql
 CREATE TABLE session_search_outbox (
