@@ -263,7 +263,7 @@ mod tests {
     use serde_json::value::RawValue;
     use serde_json::{Value, json};
     use sidekicks_contracts::jsonrpc::streaming::{
-        SUBSCRIPTION_CANCEL_METHOD, SubscribeAckResponse,
+        SUBSCRIPTION_CANCEL_METHOD, SubscribeAcknowledgmentResponse,
     };
     use sidekicks_contracts::method::{
         Method, MethodDescriptor, ProcedureType, SubscriptionMethod,
@@ -317,13 +317,13 @@ mod tests {
 
     impl Method for NamedSubscribe {
         type Params = Named;
-        type Result = SubscribeAckResponse;
+        type Result = SubscribeAcknowledgmentResponse;
         const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
             method: METHOD,
             procedure_type: ProcedureType::Subscription,
             is_mutating: false,
             params: TypeName::of::<Named>(),
-            result: TypeName::of::<SubscribeAckResponse>(),
+            result: TypeName::of::<SubscribeAcknowledgmentResponse>(),
             emission: Some(TypeName::of::<Named>()),
             refusals: &[],
             received_check: received_check::<Named>,
@@ -377,8 +377,11 @@ mod tests {
             .register_subscription::<NamedSubscribe, _>(
                 |_named: Named, _context: HandlerContext, subscription_id: SubscriptionId| {
                     let feed: Box<dyn Feed<Emission = Named>> = Box::new(OverlongName);
-                    futures::future::ready(Ok((SubscribeAckResponse { subscription_id }, feed)))
-                        .boxed()
+                    futures::future::ready(Ok((
+                        SubscribeAcknowledgmentResponse { subscription_id },
+                        feed,
+                    )))
+                    .boxed()
                 },
             )
             .expect("the subscribe call registers");

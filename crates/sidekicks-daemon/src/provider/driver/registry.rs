@@ -23,11 +23,11 @@ pub(crate) fn provider_not_found(provider: &ProviderId) -> DomainError {
         "No provider driver answers that provider id",
         RefusalCode::ProviderNotFound,
     )
-    .with_detail(json!({ "driverId": provider.as_str() }))
+    .with_detail(json!({ "providerId": provider.as_str() }))
 }
 
 /// The refusal for a call gated on `flag` that the driver does not declare; its detail carries only
-/// the driver's id and the flag.
+/// the provider's id and the flag.
 pub(crate) fn provider_capability_unsupported(
     provider: &ProviderId,
     flag: DriverCapabilityFlag,
@@ -36,7 +36,7 @@ pub(crate) fn provider_capability_unsupported(
         PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE,
         RefusalCode::ProviderCapabilityUnsupported,
     )
-    .with_detail(json!({ "driverId": provider.as_str(), "flag": flag }))
+    .with_detail(json!({ "providerId": provider.as_str(), "flag": flag }))
 }
 
 /// A driver, its provider and the capability snapshot recorded for it.

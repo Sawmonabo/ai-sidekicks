@@ -29,7 +29,7 @@ use crate::session::run::superseded::{
     StoredRollbackMismatchError, SupersededTurnsReadError, parse_stored_rollback,
     read_superseded_turns,
 };
-use crate::session::run::transitions::RUN_TERMINAL_EVENT_TYPES;
+use crate::session::run::transitions::is_run_terminal_event_type;
 
 /// Why an event could not be attributed to its turn.
 #[derive(Debug, thiserror::Error)]
@@ -301,10 +301,7 @@ impl SessionTurnAttribution {
         };
         // A terminal event is stamped from the fold and frees it; a later event, after a resume,
         // reseeds the run from the log.
-        if !RUN_TERMINAL_EVENT_TYPES
-            .iter()
-            .any(|terminal_type| *terminal_type == event_type)
-        {
+        if !is_run_terminal_event_type(event_type) {
             self.fold_by_run_id.insert(run_id, fold);
         }
         Ok(Some(RunEventAttribution {

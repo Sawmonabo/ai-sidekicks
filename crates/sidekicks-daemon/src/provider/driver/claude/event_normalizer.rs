@@ -202,8 +202,8 @@ impl ClaudeWireFrameKind {
     fn normalization(self) -> ClaudeFrameNormalization {
         use ClaudeWireChannel::{ControlRequest, ControlResponse, Stream};
         match self {
-            // A forward marker only: `run.*` transitions stay daemon-emitted, never derived from
-            // init.
+            // A forward marker only: `agent.run.*` transitions stay daemon-emitted, never derived
+            // from init.
             Self::SystemInit => self.normalized(Stream, NormalizedEventKind::Init),
             // `system/api_error` maps onto the retry kind; the typed-error members are carried
             // verbatim by the payload layer, since a string census cannot prove the set closed.
@@ -693,7 +693,7 @@ mod tests {
         assert_eq!(record.kind, DriverDiagnosticKind::UnmappedWireKind);
         assert_eq!(record.raw_wire_type.as_deref(), Some("system/brand_new"));
         assert_eq!(
-            recorded.field_on("driver.normalize.unmapped_wire_kind", "raw_wire_type"),
+            recorded.field_on("driver.normalize.unmappedWireKind", "raw_wire_type"),
             ["system/brand_new"]
         );
     }

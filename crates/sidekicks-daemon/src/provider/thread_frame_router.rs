@@ -610,7 +610,7 @@ mod tests {
         );
         assert_eq!(
             recorded.counters(),
-            vec!["driver.thread_router.pending_hold_shed"; shed_count]
+            vec!["driver.threadRouter.pendingHoldShed"; shed_count]
         );
     }
 
@@ -634,7 +634,7 @@ mod tests {
         });
 
         assert_eq!(
-            recorded.field_on("driver.thread_router.quarantine_shed", "raw_wire_type"),
+            recorded.field_on("driver.threadRouter.quarantineShed", "raw_wire_type"),
             ["first"]
         );
     }

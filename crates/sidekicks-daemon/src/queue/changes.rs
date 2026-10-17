@@ -1,8 +1,8 @@
 //! A queue's changes as its stream reads them: the signal that wakes a reader once a change to
 //! the queue commits, the cursor a reader resumes from, and the read of the changes after it. A
-//! change a `queue_item.*` event records goes out at that event's cursor; a reorder, which no event
-//! records, moves the queue's order mark, and a reader behind the mark reads the waiting items
-//! again in their new order, a page at a time, at the session's newest cursor.
+//! change an `agent.queueItem.*` event records goes out at that event's cursor; a reorder, which
+//! no event records, moves the queue's order mark, and a reader behind the mark reads the waiting
+//! items again in their new order, a page at a time, at the session's newest cursor.
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
@@ -114,9 +114,9 @@ pub(crate) enum QueueChangeReadError {
 const BEHIND_EVERY_ORDER_MARK: u64 = 0;
 
 /// The change signals of the queues that have a reader: per queue a count raised once per
-/// committed change, and an order mark moved by each change no `queue_item.*` event records. A
-/// queue no reader follows holds nothing, and a queue's signal is dropped once its last reader
-/// goes.
+/// committed change, and an order mark moved by each change no `agent.queueItem.*` event
+/// records. A queue no reader follows holds nothing, and a queue's signal is dropped once its last
+/// reader goes.
 pub(crate) struct QueueChangeSignals {
     table: Mutex<QueueSignalTable>,
 }
@@ -171,8 +171,9 @@ impl QueueChangeSignals {
     }
 
     /// Signals one committed change to `queue`, called after its commit; `moves_order` when no
-    /// `queue_item.*` event records it (a reorder, or waiting items pointed at a new run), which
-    /// moves the queue's order mark before its count. Holds nothing for a queue no reader follows.
+    /// `agent.queueItem.*` event records it (a reorder, or waiting items pointed at a new run),
+    /// which moves the queue's order mark before its count. Holds nothing for a queue no reader
+    /// follows.
     pub(crate) fn raise_change(&self, queue: &QueueKey, moves_order: bool) {
         let mut guard = self.lock();
         let table = &mut *guard;
@@ -214,7 +215,7 @@ static QUEUE_ITEM_EVENT_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The items a readable `queue_item.*` event changed after a sequence, one row per item at its
+// The items a readable `agent.queueItem.*` event changed after a sequence, one row per item at its
 // newest such sequence. A row past a damaged session's last good point or in a range it skipped
 // may hold a payload that is not JSON, which would fail every read, so none is read.
 static CHANGED_ITEMS_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -300,8 +301,8 @@ pub(crate) fn read_current_queue_cursor(
 }
 
 /// At most `max` changes to `queue` after `cursor`, oldest first, read on `reader` in one
-/// transaction: each item a readable `queue_item.*` event changed, at that event's cursor; then,
-/// once `queue`'s order mark moved past the cursor's, or while a page of waiting items is
+/// transaction: each item a readable `agent.queueItem.*` event changed, at that event's cursor;
+/// then, once `queue`'s order mark moved past the cursor's, or while a page of waiting items is
 /// unfinished, the waiting items in the queue's order at the session's newest cursor. No event
 /// past a damaged session's last good point or in a range it skipped is read. Fails with
 /// [`QueueChangeReadError`] when SQLite refuses the read or a stored value does not read.

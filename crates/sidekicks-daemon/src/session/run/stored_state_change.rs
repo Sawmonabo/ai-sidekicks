@@ -2,7 +2,6 @@
 //! follow the log as it commits.
 
 use sidekicks_contracts::event::envelope::EventEnvelope;
-use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
 use sidekicks_contracts::run::events::{
     AgentRunCompletedPayload, AgentRunFailedPayload, AgentRunInterruptedPayload,
@@ -11,6 +10,7 @@ use sidekicks_contracts::run::events::{
     RunStateChangeState,
 };
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 
 /// One stored run state change, whichever state it entered, with its payload as stored.
 #[expect(
@@ -89,21 +89,8 @@ pub(crate) fn read_stored_run_state_change(
     event: &EventEnvelope,
 ) -> Result<Option<StoredRunStateChange>, SessionEventReadError> {
     // Only a state change's type is read further, so no other event's payload is parsed.
-    let is_state_change = matches!(
-        SessionEventType::from_wire_name(event.event_type.as_str()),
-        Some(
-            SessionEventType::AgentRunStarting
-                | SessionEventType::AgentRunRunning
-                | SessionEventType::AgentRunWaitingForApproval
-                | SessionEventType::AgentRunWaitingForInput
-                | SessionEventType::AgentRunPausing
-                | SessionEventType::AgentRunPaused
-                | SessionEventType::AgentRunCompleted
-                | SessionEventType::AgentRunInterrupted
-                | SessionEventType::AgentRunStopped
-                | SessionEventType::AgentRunFailed
-        )
-    );
+    let is_state_change = RunStateEventType::from_wire_name(event.event_type.as_str())
+        .is_some_and(|known| known != RunStateEventType::Queued);
     if !is_state_change {
         return Ok(None);
     }
