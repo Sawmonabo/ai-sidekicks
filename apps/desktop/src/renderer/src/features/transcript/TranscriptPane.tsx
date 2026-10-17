@@ -31,6 +31,8 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
 
   // Read through the store's selector so the pane follows a navigation to another session.
   const route = useWindowStore(context.frameStore, (state) => state.route);
+  const routeWriteCount = useWindowStore(context.frameStore, (state) => state.routeWriteCount);
+  const sessionNotFoundAt = useWindowStore(context.frameStore, (state) => state.sessionNotFoundAt);
   const { bridge } = context;
   const readTranscriptPage = useMemo(() => transcriptPageReadThroughDaemon(bridge), [bridge]);
   const readTranscriptBody = useMemo(() => transcriptBodyReadThroughDaemon(bridge), [bridge]);
@@ -47,6 +49,8 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
         rowRenderer={registeredTranscriptRowRenderer()}
         sessionStore={context.sessionStore}
         messageAnchorCursor={sessionMessageAnchorCursor(route)}
+        routeWriteCount={routeWriteCount}
+        isSessionNotFound={sessionNotFoundAt === routeWriteCount}
         readTranscriptPage={readTranscriptPage}
         readTranscriptBody={readTranscriptBody}
       />

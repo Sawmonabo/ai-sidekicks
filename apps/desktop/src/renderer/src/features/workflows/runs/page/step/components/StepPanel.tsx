@@ -35,6 +35,9 @@ import type { HeldStepAnswer } from "../held-answer.js";
 import { stepKeyText, type StepAddress } from "../address.js";
 import { PIN_CARRIES_FILE_REFUSAL, pinAvailability, pinnedItemsOf } from "../pin.js";
 import { RunControl } from "#renderer/features/workflows/components/RunControl.js";
+import { useGoneSessionLine } from "#renderer/features/workflows/hooks/useGoneSessionLine.js";
+import { MissingTargetLine } from "#renderer/components/MissingTargetLine/MissingTargetLine.js";
+import type { SessionPointerOutcome } from "#renderer/features/workflows/open-session.js";
 import { StepBlocker } from "./StepBlocker.js";
 import { StepError } from "./StepError.js";
 import type { StepPayloadView } from "./StepPayload.js";
@@ -75,7 +78,8 @@ export interface StepPanelProps {
   readonly onAnswered: (step: StepAddress, answer: HeldStepAnswer) => void;
   readonly onOpenRun: (workflowRunId: string) => void;
   readonly onOpenReview: (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint) => void;
-  readonly onOpenSession: (sessionId: string) => void;
+  /** Open a session, unless the background service answers it no longer exists. */
+  readonly onOpenSession: (sessionId: string) => Promise<SessionPointerOutcome>;
   readonly onClose: () => void;
 }
 
@@ -236,6 +240,7 @@ function StepBody(props: StepPanelProps & { readonly step: WorkflowStep }): Reac
  */
 function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefined }) {
   const { run, step, bridge } = props;
+  const goneFixSessionLine = useGoneSessionLine();
   const retry = useWorkflowCall(
     (failed: WorkflowStep) =>
       callDaemon(bridge, "workflow.runRetry", {
@@ -255,7 +260,7 @@ function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefi
         executionIndex: failed.executionIndex,
       }),
     (created) => {
-      props.onOpenSession(created.sessionId);
+      goneFixSessionLine.follow(props.onOpenSession(created.sessionId));
     },
   );
   const keep = useWorkflowCall((next: boolean) =>
@@ -318,11 +323,14 @@ function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefi
             if (fixSessionId === undefined) {
               fix.take(step);
             } else {
-              props.onOpenSession(fixSessionId);
+              goneFixSessionLine.follow(props.onOpenSession(fixSessionId));
             }
           }}
         />
       ) : null}
+      {goneFixSessionLine.raisedKey === undefined ? null : (
+        <MissingTargetLine target="session" raisedKey={goneFixSessionLine.raisedKey} />
+      )}
     </div>
   );
 }

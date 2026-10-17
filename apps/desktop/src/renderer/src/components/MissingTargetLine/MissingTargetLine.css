@@ -1,0 +1,6 @@
+/* A pointer's missing-target line: quiet, and with no motion. */
+.meridian-missing-target-line {
+  margin: 0;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}

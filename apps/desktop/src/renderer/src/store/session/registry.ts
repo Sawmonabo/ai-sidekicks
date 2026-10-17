@@ -16,6 +16,7 @@ import type { ProjectedSessionEvent } from "./entities/vocabulary.js";
 import {
   OpenSessionEntry,
   type OpenSessionEntryOptions,
+  type SessionFirstRead,
   type SessionStreamPosition,
 } from "./open/entry.js";
 import type { RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
@@ -60,32 +61,7 @@ export class SessionStoreRegistry {
    * store rather than starting a rival projection. Throws a `RefusalError` once disposed.
    */
   public open(sessionId: string): SessionStore {
-    const existing = this.#entriesBySessionId.get(sessionId);
-    if (existing !== undefined) {
-      return existing.store;
-    }
-    if (this.#disposed) {
-      // `open` owes the caller a store, so a refusal has no return channel and travels as a throw.
-      throw new RefusalError(
-        refuse(
-          SESSION_REGISTRY_ORIGIN,
-          "registry-disposed",
-          `cannot open session ${sessionId}: this window's session registry has been disposed.`,
-        ),
-      );
-    }
-    const entry = new OpenSessionEntry(sessionId, this.#options);
-    // Released by `entry.dispose`, which drops every listener.
-    entry.subscribeToStreamPosition((position) => {
-      this.#streamOpenings.emit({ sessionId, ...position });
-    });
-    entry.subscribeToReadFailure(() => {
-      this.#readFailures.emit(sessionId);
-    });
-    this.#entriesBySessionId.set(sessionId, entry);
-    this.#forgetOpenSessionIds();
-    this.#changes.emit({ sessionId, change: "opened" });
-    return entry.store;
+    return this.#openEntry(sessionId).store;
   }
 
   /**
@@ -98,7 +74,28 @@ export class SessionStoreRegistry {
       // The caller is owed the call that ends the mark, so a refusal travels as a throw.
       throw new RefusalError(this.#sessionNotOpen(sessionId, "mark on screen"));
     }
-    return entry.markOnScreen();
+    const endMark = entry.markOnScreen();
+    return () => {
+      endMark();
+      this.#closeWhenGoneAndUnseen(sessionId, entry);
+    };
+  }
+
+  /**
+   * Open a session, or take the one already open, and say how its first read settles; a session
+   * that answers it no longer exists closes again unless a screen shows it. Throws a
+   * `RefusalError` once disposed, as `open` does.
+   */
+  public async openAndRead(sessionId: string): Promise<SessionFirstRead> {
+    const entry = this.#openEntry(sessionId);
+    const settlement = await entry.firstRead();
+    this.#closeWhenGoneAndUnseen(sessionId, entry);
+    return settlement;
+  }
+
+  /** Whether an open session's last read was refused because the session no longer exists. */
+  public isGone(sessionId: string): boolean {
+    return this.#entriesBySessionId.get(sessionId)?.isGone ?? false;
   }
 
   /** The store for an open session, or `undefined`. Never opens one as a side effect. */
@@ -292,6 +289,46 @@ export class SessionStoreRegistry {
     this.#streamOpenings.clear();
     this.#readFailures.clear();
     this.#disposed = true;
+  }
+
+  /** The open entry for a session, opened now when it is not. */
+  #openEntry(sessionId: string): OpenSessionEntry {
+    const existing = this.#entriesBySessionId.get(sessionId);
+    if (existing !== undefined) {
+      return existing;
+    }
+    if (this.#disposed) {
+      // Opening owes the caller a store, so a refusal has no return channel and travels as a throw.
+      throw new RefusalError(
+        refuse(
+          SESSION_REGISTRY_ORIGIN,
+          "registry-disposed",
+          `cannot open session ${sessionId}: this window's session registry has been disposed.`,
+        ),
+      );
+    }
+    const entry = new OpenSessionEntry(sessionId, this.#options);
+    // Released by `entry.dispose`, which drops every listener.
+    entry.subscribeToStreamPosition((position) => {
+      this.#streamOpenings.emit({ sessionId, ...position });
+    });
+    entry.subscribeToReadFailure(() => {
+      this.#readFailures.emit(sessionId);
+    });
+    this.#entriesBySessionId.set(sessionId, entry);
+    this.#forgetOpenSessionIds();
+    this.#changes.emit({ sessionId, change: "opened" });
+    return entry;
+  }
+
+  /**
+   * Close a session that answered it no longer exists once no screen shows it, so nothing asks
+   * the background service for it again; an entry already replaced is left alone.
+   */
+  #closeWhenGoneAndUnseen(sessionId: string, entry: OpenSessionEntry): void {
+    if (entry.isGone && !entry.isOnScreen && this.#entriesBySessionId.get(sessionId) === entry) {
+      this.close(sessionId);
+    }
   }
 
   /** Drop the cached open set. Called from the two places that change it. */

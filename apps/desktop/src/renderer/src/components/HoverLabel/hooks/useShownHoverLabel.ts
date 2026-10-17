@@ -7,7 +7,8 @@
 // its label and never reaches the control; a tap opens a label only where a tap does nothing else,
 // and on a control a tap acts on a touch held still opens it while the tap still acts, unless a
 // held-touch menu answers that hold first. A label a press opened closes on the next press anywhere,
-// which goes on to do its own job, on Escape, on focus leaving it or on a scroll, never on a timer.
+// which goes on to do its own job, as that press goes down, on Escape, on focus leaving it or on a
+// scroll, never on a timer.
 // Focus inside a trigger, as in a text area whose frame carries the label, shows that trigger's
 // label, as the pointer does. The element the pointer and focus are on is kept whether or not it
 // carries a label, and the label is read off it again whenever a label attribute changes, so a
@@ -92,6 +93,9 @@ export function useShownHoverLabel(
     const tracked = trackedRef.current;
     // The kind of pointer the last press came from, which tells a tap from a click.
     let lastPointerType = "";
+    // The trigger whose press-opened label the last pointer press closed as it went down, so the
+    // click that ends that press on the same grayed control leaves it closed.
+    let pressedBeforePointerDown: Element | undefined;
     const onPointerOver = (event: PointerEvent): void => {
       const { target } = event;
       if (
@@ -165,7 +169,10 @@ export function useShownHoverLabel(
         event.stopImmediatePropagation();
         return;
       }
-      const wasPressed = tracked.pressed;
+      // A click from the keyboard carries no press count and went down with no pointer.
+      const wasPressed =
+        tracked.pressed ?? (event.detail > 0 ? pressedBeforePointerDown : undefined);
+      pressedBeforePointerDown = undefined;
       tracked.pressed = undefined;
       const grayed = grayedTriggerOf(target);
       if (grayed !== undefined) {
@@ -216,6 +223,16 @@ export function useShownHoverLabel(
       lastPointerType = event.pointerType;
       isLiftAfterHold = false;
       endHold();
+      // The next press closes a press-opened label as it goes down, so a press that starts a
+      // selection or a drag, or lands on a scrollbar, and raises no click closes it too.
+      pressedBeforePointerDown = tracked.pressed;
+      if (
+        tracked.pressed !== undefined &&
+        !(isElement(event.target) && labelBoxRef.current?.contains(event.target) === true)
+      ) {
+        tracked.pressed = undefined;
+        readShown();
+      }
       const trigger = isElement(event.target) ? triggerOf(event.target) : undefined;
       if (event.pointerType !== "touch" || trigger === undefined || view === null) {
         return;
@@ -323,9 +340,8 @@ export function useShownHoverLabel(
 
 /**
  * The trigger a press opened the label of, the element the pointer is over and the one keyboard
- * focus is on, each possibly absent, with the
- * trigger each showed when its label was put away, and whether the focused trigger's label was
- * put away only along with the pointer's.
+ * focus is on, each possibly absent, with the trigger each showed when its label was put away, and
+ * whether the focused trigger's label was put away only along with the pointer's.
  */
 interface TrackedElements {
   pressed?: Element | undefined;
@@ -365,10 +381,12 @@ const PRESS_TARGETS =
 // The controls whose Enter and Space the browser turns into a click.
 const NATIVE_CONTROLS = "a[href], button, input, select, textarea, summary";
 
-// The labeled control grayed in place that an element is in, if any.
+// The label of the control grayed in place that an element is in, if that control carries one;
+// a label around the grayed control belongs to something else and is not its reason.
 function grayedTriggerOf(element: Element): Element | undefined {
   const grayed = element.closest('[aria-disabled="true"]');
-  return grayed === null ? undefined : triggerOf(grayed);
+  const trigger = triggerOf(element);
+  return grayed !== null && trigger !== undefined && grayed.contains(trigger) ? trigger : undefined;
 }
 
 function shownOf(tracked: TrackedElements): ShownHoverLabel | undefined {

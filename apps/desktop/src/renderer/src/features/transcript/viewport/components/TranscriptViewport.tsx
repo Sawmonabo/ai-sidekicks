@@ -1,24 +1,27 @@
 // The transcript viewport: the virtualized feed with the history line above its first row, the
-// reading anchor's pill or the line a pointer to a missing row draws in its place, and the row box
-// every row body is mounted in. It only turns
-// `features/transcript/viewport/controller.ts`'s snapshot into elements; the caller owns the one
-// binding, so the find walk and the rows read the same virtualizer. Markup invariants: one scroll
-// container (a nested scroller would rival the chokepoint's `scrollTop`); the sizer and each
-// row's transform are written by the virtualizer directly, so no style here sets them;
-// `role="feed"` is declared on the sizer and its article children by `VirtualRow`, so the
-// relationship does not rest on whatever a registered row renderer draws, and the history line
-// above the sizer is no entry of it. Attention is steered by luminance, never motion: the only
-// transition is the pill's hover color. The binding's one selection tracker reaches the rows
-// through context, beside what a long markdown body reads to draw only the blocks near the reader.
+// reading anchor's pill or the line a pointer to something gone draws in its place, and the row
+// box every row body is mounted in. It only turns `features/transcript/viewport/controller.ts`'s
+// snapshot into elements; the caller owns the one binding, so the find walk and the rows read the
+// same virtualizer. Markup invariants: one scroll container (a nested scroller would rival the
+// chokepoint's `scrollTop`); the sizer and each row's transform are written by the virtualizer
+// directly, so no style here sets them; `role="feed"` is declared on the sizer and its article
+// children by `VirtualRow`, so the relationship does not rest on whatever a registered row
+// renderer draws, and the history line above the sizer is no entry of it. Attention is steered by
+// luminance, never motion: the only transition is the pill's hover color. The binding's one
+// selection tracker reaches the rows through context, beside what a long markdown body reads to
+// draw only the blocks near the reader.
 
 import { useLayoutEffect } from "react";
 
 import { EmptyTranscript } from "./EmptyTranscript.js";
 import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";
 import { JumpToLatest } from "./JumpToLatest.js";
-import { MissingTargetLine } from "./MissingTargetLine.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
 import { ViewportSelectionTrackerContext } from "../selection/context.js";
+import {
+  MissingTargetLine,
+  type MissingTargetLineProps,
+} from "#renderer/components/MissingTargetLine/MissingTargetLine.js";
 import { DrawnBandContext } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { TranscriptBodyViewportProvider } from "#renderer/components/TranscriptBodyViewport/TranscriptBodyViewportProvider.js";
 
@@ -54,10 +57,10 @@ export interface TranscriptViewportProps {
    */
   readonly earlierHistoryControl?: React.ReactNode;
   /**
-   * The line a pointer to a row that is gone draws, such as `Message not found`, in the place
+   * The line a pointer to something gone draws, such as `Message not found`, in the place
    * `Jump to latest` takes; absent, that place holds the pill as the reading anchor shows it.
    */
-  readonly missingTargetWords?: string;
+  readonly missingTarget?: MissingTargetLineProps | undefined;
 }
 
 /** The scrolling window over one transcript's rows, with its head and tail affordances. */
@@ -143,10 +146,12 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
              */}
             {snapshot.rows.length === 0 && props.firstReadSettled ? <EmptyTranscript /> : null}
           </div>
-          {props.missingTargetWords === undefined ? (
+          {props.missingTarget === undefined ? (
             <JumpToLatest snapshot={snapshot} onJumpToTail={binding.jumpToTail} />
           ) : (
-            <MissingTargetLine words={props.missingTargetWords} />
+            <div className="meridian-transcript-viewport__tail">
+              <MissingTargetLine {...props.missingTarget} />
+            </div>
           )}
         </div>
       </TranscriptBodyViewportProvider>

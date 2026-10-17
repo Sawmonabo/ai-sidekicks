@@ -12,6 +12,7 @@ import "./TranscriptFeed.css";
 import { useCallback, useMemo } from "react";
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
+import { type MissingTargetLineProps } from "#renderer/components/MissingTargetLine/MissingTargetLine.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useUntilNextAct } from "#renderer/hooks/useUntilNextAct.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -53,9 +54,6 @@ import { rowBesideRunWindowEdge, type RunWindowEdge } from "../../runs/call-wind
 import { type RunGroup } from "../../runs/groups.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 
-/** The line a link draws when the message it names is nowhere in the session's history. */
-const MESSAGE_NOT_FOUND_WORDS = "Message not found";
-
 /** What the feed is a log of and the row body it draws each row through. */
 export interface TranscriptFeedProps {
   readonly sessionStore: SessionStore;
@@ -79,6 +77,13 @@ export interface TranscriptFeedProps {
    * read holds, down to the start of history, opens at the bottom too.
    */
   readonly messageAnchorCursor?: string | undefined;
+  /**
+   * How many times the window's route was written, so a link followed again raises its line
+   * again. Absent, the feed draws a line for its first arrival alone.
+   */
+  readonly routeWriteCount?: number | undefined;
+  /** Whether the route's last write was the move back here off a session that no longer exists. */
+  readonly isSessionNotFound?: boolean | undefined;
 }
 
 /**
@@ -104,12 +109,16 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     (transcriptWindow.viewportRows.length === 0 || viewport.virtualItems.length > 0) &&
     !windows.holdsRowJoiningView();
   const isDrawable = useTypefacesSettled(areRowsCommitted);
-  // The line under the session header stands whenever either holds, and nothing repeats it.
-  // A link whose message the whole history does not hold says so in `Jump to latest`'s place
-  // instead of moving the page, until the next act.
+  // A link whose message the whole history does not hold, or that named a session no longer there,
+  // says so in `Jump to latest`'s place instead of moving the page, until the next act.
+  const arrivalKey = String(props.routeWriteCount ?? 0);
   const isMessageNotFoundStanding = useUntilNextAct(
-    windows.messageReadBack === "not-in-history" ? props.messageAnchorCursor : undefined,
+    windows.messageReadBack === "not-in-history" ? arrivalKey : undefined,
   );
+  const isSessionNotFoundStanding = useUntilNextAct(
+    props.isSessionNotFound === true ? arrivalKey : undefined,
+  );
+  // The line under the session header stands whenever either holds, and nothing repeats it.
   const isWindowDegraded = useSessionDegraded(props.sessionStore);
   const isDependentReadFailed = useDependentReadFailed(props.sessionStore);
   const fullBodyReads = useFullBodyReads(props.sessionStore, props.readTranscriptBody);
@@ -319,9 +328,11 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
                       earlierHistoryControl={
                         history === undefined ? undefined : <LoadEarlier history={history} />
                       }
-                      {...(isMessageNotFoundStanding
-                        ? { missingTargetWords: MESSAGE_NOT_FOUND_WORDS }
-                        : {})}
+                      missingTarget={missingTargetOf(
+                        isSessionNotFoundStanding,
+                        isMessageNotFoundStanding,
+                        arrivalKey,
+                      )}
                     />
                   </DrawnWindowSourcesContext>
                 </PreparedBodiesContext>
@@ -338,4 +349,16 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
       </div>
     </div>
   );
+}
+
+/** The missing-target line standing in the dock, a gone session's before a gone message's. */
+function missingTargetOf(
+  isSessionNotFoundStanding: boolean,
+  isMessageNotFoundStanding: boolean,
+  raisedKey: string,
+): MissingTargetLineProps | undefined {
+  if (isSessionNotFoundStanding) {
+    return { target: "session", raisedKey };
+  }
+  return isMessageNotFoundStanding ? { target: "message", raisedKey } : undefined;
 }

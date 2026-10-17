@@ -20,7 +20,7 @@ export function NotificationPermissionNotice(props: {
   }
   return (
     <p className="meridian-settings-page__aside">
-      This machine is not permitting desktop notifications, so none will be raised here. Everything
+      This computer is not permitting desktop notifications, so none will be raised here. Everything
       waiting on you still reaches the rail and the notification center.
     </p>
   );

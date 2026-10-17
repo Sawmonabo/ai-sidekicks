@@ -10,8 +10,8 @@ import { GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
  * One chrome control. `disabled` and `unavailableReason` come from the view's reported state and
  * are never computed here, so absent state disables the control (an enabled control that cannot
  * act is a lie). A control with a reason is grayed in place yet keeps focus, so its hover label
- * shows the reason, and a press changes nothing. The history controls use text labels because the
- * closed glyph set has no arrow or reload mark.
+ * shows the reason, and a press opens that label and reaches nothing else. The history controls
+ * use text labels because the closed glyph set has no arrow or reload mark.
  */
 export function AddressLineButton(props: {
   readonly label: string;
@@ -30,7 +30,7 @@ export function AddressLineButton(props: {
         className="meridian-preview-action"
         disabled={props.disabled === true}
         aria-disabled={isUnavailable ? true : undefined}
-        onClick={isUnavailable ? undefined : props.onActivate}
+        onClick={props.onActivate}
       >
         {props.glyph === undefined ? null : <Glyph name={props.glyph} size={GLYPH_SIZE_CHROME} />}
         {props.label}

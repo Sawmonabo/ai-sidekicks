@@ -8,7 +8,11 @@ import type {
 
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ScreenContext } from "#renderer/registries/screens/context.js";
-import { sessionRoute, workflowRunsRoute, workflowsRunId } from "#renderer/routing/readers.js";
+import { workflowRunsRoute, workflowsRunId } from "#renderer/routing/readers.js";
+import {
+  followSessionPointer,
+  type SessionPointerOutcome,
+} from "#renderer/features/workflows/open-session.js";
 import { openSessionPane } from "#renderer/store/window/open-session-pane.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -80,9 +84,16 @@ export interface WorkflowsScreenHold {
   readonly openRun: (workflowRunId: string) => void;
   /** Leave the open run's page for the runs list. */
   readonly backToList: () => void;
-  readonly openSession: (sessionId: string) => void;
-  /** Open a session with the message a cursor names in view, or at its foot without one. */
-  readonly openMessage: (sessionId: string, messageAnchorCursor: string | undefined) => void;
+  /** Open a session, unless the background service answers it no longer exists. */
+  readonly openSession: (sessionId: string) => Promise<SessionPointerOutcome>;
+  /**
+   * Open a session with the message a cursor names in view, or at its foot without one, unless
+   * the session no longer exists.
+   */
+  readonly openMessage: (
+    sessionId: string,
+    messageAnchorCursor: string | undefined,
+  ) => Promise<SessionPointerOutcome>;
   /** Open the builder over a saved workflow in a session's pane layout. */
   readonly openWorkflow: (sessionId: string, definitionId: string) => void;
   /**
@@ -107,7 +118,7 @@ export function useWorkflowsScreen(
   context: ScreenContext,
   nextWaitingAct: WorkflowCommandTarget,
 ): WorkflowsScreenHold {
-  const { bridge, frameStore, uiStateStore, route } = context;
+  const { bridge, frameStore, uiStateStore, route, sessionStoreRegistry } = context;
   const clock = useClock();
   const isOnRunsTab = route.kind === "workflows" && route.tab === "runs";
   const { feed, state: feedState } = useWorkflowNoticeFeed(bridge, clock, isOnRunsTab);
@@ -212,16 +223,13 @@ export function useWorkflowsScreen(
     frameStore.navigate(workflowRunsRoute(undefined));
   }, [frameStore]);
   const openSession = useCallback(
-    (sessionId: string) => {
-      frameStore.navigate({ kind: "session", sessionId });
-    },
-    [frameStore],
+    (sessionId: string) => followSessionPointer(frameStore, sessionStoreRegistry, sessionId),
+    [frameStore, sessionStoreRegistry],
   );
   const openMessage = useCallback(
-    (sessionId: string, messageAnchorCursor: string | undefined) => {
-      frameStore.navigate(sessionRoute(sessionId, messageAnchorCursor));
-    },
-    [frameStore],
+    (sessionId: string, messageAnchorCursor: string | undefined) =>
+      followSessionPointer(frameStore, sessionStoreRegistry, sessionId, messageAnchorCursor),
+    [frameStore, sessionStoreRegistry],
   );
   const openWorkflow = useCallback(
     (sessionId: string, definitionId: string) => {

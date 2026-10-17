@@ -4,10 +4,8 @@
 
 import { useEffect, useState } from "react";
 
+import { NEXT_ACT_EVENTS } from "#renderer/lib/next-act-events.js";
 import { useOwnerWindow } from "./useOwnerWindow.js";
-
-/** The acts that put a raised line away, heard before any handler below the document. */
-const NEXT_ACT_EVENTS = ["pointerdown", "keydown", "wheel", "touchmove"] as const;
 
 /**
  * Whether the line raised under `raisedKey` still stands: `undefined` raises nothing, and each new

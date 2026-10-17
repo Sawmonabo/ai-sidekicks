@@ -8,6 +8,7 @@ import { useRef } from "react";
 
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { SessionPointerOutcome } from "#renderer/features/workflows/open-session.js";
 import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
@@ -35,9 +36,13 @@ export interface RunPageProps {
   readonly definitionNameFor: (definitionId: string) => string | undefined;
   readonly payerOf: (providerAccountId: string) => PayerReading;
   readonly onOpenRun: (workflowRunId: string) => void;
-  readonly onOpenSession: (sessionId: string) => void;
+  /** Open a session, unless the background service answers it no longer exists. */
+  readonly onOpenSession: (sessionId: string) => Promise<SessionPointerOutcome>;
   /** Open a session with the message a cursor names in view, or at its foot without one. */
-  readonly onOpenMessage: (sessionId: string, messageAnchorCursor: EventCursor | undefined) => void;
+  readonly onOpenMessage: (
+    sessionId: string,
+    messageAnchorCursor: EventCursor | undefined,
+  ) => Promise<SessionPointerOutcome>;
   /** Open the builder over the workflow a run came from, in the run's session. */
   readonly onOpenWorkflow: (sessionId: string, definitionId: string) => void;
   /** Open Review on what a run changed between two of its snapshots, in the run's session. */
