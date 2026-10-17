@@ -6,7 +6,7 @@ The probes [Plan-005](../plans/005-local-ipc-and-daemon-control.md) Phase R4 owe
 
 A probe is owed before the unit that builds what its Decides column names.
 
-- **Before unit `windows`** (the native service on Windows): P4's legs (4) and (5), with its startup-trigger and changed-password checks; P8's pipe and relay legs; P23, P24, P28 and P29; P30's Windows leg; P31, P32 and P34; P37's Windows leg.
+- **Before unit `windows`** (the native service on Windows): P4's legs (4) and (5), with its startup-trigger and changed-password checks; P8's pipe and relay legs; P23, P24, P28 and P29; P30's Windows leg; P31, P32 and P34; P37's Windows leg; P53.
 - **Before unit `windows-wsl`** (sessions in WSL 2 distributions): every other probe and leg.
 
 ## Phase R4 — probes owed on a Windows machine
@@ -67,5 +67,6 @@ None of these can run on a Mac; each runs on a Windows machine before the unit t
 | P50 | A runtime update: the daemon updated; the next server start in Ubuntu installs the new runtime; a running session's hook rows pointing at the old folder | The old folder kept one start; hooks rewritten at the session's next start | Runtime updates and hook rows |
 | P51 | `wsl.exe -l -v` and `-l --running` piped, 100 runs each, on the shipped WSL; on an empty answer, through ConPTY | Every answer read; the virtual machine process absent before and after | Reading the distribution list |
 | P52 | The private mount with `[automount] enabled=false` and with defaults, from the non-elevated daemon; `wsl --terminate`, then the next server start | Mounted with `0600`/`0700` modes; the server sees it; mounted again after the restart | The private mount with and without automount |
+| P53 | The daemon's second socket on Windows, an AF_UNIX socket: (1) `WSAIoctl` with `SIO_AF_UNIX_GETPEERPID` on the listener's accepted socket, a test client connecting from a Windows terminal and from a process the daemon started; (2) a mod's `$.http.fetch(url, { socketPath })` in terminal Claude Code with `socketPath` naming the per-user pipe, `\\.\pipe\ai-sidekicks-<user SID>` | (1) The client's process id, the daemon refusing the second client by its parent chain; (2) whether the fetch reaches the pipe | How the second socket's caller check reads its caller on Windows: the peer id on the AF_UNIX socket, or the bridge over the per-user pipe; until it runs the socket is guarded by the daemon token and its access list |
 
 No keyutils probe is owed: the credential store is Credential Manager in the daemon's own process, and the Secret Service inside a distribution is never used.
