@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # WorktreeCreate / WorktreeRemove hook dispatch.
 # Wired in .claude/settings.json for both events.
-# Subcommands: create | remove | probe.
+# Subcommands: create | remove.
 
 set -euo pipefail
 
 # Force the MAIN checkout root, not the current toplevel: the WorktreeRemove
-# hook runs with cwd INSIDE the worktree being removed (probe 2026-07-07),
-# where --show-toplevel returns the worktree root and every .worktrees/ path
-# below would silently mis-resolve. The common git dir always lives in the
+# hook runs with cwd INSIDE the worktree being removed, where --show-toplevel
+# returns the worktree root and every .worktrees/ path below would silently
+# mis-resolve. The common git dir always lives in the
 # main checkout.
 cd "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
 
@@ -56,15 +56,14 @@ cmd_create() {
 }
 
 cmd_remove() {
-  # WorktreeRemove stdin schema (docs.claude.com): `.worktree_path` is the
-  # canonical absolute-path field. Older / undocumented variants used
-  # `.path`; keep it as a fallback before deriving from `.name`.
+  # WorktreeRemove stdin carries the worktree's absolute path in `.worktree_path`;
+  # a payload without it names the worktree in `.name`.
   local path
-  path=$(jq -r '.worktree_path // .path // empty' <<<"$payload")
+  path=$(jq -r '.worktree_path // empty' <<<"$payload")
   if [[ -z "$path" ]]; then
     local name
     name=$(jq -r '.name // empty' <<<"$payload")
-    [[ -n "$name" ]] || die "WorktreeRemove payload missing both .path and .name"
+    [[ -n "$name" ]] || die "WorktreeRemove payload missing both .worktree_path and .name"
     validate_name "$name"
     path=".worktrees/${name}"
   fi
@@ -79,8 +78,8 @@ cmd_remove() {
   # occupancy engine excludes this hook's own process lineage, so a
   # legitimate auto-clean (whose cwd sits inside the worktree being removed)
   # does not deadlock; only OTHER sessions' processes block. The hook owns
-  # removal (replace semantics, probed 2026-07-07): a non-zero exit here
-  # aborts the harness removal entirely, so failing is safe.
+  # removal: a non-zero exit here aborts the harness removal entirely, so
+  # failing is safe.
   local python_bin script_dir abs_path occupants occupancy_status
   python_bin="$(command -v python3 || command -v python)" \
     || die "python3/python is required for the occupancy check"
@@ -111,17 +110,8 @@ WORKTREE_REMOVE_ALLOW_OCCUPIED=1 to override."
   fi
 }
 
-cmd_probe() {
-  # Diagnostic: capture stdin to disk while WorktreeRemove schema is undocumented.
-  local out
-  out="/tmp/worktree-probe-$(date +%s).json"
-  printf '%s\n' "$payload" >"$out"
-  echo "worktree.sh: probe payload at $out" >&2
-}
-
 case "${1:-}" in
   create) cmd_create ;;
   remove) cmd_remove ;;
-  probe)  cmd_probe ;;
-  *) die "usage: worktree.sh {create|remove|probe}" ;;
+  *) die "usage: worktree.sh {create|remove}" ;;
 esac

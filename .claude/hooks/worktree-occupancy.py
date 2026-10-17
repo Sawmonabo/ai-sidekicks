@@ -38,8 +38,8 @@ def _own_lineage_pids():
     """This process's pid plus its full ancestor chain.
 
     Hooks are spawned with the session's cwd — during a legitimate harness
-    auto-clean that cwd is INSIDE the worktree being removed (WorktreeRemove
-    probe, 2026-07-07), so the check's own sh/bash/python lineage would
+    auto-clean that cwd is INSIDE the worktree being removed, so the check's
+    own sh/bash/python lineage would
     otherwise always count as an occupant and deadlock every auto-clean.
     Sibling sessions, their background children, and daemons are never
     ancestors, so the cross-session incident class stays detectable. The
