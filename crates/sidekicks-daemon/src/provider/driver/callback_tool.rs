@@ -6,14 +6,14 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use serde_json::{Map, Value};
 use sidekicks_contracts::command::COMMAND_ID_MAX_LEN;
-use sidekicks_contracts::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
+use sidekicks_contracts::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 /// The longest provider correlation id a callback-tool call carries, in code points: the same cap
 /// as a command's id.
-pub(crate) const DRIVER_TOOL_CALL_ID_MAX_LEN: usize = COMMAND_ID_MAX_LEN;
+pub(crate) const PROVIDER_TOOL_CALL_ID_MAX_LEN: usize = COMMAND_ID_MAX_LEN;
 
 /// One callback-tool call the provider made, built by the driver from provider output; the bounds
 /// its text members hold are the only checks made here. The daemon answers an unknown tool
@@ -22,11 +22,11 @@ pub(crate) const DRIVER_TOOL_CALL_ID_MAX_LEN: usize = COMMAND_ID_MAX_LEN;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CallbackToolInvocation {
     /// The tool the provider called.
-    pub(crate) tool_name: FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>,
+    pub(crate) tool_name: FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>,
     /// The call's arguments as the provider sent them.
     pub(crate) arguments: Map<String, Value>,
     /// The provider's id for the call.
-    pub(crate) tool_call_id: FreeFormText<DRIVER_TOOL_CALL_ID_MAX_LEN>,
+    pub(crate) tool_call_id: FreeFormText<PROVIDER_TOOL_CALL_ID_MAX_LEN>,
     /// The session.
     pub(crate) session_id: SessionId,
     /// The run whose turn made the call.

@@ -21,7 +21,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 pub(crate) enum NormalizedEventKind {
     /// The provider's own init report at a run's start.
     Init,
-    /// A piece of the assistant's reply text.
+    /// A piece of the agent's reply text.
     TextDelta,
     /// A tool call's start.
     ToolStart,
@@ -89,7 +89,7 @@ pub(crate) enum NormalizedEventKind {
     Diff,
     /// A command's output.
     CommandOutput,
-    /// The assistant's thinking.
+    /// The agent's thinking.
     Thinking,
     /// A plan proposal.
     ProposedPlan,
