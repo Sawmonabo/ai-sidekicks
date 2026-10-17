@@ -89,15 +89,16 @@ static UNIX_PATH: LazyLock<Regex> = LazyLock::new(|| {
         .expect("the pattern is a valid regex")
 });
 
-/// A UNC path: the host has no spaces, the share and path segments may.
+/// A UNC path, in its plain or verbatim `\\?\UNC\` form: the host has no spaces and may hold `$`
+/// (`\\wsl$\`), the share and path segments may hold spaces.
 static UNC_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\\\\[A-Za-z0-9_.-]+(?:\\[A-Za-z0-9_. -]+)+(?::[0-9]+(?::[0-9]+)?)?")
+    Regex::new(r"\\\\(?:\?\\UNC\\)?[A-Za-z0-9_.$-]+(?:\\[A-Za-z0-9_. -]+)+(?::[0-9]+(?::[0-9]+)?)?")
         .expect("the pattern is a valid regex")
 });
 
-/// A Windows drive path, whose segments may hold spaces.
+/// A Windows drive path, plain or with its verbatim `\\?\` prefix, whose segments may hold spaces.
 static DRIVE_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[A-Za-z]:\\(?:[A-Za-z0-9_. -]+\\?)+(?::[0-9]+(?::[0-9]+)?)?")
+    Regex::new(r"(?:\\\\\?\\)?[A-Za-z]:\\(?:[A-Za-z0-9_. -]+\\?)+(?::[0-9]+(?::[0-9]+)?)?")
         .expect("the pattern is a valid regex")
 });
 
@@ -564,6 +565,12 @@ mod tests {
         r"cannot read \\files\Shared Drive\a.json",
         "cannot read <redacted-path>"
     )]
+    #[case::wsl_dollar(r"cannot read \\wsl$\Ubuntu\home\me\x", "cannot read <redacted-path>")]
+    #[case::verbatim_unc(
+        r"cannot read \\?\UNC\wsl.localhost\Ubuntu\x",
+        "cannot read <redacted-path>"
+    )]
+    #[case::verbatim_drive(r"cannot read \\?\C:\data\a.json", "cannot read <redacted-path>")]
     #[case::drive_with_spaces(
         r"cannot run C:\Program Files\tool.exe",
         "cannot run <redacted-path>"
