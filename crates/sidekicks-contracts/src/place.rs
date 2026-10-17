@@ -22,7 +22,8 @@ literal! {
     pub enum WindowsPlace = "windows";
 }
 
-/// A WSL 2 distribution, named exactly as `wsl -l` prints it.
+/// A WSL distribution, named exactly as `wsl -l` prints it. Work runs only in a WSL 2
+/// distribution; a WSL 1 one appears only as a provider's `Command` row that says it needs WSL 2.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct WslPlace {
@@ -30,13 +31,14 @@ pub struct WslPlace {
     pub distro: DistroName,
 }
 
-/// Where work runs: `"windows"`, or `{distro}` for a WSL 2 distribution.
+/// Where work runs: `"windows"`, or `{distro}` for a WSL 2 distribution. A provider's `Command`
+/// row may also name a WSL 1 distribution, the one place no work runs.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Place {
     /// Windows itself.
     Windows(WindowsPlace),
-    /// A WSL 2 distribution.
+    /// A WSL distribution.
     Wsl(WslPlace),
 }
 

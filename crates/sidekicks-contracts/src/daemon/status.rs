@@ -113,12 +113,12 @@ pub struct DaemonRelayStatus {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "state",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
 #[garde(allow_unvalidated)]
-pub enum DaemonWslDistributionState {
+pub enum DaemonWslDistributionStatus {
     /// The distribution runs.
     Running {},
     /// The distribution is stopped.
@@ -141,7 +141,7 @@ pub struct DaemonWslDistribution {
     pub distro: DistroName,
     /// Where it stands.
     #[garde(dive)]
-    pub state: DaemonWslDistributionState,
+    pub status: DaemonWslDistributionStatus,
     /// How many sessions run in it.
     pub session_count: SafeInt<0>,
 }
@@ -293,7 +293,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonMemoryReading>(),
         Definition::read::<DaemonRelayDevice>(),
         Definition::read::<DaemonRelayStatus>(),
-        Definition::read::<DaemonWslDistributionState>(),
+        Definition::read::<DaemonWslDistributionStatus>(),
         Definition::read::<DaemonWslDistribution>(),
         Definition::read::<DaemonStatusReadResponse>().checked(),
         Definition::read::<CrashModuleFileName>(),

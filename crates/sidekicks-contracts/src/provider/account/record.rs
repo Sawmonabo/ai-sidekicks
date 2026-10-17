@@ -10,10 +10,12 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use strum::VariantArray;
 
+use crate::place::Place;
 use crate::provider::name::ProviderName;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
+use crate::wire::list::BoundedVec;
 use crate::wire::number::NonNegativeNumber;
 use crate::wire::text::{FreeFormText, branded_text, is_ecmascript_whitespace};
 
@@ -329,6 +331,15 @@ macro_rules! provider_account_arm {
             pub observed_account_plan: Option<FreeFormText<PROVIDER_ACCOUNT_PLAN_MAX_LEN>>,
             /// Whether this is the provider's default account; at most one is.
             pub is_default: bool,
+            /// The places where the account has a home; absent on a computer without a WSL 2
+            /// distribution.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "BoundedVec<Place, 1, { usize::MAX }>")]
+            pub home_places: Option<BoundedVec<Place, 1, { usize::MAX }>>,
             $($health)*
             /// The mode an observation named, or `null` until one has.
             #[serde(deserialize_with = "crate::wire::nullable")]
