@@ -16,6 +16,7 @@ import type { ExtendedRefusal, RefusalExtensions } from "#renderer/lib/refusal/e
 import { ModalDialogClaims } from "./modal-dialog-claims.js";
 import { PaneOpenRequests } from "./pane-open-requests.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
+import type { MissingTarget } from "#renderer/components/MissingTargetLine/MissingTargetLine.js";
 import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import { UNREPORTED_MAIN_PROCESS_STATE, mainProcessReportsAreEqual } from "./main-process-state.js";
 import { LeaveGuard } from "#renderer/routing/leave-guard.js";
@@ -36,9 +37,50 @@ export interface WindowBanner extends Pick<Refusal, "code" | "detail"> {
 /**
  * How a route reaches the window's history: a new entry Back returns from, a replacement of the
  * current one, for a move that only follows a cursor or one an address change already entered, or
- * a step back to the entry before, for a move off a session that no longer exists.
+ * a step back to the entry before, for a move off a session that no longer exists which a new
+ * entry led into.
  */
 export type RouteHistoryWrite = "push" | "replace" | "back";
+
+/**
+ * What named the route a window opened at: an address a launch or a link carried, or the kept
+ * window layout reopening the window where it was.
+ */
+export type WindowOpeningCause = "address" | "kept-layout";
+
+/**
+ * A move off a session the background service does not hold, and the line it raises on the screen
+ * it lands on. The words follow the cause: `session-not-here` for the session an address opened
+ * the window at, `session` for one this install held and deleted.
+ */
+export interface GoneSessionRaise {
+  /** The `routeWriteCount` of the move, which keys the line, so a new raise is said again. */
+  readonly raisedAt: number;
+  /**
+   * The `routeWriteCount` the line stands on: the move's own, or a later one the screen made on
+   * its own while carrying the line ({@link RouteMove.carriesGoneSessionRaise}).
+   */
+  readonly standsAt: number;
+  readonly target: Exclude<MissingTarget, "message">;
+  /** The key of the control whose press led into the gone session, where one was pressed. */
+  readonly pressedControl: string | undefined;
+}
+
+/** How one `navigate` moves: what runs once it commits, and the control pressed to ask for it. */
+export interface RouteMove {
+  /** Runs only once the move has happened, never after a no. */
+  readonly afterCommit?: () => void;
+  /**
+   * A stable key of the control pressed, so a step back off a session gone by then can draw its
+   * line on that control.
+   */
+  readonly pressedControl?: string;
+  /**
+   * The screen moves on its own, before any act, off a page with nothing to show, and the line a
+   * step back raised on the move before keeps standing on the screen it moves to.
+   */
+  readonly carriesGoneSessionRaise?: boolean;
+}
 
 /** A list the sessions track beside the rail can hold: the sessions list or the notifications. */
 export type SessionsTrackList = "sessions" | "notifications";
@@ -61,11 +103,8 @@ export interface WindowStoreState {
    * `Message not found`, is raised again by the next press of the same link.
    */
   readonly routeWriteCount: number;
-  /**
-   * The `routeWriteCount` of the move back off a session that no longer exists, which raises
-   * `Session not found` on the screen it returned to; `undefined` before any.
-   */
-  readonly sessionNotFoundAt: number | undefined;
+  /** The last move off a session the background service does not hold; `undefined` before any. */
+  readonly goneSessionRaise: GoneSessionRaise | undefined;
   /**
    * True while a modal dialog the frame cannot name owns the window. The dialog runs under
    * `modal="trap-focus"`, which leaves inerting the app root to `AppShell`; the frame knows the
@@ -97,6 +136,8 @@ export interface WindowStoreState {
 /** Construction options for {@link WindowStore}. */
 export interface WindowStoreOptions {
   readonly initialRoute?: AppRoute;
+  /** What named `initialRoute`; absent for a window opened on its start screen. */
+  readonly openingCause?: WindowOpeningCause;
   /** The document of the window this store is for; absent, this realm's own. */
   readonly ownerDocument?: Document;
 }
@@ -112,6 +153,15 @@ export class WindowStore {
   readonly #paneOpenRequests = new PaneOpenRequests();
   /** The route shown before the current one, where a move off a gone session returns. */
   #routeShownBefore: AppRoute | undefined = undefined;
+  /**
+   * The session this window had in hand before the current route, which a move off a gone session
+   * puts back.
+   */
+  #lastOpenedSessionIdBefore: string | undefined = undefined;
+  /** The key of the control whose press made the current route's move, if one did. */
+  #pressedControl: string | undefined = undefined;
+  /** What named the route the window opened at, while it still shows it; a move clears it. */
+  #openingCause: WindowOpeningCause | undefined;
   readonly #leaveGuard = new LeaveGuard((failure) => {
     // The person waits on the question, so the banner says it failed; the cause, a screen's
     // defect with no words the person can act on, goes to the diagnostic capture.
@@ -121,13 +171,14 @@ export class WindowStore {
 
   public constructor(options: WindowStoreOptions = {}) {
     const initialRoute = options.initialRoute ?? DEFAULT_ROUTE;
+    this.#openingCause = options.openingCause;
     this.#store = createStore<WindowStoreState>(() => ({
       route: initialRoute,
       routeHistoryWrite: "push",
       // Seeded from the opening route so a window opened at a session has it in hand at once.
       lastOpenedSessionId: routeSessionId(initialRoute),
       routeWriteCount: 0,
-      sessionNotFoundAt: undefined,
+      goneSessionRaise: undefined,
       isModalDialogOpen: false,
       banners: [],
       sessionsTrackList: undefined,
@@ -164,11 +215,10 @@ export class WindowStore {
 
   /**
    * Move this window to a route, as a new history entry Back returns from. A move off a screen
-   * holding unsaved edits waits for its answer ({@link leaveGuard}); `afterCommit` runs only once
-   * the move has happened, never after a no.
+   * holding unsaved edits waits for its answer ({@link leaveGuard}).
    */
-  public navigate(route: AppRoute, afterCommit?: () => void): void {
-    this.#moveTo(route, "push", afterCommit);
+  public navigate(route: AppRoute, move: RouteMove = {}): void {
+    this.#moveTo(route, "push", move);
   }
 
   /**
@@ -192,26 +242,57 @@ export class WindowStore {
       return true;
     }
     // The address change already made its own history entry, so the route writes in place.
-    return this.#moveTo(route, "replace", afterCommit);
+    return this.#moveTo(route, "replace", afterCommit === undefined ? {} : { afterCommit });
   }
 
   /**
-   * Step back off a session the background service answered no longer exists, to the screen shown
-   * before it, raising `Session not found` there. Nothing moves when the route has left that
-   * session already or the window opened at it with nothing shown before. The leave guard is not
-   * asked: a session that never read holds no edits.
+   * Leave a session the background service answered it does not hold. A window that showed
+   * another screen before steps back to it and raises `Session not found` there, on the control
+   * whose press led in where one did: back over the entry a press made, else in place of the entry
+   * Back or Forward led into, so that press does not lead into it again. With nothing else to
+   * step back to, the window moves in place to its start screen with the sessions list open beside
+   * it and raises its line there. The words follow the cause: `That session is not here.` for the
+   * session an address opened the window at, and `Session not found` for any other. Either way the
+   * gone session is no longer the one in hand. Nothing moves when the route has left that session
+   * already. The leave guard is not asked: a session that never read holds no edits.
    */
   public leaveGoneSession(sessionId: string): void {
     const before = this.#routeShownBefore;
-    if (
-      this.activeSessionId !== sessionId ||
-      before === undefined ||
-      routeSessionId(before) === sessionId
-    ) {
+    const lastOpenedSessionIdBefore = this.#lastOpenedSessionIdBefore;
+    const pressedControl = this.#pressedControl;
+    const openingCause = this.#openingCause;
+    const { routeHistoryWrite: arrival } = this.#store.getState();
+    if (this.activeSessionId !== sessionId) {
       return;
     }
-    this.#setRoute(before, "back");
-    this.#store.setState({ sessionNotFoundAt: this.#store.getState().routeWriteCount });
+    const hasScreenBefore = before !== undefined && routeSessionId(before) !== sessionId;
+    let target: GoneSessionRaise["target"];
+    let lastOpenedSessionId: string | undefined;
+    if (!hasScreenBefore) {
+      target = openingCause === "address" ? "session-not-here" : "session";
+      this.#setRoute(DEFAULT_ROUTE, "replace");
+      this.#store.setState({ sessionsTrackList: "sessions" });
+      lastOpenedSessionId = undefined;
+    } else {
+      this.#setRoute(before, arrival === "push" ? "back" : "replace");
+      target = "session";
+      // A screen that names no session keeps the one in hand, which must not be the gone one.
+      const kept = this.#store.getState().lastOpenedSessionId;
+      const restored = kept === sessionId ? lastOpenedSessionIdBefore : kept;
+      lastOpenedSessionId = restored === sessionId ? undefined : restored;
+    }
+    this.#routeShownBefore = undefined;
+    this.#lastOpenedSessionIdBefore = undefined;
+    const { routeWriteCount } = this.#store.getState();
+    this.#store.setState({
+      lastOpenedSessionId,
+      goneSessionRaise: {
+        raisedAt: routeWriteCount,
+        standsAt: routeWriteCount,
+        target,
+        pressedControl: hasScreenBefore ? pressedControl : undefined,
+      },
+    });
   }
 
   /**
@@ -313,14 +394,10 @@ export class WindowStore {
   }
 
   /** Send a move through the leave guard; true when it committed now. */
-  #moveTo(
-    route: AppRoute,
-    routeHistoryWrite: RouteHistoryWrite,
-    afterCommit?: () => void,
-  ): boolean {
+  #moveTo(route: AppRoute, routeHistoryWrite: RouteHistoryWrite, move: RouteMove = {}): boolean {
     return this.#leaveGuard.leave(route, () => {
-      this.#setRoute(route, routeHistoryWrite);
-      afterCommit?.();
+      this.#setRoute(route, routeHistoryWrite, move);
+      move.afterCommit?.();
     });
   }
 
@@ -328,20 +405,43 @@ export class WindowStore {
    * The one route writer, so the retained session, the route shown before and the write count
    * cannot be left behind by any move. A route that names no session leaves the retained one alone.
    */
-  #setRoute(route: AppRoute, routeHistoryWrite: RouteHistoryWrite): void {
-    const { route: shown, routeWriteCount, lastOpenedSessionId } = this.#store.getState();
+  #setRoute(route: AppRoute, routeHistoryWrite: RouteHistoryWrite, move: RouteMove = {}): void {
+    const {
+      route: shown,
+      routeWriteCount,
+      lastOpenedSessionId,
+      goneSessionRaise,
+    } = this.#store.getState();
     const isMove = !routesAreEqual(shown, route);
     if (isMove) {
       this.#routeShownBefore = shown;
+      this.#lastOpenedSessionIdBefore = lastOpenedSessionId;
+      this.#pressedControl = move.pressedControl;
+      this.#openingCause = undefined;
     }
+    const nextWriteCount =
+      isMove || routeHistoryWrite === "push" ? routeWriteCount + 1 : routeWriteCount;
+    const isRaiseCarried =
+      move.carriesGoneSessionRaise === true && goneSessionRaise?.standsAt === routeWriteCount;
     this.#store.setState({
       route,
       routeHistoryWrite,
-      routeWriteCount:
-        isMove || routeHistoryWrite === "push" ? routeWriteCount + 1 : routeWriteCount,
+      routeWriteCount: nextWriteCount,
       lastOpenedSessionId: routeSessionId(route) ?? lastOpenedSessionId,
+      ...(isRaiseCarried
+        ? { goneSessionRaise: { ...goneSessionRaise, standsAt: nextWriteCount } }
+        : {}),
     });
   }
+}
+
+/**
+ * The raise the route's current write carries, or `undefined`: a raise stands only on the move
+ * that brought the window to its screen, so any later move puts it away.
+ */
+export function goneSessionRaiseOfThisMove(state: WindowStoreState): GoneSessionRaise | undefined {
+  const raise = state.goneSessionRaise;
+  return raise?.standsAt === state.routeWriteCount ? raise : undefined;
 }
 
 /** What the window's banner says when a screen's question about its unsaved edits failed. */

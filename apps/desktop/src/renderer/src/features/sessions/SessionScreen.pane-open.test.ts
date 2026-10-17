@@ -41,13 +41,17 @@ function askForRunReview(
   workflowRunId: string,
   to: WorkflowRunSnapshotPoint,
 ): void {
-  openSessionPane(frameStore, {
-    sessionId: SESSION_ID as SessionId,
-    address: {
-      kind: "diff",
-      entity: { kind: "workflow-run", id: workflowRunId as WorkflowRunId, from: START, to },
+  openSessionPane(
+    frameStore,
+    {
+      sessionId: SESSION_ID as SessionId,
+      address: {
+        kind: "diff",
+        entity: { kind: "workflow-run", id: workflowRunId as WorkflowRunId, from: START, to },
+      },
     },
-  });
+    "run-open-review",
+  );
 }
 
 /** The pane the layout shows for Review over one run comparison. */

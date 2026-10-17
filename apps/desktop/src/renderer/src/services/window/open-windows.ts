@@ -8,6 +8,7 @@
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import type { OpenWindowFrames } from "#renderer/lib/open-window-frames.js";
+import type { WindowOpeningCause } from "#renderer/store/window/store.js";
 import { StylesheetMirror } from "./stylesheet-mirror.js";
 
 /**
@@ -21,6 +22,16 @@ export interface OpenWindow {
   /** The window's id, the frame name it was opened under. */
   readonly windowId: string;
   readonly window: Window;
+  /** What named the address the window opened on; `undefined` when it opened on none. */
+  readonly openingCause: WindowOpeningCause | undefined;
+}
+
+/** The address a window opens on, and what named it. */
+export interface WindowOpeningAddress {
+  /** A route hash, written before anyone hears the window opened. */
+  readonly hash: string;
+  /** Absent for the start screen a window opens on when nothing names an address. */
+  readonly cause?: WindowOpeningCause;
 }
 
 /** What {@link OpenWindows} is built over. */
@@ -78,12 +89,12 @@ export class OpenWindows {
   }
 
   /**
-   * Open the window `windowId` names on `address`, a route hash written before anyone hears the
-   * window opened, or bring it forward, on the address it shows, when it is open. Throws
-   * {@link WindowNotOpenedError} when the platform opened none, and throws when an open window is
-   * opened again before {@link bringForwardThrough} registered how to bring it forward.
+   * Open the window `windowId` names on `address`, or bring it forward, on the address it shows,
+   * when it is open. Throws {@link WindowNotOpenedError} when the platform opened none, and throws
+   * when an open window is opened again before {@link bringForwardThrough} registered how to bring
+   * it forward.
    */
-  public open(windowId: string, address?: string): OpenWindow {
+  public open(windowId: string, address?: WindowOpeningAddress): OpenWindow {
     const held = this.#held.get(windowId);
     if (held !== undefined) {
       if (this.#askMainToBringForward === undefined) {
@@ -99,9 +110,9 @@ export class OpenWindows {
     // The hash alone: a blank document resolves a whole address against its opener's, which it
     // may not take.
     if (address !== undefined) {
-      opened.location.hash = address;
+      opened.location.hash = address.hash;
     }
-    const openWindow: OpenWindow = { windowId, window: opened };
+    const openWindow: OpenWindow = { windowId, window: opened, openingCause: address?.cause };
     for (const prepare of this.#documentPreparations) {
       prepare(opened.document);
     }

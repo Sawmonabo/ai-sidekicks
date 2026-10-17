@@ -1,4 +1,3 @@
-import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
@@ -12,7 +11,7 @@ import { chainRunsWords } from "../../header-lines.js";
 import { useStepAnswer } from "../hooks/useStepAnswer.js";
 import { ApprovalAnswer } from "../../components/ApprovalAnswer.js";
 import { ReplyAnswer } from "../../components/ReplyAnswer.js";
-import { OpenInReview } from "../../components/OpenInReview.js";
+import { OpenInReview, type ReviewOpener } from "../../components/OpenInReview.js";
 import { StepForm } from "./StepForm.js";
 
 /** What the blocker over a step's data is drawn from, and where an answer goes. */
@@ -31,7 +30,7 @@ export interface StepBlockerProps {
   readonly bridge: PlatformBridge;
   /** Called with the answer once the daemon has taken it. */
   readonly onAnswered: (answer: HeldStepAnswer) => void;
-  readonly onOpenReview: (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint) => void;
+  readonly onOpenReview: ReviewOpener;
 }
 
 /**
@@ -77,7 +76,11 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
             onAnswered={holdDaemonAnswer}
           />
           {reviewPause === undefined ? null : (
-            <OpenInReview snapshots={reviewPause} onOpenReview={props.onOpenReview} />
+            <OpenInReview
+              snapshots={reviewPause}
+              pressedControl="step-open-review"
+              onOpenReview={props.onOpenReview}
+            />
           )}
         </div>
       );

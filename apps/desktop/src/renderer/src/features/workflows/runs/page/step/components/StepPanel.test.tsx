@@ -108,7 +108,7 @@ function renderPanel(
         answers={new Map()}
         onAnswered={() => undefined}
         onOpenRun={() => undefined}
-        onOpenReview={() => undefined}
+        onOpenReview={() => Promise.resolve("opened")}
         onOpenSession={options.onOpenSession ?? (() => Promise.resolve("opened"))}
         onClose={() => undefined}
       />

@@ -17,7 +17,8 @@
     "#preload/*": "./src/preload/*",
     "#shared/*": "./src/shared/*",
     "#test/*": "./tests/*",
-    "#fixtures/*": "./fixtures/*"
+    "#fixtures/*": "./fixtures/*",
+    "#build/*": "./build/*"
   },
   "scripts": {
     "postinstall": "node --experimental-strip-types scripts/materialize-electron.ts",

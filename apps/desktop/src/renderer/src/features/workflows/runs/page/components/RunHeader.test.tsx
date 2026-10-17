@@ -87,9 +87,10 @@ function renderHeader(
       }}
       onOpenSession={() => Promise.resolve("opened")}
       onOpenMessage={() => Promise.resolve("opened")}
-      onOpenWorkflow={() => undefined}
+      onOpenWorkflow={() => Promise.resolve("opened")}
       onOpenReview={(from, to) => {
         reviews.push([from, to]);
+        return Promise.resolve("opened");
       }}
     />,
     { wrapper: bridgeWrapper(bridge, clock) },
@@ -347,11 +348,13 @@ describe("a run's header", () => {
         bridge={bridge}
         onOpenRun={() => undefined}
         onOpenSession={() => Promise.resolve("opened")}
-        onOpenMessage={(sessionId, cursor) =>
-          followSessionPointer(frameStore, registry, sessionId, cursor)
+        onOpenMessage={(sessionId, cursor, pressedControl) =>
+          followSessionPointer(frameStore, registry, pressedControl, sessionId, {
+            messageAnchorCursor: cursor,
+          })
         }
-        onOpenWorkflow={() => undefined}
-        onOpenReview={() => undefined}
+        onOpenWorkflow={() => Promise.resolve("opened")}
+        onOpenReview={() => Promise.resolve("opened")}
       />,
       { wrapper: withAnnouncer(bridgeWrapper(bridge, clock)) },
     );

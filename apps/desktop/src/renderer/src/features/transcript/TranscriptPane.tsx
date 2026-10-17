@@ -10,6 +10,7 @@ import { transcriptBodyReadThroughDaemon } from "#renderer/services/daemon/trans
 import { transcriptPageReadThroughDaemon } from "#renderer/services/daemon/transcript/page.js";
 import { routeSessionId, sessionMessageAnchorCursor } from "#renderer/routing/readers.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
+import { goneSessionRaiseOfThisMove } from "#renderer/store/window/store.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { findTranscriptRowRenderer, type TranscriptRowRenderer } from "./rows/renderer.js";
 import { type PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
@@ -32,7 +33,11 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
   // Read through the store's selector so the pane follows a navigation to another session.
   const route = useWindowStore(context.frameStore, (state) => state.route);
   const routeWriteCount = useWindowStore(context.frameStore, (state) => state.routeWriteCount);
-  const sessionNotFoundAt = useWindowStore(context.frameStore, (state) => state.sessionNotFoundAt);
+  // The feed keeps the line until the next act itself, keyed on the arrival it draws for.
+  const goneSessionTarget = useWindowStore(
+    context.frameStore,
+    (state) => goneSessionRaiseOfThisMove(state)?.target,
+  );
   const { bridge } = context;
   const readTranscriptPage = useMemo(() => transcriptPageReadThroughDaemon(bridge), [bridge]);
   const readTranscriptBody = useMemo(() => transcriptBodyReadThroughDaemon(bridge), [bridge]);
@@ -50,7 +55,7 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
         sessionStore={context.sessionStore}
         messageAnchorCursor={sessionMessageAnchorCursor(route)}
         routeWriteCount={routeWriteCount}
-        isSessionNotFound={sessionNotFoundAt === routeWriteCount}
+        goneSessionTarget={goneSessionTarget}
         readTranscriptPage={readTranscriptPage}
         readTranscriptBody={readTranscriptBody}
       />

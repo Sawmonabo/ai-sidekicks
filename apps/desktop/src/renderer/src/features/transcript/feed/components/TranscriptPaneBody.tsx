@@ -4,6 +4,7 @@
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
+import type { GoneSessionRaise } from "#renderer/store/window/store.js";
 import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
@@ -18,8 +19,8 @@ export interface TranscriptPaneBodyProps {
   readonly messageAnchorCursor: string | undefined;
   /** How many times the window's route was written, so a link followed again raises its line again. */
   readonly routeWriteCount: number;
-  /** Whether the route's last write was the move back here off a session that no longer exists. */
-  readonly isSessionNotFound: boolean;
+  /** The line the route's last write raised, moving here off a gone session; `undefined` if not. */
+  readonly goneSessionTarget: GoneSessionRaise["target"] | undefined;
   /** The `transcript.read` the feed reads its history past the store's window with. */
   readonly readTranscriptPage: TranscriptPageRead;
   /** The `transcript.bodyRead` the feed reads an opened large body with. */
@@ -51,7 +52,7 @@ export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.El
       feedLabel="Transcript"
       messageAnchorCursor={props.messageAnchorCursor}
       routeWriteCount={props.routeWriteCount}
-      isSessionNotFound={props.isSessionNotFound}
+      goneSessionTarget={props.goneSessionTarget}
       readTranscriptPage={props.readTranscriptPage}
       readTranscriptBody={props.readTranscriptBody}
     />

@@ -1,7 +1,8 @@
 // The one walk over an element's clipping ancestors. The session pane layout intersects their
 // boxes into the rectangle a native view may occupy, the preview geometry subtracts them, and the
-// flow's diff finds the scroller it is drawn in; features never import each other, so the walk
-// lives in shared code.
+// flow's diff finds the scroller it is drawn in, and Settings and Workflows find the box that
+// scrolls a control they bring into view; features never import each other, so the walk lives in
+// shared code.
 //
 // The `overflow-x` and `overflow-y` longhands decide; the `overflow` shorthand is a fallback
 // used only when neither axis is readable. A conformant engine serializes the shorthand from
@@ -64,11 +65,28 @@ export function* clippingAncestorsOf(element: Element): Generator<HTMLElement> {
  * where none does and the window scrolls.
  */
 export function nearestVerticalScrollerOf(element: Element): HTMLElement | undefined {
+  return verticalScrollersOf(element).next().value;
+}
+
+/**
+ * The nearest ancestor of `element` that scrolls it now: one the person may scroll whose content
+ * is taller than it. `undefined` when none does and the document scrolls it.
+ */
+export function scrollingAncestorOf(element: Element): HTMLElement | undefined {
+  for (const scroller of verticalScrollersOf(element)) {
+    if (scroller.scrollHeight > scroller.clientHeight) {
+      return scroller;
+    }
+  }
+  return undefined;
+}
+
+function* verticalScrollersOf(element: Element): Generator<HTMLElement, undefined> {
   const ownerWindow = getWindow(element);
   for (const ancestor of clippingAncestorsOf(element)) {
     const { vertical } = overflowAxesOf(ownerWindow.getComputedStyle(ancestor));
     if (SCROLLING_OVERFLOW_VALUES.some((value) => value === vertical)) {
-      return ancestor;
+      yield ancestor;
     }
   }
   return undefined;

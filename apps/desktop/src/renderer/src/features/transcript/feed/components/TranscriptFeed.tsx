@@ -36,6 +36,7 @@ import {
 } from "#renderer/store/session/hooks/useSessionInitialized.js";
 import { type ProjectedFullBody } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
+import type { GoneSessionRaise } from "#renderer/store/window/store.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
@@ -82,8 +83,8 @@ export interface TranscriptFeedProps {
    * again. Absent, the feed draws a line for its first arrival alone.
    */
   readonly routeWriteCount?: number | undefined;
-  /** Whether the route's last write was the move back here off a session that no longer exists. */
-  readonly isSessionNotFound?: boolean | undefined;
+  /** The line the route's last write raised, moving here off a gone session; `undefined` if not. */
+  readonly goneSessionTarget?: GoneSessionRaise["target"] | undefined;
 }
 
 /**
@@ -115,8 +116,8 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const isMessageNotFoundStanding = useUntilNextAct(
     windows.messageReadBack === "not-in-history" ? arrivalKey : undefined,
   );
-  const isSessionNotFoundStanding = useUntilNextAct(
-    props.isSessionNotFound === true ? arrivalKey : undefined,
+  const isGoneSessionStanding = useUntilNextAct(
+    props.goneSessionTarget === undefined ? undefined : arrivalKey,
   );
   // The line under the session header stands whenever either holds, and nothing repeats it.
   const isWindowDegraded = useSessionDegraded(props.sessionStore);
@@ -329,7 +330,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
                         history === undefined ? undefined : <LoadEarlier history={history} />
                       }
                       missingTarget={missingTargetOf(
-                        isSessionNotFoundStanding,
+                        isGoneSessionStanding ? props.goneSessionTarget : undefined,
                         isMessageNotFoundStanding,
                         arrivalKey,
                       )}
@@ -353,12 +354,12 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
 
 /** The missing-target line standing in the dock, a gone session's before a gone message's. */
 function missingTargetOf(
-  isSessionNotFoundStanding: boolean,
+  standingGoneSessionTarget: GoneSessionRaise["target"] | undefined,
   isMessageNotFoundStanding: boolean,
   raisedKey: string,
 ): MissingTargetLineProps | undefined {
-  if (isSessionNotFoundStanding) {
-    return { target: "session", raisedKey };
+  if (standingGoneSessionTarget !== undefined) {
+    return { target: standingGoneSessionTarget, raisedKey };
   }
   return isMessageNotFoundStanding ? { target: "message", raisedKey } : undefined;
 }

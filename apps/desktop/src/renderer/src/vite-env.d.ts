@@ -44,6 +44,13 @@ declare module "*?worker" {
   export default WorkerScript;
 }
 
+// The app icon's line drawing, which the logo mark paints as a mask; under the inline limit it
+// arrives as a `data:` URL.
+declare module "*.svg?url" {
+  const assetUrl: string;
+  export default assetUrl;
+}
+
 // A WebAssembly module the markdown worker compiles as it streams in, emitted and addressed the
 // same way.
 declare module "*.wasm?url" {

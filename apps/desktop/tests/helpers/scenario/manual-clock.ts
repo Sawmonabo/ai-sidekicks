@@ -1,4 +1,5 @@
-// How a case moves the fixture's frozen clock, for every view that schedules a read.
+// How a case moves the fixture's frozen clock, for every view that schedules a read, and the
+// scenario the app's fixture composition hangs on the page, whose clock a case moves.
 //
 // Every read an app view performs goes through the app's one `RefreshScheduler`, which arms
 // its debounce on the window's clock, and under the fixture that is the scenario's frozen one.
@@ -10,7 +11,9 @@
 // loops forever against a view that never answers; the last pass runs the caller's assertion
 // outside the `try`, so a case that never settles fails with the assertion's own message.
 
+import { SCENARIO_FIXTURE_GLOBAL } from "#renderer/app/fixture/global-names.js";
 import type { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
+import { ScenarioFixtureControl } from "#renderer/services/daemon/selection.fixture.js";
 import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { settle } from "../settle.js";
 
@@ -48,4 +51,13 @@ export async function advanceScenarioUntil(
     }
   }
   assert();
+}
+
+/** The scenario the app's fixture composition plays, as it hangs it on the page. */
+export function runningScenario(): ScenarioFixtureControl {
+  const control: unknown = Reflect.get(globalThis, SCENARIO_FIXTURE_GLOBAL);
+  if (!(control instanceof ScenarioFixtureControl)) {
+    throw new Error("the app's fixture composition hung no scenario on the page");
+  }
+  return control;
 }

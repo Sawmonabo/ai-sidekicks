@@ -4,7 +4,7 @@
 // which `app/` hands main.
 
 export { registerPaneLayoutCommands } from "./contributions/commands.js";
-export { registerSessionsFlyout } from "./contributions/screens.js";
+export { registerSessionsScreen } from "./contributions/screens.js";
 export { useIsFocusInPane } from "./pane-layout/hooks/useIsFocusInPane.js";
 export { paneWindowWidthsPx } from "./pane-layout/widths.js";
 export { SessionScreen } from "./SessionScreen.js";

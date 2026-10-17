@@ -1,5 +1,5 @@
 // What the destination's acts do, bound to one screen context. Kept apart from
-// `SessionsFlyout.tsx`, which says what is drawn: nothing here renders, so a suite can drive an
+// `SessionsScreen.tsx`, which says what is drawn: nothing here renders, so a suite can drive an
 // act without mounting a screen.
 //
 // Opening a session from a row, from an attention item, and after a start are the same

@@ -35,7 +35,7 @@ import { registerPreviewPanes } from "#renderer/features/preview/index.js";
 import { registerReposInlineCards, registerReposPanes } from "#renderer/features/repos/index.js";
 import {
   registerPaneLayoutCommands,
-  registerSessionsFlyout,
+  registerSessionsScreen,
   SessionScreen,
 } from "#renderer/features/sessions/index.js";
 import { registerSettingsScreen } from "#renderer/features/settings/index.js";
@@ -85,7 +85,7 @@ export function registerFeatureContributions(registries: ContributionRegistries)
   projectors.registerAll(APPROVAL_FLOW_PROJECTORS, APPROVAL_FLOW_PROJECTOR_OWNER);
 
   registerTranscriptScreens(screens, { sessionScreen: SessionScreen });
-  registerSessionsFlyout(screens);
+  registerSessionsScreen(screens);
   registerSettingsScreen(screens);
   registerWorkflowScreens(screens, workflowCommandTargets);
 

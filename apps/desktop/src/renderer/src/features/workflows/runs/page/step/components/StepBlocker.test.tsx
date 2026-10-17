@@ -106,6 +106,7 @@ function renderBlocker(
       }}
       onOpenReview={(from, to) => {
         reviews.push([from, to]);
+        return Promise.resolve("opened");
       }}
     />,
     { wrapper: withCommandTargets(bridgeWrapper(bridge, engine.clock), commandTargets) },

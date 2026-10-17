@@ -1,6 +1,8 @@
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
-import type { SessionPointerOutcome } from "#renderer/features/workflows/open-session.js";
-import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
+import type {
+  SessionPointerControl,
+  SessionPointerOutcome,
+} from "#renderer/features/workflows/open-session.js";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { parseInstant } from "#renderer/lib/instant.js";
@@ -21,7 +23,7 @@ import { isGoing, runHeaderControlAvailability } from "../../controls.js";
 import { runHeaderLines, runLiveLine } from "../header-lines.js";
 import { latestStepWith } from "../../steps.js";
 import { RunControl } from "#renderer/features/workflows/components/RunControl.js";
-import { OpenInReview } from "./OpenInReview.js";
+import { OpenInReview, type ReviewOpener } from "./OpenInReview.js";
 import { MissingTargetLine } from "#renderer/components/MissingTargetLine/MissingTargetLine.js";
 import { useGoneSessionLine } from "#renderer/features/workflows/hooks/useGoneSessionLine.js";
 
@@ -40,16 +42,23 @@ export interface RunHeaderProps {
   readonly bridge: PlatformBridge;
   readonly onOpenRun: (workflowRunId: string) => void;
   /** Open a session, unless the background service answers it no longer exists. */
-  readonly onOpenSession: (sessionId: string) => Promise<SessionPointerOutcome>;
+  readonly onOpenSession: (
+    sessionId: string,
+    pressedControl: SessionPointerControl,
+  ) => Promise<SessionPointerOutcome>;
   /** Open the session that started the run with its starting message in view. */
   readonly onOpenMessage: (
     sessionId: string,
     messageAnchorCursor: EventCursor | undefined,
+    pressedControl: SessionPointerControl,
   ) => Promise<SessionPointerOutcome>;
-  /** Open the workflow the run came from. */
-  readonly onOpenWorkflow: (definitionId: string) => void;
+  /** Open the workflow the run came from, unless the run's session no longer exists. */
+  readonly onOpenWorkflow: (
+    definitionId: string,
+    pressedControl: SessionPointerControl,
+  ) => Promise<SessionPointerOutcome>;
   /** Open Review on what the run changed between two of its snapshots. */
-  readonly onOpenReview: (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint) => void;
+  readonly onOpenReview: ReviewOpener;
 }
 
 /**
@@ -137,11 +146,10 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
         </Fact>
       </dl>
       <div className="meridian-workflow-run__links">
-        <HeaderLink
+        <SessionHeaderLink
           label="Open the workflow"
-          onPress={() => {
-            props.onOpenWorkflow(run.definitionId);
-          }}
+          pressedControl="run-open-workflow"
+          onPress={() => props.onOpenWorkflow(run.definitionId, "run-open-workflow")}
         />
         {startedBy.kind === "parentWorkflow" ? (
           <HeaderLink
@@ -154,13 +162,21 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
         {startedBy.kind === "chat" ? (
           <SessionHeaderLink
             label="Open the message that started it"
-            onPress={() => props.onOpenMessage(startedBy.sessionId, startedBy.messageAnchorCursor)}
+            pressedControl="run-started-by-message"
+            onPress={() =>
+              props.onOpenMessage(
+                startedBy.sessionId,
+                startedBy.messageAnchorCursor,
+                "run-started-by-message",
+              )
+            }
           />
         ) : null}
         {fixSessionId === undefined ? null : (
           <SessionHeaderLink
             label={fixSessionLinkWords(run, props.nodeName)}
-            onPress={() => props.onOpenSession(fixSessionId)}
+            pressedControl="run-fix-session"
+            onPress={() => props.onOpenSession(fixSessionId, "run-fix-session")}
           />
         )}
       </div>
@@ -190,7 +206,11 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
           }}
         />
         {review === undefined ? null : (
-          <OpenInReview snapshots={review} onOpenReview={props.onOpenReview} />
+          <OpenInReview
+            snapshots={review}
+            pressedControl="run-open-review"
+            onOpenReview={props.onOpenReview}
+          />
         )}
       </div>
       {liveLine === undefined ? null : (
@@ -247,25 +267,24 @@ function HeaderLink(props: {
 }
 
 /**
- * A header link into a session, which says `Session not found` on itself when the session it
- * points into is gone.
+ * A header link into a session, or into a pane of one, which says `Session not found` on itself
+ * when the session it points into is gone.
  */
 function SessionHeaderLink(props: {
   readonly label: string;
+  readonly pressedControl: SessionPointerControl;
   readonly onPress: () => Promise<SessionPointerOutcome>;
 }): React.JSX.Element {
-  const goneSessionLine = useGoneSessionLine();
+  const goneSessionLine = useGoneSessionLine(props.pressedControl);
   return (
-    <span className="meridian-workflow-run__control">
+    <span className="meridian-workflow-run__control" ref={goneSessionLine.controlRef}>
       <HeaderLink
         label={props.label}
         onPress={() => {
           goneSessionLine.follow(props.onPress());
         }}
       />
-      {goneSessionLine.raisedKey === undefined ? null : (
-        <MissingTargetLine target="session" raisedKey={goneSessionLine.raisedKey} />
-      )}
+      {goneSessionLine.line === undefined ? null : <MissingTargetLine {...goneSessionLine.line} />}
     </span>
   );
 }
