@@ -38,17 +38,15 @@ type AgentAccentHue =
 // the bindings rather than a fallback beside them: there is no unbound state to resolve from. The same shape is a
 // running agent's binding: `agent.configUpdate` moves its members, and the binding events
 // (orchestration-payloads.md §Plan-013) carry it from and to.
-// Both members of the provider pair are always present: `driverName` is null only when the file
-// names a provider this app does not run, and then `unsupportedProviderName` holds that name as the
-// file gave it, kept apart so a binding's provider is only ever one the app runs.
+// A binding names a provider a registered driver answers. Only the definition list serves a binding
+// whose file names a provider no registered driver answers, and it serves it as its own arm: no
+// `driverName`, and `unsupportedProviderName` holding the name as the file gave it, so a binding's
+// provider is only ever one the app runs.
 interface AgentProviderBinding {
   // provider driver key, an open ProviderId checked against the registered drivers, matching the
-  // agent surface's driver axis; null only on a saved definition whose file names a provider this app
-  // does not run, never on a live agent's binding, whose driver is checked against the registered
-  // drivers where agent.provider_binding_changed writes it
-  driverName: ProviderId | null;
-  // the provider name the file gave when `driverName` is null; null otherwise
-  unsupportedProviderName: string | null;
+  // agent surface's driver axis; on a live agent's binding it is checked where
+  // agent.provider_binding_changed writes it
+  driverName: ProviderId;
   modelId: string;
   providerAccountId: ProviderAccountId | null; // null = follow the provider's current account — the one marked `Default`, which `providerAccount.setCurrent` moves — resolved AT THE MOMENT THE RUN STARTS and followed when the mark moves. Deliberately not a foreign key: a definition may name an account that is later removed, and that must surface as a typed resolution refusal the person can act on, not as a delete-time cascade that silently rewrites the definition
   effort: string | null; // null = the driver's default. Validated at RESOLUTION against the target model's driver-reported `effortLevels` — never against a hardcoded list, and never at save, because the vocabulary belongs to the model a run actually binds
