@@ -56,6 +56,9 @@ ignored = [
   "p256",
   # The email digest of what needs the person's attention.
   "lettre",
+  # Its build script hands the daemon's build the bundled `sqlite3.h` the SQLite shell compiles
+  # against.
+  "libsqlite3-sys",
   # The passkey statement checks.
   "llrt_buffer",
   "llrt_crypto",
