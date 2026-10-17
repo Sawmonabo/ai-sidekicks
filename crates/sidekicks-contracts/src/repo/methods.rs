@@ -46,7 +46,8 @@ methods! {
             result: RepoAttachResponse,
             refusals: [
                 RepoAlreadyAttached,
-                RepoFolderUnreachable,
+                RepoDistributionNeedsWsl2,
+                RepoDistributionNotFound,
                 RepoRootResolutionFailed,
             ],
         },
@@ -89,7 +90,7 @@ methods! {
             mutating: false,
             params: RepoFolderListRequest,
             result: RepoFolderListResponse,
-            refusals: [],
+            refusals: [RepoDistributionNeedsWsl2, RepoDistributionNotFound],
         },
         /// Binds a session's workspace to a mount.
         RepoWorkspaceBind = mutation "repo.workspaceBind" {

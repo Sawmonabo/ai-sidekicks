@@ -14,10 +14,12 @@ use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::place::Place;
 use crate::provider::account::record::ProviderAccountId;
 use crate::provider::name::{ClaudeProviderWord, CodexProviderWord, ProviderName};
 use crate::repo::mount::RepoMountId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt};
 use crate::wire::list::BoundedVec;
 use crate::wire::text::{FreeFormText, branded_text};
@@ -84,6 +86,36 @@ pub enum ProviderInstallation {
     NotInstalled {},
     /// A check that could not settle.
     Indeterminate {},
+}
+
+/// One place's `Command` row: where the provider's command is read, what the last check there
+/// found and when, and the path the person typed for that place. A computer without a WSL 2
+/// distribution has one row and names no place.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct ProviderPlaceReading {
+    /// The place; absent on a computer without a WSL 2 distribution.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
+    /// What the last check there found, `null` until the place has been checked.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<ProviderInstallation>")]
+    pub installation: Option<ProviderInstallation>,
+    /// The path the person typed for the place, or `null` for auto-detect.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<FilesystemPath>")]
+    pub command_path: Option<FilesystemPath>,
+    /// When the place was last checked, `null` until it has been.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<WireInstant>")]
+    #[garde(dive)]
+    pub checked_at: Option<WireInstant>,
 }
 
 /// The compaction threshold in percent full: a whole percent on a step of five.
@@ -208,10 +240,11 @@ macro_rules! provider_settings {
         $(#[doc = $doc:literal])+
         $provider:ident { $($own:tt)* }
     )+) => {
-        /// One provider's section as `provider.list` reads it. `commandPath` is `null` while the
-        /// person has typed none (auto-detect); `helpersAtOnce` is `null` for no limit and `0` for
-        /// none; the compaction bound and the output style are `null` until the provider has been
-        /// read. Each provider's section carries only its own settings.
+        /// One provider's section as `provider.list` reads it: one `Command` row per place, Windows
+        /// first and then each WSL 2 distribution on a Windows computer with one, else a single
+        /// row; `helpersAtOnce` is `null` for no limit and `0` for none; the compaction bound and
+        /// the output style are `null` until the provider has been read. Each provider's section
+        /// carries only its own settings.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "provider",
@@ -223,12 +256,9 @@ macro_rules! provider_settings {
         pub enum ProviderSettings {$(
             $(#[doc = $doc])+
             $provider {
-                /// What the provider check found.
-                installation: ProviderInstallation,
-                /// The path the person typed, or `null` for auto-detect.
-                #[serde(deserialize_with = "crate::wire::nullable")]
-                #[schemars(with = "crate::wire::NullableSchema<FilesystemPath>")]
-                command_path: Option<FilesystemPath>,
+                /// The command's reading in each place.
+                #[garde(dive)]
+                places: BoundedVec<ProviderPlaceReading, 1, { usize::MAX }>,
                 /// Whether a new session may use the provider.
                 available_for_new_sessions: bool,
                 /// How many helpers run at once: `null` for no limit, `0` for none.
@@ -308,10 +338,18 @@ macro_rules! provider_update_request {
         #[serde(untagged, rename_all_fields = "camelCase", deny_unknown_fields)]
         #[garde(allow_unvalidated)]
         pub enum ProviderUpdateRequest {$(
-            /// A new command path, or `null` to return to auto-detect.
+            /// A new command path for one place, or `null` to return it to auto-detect.
             $command_path {
                 /// The provider.
                 provider: $provider,
+                /// The place; absent on a computer without a WSL 2 distribution.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "Place")]
+                place: Option<Place>,
                 /// The path, or `null` for auto-detect.
                 #[serde(deserialize_with = "crate::wire::nullable")]
                 #[schemars(with = "crate::wire::NullableSchema<FilesystemPath>")]
@@ -639,6 +677,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           accounts.",
     definitions: &[
         Definition::read::<ProviderInstallation>().checked(),
+        Definition::read::<ProviderPlaceReading>().checked(),
         Definition::read::<ProviderAutoCompactBound>().checked(),
         Definition::read::<ProviderOutputStyle>(),
         Definition::read::<ProviderOutputStyleSetting>().checked(),

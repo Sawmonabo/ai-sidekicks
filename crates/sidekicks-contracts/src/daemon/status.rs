@@ -1,6 +1,6 @@
-//! `daemon.status.read`: the service's own facts in one reply, and `daemon.crashList`: the crash
-//! reports this machine keeps. Processor and memory figures are read when called and stamped with
-//! the time taken; nothing samples them on a timer.
+//! `daemon.status.read`: the service's own facts in one reply, the WSL 2 distributions it works in
+//! among them, and `daemon.crashList`: the crash reports this machine keeps. Processor and memory
+//! figures are read when called and stamped with the time taken; nothing samples them on a timer.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -9,6 +9,7 @@ use crate::daemon::recovery::DaemonRecoveryStatus;
 use crate::free_form_string::FilesystemPath;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::place::DistroName;
 use crate::process_identity::ProcessIdentity;
 use crate::release_manifest::ReleaseVersion;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -107,6 +108,44 @@ pub struct DaemonRelayStatus {
     pub pin_refused: bool,
 }
 
+/// Where one WSL 2 distribution stands: running, stopped, or not answering since the time WSL
+/// stopped answering.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(
+    tag = "state",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+#[garde(allow_unvalidated)]
+pub enum DaemonWslDistributionState {
+    /// The distribution runs.
+    Running {},
+    /// The distribution is stopped.
+    Stopped {},
+    /// WSL does not answer for it.
+    NotAnswering {
+        /// When WSL stopped answering.
+        #[garde(dive)]
+        since: WireInstant,
+    },
+}
+
+/// One line of the WSL block: a WSL 2 distribution with a WSL server running or a session in it,
+/// where it stands and how many sessions run in it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct DaemonWslDistribution {
+    /// The distribution.
+    pub distro: DistroName,
+    /// Where it stands.
+    #[garde(dive)]
+    pub state: DaemonWslDistributionState,
+    /// How many sessions run in it.
+    pub session_count: SafeInt<0>,
+}
+
 /// Everything a status reader prints, in one reply.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -151,6 +190,16 @@ pub struct DaemonStatusReadResponse {
     )]
     #[schemars(with = "DaemonRelayStatus")]
     pub relay: Option<DaemonRelayStatus>,
+    /// One line per WSL 2 distribution with a WSL server running or a session in it; absent where
+    /// there is none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BoundedVec<DaemonWslDistribution, 1, { usize::MAX }>")]
+    #[garde(dive)]
+    pub wsl: Option<BoundedVec<DaemonWslDistribution, 1, { usize::MAX }>>,
     /// The file the service keeps its secrets in, readable by this account alone: present only on
     /// Linux where no Secret Service answers, and on a Mac while the secrets are in
     /// `secrets.json`, from the approved logged-out service's takeover until uninstall moves them
@@ -244,6 +293,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonMemoryReading>(),
         Definition::read::<DaemonRelayDevice>(),
         Definition::read::<DaemonRelayStatus>(),
+        Definition::read::<DaemonWslDistributionState>(),
+        Definition::read::<DaemonWslDistribution>(),
         Definition::read::<DaemonStatusReadResponse>().checked(),
         Definition::read::<CrashModuleFileName>(),
         Definition::read::<CrashStackFrame>(),

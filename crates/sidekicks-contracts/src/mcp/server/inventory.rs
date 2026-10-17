@@ -51,8 +51,8 @@ pub struct McpServerLegStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum McpServerFailedReason {
-    /// After the service moved between Windows and a WSL distribution, the command or its
-    /// arguments name a program on the side it left.
+    /// The command or its arguments name a Windows program, which cannot run in the WSL 2
+    /// distribution the session runs in; the session's place names the distribution.
     CommandNotRunnable,
 }
 

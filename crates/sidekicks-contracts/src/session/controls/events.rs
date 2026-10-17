@@ -1,13 +1,16 @@
 //! A session's notices and flow rows: the rows its controls write, the notices about its provider
-//! (its build, its restarts, its warnings, a level an account lacks), Codex's reviewer flag, and
-//! the live frame of Codex's safety hold on a turn.
+//! (its build, its restarts, its warnings, a level an account lacks) and about the WSL 2
+//! distribution it runs in, Codex's reviewer flag, and the live frame of Codex's safety hold on a
+//! turn.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
 use crate::command::ExitCode;
+use crate::error::ERROR_MESSAGE_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
+use crate::place::{DistroName, Place};
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::{DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN};
 use crate::provider::name::{ClaudeProviderWord, CodexProviderWord, ProviderName};
@@ -294,15 +297,45 @@ pub enum SessionNotice {
         #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
         reason: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
     },
-    /// The session's provider is not installed where the background service runs, so no provider
-    /// process started; `place_has_neither_provider` is true where that place has neither.
+    /// The session's provider is not installed where the session runs, so no provider process
+    /// started; `place` names where, present on a Windows computer with a WSL 2 distribution.
     ProviderMissing {
         /// The session.
         session_id: SessionId,
         /// The provider.
         provider: ProviderName,
-        /// Whether the place has neither provider.
-        place_has_neither_provider: bool,
+        /// Where the session runs.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Place")]
+        place: Option<Place>,
+    },
+    /// The WSL 2 distribution the session runs in is no longer on this computer, so the session
+    /// cannot run.
+    DistributionRemoved {
+        /// The session.
+        session_id: SessionId,
+        /// The distribution.
+        distro: DistroName,
+    },
+    /// WSL does not answer, so the session, which runs in a WSL 2 distribution, cannot run until
+    /// Windows restarts.
+    WslNotAnswering {
+        /// The session.
+        session_id: SessionId,
+    },
+    /// The WSL 2 distribution the session runs in stopped and could not start again, with the
+    /// error the last start gave, word for word.
+    DistributionRestartFailed {
+        /// The session.
+        session_id: SessionId,
+        /// The distribution.
+        distro: DistroName,
+        /// The error the last start gave.
+        error: FreeFormText<ERROR_MESSAGE_MAX_LEN>,
     },
 }
 
@@ -332,7 +365,10 @@ impl SessionNotice {
             | Self::ProviderUpdated { .. }
             | Self::ProviderRestarted { .. }
             | Self::FastOutputUnavailable { .. }
-            | Self::ProviderMissing { .. } => Ok(()),
+            | Self::ProviderMissing { .. }
+            | Self::DistributionRemoved { .. }
+            | Self::WslNotAnswering { .. }
+            | Self::DistributionRestartFailed { .. } => Ok(()),
         }
     }
 }
@@ -385,7 +421,8 @@ pub struct ModerationReviewFlaggedPayload {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "session/controls/events",
     doc: "A session's notices and flow rows: the rows its controls write, the notices about its \
-          provider, Codex's reviewer flag, and the live frame of Codex's safety hold on a turn.",
+          provider and about the WSL 2 distribution it runs in, Codex's reviewer flag, and the \
+          live frame of Codex's safety hold on a turn.",
     definitions: &[
         Definition::read::<SessionSideQuestionAnsweredPayload>().checked(),
         Definition::read::<RunStepLimitReachedPayload>().checked(),

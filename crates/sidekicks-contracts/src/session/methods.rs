@@ -15,6 +15,7 @@ use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::jsonrpc::streaming::stream_frame;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::place::Place;
 use crate::provider::account::record::ProviderAccountId;
 use crate::run::id::RunId;
 use crate::run::state::RunState;
@@ -91,6 +92,14 @@ pub struct SessionRecord {
     pub state: SessionState,
     /// Its shape.
     pub shape: SessionShape,
+    /// Where it runs, written at its creation and never changed; absent on macOS and Linux.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
     /// Its name; absent while untitled, when a surface shows its first message.
     #[serde(
         default,

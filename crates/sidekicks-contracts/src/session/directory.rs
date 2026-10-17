@@ -14,6 +14,7 @@ use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::jsonrpc::streaming::{SubscribeAckResponse, SubscriptionId};
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::place::Place;
 use crate::project::ProjectId;
 use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
 use crate::provider::name::ProviderName;
@@ -386,7 +387,8 @@ pub enum SessionCreateRequest {
 }
 
 /// What `session.create` answers. `lead` is the binding the daemon resolved for the lead, the
-/// account among it.
+/// account among it; `place` is where the session runs, its project's place, or for a chat the
+/// place its provider is installed in.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -397,6 +399,14 @@ pub struct SessionCreateResponse {
     pub shape: SessionShape,
     /// Its state.
     pub state: SessionState,
+    /// Where it runs, written at its creation and never changed; absent on macOS and Linux.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
     /// The lead's resolved binding.
     pub lead: AgentProviderBinding,
 }

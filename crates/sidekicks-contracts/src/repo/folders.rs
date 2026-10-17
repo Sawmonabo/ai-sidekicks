@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
+use crate::place::{DistroName, Place};
 use crate::project::{ProjectId, ProjectName};
 use crate::repo::mount::{RepoMountHealth, RepoMountId, RepoMountState, VcsType, WorkspaceId};
 use crate::runtime_node::id::NodeId;
@@ -58,8 +59,8 @@ pub enum RepoMountOrigin {
     },
 }
 
-/// One folder the service can reach, with how many sessions use it. A worktree on the other side's
-/// disk of a Windows computer with WSL is marked `onOtherSideDisk`.
+/// One folder the service can reach, with how many sessions use it and, on a Windows computer,
+/// where it is.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoMountListEntry {
@@ -69,8 +70,14 @@ pub struct RepoMountListEntry {
     pub origin: RepoMountOrigin,
     /// How many sessions use it.
     pub using_session_count: SafeInt<0>,
-    /// Whether it is on the other side's disk.
-    pub on_other_side_disk: bool,
+    /// Where it is; absent on macOS and Linux.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
 }
 
 /// The `repo.mountList` result.
@@ -82,13 +89,22 @@ pub struct RepoMountListResponse {
     pub mounts: Vec<RepoMountListEntry>,
 }
 
-/// `repo.folderList`: the folder to show (the service account's home folder when absent), the text
-/// that narrows its folders, and whether hidden folders are listed.
+/// `repo.folderList`: where to browse (Windows itself when absent, or a WSL 2 distribution), the
+/// folder to show there (that place's home folder when absent), the text that narrows its folders,
+/// and whether hidden folders are listed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct RepoFolderListRequest {
-    /// The folder to show.
+    /// Where to browse; absent on macOS and Linux and for Windows itself.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
+    /// The folder to show, in that place's own form.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -136,13 +152,21 @@ pub struct RepoFolderPathSegment {
     pub path: FilesystemPath,
 }
 
-/// The `repo.folderList` result: the folder in view as the service writes its path, the path's
-/// segments from the top down (the last is the folder in view), its folders, and `more` when the
-/// filter would narrow further.
+/// The `repo.folderList` result: where the folder in view is, the folder as that place writes its
+/// path, the path's segments from the top down (the last is the folder in view), its folders, and
+/// `more` when the filter would narrow further. Every path in it is in that place's own form.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct RepoFolderListResponse {
+    /// Where the folder in view is; absent on macOS and Linux.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
     /// The folder in view.
     pub path: FilesystemPath,
     /// The path's segments, at least the folder in view.
@@ -154,15 +178,28 @@ pub struct RepoFolderListResponse {
 }
 
 /// `repo.attach`: a path on the machine the service runs on, the folder the platform's chooser
-/// returned or, from another device, a folder `repo.folderList` showed. The path is kept as
-/// entered; absoluteness, traversal and existence are the resolver's to refuse, and a path that is
-/// not a git repository is refused.
+/// returned or, from another device, a folder `repo.folderList` showed. A Linux path comes with the
+/// WSL 2 distribution it was given in, since the path alone does not say which one holds it;
+/// without a place, the path's own form says where it is (a drive path on Windows, a
+/// `\\wsl.localhost\<distro>\` path in that distribution). The folder's own disk sets the
+/// mount's place, so a Windows drive reached from a distribution is on Windows. The path is kept as
+/// entered; absoluteness, traversal and existence are the resolver's to refuse, a path that is not
+/// a git repository is refused, and so is a distribution that runs on WSL 1 or is not on this
+/// computer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct RepoAttachRequest {
     /// The path as entered.
     pub local_path: FilesystemPath,
+    /// The distribution a Linux path was given in; absent where the path's own form says.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
 }
 
 /// The `repo.attach` result: the new mount and the root its path resolved to.
@@ -176,8 +213,17 @@ pub struct RepoAttachResponse {
     pub state: RepoMountState,
     /// Its version-control system.
     pub vcs_type: VcsType,
-    /// The resolver's absolute, symlink-resolved root, never the entered path.
+    /// The resolver's absolute, symlink-resolved root, never the entered path, in its place's own
+    /// form.
     pub canonical_root: FilesystemPath,
+    /// Where the root is, fixed for the mount's life; absent on macOS and Linux.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
 }
 
 /// `repo.mountRead`, `repo.detach` and `repo.mountReattach`: the mount to act on.
@@ -316,6 +362,15 @@ pub struct RepoAlreadyAttachedDetails {
     pub conflicting_project_id: Option<ProjectId>,
 }
 
+/// The details of a `repo.distribution_needs_wsl2` or `repo.distribution_not_found` refusal: the
+/// WSL distribution the folder names, exactly as given.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RepoDistributionRefusalDetails {
+    /// The distribution.
+    pub distro: DistroName,
+}
+
 /// The `repo.mountReattach` result: the new mount. The old one turns `detached` and the folder is
 /// attached fresh under the same project record, keeping its sessions and their workspaces.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -377,6 +432,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RepoRootResolutionReason>(),
         Definition::read::<RepoRootResolutionFailedDetails>(),
         Definition::read::<RepoAlreadyAttachedDetails>(),
+        Definition::read::<RepoDistributionRefusalDetails>(),
         Definition::read::<RepoMountReattachResponse>(),
         Definition::read::<RepoReattachRefusedReason>(),
         Definition::read::<RepoReattachRefusedDetails>(),

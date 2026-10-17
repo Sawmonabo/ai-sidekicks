@@ -338,8 +338,12 @@ refusal_codes! {
     /// Detach refused while an agent runs anywhere in the project, naming the running session
     /// (drawn `Busy: <session> is running in it.`).
     RepoDetachConflict = "repo.detach_conflict" (409);
-    /// `repo.attach` refused because the background service cannot reach the folder.
-    RepoFolderUnreachable = "repo.folder_unreachable" (422);
+    /// `repo.attach` or `repo.folderList` refused because the folder's WSL distribution runs on
+    /// WSL 1, naming the distribution (`data.fields`: `distro`).
+    RepoDistributionNeedsWsl2 = "repo.distribution_needs_wsl2" (409);
+    /// `repo.attach` or `repo.folderList` refused because no WSL distribution of the folder's name
+    /// is on this computer, naming the name (`data.fields`: `distro`).
+    RepoDistributionNotFound = "repo.distribution_not_found" (422);
     /// The mount is a chat's managed workspace, which only that chat binds and only its purge
     /// removes: another session's bind, any detach and a `session.setWorkingFolder` of the chat are
     /// refused, writing nothing (`data.fields`: `repoMountId`).
