@@ -18,7 +18,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // riding the nominal `GetCapabilitiesResult` return exactly like `contractVersion`) are bounded
 // at the Plan-003 Phase-2 write seam (semver / non-empty + length + NUL), not here.
 // The contract checks (serde shapes and garde checks) run ONLY on the surfaces that parse UNTRUSTED
-// provider output (the trust boundary): the result envelopes `DriverInterventionResult`,
+// provider output (the trust boundary): the result envelopes `DriverApplyInterventionResponse`,
 // `DriverResumeResult`, `MoveSessionToForkResult`, `DriverGoalResult`, and `DriverAuthProbeResult`,
 // provider-declared `ProviderToolMetadata`, and the driver-normalized `CallbackToolInvocation` /
 // `McpServerStatusEmission` (each built from provider wire output before the daemon-injected
@@ -33,7 +33,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // reader)" — contractVersion is change-detection, not negotiation),
 // while the result envelopes refuse unknown keys (`deny_unknown_fields`);
 // and every untrusted provider-output free-form string (`ProviderToolMetadata.name`/`.description`,
-// `DriverInterventionResult.fallbackAction`, `DriverResumeResult.bindingId`/`.providerFailureDetail`,
+// `DriverApplyInterventionResponse.fallbackAction`, `DriverResumeResult.bindingId`/`.providerFailureDetail`,
 // `MoveSessionToForkResult.fallbackAction`, `DriverGoalResult.fallbackAction`,
 // `DriverAuthProbeResult.detail`, `CallbackToolInvocation.toolName`/`.toolCallId`,
 // `McpServerStatusEmission.serverName`
@@ -48,7 +48,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // are bounded (length + non-whitespace + NUL-rejection) by the `FreeFormText<MAX>` text newtype —
 // rules not expressible in these TS interface shapes.
 // The daemon's provider layer (`crates/sidekicks-daemon/src/provider/`) realizes this enumeration for the
-// driver-internal shapes; `crates/sidekicks-contracts/src/provider/driver/intervention.rs` (`DriverInterventionResult`),
+// driver-internal shapes; `crates/sidekicks-contracts/src/provider/driver/intervention.rs` (`DriverApplyInterventionResponse`),
 // `commands.rs` (`ProviderCommandEntry`) and `output_speed.rs` (`ProviderOutputSpeedState`) in the same folder
 // realize it for the ones that reach a client, and `crates/sidekicks-contracts/src/free_form_text.rs` holds the
 // `FreeFormText<MAX>` newtype they use.
@@ -56,8 +56,8 @@ interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
   startRun(params: StartRunParams): Promise<void>;
-  interruptRun(params: InterruptRunParams): Promise<void>;
-  applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult>;
+  interruptRun(params: DriverInterruptRunRequest): Promise<void>;
+  applyIntervention(params: ApplyInterventionParams): Promise<DriverApplyInterventionResponse>;
   // Move the session itself onto a NEW provider conversation forked from the bound one at a
   // message. Never a rollback (see `MoveSessionToForkParams`).
   moveSessionToFork(params: MoveSessionToForkParams): Promise<MoveSessionToForkResult>;
@@ -66,7 +66,7 @@ interface ProviderDriver {
   rewindConversation(params: RewindConversationParams): Promise<RewindConversationResult>;
   respondToRequest(params: RespondToRequestParams): Promise<void>;
   // `Allow once` on a block by the provider's own reviewer at the `reviewed` level: the driver half of
-  // `approval.denialOverride`. Claude Code's driver sends the sentence Claude Code's own Recently
+  // `approval.denial.override`. Claude Code's driver sends the sentence Claude Code's own Recently
   // denied list sends; Codex's driver calls `thread/approveGuardianDeniedAction` with the review Codex
   // sent, and Codex's reviewer still reviews the retry. It reaches a running turn at once and starts a
   // turn when none is running. It retries nothing itself: the agent decides whether to try again.
@@ -92,19 +92,19 @@ interface ProviderDriver {
   // Ask the provider to compact the bound session's OWN context, on a user's explicit
   // request and never on a threshold, timer, or heuristic (Spec-004 §User-
   // triggered context compaction). Gated on `context_compaction`. It SETTLES on the provider's
-  // typed compaction evidence — the frame that already produces usage.context_compacted — and
+  // typed compaction evidence — the frame that already produces agent.run.context.compacted — and
   // NEVER on the request being accepted: the Codex method answers an empty ack and the Claude leg
   // is a driver_command frame that only settles, so acceptance is evidence of delivery and of
   // nothing else. There is deliberately NO prompt-injected emulation arm; a driver that cannot
-  // compact declares the flag false and the call refuses as driver.capability_unsupported.
+  // compact declares the flag false and the call refuses as provider.capability.unsupported.
   // The driver keeps no wait limit of its own: the call settles on the provider's own frame, or
-  // `failed` with `not_compacted` when the provider ends the compaction's own turn without the
-  // frame, `binding_lost` when the run's runtime binding stops being live (a provider that exits
-  // mid-compaction) or `provider_error`; never `applied` without the frame. A compaction
-  // frame the call did not ask for normalizes into usage.context_compacted exactly as an
+  // `failed` with `notCompacted` when the provider ends the compaction's own turn without the
+  // frame, `bindingLost` when the run's runtime binding stops being live (a provider that exits
+  // mid-compaction) or `providerError`; never `applied` without the frame. A compaction
+  // frame the call did not ask for normalizes into agent.run.context.compacted exactly as an
   // unsolicited provider-initiated compaction does, so no boundary escapes Spec-003's rewind
   // classifier.
-  compactContext(params: CompactContextParams): Promise<DriverCompactionResult>;
+  compactContext(params: CompactContextParams): Promise<AgentRunContextCompactResponse>;
   // Read the provider's own enumeration of native slash-commands and skills for the bound
   // session (Spec-004 §The provider command and skill surface). Gated on
   // `provider_commands`. A LIVE read held as driver-session state and discarded with it: not
@@ -113,7 +113,7 @@ interface ProviderDriver {
   // providerAccountId) it was read under, and that binding is a ROUTING INVARIANT: an entry is
   // offerable only to agents of that same binding, and the one entry V1 dispatches is dispatchable
   // only through them.
-  listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult>;
+  listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResponse>;
   // The output-speed state the provider last declared for the session's live binding, verbatim
   // (Spec-004 §The output-speed axis), for a driver declaring `output_speed`. A synchronous read
   // of state the driver already holds; `undefined` with no live binding or no declaration yet,
@@ -127,7 +127,7 @@ interface ProviderDriver {
 // Codex: the settings-changed notice the run's `turn/start` produced, or the turn's first item
 // where the turn left the tier alone; either: the turn's end where neither arrived). Nothing is
 // reported for a run whose turn was never written or a binding that never declared a state. The
-// run engine compares it with the level the run carried (Plan-002's `fast_output_unavailable`).
+// run engine compares it with the level the run carried (Plan-002's `fastOutputUnavailable`).
 type RunOutputSpeedSettledListener = (
   sessionId: SessionId,
   runId: RunId,
@@ -136,10 +136,10 @@ type RunOutputSpeedSettledListener = (
 
 // Console-parity shapes (Spec-004 §Desktop Console Parity Surfaces).
 //
-// AUTHORIZATION (both client-facing operations, `driver.compactContext` and
-// `session.providerCommandsSubscribe`, at the wire boundary — before the capability gate and before
+// AUTHORIZATION (both client-facing operations, `agent.run.context.compact` and
+// `session.providerCommand.subscribe`, at the wire boundary — before the capability gate and before
 // any driver dispatch). Neither mints a Cedar action and neither mints an error code.
-//   * A session that does not exist is refused the already-registered `session.not_found`.
+//   * A session that does not exist is refused the already-registered `session.notFound`.
 //   * Any connection that reaches the session may call either one; nothing checks who the caller
 //     is (api-payload-contracts.md §Authenticated Principal And Authorization Model, run control).
 //
@@ -150,19 +150,19 @@ type RunOutputSpeedSettledListener = (
 // daemon-internal lifecycle identifier whose liveness it cannot check.
 //
 // Each takes the identifier its own authorization and its own consumer already use:
-//   * `driver.compactContext` takes a RUN. It mutates that run's provider context, so the run is
+//   * `agent.run.context.compact` takes a RUN. It mutates that run's provider context, so the run is
 //     what it acts on.
-//   * `session.providerCommandsSubscribe` takes a SESSION. The `/` list is bound to the session's
+//   * `session.providerCommand.subscribe` takes a SESSION. The `/` list is bound to the session's
 //     live provider process, so the daemon follows that process and a new process brings a new
 //     list; the client never names an agent, a run or a binding to get it. Every entry still carries
 //     the `(driverName, providerAccountId)` it was read under
 //     ([Spec-004 §The provider command and skill surface](../../specs/004-provider-driver-contract-and-capabilities.md#the-provider-command-and-skill-surface)).
 //
-// `driver.compactContext` refuses in a FIXED ORDER, each on an ALREADY-REGISTERED code, so this
-// addressing mints none: `session.not_found` (unknown session), then `run.not_found` (no such run, or not one of that session), then
-// `driver.unavailable` (no live runtime binding: one was never started, or the process is gone).
+// `agent.run.context.compact` refuses in a FIXED ORDER, each on an ALREADY-REGISTERED code, so this
+// addressing mints none: `session.notFound` (unknown session), then `agent.run.notFound` (no such run, or not one of that session), then
+// `provider.unavailable` (no live runtime binding: one was never started, or the process is gone).
 // A live binding whose driver lacks the flag still refuses at the capability gate with
-// `driver.capability_unsupported`. A caller therefore cannot name another leg's binding
+// `provider.capability.unsupported`. A caller therefore cannot name another leg's binding
 // at all: the class of request the driver-side dispatch check exists to reject is unrepresentable
 // on the wire, and that check remains as the daemon-interior backstop rather than as the only one.
 interface CompactContextRequest {
@@ -192,20 +192,20 @@ interface CompactContextParams {
 // synthesized. `refused` means NOTHING WAS SENT;
 // `failed` means something was sent and no boundary was witnessed. There is deliberately no
 // `capability_undeclared` reason: an undeclared flag refuses at the static capability gate with
-// `driver.capability_unsupported` BEFORE the driver is called ([Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)),
+// `provider.capability.unsupported` BEFORE the driver is called ([Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)),
 // so an arm for it would be a second, contradictory encoding of one refusal.
-type DriverCompactionResult =
+type AgentRunContextCompactResponse =
   | { status: "applied"; boundaryPosition: number | null }
-  // `command_absent`: the pre-dispatch presence check on the emulated leg did not find the command
+  // `commandAbsent`: the pre-dispatch presence check on the emulated leg did not find the command
   // in the provider's own enumeration for this binding. A person's compaction is accepted from any
   // connection the transport admits, so no arm refuses a caller.
-  | { status: "refused"; reason: "command_absent" }
-  // `binding_lost`: the run's runtime binding stopped being live (process exit or disposal) before
-  // the provider's compaction frame arrived. `provider_error`: the mechanism itself errored.
-  // `not_compacted`: the provider ended the compaction's own turn with no compaction frame, as
+  | { status: "refused"; reason: "commandAbsent" }
+  // `bindingLost`: the run's runtime binding stopped being live (process exit or disposal) before
+  // the provider's compaction frame arrived. `providerError`: the mechanism itself errored.
+  // `notCompacted`: the provider ended the compaction's own turn with no compaction frame, as
   // Claude Code does with `Not enough messages to compact.` and Codex with a compaction that failed.
   // Every arm records a diagnostic; none is silent, and none can settle `applied`.
-  | { status: "failed"; reason: "binding_lost" | "provider_error" | "not_compacted" };
+  | { status: "failed"; reason: "bindingLost" | "providerError" | "notCompacted" };
 
 interface ListProviderCommandsParams {
   sessionId: SessionId;
@@ -277,12 +277,12 @@ interface ProviderCommandEntry {
 // One binding's enumeration, WHOLE: the driver's read and every emission of the session's
 // subscription carry the complete list, never a patch, so a consumer is never handed a delta to
 // apply and a new provider process yields a new list rather than an amended one.
-interface ProviderCommandListResult {
+interface ProviderCommandListResponse {
   binding: ProviderCommandBinding;
   entries: ProviderCommandEntry[];
 }
 
-// One emission of `session.providerCommandsSubscribe` (running-command-payloads.md §Running-Command Method Registry): the
+// One emission of `session.providerCommand.subscribe` (running-command-payloads.md §Running-Command Method Registry): the
 // list of the session's live provider process, whole — on the first frame, on each change the
 // provider pushes (Claude Code's `commands_changed`, Codex's `skills/changed`), and again for each
 // new process — with each working tool server's prompts. It names no binding: the daemon follows
@@ -325,14 +325,14 @@ interface CreateSessionParams {
   // `undefined` runs the model's default window (Spec-004 §Required Behavior). Required as a key so
   // no constructor can drop it. Codex sends it as the conversation's `model_context_window`, after
   // checking that the catalog still offers that figure for the model: a create whose figure the
-  // catalog no longer offers is refused `agent.provider_axis_invalid` on its `largerWindow` axis, since the picker row it
+  // catalog no longer offers is refused `agent.providerAxisInvalid` on its `largerWindow` axis, since the picker row it
   // came from was read before the catalog changed. Claude Code's model id carries the window
   // (`[1m]`), so its driver refuses a defined figure.
   largerWindow: number | undefined;
   executionPosture?: ExecutionPosture; // spawn-time posture — provider legs that bind posture at process spawn (Claude `--settings` sandbox) realize it here; the per-run effective posture rides StartRunParams (Spec-004 §Required Behavior)
   // The agent's ACCEPTED accelerated-output mode (Spec-004 §The output-speed axis). Gated on the
   // `output_speed` flag, which Claude Code and Codex both declare. The person's request was validated where it
-  // was made (`agent.configUpdate`, refusing an unlisted level with `agent.provider_axis_invalid`);
+  // was made (`agent.config.update`, refusing an unlisted level with `agent.providerAxisInvalid`);
   // the driver refuses no carried level. It resolves it against the session model's
   // `ProviderModel.outputSpeedLevels` where its provider publishes one (Codex), else the driver's
   // declared `outputSpeedLevels` (Claude Code), and a level the model does not list runs at
@@ -344,7 +344,7 @@ interface CreateSessionParams {
   // Requesting it is NOT the same as getting it — what the provider actually declared is observed
   // later as binding-held `ProviderOutputSpeedState`.
   outputSpeed?: string;
-  callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session, served on the daemon's shared `sidekicks` MCP tool server through one entry per session (Claude Code an in-process server named in `initialize`'s `sdkMcpServers`, Codex a `url` entry in the conversation's `mcp_servers` at `thread/start`), never Codex `dynamicTools`; gated on the callback_tools flag
+  callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session, served on the daemon's shared `sidekicks` MCP tool server through one entry per session (Claude Code an in-process server named in `initialize`'s `sdkMcpServers`, Codex a `url` entry in the conversation's `mcp_servers` at `thread/start`), never Codex `dynamicTools`; gated on the callbackTools flag
   subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-014 semantics); gated on the subagents flag
   outputSchema?: Record<string, unknown>; // normalized JSON Schema constraining schema-constrained final output (Spec-004 §Per-Driver Capability Matrix structured_output); gated on the structured_output flag. The Claude leg binds it per session at spawn (--json-schema); the Codex leg realizes it per turn via StartRunParams.outputSchema (turn/start.outputSchema). Named consumers: Plan-013 orchestration reads
   // Provider-account identity at spawn (Plan-003 T3.45). OPAQUE TO THE DRIVER — never parsed, never used to locate credential material: the
@@ -369,7 +369,7 @@ interface CreateSessionParams {
   // the daemon's own per-turn count on the Codex leg, that provider publishing no cap. Spawn-bound
   // like posture and speed, so `ResumeSessionParams` re-realizes it below. Reaching the bound ends
   // the turn as `agent.turn.interrupted` with cause `stepLimit`, its partial result kept, and the
-  // run rests `interrupted` with trigger `step_limit` until a send, or `Continue`, carries it on
+  // run rests `interrupted` with trigger `stepLimit` until a send, or `Continue`, carries it on
   // under the same run id. It is not a budget.
   maxStepsPerTurn?: number;
   onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // daemon-injected callback-tool dispatcher; the driver invokes it on a provider callback-tool request and answers the provider with the result. Gated on the callback_tools flag; the daemon-side host routes through Plan-009's Cedar pipeline (CP-003-5 / Plan-009 T2.8). See CallbackToolInvocation in provider-driver-capability-payloads.md
@@ -433,13 +433,13 @@ interface StartRunParams {
   runId: RunId;
   agentConfig: Record<string, unknown>;
   conversationHistory?: unknown[];
-  executionPosture?: ExecutionPosture; // per-run effective posture — the same object the daemon stamps on run.running (Spec-005 §Run Lifecycle). Codex realizes per-turn (turn/start sandbox params); a provider that binds posture at spawn realizes it at session boundaries, and a mid-session posture change on such a leg resolves via session relaunch, never silent partial application (Spec-004 §Required Behavior)
+  executionPosture?: ExecutionPosture; // per-run effective posture — the same object the daemon stamps on agent.run.running (Spec-005 §Run Lifecycle). Codex realizes per-turn (turn/start sandbox params); a provider that binds posture at spawn realizes it at session boundaries, and a mid-session posture change on such a leg resolves via session relaunch, never silent partial application (Spec-004 §Required Behavior)
   outputSchema?: Record<string, unknown>; // per-turn schema-constrained final output (Codex turn/start.outputSchema); the Claude leg binds it at spawn via CreateSessionParams.outputSchema (--json-schema). Gated on structured_output (Spec-004 §Per-Driver Capability Matrix)
   outputSpeed?: string; // the agent's accepted output-speed level, carried on each run; Codex sends it as the turn's serviceTier, Claude Code applies it before the turn only when it differs from the level the process holds
   outputSpeedForTurn?: string; // a level for this run's turn alone, such as standard for `Use standard` after a flex-capacity failure; Codex sends it as turn/start.serviceTierForTurn ("default" for standard), and the next run carries the agent's own level again
 }
 
-interface InterruptRunParams {
+interface DriverInterruptRunRequest {
   runId: RunId;
   reason?: string;
 }
@@ -451,7 +451,7 @@ interface InterruptRunParams {
 // Behavior): the daemon dedupes on it (return-or-conflict), and it rides
 // through to the driver so provider-remote invocations that honor dedupe keys receive
 // it (the `compensable` propagation pattern, Spec-004 §Tool Metadata). Same field set
-// as the interrupt arm of the InterventionRequestPayload union in run-control-payloads.md; its `faster_model_retry`
+// as the interrupt arm of the InterventionRequestPayload union in run-control-payloads.md; its `fasterModelRetry`
 // arm never reaches the driver, because the daemon carries it out. The `steer` arm here is the queue's
 // delivery of a waiting message through the driver's own steer (Plan-002 T3.8); no client sends one. Undo is not
 // an intervention: it is `session.restore`, whose conversation leg reaches the driver through
@@ -473,7 +473,7 @@ type ApplyInterventionParams =
     };
 
 // The ATTACHMENT-CARRIER contract, stated once here and cited from `QueueItemCreateRequest.attachments`
-// (`run.queueCreate`) in run-control-payloads.md §Plan-002. The element type is ArtifactId — an id into Spec-012's manifest space, never an
+// (`agent.queueItem.create`) in run-control-payloads.md §Plan-002. The element type is ArtifactId — an id into Spec-012's manifest space, never an
 // untyped element and never an inline byte payload; caller bytes enter through the
 // boundary-validated ingest paths instead. [Spec-012 §Required Behavior](../../specs/012-artifacts-files-and-attachments.md#required-behavior) states that encoding
 //: an RFC 9562 UUID the daemon mints at manifest creation, carried distinctly from the
@@ -511,7 +511,7 @@ interface InterruptPayload {
   reason?: string;
 }
 
-interface DriverInterventionResult {
+interface DriverApplyInterventionResponse {
   status: "applied" | "degraded"; // the complete driver-level vocabulary — `rejected` / `expired` are orchestration-layer verdicts rendered around driver dispatch, never driver-returned (Spec-004 §Required Behavior; normative mapping in queue-and-intervention-model.md §Driver Result To Lifecycle Mapping)
   fallbackAction?: string; // names the fallback the orchestration layer took, present only on `degraded`
   deliveredRunId?: RunId; // a delivered message's run when that is not its target: settling a choice the target was held on ended it, so the message started the session's next turn as a run of its own
@@ -540,7 +540,7 @@ type MoveSessionToForkResult =
 // conversation. It targets a message identity, never a numeric or provider position; any position
 // the provider needs stays inside the driver. Files are never the driver's: they are the daemon's
 // per-session file checkpoint store ([Spec-013 §Required Behavior](../../specs/013-persistence-and-recovery.md#required-behavior)).
-// `run.rolled_back` records the cut. Its parameter and result shapes and each provider's mechanism
+// `agent.run.rolledBack` records the cut. Its parameter and result shapes and each provider's mechanism
 // are daemon-internal ([Spec-004 §Interfaces And Contracts](../../specs/004-provider-driver-contract-and-capabilities.md#interfaces-and-contracts)).
 
 // Goal delivery. A goal is a command sent to one agent, never what the session is: `goalText` is the
@@ -550,9 +550,9 @@ type MoveSessionToForkResult =
 // `/goal <condition>` and `/goal clear`, sent as user messages. Neither leg writes goal text into
 // a system prompt. The provider checks the goal each time the agent would stop, and the daemon
 // folds what each provider reports into
-// `session.goal_updated`, whose status is one of `active`, `paused`, `blocked`, `usage-limited`,
+// `session.goal.updated`, whose status is one of `active`, `paused`, `blocked`, `usage-limited`,
 // `budget-limited`, `complete` or `impossible` (`complete` and `impossible` are final; only Claude
-// Code sends `impossible`, with its reason); clearing is `session.goal_cleared`, never a status
+// Code sends `impossible`, with its reason); clearing is `session.goal.cleared`, never a status
 // (Spec-005; [Spec-014 §Session Goals](../../specs/014-multi-agent-orchestration.md#session-goals)).
 // Durable truth is those events; driver-held state is never the recovery source.
 interface SetSessionGoalParams {
@@ -622,7 +622,7 @@ type DriverResumeResult =
 // re-authenticating the provider CLI on the machine, after which recovery may retry
 // (Spec-004 §Fallback Behavior). A resume that cannot load fails the run with its recovery failure
 // detail; one whose provider record holds more than the daemon's, beyond reads, halts the run in
-// `waiting_for_input` with `recovery-needed` for the person's choice (Spec-013 §Fallback Behavior).
+// `waitingForInput` with `recovery-needed` for the person's choice (Spec-013 §Fallback Behavior).
 // No transcript is replayed into a fresh provider session (Spec-004 §Required Behavior).
 type RecoveryCondition = "recovery-needed" | "reauth-required";
 
@@ -634,7 +634,7 @@ type RecoveryCondition = "recovery-needed" | "reauth-required";
 // unrecognized shape emits NOTHING, an absence that reads "not known to be limited", never "known
 // not to be limited". The signal is a wire shape, so its Rust type lives in `crates/sidekicks-contracts`
 // (`provider/driver/usage_limit.rs`, which Plan-003 T3.44 EXTEND creates; the generated TypeScript keeps
-// `packages/contracts/src/provider/driver/usage-limit.ts`), beside `RecoveryCondition`'s: it rides `run.failed`'s
+// `packages/contracts/src/provider/driver/usage-limit.ts`), beside `RecoveryCondition`'s: it rides `agent.run.failed`'s
 // `failureCause` (Spec-005 §Run Lifecycle), where a reload redraws the limit row from the stored
 // record, and the workflow park reads the same shape. No member is provider-verbatim — `cause` is a
 // closed literal the driver selects and `resetsAt` a timestamp it composes — so the schema checks
@@ -687,9 +687,9 @@ interface CloseSessionParams {
 **Two Codex signals that draw no flow row.** The Codex driver maps a safety check that holds a turn, and Codex's warnings and deprecations, onto the two shapes below; neither is a row in the flow, and a Claude Code session carries neither, because Claude Code sends neither signal. The names and their categories are [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
 
 ```ts
-// run.safety_buffering_updated — Codex's `model/safetyBuffering/updated`, its `showBufferingUi`
+// agent.run.safetyBuffering.updated — Codex's `model/safetyBuffering/updated`, its `showBufferingUi`
 // carried as `active` (Spec-005 §Run Lifecycle). A LIVE event on the run's own state stream,
-// `run.subscribeState`, outside the session-event union: the daemon never appends it, so it has no
+// `agent.run.subscribe`, outside the session-event union: the daemon never appends it, so it has no
 // sequence, is not kept in the session's history and is not resent; a re-opened session does not show it. While `active` is true the
 // working line's action words read Codex's own sentence in place of the verb, and when Codex
 // clears the flag or the reply starts, the verb returns.
@@ -701,76 +701,76 @@ interface RunSafetyBufferingUpdatedPayload {
   fasterModel?: string; // the faster model Codex names, carried as sent
 }
 
-// session.notice of kind `provider_warning` (Spec-005 §Session Lifecycle): Codex's `warning`, whose
+// session.notice.posted of kind `providerWarning` (Spec-005 §Session Lifecycle): Codex's `warning`, whose
 // `message` becomes `text`, or its `deprecationNotice`, whose `summary` becomes `text` and whose
 // `details` are kept beside it. Recorded so the working line's warnings count and its list survive
 // a reload; it draws no flow row. `configWarning` and `guardianWarning` are not this kind, nor is
 // the `warning` right after `model/rerouted` in the same turn, which is that switch's `sentence`.
 interface SessionNoticeProviderWarning {
   sessionId: SessionId;
-  kind: "provider_warning";
+  kind: "providerWarning";
   source: "warning" | "deprecation";
   text: string; // Codex's own words
   details?: string; // a deprecation's details; absent on a warning
 }
 
-// session.notice of kind `level_unavailable`: an account switch moved the session onto an account
+// session.notice.posted of kind `levelUnavailable`: an account switch moved the session onto an account
 // that cannot run the level it was at, so it runs at `Ask`. One flow row,
 // `Reviewed isn't available on this Claude Code account`, naming the level it left.
 interface SessionNoticeLevelUnavailable {
   sessionId: SessionId;
-  kind: "level_unavailable";
+  kind: "levelUnavailable";
   level: PermissionLevel; // the level it left
 }
 
-// session.notice of kind `provider_updated`: the session moved to the provider's new build, its
+// session.notice.posted of kind `providerUpdated`: the session moved to the provider's new build, its
 // process or service replaced and its conversation resumed when its running reply ended, or at once
 // while it was idle. It draws the faint line `<Provider> updated · <old version> → <new version> · What's new`
 // above the composer until the next message is sent, and no flow row.
 interface SessionNoticeProviderUpdated {
   sessionId: SessionId;
-  kind: "provider_updated";
+  kind: "providerUpdated";
   provider: ProviderId;
   fromVersion: string; // as the provider reports it
   toVersion: string;
 }
 
-// session.notice of kind `settings_ignored`: the provider started without part of its own settings,
+// session.notice.posted of kind `settingsIgnored`: the provider started without part of its own settings,
 // read from the provider's own report and quoted, never composed (Spec-005 §Session Lifecycle). It
 // splits by the shape of that report, never by provider: a report naming a file and a line, both
 // always (Codex's `Invalid configuration; using defaults`), or one naming a file and a key, each
 // only where known (the `Invalid settings` block `claude doctor` prints, which names no line).
 type SessionNoticeSettingsIgnored = {
   sessionId: SessionId;
-  kind: "settings_ignored";
+  kind: "settingsIgnored";
   provider: ProviderId;
 } & ({ file: string; line: number; key?: never } | { file?: string; key?: string; line?: never });
 
 // A provider process that ends on its own is restarted silently: the daemon restarts it at once,
 // then after 1 s, 2 s, 4 s and so on, with no notice and no flow row, the working line reading
 // `Reconnecting…` meanwhile. A crash during a turn ends that turn as the run's failed row
-// (`run.failed`'s `processExit`); a crash while idle shows nothing.
+// (`agent.run.failed`'s `processExit`); a crash while idle shows nothing.
 
-// session.notice of kind `provider_crash_loop`: the provider process crashed for the fifth time
+// session.notice.posted of kind `providerCrashLoop`: the provider process crashed for the fifth time
 // within three minutes and the daemon stopped restarting it. It draws the banner
 // `Claude Code ended unexpectedly · exit code 137 · Restart ×` and no flow row. It carries exactly
-// one of the exit code and the signal the daemon observed, as `run.failed`'s `processExit` does.
+// one of the exit code and the signal the daemon observed, as `agent.run.failed`'s `processExit` does.
 type SessionNoticeProviderCrashLoop = {
   sessionId: SessionId;
-  kind: "provider_crash_loop";
+  kind: "providerCrashLoop";
   provider: ProviderId;
 } & ({ exitCode: number; signal?: never } | { signal: string; exitCode?: never });
 
-// session.notice of kind `provider_restarted`: the person's `Restart` brought back a provider the
+// session.notice.posted of kind `providerRestarted`: the person's `Restart` brought back a provider the
 // crash loop stopped. Written on every session that showed the banner, it ends the banner on every
 // device and after a reload and draws no flow row; the daemon's own silent restarts write none.
 type SessionNoticeProviderRestarted = {
   sessionId: SessionId;
-  kind: "provider_restarted";
+  kind: "providerRestarted";
   provider: ProviderId;
 };
 
-// session.notice of kind `provider_missing`: the session's provider is not installed where the
+// session.notice.posted of kind `providerMissing`: the session's provider is not installed where the
 // session runs, so no provider process started (Spec-001 §Fallback Behavior). One flow row naming
 // the provider, opening Settings › Providers on its section. `place` is present on a Windows
 // computer with a WSL 2 distribution and names where the session runs; the row then reads
@@ -782,46 +782,46 @@ type SessionNoticeProviderRestarted = {
 // and its stored transcript still reads.
 interface SessionNoticeProviderMissing {
   sessionId: SessionId;
-  kind: "provider_missing";
+  kind: "providerMissing";
   provider: ProviderId;
   place?: Place;
 }
 
-// session.notice of kind `distribution_removed`: the WSL 2 distribution the session runs in is no
+// session.notice.posted of kind `distributionRemoved`: the WSL 2 distribution the session runs in is no
 // longer on this computer (`wsl --unregister`, a reset, or WSL uninstalled). One flow row,
 // `Ubuntu is no longer on this computer, so this session cannot run.`; the store and the
 // transcript are untouched.
 interface SessionNoticeDistributionRemoved {
   sessionId: SessionId;
-  kind: "distribution_removed";
+  kind: "distributionRemoved";
   distro: string; // as `wsl -l` prints it
 }
 
-// session.notice of kind `wsl_not_answering`: two `wsl.exe` runs missed their deadlines with no
+// session.notice.posted of kind `wslNotAnswering`: two `wsl.exe` runs missed their deadlines with no
 // success between them, so the daemon starts no more until the next wake or the hour. One flow row
 // on every session in any distribution, `WSL is not answering. Restarting Windows brings it back.`;
 // Windows sessions get none.
 interface SessionNoticeWslNotAnswering {
   sessionId: SessionId;
-  kind: "wsl_not_answering";
+  kind: "wslNotAnswering";
 }
 
-// session.notice of kind `distribution_restart_failed`: the WSL server for the session's
+// session.notice.posted of kind `distributionRestartFailed`: the WSL server for the session's
 // distribution failed its fifth restart. One flow row,
 // `Ubuntu stopped and could not start again. Restarting Windows usually brings it back.`, with
 // `error` under it word for word where the last start gave one.
 interface SessionNoticeDistributionRestartFailed {
   sessionId: SessionId;
-  kind: "distribution_restart_failed";
+  kind: "distributionRestartFailed";
   distro: string; // as `wsl -l` prints it
   error?: string; // what the last start gave, word for word; absent where it printed nothing before its deadline
 }
 
-// session.notice of kind `fast_output_unavailable`: the provider says fast output is not on for a
+// session.notice.posted of kind `fastOutputUnavailable`: the provider says fast output is not on for a
 // turn that asked for it. One flow row, its words held by Spec-021 §Session Composer.
 interface SessionNoticeFastOutputUnavailable {
   sessionId: SessionId;
-  kind: "fast_output_unavailable";
+  kind: "fastOutputUnavailable";
   runId: RunId; // the run whose turn asked for fast output
   reason?: string; // the provider's own words, absent when it sent none
 }

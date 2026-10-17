@@ -15,9 +15,9 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 //     No manifest row is ever updated, so a manifest carries no state. ---
 
 // artifactType discriminator (Spec-012 §Interfaces And Contracts) — the five Spec-012 §Required Behavior families (file, diff, summary,
-// log, design) plus workflow_output, the Spec-015 §Output Mode Specification workflow phase-output type. Spec-012 §Required Behavior
+// log, design) plus workflowOutput, the Spec-015 §Output Mode Specification workflow phase-output type. Spec-012 §Required Behavior
 // admits "at least" those families, so workflow_output adds to them (D-011-3).
-type ArtifactType = "file" | "diff" | "summary" | "log" | "design" | "workflow_output";
+type ArtifactType = "file" | "diff" | "summary" | "log" | "design" | "workflowOutput";
 
 interface ArtifactManifest {
   id: ArtifactId;
@@ -109,7 +109,7 @@ type ArtifactListEntry =
       manifest: ArtifactManifest;
       planId: PlanId;
       title: string; // the plan's first heading
-      state: PlanState; // waiting | accepted | handed_off | open
+      state: PlanState; // waiting | accepted | handedOff | open
     }
   | {
       kind: "file";
@@ -138,11 +138,11 @@ interface ArtifactListResponse {
 // spool. An abandoned stream's spool is reaped by a daemon-local mtime-clocked reaper 48 h after
 // its last write. The stream is a PROTOCOL, not a loose call
 // sequence (Spec-012 stream protocol): Init, like a boundary-crossing publish before its payload is
-// stored, is refused artifact.ingest_capacity_exhausted (429 — transient, retry later, no stream
+// stored, is refused artifact.ingest.capacityExhausted (429 — transient, retry later, no stream
 // state created) at max_active_ingest_streams open uploads, streams and publishes counted together,
 // or when the spool's volume, its free space read at admission, has no room for the declaration
 // beside the open uploads' reservations; sequencing is retry-idempotent with violations terminal
-// (artifact.ingest_stream_invalid, 409 — restart from Init); and a stream's tenure is wall-clock-
+// (artifact.ingest.streamInvalid, 409 — restart from Init); and a stream's tenure is wall-clock-
 // bounded by max_ingest_stream_lifetime from Init, because the mtime reaper cannot see a hostile
 // trickle that keeps its spool young. `mediaType` and `declaredSizeBytes` are ADVISORY
 // INPUT, never trusted facts: the daemon derives both from the spooled bytes at Complete and
@@ -154,14 +154,14 @@ interface ArtifactListResponse {
 // declared; any other bytes naming no type are recorded `application/octet-stream`. A smaller actual SIZE resolves to the derived
 // value in the response — but the declaration is also the stream's
 // spool RESERVATION and per-stream ceiling: the running count exceeding it
-// refuses artifact.too_large (413) and deletes the spool, because admission against the disk's room
+// refuses artifact.tooLarge (413) and deletes the spool, because admission against the disk's room
 // counts declared bytes and an unenforced declaration would make it gameable. The derived
 // values are what reach the manifest, the CAS key, and every downstream consumer.
 // EVERY call of the trio is retry-safe against a lost response, and only Init's `clientIdempotencyKey`
 // carries idempotency state: a retried Init answers the first `ingestId`, a retried Chunk is acknowledged
 // without re-appending, and a retried Complete returns the saved result, its original response
 // verbatim, from a completion record the daemon holds on the stream's own registry entry. A Complete
-// refused artifact.type_check_unavailable, its type check cut off because the service was stopping,
+// refused artifact.typeCheckUnavailable, its type check cut off because the service was stopping,
 // leaves the stream open with its spool, so the same Complete is sent again. Calls on one ingestId are
 // additionally SINGLE-FLIGHT — sequence validation, spool append, running-count and digest advance,
 // and acknowledgment run as one critical section per stream — so an original racing its own retry
@@ -177,23 +177,23 @@ interface AttachmentIngestInitRequest {
   runId?: RunId;
   fileName: string; // caller-supplied; length/character-bounded before it is recorded, and NEVER a storage path component — CAS addressing keys the payload by its SHA-256 (Spec-012 §Implementation Notes)
   mediaType?: string; // ADVISORY and OPTIONAL — absent is a first-class state; the type read from the bytes is what the manifest records, a declared text type kept only for UTF-8 bytes that name no type, and no declaration refuses anything (Spec-012 pipeline step 1)
-  declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation: reserved against the spool volume's free space, read at admission (a declaration the free disk cannot hold even with no other stream open is refused artifact.too_large (413) up front, naming the file and the room the disk has, since waiting can never admit it), and enforced as the stream's per-stream spool ceiling — the running count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
+  declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation: reserved against the spool volume's free space, read at admission (a declaration the free disk cannot hold even with no other stream open is refused artifact.tooLarge (413) up front, naming the file and the room the disk has, since waiting can never admit it), and enforced as the stream's per-stream spool ceiling — the running count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
   clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first Init's `ingestId`, never a second stream
 }
 interface AttachmentIngestInitResponse {
-  ingestId: string; // opaque single-use stream handle, session-bound and wall-clock-bounded by max_ingest_stream_lifetime from Init; scopes every subsequent Chunk/Complete call — each refused artifact.ingest_stream_invalid (409) once the stream is terminated, expired, or unknown, and every Chunk once it is completed. ONE carved exception: a retried Complete on a completed stream whose completion record still lives returns the saved result, the original response verbatim — see AttachmentIngestCompleteRequest
+  ingestId: string; // opaque single-use stream handle, session-bound and wall-clock-bounded by max_ingest_stream_lifetime from Init; scopes every subsequent Chunk/Complete call — each refused artifact.ingest.streamInvalid (409) once the stream is terminated, expired, or unknown, and every Chunk once it is completed. ONE carved exception: a retried Complete on a completed stream whose completion record still lives returns the saved result, the original response verbatim — see AttachmentIngestCompleteRequest
 }
 interface AttachmentIngestChunkRequest {
   ingestId: string;
-  sequenceNumber: number; // 0-based, strictly consecutive. The daemon retains the last acknowledged sequence + the last appended chunk's SHA-256: an exact retry — same sequence, same bytes, the ordinary retry after a lost Chunk response — is acknowledged idempotently WITHOUT re-appending, so client retries are always safe; a same-sequence chunk with different bytes, a gap, or a regression terminates the stream (spool deleted) and refuses artifact.ingest_stream_invalid (409) — restart from Init
+  sequenceNumber: number; // 0-based, strictly consecutive. The daemon retains the last acknowledged sequence + the last appended chunk's SHA-256: an exact retry — same sequence, same bytes, the ordinary retry after a lost Chunk response — is acknowledged idempotently WITHOUT re-appending, so client retries are always safe; a same-sequence chunk with different bytes, a gap, or a regression terminates the stream (spool deleted) and refuses artifact.ingest.streamInvalid (409) — restart from Init
   chunk: Uint8Array; // a `Bytes<1, 524288>` attachment beside the JSON: at most max_attachment_chunk_bytes = 512 KiB of payload (Spec-012 §Bounds), raw bytes that every byte bound counts as sent
 }
 interface AttachmentIngestChunkResponse {
   ingestId: string;
-  receivedBytes: number; // spooled running total of bytes after this chunk — the enforced byte bound; exceeding the Init-declared total refuses with artifact.too_large (413) and deletes the spool
+  receivedBytes: number; // spooled running total of bytes after this chunk — the enforced byte bound; exceeding the Init-declared total refuses with artifact.tooLarge (413) and deletes the spool
 }
 interface AttachmentIngestCompleteRequest {
-  ingestId: string; // the request's ONLY member — Complete runs the pipeline over the spooled bytes (type detection reads a bounded leading prefix); step 3's admitting CAS rename commits the payload — admission is the pipeline's final successful act (Spec-012 pipeline step 3). IDEMPOTENT within the stream's lifetime: the response is recorded on the stream's registry entry, stamped with the committed digest, so a retry after a lost response returns that saved response VERBATIM — same artifactId, same contentHash — re-running no gate and inserting no second manifest row. Because this request carries no member beyond the ingestId, a "divergent" Complete has no wire form; the digest stamp is a fail-closed defense-in-depth check against a state a daemon-minted single-use handle makes unreachable, not a caller-supplied discriminator. The record is held in memory for the entry's lifetime, at most 64 records at once with the oldest let go first, so past max_ingest_stream_lifetime or that bound the retry receives artifact.ingest_stream_invalid (409) and a re-ingest costs a second manifest row over one deduplicated CAS payload, never duplicated bytes
+  ingestId: string; // the request's ONLY member — Complete runs the pipeline over the spooled bytes (type detection reads a bounded leading prefix); step 3's admitting CAS rename commits the payload — admission is the pipeline's final successful act (Spec-012 pipeline step 3). IDEMPOTENT within the stream's lifetime: the response is recorded on the stream's registry entry, stamped with the committed digest, so a retry after a lost response returns that saved response VERBATIM — same artifactId, same contentHash — re-running no gate and inserting no second manifest row. Because this request carries no member beyond the ingestId, a "divergent" Complete has no wire form; the digest stamp is a fail-closed defense-in-depth check against a state a daemon-minted single-use handle makes unreachable, not a caller-supplied discriminator. The record is held in memory for the entry's lifetime, at most 64 records at once with the oldest let go first, so past max_ingest_stream_lifetime or that bound the retry receives artifact.ingest.streamInvalid (409) and a re-ingest costs a second manifest row over one deduplicated CAS payload, never duplicated bytes
 }
 interface AttachmentIngestCompleteResponse {
   artifactId: ArtifactId;
@@ -216,7 +216,7 @@ interface AttachmentIngestCompleteResponse {
 //     The two carriers are typed `ArtifactId[]` by the plans that own them, never from the Plan-011
 //     side (CP-011-1): Plan-003 types the driver boundary's SteerPayload.attachments
 //     (provider-driver-payloads.md §Plan-003, where the carrier contract is stated once), and Plan-002
-//     types `run.queueCreate`'s attachments, the message's `attachments` on QueueItemCreateRequest
+//     types `agent.queueItem.create`'s attachments, the message's `attachments` on QueueItemCreateRequest
 //     (run-control-payloads.md §Plan-002), which is how a person's steer carries its files; no
 //     intervention carries attachments. So every V1 attachment carrier is typed, and no V1 carrier is
 //     wired to deliver an attachment over an untyped arm. ---
@@ -233,6 +233,6 @@ A client publishes into this manifest space, and the session screen reads it, th
 | `artifact.publish` | `mutation` | `ArtifactPublishRequest` | `ArtifactPublishResponse` |
 | `artifact.list` | `query` | `ArtifactListRequest` | `ArtifactListResponse` |
 | `artifact.read` | `query` | `ArtifactReadRequest` | `ArtifactReadResponse` |
-| `artifact.ingestInit` | `mutation` | `AttachmentIngestInitRequest` | `AttachmentIngestInitResponse` |
-| `artifact.ingestChunk` | `mutation` | `AttachmentIngestChunkRequest` | `AttachmentIngestChunkResponse` |
-| `artifact.ingestComplete` | `mutation` | `AttachmentIngestCompleteRequest` | `AttachmentIngestCompleteResponse` |
+| `artifact.ingest.start` | `mutation` | `AttachmentIngestInitRequest` | `AttachmentIngestInitResponse` |
+| `artifact.ingest.write` | `mutation` | `AttachmentIngestChunkRequest` | `AttachmentIngestChunkResponse` |
+| `artifact.ingest.complete` | `mutation` | `AttachmentIngestCompleteRequest` | `AttachmentIngestCompleteResponse` |

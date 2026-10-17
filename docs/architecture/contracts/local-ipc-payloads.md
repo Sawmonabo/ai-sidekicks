@@ -49,7 +49,7 @@ The grammar rejects:
 | --- | --- | --- |
 | `session.create` | `mutation` | Materialize new session row + emit `SessionCreated`. |
 | `session.read` | `query` | Resolve session by id. |
-| `session.subscribe` | `subscription` (`SessionSubscribeResponse`, then `SessionStreamFrame` notifications) | Event stream that catches up, then follows. |
+| `session.event.subscribe` | `subscription` (`SessionEventSubscribeResponse`, then `SessionStreamFrame` notifications) | Event stream that catches up, then follows. |
 
 Each domain's methods are documented in the section of the plan that owns them, and [§Operations Not Yet Built](./api-payload-contracts.md#operations-not-yet-built) lists every documented method no handler serves yet.
 
@@ -65,7 +65,7 @@ The field is carried across the [Plan-005](../../plans/005-local-ipc-and-daemon-
 ^[0-9]{4}-[0-9]{2}-[0-9]{2}$
 ```
 
-**Current value**: `"2026-05-01"` — the date string is the V1 protocol version. The supported set is one list, `SUPPORTED_PROTOCOL_VERSIONS` in `crates/sidekicks-contracts/src/jsonrpc/negotiation.rs`, written into the generated `packages/contracts/src/jsonrpc/negotiation.ts`: the daemon accepts exactly it and a client offers exactly it in `daemon.hello`. It is `["2026-05-01"]` for V1; a later revision advances the date and appends it, keeping the version before it, so an app and a service one release apart agree.
+**Current value**: `"2026-05-01"` — the date string is the V1 protocol version. The supported set is one list, `SUPPORTED_PROTOCOL_VERSIONS` in `crates/sidekicks-contracts/src/jsonrpc/negotiation.rs`, written into the generated `packages/contracts/src/jsonrpc/negotiation.ts`: the daemon accepts exactly it and a client offers exactly it in `connection.initialize`. It is `["2026-05-01"]` for V1; a later revision advances the date and appends it, keeping the version before it, so an app and a service one release apart agree.
 
 **Ordering convention**: ISO 8601 date-strings are lexicographically equivalent to chronologically ordered. The protocol negotiation picks the greatest version by plain string order, with no separate semver parser. Floor / ceiling discrimination uses the same lex order against the daemon's supported set.
 
@@ -77,7 +77,7 @@ The field is carried across the [Plan-005](../../plans/005-local-ipc-and-daemon-
 
 **Canonical bound**: a request `id` may not exceed `JSON_RPC_ID_MAX_BYTES` (256) bytes once JSON-encoded. The constant is declared at `crates/sidekicks-contracts/src/jsonrpc/message.rs` beside the frame's message-size limit and used unchanged by the daemon's gateway, `crates/sidekicks-daemon/src/ipc/local_gateway.rs`, which enforces it.
 
-**Where it is enforced**: at the **request** boundary, before dispatch — an over-bound id refuses as `-32600 Invalid Request` with `data.type: "invalid_envelope"`, and that refusal carries `id: null` rather than echoing the offending value. Enforcement is two-sited and both sites are required: the envelope's id gate refuses the request, and the gateway's id-extraction helper — through which the `jsonrpc` and `method` gates build their error frames, and which answers _before_ the id gate — falls back to a null id, without which the one frame guaranteed to be small would be the one carrying the oversized echo.
+**Where it is enforced**: at the **request** boundary, before dispatch — an over-bound id refuses as `-32600 Invalid Request` with `data.type: "request.envelopeInvalid"`, and that refusal carries `id: null` rather than echoing the offending value. Enforcement is two-sited and both sites are required: the envelope's id gate refuses the request, and the gateway's id-extraction helper — through which the `jsonrpc` and `method` gates build their error frames, and which answers _before_ the id gate — falls back to a null id, without which the one frame guaranteed to be small would be the one carrying the oversized echo.
 
 **Why a request-side bound rather than a response-side subtraction**: JSON-RPC requires a response to echo the request's `id`, so the id is the one response member a response schema does not choose. A reply is bounded by the substrate's absolute message-size limit ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format)), and an oversized reply cannot carry its own error — the send path drops the connection instead. Without this bound, a 900 KB id inside an otherwise-valid request makes every reply to it unencodable and the session unrecoverable from contract-valid data alone.
 
@@ -90,32 +90,32 @@ The field is carried across the [Plan-005](../../plans/005-local-ipc-and-daemon-
 ```ts
 // JSON-RPC 2.0 method shapes
 
-// DaemonHello — `DaemonHello` and `DaemonHelloAck` in `crates/sidekicks-contracts/src/jsonrpc/negotiation.rs`.
+// connection.initialize — `ConnectionInitializeRequest` and `ConnectionInitializeResponse` in `crates/sidekicks-contracts/src/jsonrpc/negotiation.rs`.
 // A protocol version is a `YYYY-MM-DD` date; each list holds at most 32 entries, and each free-form
 // string is 1 to 256 characters.
-interface DaemonHello {
+interface ConnectionInitializeRequest {
   protocolVersion: string; // the client's preferred version
   supportedProtocols?: string[]; // at least one; defaults to `[protocolVersion]`
   clientId?: string;
   // The daemon session token, read from its file at this connect. Optional in the shape so the
-  // daemon answers its absence with `auth.token_invalid`, as it does a wrong one; nothing more is
-  // served on a connection whose hello lacks the right token. A right token from a process the
+  // daemon answers its absence with `auth.token.invalid`, as it does a wrong one; nothing more is
+  // served on a connection whose handshake lacks the right token. A right token from a process the
   // daemon or a provider service it reaches started, or from one the system could not name or
-  // trace, is answered `auth.caller_refused`, with the same latch.
+  // trace, is answered `auth.callerRefused`, with the same latch.
   sessionToken?: string;
   capabilities?: string[];
 }
-interface DaemonHelloAck {
+interface ConnectionInitializeResponse {
   compatible: boolean; // false leaves the connection to read-only calls
   protocolVersion: string; // the negotiated version; when incompatible, the daemon's preferred one
   reason?:
-    | "version.floor_exceeded"
-    | "version.ceiling_exceeded"
-    | "protocol.handshake_already_completed"; // only when incompatible
+    | "connection.version.floorExceeded"
+    | "connection.version.ceilingExceeded"
+    | "connection.handshake.alreadyCompleted"; // only when incompatible
   serverCapabilities?: string[];
   daemonSupportedProtocols?: string[]; // on an incompatible first handshake, so the client can pick a version to retry with
   // The connecting device's own id (for a local connection, the service's own device id): the one a
-  // terminal lease names as its holder (`holderDeviceId` on `pty.control_changed`), so a client tells
+  // terminal lease names as its holder (`holderDeviceId` on `terminal.control.changed`), so a client tells
   // this device holding a shell apart from another device holding it, and, by `holderRunId`, from an
   // agent's run holding it. Lands with Plan-005 Phase 2B (T-005p-2B-1).
   deviceId: DeviceId;
@@ -192,7 +192,7 @@ interface DaemonStatusReadResult {
       rejectedFrameCount: number;
     }>;
     // The pinned relay presented a key other than the one pinned when it was linked
-    // (`relay.pin_refused` in session-event-payloads.md).
+    // (`relay.pin.refused` in session-event-payloads.md).
     pinRefused: boolean;
   };
 }
@@ -228,13 +228,13 @@ interface DaemonFlushResult {
 interface DaemonPingParams {}
 interface DaemonPingResult {}
 
-// DaemonConfigRead / DaemonConfigUpdate — `daemon.configRead` / `daemon.configUpdate`, the
+// DaemonConfigRead / DaemonConfigUpdate — `daemon.config.read` / `daemon.config.update`, the
 // machine-wide service settings Settings › Runtime edits, one configuration surface (Spec-006).
-// Separate from the per-session `session.maxStepsUpdate`, `session.spendLimitUpdate` and
-// `session.tokensPerRunUpdate`.
+// Separate from the per-session `session.maxSteps.update`, `session.spendLimit.update` and
+// `session.tokensPerRun.update`.
 interface DaemonConfigReadParams {}
 interface DaemonConfig {
-  workflowListenerPort: number; // a taken port is saved, not refused; `workflow.webhookListenerRead` says whether it listens
+  workflowListenerPort: number; // a taken port is saved, not refused; `workflow.webhookListener.read` says whether it listens
   runTimeLimitMinutes: 30 | 60 | 240 | 720 | 1440 | null; // `Stop a run after`; null is `No limit`
   workflowChainAskAfterRuns: 25 | 100 | 500 | 2000 | null; // `Ask me after one start leads to`: 25, 100 (the default), 500 or 2,000 runs; null is `Never ask`
   maxStepsPerTurn: number | null; // null is `Unlimited`: each provider does what it does on its own
@@ -248,7 +248,7 @@ interface DaemonConfig {
   providerMessagesPath: string; // the folder raw provider messages are written to, which the page names
 }
 type DaemonConfigReadResult = DaemonConfig;
-// Exactly one member per press, never none and never two, like `providerAccount.update`; the two
+// Exactly one member per press, never none and never two, like `provider.account.update`; the two
 // facts the page draws beside the settings, `toolMemoryCapEnforceable` and `providerMessagesPath`, are not
 // settable. The reply is the whole configuration after the change. A value that is not a port or
 // not a size is refused, and nothing changes.
@@ -257,38 +257,38 @@ type DaemonConfigUpdateParams = Partial<
 >;
 type DaemonConfigUpdateResult = DaemonConfig;
 
-// DaemonPackageCacheRead — `daemon.packageCacheRead`, what each workflow package cache holds: one
+// DaemonPackageCacheList — `daemon.packageCache.list`, what each workflow package cache holds: one
 // walk of each cache folder, taken only when called (the page opening, `Check again`) and, under a
 // custom `Cache limit`, after an install; nothing samples it on a timer. The page adds the total.
-interface DaemonPackageCacheReadParams {}
-interface DaemonPackageCacheReadResult {
+interface DaemonPackageCacheListRequest {}
+interface DaemonPackageCacheListResponse {
   bun: { bytes: number; readAt: string };
   uv: { bytes: number; readAt: string };
 }
-// DaemonPackageCacheClear — `daemon.packageCacheClear`: `uv`'s cache through `uv cache clean`, bun's
+// DaemonPackageCacheClear — `daemon.packageCache.clear`: `uv`'s cache through `uv cache clean`, bun's
 // by removing its folder; never a step's code folder or the Python the service manages, so a step
 // already installed keeps working. A clear waits for the installs using that cache and an install
 // waits for a clear; the reply is the new reading.
-interface DaemonPackageCacheClearParams {
+interface DaemonPackageCacheClearRequest {
   cache: "bun" | "uv" | "all";
 }
-type DaemonPackageCacheClearResult = DaemonPackageCacheReadResult;
+type DaemonPackageCacheClearResponse = DaemonPackageCacheListResponse;
 
-// SessionTerminalProviderSessionList — `session.terminalProviderSessionList`: the provider sessions a
+// ProviderTerminalSessionList — `provider.terminalSession.list`: the provider sessions a
 // person typed in a terminal that are inside a provider's shared service, each working, idle or not
 // reachable, with `provider` as data, read off
 // the same directory entries the agents' session listing names, so Runtime and the agents read one
 // fact. `Stop`'s confirm counts them and the service update's waiting step counts the working ones;
 // read when a confirm opens and while an update waits, never on a timer. Empty while `Reach Codex
 // sessions started in a terminal` is off.
-interface SessionTerminalProviderSessionListParams {}
+interface ProviderTerminalSessionListRequest {}
 interface TerminalProviderSession {
   provider: ProviderId;
   name: string;
   threadId: string;
   state: "working" | "idle" | "unreachable";
 }
-interface SessionTerminalProviderSessionListResult {
+interface ProviderTerminalSessionListResponse {
   sessions: TerminalProviderSession[];
 }
 

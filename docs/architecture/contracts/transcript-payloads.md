@@ -4,7 +4,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ## Plan-010 — Transcript And Reasoning
 
-Every paged transcript reply is bounded by the frame it becomes (Plan-010 Phase 1). A JSON-RPC reply leaves the daemon as one message of the frame codec, its JSON capped at `MAX_MESSAGE_BYTES`, and a message over the cap is not a failed request: the framer refuses to emit it and the **connection closes** ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format)). A row-count ceiling does not bound that — a `TranscriptEventRow` carries free-form fields at `EVENT_FIELD_MAX_LEN`, and JSON encoding expands a control character to a six-byte escape, so 256 contract-valid rows exceed the cap several times over before `payload`, which this contract does not bound at all. So each of the paged members — `TranscriptReadResponse.entries`, `ChildRunExpandResponse.entries`, and `ReasoningSurfaceReadResponse.reasoningEntries` — carries a byte budget (`PAGE_MAX_BYTES` in `crates/sidekicks-contracts/src/jsonrpc/page.rs`, the budget every paged reply shares — one reply's size less room for the envelope, the echoed id and a continuation cursor — declared apart from `MAX_MESSAGE_BYTES` ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format)) and under it, because it bounds what one reply costs the desktop to decode and draw and one message's time on the relay, so a page never grows with the transport; its figure is set from its first measurement against those two costs). `TranscriptReadResponse.runs` rides in the same frame as its `entries`, so the rows are held to the budget left beside the facts the reply carries, and the daemon counts a page against the budget left beside the facts of every run its stretch names, which the kept rows' facts never exceed. A producer stops at whichever of the row limit and the byte budget trips first, and all these replies discriminate on `hasMore` so a caller can always continue. **The row limit that binds is the CALLER'S** (Plan-010 Phase 1): `TranscriptReadRequest.limit` is optional and a response schema never sees the request, so `entries` is schema-bounded only at the global `TRANSCRIPT_READ_LIMIT_MAX` and a read for ten rows answering with two hundred and fifty-six parses — a client sizing a viewport, a budget, or a render pass from the window it asked for is handed a larger one with nothing on the reply saying the request was not honored. The effective ceiling is therefore resolved per request — the caller's `limit` where it supplied one, the same global constant where it did not, which stays the default and the schema bound — and enforced at the daemon binder beside the request-scope checks, the only layer holding both numbers. `ChildRunExpandRequest` declares no `limit`, so its ceiling is that constant, stated on the same binder so one rule covers both paged reads. **The budget bounds aggregation and never bounds a page below one entry** (Plan-010 Phase 1): a continuing arm requires at least one entry — a page promising more and delivering none re-offers the same cursor forever while reading like progress — so where the first candidate alone exceeds the budget the producer pages that single entry and the reply is refused **for its size** at the response boundary, naming the member and its measured bytes on an error frame the substrate can deliver, rather than the page-fill helper returning a bare zero whose only representable answer is the empty continuing page the schema refuses. A **terminal** arm carries no such floor: an empty final page is the honest answer to a continuation whose cursor already sat at the end and to a filtered read that matched nothing. The budget does not reach a live event on `session.subscribe`, which is a single event on its own frame: an event that blows a frame by itself is an oversized event payload, and bounding it is an event-envelope and framer decision rather than one a Plan-010 page budget may make on their behalf.
+Every paged transcript reply is bounded by the frame it becomes (Plan-010 Phase 1). A JSON-RPC reply leaves the daemon as one message of the frame codec, its JSON capped at `MAX_MESSAGE_BYTES`, and a message over the cap is not a failed request: the framer refuses to emit it and the **connection closes** ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format)). A row-count ceiling does not bound that — a `TranscriptEventRow` carries free-form fields at `EVENT_FIELD_MAX_LEN`, and JSON encoding expands a control character to a six-byte escape, so 256 contract-valid rows exceed the cap several times over before `payload`, which this contract does not bound at all. So each of the paged members — `TranscriptReadResponse.entries`, `ChildRunExpandResponse.entries`, and `ReasoningSurfaceReadResponse.reasoningEntries` — carries a byte budget (`PAGE_MAX_BYTES` in `crates/sidekicks-contracts/src/jsonrpc/page.rs`, the budget every paged reply shares — one reply's size less room for the envelope, the echoed id and a continuation cursor — declared apart from `MAX_MESSAGE_BYTES` ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format)) and under it, because it bounds what one reply costs the desktop to decode and draw and one message's time on the relay, so a page never grows with the transport; its figure is set from its first measurement against those two costs). `TranscriptReadResponse.runs` rides in the same frame as its `entries`, so the rows are held to the budget left beside the facts the reply carries, and the daemon counts a page against the budget left beside the facts of every run its stretch names, which the kept rows' facts never exceed. A producer stops at whichever of the row limit and the byte budget trips first, and all these replies discriminate on `hasMore` so a caller can always continue. **The row limit that binds is the CALLER'S** (Plan-010 Phase 1): `TranscriptReadRequest.limit` is optional and a response schema never sees the request, so `entries` is schema-bounded only at the global `TRANSCRIPT_READ_LIMIT_MAX` and a read for ten rows answering with two hundred and fifty-six parses — a client sizing a viewport, a budget, or a render pass from the window it asked for is handed a larger one with nothing on the reply saying the request was not honored. The effective ceiling is therefore resolved per request — the caller's `limit` where it supplied one, the same global constant where it did not, which stays the default and the schema bound — and enforced at the daemon binder beside the request-scope checks, the only layer holding both numbers. `ChildRunExpandRequest` declares no `limit`, so its ceiling is that constant, stated on the same binder so one rule covers both paged reads. **The budget bounds aggregation and never bounds a page below one entry** (Plan-010 Phase 1): a continuing arm requires at least one entry — a page promising more and delivering none re-offers the same cursor forever while reading like progress — so where the first candidate alone exceeds the budget the producer pages that single entry and the reply is refused **for its size** at the response boundary, naming the member and its measured bytes on an error frame the substrate can deliver, rather than the page-fill helper returning a bare zero whose only representable answer is the empty continuing page the schema refuses. A **terminal** arm carries no such floor: an empty final page is the honest answer to a continuation whose cursor already sat at the end and to a filtered read that matched nothing. The budget does not reach a live event on `session.event.subscribe`, which is a single event on its own frame: an event that blows a frame by itself is an oversized event payload, and bounding it is an event-envelope and framer decision rather than one a Plan-010 page budget may make on their behalf.
 
 ```ts
 // TranscriptRead. A cursor is a position in the log, and the cursor an event carries is the position
@@ -31,7 +31,7 @@ interface TranscriptReadRequest {
 // a window promising more rows and supplying no way to ask for them leaves the caller re-reading the
 // same window or giving up, and both lose rows the session holds (Spec-011 §Interfaces And Contracts,
 // "cursor-based continuation"). The terminal arm PERMITS one and never requires it — the two members
-// answer different questions, and a client that has just read to the end and now resumes session.subscribe
+// answer different questions, and a client that has just read to the end and now resumes session.event.subscribe
 // from exactly there needs that position.
 // The continuing arm additionally requires entries to be NON-EMPTY (Plan-010 Phase 1):
 // a page promising more and delivering none advances no cursor while reading like progress, so the
@@ -66,9 +66,9 @@ type TranscriptReadResponse =
 interface TranscriptRunFacts {
   runId: RunId;
   actor?: string; // who the run's first event naming anyone names, wire-verbatim, at EVENT_FIELD_MAX_LEN
-  admittedProviderAccountId?: ProviderAccountId; // as the run's creation (run.queued) named it
+  admittedProviderAccountId?: ProviderAccountId; // as the run's creation (agent.run.queued) named it
   stateEventType?: RunStateEventType; // the newest run.<state> type the run entered, kept across a rewind
-  isRewound: boolean; // whether a run.rolled_back came after stateEventType
+  isRewound: boolean; // whether a agent.run.rolledBack came after stateEventType
   foldedThroughSequence: number; // an event at or below it is already in the facts
 }
 
@@ -79,13 +79,13 @@ interface TranscriptEventRowBase {
   // The position the session's stream delivers this event at, opaque and relayed verbatim, so a link
   // naming a message by its cursor finds the row however the row was read.
   cursor: EventCursor;
-  category: EventCategory; // open on three arms; PINNED on the rollback-boundary arm, and refused as "run_lifecycle" on the general arm
+  category: EventCategory; // open on three arms; PINNED on the rollback-boundary arm, and refused as "runLifecycle" on the general arm
   type: string;
   actor?: string;
   timestamp: string;
   childRunSummary?: ChildRunSummary; // if this is a summarized child-run row
   // Present, with at least one entry, on a tool call's row that left out one or more patches: the
-  // row draws like one whose patch traveled, and `transcript.patchRead` fetches every left-out
+  // row draws like one whose patch traveled, and `transcript.patch.list` fetches every left-out
   // patch of the call in one read.
   omittedPatches?: TranscriptOmittedPatch[];
   // The row's body, read for the whole window in one statement beside its events. Absent on a row a
@@ -94,7 +94,7 @@ interface TranscriptEventRowBase {
   payload: Record<string, unknown>;
 }
 // A body travels with its row up to TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES, 32 KiB of JSON; a larger
-// one comes back as its size alone, which `transcript.bodyRead` reads in full. A page therefore
+// one comes back as its size alone, which `transcript.body.read` reads in full. A page therefore
 // holds many rows even when every body sits at the ceiling, and one huge output never crowds its
 // neighbors out of a page. Chat services size a single message in the same range (a few thousand
 // characters recommended, 40,000 before a message is cut, 65,535 bytes for a whole event), so a
@@ -102,7 +102,7 @@ interface TranscriptEventRowBase {
 type TranscriptRowContent =
   | { status: "available"; body: string; contentLength?: number }
   | { status: "unavailable"; reason: HydratedContentUnavailableReason }
-  // The body's size in bytes, its bytes left out; transcript.bodyRead reads it whole.
+  // The body's size in bytes, its bytes left out; transcript.body.read reads it whole.
   | { status: "large"; contentLength: number };
 interface TranscriptOmittedPatch {
   path: string;
@@ -110,12 +110,12 @@ interface TranscriptOmittedPatch {
   size: number; // the patch's size in bytes
 }
 
-type TranscriptEntry = TranscriptEventRowBase & { kind: "general" }; // the non-run arm: carries no run attribution structurally — the projector stamps kind from the event family, so a run-scoped family can never arrive on this arm. The arm additionally REFUSES category: "run_lifecycle" (Plan-010 Phase 1): all-or-none attribution is enforced by arm SELECTION, so a row whose kind was stamped wrong never reaches the run arm and its missing triple is never checked — it would arrive as a legitimately attribution-free general row. Every Spec-005 §Run Lifecycle type is run-scoped (the state transitions share a payload shape carrying a required runId; the non-state rows each re-list it), so the refusal costs no correct projection. The refusal is THREE-LEGGED, not category alone (Plan-010 Phase 1): category is decisive only for run_lifecycle, so the arm also refuses a canonical type in the census of Spec-005 types whose registered payload names a run unconditionally, and — for the types whose run identity is registered OPTIONAL (every artifact_publication and assistant_output type, the assistant_output run being absent on a voice call's spoken answer, the usage_telemetry and approval_flow types not listed by name below, approval.rule_revoked among them, the queue_item types, user.message and question.asked), which no type-level test can decide — a payload naming a run under either registered spelling, runId or the intervention family's targetRunId. The census takes the run_lifecycle, tool_activity and interactive_request members from Plan-004's per-category arrays rather than transcribing them, so a type added to those categories joins it without an edit here; the usage_telemetry and approval_flow types whose payload requires a run are listed by name.
+type TranscriptEntry = TranscriptEventRowBase & { kind: "general" }; // the non-run arm: carries no run attribution structurally — the projector stamps kind from the event family, so a run-scoped family can never arrive on this arm. The arm additionally REFUSES category: "runLifecycle" (Plan-010 Phase 1): all-or-none attribution is enforced by arm SELECTION, so a row whose kind was stamped wrong never reaches the run arm and its missing triple is never checked — it would arrive as a legitimately attribution-free general row. Every Spec-005 §Run Lifecycle type is run-scoped (the state transitions share a payload shape carrying a required runId; the non-state rows each re-list it), so the refusal costs no correct projection. The refusal is THREE-LEGGED, not category alone (Plan-010 Phase 1): category is decisive only for runLifecycle, so the arm also refuses a canonical type in the census of Spec-005 types whose registered payload names a run unconditionally, and — for the types whose run identity is registered OPTIONAL (every artifactPublication and assistantOutput type, the assistantOutput run being absent on a voice call's spoken answer, the usageTelemetry and approvalFlow types not listed by name below, approval.rule.revoked among them, the agent.queueItem types, user.message.sent and question.asked), which no type-level test can decide — a payload naming a run under either registered spelling, runId or the intervention family's targetRunId. The census takes the runLifecycle, toolActivity and interactiveRequest members from Plan-004's per-category arrays rather than transcribing them, so a type added to those categories joins it without an edit here; the usageTelemetry and approvalFlow types whose payload requires a run are listed by name.
 
 type RunScopedTranscriptEntry = TranscriptEventRowBase & {
   kind: "run"; // literal discriminator — row.kind narrowing is structural, never a probe of the free-form type: string
-  runId: RunId; // run identity — with position + epoch, the REQUIRED all-or-none attribution triple the run.rolled_back live client rule keys on, never dug out of payload (CP-002-13): arm selection is by kind, so a run-scoped row missing any of the three fails ITS arm's parse — the malformed-row test — and can never fall through to the general arm
-  position: number; // the row's projection-resolved originating run position (Plan-002 T3.15's uniform row-to-turn assignment); the live rule compares it against the run.rolled_back boundary's carried targetPosition (sequence is the session event sequence, never a run position)
+  runId: RunId; // run identity — with position + epoch, the REQUIRED all-or-none attribution triple the agent.run.rolledBack live client rule keys on, never dug out of payload (CP-002-13): arm selection is by kind, so a run-scoped row missing any of the three fails ITS arm's parse — the malformed-row test — and can never fall through to the general arm
+  position: number; // the row's projection-resolved originating run position (Plan-002 T3.15's uniform row-to-turn assignment); the live rule compares it against the agent.run.rolledBack boundary's carried targetPosition (sequence is the session event sequence, never a run position)
   epoch: number; // the row's projection-resolved execution epoch (Plan-002 T3.15's row-to-turn assignment: the stamped sourceEpoch on late rows, the operation association's epoch on in-time content-asynchronous rows, the run's current epoch at emission otherwise); position alone can never recover the epoch, since re-execution reuses ordinals
   superseded?: { targetPosition: number }; // present exactly when the row's turn is superseded, absence = current — projection-computed from Plan-002 T3.15's exported supersededTurns(runId); deliberately single-field: the marker's run identity and source epoch ARE the containing row's runId + epoch, so no duplicated fields exist to disagree and live marking (the row plus the boundary cutoff) is identical to catch-up marking by construction; targetPosition = the superseding rollback's rewind cutoff — the first accepted rollback in the run's lineage, at the row's epoch or later, that rewound the surviving history containing the row (a later rollback below an earlier retained prefix supersedes the inherited rows; a row ranks superseded when position exceeds the run's effective cutoff for its epoch — the minimum cutoff among accepted rollbacks at epoch >= the row's); identical on TranscriptRead and on live delivery, rows delivered after a boundary arriving with the marker already projection-computed — per Spec-011 §Required Behavior
   // Where a projection echoes canonical keys into payload, they must AGREE with the outer triple
@@ -129,25 +129,25 @@ type RunScopedTranscriptEntry = TranscriptEventRowBase & {
 };
 
 type TranscriptRollbackBoundary = Omit<TranscriptEventRowBase, "category" | "type" | "payload"> & {
-  kind: "rollback_boundary"; // literal discriminator
-  category: "run_lifecycle"; // pinned with `type`, and for the same reason (Plan-010 Phase 1): run.rolled_back is registered under one category and no other, so leaving this open on the one arm whose event type is closed would leave the half that can still disagree — and a renderer grouping or filtering by category would file the rewind cutoff under the wrong family
+  kind: "rollbackBoundary"; // literal discriminator
+  category: "runLifecycle"; // pinned with `type`, and for the same reason (Plan-010 Phase 1): agent.run.rolledBack is registered under one category and no other, so leaving this open on the one arm whose event type is closed would leave the half that can still disagree — and a renderer grouping or filtering by category would file the rewind cutoff under the wrong family
   runId: RunId; // the rewound run
   position: number; // the boundary row's own originating position
   epoch: number; // the epoch the rollback rewound
   superseded?: { targetPosition: number }; // an earlier boundary row is itself superseded when a later rollback cuts below it — same single-field marker semantics as the run arm
-  type: "run.rolled_back";
+  type: "agent.run.rolledBack";
   payload: RunRolledBackEvent; // validated into the typed shape (defined in run-control-payloads.md §Plan-002 — Queue Steer Pause Resume) at projection, so the live client rule reads a typed targetPosition — never an unsafe cast; an entry failing that validation is a projection defect surfaced at emission, never delivered untyped. Delivery is visibility-resolved: the boundary reaches every subscription holding any row of the affected run, so a subscriber holding that run's rows always receives the cutoff. Outer attribution and payload cannot disagree: the boundary arm's garde check requires runId === payload.runId, sessionId === payload.sessionId, and position === payload.targetPosition (the boundary row ranks at the confirmed rewind floor — which is why a later rollback below it supersedes it), so a conflicting boundary fails parse as a projection defect, never delivered. The `Omit` on the base is the TypeScript notation for what the Rust arm does (`crates/sidekicks-contracts/src/transcript/row.rs`): each arm of the internally tagged row enum repeats the base's members through the contract's one `macro_rules!` and declares its own `category`, `type` and `payload`, so this arm's `payload` is the typed `RunRolledBackEvent`, never the base's open map beside it, and its `type` narrows the base's free-form string to one literal.
 };
 
-type TranscriptEventRow = TranscriptRollbackBoundary | RunScopedTranscriptEntry | TranscriptEntry; // the row union, genuinely discriminated on the literal kind: the contracts' internally tagged enum selects the arm by kind (rollback_boundary | run | general), each arm refusing unknown fields (`deny_unknown_fields`), and consumers narrow structurally on row.kind — never probing type: string, never casting
+type TranscriptEventRow = TranscriptRollbackBoundary | RunScopedTranscriptEntry | TranscriptEntry; // the row union, genuinely discriminated on the literal kind: the contracts' internally tagged enum selects the arm by kind (rollbackBoundary | run | general), each arm refusing unknown fields (`deny_unknown_fields`), and consumers narrow structurally on row.kind — never probing type: string, never casting
 // A row as a read returns it, every arm with its body required: TranscriptReadResponse.entries and
 // ChildRunExpandResponse.entries are both TranscriptReadRow, and the `TranscriptReadRow` type parses it.
 type TranscriptReadRow = TranscriptEventRow & { content: TranscriptRowContent };
 
-// The run stamp a session.subscribe change carries for an event of a run (Plan-010 T2.4): the same
+// The run stamp a session.event.subscribe change carries for an event of a run (Plan-010 T2.4): the same
 // position, epoch and superseded marker the event's transcript.read row carries, because the daemon
 // computes both from one projection fold. A client marks the rows it already holds when a
-// run.rolled_back boundary arrives: a held row of that run at the rollback's epoch or an earlier one
+// agent.run.rolledBack boundary arrives: a held row of that run at the rollback's epoch or an earlier one
 // is superseded above the lowest cut of every rollback of the run at its epoch or later, the rule the
 // daemon's fold applies (on clients `addSupersedingCut` in `packages/contracts/src/transcript/turn-attribution.ts`,
 // hand-written TypeScript held to the daemon's Rust fold by one shared case table).
@@ -162,7 +162,7 @@ type TranscriptRunStamp = {
 // the only signal of incompleteness would be a low eventCount, which is indistinguishable from a child run
 // that genuinely did little. Every cause is a term the corpus
 // already owns — none is minted here:
-type ChildRunIncompleteCause = "detail_fetch_failed"; // this daemon's own expansion read failed — Spec-011 §Fallback Behavior's own
+type ChildRunIncompleteCause = "detailFetchFailed"; // this daemon's own expansion read failed — Spec-011 §Fallback Behavior's own
 //   naming of the condition ("if a child-run detail fetch fails"). Transient: a retry may succeed.
 // Deliberately NOT reused: RepoMountHealth "unreachable" (scoped to filesystem mounts, whose own
 // contract warns against overloading it across axes).
@@ -253,11 +253,11 @@ type ChildRunExpandResponse = {
   entries: TranscriptReadRow[]; // bounded by PAGE_MAX_BYTES as well as by the row cap
 } & ({ hasMore: true; nextCursor: EventCursor } | { hasMore: false; nextCursor?: EventCursor });
 
-// TranscriptBodyRead — transcript.bodyRead. A row's large body (the `large` arm of its `content`) or
+// TranscriptBodyRead — transcript.body.read. A row's large body (the `large` arm of its `content`) or
 // whole output, read only when the row's control is pressed (`Show full output`, with its size),
 // and the whole a copy from the row lifts.
 // `rowId` is the row's `id`, the id of the event it renders. A session id the daemon does not hold
-// is refused with `session.not_found`; a row id the session does not hold is refused with
+// is refused with `session.notFound`; a row id the session does not hold is refused with
 // `transcript.row.notFound` at `-31000`, the code an anchored transcript.read answers for a row that
 // does not stand, so it never reads like a row that carries no body.
 interface TranscriptBodyReadRequest {
@@ -284,10 +284,10 @@ type TranscriptBodyReadResponse =
     }
   | { status: "unavailable"; reason: HydratedContentUnavailableReason };
 
-// TranscriptPatchRead — transcript.patchRead. Every patch one tool call did not carry, in one read,
+// TranscriptPatchList — transcript.patch.list. Every patch one tool call did not carry, in one read,
 // so a call with several missing files is drawn from one reply and looks exactly like a call whose
 // patches traveled; the rows it fills are the ones the projection marks with `omittedPatches`.
-interface TranscriptPatchReadRequest {
+interface TranscriptPatchListRequest {
   sessionId: SessionId;
   toolCallId: string;
   // Where the part starts: the left-out file's index in the call's `omittedPatches` order and a
@@ -304,22 +304,22 @@ interface TranscriptPatchCursor {
 // version cannot read, which carries the text as sent, `rawPatch`, paged as a patch is. A file the
 // call moved is named by its new path, its old one in `oldPath`. Each reply is bounded by
 // PAGE_MAX_BYTES as well: patches longer than one frame holds come back in consecutive parts, as
-// transcript.bodyRead's body does. A part holds the files from `cursor` on, its first entry's
+// transcript.body.read's body does. A part holds the files from `cursor` on, its first entry's
 // patch starting at `cursor.offset` and its last one's ending where `next` starts; `next` is null
 // on the last part, and the client joins the pieces of one file in order.
 type TranscriptPatchFile =
   | { path: string; oldPath?: string; patch: string; additions: number; deletions: number }
   | { path: string; oldPath?: string; unavailable: "absent" }
   | { path: string; oldPath?: string; unavailable: "unreadable"; rawPatch: string };
-interface TranscriptPatchReadResponse {
+interface TranscriptPatchListResponse {
   files: TranscriptPatchFile[];
   next: TranscriptPatchCursor | null;
 }
 
-// TranscriptPathResolve — transcript.pathResolve. The candidate paths a reply's prose holds (bare,
+// TranscriptPathResolve — transcript.path.resolve. The candidate paths a reply's prose holds (bare,
 // in backticks or `@`-prefixed, with or without `:line` or `:line:col`), resolved against the
 // session's own workspace so the screen draws a link only for a real file inside it. A session id
-// the daemon does not hold is refused with `session.not_found`.
+// the daemon does not hold is refused with `session.notFound`.
 interface TranscriptPathResolveRequest {
   sessionId: SessionId;
   paths: string[]; // as written in the reply
@@ -338,7 +338,7 @@ interface TranscriptPathResolveResponse {
 // Both are per-turn live readings rather than projections of the log, and both are DERIVED from frames
 // the provider already sends — neither adds a provider request and neither is polled.
 
-// turn.usage — the tokens RECEIVED this turn. It starts at zero when the turn starts and steps up ONCE
+// agent.turn.usage.subscribe — the tokens RECEIVED this turn. It starts at zero when the turn starts and steps up ONCE
 // PER MODEL ROUND, never per word: each round adds the provider's own output count for that round — the
 // output figure of Claude Code's per-message usage, and the `last` figure of Codex's token-usage
 // notification — and the turn's figure is their sum. Reasoning is inside that count and is never added to
@@ -346,7 +346,7 @@ interface TranscriptPathResolveResponse {
 // line's reading means the same thing on every provider. It holds across a pause and stops at the turn's
 // end; it is the only live token figure on the session screen, and the context ring, the cost receipt and
 // a child's own tokens are different facts that keep their own surfaces.
-// The request of both `turn.*` subscriptions: the run whose current turn it follows.
+// The request of both `agent.turn.*` subscriptions: the run whose current turn it follows.
 interface TurnSubscribeRequest {
   sessionId: SessionId;
   runId: RunId;
@@ -359,7 +359,7 @@ interface TurnUsageUpdate {
   tokensReceived: number;
 }
 
-// turn.tasks — the agent's own task list for this turn, in the agent's own order. The driver folds
+// agent.turn.task.subscribe — the agent's own task list for this turn, in the agent's own order. The driver folds
 // Claude Code's task-list tool calls and Codex's plan-updated notification into one list; the daemon
 // turns Codex's plan updates on per session, because the provider leaves them off by default. The list
 // is the turn's: it goes when the turn is interrupted and returns with the next turn's list.
@@ -368,7 +368,7 @@ interface TurnTasksUpdate {
   turnId: string;
   // The WHOLE list per emission, in the agent's order, because a provider replaces its list rather
   // than patching it and a subscriber must never compose two halves into an order neither sent.
-  tasks: Array<{ text: string; state: "not_started" | "in_progress" | "done" }>;
+  tasks: Array<{ text: string; state: "notStarted" | "inProgress" | "done" }>;
 }
 
 // ---- An agent's question ----
@@ -381,7 +381,7 @@ interface TurnTasksUpdate {
 // with `isAgentWaiting: false`: the record stays unanswered until the ordinary message answering it
 // is taken, when the daemon marks it answered, so the working line's question count drops on every
 // device. It raises no card of its own and no bell entry; pressing the working line's question
-// count opens the card on it. The answered mark is the answering turn's `user.message` row whose
+// count opens the card on it. The answered mark is the answering turn's `user.message.sent` row whose
 // `answersQuestionId?` names the question it answers: the message `question.resolve` writes for a
 // held question, and the taken message for a non-waiting one. A question no message names is
 // unanswered.
@@ -468,21 +468,21 @@ interface QuestionResolveResponse {
 
 ## Transcript Method-Name Registry
 
-Plan-010's transcript surface is exposed as the `transcript.*` methods below, registered by Plan-010 (T1.4 registers the strings against the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out — the `repo.*` / `approval.*` precedent). These methods ride the **daemon JSON-RPC transport only**: the transcript is a daemon-local projection over the session event log per [ADR-016](../../decisions/016-shared-event-sourcing-scope.md), and no control-plane route sibling exists in V1. Method tails are camelCase per the convention the Approval Method-Name Registry records.
+Plan-010's transcript surface is exposed as the `transcript.*` methods below, registered by Plan-010 (T1.4 registers the strings against the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out — the `repoMount.*` / `approval.*` precedent). These methods ride the **daemon JSON-RPC transport only**: the transcript is a daemon-local projection over the session event log per [ADR-016](../../decisions/016-shared-event-sourcing-scope.md), and no control-plane route sibling exists in V1. Method tails are camelCase per the convention the Approval Method-Name Registry records.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
 | `transcript.read` | `query` | `TranscriptReadRequest` | `TranscriptReadResponse` |
-| `transcript.reasoningSurfaceRead` | `query` | `ReasoningSurfaceReadRequest` | `ReasoningSurfaceReadResponse` |
-| `transcript.childRunExpand` | `query` | `ChildRunExpandRequest` | `ChildRunExpandResponse` |
-| `transcript.bodyRead` | `query` | `TranscriptBodyReadRequest` | `TranscriptBodyReadResponse` |
-| `transcript.patchRead` | `query` | `TranscriptPatchReadRequest` | `TranscriptPatchReadResponse` |
+| `transcript.reasoning.read` | `query` | `ReasoningSurfaceReadRequest` | `ReasoningSurfaceReadResponse` |
+| `transcript.childRun.expand` | `query` | `ChildRunExpandRequest` | `ChildRunExpandResponse` |
+| `transcript.body.read` | `query` | `TranscriptBodyReadRequest` | `TranscriptBodyReadResponse` |
+| `transcript.patch.list` | `query` | `TranscriptPatchListRequest` | `TranscriptPatchListResponse` |
 | `transcript.search` | `query` | `TranscriptSearchRequest` | `TranscriptSearchResponse` |
-| `transcript.pathResolve` | `query` | `TranscriptPathResolveRequest` | `TranscriptPathResolveResponse` |
-| `turn.usage` | `subscription` | `TurnSubscribeRequest` | `TurnUsageUpdate` (stream) |
-| `turn.tasks` | `subscription` | `TurnSubscribeRequest` | `TurnTasksUpdate` (stream) |
+| `transcript.path.resolve` | `query` | `TranscriptPathResolveRequest` | `TranscriptPathResolveResponse` |
+| `agent.turn.usage.subscribe` | `subscription` | `TurnSubscribeRequest` | `TurnUsageUpdate` (stream) |
+| `agent.turn.task.subscribe` | `subscription` | `TurnSubscribeRequest` | `TurnTasksUpdate` (stream) |
 | `question.resolve` | `mutation` | `QuestionResolveRequest` | `QuestionResolveResponse` |
 
-`turn` and `question` are two further registered roots on this same transport. They sit here rather than under `transcript` because a namespace names the thing it is about: the two subscriptions are readings of ONE TURN that end with it, while `transcript.*` reads the session's whole flow, and a question is a record with its own lifecycle rather than a row. Neither `turn.*` subscription is polled, and no `question.ask` exists to register — the record is minted by the daemon from the provider's own held request, a tool server's question or a workflow step's wait, never by a client.
+`agent.turn` and `question` are two further registered namespaces on this same transport. They sit here rather than under `transcript` because a namespace names the thing it is about: the two subscriptions are readings of ONE TURN that end with it, while `transcript.*` reads the session's whole flow, and a question is a record with its own lifecycle rather than a row. Neither `agent.turn.*` subscription is polled, and no `question.ask` exists to register — the record is minted by the daemon from the provider's own held request, a tool server's question or a workflow step's wait, never by a client.
 
-The `transcript` `query` rows are idempotent reads; `transcript.search`'s shapes sit with `session.search` in the session-payloads.md §Plan-001 block. The transcript's live rows ride the session's one stream, `session.subscribe`; the daemon drops nothing for a client that falls behind, and a client further behind than the threshold of [Spec-006 §Required Behavior](../../specs/006-local-ipc-and-daemon-control.md#required-behavior) is told so on a frame with no changes and takes a snapshot read; a client that reconnects re-opens the stream with `afterCursor` at the last position it kept. All request/response shapes are the interfaces defined directly above; the Rust types live in `crates/sidekicks-contracts/src/transcript/` (T1.1–T1.3), the generated TypeScript in `packages/contracts/src/transcript/`, per the api-payload-contracts.md §Source-of-Truth Policy.
+The `transcript` `query` rows are idempotent reads; `transcript.search`'s shapes sit with `session.search` in the session-payloads.md §Plan-001 block. The transcript's live rows ride the session's one stream, `session.event.subscribe`; the daemon drops nothing for a client that falls behind, and a client further behind than the threshold of [Spec-006 §Required Behavior](../../specs/006-local-ipc-and-daemon-control.md#required-behavior) is told so on a frame with no changes and takes a snapshot read; a client that reconnects re-opens the stream with `afterCursor` at the last position it kept. All request/response shapes are the interfaces defined directly above; the Rust types live in `crates/sidekicks-contracts/src/transcript/` (T1.1–T1.3), the generated TypeScript in `packages/contracts/src/transcript/`, per the api-payload-contracts.md §Source-of-Truth Policy.

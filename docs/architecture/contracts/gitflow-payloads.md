@@ -30,15 +30,15 @@ interface BranchContextReadResponse {
     url: string;
     state: "open" | "merged" | "closed";
     mergeable?: "mergeable" | "conflicting" | "unknown";
-    reviewDecision?: "approved" | "changes_requested" | "review_required";
+    reviewDecision?: "approved" | "changesRequested" | "reviewRequired";
   }>; // newest open first
-  hosting?: { serviceName: string; requestWord: "pull_request" | "merge_request" }; // absent where no hosting service answers for the remote
+  hosting?: { serviceName: string; requestWord: "pullRequest" | "mergeRequest" }; // absent where no hosting service answers for the remote
 }
 
 // DiffRead — Review's diff. A pane read that is retried and re-read, so it mints nothing and stores
 // nothing. Three scopes — the working changes against the last commit, untracked files included; the
 // branch against a base (absent: the daemon's default base), narrowable to one of its commits; and one
-// of the branch's change requests — plus a `workflow_run` arm that diffs two snapshot points of one
+// of the branch's change requests — plus a `workflowRun` arm that diffs two snapshot points of one
 // workflow run, read from that run's own capture folder with the repository's objects as an alternate.
 // One entry per path, composed into a single patch however many edits touched it; an untracked file
 // the repository does not ignore reads as added. The reply is always the whole diff: the daemon never
@@ -50,10 +50,10 @@ type WorkflowRunSnapshotPoint =
 type DiffReadRequest =
   | { sessionId: SessionId; scope: "changes" }
   | { sessionId: SessionId; scope: "branch"; base?: string; commitId?: string } // commitId narrows to one commit
-  | { sessionId: SessionId; scope: "change_request"; changeRequestNumber: number }
+  | { sessionId: SessionId; scope: "changeRequest"; changeRequestNumber: number }
   | {
       sessionId: SessionId;
-      scope: "workflow_run";
+      scope: "workflowRun";
       workflowRunId: WorkflowRunId;
       from: WorkflowRunSnapshotPoint;
       to: WorkflowRunSnapshotPoint;
@@ -68,7 +68,7 @@ interface DiffReadResponse {
     modeChanged?: boolean;
     binary?: boolean;
     // why the lines are not shown; size never is
-    unreadable?: "permission_denied" | "not_regular_file";
+    unreadable?: "permissionDenied" | "notRegularFile";
     additions: number;
     deletions: number;
     patch?: string; // the file's unified patch; absent for a binary file or one that could not be read
@@ -78,7 +78,7 @@ interface DiffReadResponse {
     oldBlobId?: string;
     newBlobId?: string;
     newestTurn?: number; // the latest turn that changed the file; absent for a change made outside a turn
-    // on the workflow_run arm only: the step that changed the file, its node id and the name it shows,
+    // on the workflowRun arm only: the step that changed the file, its node id and the name it shows,
     // per file and never per line
     step?: { nodeId: WorkflowNodeId; nodeName: string };
   }>;
@@ -95,7 +95,7 @@ interface DiffReadResponse {
 
 // The four ship acts. The preview and the act are built by the same daemon code, so the
 // commands shown before the press are the commands that run.
-type GitAct = "commit" | "push" | "pull" | "open_change_request";
+type GitAct = "commit" | "push" | "pull" | "openChangeRequest";
 interface GitActFormValues {
   commit?: { subject: string; body?: string };
   changeRequest?: {
@@ -162,8 +162,8 @@ interface GitActionProgress {
 // `max_context_window`) and Claude Code's `get_context_usage` read at the process's creation; the
 // price table gives only the price, so a model it does not price is sized the same way. The
 // response names each changed file no pass could read and never claims to cover it. A failure is
-// refused under the codes this contract registers (error-contracts.md §Gitflow): a passing upstream
-// failure under `gitflow.generate_failed`, the provider's refusal of the content by its own policy
+// refused under the codes this contract registers (error-contracts.md §Git): a passing upstream
+// failure under `git.generateFailed`, the provider's refusal of the content by its own policy
 // under `git.generateRefused`, each carrying the provider's own words, while a missing sign-in, a
 // timeout, a provider not installed or a spent allowance answers the shared provider and account
 // code for it; it never falls back to another provider, model or account. A chosen provider other
@@ -206,12 +206,12 @@ interface ChangeRequestUpdate {
     state: "open" | "merged" | "closed";
     isDraft: boolean;
     mergeable?: "mergeable" | "conflicting" | "unknown";
-    reviewDecision?: "approved" | "changes_requested" | "review_required";
+    reviewDecision?: "approved" | "changesRequested" | "reviewRequired";
     headCommitId: string;
     // Present at `full` depth only.
     author?: string;
     description?: string;
-    reviews?: Array<{ reviewer: string; verdict: "comment" | "approve" | "request_changes" }>;
+    reviews?: Array<{ reviewer: string; verdict: "comment" | "approve" | "requestChanges" }>;
     requestedReviewers?: string[];
     threads?: Array<{
       threadId: string; // the hosting service's own thread handle, carried verbatim
@@ -256,7 +256,7 @@ interface LabelListResponse {
 interface ReviewSubmitRequest {
   sessionId: SessionId;
   changeRequestNumber: number;
-  verdict: "comment" | "approve" | "request_changes";
+  verdict: "comment" | "approve" | "requestChanges";
   body?: string;
 }
 interface ReviewSubmitResponse {
@@ -324,10 +324,10 @@ interface GitHostRemoveResponse {
   host: string;
 }
 
-// The held-note store's shapes (the `session.reviewNote*` verbs below). A note records the
+// The held-note store's shapes (the `session.reviewNote.*` verbs below). A note records the
 // comparison it was written against, which is what a press on the note walks back to.
 interface ReviewNoteComparison {
-  scope: "changes" | "branch" | "change_request";
+  scope: "changes" | "branch" | "changeRequest";
   base: string;
   headCommitId?: string; // exactly one of headCommitId and workingTreeBlobId
   workingTreeBlobId?: string;
@@ -346,7 +346,7 @@ interface ReviewNote {
   stranded: boolean; // that line is gone from that side's file, or no longer says what `quote` holds
   createdAt: string; // RFC 3339 UTC
   updatedAt: string; // RFC 3339 UTC; the last edit of `body`
-  // `gitflow.reviewSubmit` adds `state: "held" | "sent"` to this shape when it is built: `sent` once
+  // `git.review.submit` adds `state: "held" | "sent"` to this shape when it is built: `sent` once
   // a posted review carried the note, drawn `sent` and never offered again, so a second press after
   // a part-way failure posts only what is still `held`. Until then the schema refuses the member.
 }
@@ -387,53 +387,53 @@ interface ReviewNoteSet {
 // review — so those system messages survive a reload. Each `cause` carries exactly the reference
 // its system message names: the commit's identifier for `committed`, the branch for `pushed`, the
 // branch and the commit it landed on for `pulled`, the request's number plus its address on the
-// hosting service for `pull_request_opened`, and the request's number plus the verdict for
-// `review_posted`. `runId` is present only on a `committed` record whose commit an agent made as an
+// hosting service for `pullRequestOpened`, and the request's number plus the verdict for
+// `reviewPosted`. `runId` is present only on a `committed` record whose commit an agent made as an
 // ordinary tool call (read from its run trailer); a push, and every act the person pressed, carries
 // none.
 interface GitSettledPayload {
   sessionId: SessionId;
   runId?: RunId;
-  cause: "committed" | "pushed" | "pulled" | "pull_request_opened" | "review_posted";
+  cause: "committed" | "pushed" | "pulled" | "pullRequestOpened" | "reviewPosted";
   commitId?: string;
   branch?: string;
   requestNumber?: number;
   requestUrl?: string;
-  verdict?: "comment" | "approve" | "request_changes";
+  verdict?: "comment" | "approve" | "requestChanges";
 }
 ```
 
-Plan-008's git flow is exposed as the `gitflow.*` methods below. Method-name strings follow the wire-name grammar, dotted lowerCamelCase segments ([Local IPC Payload Contracts §Wire-Name Grammar](./local-ipc-payloads.md#wire-name-grammar)). The PascalCase request/response type symbols (such as `GitActionExecute`) are off that grammar, which leaves PascalCase to type names, so `is_wire_name` fails the build on one used as a method string and each wire name differs from its payload type symbol. Names register under the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out. These methods ride the **daemon JSON-RPC transport only** — the ship facts, the diff and the held notes are this machine's git and daemon state, and the hosting service is reached from the daemon under the person's own signed-in identity, so no control-plane route sibling exists. Every session-scoped method is keyed by the session, and the daemon resolves the session's working folder itself.
+Plan-008's git flow is exposed as the `git.*` methods below. Method-name strings follow the wire-name grammar, dotted lowerCamelCase segments ([Local IPC Payload Contracts §Wire-Name Grammar](./local-ipc-payloads.md#wire-name-grammar)). The PascalCase request/response type symbols (such as `GitActionExecute`) are off that grammar, which leaves PascalCase to type names, so `is_wire_name` fails the build on one used as a method string and each wire name differs from its payload type symbol. Names register under the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out. These methods ride the **daemon JSON-RPC transport only** — the ship facts, the diff and the held notes are this machine's git and daemon state, and the hosting service is reached from the daemon under the person's own signed-in identity, so no control-plane route sibling exists. Every session-scoped method is keyed by the session, and the daemon resolves the session's working folder itself.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
-| `gitflow.branchContextRead` | `query` | `BranchContextReadRequest` | `BranchContextReadResponse` |
-| `gitflow.diffRead` | `query` | `DiffReadRequest` | `DiffReadResponse` |
-| `gitflow.gitActionPreview` | `query` | `GitActionPreviewRequest` | `GitActionPreviewResponse` |
-| `gitflow.gitActionExecute` | `mutation` | `GitActionExecuteRequest` | `GitActionExecuteResponse` |
-| `gitflow.gitActionSubscribe` | `subscription` | `GitActionSubscribeRequest` | `GitActionProgress` (stream) |
-| `gitflow.commitMessageGenerate` | `mutation` | `CommitMessageGenerateRequest` | `CommitMessageGenerateResponse` |
-| `gitflow.changeRequestTextGenerate` | `mutation` | `ChangeRequestTextGenerateRequest` | `ChangeRequestTextGenerateResponse` |
-| `gitflow.changeRequestSubscribe` | `subscription` | `ChangeRequestSubscribeRequest` | `ChangeRequestUpdate` (stream) |
-| `gitflow.reviewerList` | `query` | `ReviewerListRequest` | `ReviewerListResponse` |
-| `gitflow.labelList` | `query` | `LabelListRequest` | `LabelListResponse` |
-| `gitflow.reviewSubmit` | `mutation` | `ReviewSubmitRequest` | `ReviewSubmitResponse` |
-| `gitflow.threadResolve` | `mutation` | `ThreadResolveRequest` | `ThreadResolveResponse` |
-| `gitflow.threadReply` | `mutation` | `ThreadReplyRequest` | `ThreadReplyResponse` |
-| `gitflow.checkLogRead` | `query` | `CheckLogReadRequest` | `CheckLogReadResponse` |
-| `gitflow.hostList` | `query` | `GitHostListRequest` | `GitHostListResponse` |
-| `gitflow.hostAdd` | `mutation` | `GitHostAddRequest` | `GitHostAddResponse` |
-| `gitflow.hostRemove` | `mutation` | `GitHostRemoveRequest` | `GitHostRemoveResponse` |
+| `git.branchContext.read` | `query` | `BranchContextReadRequest` | `BranchContextReadResponse` |
+| `git.diff.read` | `query` | `DiffReadRequest` | `DiffReadResponse` |
+| `git.action.preview` | `query` | `GitActionPreviewRequest` | `GitActionPreviewResponse` |
+| `git.action.execute` | `mutation` | `GitActionExecuteRequest` | `GitActionExecuteResponse` |
+| `git.action.subscribe` | `subscription` | `GitActionSubscribeRequest` | `GitActionProgress` (stream) |
+| `git.commitMessage.generate` | `mutation` | `CommitMessageGenerateRequest` | `CommitMessageGenerateResponse` |
+| `git.changeRequest.text.generate` | `mutation` | `ChangeRequestTextGenerateRequest` | `ChangeRequestTextGenerateResponse` |
+| `git.changeRequest.subscribe` | `subscription` | `ChangeRequestSubscribeRequest` | `ChangeRequestUpdate` (stream) |
+| `git.reviewer.list` | `query` | `ReviewerListRequest` | `ReviewerListResponse` |
+| `git.label.list` | `query` | `LabelListRequest` | `LabelListResponse` |
+| `git.review.submit` | `mutation` | `ReviewSubmitRequest` | `ReviewSubmitResponse` |
+| `git.reviewThread.resolve` | `mutation` | `ThreadResolveRequest` | `ThreadResolveResponse` |
+| `git.reviewThread.reply` | `mutation` | `ThreadReplyRequest` | `ThreadReplyResponse` |
+| `git.checkLog.read` | `query` | `CheckLogReadRequest` | `CheckLogReadResponse` |
+| `git.host.list` | `query` | `GitHostListRequest` | `GitHostListResponse` |
+| `git.host.add` | `mutation` | `GitHostAddRequest` | `GitHostAddResponse` |
+| `git.host.remove` | `mutation` | `GitHostRemoveRequest` | `GitHostRemoveResponse` |
 
-**One git-settlement record, whose cause names the act.** Committing, pushing, pulling, opening a change request and posting a review each settle into ONE durable record — `git.settled`, whose `cause` is one of `committed | pushed | pulled | pull_request_opened | review_posted` and names which of the five it was — so those system messages survive a reload and the transcript says what left this machine and what came into it. The name and the taxonomy census are [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s; what is fixed here is that one record carries all five acts. A review posted with the comment verdict alone reads as a comment on the request. The record is what the flow renders; it is not a second copy of the hosting state, which `gitflow.changeRequestSubscribe` keeps on its own. A result that arrives after the form it came from has closed, or after the pane has been pointed at another session, updates nothing on screen — and the record still lands, because the act happened.
+**One git-settlement record, whose cause names the act.** Committing, pushing, pulling, opening a change request and posting a review each settle into ONE durable record — `git.settled`, whose `cause` is one of `committed | pushed | pulled | pullRequestOpened | reviewPosted` and names which of the five it was — so those system messages survive a reload and the transcript says what left this machine and what came into it. The name and the taxonomy census are [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s; what is fixed here is that one record carries all five acts. A review posted with the comment verdict alone reads as a comment on the request. The record is what the flow renders; it is not a second copy of the hosting state, which `git.changeRequest.subscribe` keeps on its own. A result that arrives after the form it came from has closed, or after the pane has been pointed at another session, updates nothing on screen — and the record still lands, because the act happened.
 
-**The held-note store and its verbs.** A review note is a DRAFT the daemon holds, scoped to the session, in the same session-scoped store as the composer draft and its staged files, so a half-written review reaches the person's other devices; typed unsent text is never written to renderer-local storage. `session.reviewNoteAdd` adds a note located at a file and a line — its path (the old path on a renamed file), its side, its line or range of lines — with its own words and the `comparison` it was written against, which is what a press on the note walks back to; `session.reviewNoteUpdate` edits a held note's words; `session.reviewNoteRemove` takes `noteIds`, an array, because one press discards every note behind one question and a steer clears every note at once; and `session.reviewNoteList` is the session's notes, live. A note leaves in exactly one of three ways — composed into the composer draft as a steer, posted as part of one review through `gitflow.reviewSubmit`, or discarded — and nothing else. The daemon checks each held note against the diff it points into and marks a note whose line no longer exists as stranded: it stays readable, editable and deletable, and is left out of a posted review, as is a note on uncommitted lines. Once a note is posted it stops being a held note and becomes a hosting thread, which takes `gitflow.threadReply` and `gitflow.threadResolve` and never the note's edit and delete. What is fixed here is the store — session-scoped, daemon-held, one home per note — and the `noteId` that `gitflow.reviewSubmit`'s result and the adapter's `submitReview` address a note by.
+**The held-note store and its verbs.** A review note is a DRAFT the daemon holds, scoped to the session, in the same session-scoped store as the composer draft and its staged files, so a half-written review reaches the person's other devices; typed unsent text is never written to renderer-local storage. `session.reviewNote.add` adds a note located at a file and a line — its path (the old path on a renamed file), its side, its line or range of lines — with its own words and the `comparison` it was written against, which is what a press on the note walks back to; `session.reviewNote.update` edits a held note's words; `session.reviewNote.delete` takes `noteIds`, an array, because one press discards every note behind one question and a steer clears every note at once; and `session.reviewNote.subscribe` is the session's notes, live. A note leaves in exactly one of three ways — composed into the composer draft as a steer, posted as part of one review through `git.review.submit`, or discarded — and nothing else. The daemon checks each held note against the diff it points into and marks a note whose line no longer exists as stranded: it stays readable, editable and deletable, and is left out of a posted review, as is a note on uncommitted lines. Once a note is posted it stops being a held note and becomes a hosting thread, which takes `git.reviewThread.reply` and `git.reviewThread.resolve` and never the note's edit and delete. What is fixed here is the store — session-scoped, daemon-held, one home per note — and the `noteId` that `git.review.submit`'s result and the adapter's `submitReview` address a note by.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
-| `session.reviewNoteAdd` | `mutation` | `ReviewNoteAddRequest` | `ReviewNoteResponse` |
-| `session.reviewNoteUpdate` | `mutation` | `ReviewNoteUpdateRequest` | `ReviewNoteResponse` |
-| `session.reviewNoteRemove` | `mutation` | `ReviewNoteRemoveRequest` | `ReviewNoteRemoveResponse` |
-| `session.reviewNoteList` | `subscription` | `ReviewNoteListRequest` | `ReviewNoteSet` (stream) |
+| `session.reviewNote.add` | `mutation` | `ReviewNoteAddRequest` | `ReviewNoteResponse` |
+| `session.reviewNote.update` | `mutation` | `ReviewNoteUpdateRequest` | `ReviewNoteResponse` |
+| `session.reviewNote.delete` | `mutation` | `ReviewNoteRemoveRequest` | `ReviewNoteRemoveResponse` |
+| `session.reviewNote.subscribe` | `subscription` | `ReviewNoteListRequest` | `ReviewNoteSet` (stream) |
 
-The reads are `query`s, the live feeds `subscription`s and every other verb a `mutation`, per [API Payload Contracts §Procedure Types](./api-payload-contracts.md#procedure-types). The daemon answers these verbs through its own hosting adapter, one per hosting kind, GitHub through the `gh` command-line tool and GitLab through `glab`, each under the person's own signed-in identity. The adapter is daemon-internal, in the daemon's gitflow module (`crates/sidekicks-daemon/src/gitflow/`), and is not part of this contract; its operations are stated in [Spec-009 §GitHostingAdapter Interface](../../specs/009-gitflow-pr-and-diff-attribution.md#githostingadapter-interface), and every reply a client reads is the verb's own shape above. The Rust types live in `crates/sidekicks-contracts/src/gitflow/`, and the held-note shapes in `crates/sidekicks-contracts/src/review_note.rs`; the generated TypeScript keeps `packages/contracts/src/gitflow/` and `packages/contracts/src/review-note.ts`, per the api-payload-contracts.md §Source-of-Truth Policy.
+The reads are `query`s, the live feeds `subscription`s and every other verb a `mutation`, per [API Payload Contracts §Procedure Types](./api-payload-contracts.md#procedure-types). The daemon answers these verbs through its own hosting adapter, one per hosting kind, GitHub through the `gh` command-line tool and GitLab through `glab`, each under the person's own signed-in identity. The adapter is daemon-internal, in the daemon's gitflow module (`crates/sidekicks-daemon/src/gitflow/`), and is not part of this contract; its operations are stated in [Spec-009 §GitHostingAdapter Interface](../../specs/009-gitflow-pr-and-diff-attribution.md#githostingadapter-interface), and every reply a client reads is the verb's own shape above. The Rust types live in `crates/sidekicks-contracts/src/git/`, and the held-note shapes in `crates/sidekicks-contracts/src/review_note.rs`; the generated TypeScript keeps `packages/contracts/src/git/` and `packages/contracts/src/review-note.ts`, per the api-payload-contracts.md §Source-of-Truth Policy.

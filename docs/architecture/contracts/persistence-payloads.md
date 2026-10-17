@@ -34,15 +34,15 @@ interface DaemonRecoveryStatus {
   }>;
 }
 
-// session.recoveryContinue (`Continue from here`) and session.recoveryDelete (`Delete session`):
-// both take a damaged session and answer `{}`; each is refused `session.recovery_refused` otherwise.
+// session.recovery.continue (`Continue from here`) and session.recovery.delete (`Delete session`):
+// both take a damaged session and answer `{}`; each is refused `session.recovery.refused` otherwise.
 interface SessionTargetRequest {
   sessionId: SessionId;
 }
 
-// recovery.damaged_events_skipped — appended by `Continue from here` at the log's next sequence;
+// session.damagedEvents.skipped — appended by `Continue from here` at the log's next sequence;
 // every read and rebuild of the session skips the range from then on, and the rows stay stored.
-interface RecoveryDamagedEventsSkippedPayload {
+interface SessionDamagedEventsSkippedPayload {
   sessionId: SessionId;
   fromSequence: number;
   toSequence: number; // at least fromSequence
@@ -70,7 +70,7 @@ interface ProjectionRebuildResponse {
   sessionId: SessionId;
   rebuiltProjections: string[];
   asOfSequence: number;
-  eventsApplied: number; // the events the rebuild read; recovery.succeeded sums them
+  eventsApplied: number; // the events the rebuild read; daemon.recovery.succeeded sums them
 }
 
 // RuntimeBindingRead
@@ -100,7 +100,7 @@ interface RuntimeBindingReadResponse {
 // checkpoint is kept for the session's life, removed only by an undo or by deleting the session or its
 // data.
 //
-// Undo is two moments: a DRY RUN the person reads (`session.restorePreview`), then the restore itself
+// Undo is two moments: a DRY RUN the person reads (`session.restore.preview`), then the restore itself
 // (`session.restore`). Both name the session, a `target` that is one of the person's messages by its
 // cursor or a snapshot by its id, and a `scope` of `conversation-and-files`, `conversation` or `files`; the
 // restore's request adds its idempotency key, the include line and an edit's `resend`, and its result is
@@ -109,12 +109,12 @@ interface RuntimeBindingReadResponse {
 
 // Why a file would be skipped, each shown with its reason in the count's hover title.
 type SessionRestoreSkipReason =
-  | "symbolic_link"
-  | "hard_link"
-  | "not_a_regular_file"
-  | "directory_moved"
-  | "too_large" // a file over 10 MiB that a command changed, on a volume that cannot clone it
-  | "branch_moved_by_command"; // changed by a command that moved the branch (a commit, a checkout, a reset, a pull); putting it back would turn the branch's commits into uncommitted reversals
+  | "symbolicLink"
+  | "hardLink"
+  | "notARegularFile"
+  | "directoryMoved"
+  | "tooLarge" // a file over 10 MiB that a command changed, on a volume that cannot clone it
+  | "branchMovedByCommand"; // changed by a command that moved the branch (a commit, a checkout, a reset, a pull); putting it back would turn the branch's commits into uncommitted reversals
 
 // What an undo would do; changes nothing.
 interface SessionRestorePreviewRequest {
@@ -150,4 +150,4 @@ interface SessionRestorePreviewResponse {
 }
 ```
 
-The dry run and the undo are `session.restorePreview` and `session.restore`, session verbs; the restore's request and result are [§Plan-002 — Queue Steer Pause Resume](./run-control-payloads.md#plan-002--queue-steer-pause-resume)'s undo contract, and `session.restorePreview` takes `SessionRestorePreviewRequest` above, answers with `SessionRestorePreviewResponse` and changes nothing. What is fixed here is the store — one hook for edits, a capture on each side of every command, three scopes addressed by a message or a snapshot — and a preview the person reads before anything is written.
+The dry run and the undo are `session.restore.preview` and `session.restore`, session verbs; the restore's request and result are [§Plan-002 — Queue Steer Pause Resume](./run-control-payloads.md#plan-002--queue-steer-pause-resume)'s undo contract, and `session.restore.preview` takes `SessionRestorePreviewRequest` above, answers with `SessionRestorePreviewResponse` and changes nothing. What is fixed here is the store — one hook for edits, a capture on each side of every command, three scopes addressed by a message or a snapshot — and a preview the person reads before anything is written.

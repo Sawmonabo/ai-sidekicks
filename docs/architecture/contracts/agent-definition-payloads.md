@@ -4,7 +4,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ## Plan-024 — Agent Definitions And Peer Invocation
 
-Governed by [Spec-026](../../specs/026-agent-definitions-and-peer-invocation.md) and, for plugins, [Spec-029](../../specs/029-skills.md). Saved agents are managed through six `agent.*` verbs — `agent.definitionList`, `agent.definitionCreate`, `agent.definitionUpdate`, `agent.definitionDelete`, `agent.definitionExport` and `agent.definitionImport` — plus the live `agent.definitionSubscribe`, and the tool allowlist's catalog read `callbackTool.list`; the `agent.*` verbs register against the Plan-005 `MethodRegistry` when Plan-024 lands, inside the `agent` root Plan-013 registers — the CP-005-2 late-registration pattern. The person's own edits to definitions, export and import included, pass no policy check and no ownership refusal; the definition verbs carry no `sessionId`. A peer-invocation call is an ordinary tool call on the bridge, so it rides the existing `tool_execution` approval category through the approval pipeline at the session's own permission level. No `ApprovalCategory` value is added. Refusals: [error-contracts.md §Agent Definitions](./error-contracts.md#agent-definitions). **No event type is minted**: definition mutation is machine-local configuration rather than session history, and every session-visible consequence of a peer invocation is already carried by the existing tool-activity and run-lifecycle events. A definition reaches the person's linked devices like every other screen, and otherwise leaves the machine only in the export files the person writes, with every binding's account left out.
+Governed by [Spec-026](../../specs/026-agent-definitions-and-peer-invocation.md) and, for plugins, [Spec-029](../../specs/029-skills.md). Saved agents are managed through six `agent.definition.*` verbs — `agent.definition.list`, `agent.definition.create`, `agent.definition.update`, `agent.definition.delete`, `agent.definition.export` and `agent.definition.import` — plus the live `agent.definition.subscribe`, and the tool allowlist's catalog read `agent.callbackTool.list`; the `agent.*` verbs register against the Plan-005 `MethodRegistry` when Plan-024 lands, inside the `agent` root Plan-013 registers — the CP-005-2 late-registration pattern. The person's own edits to definitions, export and import included, pass no policy check and no ownership refusal; the definition verbs carry no `sessionId`. A peer-invocation call is an ordinary tool call on the bridge, so it rides the existing `toolExecution` approval category through the approval pipeline at the session's own permission level. No `ApprovalCategory` value is added. Refusals: [error-contracts.md §Agent Definitions](./error-contracts.md#agent-definitions). **No event type is minted**: definition mutation is machine-local configuration rather than session history, and every session-visible consequence of a peer invocation is already carried by the existing tool-activity and run-lifecycle events. A definition reaches the person's linked devices like every other screen, and otherwise leaves the machine only in the export files the person writes, with every binding's account left out.
 
 ```ts
 // A daemon-minted opaque immutable identifier. NEVER the definition's name: the name is a mutable
@@ -36,7 +36,7 @@ type AgentAccentHue =
 // definition carries a DEFAULT binding and any number of overrides, so one saved agent runs on every provider it binds
 // without a second definition — the cross-provider bridge the library is for. The default is one of
 // the bindings rather than a fallback beside them: there is no unbound state to resolve from. The same shape is a
-// running agent's binding: `agent.configUpdate` moves its members, and the binding events
+// running agent's binding: `agent.config.update` moves its members, and the binding events
 // (orchestration-payloads.md §Plan-013) carry it from and to.
 // A binding names a provider a registered driver answers. Only the definition list serves a binding
 // whose file names a provider no registered driver answers, and it serves it as its own arm: no
@@ -45,22 +45,22 @@ type AgentAccentHue =
 interface AgentProviderBinding {
   // provider driver key, an open ProviderId checked against the registered drivers, matching the
   // agent surface's driver axis; on a live agent's binding it is checked where
-  // agent.provider_binding_changed writes it
+  // agent.providerBinding.changed writes it
   driverName: ProviderId;
   modelId: string;
-  providerAccountId: ProviderAccountId | null; // null = follow the provider's current account — the one marked `Default`, which `providerAccount.setCurrent` moves — resolved AT THE MOMENT THE RUN STARTS and followed when the mark moves. Deliberately not a foreign key: a definition may name an account that is later removed, and that must surface as a typed resolution refusal the person can act on, not as a delete-time cascade that silently rewrites the definition
+  providerAccountId: ProviderAccountId | null; // null = follow the provider's current account — the one marked `Default`, which `provider.account.current.update` moves — resolved AT THE MOMENT THE RUN STARTS and followed when the mark moves. Deliberately not a foreign key: a definition may name an account that is later removed, and that must surface as a typed resolution refusal the person can act on, not as a delete-time cascade that silently rewrites the definition
   effort: string | null; // null = the driver's default. Validated at RESOLUTION against the target model's driver-reported `effortLevels` — never against a hardcoded list, and never at save, because the vocabulary belongs to the model a run actually binds
-  outputSpeed?: string; // set on a running agent's binding through agent.configUpdate; a saved definition's bindings leave it absent, because the editor authors no speed
+  outputSpeed?: string; // set on a running agent's binding through agent.config.update; a saved definition's bindings leave it absent, because the editor authors no speed
   // The values of the session options the binding's driver declares, at most one per option id; an
   // option left out keeps the provider's own value. Set on a running agent's binding through
-  // agent.configUpdate; a saved definition's bindings leave it absent.
+  // agent.config.update; a saved definition's bindings leave it absent.
   options?: ProviderOptionSetting[];
   // The larger window chosen, in tokens, recorded when it was picked: the `contextWindow` of the
   // larger row picked (`ProviderModel.largerWindow`). Absent means the model's default window. A
   // figure is recorded only for a larger row that shares its default row's id (Codex); a Claude
   // larger row is chosen by its own id, which carries Claude Code's `[1m]` mark, so a Claude
   // binding never carries one. Every resume and fork sends the recorded figure, whatever the
-  // catalog says later. Set on a running agent's binding through agent.configUpdate; a saved
+  // catalog says later. Set on a running agent's binding through agent.config.update; a saved
   // definition's bindings leave it absent, because the editor authors no window.
   largerWindow?: number;
 }
@@ -145,7 +145,7 @@ type AgentHooks = Record<
 // a registry row that may already have moved. `instructions` is part of the echo rather than left out of
 // it: without it a caller cannot tell which system prompt the run actually received except by re-reading
 // the registry, which is the live-view read I-024-2 forbids. The goal is echoed as the definition set it;
-// the agent also starts with it as its own goal command, which `session.goal_updated` records. Where the
+// the agent also starts with it as its own goal command, which `session.goal.updated` records. Where the
 // definition is bound plural the echo carries the RESOLVED BINDING in place of the folded axes, so a
 // reader is told which side of the per-field merge won rather than which axes existed to merge. The hue is
 // echoed so every client tints the agent with the step its definition chose, read off the event that
@@ -155,7 +155,7 @@ type AgentResolvedConfiguration = {
   resolvedBinding: AgentProviderBinding;
 } & Pick<AgentDefinition, "accentHue" | "toolAllowlist" | "instructions" | "goal">;
 
-// agent.definitionList — machine-local and unfiltered: every definition from its origins — ours
+// agent.definition.list — machine-local and unfiltered: every definition from its origins — ours
 // (`.ai-sidekicks/agents/`, global or in a project), each installed provider's own agent files, and a
 // plugin's, which is read-only — one list serving the library, the composer's Sidekicks group, a
 // workflow node's chooser and every label that names an agent. The daemon parses every file itself
@@ -179,8 +179,8 @@ type AgentDefinitionListEntry = AgentDefinition & {
   loadError: string | null; // its file failed to load: the reason, from the daemon's own parse
   // A definition whose file names a provider this app doesn't run is listed too, its chip reading
   // `<name> · not supported here`. The read carries that name apart from the binding's ProviderId,
-  // and starting the definition is refused with `agent.resolution_refused`, reason
-  // `provider_unsupported`, until another provider is picked.
+  // and starting the definition is refused with `agent.definition.resolutionRefused`, reason
+  // `providerUnsupported`, until another provider is picked.
 };
 interface AgentDefinitionListResponse {
   definitions: AgentDefinitionListEntry[];
@@ -195,7 +195,7 @@ interface AgentDefinitionListResponse {
   lastUsedAt?: Record<AgentDefinitionId, string>;
 }
 
-// agent.definitionCreate — every axis except name is optional; omitted axes store as the null
+// agent.definition.create — every axis except name is optional; omitted axes store as the null
 // ("inherit / default") state rather than a materialized value, so a definition never silently
 // pins today's default forever. The daemon writes our file under the scope's `.ai-sidekicks/agents/`,
 // holding every field, and the store row in one operation.
@@ -224,7 +224,7 @@ interface AgentDefinitionCreateResponse {
   definition: AgentDefinitionListEntry;
 }
 
-// agent.definitionUpdate — a partial patch. An ABSENT key leaves the stored value alone; an
+// agent.definition.update — a partial patch. An ABSENT key leaves the stored value alone; an
 // explicit null CLEARS it back to the inherit state. That distinction is why the nullable axes are
 // `field?: T | null` rather than `field?: T`: without it there is no wire way to say "stop pinning
 // this", and the person could set an account or an effort but never unset one. A field the provider's
@@ -259,7 +259,7 @@ interface AgentDefinitionUpdateResponse {
   definition: AgentDefinitionListEntry; // the full post-update row, so a client never reconstructs it by merging its own patch
 }
 
-// agent.definitionDelete — never refused and never cascading. A session already running this
+// agent.definition.delete — never refused and never cascading. A session already running this
 // agent keeps the configuration it was given, and a workflow node that references it refuses at its
 // next run; the caller's own confirmation is where that consequence is named, so the wire carries no
 // force flag and no dependency list (Spec-026 §State And Data Implications). On an agent that came
@@ -273,13 +273,13 @@ interface AgentDefinitionDeleteResponse {
   deleted: true;
 }
 
-// agent.definitionExport — writes the chosen definitions into the folder the person picked with the
+// agent.definition.export — writes the chosen definitions into the folder the person picked with the
 // platform's own dialog, one Markdown file per definition: each definition's record, icon, accent,
 // hooks and memory scope, and every binding with the account left out. The notes in an agent's memory
 // folder are never read into a file. The daemon leaves the accounts out itself and never relies on the
 // caller to. The request carries the picked folder's token; main's relay turns it into the path the
 // daemon writes, so no path string crosses the bridge (Preload Bridge Contract). An unknown
-// id refuses the whole export; a failed write refuses with `agent.export_write_failed`, carrying the
+// id refuses the whole export; a failed write refuses with `agent.definition.exportWriteFailed`, carrying the
 // operating system's cause.
 interface AgentDefinitionExportRequest {
   definitionIds: AgentDefinitionId[]; // one or more
@@ -289,7 +289,7 @@ interface AgentDefinitionExportResponse {
   exportedCount: number;
 }
 
-// agent.definitionImport — reads the definition files in the folder the person picked with the
+// agent.definition.import — reads the definition files in the folder the person picked with the
 // platform's own dialog and creates every definition in them in one daemon transaction. It
 // only ever creates and never overwrites, suffixes a colliding name as `Duplicate` does (checked
 // against the store's unique name index), lands every definition in the global scope, because the
@@ -302,23 +302,23 @@ interface AgentDefinitionImportRequest {
 }
 interface AgentDefinitionImportResponse {
   definitions: AgentDefinitionListEntry[]; // the created rows, under their final, possibly suffixed, names
-  skipped: Array<{ fileName: string; reason: "not_an_agent_definition" }>; // drawn `README.md · not an agent definition`
+  skipped: Array<{ fileName: string; reason: "notAnAgentDefinition" }>; // drawn `README.md · not an agent definition`
 }
 
-// agent.definitionSubscribe — the whole agent.definitionList reply again each time a definition
+// agent.definition.subscribe — the whole agent.definition.list reply again each time a definition
 // changes: a save, delete or import from any window; a provider's file added, changed or removed on
 // disk as the daemon's watch sees it; a plugin landing or leaving. Every open window's library,
 // composer group and workflow chooser stay current without re-reading.
 interface AgentDefinitionSubscribeRequest {}
 type AgentDefinitionSubscribeStream = AsyncIterable<AgentDefinitionListResponse>;
 
-// callbackTool.list — the daemon's callback tools, one of the allowlist picker's three sources beside
-// the MCP catalog (`mcp.list`, mcp-governance-payloads.md §Plan-022) and each provider's own built-in tools (the `builtInTools`
+// agent.callbackTool.list — the daemon's callback tools, one of the allowlist picker's three sources beside
+// the MCP catalog (`mcp.server.list`, mcp-governance-payloads.md §Plan-022) and each provider's own built-in tools (the `builtInTools`
 // list each driver's descriptor carries on `provider.list`, settings-payloads.md). Machine-wide, because the editor has no session: a static
 // catalog of the registrations in code — the bridge's verbs, the session tools and the
 // workflow tools — whose names the daemon curates and never takes from provider output.
-interface CallbackToolListRequest {}
-interface CallbackToolListResponse {
+interface AgentCallbackToolListRequest {}
+interface AgentCallbackToolListResponse {
   tools: Array<{
     name: string; // the wire name a provider sees
     label?: string; // the words a person reads, the one label the picker and the transcript both draw; absent = the name in sentence case
@@ -336,11 +336,11 @@ interface CallbackToolListResponse {
 // Codex's own `/plugins` lists for the account, the workspace's catalog and the plugins shared with
 // the person included, each as its own section below Codex's catalog and each row installed like
 // any other. Installing or removing a plugin raises the daemon's own `plugin.installed` /
-// `plugin.uninstalled` signal, which the origin reader, `agent.definitionSubscribe` and the session
+// `plugin.uninstalled` signal, which the origin reader, `agent.definition.subscribe` and the session
 // pack follow; neither is a session event.
 // `provider` on every plugin verb is the open ProviderId of a provider whose driver offers plugins;
-// one that offers none is refused with `driver.capability_unsupported`.
-// plugin.catalogList — each provider's catalog, read once per opening of the view and held only while
+// one that offers none is refused with `provider.capability.unsupported`.
+// plugin.catalog.list — each provider's catalog, read once per opening of the view and held only while
 // it is open. The daemon filters by `query`, because neither provider's verb takes one.
 interface PluginCatalogListRequest {
   provider: ProviderId;
@@ -387,7 +387,7 @@ interface PluginReadResponse {
     isRequired: boolean;
   }>;
 }
-// plugin.optionsRead / plugin.optionsSave — an installed Claude Code plugin's options, read through
+// plugin.options.read / plugin.options.update — an installed Claude Code plugin's options, read through
 // `claude plugin configure <id> --json` and saved through the same verb with `--values-stdin`, so a
 // value never rides a command line where another process could read it. A sensitive value is never
 // read back: `isSet` says only whether it holds one.
@@ -438,7 +438,7 @@ interface PluginInstallResponse {
 interface PluginUninstallResponse {
   uninstalled: true;
 }
-// plugin.installedList — the plugins in the daemon's plugin homes, and those the person installed
+// plugin.installed.list — the plugins in the daemon's plugin homes, and those the person installed
 // in their own terminal (`installedInTerminal`). A Claude Code row carries `loadError` when the
 // plugin did not load: Claude Code's reason from the newest session start whose `system/init`
 // `plugin_errors` named it, drawn as `Didn't load` with `Remove` and `Copy error`.
@@ -448,7 +448,7 @@ interface PluginInstalledListRequest {
 interface PluginInstalledListResponse {
   plugins: Array<PluginCatalogListResponse["plugins"][number] & { loadError?: string }>;
 }
-// plugin.marketplaceAdd / plugin.marketplaceRemove — each provider's official marketplace is present
+// plugin.marketplace.add / plugin.marketplace.remove — each provider's official marketplace is present
 // without adding it.
 interface PluginMarketplaceAddRequest {
   provider: ProviderId;
@@ -462,7 +462,7 @@ interface PluginMarketplaceChangeResponse {
   provider: ProviderId;
   name: string;
 }
-// plugin.appList — a Codex plugin's apps, each with its link state on every Codex account, read from
+// plugin.app.list — a Codex plugin's apps, each with its link state on every Codex account, read from
 // that account's own Codex service. `connectUrl` opens the app's page in the browser, where the person
 // links it while signed in as that account. An API-key account carries no apps.
 interface PluginAppListRequest {
@@ -495,7 +495,7 @@ interface PluginAppListResponse {
 // word and returns its answer word for word: the lead's own tool list never holds them, so the lead
 // reaches the agent through that entry and nothing else.
 // All six are registered at spawn UNCONDITIONALLY and adjudicated per invocation, exactly as every
-// other daemon-registered tool is: the call rides the `tool_execution` approval category through the
+// other daemon-registered tool is: the call rides the `toolExecution` approval category through the
 // approval pipeline under the session's own permission level — an asking level raises the same
 // approval card any tool call raises, an approval rule can answer it, and a level that never asks
 // never asks for this either — and a decline answers `denied` rather than hiding the tool.
@@ -538,7 +538,7 @@ type AgentBridgeHandle = string & { readonly __brand: "AgentBridgeHandle" };
 // agent_run — start an agent and ANSWER AT ONCE with its handle, never blocking until the work is done.
 // The daemon resolves the definition, starts that provider's own unit of work under it — a thread on the
 // Codex leg, a process on the Claude leg — admits the run through the ordinary orchestration pipeline,
-// and links it to the run that reached it, the link recording `reachedBy: "bridge_run"` (orchestration-payloads.md §Plan-013's
+// and links it to the run that reached it, the link recording `reachedBy: "bridgeRun"` (orchestration-payloads.md §Plan-013's
 // ChildRunProvenance); this surface mints no run kind. The daemon shows a bridged agent under the lead
 // that reached it and hands the lead its result.
 // Admission is evaluated SYNCHRONOUSLY inside the creation call, so the verb can never answer with the
@@ -653,4 +653,4 @@ interface AgentBridgeListResult {
 
 **Two library readings are derived on the list reply.** How many workflows bind a definition is `workflowUsage`, a fold over the workflow definitions on the machine, and when a definition was last used is `lastUsedAt`, a fold over the session runs and workflow runs that record their resolved-from definition. Both are computed per reply and never stored, so the card, the library's last-used order and the delete confirmation read figures that are true when they are drawn; where a source cannot be read, its reading is absent rather than zero.
 
-**How a saved agent reaches a session.** The daemon hands every agent to each provider at launch in the session pack, under the `sidekicks` namespace; nothing here is a wire method. On Claude Code each agent rides the `agents` map of the process's `initialize` request under its namespaced name with every field of its record — its tools, model, effort, tool servers, hooks and memory, and no permission mode, so every agent runs at the session's level, and no `maxTurns`, because the turn cap is the daemon's own count — because Claude Code drops `hooks` and `mcpServers` from a plugin's agent file. That map is fixed for the process's life, so a save reaches a running Claude Code session by a resume at the session's next idle moment — no turn and no background task running — with the new map; several saves before that moment make one restart and one `conversation_reloaded` notice. On Codex a role file carries the agent, and what a role file cannot carry — its hooks, tool servers, sandbox and memory — rides the conversation's `thread/start` configuration, the hooks with their trust records and, for a helper the lead starts, gated on that helper's agent type, each handler kind Codex does not run answered by the daemon on a tool-hook row; a save reaches a running Codex session by forking the lead's conversation on the running service.
+**How a saved agent reaches a session.** The daemon hands every agent to each provider at launch in the session pack, under the `sidekicks` namespace; nothing here is a wire method. On Claude Code each agent rides the `agents` map of the process's `initialize` request under its namespaced name with every field of its record — its tools, model, effort, tool servers, hooks and memory, and no permission mode, so every agent runs at the session's level, and no `maxTurns`, because the turn cap is the daemon's own count — because Claude Code drops `hooks` and `mcpServers` from a plugin's agent file. That map is fixed for the process's life, so a save reaches a running Claude Code session by a resume at the session's next idle moment — no turn and no background task running — with the new map; several saves before that moment make one restart and one `conversationReloaded` notice. On Codex a role file carries the agent, and what a role file cannot carry — its hooks, tool servers, sandbox and memory — rides the conversation's `thread/start` configuration, the hooks with their trust records and, for a helper the lead starts, gated on that helper's agent type, each handler kind Codex does not run answered by the daemon on a tool-hook row; a save reaches a running Codex session by forking the lead's conversation on the running service.

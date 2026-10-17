@@ -15,7 +15,7 @@ interface QueueItemCreateRequest {
   sessionId: SessionId;
   to?: SessionId; // addresses another session instead: the message arrives there as that session's own row
   // Binds the run a send starts to its repository; it never reorders what the person sees, which is
-  // the daemon's order (`run.queueReorder`).
+  // the daemon's order (`agent.queueItem.reorder`).
   workspaceId?: WorkspaceId;
   clientIdempotencyKey: string; // a UUID; a retried send returns the saved result
   content: string;
@@ -28,20 +28,20 @@ interface QueueItemCreateRequest {
   // a skill of that name in that folder, so of two Codex folders sharing one name the row picked is
   // the one that runs. A Claude Code agent receives the text alone. Absent when nothing was picked. The folder crosses in from the client, so the
   // daemon accepts a pick only when its name and folder match a row of `skill.list`, and for a Codex
-  // agent a skill Codex lists there, and refuses the send otherwise (`skill.path_refused`,
-  // `not_listed`); no path a client sent reaches a provider.
+  // agent a skill Codex lists there, and refuses the send otherwise (`skill.pathRefused`,
+  // `notListed`); no path a client sent reaches a provider.
   skills?: { name: string; folderPath: string }[];
   // An edit of a message still waiting, made in one call: the named item reads `superseded` and this
   // one takes its place in the order, so the edited message keeps its position. Refused once the agent
-  // has taken the named message (`queue.change_refused`, `already_taken`), when Claude Code does not
-  // give it back, which then reads not delivered (`not_delivered`), and when the queue holds no such
-  // item (`queue.item_not_found`). The daemon does the replacing
+  // has taken the named message (`agent.queueItem.changeRefused`, `alreadyTaken`), when Claude Code does not
+  // give it back, which then reads not delivered (`notDelivered`), and when the queue holds no such
+  // item (`agent.queueItem.notFound`). The daemon does the replacing
   // itself — on Claude Code a cancel and a resend inside this call, on Codex a replacement in its own
   // hold, because a resend there would move the message to the end of the queue — and a client never
   // sends a cancel and a resend for an edit.
   replacesQueueItemId?: QueueItemId;
   // The question this send answers: Codex's non-waiting question, answered by an ordinary message.
-  // The daemon copies it onto the `user.message` row it writes, the mark that settles the question
+  // The daemon copies it onto the `user.message.sent` row it writes, the mark that settles the question
   // on every device. Absent on a send that answers no question.
   answersQuestionId?: QuestionId;
   // The output-speed level this send's turn alone runs at, the agent's own level unchanged: `Use
@@ -53,22 +53,22 @@ interface QueueItemCreateRequest {
 interface QueueItemCreateResponse {
   queueItemId: QueueItemId;
   state: QueueItemState;
-  // present exactly on a not_delivered item, as a retried send of one whose delivery failed answers
+  // present exactly on a notDelivered item, as a retried send of one whose delivery failed answers
   notDeliveredReason?: QueueItemNotDeliveredReason;
   createdAt: string;
 }
 // Orchestration seam (D-013-9): Plan-013's orchestration-run-service composes with
 // the daemon queue-admission service IN-PROCESS, passing an OrchestrationRunLinkCarrier (see
 // orchestration-payloads.md §Plan-013) after its own admission pipeline passes. The in-process admission API returns the
-// minted RunId (the run.queued emission's runId) alongside queueItemId, and run.queued carries the
-// carrier fields durably (Spec-005 §Run Lifecycle run.queued row). The wire run.queueCreate method never
-// accepts the carrier — child-run creation goes through orchestration.runCreate only.
+// minted RunId (the agent.run.queued emission's runId) alongside queueItemId, and agent.run.queued carries the
+// carrier fields durably (Spec-005 §Run Lifecycle agent.run.queued row). The wire agent.queueItem.create method never
+// accepts the carrier — child-run creation goes through agent.run.create only.
 
 // QueueItemList — a queue in the daemon's order.
 interface QueueItemListRequest {
   sessionId: SessionId;
-  // A live child's own queue in place of the lead's. The same member narrows run.subscribeQueue,
-  // run.queueCancel and run.queueReorder, so a child's pending rows work as the lead's do.
+  // A live child's own queue in place of the lead's. The same member narrows agent.queueItem.subscribe,
+  // agent.queueItem.cancel and agent.queueItem.reorder, so a child's pending rows work as the lead's do.
   childHandle?: ChildHandle;
   // The items in this state; absent, the items still waiting and those not delivered, never the
   // ones the agent took or that ended otherwise.
@@ -79,9 +79,9 @@ interface QueueItemListResponse {
 }
 
 // Why a message the daemon accepted was never delivered: the run it waited for waited at the memory
-// gate past the daemon's own delivery timeout to start (`timed_out`), or its delivery failed
+// gate past the daemon's own delivery timeout to start (`timedOut`), or its delivery failed
 // outright (`failed`). Either way it can be sent again.
-type QueueItemNotDeliveredReason = "timed_out" | "failed";
+type QueueItemNotDeliveredReason = "timedOut" | "failed";
 
 // One queued message, as a pending row draws it.
 interface QueueItemSummary {
@@ -92,14 +92,14 @@ interface QueueItemSummary {
   content: string;
   attachments?: ArtifactId[];
   childHandle?: ChildHandle; // the child whose queue holds it; absent on the lead's
-  notDeliveredReason?: QueueItemNotDeliveredReason; // present exactly on a not_delivered item
+  notDeliveredReason?: QueueItemNotDeliveredReason; // present exactly on a notDelivered item
   createdAt: string;
   updatedAt: string;
 }
 
-// QueueItemCancel — `Remove`. Refused for an item the queue does not hold (`queue.item_not_found`), one
-// the agent has taken (`queue.change_refused`, `already_taken`), and one Claude Code does not give back,
-// which then reads not delivered (`not_delivered`).
+// QueueItemCancel — `Remove`. Refused for an item the queue does not hold (`agent.queueItem.notFound`), one
+// the agent has taken (`agent.queueItem.changeRefused`, `alreadyTaken`), and one Claude Code does not give back,
+// which then reads not delivered (`notDelivered`).
 interface QueueItemCancelRequest {
   queueItemId: QueueItemId;
   childHandle?: ChildHandle; // the child whose queue holds the item
@@ -111,7 +111,7 @@ interface QueueItemCancelResponse {
 
 // QueueReorder — one daemon-held order over the items still waiting, on the lead's queue or a child's.
 // `queueItemIds` is the full new order, naming each item once, and is refused unless it names exactly the
-// items still waiting (`queue.change_refused`, `order_mismatch`). On Codex the daemon reorders its own
+// items still waiting (`agent.queueItem.changeRefused`, `orderMismatch`). On Codex the daemon reorders its own
 // hold; on Claude Code it cancels and resends in the new order. The daemon holds the order itself because
 // a cancel and a resend on Codex would put the message last. The answer is the queue in its new order.
 interface QueueReorderRequest {
@@ -134,13 +134,13 @@ interface QueueReorderRequest {
 // giving at-least-once delivery exactly-once application: the daemon persists it on the
 // interventions row (UNIQUE(target_run_id, client_idempotency_key)); an identical retry returns
 // the saved result without re-dispatching, and key reuse with a differing payload
-// is rejected as `intervention.idempotency_conflict` (Spec-004 §Required Behavior). The two
+// is rejected as `agent.intervention.idempotencyConflict` (Spec-004 §Required Behavior). The two
 // guards are orthogonal: `expectedRunVersion` is the stale-request guard, refusing OUTDATED intent;
 // `clientIdempotencyKey` is the duplicate-request guard, refusing a second application of the SAME
 // intent.
 type InterventionRequestPayload =
   | {
-      // The lead's interrupt. `Interrupt everything` is this arm on the lead's run plus `run.childrenStop`
+      // The lead's interrupt. `Interrupt everything` is this arm on the lead's run plus `agent.childRun.stopAll`
       // on the same run (§Run-Control Method-Name Registry below).
       type: "interrupt";
       targetRunId: RunId;
@@ -159,7 +159,7 @@ type InterventionRequestPayload =
       // Codex's retry on the faster model its safety check names (Spec-004 §Required Behavior): the
       // daemon interrupts the turn, forks the conversation to just before it and sends the same message
       // again on `model`. A turn that is no longer the latest, or whose reply has started, is `rejected`.
-      type: "faster_model_retry";
+      type: "fasterModelRetry";
       targetRunId: RunId;
       expectedRunVersion: number;
       clientIdempotencyKey: string;
@@ -173,7 +173,7 @@ type InterventionRequestPayload =
 //
 // Undo is not an intervention. Putting a session back to before one of its messages, or to one of its
 // snapshots, is the session's own call, `session.restore`, read first through its dry run
-// `session.restorePreview`, which takes the same session, target and scope and changes nothing; the dry
+// `session.restore.preview`, which takes the same session, target and scope and changes nothing; the dry
 // run's request and figures are in persistence-payloads.md §Plan-012 — Persistence And Recovery, and the undo's
 // request and result are these. The request names a `target` — one of the person's own
 // messages by its cursor, or one of the session's snapshots by its id, never a numeric or provider
@@ -184,8 +184,8 @@ type InterventionRequestPayload =
 // Edit and resend is the same one call, and a call carrying `resend` takes the scope
 // `conversation-and-files`, so a cut that landed while the resend failed is its own outcome,
 // `resend-unapplied`, reported as that result and never as a second call's failure; the edited message
-// goes back in the composer. The conversation cut alone is recorded by `run.rolled_back`
-// (RunRolledBackEvent below), and every undo's outcome by `session.restore_finished`.
+// goes back in the composer. The conversation cut alone is recorded by `agent.run.rolledBack`
+// (RunRolledBackEvent below), and every undo's outcome by `session.restore.completed`.
 type SnapshotId = string & { readonly __brand: "SnapshotId" }; // daemon-minted, opaque to every client
 type SessionRestoreTarget =
   | { kind: "message"; anchorCursor: EventCursor } // before one of the person's own messages
@@ -201,7 +201,7 @@ interface SessionRestoreRequest {
   // makes edit and resend one call.
   resend?: { content: string; attachments?: ArtifactId[] };
 }
-type SessionRestoreResult =
+type SessionRestoreOutcome =
   | {
       outcome: "restore-finished";
       requested: SessionRestoreScope;
@@ -225,7 +225,7 @@ type SessionRestoreResult =
 interface InterventionResponseBase {
   interventionId: InterventionId;
   interventionType: InterventionType;
-  runVersion: number; // post-application run counter (D-002-1) — the caller threads this into the next intervention's `expectedRunVersion`. Carried on the response because an applied native steer advances the run version WITHOUT a `run.*` state change (Spec-003 §Driver-Level Steer Mechanics), so for that path the response is the only place the caller can read the fresh comparand.
+  runVersion: number; // post-application run counter (D-002-1) — the caller threads this into the next intervention's `expectedRunVersion`. Carried on the response because an applied native steer advances the run version WITHOUT an `agent.run.*` state change (Spec-003 §Driver-Level Steer Mechanics), so for that path the response is the only place the caller can read the fresh comparand.
 }
 // A `rejected` answer always carries its `rejectionReason` and a `failed` one its `failureReason`;
 // no other state carries a reason. No state carries a result: what an intervention did reaches the screen as the run's own events.
@@ -233,7 +233,7 @@ type InterventionRequestResponse = InterventionResponseBase &
   (
     | {
         state: "rejected";
-        rejectionReason: string; // machine-readable cause on a `rejected` OUTCOME, which is a normal `run.intervene` response and not a JSON-RPC transport error, so the CLI renders WHY (e.g. `driver.capability_unsupported`). A request-admission refusal (e.g. `intervention.idempotency_conflict`, 422) is a JsonRpcError that produces no intervention row, so it never rides here. Durable across a retry: the cause persists in the intervention row's own `rejection_reason` column (Plan-002 T1.4 DDL), so a retry that returns the saved result reconstructs the SAME machine-readable reason from that column, never fabricating one.
+        rejectionReason: string; // machine-readable cause on a `rejected` OUTCOME, which is a normal `agent.run.intervene` response and not a JSON-RPC transport error, so the CLI renders WHY (e.g. `provider.capability.unsupported`). A request-admission refusal (e.g. `agent.intervention.idempotencyConflict`, 422) is a JsonRpcError that produces no intervention row, so it never rides here. Durable across a retry: the cause persists in the intervention row's own `rejection_reason` column (Plan-002 T1.4 DDL), so a retry that returns the saved result reconstructs the SAME machine-readable reason from that column, never fabricating one.
       }
     | {
         state: "failed";
@@ -242,19 +242,19 @@ type InterventionRequestResponse = InterventionResponseBase &
     | { state: "requested" | "accepted" | "applied" | "degraded" | "expired" }
   );
 
-// RunStateChange (event, not request/response). The `run.failed` variant carries the
+// RunStateChange (event, not request/response). The `agent.run.failed` variant carries the
 // `providerFailureDetail` surface that mirrors the `failed`-variant `providerFailureDetail` of `DriverResumeResult`
 // (provider-driver-payloads.md §Plan-003) — Spec-004 §Fallback Behavior requires resume-failure detail to reach the canonical audit
 // log so Plan-012's recovery dispatcher and Plan-010's transcript can render the actionable
 // reason for the failure without re-querying the driver. Plan-003 CP-003-3; Plan-004 Phase 3. A typed cause rides `failureCause`, never this text.
 interface RunStateChangeEvent {
   runId: RunId;
-  runVersion: number; // run-progression counter (D-002-1): the optimistic-concurrency comparand clients read via run.subscribeState and pass back as `expectedRunVersion`. Advances on every run progression, applied interventions included. A no-state-change advance with no per-type event of its own (e.g. native steer) is NOT emitted as a discrete run.subscribeState event (no transition to record, [Spec-003 §Driver-Level Steer Mechanics](../../specs/003-queue-steer-pause-resume.md#driver-level-steer-mechanics)); the carve-out is an undo's conversation cut — it transitions no state, but its per-type RunRolledBackEvent below rides the same stream carrying the fresh runVersion, so subscribers are never blind to a rewind. A non-intervening subscriber may still hold a stale comparand after a steer-like advance until its next guarded request is correctly rejected `expired`, whereupon it re-reads run-state and retries (reject→re-read→retry; V1 adds no broadcast push for such no-per-type-event bumps — Spec-005 §Security Events / Run Lifecycle). Distinct from the immutable EventEnvelope `.version` (Spec-005 §EventEnvelope Version Semantics) — that is the wire-contract semver; this is the run aggregate's concurrency token.
+  runVersion: number; // run-progression counter (D-002-1): the optimistic-concurrency comparand clients read via agent.run.subscribe and pass back as `expectedRunVersion`. Advances on every run progression, applied interventions included. A no-state-change advance with no per-type event of its own (e.g. native steer) is NOT emitted as a discrete agent.run.subscribe event (no transition to record, [Spec-003 §Driver-Level Steer Mechanics](../../specs/003-queue-steer-pause-resume.md#driver-level-steer-mechanics)); the carve-out is an undo's conversation cut — it transitions no state, but its per-type RunRolledBackEvent below rides the same stream carrying the fresh runVersion, so subscribers are never blind to a rewind. A non-intervening subscriber may still hold a stale comparand after a steer-like advance until its next guarded request is correctly rejected `expired`, whereupon it re-reads run-state and retries (reject→re-read→retry; V1 adds no broadcast push for such no-per-type-event bumps — Spec-005 §Security Events / Run Lifecycle). Distinct from the immutable EventEnvelope `.version` (Spec-005 §EventEnvelope Version Semantics) — that is the wire-contract semver; this is the run aggregate's concurrency token.
   previousState: RunState;
   newState: RunState;
   failureCategory?: RunFailureCategory;
   recoveryCondition?: RecoveryCondition; // named type in provider-driver-payloads.md §Plan-003: 'recovery-needed' | 'reauth-required'
-  // The run's typed failure cause, present only on a `run.failed` (Spec-005 §Run Lifecycle):
+  // The run's typed failure cause, present only on a `agent.run.failed` (Spec-005 §Run Lifecycle):
   // `failureCause: { cause, origin }`, a named, closed failure-cause union in `packages/contracts`
   // (`run/failure-cause.ts`); each provider's own causes are normalized into it by its driver. The refusal
   // carries the refusing model and the provider's words; the usage limit carries the driver's
@@ -289,7 +289,7 @@ interface RunStateChangeEvent {
         // with failureCategory "setup failure".
         cause: "setup-failed";
         origin: "daemon";
-        code?: string; // the gate's error code, such as "workspace.execution_root_unresolved"
+        code?: string; // the gate's error code, such as "workspace.executionRoot.unresolved"
         message: string; // the gate's own words
       }
     | {
@@ -305,24 +305,19 @@ interface RunStateChangeEvent {
         cause: "flex-capacity-unavailable";
         origin: "provider";
       };
-  // The provider's own failure prose on a `run.failed` with failureCategory "provider failure",
+  // The provider's own failure prose on a `agent.run.failed` with failureCategory "provider failure",
   // shown as given; a typed cause is `failureCause`, never this text.
   providerFailureDetail?: string;
-  // Present only on a `run.failed` whose provider process ended on its own under the turn: exactly one
+  // Present only on a `agent.run.failed` whose provider process ended on its own under the turn: exactly one
   // of the exit code and the signal, and the last lines the process printed. A process the daemon
   // closed itself, or a sleep, records none.
   processExit?:
     | { exitCode: number; signal?: never; outputTail: string }
     | { signal: string; exitCode?: never; outputTail: string };
   intendedClose?: true; // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-005 §Run Lifecycle "Intended-close discriminator")
-  executionPosture?: ExecutionPosture; // named type in provider-driver-capability-payloads.md (same shape, shared with the CreateSessionParams/StartRunParams spawn/turn carriers). Stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-002 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-005 §Run Lifecycle run-state payload; shape owned by Spec-004, policy semantics per Spec-010 §Required Behavior). Optionality covers non-running rows only: run.running emitters MUST stamp the complete posture object — including credentialPolicyRef, which every run carries.
-  trigger?:
-    | "step_limit"
-    | "spend_limit"
-    | "token_limit"
-    | "workflow_phase_canceled"
-    | "daemon_restart"; // stop-condition provenance (ADR-017): rides run.interrupted when the service interrupts a run itself, at the step limit or the spend limit the person set (D-013-6), because its workflow phase was canceled, or because a restart ended a child held in a pause; and rides run.stopped as `token_limit` at the run's token limit, which ends the run. A restart that settles the daemon's pending limit stop writes the limit's own value. Absent on natural completion and user-initiated paths, including the person's interrupt a restart settles. The console has no runs pane to render it in: a stopped run's cause is told on the working line, which is where a run is paused and interrupted, and in the transcript's own state-changing rows ([Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)).
-  // A run's linkage and its admission stamps ride the run.queued row alone (RunQueuedPayload, orchestration-payloads.md §Plan-013),
+  executionPosture?: ExecutionPosture; // named type in provider-driver-capability-payloads.md (same shape, shared with the CreateSessionParams/StartRunParams spawn/turn carriers). Stamped only on agent.run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-002 gate seam; a agent.run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-005 §Run Lifecycle run-state payload; shape owned by Spec-004, policy semantics per Spec-010 §Required Behavior). Optionality covers non-running rows only: agent.run.running emitters MUST stamp the complete posture object — including credentialPolicyRef, which every run carries.
+  trigger?: "stepLimit" | "spendLimit" | "tokenLimit" | "workflowPhaseCanceled" | "daemonRestart"; // stop-condition provenance (ADR-017): rides agent.run.interrupted when the service interrupts a run itself, at the step limit or the spend limit the person set (D-013-6), because its workflow phase was canceled, or because a restart ended a child held in a pause; and rides agent.run.stopped as `tokenLimit` at the run's token limit, which ends the run. A restart that settles the daemon's pending limit stop writes the limit's own value. Absent on natural completion and user-initiated paths, including the person's interrupt a restart settles. The console has no runs pane to render it in: a stopped run's cause is told on the working line, which is where a run is paused and interrupted, and in the transcript's own state-changing rows ([Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)).
+  // A run's linkage and its admission stamps ride the agent.run.queued row alone (AgentRunQueuedPayload, orchestration-payloads.md §Plan-013),
   // never this stream.
   timestamp: string;
 }
@@ -334,7 +329,7 @@ interface RunStateChangeEvent {
 // appears in the undo request, which names a message or a snapshot. Non-terminal — zero interaction with
 // the at-most-once terminal backstop — and deliberately NO previousState/newState: a cut is not a state
 // transition, and fabricating one would corrupt the transition stream consumers rebuild from. Rides
-// `run.subscribeState` alongside `RunStateChangeEvent` (the RPC table below).
+// `agent.run.subscribe` alongside `RunStateChangeEvent` (the RPC table below).
 interface RunRolledBackEvent {
   sessionId: SessionId;
   runId: RunId;
@@ -350,16 +345,16 @@ interface RunRolledBackEvent {
 // extends Plan-002 D-002-2's mandatory-comparand obligation to these orchestration-layer verbs — `pause` /
 // `resume` hold no InterventionType membership (ADR-011), so the guard binds them by extension, not as
 // interventions.
-interface RunPauseRequest {
+interface AgentRunPauseRequest {
   targetRunId: RunId;
   expectedRunVersion: number;
 }
-interface RunResumeRequest {
+interface AgentRunResumeRequest {
   targetRunId: RunId;
   expectedRunVersion: number;
 }
 // Shared pause/resume ack: echoes the post-transition run state + the advanced `runVersion`, so the
-// caller threads the fresh comparand into its next guarded request without a round-trip to run.subscribeState.
+// caller threads the fresh comparand into its next guarded request without a round-trip to agent.run.subscribe.
 interface RunControlAck {
   runId: RunId;
   newState: RunState;
@@ -396,7 +391,7 @@ interface StreamFrame<Change, Cursor> {
   changes: Change[]; // at most `STREAM_FRAME_MAX_CHANGES`
   cursor?: Cursor; // only on the frame with no changes, the one that says the subscriber is behind
 }
-// One change on run.subscribeState: the delivery and the cursor of the event it came from, or, for
+// One change on agent.run.subscribe: the delivery and the cursor of the event it came from, or, for
 // Codex's safety hold, which the session's history never records, the session's newest cursor when it
 // went out.
 interface RunStateStreamChange {
@@ -404,7 +399,7 @@ interface RunStateStreamChange {
   event: RunStateChangeEvent | RunRolledBackEvent | RunSafetyBufferingUpdatedPayload;
 }
 type RunStateStreamFrame = StreamFrame<RunStateStreamChange, EventCursor>;
-// One change on run.subscribeQueue: the item as it now stands, and the cursor of the `queue_item.*`
+// One change on agent.queueItem.subscribe: the item as it now stands, and the cursor of the `agent.queueItem.*`
 // event that changed it, or, for a reorder, which no event records, the session's newest cursor when
 // the change went out.
 interface RunQueueStreamChange {
@@ -422,7 +417,7 @@ type RunQueueStreamFrame = StreamFrame<RunQueueStreamChange, EventCursor>;
 // a child the daemon bridges as a run of its own is steered, interrupted and paused through that run's
 // own verbs. The interrupt and the pause carry the same guards as InterventionRequestPayload, on the
 // run the child belongs to; the steer carries the idempotency key alone. A refusal is
-// `run.child_control_refused` with `reason` `child_unknown` | `child_ended` | `provider_refused`, shared
+// `agent.childRun.controlRefused` with `reason` `childUnknown` | `childEnded` | `providerRefused`, shared
 // by all of them; a lost hold is a result, never a refusal.
 interface ChildSteerRequest {
   sessionId: SessionId;
@@ -484,7 +479,7 @@ interface ChildrenStopResponse {
   children: Array<{
     child: AgentTreeMember; // orchestration-payloads.md §Plan-013: an agent by its id, or a provider's own helper by run and handle
     // "stopped": the stop reached the child.
-    outcome: "stopped" | "already_ended" | "failed";
+    outcome: "stopped" | "alreadyEnded" | "failed";
     // The run state the stop left the child in, present exactly when outcome = 'stopped':
     // `stopped` where the provider's stop is final, `interrupted` where a send can continue it.
     state?: "stopped" | "interrupted";
@@ -495,34 +490,34 @@ interface ChildrenStopResponse {
 
 ## Run-Control Method-Name Registry
 
-Plan-002's queue / intervention / pause-resume operations and a child's controls are exposed as the `run.*` methods registered here as the canonical wire contract; the ones that act on the lead's run are defined in Plan-002 (D-002-3 / CP-002-4); the reciprocal namespace `provides` is recorded on [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) (the `run.*` method-name owner) in the cross-plan dependency map. Method-name strings follow the [wire-name grammar](./local-ipc-payloads.md#wire-name-grammar); the `run.*` namespace token is the run-aggregate domain noun, distinct from the `run_lifecycle` **event** taxonomy in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle).
+Plan-002's queue / intervention / pause-resume operations and a child's controls are exposed as the `agent.run.*`, `agent.queueItem.*` and `agent.childRun.*` methods registered here as the canonical wire contract; the ones that act on the lead's run are defined in Plan-002 (D-002-3 / CP-002-4); the reciprocal namespace `provides` is recorded on [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) (the owner of these method names) in the cross-plan dependency map. Method-name strings follow the [wire-name grammar](./local-ipc-payloads.md#wire-name-grammar); the `run` resource segment is the run-aggregate noun, distinct from the `runLifecycle` **event** taxonomy in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-runlifecycle).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
-| `run.queueList` | `query` | `QueueItemListRequest` | `QueueItemListResponse` |
-| `run.queueCreate` | `mutation` | `QueueItemCreateRequest` | `QueueItemCreateResponse` |
-| `run.queueCancel` | `mutation` | `QueueItemCancelRequest` | `QueueItemCancelResponse` |
-| `run.queueReorder` | `mutation` | `QueueReorderRequest` | `QueueItemListResponse` |
-| `run.intervene` | `mutation` | `InterventionRequestPayload` | `InterventionRequestResponse` |
-| `run.pause` | `mutation` | `RunPauseRequest` | `RunControlAck` |
-| `run.resume` | `mutation` | `RunResumeRequest` | `RunControlAck` |
-| `run.childSteer` | `mutation` | `ChildSteerRequest` | `QueueItemCreateResponse` |
-| `run.childInterrupt` | `mutation` | `ChildInterruptRequest` | `ChildInterruptResponse` |
-| `run.childPauseSet` | `mutation` | `ChildPauseSetRequest` | `ChildPauseSetResponse` |
-| `run.childrenStop` | `mutation` | `ChildrenStopRequest` | `ChildrenStopResponse` |
-| `run.subscribeState` | `subscription` | `RunStateSubscribeRequest` | `RunStateStreamFrame` (stream) |
-| `run.subscribeQueue` | `subscription` | `RunQueueSubscribeRequest` | `RunQueueStreamFrame` (stream) |
+| `agent.queueItem.list` | `query` | `QueueItemListRequest` | `QueueItemListResponse` |
+| `agent.queueItem.create` | `mutation` | `QueueItemCreateRequest` | `QueueItemCreateResponse` |
+| `agent.queueItem.cancel` | `mutation` | `QueueItemCancelRequest` | `QueueItemCancelResponse` |
+| `agent.queueItem.reorder` | `mutation` | `QueueReorderRequest` | `QueueItemListResponse` |
+| `agent.run.intervene` | `mutation` | `InterventionRequestPayload` | `InterventionRequestResponse` |
+| `agent.run.pause` | `mutation` | `AgentRunPauseRequest` | `RunControlAck` |
+| `agent.run.resume` | `mutation` | `AgentRunResumeRequest` | `RunControlAck` |
+| `agent.childRun.steer` | `mutation` | `ChildSteerRequest` | `QueueItemCreateResponse` |
+| `agent.childRun.interrupt` | `mutation` | `ChildInterruptRequest` | `ChildInterruptResponse` |
+| `agent.childRun.paused.update` | `mutation` | `ChildPauseSetRequest` | `ChildPauseSetResponse` |
+| `agent.childRun.stopAll` | `mutation` | `ChildrenStopRequest` | `ChildrenStopResponse` |
+| `agent.run.subscribe` | `subscription` | `RunStateSubscribeRequest` | `RunStateStreamFrame` (stream) |
+| `agent.queueItem.subscribe` | `subscription` | `RunQueueSubscribeRequest` | `RunQueueStreamFrame` (stream) |
 
-**What `run.pause` and `run.resume` realize, per provider.** Pause is a daemon feature, not a provider verb, and it writes no file. On a Claude Code lead it is two hooks registered in the session's `initialize` request and answered over the wire; on a child, on any provider, it is the daemon's pre-tool hook holding that child's next tool call, taken through the approval pipeline the daemon already owns; on a Codex lead it is the boundary interrupt. A hold ends only by an answer — allow from the resume, or deny carrying the person's typed words, which the child reads as its instruction — never by ending the hook, because any exit but a deny lets the held call run. The daemon sets each hook's timeout far past any wait a person would sit through — on Codex 10^12 seconds on the hook row and its entry's tool timeout together, because Codex cuts the call at the smaller of the two and a Codex hook that times out lets the call run — so a hold is lossless: the held call simply goes unanswered, the leg burns no tokens and loses nothing. A cancellation of a held callback is treated as a LOST pause and never as a release. There is no separate "pause now" operation: `run.pause` and `run.resume` are the whole control, and a continue after a pause is a send rather than an operation of its own.
+**What `agent.run.pause` and `agent.run.resume` realize, per provider.** Pause is a daemon feature, not a provider verb, and it writes no file. On a Claude Code lead it is two hooks registered in the session's `initialize` request and answered over the wire; on a child, on any provider, it is the daemon's pre-tool hook holding that child's next tool call, taken through the approval pipeline the daemon already owns; on a Codex lead it is the boundary interrupt. A hold ends only by an answer — allow from the resume, or deny carrying the person's typed words, which the child reads as its instruction — never by ending the hook, because any exit but a deny lets the held call run. The daemon sets each hook's timeout far past any wait a person would sit through — on Codex 10^12 seconds on the hook row and its entry's tool timeout together, because Codex cuts the call at the smaller of the two and a Codex hook that times out lets the call run — so a hold is lossless: the held call simply goes unanswered, the leg burns no tokens and loses nothing. A cancellation of a held callback is treated as a LOST pause and never as a release. There is no separate "pause now" operation: `agent.run.pause` and `agent.run.resume` are the whole control, and a continue after a pause is a send rather than an operation of its own.
 
-**A child's steer, interrupt and pause.** A live child gets the same three controls its session has, as calls of its own — `run.childSteer`, `run.childInterrupt` and `run.childPauseSet {paused}` — because the lead's steer and interrupt act on the lead; each rests on a provider-driver operation of its own beside the lead's. `run.childrenStop {runId}` is the one call that stops a subtree. What each satisfies:
+**A child's steer, interrupt and pause.** A live child gets the same three controls its session has, as calls of its own — `agent.childRun.steer`, `agent.childRun.interrupt` and `agent.childRun.paused.update {paused}` — because the lead's steer and interrupt act on the lead; each rests on a provider-driver operation of its own beside the lead's. `agent.childRun.stopAll {runId}` is the one call that stops a subtree. What each satisfies:
 
 - **The target.** A child's durable handle is the run it belongs to PLUS the provider's own child handle together, never a bare child id: `targetRunId` and `childHandle`, the task id from Claude Code's task-started frame or the thread id from Codex's turn-started frame, each persisted by the daemon at dispatch so a restart re-attaches every child by id. `childHandle` names only a provider's own subagent; a child the daemon bridges as a run of its own is addressed through that run's own verbs.
 - **The mechanism, the same on every provider.** For a provider's own helper at any depth, a steer to a running child is the daemon's post-tool hook returning the words as added context aimed at that child — `agent_id` on Claude Code, the helper the hook input names on Codex — or, when it arrives as the child finishes, the continuation the helper-finish hook (`SubagentStop`) returns; the pause is the daemon's pre-tool hook holding the child's next call; the interrupt is that hold plus the end of its running command — never the provider's own stop-task tool; a steer to a held child answers the held call deny with the typed words; and a send into an ended child — completed, failed, or stopped at its token limit — goes through its parent, which is asked to message it (`SendMessage` on Claude Code, `followup_task` on Codex), and starts the helper's next run under the parent's current run. A steer lands at the child's next tool call, or as it finishes. Every helper a Codex agent starts is a multi-agent v2 helper, to which Codex refuses `turn/start` and `turn/steer`, so neither is ever sent to one; `turn/interrupt` reaches it.
-- **The pause toggle.** `run.childPauseSet {paused: true}` takes the hold; `paused: false`, the toggle's second press, answers the held callback with allow. A cancellation of a held callback is a LOST pause, reported on the result as `holdLost`, never read as a release.
-- **Offered on every child.** Each control is the daemon's own hook on every provider, at any depth. What gates it is the provider's own support, read from the `capabilities` array of Claude Code's init frame and from Codex's schema and model lists, never from a version compare; a hook the CLI refuses at `initialize` keeps the control, with the reason as its hover label, which a press on the control also opens; the press shows only the reason and runs nothing. A control the provider then refuses answers `run.child_control_refused` with `provider_refused`, and the mechanism is never named to the person.
-- **No fan-out.** An interrupt of one child reaches that child and nothing under it, and whatever dispatched it keeps running. The three stops that do reach a subtree — interrupt everything (`run.intervene {type: "interrupt"}` on the lead's run plus `run.childrenStop` on the same run), stop all running (`run.childrenStop`), and the undo's stop of the children started after its point — are one stop per id walked from the daemon's own parent-to-child index at every depth, never a relay through the lead, because neither Claude Code's lead nor Codex's can stop a subtree: `stop_task` per child on Claude Code, which is final (the CLI refuses every later message to that child), and `turn/interrupt` per helper on Codex, where each child rests `interrupted` and keeps its box. `run.childrenStop` reports each child's outcome on its own row, so one failure never hides the rest.
+- **The pause toggle.** `agent.childRun.paused.update {paused: true}` takes the hold; `paused: false`, the toggle's second press, answers the held callback with allow. A cancellation of a held callback is a LOST pause, reported on the result as `holdLost`, never read as a release.
+- **Offered on every child.** Each control is the daemon's own hook on every provider, at any depth. What gates it is the provider's own support, read from the `capabilities` array of Claude Code's init frame and from Codex's schema and model lists, never from a version compare; a hook the CLI refuses at `initialize` keeps the control, with the reason as its hover label, which a press on the control also opens; the press shows only the reason and runs nothing. A control the provider then refuses answers `agent.childRun.controlRefused` with `providerRefused`, and the mechanism is never named to the person.
+- **No fan-out.** An interrupt of one child reaches that child and nothing under it, and whatever dispatched it keeps running. The three stops that do reach a subtree — interrupt everything (`agent.run.intervene {type: "interrupt"}` on the lead's run plus `agent.childRun.stopAll` on the same run), stop all running (`agent.childRun.stopAll`), and the undo's stop of the children started after its point — are one stop per id walked from the daemon's own parent-to-child index at every depth, never a relay through the lead, because neither Claude Code's lead nor Codex's can stop a subtree: `stop_task` per child on Claude Code, which is final (the CLI refuses every later message to that child), and `turn/interrupt` per helper on Codex, where each child rests `interrupted` and keeps its box. `agent.childRun.stopAll` reports each child's outcome on its own row, so one failure never hides the rest.
 
-A refusal of any of the three is `run.child_control_refused`, with `reason` `child_unknown`, `child_ended` or `provider_refused`. Spec-003's V1 control set is the same three controls; these address them at a child.
+A refusal of any of the three is `agent.childRun.controlRefused`, with `reason` `childUnknown`, `childEnded` or `providerRefused`. Spec-003's V1 control set is the same three controls; these address them at a child.
 
-`run.queueList` is the only `query` (idempotent read); the mutations are state-changing, per [API Payload Contracts §Procedure Types](./api-payload-contracts.md#procedure-types). The lead's interrupt is `run.intervene {type: "interrupt"}`, and the person's steer is always a queue send, `run.queueCreate`: an edit of a waiting message is one `run.queueCreate` carrying `replacesQueueItemId`, and a new order is one `run.queueReorder`, never a client's cancel and resend. The two `subscription`s answer the shared subscribe acknowledgment and then send `StreamFrame` frames, never single events: each frame carries a batch of changes, each change with the cursor of the event it came from, or, for a subscriber too far behind the record ([Spec-006 §Required Behavior](../../specs/006-local-ipc-and-daemon-control.md#required-behavior)), one frame with no changes carrying the newest event cursor, after which the screen takes its snapshot read; a request carrying `afterCursor` first gets what the record holds past it, in the same frames. A `run.subscribeState` change carries `RunStateChangeEvent | RunRolledBackEvent | RunSafetyBufferingUpdatedPayload` (the last is Codex's live safety-check hold, never appended, whose change carries the session's newest cursor; the state shape carries the `runVersion` comparand clients pass back as `expectedRunVersion`; the per-type non-state rollback arm — [Spec-005 §Run Lifecycle (run_lifecycle)](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) — rides the same stream so subscribers observe position rewinds without a fabricated transition). A `run.subscribeQueue` change carries the item as it now stands, the `QueueItemSummary` projection, with the cursor of the `queue_item.*` event that changed it; a reorder, which no event records, carries the session's newest cursor (a reorder has no event type of its own). All request/response shapes are the interfaces defined directly above; the Rust types live in `crates/sidekicks-contracts/src/run/control.rs` (CP-002-3), with the queue's in `run/queue.rs` and a child's controls in `run/children.rs`, the generated TypeScript at the matching `.ts` paths under `packages/contracts/src/`, per the api-payload-contracts.md §Source-of-Truth Policy.
+`agent.queueItem.list` is the only `query` (idempotent read); the mutations are state-changing, per [API Payload Contracts §Procedure Types](./api-payload-contracts.md#procedure-types). The lead's interrupt is `agent.run.intervene {type: "interrupt"}`, and the person's steer is always a queue send, `agent.queueItem.create`: an edit of a waiting message is one `agent.queueItem.create` carrying `replacesQueueItemId`, and a new order is one `agent.queueItem.reorder`, never a client's cancel and resend. The two `subscription`s answer the shared subscribe acknowledgment and then send `StreamFrame` frames, never single events: each frame carries a batch of changes, each change with the cursor of the event it came from, or, for a subscriber too far behind the record ([Spec-006 §Required Behavior](../../specs/006-local-ipc-and-daemon-control.md#required-behavior)), one frame with no changes carrying the newest event cursor, after which the screen takes its snapshot read; a request carrying `afterCursor` first gets what the record holds past it, in the same frames. A `agent.run.subscribe` change carries `RunStateChangeEvent | RunRolledBackEvent | RunSafetyBufferingUpdatedPayload` (the last is Codex's live safety-check hold, never appended, whose change carries the session's newest cursor; the state shape carries the `runVersion` comparand clients pass back as `expectedRunVersion`; the per-type non-state rollback arm — [Spec-005 §Run Lifecycle (runLifecycle)](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-runlifecycle) — rides the same stream so subscribers observe position rewinds without a fabricated transition). A `agent.queueItem.subscribe` change carries the item as it now stands, the `QueueItemSummary` projection, with the cursor of the `agent.queueItem.*` event that changed it; a reorder, which no event records, carries the session's newest cursor (a reorder has no event type of its own). All request/response shapes are the interfaces defined directly above; the Rust types live in `crates/sidekicks-contracts/src/run/control.rs` (CP-002-3), with the queue's in `run/queue.rs` and a child's controls in `run/children.rs`, the generated TypeScript at the matching `.ts` paths under `packages/contracts/src/`, per the api-payload-contracts.md §Source-of-Truth Policy.

@@ -2,7 +2,7 @@
 
 Part of [API Payload Contracts](./api-payload-contracts.md), which holds the shared types, the error envelope and the conventions every shape here uses.
 
-Every word a model reads from thirteen of the sixteen workflow tools ([Spec-015 §Chat-Invoked Start and Start Authorization](../../specs/015-workflow-authoring-and-execution.md#chat-invoked-start-and-start-authorization)): each one's description, its fields, what its result says, and its errors. `workflow_run`'s text sits with its definition in `crates/sidekicks-contracts/src/workflow/run/tool.rs`, and `workflow_create` and `workflow_update` take their field text from the workflow document contract. The texts are written once in the daemon's workflow agent tools: an input that differs from its method's request, and its field text, in `inputs.rs`, and each description and handler in `callback.rs`. `workflow_list` takes `workflow.definitionList`'s request unchanged, so its field text is that request's own. The texts are plain constants, tuned once real sessions show how each model uses them, and no test checks their wording.
+Every word a model reads from thirteen of the sixteen workflow tools ([Spec-015 §Chat-Invoked Start and Start Authorization](../../specs/015-workflow-authoring-and-execution.md#chat-invoked-start-and-start-authorization)): each one's description, its fields, what its result says, and its errors. `workflow_run`'s text sits with its definition in `crates/sidekicks-contracts/src/workflow/run/tool.rs`, and `workflow_create` and `workflow_update` take their field text from the workflow document contract. The texts are written once in the daemon's workflow agent tools: an input that differs from its method's request, and its field text, in `inputs.rs`, and each description and handler in `callback.rs`. `workflow_list` takes `workflow.definition.list`'s request unchanged, so its field text is that request's own. The texts are plain constants, tuned once real sessions show how each model uses them, and no test checks their wording.
 
 No tool takes a session: the daemon derives it from the invoking turn. Fields are snake_case, mapped to the wire's lowerCamelCase. The reads and the authoring tools name a workflow by its id from `workflow_list`, and the two start tools by its name. Claude Code keeps these tools behind its tool search, so each description's first sentence is what a search matches; and each field's description states its limits in words, because Codex shows the model no ranges or patterns.
 
@@ -23,7 +23,7 @@ List the workflows in the library, a page at a time: each one's id, name, latest
 {"cursor": "…"}
 ```
 
-Fields (`workflow.definitionList`'s request unchanged):
+Fields (`workflow.definition.list`'s request unchanged):
 
 - `limit` (optional): `The most workflows to return.`
 - `cursor` (optional): `The cursor a previous call returned, to read the next page.`

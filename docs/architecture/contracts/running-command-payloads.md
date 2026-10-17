@@ -8,12 +8,12 @@ The console's window onto the shell commands an agent started. The provider deci
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
-| `command.list` | `subscription` | `CommandListSubscribeRequest` | `CommandListUpdate` (stream) |
-| `command.stop` | `mutation` | `CommandStopRequest` | `CommandStopResponse` |
-| `command.background` | `mutation` | `CommandBackgroundRequest` | `CommandBackgroundResponse` |
-| `command.write` | `mutation` | `CommandWriteRequest` | `CommandWriteResponse` |
+| `agent.command.subscribe` | `subscription` | `CommandListSubscribeRequest` | `CommandListUpdate` (stream) |
+| `agent.command.stop` | `mutation` | `AgentCommandStopRequest` | `AgentCommandStopResponse` |
+| `agent.command.background` | `mutation` | `AgentCommandBackgroundRequest` | `AgentCommandBackgroundResponse` |
+| `agent.command.write` | `mutation` | `AgentCommandWriteRequest` | `AgentCommandWriteResponse` |
 
-`command.list` is a subscription and not a read, because the set changes without anyone asking and a command can outlive the turn that started it. `command.background` acts only on a row that carries `Move to background`, which the row's `canMoveToBackground` says the session's provider offers for that command: today Claude Code's driver offers it on a command its agent waits on in the foreground, and Codex's on none, because every Codex command already streams. Where the driver puts none the control does not exist — absent rather than disabled — so the verb is never dispatched there and a word typed for it is answered by the console with one row rather than a refused call. `command.write` carries what the person typed on a command's input line, or `End input`. A command that can take input, a Codex command given a terminal or one an agent ran with `shell_run`, carries that line for its whole run, so a write is taken whether or not the command is waiting; the waiting signal only brings the line forward and marks the session waiting. `End input` ends the command's input as end of file does on a terminal. A git or ssh prompt that would open the terminal raises the same input line with the prompt's own words, on any command, and there `End input` answers the prompt with nothing, as closing the prompt would.
+`agent.command.subscribe` is a subscription and not a read, because the set changes without anyone asking and a command can outlive the turn that started it. `agent.command.background` acts only on a row that carries `Move to background`, which the row's `canMoveToBackground` says the session's provider offers for that command: today Claude Code's driver offers it on a command its agent waits on in the foreground, and Codex's on none, because every Codex command already streams. Where the driver puts none the control does not exist — absent rather than disabled — so the verb is never dispatched there and a word typed for it is answered by the console with one row rather than a refused call. `agent.command.write` carries what the person typed on a command's input line, or `End input`. A command that can take input, a Codex command given a terminal or one an agent ran with `shell_run`, carries that line for its whole run, so a write is taken whether or not the command is waiting; the waiting signal only brings the line forward and marks the session waiting. `End input` ends the command's input as end of file does on a terminal. A git or ssh prompt that would open the terminal raises the same input line with the prompt's own words, on any command, and there `End input` answers the prompt with nothing, as closing the prompt would.
 
 ```ts
 // One running command, in the order the commands started. `name` is the command as the agent ran it,
@@ -65,11 +65,11 @@ interface CommandListUpdate {
 // the agent receives one short message naming the stopped command, so its next step reads an
 // instruction rather than an unexplained error. Stopping every command in a session is this same verb once
 // per running command — there is no sweep verb, and nothing here touches an agent.
-interface CommandStopRequest {
+interface AgentCommandStopRequest {
   sessionId: SessionId;
   commandId: string;
 }
-interface CommandStopResponse {
+interface AgentCommandStopResponse {
   commandId: string;
   stopped: true;
 }
@@ -77,11 +77,11 @@ interface CommandStopResponse {
 // Moving a waited-on command to the background continues the agent's turn and starts the output
 // streaming into the command's own row. Refused where the bound provider has no such mechanism, and where
 // no command is waiting in the foreground.
-interface CommandBackgroundRequest {
+interface AgentCommandBackgroundRequest {
   sessionId: SessionId;
   commandId: string;
 }
-interface CommandBackgroundResponse {
+interface AgentCommandBackgroundResponse {
   commandId: string;
   waitingInForeground: false;
 }
@@ -95,21 +95,21 @@ interface CommandBackgroundResponse {
 // daemon seals to the askpass program's own key and leaves in the command channel for that program
 // alone, and there `endOfInput` answers it with nothing, as closing the prompt would. A read waits
 // for the person or `End input`, bounded only by the provider's and the runtime's own limits.
-interface CommandWriteRequest {
+interface AgentCommandWriteRequest {
   sessionId: SessionId;
   commandId: string;
   text?: string;
   endOfInput?: boolean;
 }
-interface CommandWriteResponse {
+interface AgentCommandWriteResponse {
   commandId: string;
 }
 ```
 
-**Two records the flow folds.** A command's output arrives as `command.output` and streams into that command's own row as it prints; the row is the one home for the whole output, and the live view above it is a window onto the same rows rather than a second copy. A command settles as `command.ended`, carrying which of the three endings it was — it finished, it failed, or the person ended it — because a row that cannot say which of the three happened cannot be read. The taxonomy is [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
+**Two records the flow folds.** A command's output arrives as `command.output` and streams into that command's own row as it prints; the row is the one home for the whole output, and the live view above it is a window onto the same rows rather than a second copy. A command settles as `agent.command.ended`, carrying which of the three endings it was — it finished, it failed, or the person ended it — because a row that cannot say which of the three happened cannot be read. The taxonomy is [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
 
-**The live command list is `session.providerCommandsSubscribe`.** The `/` list a session offers is bound to the LIVE provider process. On every provider its Skills group is the skills the daemon lists (`skill.list`), a skill the session's provider cannot run left out, and the composer joins that list with the provider's half this subscription carries; `skill.list` is the one inventory, and the provider's own enumeration only shows what it loaded and is never a second registry. On Claude Code the process's first frame, replaced whole by each `commands_changed` push, supplies only its own words that are not skills, and a new process — a new session, a switch of provider or worktree at its boundary — brings a new frame and a new list; on Codex, whose wire parses no slash text, the words are the console's own. A provider's own skill enumeration (Codex's `skills/list`) is read only for what it loaded, so a skill the provider failed to load stays listed and grayed with its load error, which the daemon matches to its row and the composer draws as given. Each working tool server's prompts join it; Codex never asks a server for its prompts, so on a Codex session the daemon lists and reads them itself through its own MCP client, for every server it can reach. The subscription takes `SessionAddressedRequest` and emits `SessionProviderCommandList` (`{sessionId, commands, serverPrompts}`), the whole list on every emission (provider-driver-payloads.md §Plan-003), over the daemon JSON-RPC transport only.
+**The live command list is `session.providerCommand.subscribe`.** The `/` list a session offers is bound to the LIVE provider process. On every provider its Skills group is the skills the daemon lists (`skill.list`), a skill the session's provider cannot run left out, and the composer joins that list with the provider's half this subscription carries; `skill.list` is the one inventory, and the provider's own enumeration only shows what it loaded and is never a second registry. On Claude Code the process's first frame, replaced whole by each `commands_changed` push, supplies only its own words that are not skills, and a new process — a new session, a switch of provider or worktree at its boundary — brings a new frame and a new list; on Codex, whose wire parses no slash text, the words are the console's own. A provider's own skill enumeration (Codex's `skills/list`) is read only for what it loaded, so a skill the provider failed to load stays listed and grayed with its load error, which the daemon matches to its row and the composer draws as given. Each working tool server's prompts join it; Codex never asks a server for its prompts, so on a Codex session the daemon lists and reads them itself through its own MCP client, for every server it can reach. The subscription takes `SessionAddressedRequest` and emits `SessionProviderCommandList` (`{sessionId, commands, serverPrompts}`), the whole list on every emission (provider-driver-payloads.md §Plan-003), over the daemon JSON-RPC transport only.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
-| `session.providerCommandsSubscribe` | `subscription` | `SessionAddressedRequest` | `SessionProviderCommandList` (stream) |
+| `session.providerCommand.subscribe` | `subscription` | `SessionAddressedRequest` | `SessionProviderCommandList` (stream) |

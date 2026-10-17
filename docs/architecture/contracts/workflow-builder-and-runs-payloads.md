@@ -5,9 +5,9 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 ```ts
 // ---- The builder, the catalog and the runs surface ----
 
-// WorkflowDefinitionUpdate — workflow.definitionUpdate. A save writes a NEW IMMUTABLE VERSION and never
+// WorkflowDefinitionUpdate — workflow.definition.update. A save writes a NEW IMMUTABLE VERSION and never
 // mutates an existing one, so this operation mints a version rather than editing bytes. It is optimistic
-// on the version the author loaded: a stale expectation is refused with `workflow.version_stale`, never
+// on the version the author loaded: a stale expectation is refused with `workflow.version.stale`, never
 // silently rebased onto a version the author never saw. Save, Restore and the `/workflow schedule` verb
 // all ride it. The response names the new version of the definition the request addressed; a document
 // identical to the latest version mints none, and the response names that latest version.
@@ -27,7 +27,7 @@ interface WorkflowDefinitionUpdateResponse {
   createdAt: string;
 }
 
-// WorkflowDefinitionDelete — workflow.definitionDelete. A SOFT delete: the definition leaves the catalog
+// WorkflowDefinitionDelete — workflow.definition.delete. A SOFT delete: the definition leaves the catalog
 // and the runs that pinned its versions stay readable against those versions, which is why the response
 // states how many runs that is — the confirm names the count before it acts, and it is not undoable.
 interface WorkflowDefinitionDeleteRequest {
@@ -39,7 +39,7 @@ interface WorkflowDefinitionDeleteResponse {
   retainedRunCount: number;
 }
 
-// WorkflowDefinitionExport — workflow.definitionExport. Writes the canonical file form of one version — the
+// WorkflowDefinitionExport — workflow.definition.export. Writes the canonical file form of one version — the
 // hashed body plus the optional non-hashed layout section, with each Code node's package lock — to the file
 // the person picked with the platform's own save dialog. It is a SERVER operation rather than a client-side
 // serialization of a version read, because the canonical bytes and their content hash are the store's own
@@ -59,12 +59,12 @@ interface WorkflowDefinitionExportResponse {
   contentHash: string;
 }
 
-// WorkflowDefinitionImport — workflow.definitionImport. Reads the file the person picked with the platform's
+// WorkflowDefinitionImport — workflow.definition.import. Reads the file the person picked with the platform's
 // own open dialog — its `FilePathRef` token, which main's relay puts in `filePath` as the path it stands
 // for — parses it, and submits it through the ORDINARY create path with the ordinary validation, all or
-// nothing, answering as workflow.definitionCreate does, into the one library. A tool binding with an
+// nothing, answering as workflow.definition.create does, into the one library. A tool binding with an
 // approval setting and an unknown top-level key are each refused as parse errors naming the field. A file
-// whose schema version the daemon does not know is refused with `workflow.import_schema_unknown`. A Code
+// whose schema version the daemon does not know is refused with `workflow.definition.importSchemaUnknown`. A Code
 // node keeps the package lock the file carries, and one without a lock is locked on import, or kept with
 // `Packages not locked` where the lock cannot be made. A document with no layout
 // section is laid out deterministically on open, so an imported file is never unopenable.
@@ -72,15 +72,15 @@ interface WorkflowDefinitionImportRequest {
   filePath: string;
 }
 
-// WorkflowEnabledSet — workflow.enabledSet. Arms or disarms EVERY trigger one workflow declares; there is
+// WorkflowEnabledUpdate — workflow.enabled.update. Arms or disarms EVERY trigger one workflow declares; there is
 // no per-trigger arming, because a workflow is enabled or it is not. A workflow with no trigger that can
-// arm cannot be enabled and the operation REFUSES with `workflow.trigger_unarmable`, saying which trigger
+// arm cannot be enabled and the operation REFUSES with `workflow.trigger.unarmable`, saying which trigger
 // could not arm, rather than accepting and leaving a toggle that reads on while nothing fires.
-interface WorkflowEnabledSetRequest {
+interface WorkflowEnabledUpdateRequest {
   definitionId: WorkflowDefinitionId;
   enabled: boolean;
 }
-interface WorkflowEnabledSetResponse {
+interface WorkflowEnabledUpdateResponse {
   definitionId: WorkflowDefinitionId;
   enabled: boolean;
   // How many of the definition's triggers are armed now. Zero on a disarm; on an arm it equals the
@@ -88,11 +88,11 @@ interface WorkflowEnabledSetResponse {
   armedTriggerCount: number;
 }
 
-// WorkflowRunList — workflow.runList. The runs enumeration, with the filters the runs table narrows
+// WorkflowRunList — workflow.run.list. The runs enumeration, with the filters the runs table narrows
 // on — workflow, status, trigger, and a date range — and one narrowing beside them: the version scope the
 // Versions panel's Show runs hands in, which the table draws as one removable chip, never keeps, and
 // Clear filters clears. Filters narrow the TABLE alone — whatever stands above it is unfiltered, which is
-// why the runs that need someone are workflow.runAttentionList, a separate read rather than a filtered
+// why the runs that need someone are workflow.run.attention.list, a separate read rather than a filtered
 // slice of this one.
 interface WorkflowRunListRequest {
   sessionId?: SessionId; // omit for every run this daemon ran
@@ -148,15 +148,15 @@ interface WorkflowRunListResponse {
   nextCursor?: string;
 }
 
-// WorkflowVersionChainRead — workflow.versionChainRead. The chain one run's pinned version belongs to,
+// WorkflowVersionList — workflow.version.list. The chain one run's pinned version belongs to,
 // addressed BY THAT VERSION ID rather than by the definition: a run pins its version, and a run whose
 // definition was deleted still opens, so the read must work from the only handle such a run holds.
-interface WorkflowVersionChainReadRequest {
+interface WorkflowVersionListRequest {
   workflowVersionId: string;
 }
-interface WorkflowVersionChainReadResponse {
+interface WorkflowVersionListResponse {
   definitionId: WorkflowDefinitionId;
-  // Oldest first, never empty. Every version the chain holds, each addressable by `workflow.versionRead`.
+  // Oldest first, never empty. Every version the chain holds, each addressable by `workflow.version.read`.
   versions: Array<{
     workflowVersionId: string;
     versionNumber: number;
@@ -177,7 +177,7 @@ interface WorkflowVersionChainReadResponse {
   }>;
 }
 
-// WorkflowStepRead — workflow.stepRead. One step's input, output or log, by ref, paged and redacted. Every
+// WorkflowStepRead — workflow.step.read. One step's input, output or log, by ref, paged and redacted. Every
 // resolved secret value is added to the run's redaction set BEFORE the first log line is written, so
 // redaction is a property of what was stored rather than of this read.
 interface WorkflowStepReadRequest extends WorkflowStepKey {
@@ -193,7 +193,7 @@ interface WorkflowStepReadResponse {
   nextCursor?: string;
 }
 
-// WorkflowStepTabArtifactCreate — workflow.stepTabArtifactCreate. A step-panel tab's `Open as artifact`:
+// WorkflowStepTabArtifactCreate — workflow.step.tabArtifact.create. A step-panel tab's `Open as artifact`:
 // the daemon stores what that tab holds — an inline input, output or log, the step's cost or its
 // error — as an artifact of the run's session through ArtifactPublish (artifact-payloads.md §Plan-011), and answers its id.
 interface WorkflowStepTabArtifactCreateRequest extends WorkflowStepKey {
@@ -203,11 +203,11 @@ interface WorkflowStepTabArtifactCreateResponse {
   artifactId: ArtifactId;
 }
 
-// WorkflowRunRetry — workflow.runRetry. Re-runs from a NAMED STEP: that step and its descendants run
+// WorkflowRunRetry — workflow.run.retry. Re-runs from a NAMED STEP: that step and its descendants run
 // again, with the prior run's data pinned upstream so the retry feeds on exactly what the original fed on.
 // It mints a new run in `retry` mode rather than mutating the original, which stays readable. It is
-// refused with `workflow.retry_unavailable` — `reason: "source_running"` while the source run is still
-// going — and with `workflow.invalid_transition` for a step that did not fail.
+// refused with `workflow.run.stillRunning` — `reason: "sourceRunning"` while the source run is still
+// going — and with `workflow.invalidTransition` for a step that did not fail.
 interface WorkflowRunRetryRequest {
   workflowRunId: WorkflowRunId;
   fromNodeId: WorkflowNodeId;
@@ -219,7 +219,7 @@ interface WorkflowRunRetryResponse {
   status: "new" | "running";
 }
 
-// WorkflowRunRerun — workflow.runRerun. Re-run on a run's page: a NEW run of the named run's own pinned
+// WorkflowRunRerun — workflow.run.rerun. Re-run on a run's page: a NEW run of the named run's own pinned
 // version, with the input and the mode that run was started with, in the session that run lives in. The
 // daemon reads all three from the source run, so the request names only the run and its key; the workflow's later
 // versions and current inputs play no part. It is the person's own start and passes no policy check, and
@@ -230,7 +230,7 @@ interface WorkflowRunRerunRequest {
 }
 // → WorkflowRunStartResponse, naming the new run
 
-// WorkflowNodeExecute — workflow.nodeExecute. Executes one node in the builder against pinned or prior
+// WorkflowNodeExecute — workflow.node.execute. Executes one node in the builder against pinned or prior
 // input. Run-this-node is the single-node case and run-from-here is the same call with the ancestors
 // included: the target's ancestors plus the target run, clean step data is REUSED and only dirty nodes are
 // re-executed. The dirty set lives in the builder, but the filtered run is computed by the DAEMON, which
@@ -241,12 +241,12 @@ interface WorkflowNodeExecuteRequest {
   workflowVersionId: string;
   // Omitted from the builder, where the run lives in the one session the workflow owns and works in the
   // repository the trigger's `Repository` names; a chat that asks for a node run names its own session,
-  // as workflow.runStart does, and works in that session's recorded folder.
+  // as workflow.run.start does, and works in that session's recorded folder.
   sessionId?: SessionId;
   // The project the builder's `Repository` panel names for a node run on a `chat` or `sub-workflow`
   // trigger, which carries no `Repository` of its own; absent for `None`, and on every other trigger,
   // whose `Repository` the daemon reads. A version holding a Git, Read a repo diff or Run tests step
-  // with none named is refused `workflow.repository_required`.
+  // with none named is refused `workflow.run.repositoryRequired`.
   projectId?: ProjectId;
   nodeId: WorkflowNodeId;
   // `node` runs the one node; `fromHere` runs its ancestors and it.
@@ -263,13 +263,13 @@ interface WorkflowNodeExecuteResponse {
   reusedNodeIds: WorkflowNodeId[];
 }
 
-// WorkflowResultsPost — workflow.resultsPost. Posts a run's results into the session that asks for them, as
+// WorkflowResultsPost — workflow.results.post. Posts a run's results into the session that asks for them, as
 // the results row. The `/workflow results` verb sends the session it was typed in, and the daemon checks
 // that session is the caller's own before it posts; the agent's `workflow_results_post` tool takes no
 // session at all, the daemon deriving it from the invoking turn. Results are pulled into a session only
 // from inside that session, never pushed into one that did not ask, and a run page carries no send-to-chat
-// action at all. A run that has not finished is refused with `workflow.invalid_transition`. The post
-// appends `workflow.results_posted` after the run's terminal status.
+// action at all. A run that has not finished is refused with `workflow.invalidTransition`. The post
+// appends `workflow.results.posted` after the run's terminal status.
 interface WorkflowResultsPostRequest {
   workflowRunId: WorkflowRunId;
   sessionId: SessionId;
@@ -308,7 +308,7 @@ type WorkflowSubscribeNotification =
     }
   | { kind: "runsPause"; paused: boolean; waitingStartCount: number };
 
-// WorkflowKindList — workflow.kindList. The node catalog with its param specs, so the palette, the
+// WorkflowKindList — workflow.kind.list. The node catalog with its param specs, so the palette, the
 // inspector and an agent all read ONE list. One declarative description drives the parameter form, the
 // canvas ports, the palette entry and the validation; everything that renders a node is a generic renderer
 // over it.
@@ -346,7 +346,7 @@ type WorkflowParamSpec =
         | "secret"
         | "agent"
         | "mcp-tool"
-        | "callback-tool" // one of the daemon's own callback tools, chosen from callbackTool.list
+        | "callback-tool" // one of the daemon's own callback tools, chosen from agent.callbackTool.list
         | "session"
         | "project"; // a trigger's Repository: one of the person's projects, or None (absent)
       required?: boolean;
@@ -397,13 +397,13 @@ interface WorkflowKindListResponse {
   kinds: WorkflowNodeKindSpec[];
 }
 
-// WorkflowRunsPauseSet — workflow.runsPauseSet. The scheduler-wide hold on STARTING new runs. It takes no
+// WorkflowNewRunHoldUpdate — workflow.newRunHold.update. The scheduler-wide hold on STARTING new runs. It takes no
 // run id, because it is neither of the two per-run operations: one state per daemon over its whole
 // scheduler. With the hold on, a run already going finishes and every new start waits — a schedule fire, a
 // webhook, a file event, a chat verb, an agent's tool and a manual start alike — and turning it off
 // starts what waited. The count is what the control reads, and the reply is the same pair the
 // subscription's `runsPause` notification carries.
-interface WorkflowRunsPauseSetRequest {
+interface WorkflowNewRunHoldUpdateRequest {
   paused: boolean;
 }
 interface WorkflowRunsPauseState {
@@ -411,20 +411,20 @@ interface WorkflowRunsPauseState {
   waitingStartCount: number;
 }
 
-// WorkflowLayoutSet — workflow.layoutSet. Saves the canvas layout — node positions, the viewport and the
+// WorkflowLayoutUpdate — workflow.layout.update. Saves the canvas layout — node positions, the viewport and the
 // sticky notes — beside the definition body without minting a version: layout sits outside the hashed
 // body, so dragging a node or Tidy up changes no byte, no hash and no version, and saved versions are
 // untouched.
-interface WorkflowLayoutSetRequest {
+interface WorkflowLayoutUpdateRequest {
   definitionId: WorkflowDefinitionId;
   layout: WorkflowLayout;
 }
-// WorkflowTagsSet — workflow.tagsSet. Saves the workflow's tags from the builder header's chips and
+// WorkflowTagsUpdate — workflow.tags.update. Saves the workflow's tags from the builder header's chips and
 // its `Add tag` field, at once and without minting a version: tags sit outside the hashed body. The
 // whole set each time, so a remove and an add are one write. A tag that breaks the tag rule, or repeats
 // another ignoring case, fails the request's parse with nothing written. It answers
 // `WorkflowDefinitionSettingResponse`.
-interface WorkflowTagsSetRequest {
+interface WorkflowTagsUpdateRequest {
   definitionId: WorkflowDefinitionId;
   tags: string[];
 }
@@ -434,7 +434,7 @@ interface WorkflowDefinitionSettingResponse {
   updatedAt: string;
 }
 
-// WorkflowPermissionLevelUpdate — workflow.permissionLevelUpdate. Sets the workflow's own permission level from
+// WorkflowPermissionLevelUpdate — workflow.permissionLevel.update. Sets the workflow's own permission level from
 // the builder's level pill; a new workflow starts at `yolo`. Every run of the workflow uses that level
 // wherever the run lives, a chat's session or the workflow's own, and a live run takes a change from
 // its next step. The level sits outside the hashed body, so a change mints no version.
@@ -447,36 +447,36 @@ interface WorkflowPermissionLevelUpdateResponse {
   level: PermissionLevel;
 }
 
-// WorkflowBackgroundBrowserUpdate — workflow.backgroundBrowserUpdate. Sets the workflow's background-browser
-// pick from the builder's browser pill; a new workflow reads `settings_default`. Every later run of the
+// WorkflowBackgroundBrowserUpdate — workflow.backgroundBrowser.update. Sets the workflow's background-browser
+// pick from the builder's browser pill; a new workflow reads `settingsDefault`. Every later run of the
 // workflow uses it, a live run keeping the browser it started with. The pick sits outside the hashed body,
 // so a change mints no version.
 interface WorkflowBackgroundBrowserUpdateRequest {
   definitionId: WorkflowDefinitionId;
-  pick: "settings_default" | "sandboxed" | "not_sandboxed";
+  pick: "settingsDefault" | "sandboxed" | "notSandboxed";
 }
 interface WorkflowBackgroundBrowserUpdateResponse {
   definitionId: WorkflowDefinitionId;
-  pick: "settings_default" | "sandboxed" | "not_sandboxed";
+  pick: "settingsDefault" | "sandboxed" | "notSandboxed";
 }
 
-// WorkflowPinDataSet — workflow.pinDataSet. Pins test data onto one node, or unpins it with `items: null`,
+// WorkflowPinDataUpdate — workflow.pinData.update. Pins test data onto one node, or unpins it with `items: null`,
 // from the inspector's Output panel, a run's step panel, or Copy this run into the builder — without a new
 // version, because pinned data sits outside the hashed body. Pinned data is honored only in manual runs and
 // ignored by every trigger-started run, and a node can be pinned only where it has a single `main` output
 // and its items carry no binary payload.
-interface WorkflowPinDataSetRequest {
+interface WorkflowPinDataUpdateRequest {
   definitionId: WorkflowDefinitionId;
   nodeId: WorkflowNodeId;
   items: WorkflowPinnedItem[] | null;
 }
-interface WorkflowPinDataSetResponse {
+interface WorkflowPinDataUpdateResponse {
   definitionId: WorkflowDefinitionId;
   nodeId: WorkflowNodeId;
   pinned: boolean;
 }
 
-// WorkflowDraftUpdate — workflow.draftUpdate. Holds the builder's unsaved draft in the daemon, so a reload
+// WorkflowDraftUpdate — workflow.draft.update. Holds the builder's unsaved draft in the daemon, so a reload
 // loses nothing and nothing is kept in window storage. The daemon holds one draft per saved workflow,
 // keyed by its definition id, and one for a new workflow, which names no definition; the Builder's
 // address names the workflow and carries no draft, so a reload of `#/workflows/builder/<definitionId>`
@@ -495,7 +495,7 @@ interface WorkflowDraftUpdateResponse {
   updatedAt: string;
 }
 
-// WorkflowDraftRead — workflow.draftRead. The draft read back after a reload, by the workflow the Builder's
+// WorkflowDraftRead — workflow.draft.read. The draft read back after a reload, by the workflow the Builder's
 // address names. A draft that is no longer held is an answer (`draft: null`), not a refusal.
 interface WorkflowDraftReadRequest {
   definitionId?: WorkflowDefinitionId; // omit for the new workflow's draft
@@ -505,7 +505,7 @@ interface WorkflowDraftReadResponse {
   draft: (WorkflowDraftUpdateRequest & { updatedAt: string }) | null;
 }
 
-// WorkflowExpressionPreview — workflow.expressionPreview. An expression's value against the current item of
+// WorkflowExpressionPreview — workflow.expression.preview. An expression's value against the current item of
 // the last run that executed the node, shown live under the field. Expressions are evaluated in the daemon
 // only, on the same engine a run uses, on one of the service's evaluator threads that previews keep
 // apart from runs, with no time limit; it stops when the preview is replaced or canceled, except that
@@ -524,7 +524,7 @@ type WorkflowExpressionPreviewResponse =
   // Why it cannot resolve, in words the field shows in place of a value.
   | { ok: false; reason: string };
 
-// WorkflowVersionDiffRead — workflow.versionDiffRead. The structural difference between two versions,
+// WorkflowVersionDiffRead — workflow.version.diff.read. The structural difference between two versions,
 // computed in the daemon over the hashed body only, so node positions never count as a change. The
 // canvas highlight and the inspector's old and new params, and the trigger's old and new inputs, read it, and so does an agent reading what
 // changed. A changed node carries the whole node before and after; the trigger counts as a node and
@@ -543,12 +543,12 @@ interface WorkflowVersionDiffReadResponse {
   edgesRemoved: WorkflowEdge[];
 }
 
-// WorkflowRunDelete — workflow.runDelete. Deletes one run's record, its steps and their data, and its
+// WorkflowRunDelete — workflow.run.delete. Deletes one run's record, its steps and their data, and its
 // capture folder with the run's snapshot points and their base pins; it is not undoable. A run that is
 // `new`, `running` or `waiting`, a failed run parked on its failed step, and a chain's first run while
-// a later run of its chain is one of those, is refused with `workflow.run_not_deletable`, which reads
+// a later run of its chain is one of those, is refused with `workflow.run.notDeletable`, which reads
 // "Cancel it first.", and nothing is deleted. The write that deletes the run's rows appends
-// `workflow.run_deleted`, so a rebuild of the runs from the session log leaves the run out. The
+// `workflow.run.deleted`, so a rebuild of the runs from the session log leaves the run out. The
 // removal rides workflow.subscribe.
 interface WorkflowRunDeleteRequest {
   workflowRunId: WorkflowRunId;
@@ -558,29 +558,29 @@ interface WorkflowRunDeleteResponse {
   deleted: true;
 }
 
-// WorkflowRunsDeletePreview — workflow.runsDeletePreview. What "Delete runs older than…" would remove,
+// WorkflowRunPurgePreview — workflow.run.purge.preview. What "Delete runs older than…" would remove,
 // counted before it runs, so its confirm names it: how many runs go, and how many older runs stay
-// because they are marked Keep or are `waiting`. Its request is the one workflow.runsDelete takes: runs
+// because they are marked Keep or are `waiting`. Its request is the one workflow.run.purge takes: runs
 // that started before the instant.
-interface WorkflowRunsDeleteRequest {
+interface WorkflowRunPurgeRequest {
   olderThan: string; // RFC 3339 UTC
 }
-interface WorkflowRunsDeletePreviewResponse {
+interface WorkflowRunPurgePreviewResponse {
   deleteCount: number;
   keptCount: number;
   waitingCount: number;
 }
 
-// WorkflowRunsDelete — workflow.runsDelete. Deletes the runs older than the instant, each as
-// workflow.runDelete deletes one, with its own `workflow.run_deleted`; runs marked Keep and runs in
+// WorkflowRunPurge — workflow.run.purge. Deletes the runs older than the instant, each as
+// workflow.run.delete deletes one, with its own `workflow.run.deleted`; runs marked Keep and runs in
 // `waiting` are untouched. The reply's count
 // is the truth, since runs can change between the preview and the delete. It takes
-// `WorkflowRunsDeleteRequest` above.
-interface WorkflowRunsDeleteResponse {
+// `WorkflowRunPurgeRequest` above.
+interface WorkflowRunPurgeResponse {
   deletedCount: number;
 }
 
-// WorkflowRunKeepSet — workflow.runKeepSet. Marks a run Keep, which `workflow.runsDelete` leaves
+// WorkflowRunKeepSet — workflow.run.keep.update. Marks a run Keep, which `workflow.run.purge` leaves
 // untouched, or clears the mark. The change rides workflow.subscribe. The request and the reply are
 // one shape.
 interface WorkflowRunKeepSet {
@@ -588,23 +588,23 @@ interface WorkflowRunKeepSet {
   keep: boolean;
 }
 
-// WorkflowFixSessionCreate — workflow.fixSessionCreate. Opens a new session on a failed step's own project
+// WorkflowFixSessionCreate — workflow.fixSession.create. Opens a new session on a failed step's own project
 // and checkout — on a run with no project, a `None` run or a chat's run in the chat's own folder, a new
 // chat — seeded with the step's name, the input it ran on, the output it failed with, and a link to
 // the step's session for reading. The step's own transcript receives nothing; the run keeps a link to the
 // new session for its life, and Resume then reruns the step from its original input against the fixed
 // checkout. It changes nothing about the run, so it is not a run control like cancel and
-// resume. A step that did not fail is refused with `workflow.invalid_transition`. Its request is the
+// resume. A step that did not fail is refused with `workflow.invalidTransition`. Its request is the
 // failed step's `WorkflowStepKey`.
 interface WorkflowFixSessionCreateResponse {
   sessionId: SessionId;
 }
 
-// WorkflowHumanFormRead — workflow.humanFormRead. A waiting form as the step panel draws it: the node's
+// WorkflowHumanFormRead — workflow.humanForm.read. A waiting form as the step panel draws it: the node's
 // prompt, one field per entry of its input schema in the same param declarations the inspector renders,
-// the draft saved so far with its revision, and the submit revision workflow.humanFormSubmit expects
+// the draft saved so far with its revision, and the submit revision workflow.humanForm.submit expects
 // (0 while the step has no accepted answer). Its request is the step's `WorkflowStepKey`. A form read on
-// a step no longer waiting is refused with `workflow.step_not_waiting`.
+// a step no longer waiting is refused with `workflow.step.notWaiting`.
 interface WorkflowHumanFormReadResponse {
   prompt: string;
   fields: WorkflowParamSpec[];
@@ -612,7 +612,7 @@ interface WorkflowHumanFormReadResponse {
   draft?: { formState: Record<string, unknown>; revision: number; savedAt: string };
 }
 
-// WorkflowRunAttentionList — workflow.runAttentionList. The runs that need someone, which stand above the
+// WorkflowRunAttentionList — workflow.run.attention.list. The runs that need someone, which stand above the
 // runs table and outside its filters. The runs waiting on a person — an approval, a form, a chat reply, a
 // chain's question — come oldest first, the order Next waiting walks them in. Above them sit the runs
 // parked on a spent provider account, folded into one entry per account with the count of runs it
@@ -642,11 +642,11 @@ type WorkflowRunAttentionEntry =
       resumeAt?: string; // where the wait armed one
     };
 
-// WorkflowWebhookTokenRotate — workflow.webhookTokenRotate. Creates a workflow's webhook token, or replaces
+// WorkflowWebhookTokenRotate — workflow.webhookToken.rotate. Creates a workflow's webhook token, or replaces
 // it. The token is in this reply and in no other: only its hash is kept, so a rotation makes the old token
 // invalid from that moment, and while no token exists every call to the workflow's address is refused. A
 // call whose token does not match the kept hash, compared in constant time, is refused with
-// `workflow.webhook_token_mismatch`.
+// `workflow.webhookToken.mismatch`.
 interface WorkflowWebhookTokenRotateRequest {
   definitionId: WorkflowDefinitionId;
 }
@@ -656,14 +656,14 @@ interface WorkflowWebhookTokenRotateResponse {
   createdAt: string;
 }
 
-// WorkflowWebhookListenerRead — workflow.webhookListenerRead. The daemon's loopback webhook listener: the
+// WorkflowWebhookListenerRead — workflow.webhookListener.read. The daemon's loopback webhook listener: the
 // one port every workflow's address uses, set in Settings, and whether it listens. It does not listen when
-// the port was already held at daemon start (`port_taken`); nothing moves to another port, and every
+// the port was already held at daemon start (`portTaken`); nothing moves to another port, and every
 // webhook trigger shows that reason in place of its address.
 // The request is `EmptyPayload`: it takes no members.
 interface WorkflowWebhookListenerReadResponse {
   port: number; // 1 to 65535
-  state: "listening" | "port_taken";
+  state: "listening" | "portTaken";
 }
 
 // ---- Workflow secrets. A secret's value is sealed in the keychain, or secrets.json (ADR-036), and is
@@ -671,11 +671,11 @@ interface WorkflowWebhookListenerReadResponse {
 // carries it. A secret's scope is `project` or `shared`, never a session. Its name is lowercase letters,
 // digits and hyphens, starting with a letter or digit, at most 64 characters, and a sensitive param
 // references it as `secret://<scope>/<name>`. A name that breaks that pattern is refused with
-// `workflow.secret_name_invalid`, and one its scope already holds with `workflow.secret.nameTaken`.
-// A keychain that is locked or unavailable refuses a write with `workflow.secret_store_unavailable`
+// `workflow.secret.nameInvalid`, and one its scope already holds with `workflow.secret.nameTaken`.
+// A keychain that is locked or unavailable refuses a write with `workflow.secret.storeUnavailable`
 // (`cause: "locked" | "unavailable"`). At step launch a secret the keychain does not hold fails the step
-// with `workflow.secret_not_found`, carrying only the reference, and a locked or unavailable keychain fails
-// it with `workflow.secret_store_unavailable`; either offers Retry from this step, and neither ever falls
+// with `workflow.secret.notFound`, carrying only the reference, and a locked or unavailable keychain fails
+// it with `workflow.secret.storeUnavailable`; either offers Retry from this step, and neither ever falls
 // back to a plaintext value. ----
 type WorkflowSecretScope = "project" | "shared";
 type WorkflowSecretId = string & { readonly __brand: "WorkflowSecretId" }; // a UUID the daemon mints
@@ -686,21 +686,21 @@ type WorkflowSecretPlace = { scope: "project"; scopeRef: ProjectId } | { scope: 
 // One secret as the chooser lists it: its place and name, and never its value.
 type WorkflowSecretSummary = { secretId: WorkflowSecretId; name: string } & WorkflowSecretPlace;
 
-// WorkflowSecretList — workflow.secretList. The secrets a step's Credential chooser offers: every
+// WorkflowSecretList — workflow.secret.list. The secrets a step's Credential chooser offers: every
 // secret, the shared ones and each project's, by name. Metadata only. A workflow belongs to no
 // project, so the request is the empty payload.
 interface WorkflowSecretListResponse {
   secrets: WorkflowSecretSummary[];
 }
 
-// WorkflowSecretCreate — workflow.secretCreate. Seals a new secret's value in its store, then commits
+// WorkflowSecretCreate — workflow.secret.create. Seals a new secret's value in its store, then commits
 // its record, so a record never names a value its store does not hold. It answers with the new
 // secret's `WorkflowSecretSummary`.
 type WorkflowSecretCreateRequest = { name: string; secretValue: string } & WorkflowSecretPlace;
 
-// WorkflowSecretReplace — workflow.secretReplace. Replaces a secret's value, sealed in its store before
+// WorkflowSecretUpdate — workflow.secret.update. Replaces a secret's value, sealed in its store before
 // the record's change commits.
-interface WorkflowSecretReplaceRequest {
+interface WorkflowSecretUpdateRequest {
   secretId: WorkflowSecretId;
   secretValue: string;
 }
@@ -709,20 +709,20 @@ interface WorkflowSecretActResponse {
   secretId: WorkflowSecretId;
 }
 
-// WorkflowSecretDelete — workflow.secretDelete. Removes the record and its keychain entry, recording the
+// WorkflowSecretDelete — workflow.secret.delete. Removes the record and its keychain entry, recording the
 // removal first so a crash between the two still finishes it. A version that still references the name
-// fails its step with `workflow.secret_not_found`.
+// fails its step with `workflow.secret.notFound`.
 interface WorkflowSecretDeleteRequest {
   secretId: WorkflowSecretId;
 }
 
-// WorkflowKeptVarsClear — workflow.keptVarsClear. Clears the values `Keep for later runs` kept for one
+// WorkflowKeptValueClear — workflow.keptValue.clear. Clears the values `Keep for later runs` kept for one
 // workflow. Kept values belong to the workflow, not to a version: saving, restoring or duplicating a
 // version leaves them, a duplicate starts with none, and deleting the workflow deletes them.
-interface WorkflowKeptVarsClearRequest {
+interface WorkflowKeptValueClearRequest {
   definitionId: WorkflowDefinitionId;
 }
-interface WorkflowKeptVarsClearResponse {
+interface WorkflowKeptValueClearResponse {
   definitionId: WorkflowDefinitionId;
   clearedCount: number;
 }

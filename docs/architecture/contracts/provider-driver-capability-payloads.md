@@ -30,7 +30,7 @@ interface ProviderSessionHandle {
 // records the person's accepted choice. Persisting an observation into either would create a
 // second, staler record of a fact the live session already holds — and would make a mode that
 // stopped being available look accepted after a restart. It reaches clients as a LIVE-SCOPED
-// projection on `AgentListResponse.agents[]`, present only while the binding it was read on is
+// projection on `AgentSubscribeResponse.agents[]`, present only while the binding it was read on is
 // live.
 //
 // `declared` is carried VERBATIM and is deliberately not narrowed to `outputSpeedLevels`: that
@@ -85,7 +85,7 @@ interface ProviderMode {
 }
 
 // Effective sandbox/permission posture (shape owned by Spec-004, policy semantics by Spec-010 §Required
-// Behavior). Referenced by RunStateChangeEvent.executionPosture? (the run.running
+// Behavior). Referenced by RunStateChangeEvent.executionPosture? (the agent.run.running
 // audit stamp) and by CreateSessionParams/StartRunParams (the spawn/turn carriers).
 // This is what a DRIVER APPLIES, not what a person chooses: a person chooses one of the five
 // permission levels, the posture carries that level verbatim as its `mode` (`PermissionLevel`
@@ -105,7 +105,7 @@ type ExecutionPosture = {
 // session (Claude Code an in-process server named in `initialize`'s `sdkMcpServers`, Codex a
 // `url` entry in the conversation's `mcp_servers` at `thread/start`), never Codex `dynamicTools`; Claude Code surfaces
 // the tools as `mcp__sidekicks__<tool>` and Codex as `mcp__sidekicks.<tool>`. Every invocation flows through the daemon's approval pipeline and
-// lands as an ordinary `tool_activity` row (Spec-005). Daemon-constructed and daemon-trusted —
+// lands as an ordinary `toolActivity` row (Spec-005). Daemon-constructed and daemon-trusted —
 // never provider output.
 interface SessionCallbackTool {
   name: string;
@@ -120,9 +120,9 @@ interface SessionCallbackTool {
 // `CallbackToolResult` — no invocation is left unanswered, no approval bypass invented. The daemon-side
 // dispatcher is Plan-003's callback-tool host (`crates/sidekicks-daemon/src/provider/callback_tool_host.rs`), routing every
 // invocation through Plan-009's approval pipeline by the daemon's own approval service — the
-// in-process request create that `approval.requestCreate` names, which the daemon raises from a
+// in-process request create that `approval.request.create` names, which the daemon raises from a
 // provider callback and no client calls (CP-003-5 covers driver-host permission callbacks) —
-// Plan-003 authors no Plan-009 symbols — and landing the outcome as an ordinary `tool_activity` row. `CallbackToolInvocation` is normalized
+// Plan-003 authors no Plan-009 symbols — and landing the outcome as an ordinary `toolActivity` row. `CallbackToolInvocation` is normalized
 // at the driver boundary from untrusted provider output; `CallbackToolResult` is daemon-constructed
 // and trusted. Fail-closed availability: exposure is keyed on the daemon's approval service, not on
 // any wire registration. While that service is not running, spawn WITHHOLDS the callbackTools
@@ -227,7 +227,7 @@ interface DriverCapabilities {
 // Per-tool idempotency classification a tool declares (Spec-004 §Tool Metadata), shown per tool on
 // Settings › MCP servers. A restart re-executes no call whatever its class
 // (Spec-013 §In-Flight Receipts After A Restart).
-type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
+type IdempotencyClass = "idempotent" | "compensable" | "manualReconcileOnly";
 
 // Durable MCP Tasks recovery handle (Plan-003 T5.1). A task-augmented MCP call under MCP 2025-11-25's
 // experimental Tasks utility carries a receiver-generated `taskId` (from the `CreateTaskResult`
@@ -242,7 +242,7 @@ type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 // (Spec-004 §Recovery Consequences).
 
 // One shape, `ProviderToolMetadata` in `crates/sidekicks-contracts/src/provider/driver/tools.rs`.
-// Its `idempotency_class` takes a serde default, `manual_reconcile_only` (the conservative
+// Its `idempotency_class` takes a serde default, `manualReconcileOnly` (the conservative
 // default per Spec-004 §idempotency_class), so a driver that declares no class is read as that
 // class and is no contract violation; the generated TypeScript, shown here, has the field
 // required, so no undeclared value reaches the NOT NULL `driver_tools.idempotency_class` column.
@@ -301,17 +301,17 @@ interface GetCapabilitiesResult {
   // minted, and a required member would be unsatisfiable on that path). Absence therefore
   // reads as "cache reconstruction", never as "unknown provenance" — a consumer that needs
   // provenance re-reads the driver. Daemon-side only, like the whole wrapper: no client reads
-  // capability flags. The client-facing `driver.*` set is the method table in
-  // `crates/sidekicks-contracts/src/provider/driver/methods.rs`: `driver.listModes`,
-  // `driver.listModels`, `driver.compactContext` and `driver.listProviderCommands`
-  // (`{sessionId, agentId}` → `ProviderCommandListResult`, an agent's `/` list read once),
+  // capability flags. The client-facing driver methods are the method table in
+  // `crates/sidekicks-contracts/src/provider/driver/methods.rs`: `provider.mode.list`,
+  // `provider.model.list`, `agent.run.context.compact` and `provider.command.list`
+  // (`{sessionId, agentId}` → `ProviderCommandListResponse`, an agent's `/` list read once),
   // registered under Plan-005's CP-005-4. Each
   // reads the driver or acts on an already-existing session, and none establishes, restores, starts,
   // or tears a session down. `interruptRun` and `applyIntervention` are the driver's internal calls,
-  // never on the client table: a client interrupts only through `run.intervene`, and a steer reaches
+  // never on the client table: a client interrupts only through `agent.run.intervene`, and a steer reaches
   // a driver only from the run queue. Every other operation in provider-driver-payloads.md is
   // daemon-internal, and the session's `/` list reaches a client as
-  // `session.providerCommandsSubscribe` (running-command-payloads.md §Running-Command Method Registry).
+  // `session.providerCommand.subscribe` (running-command-payloads.md §Running-Command Method Registry).
   detectionSource?: Record<DriverCapabilityFlag, CapabilityDetectionSource>;
   // The output-speed axis's VALUE VOCABULARY for a driver whose provider publishes no per-model
   // set (Spec-004 §Provider Parameter Vocabularies + §The output-speed axis). WHERE the set is
@@ -321,7 +321,7 @@ interface GetCapabilitiesResult {
   // modes, so its set is a FIXED FACT of the driver, declared once in its descriptor. Present iff
   // `capabilities.flags.output_speed` is `true` and the driver declares a fixed set. A mutation
   // validates against the model's own list where one is published, else this one; absent or
-  // empty on both, the axis is unsettable for that model and an `agent.configUpdate` carrying
+  // empty on both, the axis is unsettable for that model and an `agent.config.update` carrying
   // `outputSpeed` refuses fail-closed rather than forwarding an unvalidated value. A client reads
   // the same fixed set on the provider read, `provider.list`, beside the rest of the provider's
   // descriptor — its reader is a client control that must offer the choice set, the same reason
@@ -337,7 +337,7 @@ interface GetCapabilitiesResult {
   // is a fact about one reading and cannot be re-derived, while this one is a constant of the
   // driver and always can. Consequently the durable capability cache gains NO column, and Plan-013's
   // fail-closed refusal rule can never be triggered by the cache; the per-model set rides the live
-  // `driver.listModels` read.
+  // `provider.model.list` read.
   outputSpeedLevels?: string[];
   // Each provider's BUILT-IN TOOLS, in the provider's own spelling — Claude Code: `Read`, `Edit`,
   // `Write`, `Bash`, `Glob`, `Grep`, `WebFetch`, `WebSearch`, `Agent`; Codex: `exec_command`,
