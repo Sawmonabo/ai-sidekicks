@@ -416,7 +416,7 @@ For details beyond this vision document, see:
 
 - **Authentication and tokens:** [Security Architecture](./architecture/security-architecture.md) (three-tier auth: local socket, PASETO v4 control plane, the Noise relay channel), [ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md)
 - **Deployment topologies:** [Deployment Topology](./architecture/deployment-topology.md) (4 topologies: single-device local, the Workers relay, the Compose relay, relay-assisted remote access)
-- **Rate limiting:** [Spec-019](./specs/019-rate-limiting-policy.md), [Deployment Topology](./architecture/deployment-topology.md) (a per-identity Durable Object on the Workers relay, an in-memory counter on the Compose relay)
+- **Rate limiting:** [Spec-019](./specs/019-rate-limiting-policy.md), [Deployment Topology](./architecture/deployment-topology.md) (one counter over the account's `counted_requests` table, in the account object on the Workers relay and in the account's SQLite file on the Compose relay)
 - **Relay scaling:** [Deployment Topology](./architecture/deployment-topology.md) (one account object for the account's data and one forwarding object per machine for its channels; Cloudflare publishes a 1,000 rps per-DO soft cap, and each forwarding object's sustained budget is 400 requests a second, 2.5× under it; a pre-launch load test of one account with two machines and three devices validates it)
 - **Deleting and exporting data:** [Spec-020](./specs/020-data-retention-export-and-deletion.md) (deletion with SQLite's `secure_delete`, data export, purge lifecycle)
 

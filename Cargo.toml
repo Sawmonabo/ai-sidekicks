@@ -316,7 +316,6 @@ napi-derive = "3.6.12"
 # The Cloudflare Worker.
 js-sys = "0.3.106"
 wasm-bindgen = "0.2.129"
-wasm-bindgen-futures = "0.4.79"
 worker = { version = "0.8.7", features = ["axum", "http"] }
 
 # Tests.
@@ -327,7 +326,6 @@ mockall = "0.15.0"
 proptest = "1.12.0"
 rstest = "0.27.0"
 standardwebhooks = "1.0.1"
-wasm-bindgen-test = "0.3.79"
 x-wing = { version = "0.1.1", features = ["hazmat"] }
 
 [workspace.lints.clippy]
