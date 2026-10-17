@@ -11,13 +11,13 @@
 use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::place::DistroName;
+use sidekicks_contracts::place::{DistributionRefusalDetails, DistroName};
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::repo::clone::RepoCloneRefusedDetails;
 use sidekicks_contracts::repo::folders::{
-    RepoAlreadyAttachedDetails, RepoDistributionRefusalDetails, RepoOutsideTrustEnvelopeDetails,
-    RepoOutsideTrustEnvelopeReason, RepoReattachConflictDetails, RepoReattachRefusedDetails,
-    RepoReattachRefusedReason, RepoRootResolutionFailedDetails, RepoRootResolutionReason,
+    RepoAlreadyAttachedDetails, RepoOutsideTrustEnvelopeDetails, RepoOutsideTrustEnvelopeReason,
+    RepoReattachConflictDetails, RepoReattachRefusedDetails, RepoReattachRefusedReason,
+    RepoRootResolutionFailedDetails, RepoRootResolutionReason,
 };
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
@@ -215,12 +215,12 @@ impl From<RepoRefusal> for DomainError {
             RepoRefusal::DistributionNeedsWsl2 { distro } => (
                 RefusalCode::RepoDistributionNeedsWsl2,
                 InternalError,
-                Some(refusal_fields(RepoDistributionRefusalDetails { distro })),
+                Some(refusal_fields(DistributionRefusalDetails { distro })),
             ),
             RepoRefusal::DistributionNotFound { distro } => (
                 RefusalCode::RepoDistributionNotFound,
                 InternalError,
-                Some(refusal_fields(RepoDistributionRefusalDetails { distro })),
+                Some(refusal_fields(DistributionRefusalDetails { distro })),
             ),
             RepoRefusal::TopLevelUnavailable => {
                 (RefusalCode::RepoTopLevelUnavailable, InternalError, None)

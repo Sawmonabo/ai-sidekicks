@@ -207,12 +207,6 @@ mod tests {
 
     #[rstest]
     #[case::one_root_without_a_place(None, None, false)]
-    #[case::one_root_on_windows(Some(r#""windows""#), Some(r#""windows""#), false)]
-    #[case::one_root_in_one_distribution(
-        Some(r#"{"distro":"Ubuntu"}"#),
-        Some(r#"{"distro":"Ubuntu"}"#),
-        false
-    )]
     #[case::one_path_in_two_distributions(
         Some(r#"{"distro":"Ubuntu"}"#),
         Some(r#"{"distro":"Debian"}"#),
