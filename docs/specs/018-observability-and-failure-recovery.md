@@ -71,7 +71,7 @@ This spec covers failure categories, the daemon's health signals and where each 
 ## Fallback Behavior
 
 - If projection rebuild fails, the daemon repairs the session before giving anything up, and a session whose history still cannot be read opens read-only at its last good point; only that session refuses new mutable work, and every other session keeps working ([Spec-013 §Fallback Behavior](./013-persistence-and-recovery.md#fallback-behavior)).
-- If provider recovery fails, the affected run remains visible in canonical state `failed` with `provider failure` detail and `recovery-needed` condition rather than disappearing.
+- If provider recovery fails, the affected run remains visible in canonical state `failed` with `providerFailure` detail and `recoveryNeeded` condition rather than disappearing.
 - If bounded diagnostic payload retention has expired, diagnosis must fall back to canonical events and the run event's failure detail rather than failing closed.
 
 ## Interfaces And Contracts
