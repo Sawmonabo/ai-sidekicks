@@ -151,7 +151,7 @@ pub fn send_console_break(pid: u32) -> io::Result<()> {
     Ok(())
 }
 
-/// Reads which processes the console of the process `pid`, the `shell-start` process that started
+/// Reads which processes the console of the process `pid`, the `shell` mode's process that started
 /// the shell, holds and how it takes input; run inside the console helper, which it moves onto that
 /// console. Fails with the system's error when the helper cannot attach, list the console's
 /// processes or read its input mode.
@@ -500,7 +500,7 @@ extern "system" fn ignore_console_control(_control_type: u32) -> BOOL {
     TRUE
 }
 
-/// The `shell-start` stand-in tests open shells through: `cmd.exe /d /c`, which runs the program
+/// The `shell` mode's stand-in tests open shells through: `cmd.exe /d /c`, which runs the program
 /// after it with the environment it was given.
 #[cfg(any(test, feature = "test-support"))]
 pub fn pass_through_start() -> TestProgram {

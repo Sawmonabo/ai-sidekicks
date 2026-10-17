@@ -1,10 +1,10 @@
-//! What the daemon's `shell-start` mode starts a shell from, and why its start can fail, in the
+//! What the daemon's `shell` mode starts a shell from, and why its start can fail, in the
 //! shapes every platform shares; each platform's module holds the calls behind them.
 
 use std::ffi::OsString;
 use std::io;
 
-/// One shell the `shell-start` mode starts: the program, its arguments and exactly its
+/// One shell the `shell` mode starts: the program, its arguments and exactly its
 /// environment. It derives no `Debug`, since the environment may hold secrets.
 pub struct ShellStart {
     /// The shell's program: an absolute path, or a bare name looked up on the environment's `PATH`.
@@ -16,7 +16,7 @@ pub struct ShellStart {
     pub environment: Vec<(String, String)>,
 }
 
-/// Why the `shell-start` mode could not prepare its own process to start a shell.
+/// Why the `shell` mode could not prepare its own process to start a shell.
 #[derive(Debug, thiserror::Error)]
 pub enum ShellStartError {
     /// The daemon that opened the shell is no longer the mode's parent, so the shell would outlive

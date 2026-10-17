@@ -1,4 +1,4 @@
-//! The Windows pieces of the `shell-start` mode: the default shell, and the middle process that
+//! The Windows pieces of the `shell` mode: the default shell, and the middle process that
 //! starts the shell with exactly its environment and relays its exit.
 
 use std::env;
@@ -31,7 +31,7 @@ pub fn arm_parent_death(_daemon_pid: u32) -> io::Result<()> {
     Ok(())
 }
 
-/// Prepares the `shell-start` mode's own process for the shell's start: nothing to do on Windows;
+/// Prepares the `shell` mode's own process for the shell's start: nothing to do on Windows;
 /// never fails.
 pub fn prepare_shell_start(_daemon_pid: u32) -> Result<(), ShellStartError> {
     Ok(())
