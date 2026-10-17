@@ -6,23 +6,32 @@
 // chain's first run; a control the run's state does not allow stands refused with its reason and
 // never reaches the daemon, a failed run parked on its step offers Resume and Cancel and one that
 // ended refuses both; Re-run asks the daemon to re-run that very run and opens the run it
-// starts; and only a finished run opens Review, on its own start and end snapshots,
-// `Open in Review` staying in place saying why when the end snapshot could not be taken.
+// starts; only a finished run opens Review, on its own start and end snapshots,
+// `Open in Review` staying in place saying why when the end snapshot could not be taken; and a
+// link into a session the background service deleted stays on the page and says so on itself.
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { bridgeWrapper, withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { WORKFLOW_FIXTURE_NOW_MS } from "#fixtures/data/workflow/clock.js";
 import { WORKFLOW_RUN_IDS, WORKFLOW_RUN_RECORDS } from "#fixtures/data/workflow/run/records.js";
 import { mintedRunId } from "#fixtures/data/workflow/run/writes.js";
 import { ManualClock } from "#renderer/lib/clock.js";
+import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
+import { workflowRunsRoute } from "#renderer/routing/readers.js";
+import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
+import { followSessionPointer } from "#renderer/features/workflows/open-session.js";
+import { WindowStore } from "#renderer/store/window/store.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { offScreenRowLimit, openingPageLimit } from "#test/helpers/session/store/fixtures.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
 import { clockLocaleFor, formatDayClock } from "#renderer/lib/wire/figures.js";
 import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
@@ -76,8 +85,8 @@ function renderHeader(
       onOpenRun={(workflowRunId) => {
         openedRuns.push(workflowRunId);
       }}
-      onOpenSession={() => undefined}
-      onOpenMessage={() => undefined}
+      onOpenSession={() => Promise.resolve("opened")}
+      onOpenMessage={() => Promise.resolve("opened")}
       onOpenWorkflow={() => undefined}
       onOpenReview={(from, to) => {
         reviews.push([from, to]);
@@ -305,5 +314,71 @@ describe("a run's header", () => {
     expect(screen.getByText(reason)).toBeDefined();
     fireEvent.click(openInReview);
     expect(reviews).toHaveLength(1);
+  });
+
+  it("stays on the page and says Session not found on a link into a deleted session", async () => {
+    const clock = new ManualClock(WORKFLOW_FIXTURE_NOW_MS);
+    const goneSessionId = "019b7a00-0280-75e5-8510-ada11a5a3999" as SessionId;
+    const run: WorkflowRunReadResponse = {
+      ...fixtureRun(WORKFLOW_RUN_IDS.succeeded),
+      startedBy: { kind: "chat", sessionId: goneSessionId },
+    };
+    const frameStore = new WindowStore({ initialRoute: workflowRunsRoute(run.workflowRunId) });
+    const routeBefore = frameStore.getState().route;
+    const registry = new SessionStoreRegistry({
+      openingPageLimit,
+      offScreenRowLimit,
+      clock,
+      refreshDebounceMs: 0,
+      read: () =>
+        Promise.reject(
+          new RefusalError(refuse("daemon", "session.not_found", "That session is gone.")),
+        ),
+    });
+    const { bridge } = bridgeAnswering(async (_call, passThrough) => passThrough());
+    render(
+      <RunHeader
+        run={run}
+        workflowName="Nightly digest"
+        versionNumber={2}
+        nodeKind={(nodeId) => NODE_KINDS[nodeId]}
+        nodeName={(nodeId) => nodeId}
+        payerOf={() => ({ kind: "unread" })}
+        bridge={bridge}
+        onOpenRun={() => undefined}
+        onOpenSession={() => Promise.resolve("opened")}
+        onOpenMessage={(sessionId, cursor) =>
+          followSessionPointer(frameStore, registry, sessionId, cursor)
+        }
+        onOpenWorkflow={() => undefined}
+        onOpenReview={() => undefined}
+      />,
+      { wrapper: withAnnouncer(bridgeWrapper(bridge, clock)) },
+    );
+    const goneLine = (): string | null | undefined =>
+      document.querySelector(".meridian-missing-target-line")?.textContent;
+    // The session's first read, which the window's event subscriber asks for on every open.
+    const pressAndRead = async (): Promise<void> => {
+      fireEvent.click(control("Open the message that started it"));
+      await act(async () => {
+        registry.requestRefresh(goneSessionId, "subscribe");
+        clock.advance(0);
+        await crossMacrotaskBoundary();
+      });
+    };
+
+    await pressAndRead();
+    expect(goneLine()).toBe("Session not found");
+    expect(frameStore.getState().route).toBe(routeBefore);
+    // Nothing keeps asking the background service for a session that is not there.
+    expect(registry.has(goneSessionId)).toBe(false);
+
+    // The next act puts it away, and the same link pressed again says it again.
+    fireEvent.pointerDown(document.body);
+    expect(goneLine()).toBeUndefined();
+    await pressAndRead();
+    expect(goneLine()).toBe("Session not found");
+    expect(frameStore.getState().route).toBe(routeBefore);
+    registry.disposeAll();
   });
 });

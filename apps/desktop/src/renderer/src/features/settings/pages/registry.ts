@@ -202,7 +202,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     ],
     note:
       "Sign in to Claude Code and Codex, choose which account new work runs on, and set what " +
-      "each provider does on its own. Every sign-in and pasted token stays on this machine.",
+      "each provider does on its own. Every sign-in and pasted token stays on this computer.",
     render: () => createElement(RegisteredBodyPage, { pageId: "providers" }),
   },
   {
@@ -225,7 +225,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     pageId: "projects",
     keywords: ["repositories", "clone", "worktree", "environment variables", "branch names"],
     note:
-      "Where cloned repositories go, every project attached to this machine, what happens " +
+      "Where cloned repositories go, every project attached to this computer, what happens " +
       "after a worktree is made, and the environment rows every process starts with.",
     render: () => createElement(RegisteredBodyPage, { pageId: "projects" }),
   },
@@ -237,7 +237,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     keywords: ["web", "site data", "cookies", "storage", "file boundary", "page tools", "clear"],
     note:
       "What the browser inside the app remembers, and whether sidekicks can drive it. One set " +
-      "of site data for this machine.",
+      "of site data for this computer.",
     body: () => import("./browser/body.js"),
   },
   {

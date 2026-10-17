@@ -1,4 +1,5 @@
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { SessionPointerOutcome } from "#renderer/features/workflows/open-session.js";
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
@@ -21,6 +22,8 @@ import { runHeaderLines, runLiveLine } from "../header-lines.js";
 import { latestStepWith } from "../../steps.js";
 import { RunControl } from "#renderer/features/workflows/components/RunControl.js";
 import { OpenInReview } from "./OpenInReview.js";
+import { MissingTargetLine } from "#renderer/components/MissingTargetLine/MissingTargetLine.js";
+import { useGoneSessionLine } from "#renderer/features/workflows/hooks/useGoneSessionLine.js";
 
 /** What a run's header is drawn from, and where its links lead. */
 export interface RunHeaderProps {
@@ -36,9 +39,13 @@ export interface RunHeaderProps {
   readonly payerOf: (providerAccountId: string) => PayerReading;
   readonly bridge: PlatformBridge;
   readonly onOpenRun: (workflowRunId: string) => void;
-  readonly onOpenSession: (sessionId: string) => void;
+  /** Open a session, unless the background service answers it no longer exists. */
+  readonly onOpenSession: (sessionId: string) => Promise<SessionPointerOutcome>;
   /** Open the session that started the run with its starting message in view. */
-  readonly onOpenMessage: (sessionId: string, messageAnchorCursor: EventCursor | undefined) => void;
+  readonly onOpenMessage: (
+    sessionId: string,
+    messageAnchorCursor: EventCursor | undefined,
+  ) => Promise<SessionPointerOutcome>;
   /** Open the workflow the run came from. */
   readonly onOpenWorkflow: (definitionId: string) => void;
   /** Open Review on what the run changed between two of its snapshots. */
@@ -54,7 +61,7 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
   const { run, bridge } = props;
   const clockLocale = useClockLocale();
   const workflowRunId = run.workflowRunId;
-  const { review, startedBy } = run;
+  const { review, startedBy, fixSessionId } = run;
   // The daemon starts the new run from this run's own version, input and mode.
   const rerun = useWorkflowCall(
     () => callDaemon(bridge, "workflow.runRerun", { workflowRunId }),
@@ -145,21 +152,15 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
           />
         ) : null}
         {startedBy.kind === "chat" ? (
-          <HeaderLink
+          <SessionHeaderLink
             label="Open the message that started it"
-            onPress={() => {
-              props.onOpenMessage(startedBy.sessionId, startedBy.messageAnchorCursor);
-            }}
+            onPress={() => props.onOpenMessage(startedBy.sessionId, startedBy.messageAnchorCursor)}
           />
         ) : null}
-        {run.fixSessionId === undefined ? null : (
-          <HeaderLink
+        {fixSessionId === undefined ? null : (
+          <SessionHeaderLink
             label={fixSessionLinkWords(run, props.nodeName)}
-            onPress={() => {
-              if (run.fixSessionId !== undefined) {
-                props.onOpenSession(run.fixSessionId);
-              }
-            }}
+            onPress={() => props.onOpenSession(fixSessionId)}
           />
         )}
       </div>
@@ -242,6 +243,30 @@ function HeaderLink(props: {
     >
       {props.label}
     </button>
+  );
+}
+
+/**
+ * A header link into a session, which says `Session not found` on itself when the session it
+ * points into is gone.
+ */
+function SessionHeaderLink(props: {
+  readonly label: string;
+  readonly onPress: () => Promise<SessionPointerOutcome>;
+}): React.JSX.Element {
+  const goneSessionLine = useGoneSessionLine();
+  return (
+    <span className="meridian-workflow-run__control">
+      <HeaderLink
+        label={props.label}
+        onPress={() => {
+          goneSessionLine.follow(props.onPress());
+        }}
+      />
+      {goneSessionLine.raisedKey === undefined ? null : (
+        <MissingTargetLine target="session" raisedKey={goneSessionLine.raisedKey} />
+      )}
+    </span>
   );
 }
 

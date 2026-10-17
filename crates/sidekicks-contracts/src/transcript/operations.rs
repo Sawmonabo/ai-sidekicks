@@ -115,10 +115,30 @@ fn require_entries_to_belong_to_run(
 /// How many rows a read may ask for: 1 to [`TRANSCRIPT_READ_LIMIT_MAX`].
 pub type TranscriptReadLimit = BoundedInt<1, { count_bound(TRANSCRIPT_READ_LIMIT_MAX) }>;
 
+/// Refuses an anchored read that also names `afterCursor` or `beforeCursor`: the anchor alone
+/// decides where its window stands.
+fn require_anchor_alone(
+    around_cursor: Option<&EventCursor>,
+    after_cursor: Option<&EventCursor>,
+    before_cursor: Option<&EventCursor>,
+) -> garde::Result {
+    if around_cursor.is_some() && (after_cursor.is_some() || before_cursor.is_some()) {
+        return Err(garde::Error::new(
+            "aroundCursor stands alone: a read anchored at one row names no afterCursor or \
+             beforeCursor",
+        ));
+    }
+    Ok(())
+}
+
 /// A bounded read window over one session's transcript. A cursor is a position in the log, and
 /// the cursor an event carries is the position right after it: `afterCursor` answers the events
 /// after its position and `beforeCursor` those before it, so a page before a window's head and the
-/// stream after it meet with nothing missed or repeated.
+/// stream after it meet with nothing missed or repeated. `aroundCursor` names one row by its cursor
+/// and answers the window around it, that row always among the entries, or refuses the read with
+/// `transcript.row.notFound` when no row stands there; its page continues as a `beforeCursor`
+/// page does, `nextCursor` toward the start, and the rows after it are read from its newest row's
+/// cursor.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -141,6 +161,21 @@ pub struct TranscriptReadRequest {
     )]
     #[schemars(with = "EventCursor")]
     pub before_cursor: Option<EventCursor>,
+    /// Answer the window around the row at this cursor, refused when no row stands there.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "EventCursor")]
+    #[garde(custom(|around_cursor: &Option<EventCursor>, (): &()| {
+        require_anchor_alone(
+            around_cursor.as_ref(),
+            self.after_cursor.as_ref(),
+            self.before_cursor.as_ref(),
+        )
+    }))]
+    pub around_cursor: Option<EventCursor>,
     /// The most rows to answer.
     #[serde(
         default,

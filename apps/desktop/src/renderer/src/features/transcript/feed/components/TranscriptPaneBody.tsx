@@ -16,6 +16,10 @@ export interface TranscriptPaneBodyProps {
   readonly sessionStore: SessionStore | undefined;
   /** The event cursor of the message the route opens the session at, or `undefined`. */
   readonly messageAnchorCursor: string | undefined;
+  /** How many times the window's route was written, so a link followed again raises its line again. */
+  readonly routeWriteCount: number;
+  /** Whether the route's last write was the move back here off a session that no longer exists. */
+  readonly isSessionNotFound: boolean;
   /** The `transcript.read` the feed reads its history past the store's window with. */
   readonly readTranscriptPage: TranscriptPageRead;
   /** The `transcript.bodyRead` the feed reads an opened large body with. */
@@ -46,6 +50,8 @@ export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.El
       rowRenderer={props.rowRenderer}
       feedLabel="Transcript"
       messageAnchorCursor={props.messageAnchorCursor}
+      routeWriteCount={props.routeWriteCount}
+      isSessionNotFound={props.isSessionNotFound}
       readTranscriptPage={props.readTranscriptPage}
       readTranscriptBody={props.readTranscriptBody}
     />

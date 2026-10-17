@@ -81,7 +81,7 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
       <OverlayDialogPopup backdropClassName="meridian-dialog__backdrop" className="meridian-dialog">
         <Dialog.Title className="meridian-dialog__title">Attach a repository</Dialog.Title>
         <Dialog.Description className="meridian-dialog__description">
-          Attaching adds the repository to this machine.
+          Attaching adds the repository to this computer.
         </Dialog.Description>
 
         <label className="meridian-form__field">

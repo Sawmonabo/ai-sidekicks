@@ -64,7 +64,7 @@ export function TokenResupplyForm(props: {
         required
       />
       <p className="meridian-settings-page__aside">
-        The value is stored in this machine&rsquo;s keychain and is never shown here again.
+        The value is stored in this computer&rsquo;s keychain and is never shown here again.
       </p>
       <span className="meridian-accounts__resupply-actions">
         <button

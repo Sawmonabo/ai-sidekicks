@@ -14,7 +14,7 @@ describe("RefusalCard — what a screen reader is told", () => {
       <RefusalCard
         code="agent.resolution_refused"
         reason="account_unavailable"
-        detail="The account this sidekick runs on is not on this machine."
+        detail="The account this sidekick runs on is not on this computer."
         action={<button type="button">Try again</button>}
       />,
       { wrapper: LiveAnnouncerProvider },
@@ -22,7 +22,7 @@ describe("RefusalCard — what a screen reader is told", () => {
 
     expect(liveRegionText(container, "assertive")).toBe(
       "Sidekick resolution refused · Account unavailable. " +
-        "The account this sidekick runs on is not on this machine.",
+        "The account this sidekick runs on is not on this computer.",
     );
   });
 });

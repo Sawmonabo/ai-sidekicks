@@ -10,10 +10,10 @@ import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.
 /** What each keychain refusal reads as, in the slot a refused token's line takes. */
 const KEYCHAIN_REFUSAL_LINES: Readonly<Record<KeychainRefusalCause, string>> = {
   locked:
-    "This machine's keychain is locked, so the token was not stored. Unlock it, then paste the " +
+    "This computer's keychain is locked, so the token was not stored. Unlock it, then paste the " +
     "token again.",
   unavailable:
-    "This machine has no keychain the app can store a token in, so the token was not stored. " +
+    "This computer has no keychain the app can store a token in, so the token was not stored. " +
     "Use Sign in instead.",
 };
 
@@ -60,7 +60,7 @@ export function RegistrationOutcomeLine(props: {
     <AnnouncedLine
       element="p"
       className="meridian-settings-page__state"
-      words="The token was stored in this machine’s keychain. It is never shown here again."
+      words="The token was stored in this computer’s keychain. It is never shown here again."
       politeness="polite"
     />
   );

@@ -1,7 +1,8 @@
 // The two-way binding between the window's location hash and the frame's route. The hash
 // drives the route when a window is opened by URL, the address is edited or Back is pressed; the
 // route drives the hash when the rail or palette navigates, as a new history entry or, for a move
-// that only follows a cursor or one the address already entered, in place of the current one.
+// that only follows a cursor or one the address already entered, in place of the current one; a
+// move off a session that no longer exists steps back to the entry before it.
 //
 // Two rules make the loop terminate. A write is not news: writing the hash raises `hashchange`,
 // and adopting that echo can revert a route the person chose in the same commit and flip the
@@ -75,8 +76,12 @@ export function useHashRouteBinding(
       return;
     }
     unheardWrite.current = desired;
-    if (restored !== undefined && ownerWindow.location.hash === restored) {
-      // The entry before the restored one is the address the yes followed.
+    if (
+      (restored !== undefined && ownerWindow.location.hash === restored) ||
+      routeHistoryWrite === "back"
+    ) {
+      // The entry before the restored one is the address the yes followed; the entry before a
+      // session that no longer exists is the screen the move off it returns to.
       ownerWindow.history.back();
     } else if (routeHistoryWrite === "replace") {
       ownerWindow.location.replace(desired);

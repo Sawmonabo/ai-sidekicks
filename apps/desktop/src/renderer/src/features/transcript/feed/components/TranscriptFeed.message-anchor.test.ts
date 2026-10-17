@@ -245,13 +245,19 @@ describe("the transcript feed — opened at a message older than the window", ()
       messageAnchorCursor: transcriptFixtureEventId(BEFORE_FIRST_PAGE_INDEX),
       readTranscriptPage: earlierRead.read,
     });
-    // The page that ends history puts the one line in place of `Load earlier`.
+    // The page that ends history draws the one line in `Jump to latest`'s place, not at the top.
     await waitFor(() => {
-      expect(feed.textContent).toContain("Message not found");
+      expect(feed.querySelector(".meridian-transcript-viewport__tail")?.textContent).toBe(
+        "Message not found",
+      );
     });
+    expect(feed.querySelector(".meridian-transcript-viewport__pill")).toBeNull();
     expect(feed.querySelector(".meridian-transcript-viewport__load-earlier")).toBeNull();
     expect(earlierRead.calls()).toBe(2);
     expect(document.activeElement).not.toBe(scrollContainerOf(feed));
+    // It stays until the next act and goes with it.
+    fireEvent.pointerDown(document.body);
+    expect(feed.textContent).not.toContain("Message not found");
   });
 
   it("stops at a refused read rather than asking again", async () => {

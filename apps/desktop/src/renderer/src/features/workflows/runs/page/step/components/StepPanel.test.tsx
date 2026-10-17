@@ -35,6 +35,7 @@ import {
   WORKFLOW_RUN_RECORDS,
 } from "#fixtures/data/workflow/run/records.js";
 import { withoutWait } from "#fixtures/data/workflow/run/writes.js";
+import type { SessionPointerOutcome } from "#renderer/features/workflows/open-session.js";
 import { StepPanel } from "./StepPanel.js";
 
 const OUTPUT_ARTIFACT = "019b7a20-0280-75e5-8510-ada11a5a5999" as ArtifactId;
@@ -77,7 +78,7 @@ function renderPanel(
     readonly document?: WorkflowDocument;
     readonly artifactText?: string;
     readonly keepRefusal?: Error;
-    readonly onOpenSession?: (sessionId: string) => void;
+    readonly onOpenSession?: (sessionId: string) => Promise<SessionPointerOutcome>;
   } = {},
 ): readonly RecordedDaemonCall[] {
   const { bridge, calls } = bridgeAnswering(async (call, passThrough) => {
@@ -108,7 +109,7 @@ function renderPanel(
         onAnswered={() => undefined}
         onOpenRun={() => undefined}
         onOpenReview={() => undefined}
-        onOpenSession={options.onOpenSession ?? (() => undefined)}
+        onOpenSession={options.onOpenSession ?? (() => Promise.resolve("opened"))}
         onClose={() => undefined}
       />
     </LiveAnnouncerProvider>,
@@ -294,14 +295,14 @@ describe("the step panel", () => {
   });
 
   it("says in the daemon's words when it refuses the Keep mark", async () => {
-    const refusal = Object.assign(new Error("That run is not on this machine."), {
+    const refusal = Object.assign(new Error("That run is not on this computer."), {
       code: -32603,
       data: { type: "workflow.not_found" },
     });
     renderPanel(fixtureRun(WORKFLOW_RUN_IDS.failed), { keepRefusal: refusal });
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Keep" }));
-    expect(await screen.findByText("That run is not on this machine.")).toBeDefined();
+    expect(await screen.findByText("That run is not on this computer.")).toBeDefined();
   });
 
   it("opens the run's fix session again rather than making a second one", () => {
@@ -313,6 +314,7 @@ describe("the step panel", () => {
       {
         onOpenSession: (sessionId) => {
           opened.push(sessionId);
+          return Promise.resolve("opened");
         },
       },
     );

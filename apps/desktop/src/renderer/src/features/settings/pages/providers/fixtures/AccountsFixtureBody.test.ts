@@ -143,6 +143,6 @@ describe("AccountsFixtureBody — a fresh token for an expired token account", (
       ],
     ]);
     expect(field.value).toBe("");
-    expect(container.textContent).toContain("The token was stored in this machine’s keychain.");
+    expect(container.textContent).toContain("The token was stored in this computer’s keychain.");
   });
 });

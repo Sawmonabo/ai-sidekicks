@@ -470,6 +470,9 @@ refusal_codes! {
     SystemInternalError = "system.internal_error" (500);
     /// System is undergoing maintenance.
     SystemMaintenance = "system.maintenance" (503);
+    /// A transcript read named a row the session does not hold: an anchor cursor or a row id at
+    /// which no row of the session's transcript stands.
+    TranscriptRowNotFound = "transcript.row.notFound" (404);
     /// Per-request envelope-level `protocolVersion` field violates, the wrong JSON type, or fails
     /// the ISO 8601 `YYYY-MM-DD` shape.
     TransportInvalidProtocolVersion = "transport.invalid_protocol_version" (400);

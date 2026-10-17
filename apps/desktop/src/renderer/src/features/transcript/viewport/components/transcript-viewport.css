@@ -82,12 +82,8 @@
   font-size: var(--meridian-text-xs);
 }
 
-/*
- * The failed read's line, in the history line's look and pressable at its `Try again`, and the
- * line saying a linked message is nowhere in the history, in the same look and place.
- */
-.meridian-transcript-viewport__load-earlier-failed,
-.meridian-transcript-viewport__message-not-found {
+/* The failed read's line, in the history line's look and pressable at its `Try again`. */
+.meridian-transcript-viewport__load-earlier-failed {
   margin-block: var(--meridian-space-3);
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);

@@ -9,13 +9,14 @@
 // The page may not draw the control on the first commit (a body arriving as its own chunk, or a
 // row drawn once its read answers), so a miss watches the page body's mutations and lands when
 // the control appears. The watch ends on landing, when the address changes, or at the person's
-// first press, scroll or key, since a landing after that would pull the page out from under
-// them; a control the page never draws leaves the person on the page. The light is a CSS
+// first press, scroll, touch drag or key, since a landing after that would pull the page out from
+// under them; a control the page never draws leaves the person on the page. The light is a CSS
 // animation whose end clears it, so nothing schedules a timer.
 
 import { getWindow } from "@floating-ui/utils/dom";
 
 import { type Clock } from "#renderer/lib/clock.js";
+import { NEXT_ACT_EVENTS } from "#renderer/lib/next-act-events.js";
 import {
   SCROLLING_OVERFLOW_VALUES,
   clippingAncestorsOf,
@@ -59,7 +60,7 @@ export class SettingsControlLanding {
       attributes: true,
       attributeFilter: ["hidden"],
     });
-    for (const eventType of PERSON_INPUT_EVENTS) {
+    for (const eventType of NEXT_ACT_EVENTS) {
       ownerWindow.document.addEventListener(eventType, this.#onPersonInput, {
         capture: true,
         passive: true,
@@ -77,7 +78,7 @@ export class SettingsControlLanding {
     }
     this.#mutationObserver.disconnect();
     const ownerDocument = this.#pageBody.ownerDocument;
-    for (const eventType of PERSON_INPUT_EVENTS) {
+    for (const eventType of NEXT_ACT_EVENTS) {
       ownerDocument.removeEventListener(eventType, this.#onPersonInput, { capture: true });
     }
   }
@@ -99,9 +100,6 @@ export class SettingsControlLanding {
 
 /** The attribute that lights a landed control until its animation ends. */
 const LANDED_ATTRIBUTE = "data-settings-landed";
-
-/** What the person does that ends a landing still waiting for its control. */
-const PERSON_INPUT_EVENTS = ["pointerdown", "keydown", "wheel"] as const;
 
 /** The `hidden` value a closed fold's panel carries until it is found. */
 const CLOSED_FOLD_HIDDEN_VALUE = "until-found";

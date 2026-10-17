@@ -403,7 +403,7 @@ Every refusal point of the workflow surface carries its own code, registered in 
 | `workflow.step_thread_failed` | A quick step whose thread or engine could not be made; the step fails at once, with no start timer. `data.fields.reason`: `start_failed` | `internal` | 500 |
 | `workflow.sandbox_unavailable` | A full-tier Code step, or a shell step at the Sandboxed level, whose provider sandbox did not start — `@anthropic-ai/sandbox-runtime` for Claude Code, `codex sandbox` for Codex. `data.fields`: `provider`, the step's provider id, and `detail`, the wrapper's own error. The step never falls back to running unprotected, and no other level is substituted for the one the run holds | `unavailable` | 503 |
 | `workflow.step_timed_out` | A step or a run cut by a time limit, read `failed · timed out`. `data.fields`: `cause` (`step_timeout` \| `run_cap`) and the limit | `deadlineExceeded` | 504 |
-| `workflow.secret_not_found` | A secret reference the keychain does not hold. `data.fields`: `reference` only. It reads `not on this machine` for a shared secret, `not in <project>` for a project secret, and `This run has no repository` for a project secret on a run that works in no project's repository. The step offers `Retry from this step` | `notFound` | 404 |
+| `workflow.secret_not_found` | A secret reference the keychain does not hold. `data.fields`: `reference` only. It reads `not on this computer` for a shared secret, `not in <project>` for a project secret, and `This run has no repository` for a project secret on a run that works in no project's repository. The step offers `Retry from this step` | `notFound` | 404 |
 | `workflow.secret_store_unavailable` | The keychain is locked or unavailable. `data.fields.cause`: `locked` \| `unavailable`. The step fails with its cause and offers `Retry from this step`; it never waits indefinitely and never falls back to a plaintext value | `unavailable` | 503 |
 
 One code outside `workflow.*` fails a step: a step whose agent cannot be resolved fails with `agent.resolution_refused`, carrying that refusal's own `reason`; its `data.fields` are that refusal's own (listed under [Agent Definitions](#agent-definitions)), except that `definitionId` is `null` for a step running the General agent. The case [Spec-025 §The account registry](../../specs/025-provider-accounts-and-credential-homes.md#the-account-registry) settles is a step's park on a spent account racing that account's removal: where the removal commits first, the step fails with reason `account_unavailable`. No other `agent.*` code rides a step's `error`.
@@ -529,7 +529,7 @@ Transcript codes ride the daemon JSON-RPC wire with notional HTTP statuses.
 
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
-| `transcript.row.notFound` | A transcript read named a row id the session does not hold, so it never reads like a row that carries no body. `data.fields`: `rowId` | `notFound` | 404 |
+| `transcript.row.notFound` | A transcript read named a row the session does not hold: `transcript.bodyRead`'s row id, so it never reads like a row that carries no body, or `transcript.read`'s `aroundCursor`, at which no row stands. `data.fields`: `rowId` or `aroundCursor` | `notFound` | 404 |
 
 ### Provider
 

@@ -1,7 +1,8 @@
 // The find field's state and the walk over the rows the feed draws. It searches every row the
 // store holds, whether or not the viewport's window holds it: a step to a row the window let go
 // lands on it, as a link does. Matches inside folded run groups are counted apart, since opening
-// the group is their exit. Both are held across the log's updates, which arrive per event.
+// the group is their exit. Both are held across the log's updates, which arrive per event, so the
+// count follows a row that goes, and a step from a hit that left moves on to the next live one.
 
 import { useCallback, useMemo, useState } from "react";
 
@@ -11,6 +12,7 @@ import {
   FindMatchList,
   FoldedMatchCount,
   stepFindMatch,
+  type FindMatch,
   type FindStepDirection,
   type FindResult,
 } from "../matcher.js";
@@ -78,7 +80,9 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
   const [isOpen, setIsOpen] = useState(false);
   const [openRequestCount, setOpenRequestCount] = useState(0);
   const [query, setQueryValue] = useState("");
-  const [selectedMatchRowId, setSelectedMatchRowId] = useState<string | undefined>(undefined);
+  // The selected hit, kept with its place in the log so a step from a hit whose row left moves
+  // on to the next live one.
+  const [selectedMatch, setSelectedMatch] = useState<FindMatch | undefined>(undefined);
 
   const result = useMemo(
     () => findMatchList.resultOf(rows, query, systemMessageByRowId),
@@ -93,29 +97,29 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
   // Looked up, not remembered, so a recomputed result reports where the walk actually is.
   const currentMatchIndex = useMemo(
     () =>
-      selectedMatchRowId === undefined
+      selectedMatch === undefined
         ? -1
-        : result.matches.findIndex((match) => match.rowId === selectedMatchRowId),
-    [result, selectedMatchRowId],
+        : result.matches.findIndex((match) => match.rowId === selectedMatch.rowId),
+    [result, selectedMatch],
   );
 
   const setQuery = useCallback((next: string) => {
     setQueryValue(next);
     // A new query restarts the walk. Keeping the selection would resume inside a
     // match list built from a different question.
-    setSelectedMatchRowId(undefined);
+    setSelectedMatch(undefined);
     setIsOpen(true);
   }, []);
 
   const step = useCallback(
     (direction: FindStepDirection) => {
-      const outcome = stepFindMatch(result, currentMatchIndex, direction);
+      const outcome = stepFindMatch(result, selectedMatch, direction);
       if (outcome !== undefined) {
-        setSelectedMatchRowId(outcome.match.rowId);
+        setSelectedMatch(outcome.match);
       }
       return outcome;
     },
-    [result, currentMatchIndex],
+    [result, selectedMatch],
   );
 
   const open = useCallback(() => {
@@ -128,7 +132,7 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
   const close = useCallback(() => {
     setIsOpen(false);
     setQueryValue("");
-    setSelectedMatchRowId(undefined);
+    setSelectedMatch(undefined);
   }, []);
 
   return {

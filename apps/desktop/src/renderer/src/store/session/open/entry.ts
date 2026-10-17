@@ -39,6 +39,7 @@ import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { RealClock, type Clock } from "#renderer/lib/clock.js";
 import { describeFailure } from "#shared/failure-message.js";
+import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import {
@@ -99,6 +100,12 @@ export type SessionBaseStateReader = (
   opening: SessionWindowOpening,
 ) => Promise<SessionBaseState | undefined>;
 
+/**
+ * How a session's first read settled: it landed, the background service holds no such session, or
+ * it failed for another cause, which the store's degraded line already says.
+ */
+export type SessionFirstRead = "read" | "gone" | "failed";
+
 /** Where one session's stream opens after a read placed its window. */
 export interface SessionStreamPosition {
   /** The daemon-issued position the stream opens after; `undefined` opens it at the log's start. */
@@ -142,6 +149,8 @@ export class OpenSessionEntry {
   #streamPosition: SessionStreamPosition | undefined = undefined;
   readonly #streamPositions = new Emitter<SessionStreamPosition>("session stream position");
   readonly #readFailures = new Emitter<void>("session read failure");
+  /** Whether the last read was refused because the background service holds no such session. */
+  #isGone = false;
   readonly #releaseCauseCapture: () => void;
   readonly #releaseTailRejoin: () => void;
   readonly #offScreenRowLimit: () => number;
@@ -187,7 +196,8 @@ export class OpenSessionEntry {
       },
       // A failed read is a degradation with a named cause. The store also records the failure
       // beside any worse standing cause, so the line under the header says it could not catch up.
-      onError: () => {
+      onError: (failure) => {
+        this.#isGone = isSessionNotFound(failure);
         this.store.markReadFailed();
         this.#readFailures.emit();
       },
@@ -248,6 +258,40 @@ export class OpenSessionEntry {
   /** Be told each time a read of this session fails. */
   public subscribeToReadFailure(listener: () => void): Unsubscribe {
     return this.#readFailures.subscribe(listener);
+  }
+
+  /** Whether the last read was refused because the background service holds no such session. */
+  public get isGone(): boolean {
+    return this.#isGone;
+  }
+
+  /** Whether any screen shows this session now. */
+  public get isOnScreen(): boolean {
+    return this.#onScreenCount > 0;
+  }
+
+  /**
+   * How the first read settles, at once when it already has: a session the background service
+   * deleted answers `gone`, so a pointer to it can stay where it is instead of opening nothing.
+   */
+  public firstRead(): Promise<SessionFirstRead> {
+    const settledNow = this.#firstReadSettlement();
+    if (settledNow !== undefined) {
+      return Promise.resolve(settledNow);
+    }
+    return new Promise((resolve) => {
+      const settle = (): void => {
+        const settlement = this.#firstReadSettlement();
+        if (settlement === undefined) {
+          return;
+        }
+        releaseState();
+        releaseFailure();
+        resolve(settlement);
+      };
+      const releaseState = this.store.readable.subscribe(settle);
+      const releaseFailure = this.#readFailures.subscribe(settle);
+    });
   }
 
   /**
@@ -321,6 +365,7 @@ export class OpenSessionEntry {
       return;
     }
     this.#boundOffScreenWindow();
+    this.#isGone = false;
     // The stream this read opens replaces the lost one, so no snapshot is owed past it.
     this.#isSnapshotOwed = false;
     if (wasInitialized) {
@@ -394,11 +439,31 @@ export class OpenSessionEntry {
     }
   }
 
+  /** How the first read settled, or `undefined` while it is still owed. */
+  #firstReadSettlement(): SessionFirstRead | undefined {
+    const state = this.store.snapshot();
+    if (state.initialized) {
+      return "read";
+    }
+    if (this.#isGone) {
+      return "gone";
+    }
+    return state.lastReadFailed ? "failed" : undefined;
+  }
+
   /** Name where the stream opens next, for a stream bound later and for the subscriber now. */
   #moveStream(position: SessionStreamPosition): void {
     this.#streamPosition = position;
     this.#streamPositions.emit(position);
   }
+}
+
+/**
+ * Whether a read failed because the background service holds no such session: the refusal it
+ * answers for a deleted one.
+ */
+function isSessionNotFound(failure: unknown): boolean {
+  return failure instanceof RefusalError && failure.refusal.code === "session.not_found";
 }
 
 // The most refused positions an entry remembers: as many as one read chooses between, the last

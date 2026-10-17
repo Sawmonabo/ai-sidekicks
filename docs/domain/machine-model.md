@@ -10,7 +10,7 @@ This document covers the machine's ownership, registration, reachability, and it
 
 ## Definitions
 
-- Machine: a computer whose background service (the local daemon) runs sessions, `RuntimeNode` in the backend. On screen it is the machine's name, and `This machine` on the machine itself.
+- Machine: a computer whose background service (the local daemon) runs sessions, `RuntimeNode` in the backend. On screen it is the machine's name, and `This computer` on the machine itself.
 - Reachability: whether the person's other devices can reach the machine now. It is `Reachable` while the machine's relay connection is up, and `Not reachable` once 45 seconds pass without a frame on it.
 
 ## What This Is

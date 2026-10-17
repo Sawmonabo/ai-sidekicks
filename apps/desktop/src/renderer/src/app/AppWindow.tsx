@@ -36,6 +36,7 @@ import { BootCover } from "#renderer/layout/AppShell/BootCover.js";
 import { useBootCover } from "#renderer/layout/AppShell/hooks/useBootCover.js";
 import { AlignmentWorkerProvider } from "#renderer/features/repos/index.js";
 import { useActiveSessionStore } from "./hooks/useActiveSessionStore.js";
+import { useGoneSessionReturn } from "./hooks/useGoneSessionReturn.js";
 import { useHashRouteBinding } from "./hooks/useHashRouteBinding.js";
 import { useHeldPaste } from "./hooks/useHeldPaste.js";
 import { useWindowFocusRefresh } from "./hooks/useWindowFocusRefresh.js";
@@ -120,6 +121,8 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
   const lastOpenedSessionId = useWindowStore(frameStore, (state) => state.lastOpenedSessionId);
 
   useHashRouteBinding(frameStore, hash, ownerWindow);
+
+  useGoneSessionReturn(frameStore, appStores.sessionStoreRegistry);
 
   // Focus triggers a refresh; nothing polls.
   useWindowFocusRefresh(frameStore, appStores.sessionStoreRegistry, ownerWindow);

@@ -28,7 +28,7 @@ const BROWSER_POLICY_SWITCH_TRAITS: Readonly<
     label: "Open local files outside this session's repo mounts",
     consequence:
       "On, a browser pane may open a file: destination anywhere on " +
-      "this machine. Off, it opens one only inside an admitted root of " +
+      "this computer. Off, it opens one only inside an admitted root of " +
       "a repo mount attached to the session, and anything else is " +
       "refused.",
     isOnByDefault: false,

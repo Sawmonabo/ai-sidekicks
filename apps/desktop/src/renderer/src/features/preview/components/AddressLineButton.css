@@ -25,6 +25,6 @@
   cursor: default;
 }
 
-.meridian-preview-action:disabled {
+.meridian-preview-action:is(:disabled, [aria-disabled="true"]) {
   opacity: 0.55;
 }

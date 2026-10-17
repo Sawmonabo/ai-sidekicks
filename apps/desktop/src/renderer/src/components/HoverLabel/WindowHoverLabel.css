@@ -27,3 +27,13 @@
   font-size: var(--meridian-text-xs);
   overflow-wrap: anywhere;
 }
+
+/* Where the pointer is coarse a held touch on a labeled control opens its label alone: no system
+   callout and no text selection. A mouse never meets this. */
+@media (pointer: coarse) {
+  [data-hover-label] {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
