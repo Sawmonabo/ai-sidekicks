@@ -73,6 +73,83 @@ impl ListKey for ProviderPlaceSwitch {
 /// list order on a computer with a WSL 2 distribution, else one entry naming no place.
 pub type ProviderPlaceSwitches = UniqueList<ProviderPlaceSwitch, 1, { usize::MAX }>;
 
+/// The words an action row reads in while it runs and when it fails, each failure followed by the
+/// provider's own reason.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderActionWords {
+    /// While it is being done.
+    pub doing: ProviderDeclarationText,
+    /// While it is being undone.
+    pub undoing: ProviderDeclarationText,
+    /// When doing it failed.
+    pub do_failed: ProviderDeclarationText,
+    /// When undoing it failed.
+    pub undo_failed: ProviderDeclarationText,
+}
+
+/// Where an action stands in one place beyond whether it is done: settled, running, or failed with
+/// the provider's reason, the switch back where it was.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "state",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum ProviderActionProgress {
+    /// Nothing is running.
+    Settled {},
+    /// A run is in progress.
+    Running {
+        /// Whether it is doing the action, not undoing it.
+        is_doing: bool,
+        /// Whether the driver can stop it.
+        can_stop: bool,
+    },
+    /// The last run failed.
+    Failed {
+        /// Whether it was doing the action, not undoing it.
+        is_doing: bool,
+        /// The provider's own reason.
+        reason: ProviderDeclarationText,
+    },
+}
+
+/// One place's state of an action row. A computer without a WSL 2 distribution has one entry and
+/// names no place.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderActionPlace {
+    /// The place; absent on a computer without a WSL 2 distribution.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
+    /// Whether the action is done there.
+    pub is_done: bool,
+    /// Its run there, if any.
+    pub progress: ProviderActionProgress,
+}
+
+impl ListKey for ProviderActionPlace {
+    type Key = Option<Place>;
+
+    fn list_key(&self) -> Option<Place> {
+        self.place.clone()
+    }
+
+    // It carries no rule its read does not hold.
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+/// Every place's state of one action row, in the order of [`ProviderPlaceSwitches`].
+pub type ProviderActionPlaces = UniqueList<ProviderActionPlace, 1, { usize::MAX }>;
+
 /// One option of a choice: its value, the words it reads in, and the provider's reason where it
 /// cannot be picked, which draws it dimmed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -194,7 +271,7 @@ pub enum ProviderRow {
         text: ProviderDeclarationText,
     },
     /// Something the driver does in the person's own provider install, drawn as a switch per place
-    /// whose state is whether it is done there.
+    /// whose state is whether it is done there, with its run in progress or its failure beside it.
     Action {
         /// The row's id.
         id: ProviderDeclarationId,
@@ -208,8 +285,10 @@ pub enum ProviderRow {
         )]
         #[schemars(with = "ProviderDeclarationText")]
         line: Option<ProviderDeclarationText>,
-        /// Whether it is done, in each place.
-        places: ProviderPlaceSwitches,
+        /// The words its runs and failures read in.
+        words: ProviderActionWords,
+        /// Each place's state.
+        places: ProviderActionPlaces,
     },
 }
 
@@ -461,6 +540,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<ProviderDeclarationId>(),
         Definition::read::<ProviderPlaceSwitch>(),
+        Definition::read::<ProviderActionWords>(),
+        Definition::read::<ProviderActionProgress>(),
+        Definition::read::<ProviderActionPlace>(),
         Definition::read::<ProviderChoiceOption>(),
         Definition::read::<ProviderSettingControl>(),
         Definition::read::<ProviderRow>().checked(),
@@ -527,7 +609,17 @@ mod tests {
         "kind": "action",
         "id": "terminalPlugin",
         "label": "Use the app in the terminal",
-        "places": [{"place": "windows", "enabled": false}, {"place": {"distro": "Ubuntu"}, "enabled": true}],
+        "words": {
+            "doing": "Installing…",
+            "undoing": "Removing…",
+            "doFailed": "Couldn't install the plugin",
+            "undoFailed": "Couldn't remove the plugin",
+        },
+        "places": [
+            {"place": "windows", "isDone": false, "progress": {"state": "running", "isDoing": true, "canStop": false}},
+            {"place": {"distro": "Ubuntu"}, "isDone": true, "progress": {"state": "settled"}},
+            {"place": {"distro": "Debian"}, "isDone": false, "progress": {"state": "failed", "isDoing": true, "reason": "no network"}},
+        ],
     }))]
     fn a_declared_row_of_each_kind_writes_back_as_read(#[case] row: Value) {
         let read: ProviderRow = serde_json::from_value(row.clone()).expect("the row reads");
