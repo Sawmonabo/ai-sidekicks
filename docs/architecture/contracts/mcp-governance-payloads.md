@@ -28,6 +28,8 @@ type McpApprovalMode = "auto" | "prompt" | "writes" | "approve"; // Codex-native
 // A binding in a scope the person writes, its declaration in a provider's own config. A `project`
 // or `local` scopeRef is the project's root folder, with `place`, the WSL 2 distribution it is in,
 // its path in Linux form there; absent elsewhere, so one path in two distributions is two roots.
+// `WslPlace` and `PlacedPath` are `@ai-sidekicks/contracts/place`'s `{ distro: string }` and
+// `{ path: string; place?: WslPlace }`.
 type McpWritableBindingRef =
   | { provider: ProviderId; scope: "user"; serverName: string }
   | {

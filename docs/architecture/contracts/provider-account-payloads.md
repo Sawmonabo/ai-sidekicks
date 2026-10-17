@@ -713,13 +713,14 @@ interface ProviderStandingRuleListRequest {
 }
 interface ProviderStandingRuleListResponse {
   rules: Array<{
-    ruleId: string; // daemon-minted, stable while the rule's file and text are unchanged
+    ruleId: string; // daemon-minted from the rule's place, its file and its text, so one file path in two places names two rules
     provider: ProviderId;
     text: string; // the rule as the provider's file spells it
     effect: "allow" | "deny";
     scope:
       | { kind: "accountHome"; accountId: ProviderAccountId }
       | { kind: "project"; projectId: ProjectId };
+    place?: Place; // where the file is, its path in that place's form; absent on a computer without a WSL 2 distribution
     sourcePath: string; // the file it came from; display-only data, never a capability
   }>;
 }

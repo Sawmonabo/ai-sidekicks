@@ -38,7 +38,8 @@ interface RepoMountHealthChangedPayload {
 // for a new session, through `repo.workspaceBind` for a converted chat. The mount's machine is the daemon's
 // own, stamped by the daemon and never taken from a caller. A folder that is not a git repository is
 // refused; the repository is keyed by its git common folder, so attaching a linked worktree's folder
-// finds the repository already attached.
+// finds the repository already attached. `Place` and `WslPlace` are `@ai-sidekicks/contracts/place`'s
+// `"windows" | { distro: string }` and `{ distro: string }`.
 interface RepoAttachRequest {
   // On the machine itself the path comes from the platform's own folder chooser, whose token the main
   // process's relay turns into a path; from another device it is the path of the folder `repo.folderList`

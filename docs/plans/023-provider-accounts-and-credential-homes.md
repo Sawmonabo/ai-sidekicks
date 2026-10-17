@@ -249,7 +249,7 @@ Target paths below assume the implementation topology defined in [Container Arch
 - `crates/sidekicks-daemon/src/ipc/handlers/provider/` (NEW — `account.rs`, the `providerAccount.*` namespace binder, registered under Plan-005's registry, and `settings.rs`, the `provider.*` binders)
 - `crates/sidekicks-daemon/src/provider/settings.rs` (NEW — the `provider` root: each provider's settings, protected paths, standing rules, the terminal plugin, the install table with its update rows, and the update run)
 - `crates/sidekicks-daemon/src/session/import.rs` (NEW — the conversation import)
-- `crates/sidekicks-contracts/src/provider/settings.rs` (the `provider.*` shapes) and `crates/sidekicks-contracts/src/provider/import.rs` (the `session.import*` shapes)
+- `crates/sidekicks-contracts/src/provider/settings.rs` (the `provider.*` settings shapes), `crates/sidekicks-contracts/src/provider/install.rs` (the `provider.install*` shapes) and `crates/sidekicks-contracts/src/provider/import.rs` (the `session.import*` shapes)
 - `crates/sidekicks-client/src/provider/account.rs` (NEW)
 - `crates/sidekicks-cli/src/commands/` (CREATE — Plan-023-authored content inside Plan-005's `crates/sidekicks-cli`) + `crates/sidekicks-cli/src/program.rs` (EXTEND — the `provider-account` group's subcommand on the `clap` derive `Cli`, per Plan-005 CP-005-7)
 - `apps/desktop/src/renderer/src/features/settings/pages/providers/` (the settings feature's Providers page: one section per provider, each provider's own settings above its account rows)
