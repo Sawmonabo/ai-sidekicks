@@ -2,9 +2,16 @@
 
 The probes [Plan-005](../plans/005-local-ipc-and-daemon-control.md) Phase R4 owes on a Windows machine, for the native service and the sessions in WSL 2 distributions that [ADR-039](../decisions/039-sessions-in-wsl-2-distributions.md) decides.
 
+## Probes by unit
+
+A probe is owed before the unit that builds what its Decides column names.
+
+- **Before unit `windows`** (the native service on Windows): P4's legs (4) and (5), with its startup-trigger and changed-password checks; P8's pipe and relay legs; P23, P24, P28 and P29; P30's Windows leg; P31, P32 and P34; P37's Windows leg.
+- **Before unit `windows-wsl`** (sessions in WSL 2 distributions): every other probe and leg.
+
 ## Phase R4 — probes owed on a Windows machine
 
-None of these can run on a Mac; each runs on a Windows machine before Phase R4 lands, in PowerShell as the signed-in user unless the row says otherwise. Nothing changes a system setting except where the row says so (P5's `.wslconfig` variants), and those are reverted after.
+None of these can run on a Mac; each runs on a Windows machine before the unit that builds what its Decides column names (§Probes by unit), in PowerShell as the signed-in user unless the row says otherwise. Nothing changes a system setting except where the row says so (P5's `.wslconfig` variants), and those are reverted after.
 
 | # | What is run | Expected | Decides |
 | --- | --- | --- | --- |
