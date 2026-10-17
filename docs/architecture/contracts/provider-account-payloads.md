@@ -143,7 +143,7 @@ type ProviderReadinessState =
   | "homeMissing" // credential home was absent or unreadable when last observed
   | "indeterminate" // probe could not decide, or none taken yet — NOT authenticated, NOT a failure
   | "noAccount" // nothing registered for this provider; mirrors `provider.account.notRegistered`
-  | "noDefault"; // accounts exist, none is default; mirrors `provider.account.current.notSet`
+  | "noCurrent"; // accounts exist, none is current; mirrors `provider.account.current.notSet`
 
 interface ProviderReadiness {
   provider: ProviderId;
@@ -151,7 +151,7 @@ interface ProviderReadiness {
   resolvedAccountId?: ProviderAccountId; // present iff resolution reached exactly one account
   // RFC 3339 UTC of the STORED observation this entry's state was read from. Absent in exactly two
   // cases, both about THIS resolution rather than about the machine's probe history: resolution reached
-  // no account (`noAccount`, `noDefault`), so there is no row to have observed — on `noDefault`
+  // no account (`noAccount`, `noCurrent`), so there is no row to have observed — on `noCurrent`
   // the candidates may well have been probed, and their timestamps are deliberately not summarized
   // into one here, since averaging or picking among them would report an observation of an account
   // this reply did not resolve — or resolution reached an account whose observation pair is still
@@ -175,7 +175,7 @@ interface ProviderReadiness {
 // A UNION rather than one shape, because the remedy is "the person's next action" and the
 // non-authenticated states have five different next actions, each with its own producible field
 // set. A single sign-in shape was unproducible on two of them: `noAccount` has no account to name
-// at all, and `noDefault` deliberately resolved to none of several accounts, so composing either
+// at all, and `noCurrent` deliberately resolved to none of several accounts, so composing either
 // reply would have required inventing an account or arbitrarily picking one — precisely the
 // arbitrary selection I-023-5's single-default rule exists to prevent. The discriminant is `kind`,
 // and it is NOT redundant with `state`: `reauthRequired` maps to `signIn` or, on a token or API-key
@@ -185,7 +185,7 @@ interface ProviderReadiness {
 // `kind` without re-deriving it.
 type ProviderRemedy =
   | ProviderRegisterRemedy
-  | ProviderChooseDefaultRemedy
+  | ProviderChooseCurrentRemedy
   | ProviderSignInRemedy
   | ProviderPasteTokenRemedy
   | ProviderLookAgainRemedy;
@@ -196,13 +196,13 @@ interface ProviderRegisterRemedy {
   provider: ProviderId;
 }
 
-// `state: "noDefault"` — accounts exist and none is default. Resolution reached no account BY
+// `state: "noCurrent"` — accounts exist and none is current. Resolution reached no account BY
 // DESIGN, so the daemon names the candidates and refuses to choose: picking one here would bind a
 // run's spend to an account the person never selected.
-interface ProviderChooseDefaultRemedy {
-  kind: "chooseDefault";
-  candidateAccountIds: ProviderAccountId[]; // at least one — a one-account no-default state is
-  // still `noDefault`, and the daemon lists whatever exists
+interface ProviderChooseCurrentRemedy {
+  kind: "chooseCurrent";
+  candidateAccountIds: ProviderAccountId[]; // at least one — a one-account no-current state is
+  // still `noCurrent`, and the daemon lists whatever exists
   // and never elects one
 }
 

@@ -83,7 +83,7 @@ interface RuntimeBindingReadRequest {
 }
 interface RuntimeBindingReadResponse {
   runId: RunId;
-  driverName: string;
+  providerName: string;
   contractVersion: string;
   resumeHandle?: string;
   runtimeMetadata: Record<string, unknown>;

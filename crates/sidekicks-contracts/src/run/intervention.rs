@@ -8,9 +8,9 @@ use strum::{IntoStaticStr, VariantArray};
 
 use crate::internal::branded::branded_uuid_id;
 use crate::provider::driver::intervention::InterventionType;
-use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::{
-    DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_REASON_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN,
+    PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_REASON_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN,
 };
 use crate::run::id::RunId;
 use crate::run::queue::QueueItemId;
@@ -99,8 +99,8 @@ macro_rules! intervention_interrupt_request {
                     skip_serializing_if = "Option::is_none",
                     deserialize_with = "crate::wire::present"
                 )]
-                #[schemars(with = "FreeFormText<DRIVER_WIRE_REASON_MAX_LEN>")]
-                reason: Option<FreeFormText<DRIVER_WIRE_REASON_MAX_LEN>>,
+                #[schemars(with = "FreeFormText<PROVIDER_WIRE_REASON_MAX_LEN>")]
+                reason: Option<FreeFormText<PROVIDER_WIRE_REASON_MAX_LEN>>,
                 $($extra)*
             },
         )+}
@@ -162,9 +162,9 @@ pub enum AgentRunInterveneRequest {
         /// recorded outcome.
         client_idempotency_key: ClientUuid,
         /// The provider's id of the turn held.
-        expected_turn_id: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
+        expected_turn_id: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
         /// The model the turn is sent again on.
-        model: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
+        model: FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>,
     },
 }
 
@@ -254,7 +254,7 @@ intervention_request_response! {
         /// Refused, with why.
         Rejected {
             /// The machine-readable cause, such as `provider.capability.unsupported`.
-            rejection_reason: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
+            rejection_reason: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
             /// Never present outside `failed`.
             #[serde(
                 default,
@@ -267,7 +267,7 @@ intervention_request_response! {
         /// Its dispatch threw, with what it threw.
         Failed {
             /// The thrown error's code, else its message.
-            failure_reason: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+            failure_reason: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
             /// Never present outside `rejected`.
             #[serde(
                 default,

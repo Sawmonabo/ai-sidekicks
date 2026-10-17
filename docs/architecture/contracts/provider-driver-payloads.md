@@ -109,7 +109,7 @@ interface ProviderDriver {
   // session (Spec-004 §The provider command and skill surface). Gated on
   // `providerCommands`. A LIVE read held as driver-session state and discarded with it: not
   // persisted, not cached across sessions, and folded into no projection — which is why this
-  // capability adds no table and no column. Every entry carries the (driverName,
+  // capability adds no table and no column. Every entry carries the (providerName,
   // providerAccountId) it was read under, and that binding is a ROUTING INVARIANT: an entry is
   // offerable only to agents of that same binding, and the one entry V1 dispatches is dispatchable
   // only through them.
@@ -155,7 +155,7 @@ type RunOutputSpeedSettledListener = (
 //   * `session.providerCommand.subscribe` takes a SESSION. The `/` list is bound to the session's
 //     live provider process, so the daemon follows that process and a new process brings a new
 //     list; the client never names an agent, a run or a binding to get it. Every entry still
-//     carries the `(driverName, providerAccountId)` it was read under ([Spec-004 §The provider
+//     carries the `(providerName, providerAccountId)` it was read under ([Spec-004 §The provider
 //     command and skill
 // surface](../../specs/004-provider-driver-contract-and-capabilities.md#the-provider-command-and-skill-surface)).
 //
@@ -262,7 +262,7 @@ interface ListProviderCommandsParams {
 // (`ProviderId`, checked against the registered drivers), and the account. `providerAccountId` is
 // null where the session has bound no account; absence is stated, never synthesized.
 interface ProviderCommandBinding {
-  driverName: ProviderId;
+  providerName: ProviderId;
   providerAccountId: string | null;
 }
 interface ProviderCommandEntry {

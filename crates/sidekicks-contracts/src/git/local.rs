@@ -10,7 +10,7 @@ use crate::agent::definition::AgentId;
 use crate::free_form_string::FilesystemPath;
 use crate::git::hosting::{ChangeRequestSummary, GitHostKind, ReviewSubmitVerdict};
 use crate::git::shared::{ChangeRequestNumber, GitRefName, GitShortObjectId, HostingAddress};
-use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::repo::git_reads::GitObjectId;
 use crate::run::id::RunId;
 use crate::session::draft::ProviderRefusedReason;
@@ -72,7 +72,7 @@ pub enum DiffFileUnreadableReason {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GitGenerateFailedDetails {
     /// The provider's words.
-    pub provider_failure_detail: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+    pub provider_failure_detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
 
 /// The details of a `git.generateRefused` refusal: why, in the provider's own words; nothing
@@ -83,7 +83,7 @@ pub struct GitGenerateRefusedDetails {
     /// Why.
     pub reason: ProviderRefusedReason,
     /// The provider's words.
-    pub provider_failure_detail: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+    pub provider_failure_detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
 
 /// A half-finished merge, rebase or bisect, with the command that ends it.

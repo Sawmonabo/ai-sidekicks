@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use crate::agent::definition::{AgentDefinitionId, AgentId};
 use crate::agent::tree::{AgentTreeMember, ChildHandle};
 use crate::method::methods;
-use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
-use crate::provider::driver::methods::{DRIVER_WIRE_REASON_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN};
+use crate::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
+use crate::provider::driver::methods::{PROVIDER_WIRE_REASON_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN};
 use crate::run::id::RunId;
 use crate::run::state::RunState;
 use crate::session::cost::{
@@ -143,10 +143,10 @@ pub struct AgentRunCreateResponse {
 }
 
 /// A refusing error code, as a refusal record names it.
-pub type OrchestrationRefusalReason = FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>;
+pub type OrchestrationRefusalReason = FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>;
 
 /// A refusal's words.
-pub type OrchestrationRefusalDetail = FreeFormText<DRIVER_WIRE_REASON_MAX_LEN>;
+pub type OrchestrationRefusalDetail = FreeFormText<PROVIDER_WIRE_REASON_MAX_LEN>;
 
 /// The `agent.run.rejected` payload: a run create admission refused. It names no run, because
 /// a refusal leaves none. `reason` is the refusing error code, and `detail` its words.
@@ -200,23 +200,23 @@ pub struct AgentChildRunLinkListRequest {
 #[garde(allow_unvalidated)]
 pub struct ChildRunHead {
     /// The model.
-    pub model_id: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
+    pub model_id: FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>,
     /// The effort, as one word.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>")]
-    pub effort: Option<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>")]
+    pub effort: Option<FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>>,
     /// The agent that was asked, where the child was a peer call.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>")]
-    pub via_agent_name: Option<FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>")]
+    pub via_agent_name: Option<FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>>,
     /// Its tokens.
     pub tokens: SafeInt<0>,
     /// Its spend.
