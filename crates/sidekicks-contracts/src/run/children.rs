@@ -22,7 +22,7 @@ use crate::wire::text::FreeFormText;
 use crate::wire::{False, Never, True};
 
 /// Sends a message onto one child's own queue (`agent.childRun.steer`), where it waits for the
-/// child's next step as a pending row the lead's queue verbs reach with `child_handle`. It names
+/// child's next step as a pending row the lead's queue verbs reach with `childHandle`. It names
 /// the helper by its session and handle, so it reaches a helper whose parent run has ended, and it
 /// answers as `agent.queueItem.create` does.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]

@@ -356,7 +356,7 @@ queue_item_by_state! {
     }
 }
 
-/// Reads a queue, the lead's or, with `child_handle`, a child's, in the daemon's order
+/// Reads a queue, the lead's or, with `childHandle`, a child's, in the daemon's order
 /// (`agent.queueItem.list`): the items in `state` when it is given, else every item waiting or not
 /// delivered.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -448,7 +448,7 @@ stream_frame! {
     pub struct RunQueueStreamFrame(RunQueueStreamChange);
 }
 
-/// Opens a queue's stream, the lead's or, with `child_handle`, a child's
+/// Opens a queue's stream, the lead's or, with `childHandle`, a child's
 /// (`agent.queueItem.subscribe`). With `after_cursor`, the stream first sends each item that
 /// changed after that cursor and every item still waiting, as it now stands, then follows live;
 /// without it, it follows from now.
@@ -476,7 +476,7 @@ pub struct AgentQueueItemSubscribeRequest {
     pub after_cursor: Option<EventCursor>,
 }
 
-/// Removes a waiting message, from the lead's queue or, with `child_handle`, a child's
+/// Removes a waiting message, from the lead's queue or, with `childHandle`, a child's
 /// (`agent.queueItem.cancel`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
