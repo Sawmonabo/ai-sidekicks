@@ -11,6 +11,7 @@ pub(crate) mod login_shell;
 pub(crate) mod private_folder;
 pub(crate) mod real_path;
 pub(crate) mod shell_start;
+pub(crate) mod socket_listener;
 pub(crate) mod socket_path;
 pub(crate) mod terminal;
 #[cfg(any(test, feature = "test-support"))]

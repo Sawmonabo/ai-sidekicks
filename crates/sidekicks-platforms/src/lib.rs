@@ -26,6 +26,7 @@ mod path;
 #[cfg(unix)]
 mod posix;
 mod shell_start;
+mod socket_listener;
 mod socket_path;
 mod spawner;
 mod terminal;
@@ -89,6 +90,8 @@ pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
 #[cfg(unix)]
+pub use posix::socket_listener::bind_socket_listener;
+#[cfg(unix)]
 pub use posix::socket_path::check_socket_path;
 #[cfg(unix)]
 pub use posix::terminal::{
@@ -101,6 +104,7 @@ pub use posix::terminal::{abnormal_exit, echo_program, pass_through_start, waiti
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::uptime::uptime_line;
 pub use shell_start::{ShellStart, ShellStartError};
+pub use socket_listener::ExistingSocket;
 pub use socket_path::SocketPathRefused;
 pub use spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
@@ -148,6 +152,8 @@ pub use windows::real_path::real_path;
 pub use windows::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
+#[cfg(target_os = "windows")]
+pub use windows::socket_listener::bind_socket_listener;
 #[cfg(target_os = "windows")]
 pub use windows::socket_path::check_socket_path;
 #[cfg(target_os = "windows")]
