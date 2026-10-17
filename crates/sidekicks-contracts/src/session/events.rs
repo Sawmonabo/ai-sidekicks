@@ -12,7 +12,7 @@ use crate::event::envelope::{
 use crate::machine::settings::MACHINE_SETTINGS_NAME_MAX_LEN;
 use crate::place::Place;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
-use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
+use crate::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
 use crate::session::event_cursor::EventCursor;
@@ -232,7 +232,7 @@ pub struct SessionProviderStatusReportedPayload {
     /// The provider.
     pub provider: ProviderId,
     /// The status, normalized.
-    pub status: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
+    pub status: FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>,
     /// The provider's display text, where it sent some.
     #[serde(
         default,

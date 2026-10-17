@@ -62,8 +62,8 @@ macro_rules! agent_definition_resolution_refused_details {
                 /// The definition.
                 $(#[$id_meta])*
                 definition_id: $definition_id,
-                /// The driver.
-                driver_name: $crate::provider::id::ProviderId,
+                /// The provider.
+                provider_name: $crate::provider::id::ProviderId,
                 /// The model, or `null` for none bound.
                 #[serde(deserialize_with = "crate::wire::nullable")]
                 #[schemars(with = "crate::agent::definition::refusal::NullableProviderToken")]

@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
-use crate::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
+use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::driver::usage_limit::ProviderUsageLimitResetBoundary;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::literal;
@@ -49,7 +49,7 @@ pub enum RunFailureCause {
         /// Who ended the turn.
         origin: RunRefusedOrigin,
         /// The refusing model.
-        model: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
+        model: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
         /// The provider's own sentence, where it sent one.
         #[serde(
             default,
@@ -72,8 +72,8 @@ pub enum RunFailureCause {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>")]
-        safety_category: Option<FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>>,
+        #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
+        safety_category: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     },
     /// The subscription's allowance for a rolling window is spent, the provider's usage limit
     /// (`ProviderUsageLimitCause::PlanAllowanceExhausted`), with the reset boundary its driver
@@ -108,8 +108,8 @@ pub enum RunFailureCause {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>")]
-        code: Option<FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>>,
+        #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
+        code: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
         /// The gate's own words.
         message: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
     },
@@ -119,7 +119,7 @@ pub enum RunFailureCause {
         /// Always `provider`.
         origin: ProviderFailureOrigin,
         /// The message that goes back to the composer.
-        returned_message_id: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
+        returned_message_id: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
     },
     /// A turn sent on the flex speed that the provider failed for want of flex capacity, which it
     /// does not retry: the same turn can go again on flex, or once on the standard speed.

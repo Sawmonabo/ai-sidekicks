@@ -12,7 +12,7 @@ use crate::orchestration::InterruptReason;
 use crate::provider::driver::capabilities::ExecutionPosture;
 use crate::provider::driver::intervention::InterventionType;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
-use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
+use crate::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
 use crate::provider::id::ProviderId;
 use crate::run::control::{ProcessExit, RunCompletionKind, RunFailureCategory};
@@ -289,8 +289,8 @@ run_marker_payloads! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>")]
-        pub model: Option<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>,
+        #[schemars(with = "FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>")]
+        pub model: Option<FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>>,
     }
 
     /// The `agent.turn.started` payload: a turn opened within the run, at the session position the

@@ -23,7 +23,7 @@ use crate::wire::text::FreeFormText;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderCommandBinding {
     /// The provider.
-    pub driver_name: ProviderId,
+    pub provider_name: ProviderId,
     /// The account the session bound, or `null` for none.
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<ProviderAccountId>")]

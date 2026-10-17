@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
-use crate::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
+use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
@@ -54,9 +54,9 @@ pub struct AgentRunRefusalChoiceRequestedPayload {
     /// The run that waits.
     pub run_id: RunId,
     /// The model that refused.
-    pub refused_model: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
+    pub refused_model: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
     /// The model a retry goes on on.
-    pub fallback_model: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
+    pub fallback_model: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
     /// The provider's own sentence, where it sent one.
     #[serde(
         default,
@@ -71,8 +71,8 @@ pub struct AgentRunRefusalChoiceRequestedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>")]
-    pub safety_category: Option<FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
+    pub safety_category: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// The rows already streamed for the refused answer.
     #[serde(
         default,
@@ -155,7 +155,7 @@ pub struct AgentRunUsageCreditsChoiceRequestedPayload {
     /// The run that waits.
     pub run_id: RunId,
     /// The model that needs credits.
-    pub model_name: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
+    pub model_name: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
     /// Whether usage credits are on.
     pub overages_enabled: bool,
     /// The credit balance in cents, where the provider reports it.
@@ -172,16 +172,16 @@ pub struct AgentRunUsageCreditsChoiceRequestedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>")]
-    pub currency: Option<FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
+    pub currency: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// The model a switch moves to, where the provider's model list names one.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>")]
-    pub fallback_model: Option<FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
+    pub fallback_model: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
 }
 
 /// How the switch-or-credits choice ended with no answer: `interrupted` is an interrupt or an

@@ -13,7 +13,7 @@ use crate::method::methods;
 use crate::orchestration::InterruptReason;
 use crate::provider::driver::capabilities::ExecutionPosture;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
-use crate::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
+use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
 use crate::provider::id::ProviderId;
 use crate::run::children::{
@@ -95,7 +95,7 @@ pub struct ProcessExitWithCode {
 #[schemars(inline)]
 pub struct ProcessExitWithSignal {
     /// The signal's name.
-    pub signal: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
+    pub signal: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
     /// Never present beside a signal.
     #[serde(
         default,

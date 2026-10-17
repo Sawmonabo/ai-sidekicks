@@ -124,7 +124,7 @@ pub struct SessionCostReceiptVoiceRow {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionCostReceiptProvider {
     /// The provider.
-    pub driver_name: ProviderId,
+    pub provider_name: ProviderId,
     /// A row per account the session spent on.
     pub accounts: Vec<SessionCostReceiptAccountRow>,
     /// The provider's voice calls, where the session made any.

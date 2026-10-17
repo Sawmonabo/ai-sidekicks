@@ -17,7 +17,7 @@ use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::method::methods;
 use crate::provider::account::record::ProviderAccountId;
 use crate::provider::declaration::ProviderValueText;
-use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
+use crate::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::web_address::HttpsAddress;
@@ -27,7 +27,7 @@ use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText};
 use crate::wire::{NullableSchema, True, nullable};
 
 /// A token in a provider's own plugin vocabulary: a plugin id, a name, a marketplace.
-pub type PluginToken = FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>;
+pub type PluginToken = FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>;
 
 /// Declares a plugin as a list serves it, with the members every such list repeats.
 macro_rules! plugin_summary {
@@ -100,8 +100,8 @@ pub struct PluginCatalogListRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "BoundedText<0, DRIVER_WIRE_TOKEN_MAX_LEN>")]
-    pub query: Option<BoundedText<0, DRIVER_WIRE_TOKEN_MAX_LEN>>,
+    #[schemars(with = "BoundedText<0, PROVIDER_WIRE_TOKEN_MAX_LEN>")]
+    pub query: Option<BoundedText<0, PROVIDER_WIRE_TOKEN_MAX_LEN>>,
     /// Where the page starts.
     #[serde(
         default,
