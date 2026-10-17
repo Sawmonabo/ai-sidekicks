@@ -1,22 +1,51 @@
-//! WSL facts every system reads the same way: the WSL 2 distribution a Windows path names. A
-//! distribution's folders are reached from Windows at `\\wsl.localhost\<distro>\` or
-//! `\\wsl$\<distro>\`, so the path's form says which distribution holds it.
+//! WSL facts every system reads the same way: the WSL 2 distribution a Windows path names, and the
+//! path inside it. A distribution's folders are reached from Windows at `\\wsl.localhost\<distro>\`
+//! or `\\wsl$\<distro>\`, so the path's form says which distribution holds it and where.
 
 use std::path::Path;
 
-use typed_path::{WindowsPath, WindowsPrefix};
+use typed_path::{WindowsComponent, WindowsPath, WindowsPrefix};
 
-/// The distribution a `\\wsl$\<distro>\…` or `\\wsl.localhost\<distro>\…` path names, either
-/// slash, the host in any ASCII case; `None` for any other path. A name that is not UTF-8 reads
-/// lossily.
-pub fn distribution_of(folder_path: &Path) -> Option<String> {
+/// A folder inside a WSL distribution, read from its Windows form: the distribution's name and
+/// the folder's Linux path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DistributionPath {
+    /// The distribution's name, as the path spells it.
+    pub distro: String,
+    /// The folder's absolute Linux path, `/` for the distribution's root.
+    pub linux_path: String,
+}
+
+/// The distribution and Linux path a `\\wsl$\<distro>\…` or `\\wsl.localhost\<distro>\…` path
+/// names, either slash, the host in any ASCII case; `None` for any other path. Names that are not
+/// UTF-8 read lossily.
+pub fn distribution_of(folder_path: &Path) -> Option<DistributionPath> {
     let components = WindowsPath::new(folder_path.as_os_str().as_encoded_bytes()).components();
     let Some(WindowsPrefix::UNC(server, share)) = components.prefix_kind() else {
         return None;
     };
     let is_wsl_server =
         server.eq_ignore_ascii_case(b"wsl$") || server.eq_ignore_ascii_case(b"wsl.localhost");
-    (is_wsl_server && !share.is_empty()).then(|| String::from_utf8_lossy(share).into_owned())
+    if !is_wsl_server || share.is_empty() {
+        return None;
+    }
+    let distro = String::from_utf8_lossy(share).into_owned();
+    let mut linux_path = String::new();
+    for component in components {
+        let name: &[u8] = match component {
+            WindowsComponent::Normal(name) => name,
+            WindowsComponent::ParentDir => b"..",
+            WindowsComponent::Prefix(_) | WindowsComponent::RootDir | WindowsComponent::CurDir => {
+                continue;
+            }
+        };
+        linux_path.push('/');
+        linux_path.push_str(&String::from_utf8_lossy(name));
+    }
+    if linux_path.is_empty() {
+        linux_path.push('/');
+    }
+    Some(DistributionPath { distro, linux_path })
 }
 
 #[cfg(test)]
@@ -25,19 +54,25 @@ mod tests {
 
     use rstest::rstest;
 
-    use super::distribution_of;
+    use super::{DistributionPath, distribution_of};
 
     #[rstest]
-    #[case::wsl_dollar(r"\\wsl$\Ubuntu\home\ana", Some("Ubuntu"))]
-    #[case::wsl_localhost_forward_slashes("//WSL.localhost/Debian/home", Some("Debian"))]
-    #[case::share_alone(r"\\wsl$\Ubuntu", Some("Ubuntu"))]
+    #[case::wsl_localhost(r"\\wsl.localhost\Ubuntu\home\me\x", Some(("Ubuntu", "/home/me/x")))]
+    #[case::wsl_dollar(r"\\wsl$\Ubuntu\home\ana", Some(("Ubuntu", "/home/ana")))]
+    #[case::forward_slashes("//WSL.localhost/Debian/home", Some(("Debian", "/home")))]
+    #[case::share_alone(r"\\wsl$\Ubuntu", Some(("Ubuntu", "/")))]
+    #[case::share_with_slash(r"\\wsl$\Ubuntu\", Some(("Ubuntu", "/")))]
     #[case::no_share(r"\\wsl$\", None)]
     #[case::another_server(r"\\server\Ubuntu\home", None)]
     #[case::drive(r"C:\wsl$\Ubuntu", None)]
-    fn reads_the_distribution_a_wsl_path_names(
+    fn reads_the_distribution_and_linux_path_a_wsl_path_names(
         #[case] path: &str,
-        #[case] distribution: Option<&str>,
+        #[case] expected: Option<(&str, &str)>,
     ) {
-        assert_eq!(distribution_of(Path::new(path)).as_deref(), distribution);
+        let expected = expected.map(|(distro, linux_path)| DistributionPath {
+            distro: distro.to_owned(),
+            linux_path: linux_path.to_owned(),
+        });
+        assert_eq!(distribution_of(Path::new(path)), expected);
     }
 }

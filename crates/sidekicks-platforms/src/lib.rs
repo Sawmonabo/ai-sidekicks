@@ -160,4 +160,4 @@ pub use windows::terminal::{
 pub use windows::terminal::{abnormal_exit, echo_program, pass_through_start, waiting_printer};
 #[cfg(target_os = "windows")]
 pub use windows::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
-pub use wsl::distribution_of;
+pub use wsl::{DistributionPath, distribution_of};
