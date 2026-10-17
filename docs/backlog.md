@@ -135,7 +135,7 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Summary: A backup holds no credential and no key, so it is meant to restore on any computer, after which the person signs in to providers and links devices again. That has been designed and not measured: no run has restored a backup taken on one machine onto another.
 - V1 Release Impact: none for a restore on the machine that wrote the backup; a restore on another computer ships designed but unmeasured until this closes.
 - Named gate: a second computer in the build loop.
-- Exit Criteria: a backup taken on one machine is restored on a second with `sidekicks db restore`, the sessions read back whole, the providers ask to sign in and the devices to link, and the figures are recorded in Plan-005; this entry is deleted.
+- Exit Criteria: a backup taken on one machine is restored on a second with `sidekicks data restore`, the sessions read back whole, the providers ask to sign in and the devices to link, and the figures are recorded in Plan-005; this entry is deleted.
 
 ## BL-170: Sätteri parsing seven markdown cases as CommonMark and GFM do
 

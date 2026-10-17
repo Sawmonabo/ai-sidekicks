@@ -35,7 +35,7 @@ A backup is a plain copy of what it lists — the service's database, copied onl
 
 **Restore**:
 
-- Restore the app's own backup: `Restore…` on Settings › Runtime, or `sidekicks db restore <backup>` on a machine with no app, refused while the service holds the data folder. Restoring on the machine that wrote it needs nothing more.
+- Restore the app's own backup: `Restore…` on Settings › Runtime, or `sidekicks data restore <backup>` on a machine with no app, refused while the service holds the data folder. Restoring on the machine that wrote it needs nothing more.
 - A restore on another computer reads the backup directly; the person then signs in to providers and links devices again ([Spec-013 §Backup Policy](../specs/013-persistence-and-recovery.md#backup-policy)). On a Windows computer each WSL 2 distribution's part is written back into its distribution, and a part whose distribution is not on this computer stays in the backup and is named in the result line.
 
 **Validation**:
@@ -45,10 +45,10 @@ A backup is a plain copy of what it lists — the service's database, copied onl
 ## Recovery Steps
 
 1. For one damaged session, choose in the session: `Continue from here` makes the last good point the session's end so it takes new work again, the damaged events staying stored and skipped; `Delete session` removes the session. A session with no readable event offers `Delete session` only. Nothing else on the machine needs to stop.
-2. For a service that does not start on a damaged file, or a store that stays `blocked`, stop the Local Runtime Daemon before modifying any SQLite, WAL, or SHM files. The service already copied the damaged files aside into a folder under `~/.ai-sidekicks/damaged/` before its repair; keep that folder. A file the repair failed on because the service's program is damaged — its SQLite shell is that program's `sqlite-shell` mode, and its log says the install is damaged — heals at the next start after the app is reinstalled, which restores the program.
+2. For a service that does not start on a damaged file, or a store that stays `blocked`, stop the Local Runtime Daemon before modifying any SQLite, WAL, or SHM files. The service already copied the damaged files aside into a folder under `~/.ai-sidekicks/damaged/` before its repair; keep that folder. A file the repair failed on because the service's program is damaged — its SQLite shell is that program's `database shell` mode, and its log says the install is damaged — heals at the next start after the app is reinstalled, which restores the program.
 3. Start the service and read `sidekicks daemon status`: the service checks the file's structure at every start, and a file it found damaged is repaired at the start after, before it opens it; a start on a file it could not repair fails with the reason in its log. A store is structurally healthy once its log says the check found it sound.
 4. If integrity is healthy, restart the daemon: every session's projections rebuild from canonical events, so the database is not replaced.
-5. If the repair failed, restore the latest backup with `sidekicks db restore <backup>` (or `Restore…` on Settings › Runtime) from the backup folder — `~/.ai-sidekicks/backups` by default, or the folder the person picked — per [Spec-013 §Backup Policy](../specs/013-persistence-and-recovery.md#backup-policy); the restore replaces the database, the settings file, the workspaces, the checkpoint copies, the conversation files and the agent memory folder, starts the service again, and the projection rebuild runs.
+5. If the repair failed, restore the latest backup with `sidekicks data restore <backup>` (or `Restore…` on Settings › Runtime) from the backup folder — `~/.ai-sidekicks/backups` by default, or the folder the person picked — per [Spec-013 §Backup Policy](../specs/013-persistence-and-recovery.md#backup-policy); the restore replaces the database, the settings file, the workspaces, the checkpoint copies, the conversation files and the agent memory folder, starts the service again, and the projection rebuild runs.
 6. If integrity fails AND there is no backup — backups are off until the person turns them on ([Spec-013 §Backup Policy](../specs/013-persistence-and-recovery.md#backup-policy)) — or the backup folder is itself unreadable, preserve the broken files for later analysis, keep new mutable work blocked, and escalate rather than creating a fresh empty database.
 
 ## Validation
@@ -66,7 +66,7 @@ A backup is a plain copy of what it lists — the service's database, copied onl
 ## CLI Commands
 
 ```bash
-sidekicks db restore <backup>
+sidekicks data restore <backup>
 ```
 
 A backup is taken with `Back up now` on Settings › Runtime; the service's health is read with `sidekicks daemon status`.
