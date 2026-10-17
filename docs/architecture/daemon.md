@@ -20,7 +20,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 - execute tools and terminals within local trust policy
 - persist local events, receipts, projections, and runtime bindings
 - expose the local control surface used by the desktop app and CLI
-- sign the machine in to the hosted account itself, while it serves and with nothing stopped: a browser sign-in by authorization code with PKCE, PAR and DPoP, whose callback a one-time `127.0.0.1` listener takes, started by the desktop or the CLI through `account.signIn`; sign it out through `account.signOut`; register it with the Control Plane over its HTTP routes, keep the account's statement chain in step, and keep one outbound relay connection while the service runs, carrying each linked device's channel as sealed Noise messages that hold the frames of the one frame codec — per ADR-013 and [Spec-027](../specs/027-remote-control.md)
+- sign the machine in to the hosted account itself, while it serves and with nothing stopped: a browser sign-in by authorization code with PKCE, PAR and DPoP, whose callback a one-time `127.0.0.1` listener takes, started by the desktop or the CLI through `account.signIn`; sign it out through `account.signOut`; register it with the Control Plane over its HTTP routes, keep the account's statement chain in step, and keep one outbound relay connection while the service runs, carrying each linked device's channel as sealed Noise messages that hold the frames of the one frame codec, and move a device's channel onto a WebRTC data channel straight between the two wherever they can reach each other — per ADR-013, [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md) and [Spec-027](../specs/027-remote-control.md)
 - authenticate to the Control Plane using short-lived PASETO v4 tokens presented with a proof from the machine's own DPoP key
 
 ## Component Boundaries
@@ -34,7 +34,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 | `Tool And Terminal Service` | Runs shell commands, terminal sessions, and local tools under policy control. The terminal is `sidekicks-terminal` in the daemon on every system (`alacritty_terminal`'s tty, ConPTY on Windows) (see §PTY Backend Strategy). |
 | `Local Persistence Layer` | Stores canonical local event log, command receipts, runtime bindings, projections, and recovery metadata. All SQLite writes go through one writer thread that owns the write connection, fed by a bounded channel, on `rusqlite` (bundled SQLite), per [Spec-013 §Writer Concurrency](../specs/013-persistence-and-recovery.md#writer-concurrency); the V1 driver pin is `rusqlite` **0.40.2** with `bundled` (per [ADR-021](../decisions/021-v1-toolchain-selection.md) and [Spec-013 §Driver Pin](../specs/013-persistence-and-recovery.md#driver-pin)). |
 | `Local IPC Gateway` | Exposes stable local control APIs to the desktop app's client helper and to CLI clients. Main and the renderer reach them only through the client helper. |
-| `Control-Plane Adapter` | Signs the machine in and registers it under its own id and owning user, keeps the account's statement chain in step and verifies it, holds the machine's one outbound relay connection, and ends each linked device's Noise channel: the method proxy through which a device drives this machine. It sends the control plane the push notices it has sealed for each device. |
+| `Control-Plane Adapter` | Signs the machine in and registers it under its own id and owning user, keeps the account's statement chain in step and verifies it, holds the machine's one outbound relay connection, holds each direct peer (`str0m`, its candidates, a router's port mapping while the device is away) and the cut-over that moves a channel between the two carriers, and ends each linked device's Noise channel: the method proxy through which a device drives this machine. Nothing above the carrier knows which one a channel is on. It sends the control plane the push notices it has sealed for each device. |
 
 ## Implementation Home
 
@@ -66,7 +66,8 @@ Per [ADR-018](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md), the te
 - The local event store is unavailable or inconsistent.
 - Worktree creation or repo binding fails before a run can start.
 - Terminal or tool subprocesses outlive the client connection and require daemon-owned cleanup.
-- The daemon loses its relay connection; work on this machine continues, but remote devices cannot reach it and show it as `Not reachable · last seen <when>` until the connection is back, per [Spec-027 §Fallback Behavior](../specs/027-remote-control.md#fallback-behavior).
+- The daemon loses its relay connection; work on this machine continues, and every device's card reads it `Not reachable · last seen <when>` until the connection is back; a device whose channel is already on a direct path keeps working under that card, and every other device cannot reach it, per [Spec-027 §Fallback Behavior](../specs/027-remote-control.md#fallback-behavior).
+- A direct path is lost; the device opens a new connection on the relay channel it still holds, and every stream resumes through the reconnect recovery.
 
 ## Related Domain Docs
 

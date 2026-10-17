@@ -133,7 +133,7 @@ Any device you have linked drives the same session with full parity — read the
            │   Relay)            │
            │                     │
            │  ┌──────────────┐   │
-           │  │  Postgres    │   │
+           │  │  SQLite      │   │
            │  └──────────────┘   │
            └─────────────────────┘
 ```
@@ -144,7 +144,7 @@ Any device you have linked drives the same session with full parity — read the
 
 **Local Runtime Daemon** — Machine-local execution authority. Owns provider processes, git worktrees, terminal sessions, tool execution, and local persistence (SQLite).
 
-**Control Plane** — Hosted or self-hosted service for auth (PASETO v4 + WebAuthn), the device directory, device presence (each device's `presence.heartbeat` over its channel to the machine), the E2E-encrypted relay between your devices and your runtime node, and shared metadata (Postgres).
+**Control Plane** — Hosted or self-hosted service for auth (PASETO v4 + WebAuthn), the device directory, device presence (each device's `presence.heartbeat` over its channel to the machine), the E2E-encrypted relay between your devices and your runtime node, and the account's data in SQLite inside the relay.
 
 ### CLI-First
 
@@ -163,7 +163,7 @@ A short alias `sk` installs alongside it; if an unrelated `sk` is already on you
 | Desktop UI | React + Vite |
 | Local Runtime Daemon | Rust on `tokio` |
 | Local Database | SQLite (WAL mode) through `rusqlite` |
-| Shared Database | Postgres |
+| Shared Database | SQLite inside the relay: the account object's Durable Object storage on Cloudflare, a file on the Compose relay |
 | Control Plane | `axum` on `worker` (Cloudflare Workers), HTTP routes per [ADR-013](docs/decisions/013-control-plane-api.md) |
 | Auth | PASETO v4 (access + refresh) through `pasetors`, WebAuthn, DPoP |
 | Relay Encryption | Noise `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second, one channel per device and machine |
@@ -181,7 +181,7 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-014: V1 Feature Sc
 | # | Feature | Description |
 | --- | --- | --- |
 | 1 | Session creation | Foundational session primitive; any of your linked devices can drive a session you own |
-| 2 | Machine registration | The machine that runs your sessions registers once with the control plane and is reached through the relay |
+| 2 | Machine registration | The machine that runs your sessions registers once with the control plane and is reached straight across the network where a device can reach it, and through the relay otherwise |
 | 3 | Single-agent runs | Claude and Codex via provider drivers |
 | 4 | Queue, steer, pause, resume | Real runtime control and interventions |
 | 5 | Approval gates | 7 categories of human-in-the-loop safety |

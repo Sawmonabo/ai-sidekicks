@@ -24,7 +24,8 @@ This record takes the OSS developer-tool posture as the V1 deployment model.
 Related architectural choices already in place:
 
 - `deployment-topology.md` §Rate Limiting By Deployment names where each relay counts its sign-in routes: the per-identity Durable Object on the Workers relay, memory on the Compose relay.
-- `deployment-topology.md` §Relay Scaling Strategy describes how the Workers relay uses Cloudflare Workers + Durable Objects for one person: one Durable Object for the account.
+- `deployment-topology.md` §Relay Scaling Strategy describes how the Workers relay uses Cloudflare Workers + Durable Objects for one person: one account object for the account's data, and one forwarding object per machine for its channels.
+- ADR-008 carries a device's channel straight across the network wherever the device and the machine can reach each other, so the relay carries the channels that cannot go direct, the direct path's setup, and every relay connection's reachability and presence.
 - ADR-004 commits to SQLite for local state, and to SQLite inside the relay for the hosted account on both relays.
 
 ## Problem Statement
@@ -64,14 +65,15 @@ The daemon pins the relay's TLS key only when the relay's certificate does not c
 
 ### Relay Infrastructure
 
-- **Workers relay:** Cloudflare Workers + Durable Objects, one Durable Object for the account as `deployment-topology.md` §Relay Scaling Strategy lays out, deployed into the person's own Cloudflare account.
-- **Compose relay:** `sidekicks-control-plane`'s native program, a second target of the crate the Worker is built from, serving the same v2 relay protocol from the same handlers, shipped alongside the daemon in the same repo with a `docker-compose.yml` (the relay's native program and Caddy) for single-command deployment on the person's own server, the account's data in a SQLite file on the server's disk. Its Caddy takes `ACME_PROFILE`, empty by default, which leaves Caddy's own profile; `shortlived` requests Let's Encrypt's 160-hour certificates.
+- **Workers relay:** Cloudflare Workers + Durable Objects, deployed into the person's own Cloudflare account: one account object holds the account's data, and each machine's channels pass through a forwarding object of its own, which that machine's own relay connection creates, so it sits near the machine, as `deployment-topology.md` §Relay Scaling Strategy lays out. It hands out Cloudflare's STUN address, `stun.cloudflare.com:3478`, for the direct path.
+- **Compose relay:** `sidekicks-control-plane`'s native program, a second target of the crate the Worker is built from, serving the same v2 relay protocol from the same handlers, shipped alongside the daemon in the same repo with a `docker-compose.yml` (the relay's native program and Caddy) for single-command deployment on the person's own server, the account's data in a SQLite file on the server's disk. It answers STUN itself on UDP 3478 for the direct path, through `str0m`'s `is` crate, rate-limited as its DNS is, so the direct path's setup reaches no infrastructure beyond what the person holds. Its Caddy takes `ACME_PROFILE`, empty by default, which leaves Caddy's own profile; `shortlived` requests Let's Encrypt's 160-hour certificates.
 
 Both backends implement the v2 relay protocol behind one shared contract so protocol-level changes land once and ship to both.
 
 Both relays hold the same admission rules:
 
 - The relay counts requests on its sign-in routes (sign-in, token refresh, device linking) only, and answers one past the limit with 429 and a retry time. On the Workers relay they count in the per-identity Durable Object, one global counter that rotating edge locations does not reset; on the one-process Compose relay they count in memory. A counter error fails that one request like any backend error.
+- Each relay hands out a STUN address when a device or a machine negotiates its connection, Cloudflare's `stun.cloudflare.com:3478` on the Workers relay and its own answer on UDP 3478 on the Compose relay, and offers no TURN: the relay itself is the direct path's fallback.
 - On the WebSocket the relay sees only encrypted frames and counts none of them. The machine reads each method inside the sealed connection and keeps the last `presence.heartbeat` per device.
 - The relay forwards each device's frames as fast as the machine drains them; backpressure on the channel bounds frames and bytes in both directions.
 
@@ -126,11 +128,11 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 - **Steel man:** Zero-configuration first run: install, link a phone, it works, with no Cloudflare account or server of the person's own.
 - **Why rejected:** A public relay serves other people, which is out of scope for one user. It brings the bans, per-person credentials, abuse handling and billing pressure the product does not carry, and it puts the person's traffic on infrastructure they do not hold. The Workers relay keeps the first run to one deployment into the person's own Cloudflare account.
 
-### Option E: Pure P2P with STUN/TURN (No Relay at All) (Rejected)
+### Option E: Peer-to-Peer with STUN/TURN and No Relay (Rejected)
 
-- **What:** Every device-to-machine session is peer-to-peer over WebRTC, using STUN/TURN for NAT traversal.
-- **Steel man:** No relay infrastructure to operate at all; lowest-possible project cost; strong privacy story (no intermediary).
-- **Why rejected:** Approximately 30% of connection attempts over public networks are blocked by NAT configurations that STUN cannot punch and that require TURN fallback. TURN servers are relays by another name; the architecture still ends up operating a coordination endpoint. Pure-P2P also complicates the device-link handshake, the relay-endpoint negotiation, and the device-liveness model that `deployment-topology.md` and [Spec-027](../specs/027-remote-control.md) already depend on. The relay is load-bearing; removing it does not remove the problem it solves.
+- **What:** Every device-to-machine channel is peer-to-peer over WebRTC, using STUN and a TURN server for NAT traversal, with no relay.
+- **Steel man:** No relay to deploy; no intermediary on any frame.
+- **Why rejected:** A direct pair does not form behind every pair of routers, and a TURN server is a relay by another name, so the person would still deploy one. The channel's setup needs a path both ends already reach, and the machine never advertises itself on the network, so something must carry the setup, reachability and presence that [Spec-027](../specs/027-remote-control.md) reads from the relay connection. The relay does all of that, and the direct path ([ADR-008](./008-default-transports-and-relay-boundaries.md)) takes every channel the network allows off it, so the relay stays and is the fallback in TURN's place.
 
 ## Assumptions Audit
 
@@ -206,7 +208,9 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 | Sentry OSS → BSL → FSL | Precedent | Source-available relicensing path when competitive re-hosting materializes | <https://sentry.io/_/open-source/> |
 | tmate | Precedent | OSS terminal-sharing with free default relay + self-host option | <https://github.com/tmate-io/tmate> |
 | Mattermost | Precedent | OSS + paid-tier two-deployment model | <https://mattermost.com/> |
-| Cloudflare Workers + Durable Objects | Documentation | The platform the Workers relay runs on: one Durable Object for the account | <https://developers.cloudflare.com/durable-objects/> |
+| Cloudflare Workers + Durable Objects | Documentation | The platform the Workers relay runs on: an account object, and a forwarding object per machine placed near its first request | <https://developers.cloudflare.com/durable-objects/> |
+| Cloudflare Durable Objects data location | Documentation | A Durable Object is created near the first request that names it and does not move, so each machine's forwarding object is created by that machine's own connection | <https://developers.cloudflare.com/durable-objects/reference/data-location/> |
+| Cloudflare Realtime TURN and STUN | Documentation | `stun.cloudflare.com:3478` answers STUN, free and unlimited, which the Workers relay hands out | <https://developers.cloudflare.com/realtime/turn/> |
 | Cursor Enterprise page | Vendor announcement | Direct quote: "we don't offer on-premises deployment today." Anchors the Antithesis/Synthesis claim that the modal greenfield collaborative dev tool ships hosted-only at V1 | <https://cursor.com/enterprise> |
 | The Agency Journal — Cursor March 2026 self-hosted agents | Vendor announcement | Cursor March 2026: agent runtime moves to customer network; control plane stays in Cursor cloud — matches our ADR-002 trust-boundary shape (local execution, shared control plane) | <https://theagencyjournal.com/cursors-march-2026-glow-up-self-hosted-agents-jetbrains-love-and-smarter-composer/> |
 | Superblocks — Cursor Enterprise Review 2026 | Engineering blog | Cursor Enterprise tier offers air-gapped agent-runtime deployment, not control-plane self-host; supports the "control plane stays hosted" pattern | <https://www.superblocks.com/blog/cursor-enterprise> |

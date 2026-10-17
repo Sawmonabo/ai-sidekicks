@@ -15,7 +15,7 @@ Recover the person's own control plane and relay, on their Cloudflare account or
 
 ## Detection
 
-- On the machine, run `sidekicks daemon status`. While a relay is configured it prints the relay block: each linked device by name, connected or not, the age of the last frame out and the last frame in, the reconnect count and the rejected-frame count, each counted since the service started. With no relay configured the block is absent.
+- On the machine, run `sidekicks daemon status`. While a relay is configured it prints the relay block: each linked device by name, connected or not, the path its channel takes (`direct (local network)`, `direct (internet)` or `relay`), the age of the last frame out and the last frame in, the reconnect count and the rejected-frame count, each counted since the service started. With no relay configured the block is absent.
 - Every device not connected, with an old last frame in, means the machine's own relay connection is down. One device that keeps reconnecting means its key is in two places.
 - `sidekicks device list` prints the account's machines and devices, as the Devices page's cards show them.
 - Read the relay's own logs: the Worker's logs in the person's Cloudflare account, or `docker compose logs` on the Compose server.
@@ -61,7 +61,7 @@ sidekicks relay repin --force    # a relay without a publicly trusted certificat
 | Threshold | Value |
 | --- | --- |
 | Machine shown `Not reachable` | 45 seconds without a frame on its relay connection |
-| Live connections per key | One; a new connection closes the one before it |
+| Live connections per key | One per machine key and, for each machine, one per device key; a new connection under a key closes the one before it |
 | Key in two places | Three displacements within a minute; the newest connection stays and the relay flags the key |
 | Channel rekey | A fresh handshake on every connection and every 10 minutes on a long one |
 

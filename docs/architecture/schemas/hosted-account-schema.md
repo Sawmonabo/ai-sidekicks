@@ -1,6 +1,6 @@
 # Hosted Account Schema
 
-Canonical schema for the hosted account's SQLite database, which lives inside the relay: in the account's Durable Object's own SQLite storage on the Workers relay, and in a SQLite file the relay's one process writes on the Compose relay ([Deployment Topology §Account Storage](../deployment-topology.md#account-storage)). It is one schema, built whole: there are no numbered migration steps, and every table is in this one schema and its test. The writer creates the whole schema in one transaction when it opens an empty database.
+Canonical schema for the hosted account's SQLite database, which lives inside the relay: in the account object's own SQLite storage on the Workers relay, and in a SQLite file the relay's one process writes on the Compose relay ([Deployment Topology §Account Storage](../deployment-topology.md#account-storage)). It is one schema, built whole: there are no numbered migration steps, and every table is in this one schema and its test. The writer creates the whole schema in one transaction when it opens an empty database.
 
 **Types.** Every table is `STRICT`, and every `REFERENCES` is enforced: the Compose relay opens its file with `PRAGMA foreign_keys = ON`, and the relay's first test confirms a Durable Object's SQLite enforces them on the Workers relay. An id the writer mints is a UUID held as `TEXT`; a time is Unix seconds as `INTEGER`, the unit a token's `iat` and `exp` carry, defaulting to `unixepoch()`; a key or a signed statement is a `BLOB`; a list or a JSON value is `TEXT` holding JSON.
 
@@ -248,7 +248,7 @@ CREATE TABLE trust_statements (
 
 ## Transactions On One Writer
 
-The database has one writer. On the Workers relay it is the account's Durable Object, which runs one request's code at a time and commits a series of writes with no await between them together ([Cloudflare: SQLite-backed Durable Object Storage §`transaction`](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#transaction)); on the Compose relay it is the relay's one process, which runs each request's statements in one transaction. No two transactions interleave, so there are no row locks and no lock order, and every transaction keeps one rule: **a read and the write that depends on it run with nothing awaited between them.** An await, such as an outbound call, ends the step, so a request that must wait reads again after the wait.
+The database has one writer. On the Workers relay it is the account object, a Durable Object, which runs one request's code at a time and commits a series of writes with no await between them together ([Cloudflare: SQLite-backed Durable Object Storage §`transaction`](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#transaction)); on the Compose relay it is the relay's one process, which runs each request's statements in one transaction. No two transactions interleave, so there are no row locks and no lock order, and every transaction keeps one rule: **a read and the write that depends on it run with nothing awaited between them.** An await, such as an outbound call, ends the step, so a request that must wait reads again after the wait.
 
 | Transaction | What it reads and writes in one step |
 | --- | --- |

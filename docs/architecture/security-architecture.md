@@ -27,7 +27,7 @@ The product combines one account, several of that account's devices, one or more
 | `Identity And Session Authorization` | Authenticates the user and authorizes access to sessions they own. A machine signs in to the hosted account through its background service, which runs an authorization-code sign-in (RFC 8252, PKCE, PAR, DPoP) whether Settings › Devices' `Sign in` or `sidekicks account login` started it. Passkeys (WebAuthn) are used only in a browser and the iPhone app: on the relay's sign-in page, to approve a machine's sign-in and to make a new account's first passkey, and in the web client and the iPhone app, to sign in and to link a device with no other device at hand; the desktop app carries no WebAuthn. Tokens: PASETO v4 — access tokens (`v4.public`, 15 min, never stored) presented with a DPoP proof; a refresh token bound to the machine's DPoP key, kept as its own item in the machine's credential store, spent and replaced at each trade, lasting until sign-out or revocation. |
 | `Approval Policy Engine` | Evaluates and records approval requests and resolutions. A provider's ask gets its designed answer from plain code in the service: it refuses `claude agents`, `claude daemon` and `--bg` and keeps Claude Code's own switch that turns them off pinned, allows an agent's own memory `.md` file, and answers for Codex where Codex has no command of its own. Only the workflow actions (`workflow::author`, `workflow::start`, `workflow::cancel`, `workflow::resume`) use Cedar (CNCF sandbox) with principal-action-resource-context model: their built-in rules are `.cedar` files in the service's own source, compiled into the service with it and changed only by an app update, like any other code, and evaluated in-process by `cedar-policy`'s `Authorizer`, linked into the service ([ADR-012](../decisions/012-cedar-approval-policy-engine.md)). Messaging other sessions and the browser are gated by the calling session's permission level, and Cedar holds no rules for them. |
 | `Device And Machine Trust` | The account's append-only statement chain (`device.linked`, `device.renamed`, `device.revoked`, `passkey.added`, `passkey.removed`, `runtimenode.added`, `runtimenode.renamed`, `runtimenode.removed`), which every machine verifies itself to decide which device and machine keys it trusts, and each machine's registration (id, owning user, public key, name, platform, version). |
-| `Transport Security Layer` | Protects local IPC, client-daemon, and relay/control-plane traffic. Local daemon: socket reachability plus a required 256-bit session token (mode 0600, rotated per restart) presented by the desktop app's client helper or the CLI, from a process the daemon did not start itself — see §Local Daemon Authentication for the model. Control plane: HTTPS/TLS. Relay: one end-to-end channel per device and machine on the Noise Protocol Framework's two profiles, `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second, with a fresh handshake on every connection and every 10 minutes, the relay seeing ids, the profile, sizes and times and nothing else (see §Relay Authentication And Encryption and [ADR-010](../decisions/010-tokens-passkeys-and-the-remote-channel.md)). |
+| `Transport Security Layer` | Protects local IPC, client-daemon, and relay/control-plane traffic. Local daemon: socket reachability plus a required 256-bit session token (mode 0600, rotated per restart) presented by the desktop app's client helper or the CLI, from a process the daemon did not start itself — see §Local Daemon Authentication for the model. Control plane: HTTPS/TLS. Another device: one end-to-end channel per device and machine, carried by a WebRTC data channel straight between the two wherever they can reach each other and by the relay otherwise, on the Noise Protocol Framework's two profiles, `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second, with a fresh handshake on every connection and every 10 minutes, the relay seeing ids, the profile, sizes and times and nothing else, and the direct path's own DTLS encrypting beneath the channel (see §Relay Authentication And Encryption and [ADR-010](../decisions/010-tokens-passkeys-and-the-remote-channel.md)). |
 | `Audit Layer` | Records grants, denials, escalations, and revocations. |
 
 ## Data Flow
@@ -42,7 +42,7 @@ The product combines one account, several of that account's devices, one or more
 
 - Owning a session does not imply local machine trust.
 - Reaching a machine over the channel does not bypass approval policy.
-- The relay path must be treated as less trusted than direct local transport.
+- Both remote carriers, the relay and the direct path, must be treated as less trusted than local IPC.
 - The local daemon remains the enforcement point for local execution permissions.
 
 ## Failure Modes
@@ -51,6 +51,7 @@ The product combines one account, several of that account's devices, one or more
 - Approval rules outlive their intended scope and create hidden privilege drift.
 - Transport authentication succeeds while local authorization policy is misapplied.
 - Relay or remote-path compromise exposes data that should have remained end-to-end protected.
+- The direct path's socket answers a peer that does not hold the credentials exchanged inside the sealed channel.
 
 ---
 
@@ -69,7 +70,7 @@ The local daemon uses a layered trust model based on socket reachability **plus*
 | External process (same machine) | 256-bit session token (required) | Untrusted processes on the same machine must present a token. |
 | A process the daemon started (same machine) | Refused, token or not | A provider process, a command an agent runs, a repository's git hook or setup command, and anything they start in turn descend from the daemon; their hello is refused with `auth.caller_refused` (the caller check below). |
 | Desktop renderer (same machine) | Not a daemon client | All renderer-originated requests travel over the `MessagePort` main hands the page through the preload, to the client helper, which checks each against its method allowlist and forwards it over its own token-presenting connection. The renderer never holds the daemon session token, PASETO access tokens, or the DPoP key per [Spec-021 §Trust Stance](../specs/021-desktop-app-and-renderer.md#trust-stance). |
-| Another of the person's devices | Not a daemon-socket client | It reaches the daemon only over its end-to-end channel (§Relay Authentication And Encryption). The service binds no TCP port for its clients. |
+| Another of the person's devices | Not a daemon-socket client | It reaches the daemon only over its end-to-end channel, on the relay or on the direct path (§Relay Authentication And Encryption). The service binds no TCP port for its clients; the direct path's UDP socket exists only while a device is on it and answers only an ICE check carrying the password exchanged inside that channel. |
 
 **Session token specification:**
 
@@ -164,7 +165,7 @@ Each live sign-in has one row in `refresh_token_families` (`family_id`, `user_id
 
 ### Relay Authentication And Encryption
 
-Per [ADR-010](../decisions/010-tokens-passkeys-and-the-remote-channel.md), every channel joins one device and one machine through the person's own relay and carries every session and screen on that machine. [Spec-027 §The encryption envelope](../specs/027-remote-control.md#the-encryption-envelope) is the full design; this section is its security summary.
+Per [ADR-010](../decisions/010-tokens-passkeys-and-the-remote-channel.md), every channel joins one device and one machine, straight across the network wherever the two can reach each other and through the person's own relay otherwise, and carries every session and screen on that machine. [Spec-027 §The encryption envelope](../specs/027-remote-control.md#the-encryption-envelope) is the full design; this section is its security summary.
 
 **Keys and trust:**
 
@@ -185,15 +186,28 @@ Every device and machine public key carries its algorithm tag (`p256` or `ed2551
 | Forward secrecy | A fresh handshake on every connection and every 10 minutes on a long one, with the old keys erased; in the web client and the iPhone app, where the channel's keys pass through JavaScript memory, the erasure is best effort |
 | Profile | The connection's first frame offers the channel version and the profiles the device runs; the machine answers with one it runs or closes the connection (`channel.no_common_profile`); offer and answer are bound into the handshake's prologue. Every device offers two profiles, `Noise_KK_25519_AESGCM_SHA256` offered first and `Noise_KK_25519_ChaChaPoly_SHA256` second: WebKit's WebCrypto refuses ChaCha, and AES-GCM is 3–6× cheaper there; ChaCha serves a machine or device without AES instructions, and is never negotiated while both ends run AES-GCM |
 | Post-quantum | Not provided: traffic recorded today could be opened by a future large quantum computer. The hybrid profile joins through the same negotiation once its specification is reviewed |
-| What the relay sees | The device id and machine id at connection, the channel version and the profile, frame sizes and times; never a method, a name or a byte of a session |
+| What the relay sees | The device id and machine id at connection, the channel version and the profile, frame sizes and times; never a method, a name or a byte of a session. It learns that a channel moved onto the direct path only from its connection going quiet |
+
+**The direct path:**
+
+| Component | Specification |
+| --- | --- |
+| Carrier | One WebRTC data channel, reliable and ordered, between the device and the machine: `RTCPeerConnection` in the channel package on the web client and the iPhone app, and `str0m` on its default `aws-lc-rs` crypto on the machine, so the service links no second TLS library. The desktop app on another computer opens none itself: its service holds the channel as its own machine, `str0m` on both ends |
+| Encryption | WebRTC's DTLS, which every data channel carries and nothing can turn off (RFC 8827 §6.5, RFC 8831 §6.1), and inside it the same sealed channel as on the relay: the same first frame, the same `KK` handshake on the same channel keys and profiles, and the same 10-minute rekey, so a flaw in either end's DTLS exposes no session byte |
+| Setup | The device's offer, the machine's answer, the candidates and every ICE restart travel inside the sealed channel, over whichever carrier holds it, so only the paired keys read them; the data channel's DTLS fingerprint is trusted because it arrived that way. The device always offers. The machine names its own addresses only to the paired device, inside the channel, and never advertises itself on the network |
+| What the socket answers | One UDP socket per address family per direct peer, answering only an ICE check that carries the password exchanged inside the sealed channel (at least 128 random bits, RFC 8445 §5.3) and silent to anything else; after ICE, DTLS against the signaled fingerprint, then the `KK` handshake against keys the statement chain trusts. A DTLS peer with another fingerprint is refused, and a handshake from a key the chain does not hold fails |
+| With no direct peer | No UDP socket, no router mapping and no mDNS thread |
+| Away from home | The router's port mapping (PCP or NAT-PMP, then UPnP-IGD) at the shortest lease the router grants, renewed at half its life and deleted when the path closes, so one mapping leads to the socket while the device is away |
+| Code before any check | `str0m`'s fuzzed STUN parser and `dimpl`'s memory-safe DTLS; the sealed channel inside covers a flaw in `dimpl`, which has had no outside audit, and each upgrade of either is reviewed |
+| Reachability | `Reachable`, `Connected now` and the two-places flag stay facts of the relay connection, so the direct path never adds a second answer to whether a machine or a device can be reached |
 
 **Events a device originates:** no device signs the events it sends. The channel's handshake proves the device, and the machine records the connection's device on each event that device originates; an approval, question or plan resolution carries the answering device's id. A revoked device's channel is closed, so nothing new reaches the machine from it ([Plan-025](../plans/025-remote-control.md)).
 
 **Access to the relay:**
 
-1. A device or machine negotiates relay access with the control plane and receives a relay endpoint and a short-lived connect token bound to that device and that machine, never to a session; a token replayed for another device or machine, or an expired one, is refused.
+1. A device or machine negotiates relay access with the control plane and receives a relay endpoint, the machine's current forwarding object on the Workers relay, the relay's STUN address, and a short-lived connect token bound to that device and that machine, never to a session; a token replayed for another device or machine, or an expired one, is refused.
 2. The client connects over WSS and presents the connect token in the initial WebSocket handshake via two `Sec-WebSocket-Protocol` subprotocol values — `paseto-v4, <base64url(connectionToken)>` (value 1 names the scheme and is echoed by the relay as the negotiated subprotocol; value 2 carries the base64url-encoded token, since browsers cannot set custom WebSocket request headers).
-3. The relay forwards the channel's frames and inspects none of them. It holds at most one live connection per device key and one per machine key; a new connection under a key closes the one before it, and the key is flagged.
+3. The relay forwards the channel's frames and inspects none of them. It holds at most one live connection per machine key and, for each machine, one per device key (on the Workers relay on that machine's forwarding object, on the Compose relay in its one process); a new connection under a key closes the one before it, and a key that keeps displacing itself, three times within a minute, is flagged.
 4. The relay forwards each device's frames as fast as the machine drains them; backpressure on the channel bounds both directions.
 
 ### Permission Matrix
@@ -247,6 +261,7 @@ The **Read the transcript, artifacts, and device presence** row above also gover
 | Local daemon (Windows named pipe) | Per-user named pipe, served by the daemon in its own process through `sidekicks-platforms`' pipe code | Pipe access list granting the person alone, remote clients refused, the client's owner check + 256-bit session token | None needed (same-machine) | Highest trust — local execution authority |
 | Client to control plane | HTTPS | PASETO v4.public + DPoP | TLS 1.3 minimum, no TLS 1.2 fallback | Medium trust — authenticated, reached over the public internet |
 | Device to machine (via the relay) | WSS to the relay | Connect token bound to the device and the machine; inside it, the Noise `KK` handshake over keys the statement chain trusts | `Noise_KK_25519_AESGCM_SHA256` offered first, `Noise_KK_25519_ChaChaPoly_SHA256` second, rekeyed on every connection and every 10 minutes | Low trust — the relay sees ids, the profile, sizes and times only |
+| Device to machine (direct path) | A WebRTC data channel over UDP, set up inside the sealed channel | The ICE password and the DTLS fingerprint exchanged inside the sealed channel; inside the data channel, the same Noise `KK` handshake over keys the statement chain trusts | DTLS beneath, and inside it the same two Noise profiles and rekey as on the relay | Low trust — the networks between the two ends see only the ICE checks, integrity-checked with the password exchanged inside the sealed channel, and DTLS packets |
 
 **Certificate requirements:**
 
@@ -257,7 +272,7 @@ The **Read the transcript, artifacts, and device presence** row above also gover
 **Machine boundaries:**
 
 - Owning a session does NOT imply machine trust. A session runs only on the machine it was started on, and no machine executes anything for another.
-- Every channel is relay-mediated and end-to-end encrypted. There is no direct connection between a device and a machine, and none between machines.
+- Every channel is end-to-end encrypted between one device and one machine, on the direct path or through the relay. A desktop app on another computer reaches a machine through its own service, service to service, and no machine executes anything for another over that channel.
 
 ---
 

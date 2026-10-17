@@ -11,7 +11,7 @@ Every V1 feature has a governing spec; feature #21 (Remote Control) is governed 
 | # | Feature | Governing Spec(s) |
 | --- | --- | --- |
 | 1 | Session creation | [Spec-001](../specs/001-session-core.md) |
-| 2 | Machine registration | [Spec-002](../specs/002-machine-registration.md) — the machine that runs your sessions registers once with the control plane, keyed by the machine and its owner, and is reached through the relay; it is reachable while its relay connection is up, and a session never moves to another machine |
+| 2 | Machine registration | [Spec-002](../specs/002-machine-registration.md) — the machine that runs your sessions registers once with the control plane, keyed by the machine and its owner, and is reached straight across the network where a device can reach it, and through the relay otherwise; it is reachable while its relay connection is up, and a session never moves to another machine |
 | 3 | Single-agent runs (Codex, Claude) | [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) |
 | 4 | Queue, steer, pause, resume, interrupt | [Spec-003](../specs/003-queue-steer-pause-resume.md) |
 | 5 | Approval gates | [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) |
@@ -42,7 +42,7 @@ The product has one user, so what exists only to sell to or govern an organizati
 
 Per [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md), V1 is one open-source codebase whose relay is the person's own, deployed for themself in one of two ways:
 
-- **The Workers relay, in the person's own Cloudflare account.** Cloudflare Workers and Durable Objects, the account's data in the relay Durable Object's SQLite storage: nothing to keep running at home, and no open port. It counts requests on its sign-in routes in its per-identity Durable Object.
+- **The Workers relay, in the person's own Cloudflare account.** Cloudflare Workers and Durable Objects, the account's data in the account object's SQLite storage: nothing to keep running at home, and no open port. It counts requests on its sign-in routes in its per-identity Durable Object.
 - **The Compose relay, on the person's own server.** `sidekicks-control-plane`'s native program, which keeps the account's data in a SQLite file, and Caddy from one `docker-compose.yml`: everything on hardware the person holds. It counts requests on its sign-in routes in its own memory.
 
 The person picks per setup and can switch a machine between them; the daemon points at its relay through config (`RELAY_URL=…` or `--relay-url=…`). Both relays run one protocol and serve the same features, with one difference the person sees: shared ports in the web client exist only on the Compose relay, and on the Workers relay the web client says so. A machine signs in to its relay from `Sign in` on Settings › Devices, where a `Relay address` field sets the relay while none is set, or with `sidekicks account login`, and a first run has nothing to answer ([Spec-022](../specs/022-first-run.md)). Community-supported via GitHub Issues and Security Advisories; no SLA. A relay serving other people — a project-operated public relay, or a hosted service — is out of scope for one user.
