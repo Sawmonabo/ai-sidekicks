@@ -26,7 +26,7 @@ Primary actors:
 
 - provide durable sessions the user can reach from any linked device
 - keep execution local to the user's machines
-- link devices, register machines and relay their channels through the person's own control plane, and send each notification from the machine, sealed so the control plane cannot read it
+- link devices and register machines through the person's own control plane, carry each device's channel straight to the machine wherever the two can reach each other and through that control plane's relay otherwise, and send each notification from the machine, sealed so the control plane cannot read it
 - expose one canonical event model for chat, runs, approvals, interventions, and artifacts
 - support repo-bound coding flows with worktree isolation and attributable diffs
 
@@ -41,11 +41,11 @@ Primary actors:
 ## Data Flow
 
 1. The user creates a session from the desktop app or CLI, or opens an existing one from another linked device.
-2. The control plane authenticates the device and relays its channel to each of the user's machines; the device asks each machine whether it holds the session and opens it on the one that does.
+2. The control plane authenticates the device and relays its channel to each of the user's machines, and the channel moves onto a direct path wherever the device and that machine can reach each other; the device asks each machine whether it holds the session and opens it on the one that does.
 3. The local runtime daemon on the session's machine provides the session's workspaces and agents.
 4. Runs execute locally through provider drivers and workspace services.
 5. Local runtime events append to the canonical local event log and publish live updates.
-6. Device linking, machine registration, channel frames and sealed push notices flow through the control plane.
+6. Device linking, machine registration, the direct path's setup, the channel frames that do not go direct and sealed push notices flow through the control plane.
 7. Clients read projections from the session's machine, over local IPC on that machine and over the device's channel from anywhere else, to render the session.
 
 ## Client Delivery Path
@@ -63,7 +63,7 @@ Primary actors:
 ## Failure Modes
 
 - The local daemon is unavailable, preventing execution on that machine.
-- The control plane is unavailable, preventing device linking or remote access to a running session.
+- The control plane is unavailable, preventing device linking and any new remote connection to a running session; a channel already on a direct path keeps working.
 - Provider drivers fail or drift from expected capability behavior.
 - Event projection lag causes stale client views until catch-up completes.
 

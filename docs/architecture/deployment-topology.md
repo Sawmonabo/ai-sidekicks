@@ -25,22 +25,23 @@ Supported topologies:
 | Topology | Boundary Summary |
 | --- | --- |
 | `Single-Device Local` | Desktop or CLI plus one local daemon on the same machine, operating in `local-only` continuity. No control-plane dependency. |
-| `Workers Relay` | The person's own control plane and relay on Cloudflare Workers and Durable Objects, deployed in their own Cloudflare account, holding the device and machine registry and the account's statement chain and relaying their channels. It serves that one person and no one else, per [ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md). |
+| `Workers Relay` | The person's own control plane and relay on Cloudflare Workers and Durable Objects, deployed in their own Cloudflare account, holding the device and machine registry and the account's statement chain and relaying every channel that does not go direct. It serves that one person and no one else, per [ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md). |
 | `Compose Relay` | The same control plane and relay on the person's own server: `sidekicks-control-plane`'s native program and Caddy from one `docker-compose.yml`, with the account's data in a SQLite file the program writes ([§Account Storage](#account-storage)), per [ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md). It serves the same features as the Workers relay, and it alone gives shared ports in the web client an address. Secure-defaults posture for this topology is normative per [Spec-023: Self-Host Secure Defaults](../specs/023-self-host-secure-defaults.md) with its hands-on companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-023 Acceptance Criterion). |
-| `Relay-Assisted Remote Access` | A device reaches the person's machines through their relay, one channel per device and machine, without moving execution into the control plane. |
+| `Relay-Assisted Remote Access` | A device reaches the person's machines over one channel per device and machine, straight across the network wherever the two can reach each other and through the person's relay otherwise, without moving execution into the control plane. The relay connection stays open either way: it carries reachability, presence, the direct path's setup and the fallback. |
 
 ## Data Flow
 
 1. `local-only` mode keeps execution and immediately usable session continuity on one user-owned machine except for external provider calls.
 2. Remote-control mode adds control-plane metadata exchange and relay coordination so the user's other devices can drive the session.
 3. Self-hosted mode preserves the same logical split but changes operational ownership.
-4. Relay-assisted mode changes transport path only; execution remains local to the machine.
+4. Relay-assisted mode changes transport path only; execution remains local to the machine. A device's channel moves onto a direct path wherever the network allows and back to the relay when the path is lost, losing, repeating and reordering nothing ([Spec-027 §The direct path](../specs/027-remote-control.md#the-direct-path)).
 
 ## Trust Boundaries
 
 - No supported topology moves arbitrary code execution into the shared control plane.
 - Relay-assisted access changes connectivity, not execution authority.
 - Self-hosting changes who runs the relay, not the logical security model.
+- The direct path changes the carrier, not the trust: the same sealed channel and the same handshake against the account's statement chain run on it as on the relay.
 
 ## Rate Limiting By Deployment
 
@@ -56,7 +57,7 @@ Both relays enforce the same limit through the same interface, chosen by deploym
 
 ## Relay Scaling Strategy
 
-The relay serves one person: their machines and the devices they link. Each machine and each device holds one connection to it, with at most one live connection per key, and every channel joins one device to one machine ([Spec-027 §The encryption envelope](../specs/027-remote-control.md#the-encryption-envelope)). The relay forwards sealed frames and reads none of them.
+The relay serves one person: their machines and the devices they link. Each machine and each device holds one connection to it, with at most one live connection per machine key and, on each machine's forwarding object, one per device key, and every channel joins one device to one machine ([Spec-027 §The encryption envelope](../specs/027-remote-control.md#the-encryption-envelope)). The relay forwards sealed frames and reads none of them. A channel on the direct path sends the relay nothing but its connection's keepalive and its rekey.
 
 **Cloudflare Durable Object platform limits:**
 
@@ -65,13 +66,19 @@ The relay serves one person: their machines and the devices they link. Each mach
 - Each DO is single-threaded; horizontal scale is achieved by spawning more objects ([DO limits][do-limits]).
 - CF's own guidance pegs practical throughput at ~500–1,000 rps for simple operations and ~200–500 rps for complex operations that involve transformation plus storage writes ([Rules of Durable Objects][do-rules]).
 
-**Workers relay: one Durable Object for the account.** It terminates every connection, each machine's and each device's, and forwards each frame from its sender to the other end of that frame's channel. A person's machines and devices are a handful of connections, so connection count is never the budget; throughput is:
+**Workers relay: one account object, and one forwarding object per machine.** A Durable Object is created near the first request that names it and does not move ([DO data location][do-location]), so one object for everything would sit near the first machine that signed in, and a phone would reach a second machine across the country through it.
+
+- **The account object** holds the account's data ([§Account Storage](#account-storage)) and records each machine's current forwarding object, which the negotiation reply hands to a device. Connects, closes and the two-places flag report back to it, and a revocation fans out from it to every machine's forwarding object.
+- **Each machine's forwarding object** terminates that machine's connection and every device connection to it, and forwards each frame from its sender to the other end of that frame's channel. That machine's own relay connection creates it, so it sits near the machine with no location hint. Its name is the machine id and a region key from Cloudflare's `request.cf.continent`: a laptop that reconnects from another continent gets a new object there, and devices still on the old one are closed with a moved code and reconnect.
+- **While the direct path carries a channel,** both ends of its relay connection exchange a fixed keepalive text pair every 15 seconds, outside the frame codec, which the object answers without waking (`setWebSocketAutoResponse`, whose strings are at most 2,048 characters); the 45-second reachability rule reads that answer's timestamp (`getWebSocketAutoResponseTimestamp`), since a protocol ping leaves no record.
+
+A person's machines and devices are a handful of connections, so connection count is never the budget; throughput is:
 
 | Input | Value | Source |
 | --- | --- | --- |
 | Device-sent frames | Bounded by each channel's backpressure; no quota | [Plan-025](../plans/025-remote-control.md) Phase 3 |
 | Machine-sent frames | Bounded by each channel's backpressure; no quota | [Plan-025](../plans/025-remote-control.md) Phase 3 |
-| Sustained budget for the object | 400 requests a second, 2.5× under the 1,000 rps soft cap | Intentional: CF guidance places complex operations in the 200–500 rps band ([Rules of DO][do-rules]) |
+| Sustained budget for each forwarding object | 400 requests a second, 2.5× under the 1,000 rps soft cap | Intentional: CF guidance places complex operations in the 200–500 rps band ([Rules of DO][do-rules]) |
 
 Frames either way, agent output and Preview's live picture included, are the term no quota fixes, so they are measured rather than assumed.
 
@@ -79,15 +86,16 @@ Frames either way, agent output and Preview's live picture included, are the ter
 
 **Decision triggers for changing the layout.** Re-evaluate when either is true:
 
-1. The measured sustained rate on the account's object exceeds 400 requests a second.
+1. The measured sustained rate on a machine's forwarding object exceeds 400 requests a second.
 2. Cloudflare raises or lowers the per-DO rps soft cap ([monitor DO changelog][do-changelog]).
 
-**Pre-launch requirement:** before the first release that carries Remote Control, a load test on the Workers relay must pass. The test is one account with two machines and three devices; each machine streams agent output and Preview's live picture to a device, and each device sends as fast as its channel's backpressure allows. It measures the object's sustained requests a second and each channel's frames a second each way, and it passes when the object stays under 400 requests a second.
+**Pre-launch requirement:** before the first release that carries Remote Control, a load test on the Workers relay must pass. The test is one account with two machines and three devices; each machine streams agent output and Preview's live picture to a device, and each device sends as fast as its channel's backpressure allows. Every channel stays on the relay for the test. It measures each forwarding object's sustained requests a second and each channel's frames a second each way, and it passes when each object stays under 400 requests a second.
 
 [do-limits]: https://developers.cloudflare.com/durable-objects/platform/limits/
 [do-ws]: https://developers.cloudflare.com/durable-objects/best-practices/websockets/
 [do-rules]: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/
 [do-changelog]: https://developers.cloudflare.com/changelog/product/durable-objects/
+[do-location]: https://developers.cloudflare.com/durable-objects/reference/data-location/
 
 ## Relay Cost And Delay
 
@@ -102,6 +110,9 @@ Measured on a Rust relay object built on `worker` 0.8.7. These are the figures e
 - `local-only` mode cannot be reached from the user's other devices when no control plane is available.
 - Remote-control mode degrades to partial `local-only` continuity when the control plane is unavailable: work at the machine continues, remote devices report it unreachable.
 - Relay-assisted connectivity fails even though local daemons remain healthy.
+- A direct path does not form, because the routers allow no pair or the operating system's local-network prompt was refused: the channel stays on the relay and works as before.
+- A direct path is lost: the device is back on the relay within 5 seconds, every stream resuming through the reconnect recovery.
+- The relay connection drops while a direct path is open, as in an internet outage at home: the channel stays on the direct path and its sessions keep running, while a new connection waits for the relay.
 
 ## Horizontal Scaling Strategy
 
@@ -113,7 +124,7 @@ Measured on a Rust relay object built on `worker` 0.8.7. These are the figures e
 
 The hosted account's data (the account, its sign-in state, the device and machine registry and the statement chain) lives in SQLite inside the relay, in the one schema [Hosted Account Schema](./schemas/hosted-account-schema.md) gives; no outside database runs on either relay.
 
-- **Workers relay:** the account's Durable Object keeps it in its own SQLite storage. Only that object's code reads or writes it, apart from Cloudflare's Data Studio, which the [deletion runbook's](../operations/hosted-account-deletion-runbook.md) break-glass edit uses, and a series of its writes with no await between them commits together. The object's storage keeps 30 days of point-in-time recovery.
+- **Workers relay:** the account object, the one Durable Object named `account` in the relay's namespace, keeps it in its own SQLite storage; the forwarding objects hold no account rows. Only that object's code reads or writes it, apart from Cloudflare's Data Studio, which the [deletion runbook's](../operations/hosted-account-deletion-runbook.md) break-glass edit uses, and a series of its writes with no await between them commits together. The object's storage keeps 30 days of point-in-time recovery.
 - **Compose relay:** a SQLite file on the server's disk, opened and written by the relay's one process alone. Its backup reads the database through SQLite while the relay runs, never as a plain copy of a file under a live writer, by the mechanism the Compose deployment names ([Plan-025](../plans/025-remote-control.md) Phase 8).
 
 ## Capacity Targets
@@ -121,7 +132,9 @@ The hosted account's data (the account, its sign-in state, the device and machin
 | Metric | V1 Target |
 | --- | --- |
 | Accounts per relay | 1, the person's own |
-| Relay connections | One per machine and one per linked device, at most one live connection per key |
+| Relay connections | One per machine and one per linked device, at most one live connection per machine key and, on each machine's forwarding object, one per device key |
+| Workers relay objects | One account object, and one forwarding object per machine per continent it has connected from |
+| Direct paths | At most one per device and machine, wherever the network allows one |
 
 ## Infrastructure Requirements
 
@@ -132,6 +145,8 @@ The workload is one person, their machines and their devices, on one relay. The 
 | Relay (per process)        | 1 vCPU   | 256 MB | The account's SQLite file |
 | Local daemon (per machine) | 0.5 vCPU | 256 MB | 1 GB (SQLite + artifacts) |
 
+The Compose relay's server takes TCP 443 and 80 for Caddy, UDP and TCP 53 for the subzone it answers, and UDP 3478 for the STUN it answers for the direct path. The Workers relay opens nothing of the person's own; it hands out `stun.cloudflare.com:3478`.
+
 ### Local Daemon Memory Instrumentation And Budget
 
 The 256 MB local daemon budget above is an operating target for one user's sessions on a developer workstation — a handful of concurrent runs, one working tree, and the relay connection that serves that user's other devices — not a hard ceiling. Budget violations MUST be observable, so that a budget raise or a deeper change is decided from the numbers.
@@ -141,6 +156,8 @@ The 256 MB local daemon budget above is an operating target for one user's sessi
 **Measurement.** Footprint and RSS on macOS, the service counted apart from Claude Code, Codex, Chromium and terminals: idle, with four sessions while all four stream, and two minutes after. Comparable compiled services idle at 25–33 MB; that is the reason the service is written in Rust, not a promised figure; a tighter target than the 256 MB budget is set from the service's first measurement under this workload.
 
 **Flat over time.** The same four-session run, idle again after streaming, returns to its idle figure, and nothing in the service keeps an unbounded queue or cache.
+
+**The direct path.** With no device on a direct path the service holds nothing for it: no UDP socket, router mapping or mDNS thread. Each direct peer costs the service at most 512 KiB idle and 2 MiB with its buffers full, one task and no thread, and a 1 MB a second live picture over the direct path at most 20 ms of the service's processor a second; a page with one direct channel streaming adds at most 8 MB. These are first settings, measured once by the direct path's unit ([Plan-025](../plans/025-remote-control.md) Phase 9).
 
 ### Budgets On A Windows Computer
 

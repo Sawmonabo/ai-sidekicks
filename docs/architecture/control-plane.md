@@ -17,7 +17,7 @@ The Control Plane exists so a user's devices can reach the machine a session run
 - authenticate the user and the machine or device acting for them
 - keep the account's statement chain and the device and machine registry
 - register each machine under its own id and its owning user
-- relay one encrypted channel between each of the user's devices and each of their machines, and say whether each machine's relay connection is up
+- relay one encrypted channel between each of the user's devices and each of their machines wherever it does not go straight across the network, hand out the relay's STUN address for the direct path, and say whether each machine's relay connection is up
 - carry push notices each machine has already sealed, adding only the person's own push credentials
 - serve the web client
 
@@ -28,10 +28,10 @@ The Control Plane exists so a user's devices can reach the machine a session run
 | `Identity Service` | Authenticates the user and the machine or device acting for them, and issues the identity claims every other service reads. |
 | `Device Registry` | Holds the account's statement chain (`device.linked`, `device.renamed`, `device.revoked`, `passkey.added`, `passkey.removed`, `runtimenode.added`, `runtimenode.renamed` and `runtimenode.removed`) and one row per linked device and registered machine: name, platform, public identity key, link time, revocation. Every machine verifies the chain itself; the registry's own view of who may use the relay is for spam and cost only. |
 | `Device Liveness Service` | Reads reachability from the relay connections, with no heartbeat table: a machine is `Reachable` while its connection is up and `Not reachable · last seen <when>` after 45 seconds without a frame, and a device is `Connected now` while it holds a connection, its `last seen` written at most once a minute. Liveness is about the user's own endpoints; it is never a roster of other people. |
-| `Relay Broker` | Relays one Noise channel between each of the user's devices and each of their machines without taking over execution. It holds at most one live connection per key, and it sees ids, the channel profile, frame sizes and times, never a method, a name or a byte of a session. |
+| `Relay Broker` | Relays one Noise channel between each of the user's devices and each of their machines without taking over execution, and carries, inside that channel, the setup of its direct path. On the Workers relay each machine's channels pass through a forwarding object of its own, which the account object records ([Deployment Topology §Relay Scaling Strategy](./deployment-topology.md#relay-scaling-strategy)). It holds at most one live connection per machine key and, on each machine's forwarding object, one per device key, and it sees ids, the channel profile, frame sizes and times, never a method, a name or a byte of a session; it learns that a channel moved onto the direct path only from its connection going quiet. |
 | `Notification Service` | Carries push notices each machine has already sealed to a device's push key, adding only the person's own APNs or VAPID credentials. It holds nothing that opens a notice and queues nothing. |
 | `Web Client Host` | Serves the web client: the same front end the desktop runs, which a browser opens or a phone adds to its Home Screen. |
-| `Hosted Account Store` | Persists the account, the statement chain, the device registry and each machine's registration in SQLite inside the relay, written by the relay alone: the Durable Object's own storage on the Workers relay, a SQLite file on the Compose relay ([Hosted Account Schema](./schemas/hosted-account-schema.md)). It keeps no session record: a device reaches a session only through its machine, and the machine's daemon is the session's one store. |
+| `Hosted Account Store` | Persists the account, the statement chain, the device registry and each machine's registration in SQLite inside the relay, written by the relay alone: the account object's own storage on the Workers relay, a SQLite file on the Compose relay ([Hosted Account Schema](./schemas/hosted-account-schema.md)). It keeps no session record: a device reaches a session only through its machine, and the machine's daemon is the session's one store. |
 
 ## Implementation Home
 
@@ -44,7 +44,7 @@ The Control Plane exists so a user's devices can reach the machine a session run
 1. The person's first machine signs in and opens the account's statement chain with a `runtimenode.added` statement it signs itself. Its registration carries its id, public key, name, platform and service version.
 2. A new device is linked from a device or machine already in use: both screens show the same six digits, and the linking side signs a `device.linked` statement for the new device's public identity key. Every later machine joins the same way, the linking side signing a `runtimenode.added` for the new machine's key instead of a `device.linked`.
 3. Each machine keeps one outbound connection to the relay while its service runs, and each device connects while its app is open.
-4. The device opens one Noise channel to each machine it can reach, through the relay, and opens a session by asking each machine whether it holds it.
+4. The device opens one Noise channel to each machine it can reach on the relay, moves it onto a direct path wherever the two can reach each other, and opens a session by asking each machine whether it holds it.
 5. When a session starts waiting on the person, finishes or fails, the machine seals a push notice to each device's push key and hands it to the relay, which adds the person's own push credentials.
 6. Local Runtime Daemons continue to execute work; the control plane never receives plaintext payloads or decryption-capable keys.
 
