@@ -18,8 +18,14 @@ use crate::provider::driver::mcp_server_status::{
     McpServerStatusIngestRejection, McpServerStatusIngestResult, bound_mcp_server_status_emission,
 };
 
-/// Codex's own tools in the names a person picks for an agent's allowlist.
-pub(crate) const CODEX_BUILT_IN_TOOLS: [&str; 3] = ["shell", "apply_patch", "web_search"];
+/// Codex's own model-facing tools, in the names a person picks for an agent's allowlist, each with
+/// the words the picker draws it in: the command tool the model calls as `exec_command`, the patch
+/// tool and the hosted web search.
+pub(super) const CODEX_BUILT_IN_TOOLS: [(&str, &str); 3] = [
+    ("exec_command", "Command"),
+    ("apply_patch", "Apply a patch"),
+    ("web_search", "Web search"),
+];
 
 /// One tool the driver declares a class for. The description is required: the person reconciling
 /// a halted receipt reads it.

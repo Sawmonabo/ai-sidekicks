@@ -12,9 +12,14 @@ use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::machine_settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::declaration::{ObservedProviderOptions, ProviderOptionSetting};
+use sidekicks_contracts::provider::declaration::{
+    ObservedProviderOptions, ProviderDeclarationId, ProviderOptionSetting, ProviderRow,
+    ProviderSessionOption, ProviderValue,
+};
 use sidekicks_contracts::provider::driver::capabilities::{
     ExecutionPosture, ProviderMode, ProviderModel,
 };
@@ -252,6 +257,22 @@ pub(crate) trait ProviderDriver: Send + Sync {
     fn observed_output_speed_for(&self, session_id: &SessionId)
     -> Option<ProviderOutputSpeedState>;
 
+    /// The rows the driver declares on its provider's settings, each with its live value in every
+    /// place, as `provider.list` serves them; read again after each change.
+    fn read_rows(&self) -> BoxFuture<'_, Result<Vec<ProviderRow>, DriverError>>;
+
+    /// Applies a value the daemon checked against the row's declaration and stored: a setting
+    /// reaches sessions started later, and a per-place switch that runs something starts or stops
+    /// it in that place.
+    fn apply_row_value(
+        &self,
+        params: ApplyRowValueParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// The session options the driver declares for its installed build, each drawn where its
+    /// placement says; the composer and `agent.configUpdate` check a value against them.
+    fn session_options(&self) -> BoxFuture<'_, Result<Vec<ProviderSessionOption>, DriverError>>;
+
     /// The session options the provider last reported for the session's live binding, each with
     /// whether the session can run it; `None` with no live binding or no report yet, which means
     /// unread, never off. A read of state the driver holds, never a request.
@@ -342,6 +363,9 @@ pub(crate) struct CreateSessionParams {
     /// an option left out keeps the provider's default. What the provider reports is read through
     /// `observed_options_for`.
     pub(crate) options: Vec<ProviderOptionSetting>,
+    /// The values set in the app on the rows the driver declares, passed to the process through
+    /// the provider's own command-line layer; a row left out follows the provider's own settings.
+    pub(crate) row_values: ProviderRowValues,
     /// The daemon's callback tools (gated on `callback_tools`); a driver may host them as an
     /// ephemeral tool server, under whose name they then surface.
     pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
@@ -388,6 +412,9 @@ pub(crate) struct ResumeSessionParams {
     /// The agent's session option values; an option left out would relaunch at the provider's
     /// default.
     pub(crate) options: Vec<ProviderOptionSetting>,
+    /// The values set in the app on the driver's rows as they stand now, which a resumed process
+    /// starts with.
+    pub(crate) row_values: ProviderRowValues,
     /// The daemon's callback tools.
     pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
     /// The provider-native subagent policy.
@@ -404,6 +431,18 @@ pub(crate) struct ResumeSessionParams {
     pub(crate) on_callback_tool_call: Option<CallbackToolDispatcher>,
     /// The status sink, bound to the resumed leg, through which it reports its census again.
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
+}
+
+/// One declared row's new value, already checked against its declaration and stored.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ApplyRowValueParams {
+    /// The row.
+    pub(crate) row_id: ProviderDeclarationId,
+    /// The place of a per-place switch; `None` on a computer without a WSL 2 distribution or for a
+    /// row that is not per place.
+    pub(crate) place: Option<Place>,
+    /// The value, or `None` for a choice's none.
+    pub(crate) value: Option<ProviderValue>,
 }
 
 /// What the daemon hands a driver to start one run: its id, the agent's config and the run's own

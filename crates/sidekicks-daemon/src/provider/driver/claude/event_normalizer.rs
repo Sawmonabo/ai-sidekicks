@@ -475,7 +475,8 @@ pub(crate) fn resolve_claude_frame_emission_route(
 ) -> ClaudeFrameEmissionRoute {
     let Ok(census_kind) = ClaudeWireFrameKind::from_str(frame_kind) else {
         let record = DriverDiagnosticRecord {
-            provider: ProviderId::new("claude".to_owned()).expect("the id matches the pattern"),
+            provider: ProviderId::new(super::DESCRIPTOR.id.to_owned())
+                .expect("the driver id matches the pattern"),
             provider_account_id,
             kind: DriverDiagnosticKind::UnmappedWireKind,
             raw_wire_type: Some(frame_kind.to_owned()),
