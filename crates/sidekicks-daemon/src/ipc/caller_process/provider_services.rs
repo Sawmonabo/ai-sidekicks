@@ -50,9 +50,10 @@ impl ProviderServiceProcesses {
     ) -> Result<ProviderServiceHold, HoldServingError> {
         let process_id = self
             .reader
-            .read_peer_process_id(stream)
+            .read_peer_process(stream)
             .map_err(HoldServingError::Read)?
-            .ok_or(HoldServingError::PeerClosed)?;
+            .ok_or(HoldServingError::PeerClosed)?
+            .id();
         *self
             .holds
             .lock()
